@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.241.0] - 2026-08-01
+
+### Added
+- **Agents now declare how skill eligibility works.** `AgentDefinition.skillPolicy` supports `task-scoped`, `allowlist`, and deliberate `all` modes. Every built-in declares a policy, synthesized agents are constrained to `task-scoped`, and the Agent Manager explains the safe default, exact manual allowlists, and the advanced all-skills override.
+- **Task-scoped agents receive a deterministic bounded tool set.** The Orchestrator combines explicit tool names, workspace/action/testing/Git/memory/web intent, prior-session follow-through signals, and existing routing hints to select at most 12 relevant skills. Live progress reports selected versus eligible counts.
+
+### Changed
+- **An empty skill list no longer means every integration.** For legacy definitions, a populated list remains an allowlist while an empty list becomes task-scoped built-ins. Custom and MCP skills enter a task-scoped pool only when the agent names them explicitly; `all` is the only policy that admits every enabled present and future skill.
+- **Tool schemas are the single model-facing skill description.** AtlasMind no longer duplicates skill names, descriptions, or likely-tool guidance in the system prompt. Natural-language routing cues remain in the selected tool schema, ACP completion/delegated calls receive no AtlasMind skill catalogue, and normal-provider failover restores the selected schemas.
+- **Context budgeting now accounts for JSON tool definitions.** Schema tokens are included in initial cost estimates, per-round context-window headroom, and memory/session prompt budgets instead of being invisible to the overflow calculation.
+
+### Security
+- **Skill availability now fails narrow at both agent and turn scope.** Empty legacy agents cannot silently inherit a newly installed MCP/custom capability, task selection cannot widen the agent's eligibility pool or the user's read-only/no-command envelope, and the existing approval and execution-time policy checks still apply after selection.
+
+## [0.240.1] - 2026-08-01
+
+### Fixed
+- **A single chat request can no longer exhaust every configured model.** Orchestration now has a hard ceiling of three actually invoked model endpoints across initial selection, capability re-routing, escalation, and provider failover. A transport failure opens a turn-local circuit for the execution endpoint, so ACP model/effort variants backed by the same agent and local models backed by the same endpoint are skipped instead of relaunched. The hidden maintenance-model recovery path was removed; an empty completion escalates inside the same bounded loop, and a terminal failure is host-authored without another model call.
+- **ACP is no longer cancelled at the generic 30-second provider boundary.** Stateful ACP turns now inherit the adapter-aligned 180-second floor, while ACP still receives no blind retry after an uncertain prompt. Ordinary providers keep the configured 30-second default.
+- **Failed attempt streams no longer become part of the answer.** Each model attempt buffers its own stream; only the final accepted completion is committed to Chat. Tool-round preambles and abandoned fallback drafts stay out of the transcript; a divergent legacy stream is visually separated from the authoritative result and is not retained in conversation history. Exact trailing loops are collapsed repeatedly, repeated long paragraphs are removed outside code fences, and skills-context warnings are surfaced once as progress instead of repeated as answer prose.
+- **“Read-only” and “do not run commands” now constrain execution rather than merely prompting the model.** The Orchestrator derives a turn-scoped capability envelope, filters the offered skills and schemas, repeats the check immediately before execution, and disables ACP delegated native tools when that envelope cannot be imposed on the remote agent. Test Developer now carries a focused testing/workspace skill list instead of expanding `skills: []` to every enabled integration.
+- **The ACP private-desktop helper now owns descendant lifetime deterministically.** It creates the agent suspended, assigns it to a kill-on-close Windows Job Object and the private desktop, requests a hidden first window, then resumes it. TypeScript teardown starts `taskkill /T` before allowing the direct process to disappear and falls back to the direct kill only if tree termination cannot start. The rebuilt 120 KB helper is SHA-256-pinned.
+
+### Changed
+- **Reply metadata reports execution rather than selection previews.** `TaskResult.modelAttempts` records the provider, non-sensitive endpoint scope, outcome, duration, measured tokens, and bounded failure reason for each invoked endpoint. “Models used” and “What Atlas did” now name the actual attempts, the final model, and which attempts timed out, errored, mismatched capabilities, or were superseded.
+- **ACP launch-mode diagnostics are explicit and data-minimal.** The AtlasMind output channel records whether each agent launch used ordinary or private-desktop mode and whether private mode was requested, without exposing a command line, PID, transcript, path, or credential.
+
+### Security
+- **User-declared non-mutation is now a deny-by-default tool boundary.** Unknown or hallucinated tool calls cannot synthesize their way around the turn envelope; only declared read/git-read tools (plus terminal-read only when commands remain allowed) survive. The same restriction participates in routing so a native-tool ACP agent cannot silently receive broader authority than the AtlasMind function loop.
+
+## [0.240.0] - 2026-08-01
+
+### Added
+- **Every Branches card now has an Ask Atlas icon.** It opens Chat with a deterministic, host-authored reading of the selected branch: status and head metadata, commit-graph comparisons against the current and production branches, changed-file counts from each merge base, declared warning signals, and the names/counts of recent contributors.
+- **Branch summaries lead to focused next questions.** Context-aware chips offer **Compare with current**, **Compare with production**, **Identify issues**, and **Recent contributors**. Comparison chips are omitted when the selected branch already is that baseline; deeper inspection enters the normal routed Chat and approval path.
+
+### Security
+- **The first branch answer is local, model-free, and non-mutating.** It uses cached Git refs and bounded author names only; it does not fetch, switch, merge, rebase, push, read author email addresses or diff bodies, invoke a model, or spend subscription/API capacity.
+- **The webview still supplies only an opaque branch id.** The extension host rebuilds the inventory, resolves the selected/current/production commits, and constructs every prompt from bounded host-owned facts. Ref names are explicitly marked as reported data, and a stale or manufactured id is refused.
+
 ## [0.239.0] - 2026-08-01
 
 ### Added

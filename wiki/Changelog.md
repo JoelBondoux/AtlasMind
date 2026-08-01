@@ -6,6 +6,30 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.241.0 — A task-sized skill context
+
+AtlasMind now distinguishes three skill policies. **Task-scoped** agents receive at most 12 deterministic, request-relevant tools; **allowlist** agents receive exactly the enabled skills they name; and the advanced **all** policy deliberately admits every enabled capability. Legacy agents migrate safely without rewriting stored data: a populated list remains an allowlist, while an empty list becomes task-scoped built-ins rather than every present and future custom/MCP integration.
+
+The model sees each selected skill once, through its callable JSON schema. AtlasMind no longer repeats the same names and descriptions in the system prompt, and natural-language cues stay with the selected schema. Schema tokens now participate in initial estimates, memory/session budgeting, and each tool round's context-window headroom. ACP completion-only and delegated-native-tool calls receive neither AtlasMind schemas nor the removed prose catalogue.
+
+Settings → Agents explains all three choices. Synthesized agents are pinned to task-scoped selection, external skills must be explicitly eligible before relevance selection can choose them, and progress reports the selected/eligible counts. These changes only narrow exposure: turn-level read-only limits, the approval gate, and execution-time policy checks remain independent enforcement layers.
+
+## v0.240.1 — Bounded chats, one clean answer, and a private desktop that owns its tree
+
+One chat turn now invokes at most three model endpoints. A timed-out execution endpoint is quarantined for the rest of that turn, so ACP effort/model aliases on the same Codex or Claude process and local aliases on the same endpoint do not trigger another launch. ACP receives its adapter-aligned 180-second timeout rather than the generic 30 seconds, empty responses escalate inside the same ceiling, and no hidden recovery model runs after the ceiling.
+
+Streams are attempt-scoped: AtlasMind buffers each candidate and commits only the winning final completion. Failed preambles, intermediate tool narration, repeated skill-budget warnings, and duplicated long paragraphs no longer accumulate in the assistant bubble. Reply metadata is built from actually invoked attempts and states which endpoint timed out, failed, mismatched tools, was superseded, or completed.
+
+Explicit **read-only**, **do not edit**, and **do not run commands** wording now creates an enforced turn capability ceiling. Disallowed skills are removed from the prompt and denied again immediately before execution; ACP native-tool delegation is ineligible when AtlasMind cannot impose that same ceiling. Test Developer also carries a focused testing/workspace skill list rather than every enabled integration.
+
+On Windows, the private-desktop helper now creates the agent suspended, attaches it to a kill-on-close Job Object, assigns and hides its private desktop, and only then resumes it. Teardown starts a whole-tree kill before the root can disappear. The output channel records the effective launch mode with no command, PID, path, prompt, or credential.
+
+## v0.240.0 — Ask Atlas about any branch without spending a model
+
+**Every card on Project Dashboard → Branches now carries an Atlas icon.** It opens Chat with a deterministic summary assembled by the extension host from live local and cached Git metadata: branch/head/tracking state, current- and production-baseline commit counts, merge-base changed-file counts, rule-derived warnings, and up to six recent contributor names with counts from a bounded 30-commit sample.
+
+The first response does not fetch, switch branches, inspect author email addresses or diff bodies, invoke a model, or spend subscription/API capacity. It ends with context-aware **Compare with current**, **Compare with production**, **Identify issues**, and **Recent contributors** chips; choosing one enters the ordinary routed Chat path for deeper read-only inspection. The browser still sends only the opaque inventory id, and the host re-resolves every ref before using it.
+
 ## v0.239.0 — Every branch is visible and ready for local work
 
 **Project Dashboard → The code → Branches now shows the whole usable branch inventory, not a capped list of recent local names.** Local and cached remote refs are folded into logical cards with current, default, protected, other-worktree, tracking, ahead/behind, merged, author, commit, and 30-day staleness signals. The page includes search plus local, remote-only, attention, stale, and merged filters. Normal dashboard refresh remains offline; **Fetch latest from remotes** is a separate explicit action.

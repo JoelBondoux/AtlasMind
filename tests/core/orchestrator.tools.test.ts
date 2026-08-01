@@ -4,10 +4,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
+import { buildAgentSynthesisPrompt, validateSynthesizedAgent } from '../../src/core/agentDrafting.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
 import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
@@ -153,7 +154,9 @@ function makeOrchestrator(
   }
   agents.setDisabledIds(disabledAgentIds);
   for (const skill of skills) {
-    skillsRegistry.register(skill);
+    // This harness models AtlasMind's built-in workspace skills unless a test
+    // explicitly says otherwise.
+    skillsRegistry.register({ ...skill, builtIn: skill.builtIn ?? true });
   }
 
   return new Orchestrator(
@@ -1045,6 +1048,141 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).toBe('anthropic/claude-sonnet-4');
   });
 
+  it('quarantines all variants of a timed-out ACP agent and commits only the winning stream', async () => {
+    const localFallbackProvider = makeMockProvider([{
+      content: 'Local fallback should stay unused.',
+      model: 'local/echo-1',
+      inputTokens: 1,
+      outputTokens: 1,
+      finishReason: 'stop',
+    }]);
+    const acpProvider: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn().mockRejectedValue(new Error('Provider timed out after 180000ms.')),
+      streamComplete: vi.fn(async (_request, onTextChunk) => {
+        onTextChunk('Abandoned ACP preamble.');
+        throw new Error('Provider timed out after 180000ms.');
+      }),
+      listModels: vi.fn().mockResolvedValue(['acp/codex@gpt-5.5#low', 'acp/codex@gpt-5.5#medium']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const backupProvider: ProviderAdapter = {
+      providerId: 'mistral',
+      complete: vi.fn().mockResolvedValue({
+        content: 'One clean final answer.',
+        model: 'mistral/final',
+        inputTokens: 12,
+        outputTokens: 5,
+        finishReason: 'stop',
+      }),
+      streamComplete: vi.fn(async (_request, onTextChunk) => {
+        onTextChunk('One clean final answer.');
+        return {
+          content: 'One clean final answer.',
+          model: 'mistral/final',
+          inputTokens: 12,
+          outputTokens: 5,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['mistral/final']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      localFallbackProvider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [
+          {
+            providerId: 'acp',
+            adapter: acpProvider,
+            models: [
+              { id: 'acp/codex@gpt-5.5#low', name: 'Codex low', contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001, capabilities: ['chat', 'code'] },
+              { id: 'acp/codex@gpt-5.5#medium', name: 'Codex medium', contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001, capabilities: ['chat', 'code'] },
+            ],
+          },
+          {
+            providerId: 'mistral',
+            adapter: backupProvider,
+            models: [
+              { id: 'mistral/final', name: 'Mistral final', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code'] },
+            ],
+          },
+        ],
+      },
+    );
+    const chunks: string[] = [];
+
+    const result = await orchestrator.processTask({
+      id: 'bounded-acp-failover',
+      userMessage: 'Review the repository and explain the result.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'acp/codex@gpt-5.5#low' },
+      timestamp: new Date().toISOString(),
+    }, chunk => chunks.push(chunk));
+
+    expect(acpProvider.streamComplete).toHaveBeenCalledTimes(1);
+    expect(result.modelAttempts?.map(attempt => attempt.endpointScope)).toEqual(['acp:codex', 'provider:mistral']);
+    expect(result.modelAttempts?.map(attempt => attempt.status)).toEqual(['timeout', 'completed']);
+    expect(chunks).toEqual(['One clean final answer.']);
+    expect(result.response).toBe('One clean final answer.');
+    expect(result.response).not.toContain('Abandoned ACP preamble');
+  });
+
+  it('never invokes more than three model endpoints for one chat turn', async () => {
+    const failing = (providerId: string, model: string): ProviderAdapter => ({
+      providerId,
+      complete: vi.fn().mockRejectedValue(new Error(`${providerId} fatal provider failure`)),
+      listModels: vi.fn().mockResolvedValue([model]),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    });
+    const local = failing('local', 'local/echo-1');
+    const google = failing('google', 'google/a');
+    const anthropic = failing('anthropic', 'anthropic/b');
+    const mistral = failing('mistral', 'mistral/c');
+    const orchestrator = makeOrchestrator(
+      local,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [
+          { providerId: 'google', adapter: google, models: [{ id: 'google/a', name: 'A', contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001, capabilities: ['chat', 'code'] }] },
+          { providerId: 'anthropic', adapter: anthropic, models: [{ id: 'anthropic/b', name: 'B', contextWindow: 32_000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code'] }] },
+          { providerId: 'mistral', adapter: mistral, models: [{ id: 'mistral/c', name: 'C', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code'] }] },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'bounded-model-tour',
+      userMessage: 'Review the repository.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'google/a' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const calls = [local, google, anthropic, mistral]
+      .reduce((sum, provider) => sum + (provider.complete as ReturnType<typeof vi.fn>).mock.calls.length, 0);
+    expect(calls).toBe(3);
+    expect(result.modelAttempts).toHaveLength(3);
+    expect(result.response).toContain('safety ceiling is 3');
+  });
+
   it('does not fall through to local echo when failover candidates cannot satisfy required capabilities', async () => {
     const failingProvider: ProviderAdapter = {
       providerId: 'google',
@@ -1338,7 +1476,10 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).toBe('acp/claude@opus');
     expect(result.response).toContain('inspected the workspace');
     expect(acpProvider.complete).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(acpProvider.complete).mock.calls[0]![0].tools).toEqual([]);
+    const acpRequest = vi.mocked(acpProvider.complete).mock.calls[0]![0];
+    expect(acpRequest.tools).toEqual([]);
+    expect(acpRequest.messages.map(message => message.content).join('\n')).not.toContain('Skills:\n');
+    expect(acpRequest.messages.map(message => message.content).join('\n')).not.toContain('Likely tool matches');
     expect(readSkill.execute).not.toHaveBeenCalled();
     expect(progress.join('\n')).toMatch(/approval-gated native tools/i);
   });
@@ -1626,7 +1767,7 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).not.toContain('started successfully');
   });
 
-  it('adds heuristic MCP tool guidance and ambiguity handling for natural-language prompts', async () => {
+  it('keeps natural-language MCP cues in the selected schema instead of duplicating them in the prompt', async () => {
     const recordedRequests: CompletionRequest[] = [];
     const provider: ProviderAdapter = {
       providerId: 'local',
@@ -1674,17 +1815,26 @@ describe('Orchestrator agentic loop', () => {
       { modelCapabilities: ['chat', 'code', 'function_calling'] },
     );
 
-    await orchestrator.processTask({
+    await orchestrator.processTaskWithAgent({
       id: 'task-mcp-heuristic-guidance',
       userMessage: 'commit',
       context: {},
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
+    }, {
+      id: 'explicit-git-agent',
+      name: 'Explicit Git Agent',
+      role: 'git operator',
+      description: 'Performs explicitly granted git actions.',
+      systemPrompt: 'Use the explicitly granted git capabilities.',
+      skills: ['mcp:git:git_commit', 'mcp:git:git_status'],
+      skillPolicy: 'task-scoped',
     });
 
-    expect(recordedRequests[0]?.messages[0]?.content).toContain('Likely tool matches for this request');
-    expect(recordedRequests[0]?.messages[0]?.content).toContain('If more than one tool looks equally plausible');
+    expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Likely tool matches for this request');
+    expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Skills:\n');
     expect(recordedRequests[0]?.tools?.[0]?.description).toContain('Natural language cues:');
+    expect(recordedRequests[0]?.tools).toHaveLength(1);
   });
 
   it('stores successful MCP intent mappings in SSOT memory for future turns', async () => {
@@ -1991,8 +2141,7 @@ describe('Orchestrator agentic loop', () => {
 
     expect(provider.streamComplete).toHaveBeenCalledTimes(2);
     expect(streamedChunks).toEqual([
-      'Overall, AtlasMind has a promising orchestration architecture',
-      ' but still needs deeper diagnostics and lifecycle observability.',
+      'Overall, AtlasMind has a promising orchestration architecture\n\nbut still needs deeper diagnostics and lifecycle observability.',
     ]);
     expect(result.response).toBe(
       'Overall, AtlasMind has a promising orchestration architecture\n\n' +
@@ -2047,6 +2196,72 @@ describe('Orchestrator agentic loop', () => {
     );
     expect(provider.complete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('Here is a summary of the file.');
+  });
+
+  it('enforces a user read-only/no-command ceiling even when the agent owns broader skills', async () => {
+    const runCommand = vi.fn().mockResolvedValue('should never run');
+    const requests: CompletionRequest[] = [];
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 2,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'forbidden', name: 'terminal-run', arguments: { command: 'git', args: ['status'] } }],
+      },
+      {
+        content: 'Read-only inspection completed.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 4,
+        finishReason: 'stop',
+      },
+    ]);
+    const originalComplete = provider.complete;
+    provider.complete = vi.fn(async request => {
+      requests.push(request);
+      return originalComplete(request);
+    });
+    const skills: SkillDefinition[] = [
+      { id: 'file-read', name: 'Read', description: 'Read a file.', parameters: { type: 'object', properties: {} }, execute: async () => 'ok' },
+      { id: 'file-write', name: 'Write', description: 'Write a file.', parameters: { type: 'object', properties: {} }, execute: async () => 'written' },
+      { id: 'terminal-run', name: 'Terminal', description: 'Run a command.', parameters: { type: 'object', properties: {} }, execute: runCommand },
+    ];
+    const orchestrator = makeOrchestrator(
+      provider,
+      skills,
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'read-only-ceiling',
+      userMessage: 'Inspect this repository read-only. Do not edit files, install packages, or run commands.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'broad-agent',
+      name: 'Broad agent',
+      role: 'test specialist',
+      description: 'Broad test agent.',
+      systemPrompt: 'Inspect the repository.',
+      skills: [],
+    });
+
+    expect(requests[0]?.tools.map(tool => tool.name)).toEqual(['file-read']);
+    expect(requests[0]?.messages[0]?.content).toContain('workspace writes are disabled');
+    expect(requests[0]?.messages[0]?.content).toContain('terminal, shell, package-install, and process-launch tools are disabled');
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('turn-scoped read-only constraint');
   });
 
   it('returns the final completion after a streamed tool-call preamble', async () => {
@@ -2104,7 +2319,7 @@ describe('Orchestrator agentic loop', () => {
       streamedChunks.push(chunk);
     });
 
-    expect(streamedChunks).toEqual(['Investigating the workspace.']);
+    expect(streamedChunks).toEqual(['The final answer is ready.']);
     expect(provider.streamComplete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('The final answer is ready.');
   });
@@ -4255,5 +4470,214 @@ describe('the write gate follows the declared testing policy', () => {
     } finally {
       removeTempDir(root);
     }
+  });
+});
+
+describe('bounded reply sanitation and turn capabilities', () => {
+  it('removes repeated long paragraphs and reports a skills-budget warning once', () => {
+    const paragraph = 'The repository already has a useful acceptance-test seam, but its ownership and evidence should be made explicit before enabling ATDD. ';
+    const result = sanitizeAssistantResponse(
+      `Warning: Exceeded skills context budget of 2%. 22 additional skills were omitted.\n\n${paragraph}\n\n${paragraph}`,
+    );
+
+    expect(result.content).toBe(paragraph.trim());
+    expect(result.diagnostics).toEqual([
+      'Model diagnostic: Exceeded skills context budget of 2%. 22 additional skills were omitted.',
+    ]);
+  });
+
+  it('turns the ATDD request wording into a no-write, no-command capability ceiling', () => {
+    const envelope = deriveTurnCapabilityEnvelope(
+      'Inspect this repository read-only. Do not edit files, install packages, or run commands.',
+    );
+
+    expect(envelope).toMatchObject({ writesAllowed: false, commandsAllowed: false });
+    expect(isToolAllowedByTurnEnvelope('file-read', {}, envelope)).toBe(true);
+    expect(isToolAllowedByTurnEnvelope('file-write', {}, envelope)).toBe(false);
+    expect(isToolAllowedByTurnEnvelope('terminal-run', { command: 'git', args: ['status'] }, envelope)).toBe(false);
+  });
+
+  it('groups ACP model and effort variants into one endpoint circuit', () => {
+    expect(executionEndpointScope('acp/codex@gpt-5.5#medium', 'acp')).toBe('acp:codex');
+    expect(executionEndpointScope('acp/codex@gpt-5.6#low', 'acp')).toBe('acp:codex');
+    expect(executionEndpointScope('local/endpoint-a@@qwen3:30b', 'local')).toBe('local:endpoint-a');
+  });
+
+  it('gives stateful ACP turns the adapter-aligned timeout floor', () => {
+    expect(getProviderTimeoutMs('acp', 30_000)).toBe(180_000);
+    expect(getProviderTimeoutMs('mistral', 30_000)).toBe(30_000);
+  });
+});
+
+describe('task-scoped skill context', () => {
+  const skill = (id: string, description = id): SkillDefinition => ({
+    id,
+    name: id,
+    description,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace-relative path' },
+      },
+    },
+    execute: vi.fn().mockResolvedValue('ok'),
+    builtIn: true,
+  });
+
+  it('selects a bounded workspace-and-test subset without unrelated capabilities', () => {
+    const eligible = [
+      'file-search', 'text-search', 'file-read', 'directory-list', 'code-symbols',
+      'framework-detect', 'diagnostics', 'test-run', 'file-edit', 'file-write',
+      'diff-preview', 'terminal-run', 'npm-scripts', 'web-fetch', 'memory-write',
+      'docker-cli', 'git-push',
+    ].map(id => skill(id));
+
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      eligible,
+      'Fix the failing ATDD acceptance tests in the current workspace, run the tests, and update the implementation.',
+    );
+
+    expect(selected.map(item => item.id)).toEqual(expect.arrayContaining([
+      'file-search',
+      'file-read',
+      'framework-detect',
+      'test-run',
+      'file-edit',
+      'diff-preview',
+    ]));
+    expect(selected).toHaveLength(12);
+    expect(selected.map(item => item.id)).not.toContain('web-fetch');
+    expect(selected.map(item => item.id)).not.toContain('memory-write');
+  });
+
+  it('keeps general discussion tool-less and preserves explicit non-task-scoped policies', () => {
+    const eligible = [skill('file-read'), skill('web-fetch')];
+
+    expect(selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      eligible,
+      'Help me understand the ATDD testing policy in the attached file.',
+    )).toEqual([]);
+    expect(selectTaskScopedSkills(
+      { skills: ['file-read', 'web-fetch'], skillPolicy: 'allowlist' },
+      eligible,
+      'Explain the difference between acceptance criteria and acceptance tests.',
+    )).toEqual(eligible);
+  });
+
+  it('does not turn read and verification wording into write capability selection', () => {
+    const eligible = ['file-search', 'file-read', 'file-edit', 'file-write']
+      .map(id => skill(id));
+
+    const searchSelection = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      eligible,
+      'Search the project files for the current routing rule.',
+    ).map(item => item.id);
+    const verificationSelection = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      eligible,
+      'Did you actually add the routing rule to the project file?',
+    ).map(item => item.id);
+
+    expect(searchSelection).toEqual(expect.arrayContaining(['file-search', 'file-read']));
+    expect(searchSelection).not.toEqual(expect.arrayContaining(['file-edit', 'file-write']));
+    expect(verificationSelection).not.toEqual(expect.arrayContaining(['file-edit', 'file-write']));
+  });
+
+  it('does not admit custom or MCP skills through an empty legacy list', () => {
+    const registry = new SkillsRegistry();
+    registry.register(skill('file-read'));
+    registry.register({ ...skill('custom-export'), builtIn: false });
+    registry.register({ ...skill('mcp:external:publish'), builtIn: false, source: 'mcp://external/publish' });
+
+    expect(registry.getSkillsForAgent({ id: 'legacy', name: 'Legacy', role: 'assistant', description: '', systemPrompt: '', skills: [] })
+      .map(item => item.id)).toEqual(['file-read']);
+    expect(registry.getSkillsForAgent({
+      id: 'explicit',
+      name: 'Explicit',
+      role: 'assistant',
+      description: '',
+      systemPrompt: '',
+      skills: ['custom-export'],
+      skillPolicy: 'task-scoped',
+    }).map(item => item.id)).toEqual(['custom-export']);
+    expect(registry.getSkillsForAgent({
+      id: 'all',
+      name: 'All',
+      role: 'assistant',
+      description: '',
+      systemPrompt: '',
+      skills: [],
+      skillPolicy: 'all',
+    }).map(item => item.id)).toEqual(['file-read', 'custom-export', 'mcp:external:publish']);
+  });
+
+  it('can select an external skill only after the agent explicitly makes it eligible', () => {
+    const sendEmail = {
+      ...skill('mcp:mail:send_email', 'Send an email message.'),
+      builtIn: false,
+      source: 'mcp://mail/send_email',
+      routingHints: ['send email', 'email message'],
+    };
+
+    expect(selectTaskScopedSkills(
+      { skills: ['mcp:mail:send_email'], skillPolicy: 'task-scoped' },
+      [sendEmail],
+      'Send an email with the approved project update.',
+    ).map(item => item.id)).toEqual(['mcp:mail:send_email']);
+    expect(selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      [],
+      'Send an email with the approved project update.',
+    )).toEqual([]);
+  });
+
+  it('includes tool schemas in context estimates', () => {
+    const messages: CompletionRequest['messages'] = [
+      { role: 'system', content: 'system context' },
+      { role: 'user', content: 'Inspect the workspace.' },
+    ];
+    const tools = [{
+      name: 'file-read',
+      description: 'Read a workspace file.',
+      parameters: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+    }];
+
+    expect(estimateToolDefinitionTokens(tools)).toBeGreaterThan(0);
+    expect(estimateCompletionRequestInputTokens(messages, tools))
+      .toBeGreaterThan(estimateCompletionRequestInputTokens(messages, []));
+  });
+
+  it('requires synthesized agents to use task-scoped skill selection', () => {
+    expect(buildAgentSynthesisPrompt({
+      userMessage: 'Review the tests.',
+      routingNeeds: ['testing'],
+      registeredAgentSummaries: '- Default Assistant: general assistant',
+    })).toContain('"skillPolicy": "task-scoped"');
+
+    expect(validateSynthesizedAgent({
+      id: 'synth-review',
+      name: 'Review Specialist',
+      role: 'test reviewer',
+      description: 'Reviews test evidence.',
+      systemPrompt: 'Review the supplied test evidence and report concrete findings.',
+      skills: [],
+      skillPolicy: 'all',
+    })).toEqual({ error: 'Agent synthesis: skillPolicy must be "task-scoped".' });
+    expect(validateSynthesizedAgent({
+      id: 'synth-review',
+      name: 'Review Specialist',
+      role: 'test reviewer',
+      description: 'Reviews test evidence.',
+      systemPrompt: 'Review the supplied test evidence and report concrete findings.',
+      skills: [],
+      skillPolicy: 'task-scoped',
+    })).toMatchObject({ skills: [], skillPolicy: 'task-scoped' });
   });
 });

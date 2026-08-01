@@ -528,11 +528,21 @@ export interface AcpProcessHandle {
    * make every test double carry a field for a code path it never reaches.
    */
   readonly pid?: number | undefined;
+  /** How the real process was launched; omitted by simple test doubles. */
+  readonly launchMode?: 'ordinary' | 'private-desktop';
+}
+
+export interface AcpProcessLaunchEvent {
+  agentId: string;
+  requestedPrivateDesktop: boolean;
+  mode: 'ordinary' | 'private-desktop';
 }
 
 export interface AcpProcessLaunchOptions {
   /** Windows only: start the entire descendant tree on a private desktop. */
   privateDesktop?: boolean;
+  /** Structured, data-minimal launch evidence for diagnostics. */
+  onLaunched?: (event: AcpProcessLaunchEvent) => void;
 }
 
 export type AcpProcessFactory = (
@@ -703,6 +713,8 @@ export class AcpAdapter implements ProviderAdapter {
        * for agent output, command lines, or workspace data.
        */
       onLiveSessionChange?: (summary: AcpLiveSessionSummary) => void;
+      /** Records the effective launch boundary without exposing command lines or PIDs. */
+      onProcessLaunch?: (event: AcpProcessLaunchEvent) => void;
     },
   ) {
     if (options?.keepAlive) {
@@ -1029,7 +1041,10 @@ export class AcpAdapter implements ProviderAdapter {
         PROBE_TIMEOUT_MS,
         undefined,
         undefined,
-        { privateDesktop: this.hideConsoleWindows() },
+        {
+          privateDesktop: this.hideConsoleWindows(),
+          onLaunched: this.options?.onProcessLaunch,
+        },
       );
       const initialized = await session.initialize();
       if (!initialized.compatible) {
@@ -1310,7 +1325,10 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       this.options?.permissionPolicy,
       this.options?.onToolEvent,
-      { privateDesktop },
+      {
+        privateDesktop,
+        onLaunched: this.options?.onProcessLaunch,
+      },
     );
     const abortBeforeReady = () => session.dispose(createAcpAbortError());
     signal?.addEventListener('abort', abortBeforeReady, { once: true });
@@ -1538,7 +1556,10 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       this.options?.permissionPolicy,
       this.options?.onToolEvent,
-      { privateDesktop: this.hideConsoleWindows() },
+      {
+        privateDesktop: this.hideConsoleWindows(),
+        onLaunched: this.options?.onProcessLaunch,
+      },
     );
     const abortBeforePrompt = () => session.dispose(createAcpAbortError());
     request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
@@ -1903,6 +1924,14 @@ class AcpSession {
   ) {
     this.process = spawnProcess(agent, cwd, launchOptions);
     this.processPid = this.process.pid;
+    launchOptions?.onLaunched?.({
+      agentId: agent.id,
+      requestedPrivateDesktop: launchOptions.privateDesktop === true,
+      mode: this.process.launchMode
+        ?? (launchOptions.privateDesktop === true && process.platform === 'win32'
+          ? 'private-desktop'
+          : 'ordinary'),
+    });
     this.process.onStdout(chunk => this.ingest(chunk));
     // stderr is diagnostic only — kept bounded so a chatty agent cannot grow
     // the heap, and surfaced only when something actually fails.
@@ -2109,12 +2138,14 @@ class AcpSession {
     }
     this.pending.clear();
     if (!this.exited) {
-      try {
-        this.process.kill();
-      } catch {
-        // Already gone.
+      const treeKillStarted = this.killProcessTree();
+      if (!treeKillStarted) {
+        try {
+          this.process.kill();
+        } catch {
+          // Already gone.
+        }
       }
-      this.killProcessTree();
     }
   }
 
@@ -2134,18 +2165,27 @@ class AcpSession {
    * "make it dead" path, where a process that is *already* gone is success.
    * The approach is the one `acp-patchbay` arrived at independently.
    */
-  private killProcessTree(): void {
+  private killProcessTree(): boolean {
     if (process.platform !== 'win32') {
-      return;
+      return false;
     }
     const pid = this.processPid;
     if (pid === undefined) {
-      return;
+      return false;
     }
     try {
-      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => { /* already gone is success */ });
+      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, error => {
+        if (error && !this.exited) {
+          try {
+            this.process.kill();
+          } catch {
+            // Already gone.
+          }
+        }
+      });
+      return true;
     } catch {
-      // Nothing left to do on a teardown path.
+      return false;
     }
   }
 
@@ -2397,6 +2437,7 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
   child.stderr.setEncoding('utf8');
   return {
     pid: child.pid,
+    launchMode: wrapped.status,
     writeLine: line => { child.stdin.write(line); },
     onStdout: listener => { child.stdout.on('data', listener); },
     onStderr: listener => { child.stderr.on('data', listener); },

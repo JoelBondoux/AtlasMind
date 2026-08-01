@@ -632,7 +632,7 @@ describe('panel refresh flows', () => {
           id: 'testing-fix-test',
           agentId: 'test-fixer',
           modelUsed: 'local/test-model',
-          response: 'The task reported the blocker instead of claiming green.',
+          response: 'The task reported the environment blocker instead of claiming green.',
           costUsd: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -2233,10 +2233,35 @@ describe('panel refresh flows', () => {
     });
 
     expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      skillPolicy: 'task-scoped',
       completionCriteria: {
         rubric: ['Cite the inspected files.', 'Report verification results.'],
         incompletePatterns: ['\\bTODO\\b'],
       },
+    }));
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'save',
+      payload: {
+        id: 'reviewer',
+        name: 'Reviewer',
+        role: 'code reviewer',
+        description: 'Reviews changes.',
+        systemPrompt: 'Review carefully.',
+        allowedModels: '',
+        costLimitUsd: '',
+        skills: '',
+        autoUpdateExcluded: false,
+        skillsAutoManaged: false,
+        skillsUseAll: true,
+        testingModelOverridesJson: '{}',
+        completionRubric: 'Cite the inspected files.',
+        incompletePatterns: '',
+      },
+    });
+
+    expect(register).toHaveBeenLastCalledWith(expect.objectContaining({
+      skillPolicy: 'all',
     }));
   });
 

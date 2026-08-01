@@ -148,7 +148,10 @@ copy the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
 `tests/providers/acpWindowsLauncher.test.ts`. The helper must remain a standalone
 process rather than an in-process native addon: a native failure must not crash
 VS Code's extension host. Do not add a silent ordinary-launch fallback — an EDR
-block is a result the user needs to see.
+block is a result the user needs to see. Preserve the create-suspended → assign
+kill-on-close Job Object → resume ordering, restricted handle list, and
+`STARTF_USESHOWWINDOW`/`SW_HIDE` flags. The Windows-only test executes the
+shipped PE around a real redirected-stdio child; a hash-only test is insufficient.
 
 ## Debugging Orchestration And Concurrency
 
@@ -159,6 +162,11 @@ Use the same boundaries the code uses:
 3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
 4. For race-condition or dependency-order problems, add a focused `tests/core/planner.scheduler.test.ts` or integration regression before changing scheduler behavior.
 5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+The failover invariant is three **invoked endpoints** per turn, not three model
+labels. ACP effort/model variants share an endpoint circuit, as do local models
+on one configured server. Diagnose from `TaskResult.modelAttempts`; UI selection
+previews and failed-attempt stream fragments are intentionally not reply content.
 
 AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
 

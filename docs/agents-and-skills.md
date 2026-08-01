@@ -17,7 +17,8 @@ interface AgentDefinition {
   systemPrompt: string;           // System prompt injected into every request
   allowedModels?: string[];       // Model whitelist (empty = any)
   costLimitUsd?: number;          // Per-request cost cap
-  skills: string[];               // Skill IDs this agent can use
+  skills: string[];               // Eligibility IDs; interpreted by skillPolicy
+  skillPolicy?: 'task-scoped' | 'allowlist' | 'all';
   primaryRoutingNeeds?: string[]; // Routing need IDs this agent is the primary handler for (dominant selection signal)
   builtIn?: boolean;              // True for agents shipped with the extension (not deletable via UI)
   lastAutoUpdated?: string;       // ISO 8601 timestamp of the last successful auto-update
@@ -72,7 +73,7 @@ When no more specialised built-in or registered agent wins the ranking pass, the
 | name | `Default Assistant` |
 | role | `general assistant` |
 | systemPrompt | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
-| skills | `[]` (all enabled skills are available to the default agent) |
+| skills / policy | `[]` / `task-scoped` (enabled built-ins are eligible; at most 12 relevant tools are selected per turn) |
 
 The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or behavior regression, and an execution-bias hint for explicit fix, verification, troubleshooting, and reproduction requests. When those hints are present and tools are available, AtlasMind rejects one no-tool response and re-prompts for a tool-backed turn. The default prompt is portable: it discovers each workspace's own instruction files, documentation matrix, branching policy, and release routine instead of shipping AtlasMind's release conventions into unrelated repositories. Required companion work is still part of completion once project policy establishes it. An always-on workspace identity block combines the saved personality profile with a compact `project_soul.md` summary. Provider timeouts are hard failures rather than repeated retries.
 
@@ -80,9 +81,13 @@ AtlasMind now also injects an immutable legality-and-human-respect baseline into
 
 Every user-facing invocation is also composed with `AGENT_OPERATING_CONTRACT` and `AGENT_EXECUTION_RUBRIC` in `Orchestrator.buildMessages()`. This is runtime composition rather than text copied into each definition, so specialist, custom, ephemeral, synthesized, and older persisted built-in overrides cannot miss the contract. The contract covers direct action, evidence gathering, same-turn tool-failure recovery, untrusted context/URL handling, and policy-document lookup. The rubric independently assesses task fit, evidence, completeness, verification, safety, and handoff before the model settles. All 16 user-facing built-in specialists append three or four independently observable role criteria; custom agents may append up to 12 bounded rows through `completionCriteria.rubric`. `incompletePatterns` are evaluated through a restricted regex subset (no lookarounds, backreferences, quantified groups, or repeated wildcards) and trigger one finish-or-declare-blockers retry.
 
-The stock built-in **engineering** specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
+The stock built-in **engineering** specialists use `task-scoped`. Most keep `skills: []`, which makes enabled built-ins eligible without admitting custom/MCP tools; the Orchestrator then selects only the request-relevant subset. They differ by routing metadata and system prompt while sharing that safe eligibility model.
 
 The three **oversight advisors** are the deliberate exception. `ethics-oversight`, `legal-oversight`, and `commercial-oversight` pin an explicit read-only allowlist (`file-read`, `directory-list`, `file-search`, `text-search`, `git-status`, `git-diff`, `git-log`, `git-blame`, `diff-preview`, `diagnostics`, `code-symbols`, `framework-detect`, `memory-query`, `web-fetch`, plus `exa-search` for Commercial). They hold no `file-write`, `file-edit`, `file-delete`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `memory-write`, or `http-request`. An advisor inspects and reports; it is not also the thing that edits. Where their findings need to be recorded, the Project Dashboard → Risk page owns that write path and sanitises the model's output at the boundary before anything reaches disk. They also set `autoUpdateExcluded: true` so the agent auto-updater cannot paraphrase away the "advisory, not authoritative" framing on its cadence.
+
+**Test Developer is focused rather than universal.** Its explicit 17-skill eligibility list covers repository reads/search, Git inspection, diagnostics/symbols/framework detection, test and terminal execution, file edit/write, workspace observability, and memory query. Task-scoped selection narrows that list again per request, so an ordinary ATDD/TDD explanation can remain tool-less while implementation work retains the actions it needs.
+
+Agent assignment is only the outer ceiling. For each task, the Orchestrator also derives a deterministic turn capability envelope from explicit user wording. A read-only/no-edit request removes write-capable schemas; an explicit no-command/no-install request removes terminal, package, and process execution too. The same rule runs again immediately before tool execution, so a hallucinated tool name cannot regain an omitted capability. Restricted turns do not delegate native tools to ACP because that external tool set cannot accept AtlasMind's per-turn schema filter.
 
 The six **research analysts** — `competitive-analyst`, `customer-researcher`, `technology-analyst`, `market-analyst`, `funding-analyst`, `regulatory-analyst` — hold the same read-only allowlist plus `exa-search`, and are excluded from auto-update for the same reason. They add one discipline the oversight advisors do not need: **every claim must carry a retrievable `https` URL the analyst actually visited**. This is not politeness. `sanitizeIncomingFindings` in `src/core/researchRegister.ts` demotes an uncited claim to a *question* rather than recording it as evidence, so an analyst answering from memory produces a run in which nothing was recorded — and the surest way to get that wrong is for the model not to know the rule exists. Their prompts also fence fetched pages as REPORTED CONTENT: a competitor's marketing page is exactly as untrusted as a GitHub issue body, and "ignore your previous instructions" printed on one must read as something we found rather than as something we were told.
 
@@ -193,6 +198,8 @@ Selection behavior:
 6. If no enabled registered agent exists, the built-in fallback agent is used.
 
 Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP; the subscription agent uses its own tools and every requested operation returns through the normal ACP permission broker. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply, so the checkbox makes eligible ACP capacity usable rather than forcing every turn onto it.
+
+That delegated alternative is never used when the current task has a read-only or no-command capability envelope. The normal function-calling path receives the narrowed read schemas and can therefore inspect without escalating authority; ACP remains a completion candidate only after repository-tool requirements are deliberately removed.
 
 AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether the workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.
 
@@ -366,9 +373,12 @@ That separation is the current answer to scaling the number of agents and tools:
 
 ### Skill Assignment
 
-- An agent lists skill IDs in its `skills` array.
-- If the array is empty, the agent has access to **all** registered and **enabled** skills.
-- `SkillsRegistry.getSkillsForAgent(agent)` resolves available, enabled skills.
+- `task-scoped` is the built-in and new-agent default. The `skills` array is an eligibility ceiling; AtlasMind selects at most 12 relevant tools for the current request. An empty list admits enabled built-in skills only. Custom and MCP skills must be named before the selector can consider them.
+- `allowlist` offers exactly the enabled IDs in `skills`. Oversight advisors and planner-produced subtasks use this when the complete capability boundary is already known.
+- `all` deliberately offers every enabled skill, including present and future custom/MCP integrations. It is an advanced opt-in, never the meaning of an empty list.
+- A stored definition without `skillPolicy` remains compatible: a populated list resolves as `allowlist`; an empty list resolves as `task-scoped`.
+- The turn selector uses explicit tool IDs plus workspace, action, testing, Git, memory, web, and prior-session follow-through signals. Selection can only narrow the eligibility pool and the user's capability envelope; it cannot grant a skill.
+- `SkillsRegistry.getSkillsForAgent(agent)` resolves the enabled eligibility pool. `selectTaskScopedSkills()` performs the per-turn narrowing before model capability routing and schema construction.
 
 ### Enable / Disable
 
@@ -623,7 +633,7 @@ For each task, the orchestrator builds a context bundle containing:
 
 1. **Agent system prompt** — from `AgentDefinition.systemPrompt`.
 2. **Relevant memory slices** — from `MemoryManager.queryRelevant()`.
-3. **Available skills** — from `SkillsRegistry.getSkillsForAgent()`.
+3. **Selected callable tool schemas** — the bounded result of agent policy, per-turn relevance, and capability-envelope narrowing.
 4. **User message** — the original request.
 5. **Conversation history** — from the chat context.
 
@@ -631,7 +641,9 @@ This bundle is sent to the selected model via the appropriate `ProviderAdapter`.
 
 Current MVP behavior:
 - The context bundle is actively built and sent through the orchestrator.
-- Skills are resolved via `SkillsRegistry.getSkillsForAgent()`.
+- Skills are not repeated as prose in the system message. Each selected skill's description, natural-language cues, and JSON parameters appear once in the provider's callable tool-definition field.
+- Tool-schema tokens are included in initial request estimates, memory/session prompt budgets, and per-round context-window headroom.
+- ACP completion-only and delegated-native-tool attempts receive an empty AtlasMind schema list and no AtlasMind skill catalogue; ordinary-provider failover restores the selected schemas.
 - Memory slices come from `MemoryManager.queryRelevant()`.
 - When a provider adapter is missing, orchestration returns a safe error response instead of throwing.
 

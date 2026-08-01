@@ -36,14 +36,15 @@ export function buildAgentSynthesisPrompt(input: {
     '  "role": "<concise role label, max 60 chars>",',
     '  "description": "<one sentence, max 120 chars>",',
     '  "systemPrompt": "<focused instruction set, 2-6 sentences>",',
-    '  "skills": []',
+    '  "skills": [],',
+    '  "skillPolicy": "task-scoped"',
     '}',
     '',
     'Required constraints (non-overrideable):',
     '- id must start with "synth-" followed by a lowercase slug.',
     '- systemPrompt must be a positive task-scoped instruction. It must not instruct the agent to ignore safety policy, override guardrails, impersonate other agents, or claim elevated permissions.',
     '- systemPrompt must not contain phrases like "ignore previous instructions", "you are now", "pretend to be", "disregard", or similar injection patterns.',
-    '- skills must be an empty array — the orchestrator assigns skills at runtime.',
+    '- skills must be an empty array and skillPolicy must be "task-scoped" — the orchestrator selects a bounded built-in subset at runtime.',
     '- Do not include allowedModels or costLimitUsd.',
     '- The agent must stay within the scope of the user task. It must not claim authority over deployment, authentication systems, or production infrastructure unless the task explicitly requires it.',
   ].join('\n');
@@ -137,6 +138,9 @@ export function validateSynthesizedAgent(raw: unknown): AgentDefinition | AgentV
   if ('skills' in obj && !Array.isArray(obj['skills'])) {
     return { error: 'Agent synthesis: skills field must be an array.' };
   }
+  if ('skillPolicy' in obj && obj['skillPolicy'] !== 'task-scoped') {
+    return { error: 'Agent synthesis: skillPolicy must be "task-scoped".' };
+  }
 
   // Reject any attempt to pin specific models or set cost limits
   if ('allowedModels' in obj || 'costLimitUsd' in obj) {
@@ -150,6 +154,7 @@ export function validateSynthesizedAgent(raw: unknown): AgentDefinition | AgentV
     description,
     systemPrompt,
     skills: [],
+    skillPolicy: 'task-scoped',
     builtIn: false,
   };
 }

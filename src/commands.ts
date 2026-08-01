@@ -16,6 +16,7 @@ import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js'
 import type { AcpBridgeTreeItem, ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 import { parseCustomDebtMarkers } from './core/debtRegister.js';
 import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
+import { resolveAgentSkillPolicy } from './core/skillsRegistry.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -1501,6 +1502,12 @@ function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): str
   const allowedModels = agent.allowedModels && agent.allowedModels.length > 0
     ? agent.allowedModels.join(', ')
     : 'Any routed model that matches the task';
+  const skillPolicy = resolveAgentSkillPolicy(agent);
+  const skillPolicyLabel = skillPolicy === 'task-scoped'
+    ? 'Task-scoped (up to 12 relevant eligible tools)'
+    : skillPolicy === 'allowlist'
+      ? 'Exact allowlist'
+      : 'All enabled skills (advanced)';
 
   return [
     agent.description,
@@ -1509,7 +1516,8 @@ function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): str
     `**Status:** ${enabled ? 'Enabled' : 'Disabled'}`,
     `**Type:** ${agent.builtIn ? 'Built-in' : 'Custom'}`,
     `**Allowed models:** ${allowedModels}`,
-    `**Skills:** ${skillNames.length > 0 ? skillNames.join(', ') : 'No explicit skills assigned'}`,
+    `**Skill policy:** ${skillPolicyLabel}`,
+    `**Eligible skills:** ${skillNames.length > 0 ? skillNames.join(', ') : skillPolicy === 'task-scoped' ? 'Enabled built-in skills' : skillPolicy === 'all' ? 'Every enabled skill' : 'None'}`,
     `**Performance:** ${successRate}`,
   ].join('\n');
 }

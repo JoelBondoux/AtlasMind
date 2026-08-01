@@ -60,15 +60,17 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 | **Role** | General assistant |
 | **Description** | Fallback assistant for general development tasks |
 | **System Prompt** | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
-| **Skills** | `[]` (all enabled skills are available to the default agent) |
+| **Skills / policy** | `[]` / `task-scoped` (enabled built-ins are eligible; at most 12 relevant tools are selected per turn) |
 
 The default agent has no `allowedModels` constraint and no cost limit, making it the universal fallback. It works directly in the current workspace when tools would help rather than answering like a passive support bot. Concrete bug and behavior-regression prompts receive an investigation hint; explicit fix, verification, troubleshooting, and reproduction prompts receive an execution-bias hint. If the model still answers without tools while those hints are active, AtlasMind rejects that first pass once and re-prompts for a tool-backed turn. The prompt is portable: it discovers each workspace's own instruction files, documentation matrix, branching policy, and release routine instead of shipping AtlasMind's conventions into unrelated repositories. Once project policy establishes companion work such as version, changelog, generated-file, or documentation updates, those remain part of completion. AtlasMind also injects an always-on workspace identity block built from the saved Atlas Personality Profile and a compact `project_soul.md` summary. Provider timeouts are hard failures rather than repeated retries.
 
 AtlasMind now also carries an immutable legality-and-human-respect baseline in routed agent prompts. The baseline requires compliance with applicable law, treats legally ambiguous or territory-specific requests as restricted unless only safe high-level guidance is possible, and forbids any help intended to harm, discredit, disparage, or lie about a person. This rule cannot be overridden by user prompts, workspace memory, or other lower-priority instructions.
 
-The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill pool as the default agent. Their specialization comes from routing metadata and system prompt differences rather than from narrower tool access.
+The stock built-in specialists use `task-scoped`. Most keep `skills: []`, which makes enabled built-ins eligible without admitting custom/MCP tools; the Orchestrator then selects only the request-relevant subset. Their specialization still comes from routing metadata and system prompt differences.
 
 After AtlasMind selects an agent, it resolves the execution model separately. A skill-bearing task normally requires AtlasMind `function_calling`. When **Let subscription agents act** (`atlasmind.acp.toolsEnabled`) is enabled, an ACP subscription model declaring delegated native-tool execution can satisfy that requirement: AtlasMind passes no skill schemas, the agent uses its own tools, and each operation still returns through the ACP approval broker. Turning the setting off leaves ACP available for tool-free chat/reasoning but excludes it from tool-backed routes. The opt-in makes ACP eligible; explicit pins, agent model allowlists, provider health, privacy gates, and normal routing scores can still select or exclude it.
+
+The user's current-turn limit is narrower than the agent assignment. Explicit **read-only/no-edit** wording removes write skills, and **do not run commands/install packages** removes terminal/process skills, before model selection and again before execution. ACP native-tool delegation is not eligible on such a restricted turn because AtlasMind cannot inject the same narrowed schema into the external agent.
 
 For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
 - The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable, and it should create that minimal spec when the repo does not already have one.
@@ -86,6 +88,7 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - SEO Specialist identifies the real public discovery surfaces, inspects repository/page/listing evidence, and loads only the relevant `specialist-guidance` topic for technical SEO, structured data, content discoverability, or platform listings. Search features, crawler behavior, supported markup, limits, and performance thresholds are verified from current primary sources rather than frozen into the permanent prompt.
 - UX Consultant detects and reuses the project's framework, component primitives, and design tokens, then loads only the relevant `specialist-guidance` topic for accessibility, responsive layout, interaction design, or implementation. Accessibility remains a baseline, while specific conformance rules are retrieved only when relevant and checked against current primary standards. Responsive decisions follow project tokens and content failure points rather than a hard-coded device taxonomy. It does not create graphic assets.
 - Ethics Oversight, Legal Oversight, and Commercial Oversight carry an evidence-and-restraint policy in place of a tests-first one, since they review decisions rather than change behaviour. Each must ground a concern in something observable in the workspace and quote it, separate what it observed here from general principle, say "I could not determine this" rather than assuming, rank concerns by likelihood and impact, and state explicitly when something looks sound — an advisor that flags everything is indistinguishable from one that flags nothing. Each closes by naming the human review a consequential finding needs: qualified counsel in the relevant jurisdiction for legal exposure, an ethics or DPO review for human impact, and finance or commercial sign-off for business commitments. None of them certifies anything; their output is a prompt for human judgement, never clearance to proceed. They are also the only built-ins with a **restricted, read-only skill allowlist** and with `autoUpdateExcluded: true`, so neither their tool access nor their advisory framing can drift.
+- Test Developer uses a focused 17-skill workspace/testing eligibility set and task-scoped selection within it. It retains file inspection/editing, Git reads, diagnostics, symbols, framework detection, test/terminal execution, workspace observability, and memory query when relevant; unrelated deployment, media, and external-integration schemas do not consume context on ATDD/TDD requests.
 - The default and security-focused built-in prompts now also treat URLs and endpoints as untrusted input: AtlasMind validates scheme and host intent, prefers HTTPS for external services, and pushes for a live health or reachability check before a link is presented as working.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
@@ -177,7 +180,8 @@ interface AgentDefinition {
   systemPrompt: string;         // Injected as system message for every LLM call
   allowedModels?: string[];     // Whitelist of model IDs (empty = any model)
   costLimitUsd?: number;        // Per-task cost ceiling
-  skills: string[];             // Skill IDs this agent can use (empty = all)
+  skills: string[];             // Eligibility IDs interpreted by skillPolicy
+  skillPolicy?: 'task-scoped' | 'allowlist' | 'all';
   builtIn?: boolean;            // true for extension-provided agents
   lastAutoUpdated?: string;     // ISO 8601 timestamp of last successful auto-update
   autoUpdateExcluded?: boolean; // true to opt this agent out of the global auto-update cadence
@@ -203,12 +207,14 @@ interface AgentDefinition {
    - **Incomplete-result patterns** — optional bounded patterns that trigger one finish-or-declare-blockers retry
    - **Allowed Models** — optionally restrict to specific models
    - **Cost Limit** — maximum USD per task
-   - **Skills** — which skills this agent can invoke
+   - **Skills** — choose task-scoped selection, an exact manual allowlist, or the advanced all-enabled policy
 4. Save — the agent is persisted across sessions in VS Code globalState
 
 The Settings Agents landing page shows the exact global immutable guardrails applied to every routed agent. The block is selectable and read-only, comes directly from the runtime source constant rather than a copied summary, and explains that agents, workspace content, and lower-priority instructions cannot weaken it.
 
 The manager is a master/detail workspace: search and filters remain beside the selected agent, rather than sending you through separate Overview, Directory, and empty Editor pages. Agent fields are grouped into Identity, Instructions & completion, Skills, Models & budget, Testing, and Maintenance; advanced groups start collapsed. Built-in identity and completion criteria are shown but remain factory-defined.
+
+Task-scoped is the default and sends at most 12 relevant tools for a turn. Its empty eligibility list means built-in skills only; custom/MCP tools must be named explicitly. Manual mode is an exact allowlist. **Advanced — expose every enabled skill** is intentionally separate because it also admits integrations installed after the agent was created. Older definitions keep their intent without a migration write: a populated list behaves as an allowlist and an empty list becomes task-scoped.
 
 ### Via the Models Sidebar
 
@@ -320,9 +326,11 @@ When an agent handles a task, it receives:
 
 1. **System prompt** — the agent's configured prompt
 2. **Memory context** — relevant SSOT entries from `queryRelevant()`
-3. **Available skills** — resolved from the agent's skill list
+3. **Selected tool schemas** — resolved from the agent policy, narrowed to the current task and user capability envelope
 4. **User message** — the original request
 5. **Session history** — bounded carry-forward from previous turns
+
+Skill names and descriptions are not duplicated in the system prompt. The callable schema is the single model-facing description, and its tokens count toward prompt sizing. A completion-only or delegated-native-tool ACP request receives no AtlasMind schema catalogue.
 
 ## Best Practices
 

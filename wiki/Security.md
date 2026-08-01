@@ -135,6 +135,8 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 
 ### 6. Tool Approval Gate
 
+Before approval is considered, AtlasMind minimizes capability exposure. `AgentDefinition.skillPolicy` separates task-scoped selection, exact allowlists, and a deliberate all-enabled override. An empty legacy list becomes task-scoped built-ins—not every newly installed custom or MCP integration—and synthesized agents are constrained to that safe mode. At most 12 task-relevant schemas survive to a model call. This is a narrowing layer only: it cannot widen the agent pool, user capability envelope, risk classification, or approval policy.
+
 - **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
 - Four configurable approval modes from strictest to most permissive
 - Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, render in a dedicated warning stack below the transcript and above the composer, and prefer reusing the current chat surface instead of opening a second detached panel when AtlasMind needs attention, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
@@ -239,9 +241,20 @@ so defenders can hunt that behaviour. AtlasMind therefore:
 - gives its desktop handle only the required `DESKTOP_CREATEWINDOW` access;
 - passes an already-resolved executable and argv with no shell;
 - uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
+- creates the agent suspended, assigns it to a Job Object with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and only then resumes it, preventing a
+  child-process race before the lifetime boundary exists;
+- supplies `STARTF_USESHOWWINDOW`/`SW_HIDE` as a second defence against the root
+  process displaying a window;
 - pins the shipped PE by SHA-256 and refuses missing or changed binaries;
 - fails visibly if EDR blocks the helper, without silently falling back to a
   focus-stealing visible launch.
+
+AtlasMind also records a minimal local launch-boundary event—configured agent id,
+whether private desktop was requested, and whether the effective launch was
+private or ordinary—in the ACP output channel. It does not log argv, paths,
+prompts, PIDs, or credentials. This makes a future focus regression diagnosable
+without expanding the disclosure boundary.
 
 These controls make the intent auditable; they cannot guarantee an enterprise
 heuristic will accept the technique. The SHA-256 pin is an AtlasMind integrity
@@ -298,15 +311,17 @@ then uses the existing shell-free, communication-only CLI bridge.
 
 ### 9a. Read-Only Oversight Advisors
 
-The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the only built-in agents with a **restricted skill allowlist**. Every other built-in uses `skills: []`, which expands to all enabled skills; the advisors pin an explicit read-only set and therefore hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
+The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the built-in agents whose `allowlist` policies are **strictly read-only**. Test Developer has a focused explicit eligibility list but uses task-scoped selection because its implementation role still requires write and test capabilities on relevant turns. Other empty built-in lists are task-scoped, never “all”; the advisors additionally hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
 
 An advisor inspects and reports; it is never also the thing that edits. Where findings must be recorded, the Project Dashboard owns that single write path and sanitises the model's output before it reaches disk. The advisors also set `autoUpdateExcluded: true`, so the agent auto-updater cannot paraphrase their "advisory, not authoritative" framing away on its cadence. Because `getSkillsForAgent` silently drops unrecognised ids, `tests/runtime/core.test.ts` asserts that every pinned id resolves and that no mutating skill is granted.
+
+An explicit read-only user instruction narrows any agent further for that turn. The Orchestrator derives a deterministic capability envelope, removes disallowed schemas before the model call, rechecks it immediately before tool execution, and disables ACP native delegated tools. This prevents prompt injection or model error from turning an explanation-only request into a command, edit, or test run.
 
 None of the advisors gates anything: an open finding never blocks a commit, a promotion, or a release. Their output is a prompt for human judgement, and each prompt names the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, or finance/commercial sign-off. They are explicitly **not a substitute for professional advice**.
 
 ### 10. Context-Window Overflow Guard
 
-Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. This prevents completion requests from overflowing the model's context window as conversation history grows, which could otherwise cause silent truncation or provider errors on long-running tasks.
+Each iteration of the agentic loop computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. Estimated input includes both message text and serialized callable tool definitions. The same schema reservation reduces session, memory, and supplemental-context budgets before message construction. Selected skills are described only through those schemas, not duplicated in system prose; ACP calls that receive no AtlasMind schemas reserve no AtlasMind schema budget. This prevents silent truncation or provider errors while avoiding the previous double cost of a skill catalogue plus definitions.
 
 ### 11. Autonomous Mission Loop Containment
 

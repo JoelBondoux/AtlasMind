@@ -82,6 +82,15 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('documentation summaries alone');
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('code, config, and tests as the authoritative source');
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('Treat every URL as untrusted input');
+    const testDeveloper = runtime.agentRegistry.get('test-developer');
+    for (const builtInAgent of runtime.agentRegistry.listAgents().filter(agent => agent.builtIn)) {
+      expect(builtInAgent.skillPolicy, builtInAgent.id).toMatch(/^(task-scoped|allowlist)$/);
+    }
+    expect(testDeveloper?.skillPolicy).toBe('task-scoped');
+    expect(testDeveloper?.skills).toEqual(expect.arrayContaining(['file-read', 'test-run', 'terminal-run']));
+    expect(testDeveloper?.skills.length).toBeLessThan(runtime.skillsRegistry.listSkills().length);
+    expect(runtime.skillsRegistry.getSkillsForAgent(testDeveloper!).map(skill => skill.id).sort())
+      .toEqual([...testDeveloper!.skills].sort());
     expect(runtime.skillsRegistry.get('specialist-guidance')).toMatchObject({
       name: 'Specialist Guidance',
       builtIn: true,
@@ -351,9 +360,9 @@ function makeOversightRuntime() {
 describe('oversight advisors', () => {
   it('registers all three as built-in agents', () => {
     const runtime = makeOversightRuntime();
-    expect(runtime.agentRegistry.get('ethics-oversight')).toMatchObject({ name: 'Ethics Oversight', builtIn: true });
-    expect(runtime.agentRegistry.get('legal-oversight')).toMatchObject({ name: 'Legal Oversight', builtIn: true });
-    expect(runtime.agentRegistry.get('commercial-oversight')).toMatchObject({ name: 'Commercial Oversight', builtIn: true });
+    expect(runtime.agentRegistry.get('ethics-oversight')).toMatchObject({ name: 'Ethics Oversight', builtIn: true, skillPolicy: 'allowlist' });
+    expect(runtime.agentRegistry.get('legal-oversight')).toMatchObject({ name: 'Legal Oversight', builtIn: true, skillPolicy: 'allowlist' });
+    expect(runtime.agentRegistry.get('commercial-oversight')).toMatchObject({ name: 'Commercial Oversight', builtIn: true, skillPolicy: 'allowlist' });
   });
 
   it('pins a read-only skill set that grants no mutating skill', () => {
@@ -361,8 +370,8 @@ describe('oversight advisors', () => {
     for (const id of OVERSIGHT_IDS) {
       const agent = runtime.agentRegistry.get(id);
       expect(agent, id).toBeDefined();
-      // An empty list would mean "all enabled skills" (see SkillsRegistry.getSkillsForAgent),
-      // which is the opposite of the intent here.
+      // Oversight uses an explicit allowlist: relying on task-scoped inference
+      // would weaken the permanent read-only authority boundary.
       expect(agent!.skills.length, id).toBeGreaterThan(0);
       for (const mutating of MUTATING_SKILL_IDS) {
         expect(agent!.skills, `${id} must not be granted ${mutating}`).not.toContain(mutating);

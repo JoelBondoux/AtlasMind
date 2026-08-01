@@ -681,6 +681,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fetchBranches' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'What is the sharpest missing risk or blocker that still needs a card?', sourcePage: 'ideation' } })).toBe(true);
@@ -747,6 +748,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'discussBranch', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);

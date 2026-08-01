@@ -92,16 +92,25 @@ The VS Code host creates `atlasmind-acp` launch shims beside the normal CLI shim
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
 2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.
-3. Builds a task profile via `TaskProfiler`.
-4. Picks a model via `ModelRouter.selectModel()`.
-5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
-6. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
-7. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
-8. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
+3. Resolves the agent's enabled skill eligibility pool and narrows `task-scoped` agents to at most 12 relevant tools for the current request.
+4. Builds a task profile via `TaskProfiler`, including whether the selected turn needs tool execution.
+5. Picks a model via `ModelRouter.selectModel()`.
+6. Builds callable schemas, accounting for their tokens in prompt budgets, while omitting the former duplicate skills prose.
+7. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
+8. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
+9. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
 
 Host-specific settings enter through `OrchestratorHooks.readSetting`. The VS Code host supplies a configuration reader; CLI and ACP hosts receive safe defaults. This keeps the core importable without loading the `vscode` module in a headless process.
 
 Tool-backed ACP execution is a separate execution shape, not an emulation of AtlasMind function calling. When the live `atlasmind.acp.toolsEnabled` setting is true, the Orchestrator adds `RoutingConstraints.allowDelegatedToolExecution`; the router may then admit an ACP `ModelInfo` that declares `delegatedToolExecution`. If that ACP model is selected, the Orchestrator passes an empty AtlasMind tool-schema list and lets the subscription agent use its native tools. Every native operation still returns through `AcpPermission`; a non-ACP failover receives the original AtlasMind tool definitions again.
+
+Execution is bounded across all routing paths. A task may invoke at most three model endpoints, including the initial choice, capability re-route, escalation, and provider failover. Transport failures open a turn-local circuit keyed to the real execution endpoint (`acp:<agent>`, `local:<endpoint>`, or provider), not merely the displayed model id, so cosmetic model/effort variants cannot relaunch the same unhealthy process. `TaskResult.modelAttempts` records only endpoints actually called; selection previews are not audit evidence.
+
+Provider text is attempt-scoped. Each candidate stream is buffered privately and only the accepted final completion crosses the Chat callback. Diagnostics such as skills-context-budget warnings are emitted once through progress, while response sanitation collapses exact trailing loops and repeated long paragraphs outside code fences. This keeps abandoned model prose out of both the visible answer and stored transcript.
+
+Explicit user constraints also become a `TurnCapabilityEnvelope`. “Read-only”, “do not edit”, and “do not run commands” filter skill definitions before routing/prompt construction and are checked again immediately before execution. Restricted turns cannot use delegated ACP native tools because AtlasMind cannot impose its per-turn schema ceiling inside that external agent.
+
+`AgentDefinition.skillPolicy` separates eligibility semantics from the skill IDs themselves. `task-scoped` is the safe default; an empty list admits built-ins only and custom/MCP skills must be named. `allowlist` preserves an exact enabled set, while `all` is the sole deliberate every-skill mode. The selector consumes explicit IDs, request intent, and bounded session follow-through context, but it can only narrow the registry result and capability envelope. The selected schemas are the single model-facing capability description. Their serialized size participates in initial cost estimates, memory/session allocation, and every loop's completion headroom.
 
 The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason. The agentic loop also recognizes explicit runtime claims that workspace tools are disabled or unavailable: instead of spending the remaining iterations re-prompting the same bridge, it marks that model's runtime capability as failed and immediately asks the provider-failover path for another `function_calling` model. If no recovery succeeds, the project classifier records the refusal as failed, never completed.
 
@@ -112,7 +121,7 @@ In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
 In-memory map of `SkillDefinition` objects. Also supports:
-- `getSkillsForAgent()` — resolves skills for an agent, filtered to enabled skills only.
+- `getSkillsForAgent()` — resolves an agent's enabled eligibility pool using `task-scoped`, `allowlist`, or `all` semantics. Missing legacy policies fail narrow: populated lists are allowlists; empty lists admit built-ins only.
 - `enable(id)` / `disable(id)` — toggle availability; `enable` throws if the skill has a failed scan.
 - `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
 - `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.

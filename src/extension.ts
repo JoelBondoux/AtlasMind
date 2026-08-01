@@ -2011,6 +2011,12 @@ async function bootstrapAtlasMind(
             + 'The turn ran at the agent\'s own default.',
           );
         },
+        onProcessLaunch: event => {
+          outputChannel.appendLine(
+            `[acp] launch boundary: ${event.agentId} started in ${event.mode} mode`
+            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}.`,
+          );
+        },
         onLiveSessionChange: updateAcpPrivateDesktopStatusBar,
       }),
       new startupModules.AnthropicAdapter(context.secrets),

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.239.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.241.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,25 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.239.0
+## What's new in 0.241.0
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Skill context is selected per turn instead of inherited wholesale.** Built-in agents use a deterministic `task-scoped` policy capped at 12 relevant tools; explicit allowlists remain exact, and an advanced `all` policy must be chosen deliberately. A legacy empty skill list now admits built-in skills only—never every custom or MCP integration—and externally supplied skills must be named explicitly.
+
+- **Tool schemas now count toward the context window once.** AtlasMind no longer repeats every selected skill name and description in the system prompt before sending the same information as JSON tool definitions. Schema tokens are included in prompt sizing and completion headroom; completion-only and delegated-tool ACP requests receive neither AtlasMind schemas nor the old prose catalogue.
+
+- **One chat turn can no longer become a model tour.** AtlasMind invokes at most three model endpoints, quarantines a timed-out transport for the rest of that turn (including ACP model/effort variants backed by the same agent), and gives stateful ACP work its real 180-second timeout instead of cancelling it at the generic 30-second boundary. The reply footer lists endpoints that were actually invoked and distinguishes timeout, error, capability mismatch, superseded, and completed attempts.
+
+- **Only the winning attempt becomes the answer.** Provider streams are isolated per attempt; abandoned preambles, tool-round narration, fallback drafts, and repeated skill-budget warnings no longer accumulate in the assistant bubble. The final response passes through a conservative paragraph/code-aware deduplicator, while a unique runtime warning appears once as progress rather than answer prose.
+
+- **“Read-only” and “do not run commands” are enforced capabilities.** AtlasMind removes write/process skills from that turn before it builds the prompt, denies a hallucinated forbidden tool again at execution, disables ACP native-tool delegation when it cannot enforce the same turn ceiling, and gives Test Developer a focused 17-skill set rather than all enabled integrations.
+
+- **The Windows ACP private desktop now owns the whole process tree.** The helper creates the agent suspended, assigns its private desktop and a kill-on-close Job Object, hides the initial window, then resumes it. Teardown asks Windows to kill the tree before the root can disappear; the output channel records the effective ordinary/private launch mode without logging commands, PIDs, prompts, or paths.
+
 - **Every branch now has a dashboard home.** **Project Dashboard → The code → Branches** shows local branches and cached remote-only refs together, with current/default/protected/worktree state, upstream tracking, ahead/behind drift, merge state, last commit, author, and staleness. Search and status filters keep large repositories usable, while **Fetch latest from remotes** is explicit rather than hidden inside ordinary dashboard refresh.
+
+- **Every branch card can now ask Atlas for a deterministic reading.** The Atlas icon opens Chat with a host-authored summary of the selected branch, comparisons against the current and production branches, declared warning signals, and recent contributor names/counts. This first answer uses cached local Git only—no fetch, branch switch, author email, model route, or subscription/API capacity—and offers focused chips for deeper current/production comparison, issue review, and recent-contributor analysis.
 
 - **Any safe branch can be brought into the workspace for immediate work.** **Switch here** activates an existing local branch; **Bring local** creates a same-named tracking branch from a remote-only ref. AtlasMind re-resolves the branch against live Git state, requires a clean working tree, blocks branches already checked out in another worktree or remote names that would collide locally, and confirms the workspace-changing action — with an extra warning for protected branches.
 
@@ -124,7 +138,7 @@ Since the last Marketplace publication, **v0.235.0**, source builds have added t
 
 - **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
 
-- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The new **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
+- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns the hidden desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
 
   While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
 
@@ -266,7 +280,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use **Switch here** for an existing local branch or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use the Atlas icon for a deterministic local-Git summary with comparison and contributor follow-up chips, **Switch here** for an existing local branch, or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
 
 ---
 

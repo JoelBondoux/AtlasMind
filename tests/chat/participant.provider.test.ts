@@ -368,7 +368,7 @@ describe('native chat participant', () => {
     expect(processTask.mock.calls[0]?.[0]?.context?.sessionContext).toBeUndefined();
   });
 
-  it('appends the final response when only an intermediate chunk streamed', async () => {
+  it('separates the authoritative final response when a legacy caller streamed divergent text', async () => {
     const processTask = vi.fn().mockImplementation(async (_request, onTextChunk?: (chunk: string) => void) => {
       onTextChunk?.('I will inspect the code path.');
       return {
@@ -419,10 +419,10 @@ describe('native chat participant', () => {
     );
 
     expect(stream.markdown).toHaveBeenNthCalledWith(1, 'I will inspect the code path.');
-    expect(stream.markdown).toHaveBeenNthCalledWith(2, '\n\nThe response was getting dropped after the first streamed chunk.');
+    expect(stream.markdown).toHaveBeenNthCalledWith(2, '\n\n---\n\nThe response was getting dropped after the first streamed chunk.');
     expect(recordTurn).toHaveBeenCalledWith(
       'Why did the previous run stop early?',
-      'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
+      'The response was getting dropped after the first streamed chunk.',
       expect.any(String),
       expect.any(Object),
     );

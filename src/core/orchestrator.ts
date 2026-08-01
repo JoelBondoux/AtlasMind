@@ -1,4 +1,4 @@
-import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import {
@@ -11,7 +11,7 @@ import {
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
-import type { SkillsRegistry } from './skillsRegistry.js';
+import { resolveAgentSkillPolicy, type SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
 import { estimateCacheablePrefixRatio } from './modelRouter.js';
 import { gradeExecutionQuality } from './executionQuality.js';
@@ -36,7 +36,9 @@ import {
   MAX_PARALLEL_TOOL_EXECUTIONS,
   TOOL_EXECUTION_TIMEOUT_MS,
   PROVIDER_TIMEOUT_MS,
+  ACP_PROVIDER_TIMEOUT_MS,
   MAX_PROVIDER_RETRIES,
+  MAX_TASK_MODEL_ATTEMPTS,
   PROVIDER_RETRY_BASE_DELAY_MS,
   DEFAULT_CHAT_MAX_TOKENS,
   MAX_COMPLETION_CONTINUATIONS,
@@ -62,6 +64,7 @@ const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\s+is)|show|tell\s+me|ch
 const RELEASE_HYGIENE_ACTION_PATTERN = /\b(?:changelog|release\s+notes|version\s+number|bump\s+the\s+version|update\s+the\s+version|forgot\s+to\s+update|did(?:n't|\s+not)\s+update|make\s+sure|hard\s*coded?|instruction\s+sets?)\b/i;
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
+const MAX_TASK_SCOPED_SKILLS = 12;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
@@ -75,6 +78,9 @@ const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|impl
 // Used by isSimpleMechanicalTask() and shouldPreferLocalToolCapableModelForPrompt().
 const SIMPLE_MECHANICAL_TASK_PATTERN = /\b(?:commit(?:\s+(?:all|changes|these|the\s+changes?))?|push(?:\s+(?:to\s+(?:origin|upstream|remote))?)?|stash(?:\s+(?:all|changes?))?|git\s+(?:pull|fetch|checkout|reset(?:\s+(?:soft|hard|mixed))?|clean)|run\s+(?:the\s+)?(?:tests?|unit\s+tests?|build|lint(?:er)?|format(?:ter)?|compile(?:r)?|install|scripts?)|execute\s+(?:the\s+)?(?:tests?|build|scripts?)|npm\s+(?:test|build|install|lint|ci|run\b)|pnpm\s+(?:test|build|install|lint|run\b)|yarn\s+(?:test|build|install|lint|run\b)|(?:write|create|add|generate)\s+(?:a\s+)?(?:unit\s+)?tests?\s+for\b)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
+const READ_ONLY_TURN_PATTERN = /\bread[\s-]?only\b|\b(?:no|without)\s+(?:code\s+)?changes?\b|\bdo\s+not\s+(?:edit|write|modify|change)\b/i;
+const NO_WRITE_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:edit|write|modify|change|create|delete|remove|install)\b/i;
+const NO_COMMAND_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:run|execute|invoke|launch|install)\b[^.!?\n]{0,40}\b(?:commands?|terminal|shell|packages?|scripts?|process(?:es)?)?\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to|i need to|we need to|i have to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
   'This request needs repository evidence from the current workspace.',
@@ -375,6 +381,27 @@ interface ProjectTddState extends ProjectTddPolicy {
   observedFailingSignal: boolean;
   observedPassingSignal: boolean;
   blockedWriteAttempts: number;
+}
+
+export interface TurnCapabilityEnvelope {
+  writesAllowed: boolean;
+  commandsAllowed: boolean;
+  reason?: string;
+}
+
+interface TaskAttemptContext {
+  taskId: string;
+  agentId: string;
+  budgetCapUsd?: number;
+  taskProfile: TaskProfile;
+  allowEscalation: boolean;
+  projectTddPolicy?: ProjectTddPolicy;
+  completionCriteria?: AgentDefinition['completionCriteria'];
+  agentRole?: string;
+  userMessage?: string;
+  signal?: AbortSignal;
+  cacheStablePrefix?: boolean;
+  turnCapabilities?: TurnCapabilityEnvelope;
 }
 
 interface TaskExecutionAttempt {
@@ -940,6 +967,7 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<string> {
+    const turnCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
     // ── Step 1: reprompt on an ESCALATED model with a workspace-investigation
     // instruction ─────────────────────────────────────────────────────────────
     // The model returned nothing. Re-prompting the SAME model — often a flaky or
@@ -954,6 +982,8 @@ export class Orchestrator {
     const recoveryRoutingConstraints: RoutingConstraints = {
       ...buildExecutionRoutingConstraints(request.constraints, tools.length > 0),
       allowDelegatedToolExecution: recoveryNeedsToolExecution
+        && turnCapabilities.writesAllowed
+        && turnCapabilities.commandsAllowed
         && this.readSetting<boolean>('acp.toolsEnabled', false),
     };
     const escalatedModel = this.selectEscalatedModel(
@@ -971,8 +1001,9 @@ export class Orchestrator {
       && this.router.getModelInfo(recoveryModel)?.delegatedToolExecution === true;
 
     if (provider) {
+      const recoveryTools = recoveryUsesDelegatedTools ? [] : tools;
       const baseMessages = this.buildMessages(
-        agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, recoveryModel,
+        agent, retrievalContext, request.userMessage, request.context, recoveryModel, recoveryTools,
       );
       const recoveryMessages: ChatMessage[] = [
         ...baseMessages,
@@ -995,7 +1026,7 @@ export class Orchestrator {
           provider,
           recoveryModel,
           recoveryMessages,
-          recoveryUsesDelegatedTools ? [] : tools,
+          recoveryTools,
           {
             taskId: `${request.id}-recovery`,
             agentId: agent.id,
@@ -1006,6 +1037,7 @@ export class Orchestrator {
             agentRole: agent.role,
             userMessage: request.userMessage,
             signal: request.signal,
+            turnCapabilities,
           },
           onTextChunk,
           onProgress,
@@ -1170,22 +1202,29 @@ export class Orchestrator {
   ): Promise<TaskResult> {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
-    const availableAgentSkills = this.skills.getSkillsForAgent(agent);
+    const turnCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
+    request.context['__turnCapabilityEnvelope'] = turnCapabilities;
+    const eligibleAgentSkills = this.skills.getSkillsForAgent(agent).filter(skill =>
+      isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
+    );
+    let activeAgentSkills = selectTaskScopedSkills(agent, eligibleAgentSkills, request.userMessage, request.context);
     // Recorded here rather than taken from a tool argument, so a handoff is
     // attributed to what the orchestrator knows is running. A model able to
     // name its own caller could name a more privileged one.
     this.currentExecution = {
       agentId: agent.id,
       taskId: request.id,
-      skillIds: availableAgentSkills.map(skill => skill.id),
+      skillIds: activeAgentSkills.map(skill => skill.id),
     };
-    let activeAgentSkills = availableAgentSkills;
     let baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
       context: request.context,
       phase: 'execution',
       requiresTools: activeAgentSkills.length > 0,
     });
+    if (!turnCapabilities.writesAllowed) {
+      baseTaskProfile = { ...baseTaskProfile, modality: 'text' };
+    }
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
     // The setting authorizes a different execution shape, not a wider function
     // schema: an ACP agent may satisfy the task with its own tools, each coming
@@ -1194,9 +1233,20 @@ export class Orchestrator {
     const taskRequiresToolExecution = activeAgentSkills.length > 0
       || request.constraints.requiredCapabilities?.includes('function_calling') === true;
     const acpDelegatedToolsEnabled = taskRequiresToolExecution
+      && turnCapabilities.writesAllowed
+      && turnCapabilities.commandsAllowed
       && this.readSetting<boolean>('acp.toolsEnabled', false);
 
-    onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
+    const skillPolicy = resolveAgentSkillPolicy(agent);
+    const skillSelectionDetail = skillPolicy === 'task-scoped'
+      ? `selected ${tools.length} of ${eligibleAgentSkills.length} eligible`
+      : skillPolicy === 'allowlist'
+        ? `prepared ${tools.length} allowlisted`
+        : `prepared all ${tools.length} enabled`;
+    onProgress?.(`Selected agent ${agent.name} and ${skillSelectionDetail} tool(s).`);
+    if (turnCapabilities.reason) {
+      onProgress?.(`Applied the user's turn-scoped capability limit: ${turnCapabilities.reason}`);
+    }
 
     // If the task is classified as testing-related and the selected agent is assigned
     // to an enabled methodology in the Testing Methodology Matrix, prepend any
@@ -1440,8 +1490,13 @@ export class Orchestrator {
 
     const previewModel = initialModel ?? 'unavailable';
     (onModelSelected ?? this.onModelSelected)?.(previewModel);
-    const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
-    const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
+    const previewProvider = resolveProviderIdForModel(previewModel, this.router, 'local');
+    const previewUsesDelegatedAcpTools = previewProvider === 'acp'
+      && acpDelegatedToolsEnabled
+      && this.router.getModelInfo(previewModel)?.delegatedToolExecution === true;
+    const previewTools = previewUsesDelegatedAcpTools ? [] : tools;
+    const initialMessages = this.buildMessages(agent, retrievalContext, request.userMessage, request.context, previewModel, previewTools);
+    const estimatedPromptTokens = estimateCompletionRequestInputTokens(initialMessages, previewTools);
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
@@ -1467,6 +1522,9 @@ export class Orchestrator {
     let aggregateOutputTokens = 0;
     let aggregateCachedInputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
+    const modelAttempts: TaskModelAttempt[] = [];
+    const blockedEndpointScopes = new Set<string>();
+    const reportedModelDiagnostics = new Set<string>();
 
     if (dailyBudget?.blocked) {
       finalAttempt = {
@@ -1501,6 +1559,7 @@ export class Orchestrator {
 
       for (;;) {
         const selectedProvider = resolveProviderIdForModel(currentModel, this.router, 'local');
+        const endpointScope = executionEndpointScope(currentModel, selectedProvider);
         const provider = this.providers.get(selectedProvider);
         const usesDelegatedAcpTools = selectedProvider === 'acp'
           && acpDelegatedToolsEnabled
@@ -1517,16 +1576,29 @@ export class Orchestrator {
 
         if (!provider) {
           attemptedModels.add(currentModel);
-          this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
-          const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
+          const failureMessage = `No provider adapter registered for "${selectedProvider}".`;
+          this.router.recordModelFailure(currentModel, failureMessage);
+          modelAttempts.push({
+            model: currentModel,
+            providerId: selectedProvider,
+            endpointScope,
+            status: 'error',
+            durationMs: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            reason: failureMessage,
+          });
+          const failoverModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
+            : undefined;
           if (!failoverModel) {
-            const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+            const messages = this.buildMessages(agent, retrievalContext, request.userMessage, request.context, currentModel, attemptTools);
             finalAttempt = {
               model: currentModel,
               completion: {
                 content: `No provider adapter registered for "${selectedProvider}".`,
                 model: currentModel,
-                inputTokens: estimateTokens(messages.map(message => message.content).join('\n')),
+                inputTokens: estimateCompletionRequestInputTokens(messages, attemptTools),
                 outputTokens: 10,
                 finishReason: 'error',
               },
@@ -1541,7 +1613,9 @@ export class Orchestrator {
           continue;
         }
 
-        const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+        const messages = this.buildMessages(agent, retrievalContext, request.userMessage, request.context, currentModel, attemptTools);
+        const attemptStartedAt = Date.now();
+        let attemptStream = '';
         if (usesDelegatedAcpTools) {
           onProgress?.(`Delegating this tool-backed turn to "${currentModel}" using its approval-gated native tools.`);
         }
@@ -1556,7 +1630,7 @@ export class Orchestrator {
           : undefined;
 
         try {
-          const taskAttempt = await this.executeTaskAttempt(
+          let taskAttempt = await this.executeTaskAttempt(
             provider,
             currentModel,
             messages,
@@ -1572,19 +1646,47 @@ export class Orchestrator {
               agentRole: agent.role,
               userMessage: request.userMessage,
               signal: request.signal,
+              turnCapabilities,
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
               // via tools; this covers threaded chat with a substantial prefix).
               ...(cacheablePrefixRatio >= CACHE_PREFIX_REUSE_THRESHOLD ? { cacheStablePrefix: true } : {}),
             },
-            onTextChunk,
+            chunk => { attemptStream += chunk; },
             onProgress,
           );
+          const sanitizedAttempt = sanitizeAssistantResponse(taskAttempt.completion.content || attemptStream);
+          taskAttempt = {
+            ...taskAttempt,
+            completion: { ...taskAttempt.completion, content: sanitizedAttempt.content },
+          };
+          for (const diagnostic of sanitizedAttempt.diagnostics) {
+            if (!reportedModelDiagnostics.has(diagnostic)) {
+              reportedModelDiagnostics.add(diagnostic);
+              onProgress?.(diagnostic);
+            }
+          }
           aggregateCostUsd += taskAttempt.costUsd;
           aggregateInputTokens += taskAttempt.completion.inputTokens;
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
           aggregateCachedInputTokens += taskAttempt.completion.cachedInputTokens ?? 0;
           attemptedModels.add(currentModel);
+          modelAttempts.push({
+            model: currentModel,
+            providerId: selectedProvider,
+            endpointScope,
+            status: taskAttempt.toolCapabilityMissing
+              ? 'capability-mismatch'
+              : taskAttempt.escalationReason ? 'escalated' : 'completed',
+            durationMs: Date.now() - attemptStartedAt,
+            inputTokens: taskAttempt.completion.inputTokens,
+            outputTokens: taskAttempt.completion.outputTokens,
+            ...(taskAttempt.toolCapabilityMissing
+              ? { reason: 'The model returned text instead of required tool calls.' }
+              : taskAttempt.escalationReason
+                ? { reason: boundedAttemptReason(taskAttempt.escalationReason) }
+                : {}),
+          });
 
           // Mid-flight daily budget check: if we've consumed enough to tip
           // over the limit, stop before starting another expensive iteration.
@@ -1616,7 +1718,9 @@ export class Orchestrator {
                 'function_calling',
               ],
             };
-            const toolCapableModel = this.selectProviderFailoverModel(currentModel, toolCapableConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            const toolCapableModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+              ? this.selectProviderFailoverModel(currentModel, toolCapableConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
+              : undefined;
             if (toolCapableModel) {
               onProgress?.(`Switching from "${currentModel}" to tool-capable model "${toolCapableModel}" to continue the task.`);
               currentModel = toolCapableModel;
@@ -1634,7 +1738,9 @@ export class Orchestrator {
               speed: 'considered',
               requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
             };
-            const textFallbackModel = this.selectProviderFailoverModel(currentModel, textFallbackConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            const textFallbackModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+              ? this.selectProviderFailoverModel(currentModel, textFallbackConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
+              : undefined;
             if (textFallbackModel) {
               onProgress?.(`No tool-capable model available; switching to "${textFallbackModel}" for a best-effort text response (tools unavailable).`);
               tools = [];
@@ -1659,6 +1765,10 @@ export class Orchestrator {
           if (!taskAttempt.escalationReason || !escalatedModel) {
             break;
           }
+          if (modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS) {
+            onProgress?.(`Stopped after the safety ceiling of ${MAX_TASK_MODEL_ATTEMPTS} model attempts.`);
+            break;
+          }
 
           currentModel = escalatedModel;
           (onModelSelected ?? this.onModelSelected)?.(currentModel);
@@ -1666,6 +1776,21 @@ export class Orchestrator {
         } catch (error) {
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
+          const timedOut = /\btimed?\s*out\b|\btimeout\b/i.test(failureMessage);
+          modelAttempts.push({
+            model: currentModel,
+            providerId: selectedProvider,
+            endpointScope,
+            status: timedOut ? 'timeout' : 'error',
+            durationMs: Date.now() - attemptStartedAt,
+            inputTokens: 0,
+            outputTokens: 0,
+            reason: boundedAttemptReason(failureMessage),
+          });
+          if (shouldOpenEndpointCircuit(failureMessage)) {
+            blockedEndpointScopes.add(endpointScope);
+            onProgress?.(`Paused endpoint "${endpointScope}" for this turn after a transport failure.`);
+          }
           const modelWasRetired = isModelDeprecatedError(error);
           if (modelWasRetired) {
             this.router.recordModelRetirement(currentModel, `Model deprecated or not found: ${failureMessage}`);
@@ -1694,18 +1819,20 @@ export class Orchestrator {
             onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
           }
 
-          let failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
+          let failoverModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
+            : undefined;
 
           // When the primary failover search finds nothing (e.g. all tool-capable
           // models are on the failed provider), try again without the
           // function_calling requirement so a text-capable model can at least
           // answer the user rather than hard-stopping.
-          if (!failoverModel && tools.length > 0) {
+          if (!failoverModel && tools.length > 0 && modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS) {
             const relaxedFailoverConstraints: RoutingConstraints = {
               ...routingConstraints,
               requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
             };
-            failoverModel = this.selectProviderFailoverModel(currentModel, relaxedFailoverConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            failoverModel = this.selectProviderFailoverModel(currentModel, relaxedFailoverConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes);
             if (failoverModel) {
               onProgress?.('No tool-capable fallback found; switching to a text-only model to provide a best-effort response.');
               tools = [];
@@ -1714,36 +1841,16 @@ export class Orchestrator {
           }
 
           if (!failoverModel) {
-            // Last-resort: use the maintenance-class completer (prefers local/free)
-            // to produce a self-healing acknowledgement rather than a dead hard stop.
-            // Skip if maintenance would resolve to the same failed provider — it would
-            // just fail again and count as an extra provider.complete() call.
-            const hardStopContext = autoDisabledProvider
-              ? `Provider "${autoDisabledProvider.displayName}" was paused due to insufficient credits. No other configured provider could be found.`
-              : `Provider "${selectedProvider}" failed with: ${failureMessage}`;
-            const maintenanceModel = this.router.selectModel({ budget: 'cheap', speed: 'fast' }, undefined, this.taskProfiler.profileTask({ userMessage: request.userMessage, phase: 'maintenance', requiresTools: false }));
-            const maintenanceProvider = resolveProviderIdForModel(maintenanceModel, this.router, 'local');
-            const recoveryContent = maintenanceProvider === selectedProvider ? '' : await (async () => {
-              try {
-                return await this.completeMaintenance(
-                  'You are a recovery assistant for an AI coding tool. A provider failure occurred mid-task. Produce a concise (3-5 sentence) recovery message that: (1) acknowledges what happened without technical jargon, (2) states what work was completed before the failure if any, (3) gives a clear actionable next step the user can take to continue. Do not apologise excessively. Do not repeat the error verbatim.',
-                  `Task the user asked: ${request.userMessage.slice(0, 400)}\n\nFailure context: ${hardStopContext}`,
-                );
-              } catch {
-                return '';
-              }
-            })();
-            const noFallbackContent = recoveryContent.trim().length > 20
-              ? recoveryContent.trim()
-              : autoDisabledProvider
-                ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-                : `The model provider stopped responding before it could finish, and no alternative provider was available to take over (Provider "${selectedProvider}" failed: ${failureMessage}).\n\nNothing was changed. You can retry the request, or enable a faster or alternative provider in **AtlasMind: Model Providers** so the response can complete.`;
+            const limitReached = modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS;
+            const noFallbackContent = autoDisabledProvider
+              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+              : `AtlasMind stopped after ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'}${limitReached ? ` (the safety ceiling is ${MAX_TASK_MODEL_ATTEMPTS})` : ''}. Provider "${selectedProvider}" failed: ${failureMessage}.\n\nNo additional recovery model was invoked. Retry after checking provider availability or enable a different provider in **AtlasMind: Model Providers**.`;
             finalAttempt = {
               model: currentModel,
               completion: {
                 content: noFallbackContent,
                 model: currentModel,
-                inputTokens: estimateTokens(messages.map(message => message.content).join('\n')),
+                inputTokens: estimateCompletionRequestInputTokens(messages, attemptTools),
                 outputTokens: 0,
                 finishReason: 'error',
               },
@@ -1781,16 +1888,24 @@ export class Orchestrator {
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
 
+    const sanitizedCompletion = sanitizeAssistantResponse(completion.content);
+    for (const diagnostic of sanitizedCompletion.diagnostics) {
+      if (!reportedModelDiagnostics.has(diagnostic)) {
+        reportedModelDiagnostics.add(diagnostic);
+        onProgress?.(diagnostic);
+      }
+    }
     let result: TaskResult = {
       id: request.id,
       agentId: agent.id,
       modelUsed,
-      response: collapseDuplicatedTrailingBlock(completion.content),
+      response: sanitizedCompletion.content,
       costUsd,
       inputTokens,
       outputTokens,
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
+      ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
@@ -1844,39 +1959,16 @@ export class Orchestrator {
       this.lastMainChatTurn = { model: modelUsed, profile: baseTaskProfile };
     }
 
-    // When the model returned nothing, run a two-step recovery before surfacing a failure:
-    //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
-    //     empty, synthesize a specialist agent/skill and retry with it.
-    //  2. Clarifying question: if both recovery steps produce nothing, ask the user
-    //     for the specific details needed to complete the request.
-    // __recoveryPass guards against infinite recursion when a synthesized agent is
-    // itself retried through processTaskWithAgent.
+    // Empty completions used to enter a second, separately routed recovery tree.
+    // That bypassed the turn attempt ceiling and was one source of "model tours".
+    // Escalation now happens inside the bounded loop above; if all bounded
+    // attempts are empty, surface a deterministic result without invoking a
+    // hidden recovery model.
     if (!result.response.trim() && completion.finishReason !== 'error' && !request.signal?.aborted && !request.context['__recoveryPass']) {
-      const recovered = await this.attemptSelfRecovery(
-        request,
-        agent,
-        tools,
-        activeAgentSkills,
-        retrievalContext,
-        modelUsed,
-        baseTaskProfile,
-        budgetCapUsd,
-        projectTddPolicy,
-        onTextChunk,
-        onProgress,
-      );
-
-      if (recovered) {
-        result = { ...result, response: recovered };
-      } else {
-        const clarification = await this.generateClarifyingQuestion(
-          request.userMessage,
-          executionArtifacts?.toolCalls ?? [],
-        );
-        if (clarification) {
-          result = { ...result, response: clarification };
-        }
-      }
+      result = {
+        ...result,
+        response: `AtlasMind received no usable answer after ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'} and stopped without starting another provider. Retry the request or check provider availability in **AtlasMind: Model Providers**.`,
+      };
     }
 
     // Track agent and model performance after recovery so the outcome represents
@@ -1907,6 +1999,9 @@ export class Orchestrator {
     );
     this.onModelOutcomeRecorded?.(this.router.getExecutionOutcomes());
 
+    if (result.response && !request.signal?.aborted) {
+      onTextChunk?.(result.response);
+    }
     return result;
   }
 
@@ -2406,7 +2501,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; completionCriteria?: AgentDefinition['completionCriteria']; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
+    context: TaskAttemptContext,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; toolCapabilityMissing?: boolean; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
@@ -2447,7 +2542,7 @@ export class Orchestrator {
       }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       const loopModelInfo = this.router.getModelInfo(model);
-      const inputTokenEstimate = estimateTokens(messages.map(m => typeof m.content === 'string' ? m.content : '').join('\n'));
+      const inputTokenEstimate = estimateCompletionRequestInputTokens(messages, tools);
       const safeMaxTokens = loopModelInfo?.contextWindow
         ? Math.max(256, loopModelInfo.contextWindow - inputTokenEstimate - CONTEXT_SAFE_OUTPUT_MARGIN)
         : DEFAULT_CHAT_MAX_TOKENS;
@@ -2528,6 +2623,15 @@ export class Orchestrator {
       }
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
+        if (context.allowEscalation && !completion.content.trim()) {
+          onProgress?.('The model returned an empty completion; escalating within the bounded attempt budget.');
+          loopCapped = false;
+          return {
+            completion,
+            artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls),
+            escalationReason: 'empty completion',
+          };
+        }
         if (
           workspaceRepromptCount < getMaxWorkspaceRepromptCount(workspaceToolBias)
           && !shouldDeferWorkspaceToolRepromptToTddGate(projectTddState)
@@ -2671,6 +2775,30 @@ export class Orchestrator {
           });
 
           let skill = this.skills.get(toolCall.name);
+          const toolArguments = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
+          if (!isToolAllowedByTurnEnvelope(toolCall.name, toolArguments, context.turnCapabilities)) {
+            const deniedMessage = `Tool "${toolCall.name}" was denied by the user's turn-scoped read-only constraint.`;
+            await this.toolWebhookDispatcher?.emit({
+              event: 'tool.failed',
+              timestamp: new Date().toISOString(),
+              taskId: context.taskId,
+              agentId: context.agentId,
+              model,
+              toolName: toolCall.name,
+              toolCallId: toolCall.id,
+              status: 'failed',
+              durationMs: Date.now() - startedAt,
+              error: deniedMessage,
+            });
+            return {
+              toolCall,
+              result: deniedMessage,
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+              isFailure: true,
+            };
+          }
           if (!skill) {
             const args = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
             const synthesisResult = await this.synthesizeSkillForTool(
@@ -3158,7 +3286,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; completionCriteria?: AgentDefinition['completionCriteria']; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
+    context: TaskAttemptContext,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskExecutionAttempt> {
@@ -3276,6 +3404,7 @@ export class Orchestrator {
     allowedModels: string[] | undefined,
     taskProfile: TaskProfile,
     attemptedModels: Set<string>,
+    blockedEndpointScopes: Set<string> = new Set(),
   ): string | undefined {
     const failedProvider = resolveProviderIdForModel(failedModel, this.router, 'local');
     const budgetSteps: Array<RoutingConstraints['budget']> = (() => {
@@ -3297,10 +3426,22 @@ export class Orchestrator {
     for (let i = 0; i < Math.max(budgetSteps.length, speedSteps.length); i++) {
       const budget = budgetSteps[Math.min(i, budgetSteps.length - 1)];
       const speed = speedSteps[Math.min(i, speedSteps.length - 1)];
-      const relaxedConstraints: RoutingConstraints = { ...constraints, budget, speed, preferredProvider: undefined };
+      const relaxedConstraints: RoutingConstraints = {
+        ...constraints,
+        budget,
+        speed,
+        preferredProvider: undefined,
+        preferredModel: undefined,
+      };
       const candidates = this.router
         .listCandidateModelIds(relaxedConstraints, allowedModels, taskProfile)
-        .filter(modelId => modelId !== failedModel && !attemptedModels.has(modelId));
+        .filter(modelId => {
+          if (modelId === failedModel || attemptedModels.has(modelId)) {
+            return false;
+          }
+          const providerId = resolveProviderIdForModel(modelId, this.router, 'local');
+          return !blockedEndpointScopes.has(executionEndpointScope(modelId, providerId));
+        });
       if (candidates.length === 0) continue;
       const differentProviderCandidates = candidates.filter(
         modelId => resolveProviderIdForModel(modelId, this.router, 'local') !== failedProvider,
@@ -3784,21 +3925,17 @@ export class Orchestrator {
 
   private buildMessages(
     agent: AgentDefinition,
-    agentSkills: SkillDefinition[],
     retrievalContext: RetrievalContextBundle,
     userMessage: string,
     requestContext: Record<string, unknown>,
     modelId: string,
+    tools: ToolDefinition[],
   ): ChatMessage[] {
     // Use LLM classification result when available; fall back to regex.
     const classification = requestContext['__classification'] as ClassificationResult | undefined;
     const routingNeeds: CommonRoutingNeedId[] = classification
       ? (classification.routingNeeds as CommonRoutingNeedId[])
       : inferCommonRoutingNeedIds(userMessage);
-    const skillsContext = agentSkills.length > 0
-      ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
-      : '- none';
-
     // Surface any warned (but not blocked) memory entries so the model can apply scepticism
     const warnedEntries = this.memory.getWarnedEntries();
     const blockedEntries = this.memory.getBlockedEntries();
@@ -3809,7 +3946,12 @@ export class Orchestrator {
     // fall back to raw string for sessions that haven't built a bundle yet.
     const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
     const imageAttachmentsEarly = toImageAttachments(requestContext['imageAttachments']);
-    const promptBudgetEarly = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachmentsEarly.length);
+    const toolDefinitionTokens = estimateToolDefinitionTokens(tools);
+    const promptBudgetEarly = buildPromptBudget(
+      this.router.getModelInfo(modelId)?.contextWindow,
+      imageAttachmentsEarly.length,
+      toolDefinitionTokens,
+    );
     const compressionEnabled = this.readSetting('contextCompressionEnabled', true);
     const rawSessionContext = (() => {
       let raw = '';
@@ -3882,7 +4024,11 @@ export class Orchestrator {
       : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
-    const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
+    const promptBudget = buildPromptBudget(
+      this.router.getModelInfo(modelId)?.contextWindow,
+      imageAttachments.length,
+      toolDefinitionTokens,
+    );
     const memoryLines = this.privacyRedact(redactSecretsWithWarning(
       compressionEnabled
         ? compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars)
@@ -3952,10 +4098,12 @@ export class Orchestrator {
     const routingCorrectionBlock = typeof requestContext['routingCorrectionHint'] === 'string' && requestContext['routingCorrectionHint'].trim().length > 0
       ? `\n\nImmediate routing correction:\n${requestContext['routingCorrectionHint'].trim()}`
       : '';
+    const turnCapabilityEnvelope = requestContext['__turnCapabilityEnvelope'] as TurnCapabilityEnvelope | undefined;
+    const turnCapabilityBlock = turnCapabilityEnvelope?.reason
+      ? `\n\nTurn-scoped capability boundary:\n- ${turnCapabilityEnvelope.reason}\n- This is an enforced tool boundary, not a preference. Do not ask for, invent, or claim any action outside it.`
+      : '';
     const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice, ...blockedContextNotices].filter(Boolean).join('\n');
     const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
-    const toolIntentGuidance = buildLikelyToolMatchGuidance(userMessage, agentSkills);
-
     // Compose shared policy at execution time, then put the specialist prompt
     // after the portable contract so narrower role/scope boundaries remain the
     // final instruction on how that general capability is used. Strip exact
@@ -3979,13 +4127,11 @@ export class Orchestrator {
           `${enforcedSystemPrompt}\n\n` +
           `Agent role: ${agent.role}\n` +
           (personalityProfilePrompt ? `Workspace identity profile:\n${personalityProfilePrompt}\n\n` : '') +
-          `Skills:\n${skillsContext}\n\n` +
           `${UNTRUSTED_CONTEXT_INSTRUCTION}\n\n` +
           `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
           (personalityProfilePrompt ? `\n\nWorkspace preferences (override): The workspace identity profile listed earlier defines the authoritative tone, verbosity, reasoning style, and scope constraints for this workspace. These preferences take precedence over any AI instruction files found in project memory (such as imported Copilot, Cursor, Cline, or other tool instruction sets). When the two conflict, apply the workspace identity profile.` : '') +
-          (toolIntentGuidance ? `\n\n${toolIntentGuidance}` : '') +
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +
           urlSafetyHint +
@@ -3998,6 +4144,7 @@ export class Orchestrator {
           frustrationGuidance +
           routingCorrectionsBlock +
           routingCorrectionBlock +
+          turnCapabilityBlock +
           (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
           (combinedSecurityNotice ? `\n\n${combinedSecurityNotice}` : ''),
@@ -4796,6 +4943,37 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+/**
+ * Tool schemas consume the same provider context window as messages even
+ * though providers accept them through a separate request field.
+ */
+export function estimateToolDefinitionTokens(tools: ToolDefinition[]): number {
+  if (tools.length === 0) {
+    return 0;
+  }
+  try {
+    return Math.ceil(JSON.stringify(tools).length / 4);
+  } catch {
+    // A malformed custom schema will still be rejected at the provider/tool
+    // boundary. Estimation must fail conservatively rather than taking down
+    // routing before that validation can report the real error.
+    return tools.reduce(
+      (total, tool) => total + estimateTokens(`${tool.name}\n${tool.description}`) + 64,
+      0,
+    );
+  }
+}
+
+export function estimateCompletionRequestInputTokens(
+  messages: ChatMessage[],
+  tools: ToolDefinition[],
+): number {
+  const messageText = messages
+    .map(message => typeof message.content === 'string' ? message.content : '')
+    .join('\n');
+  return estimateTokens(messageText) + estimateToolDefinitionTokens(tools);
+}
+
 function buildContinuationPrompt(partialContent: string): string {
   const trimmed = partialContent.trimEnd();
   const suffix = trimmed.length > 240 ? trimmed.slice(-240) : trimmed;
@@ -4861,6 +5039,187 @@ function buildEscalatedTaskProfile(taskProfile: TaskProfile, requiresTools: bool
   };
 }
 
+/**
+ * Convert explicit user wording into a turn-local capability ceiling.
+ *
+ * This is intentionally deterministic and enforced twice: skills outside the
+ * envelope are omitted from the prompt, and a hallucinated tool name is denied
+ * again immediately before execution.
+ */
+export function deriveTurnCapabilityEnvelope(userMessage: string): TurnCapabilityEnvelope {
+  const writesAllowed = !READ_ONLY_TURN_PATTERN.test(userMessage)
+    && !NO_WRITE_DIRECTIVE_PATTERN.test(userMessage);
+  const commandsAllowed = !NO_COMMAND_DIRECTIVE_PATTERN.test(userMessage);
+  const limits = [
+    ...(!writesAllowed ? ['workspace writes are disabled'] : []),
+    ...(!commandsAllowed ? ['terminal, shell, package-install, and process-launch tools are disabled'] : []),
+  ];
+  return {
+    writesAllowed,
+    commandsAllowed,
+    ...(limits.length > 0 ? { reason: limits.join('; ') } : {}),
+  };
+}
+
+export function isToolAllowedByTurnEnvelope(
+  toolName: string,
+  args: Record<string, unknown>,
+  envelope: TurnCapabilityEnvelope | undefined,
+): boolean {
+  if (!envelope || (envelope.writesAllowed && envelope.commandsAllowed)) {
+    return true;
+  }
+  const policy = classifyToolInvocation(toolName, args);
+  if (policy.category === 'read' || policy.category === 'git-read') {
+    return true;
+  }
+  return envelope.commandsAllowed && policy.category === 'terminal-read';
+}
+
+const TASK_SCOPED_WORKSPACE_PATTERN = /\b(?:workspace|repo(?:sitory)?|project|codebase|source|implementation|architecture|file|folder|directory|module|class|function|component|extension|webview|panel|sidebar|bug|issue|error|failure|regression|broken|debug|diagnos|inspect|investigat|review|verify|trace|log)\w*\b/i;
+const TASK_SCOPED_ACTION_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|edit|write|add|create|delete|remove|move|rename|refactor|format|generate|scaffold|migrate|apply)\w*\b/i;
+const TASK_SCOPED_TOOL_ACTION_PATTERN = /\b(?:send|schedule|publish|deploy|query|search|fetch|download|upload|open|list|show|start|stop|export|import|browse|call|post)\w*\b/i;
+const TASK_SCOPED_COMMAND_PATTERN = /\b(?:run|execute|install|build|compile|lint|format|terminal|shell|command|npm|pnpm|yarn|cargo|docker)\w*\b/i;
+const TASK_SCOPED_TEST_PATTERN = /\b(?:test|testing|atdd|tdd|bdd|acceptance|spec|coverage|vitest|jest|mocha|pytest|playwright|regression)\w*\b/i;
+const TASK_SCOPED_GIT_PATTERN = /\b(?:git|branch|commit|diff|merge|rebase|cherry[- ]?pick|pull request|\bpr\b|push|blame|stash)\b/i;
+const TASK_SCOPED_MEMORY_PATTERN = /\b(?:memory|ssot|decision|project knowledge|remember|recall)\b/i;
+const TASK_SCOPED_WEB_PATTERN = /\b(?:https?:\/\/|website|web page|url|external research|browse|fetch)\b/i;
+const TASK_SCOPED_EXPLANATION_PATTERN = /^\s*(?:please\s+)?(?:help\s+me\s+understand|explain|what\s+(?:is|are|does)|how\s+does|why\s+does|describe|compare)\b/i;
+const TASK_SCOPED_STRONG_WORKSPACE_PATTERN = /\b(?:workspace|repo(?:sitory)?|codebase|implementation|source|inspect|investigat|review|verify|debug|diagnos|failing|broken|bug|issue|regression)\w*\b|\bcurrent\s+(?:project|workspace|repo(?:sitory)?|code|implementation|file)\b/i;
+const TASK_SCOPED_MUTATING_SKILL_IDS = new Set([
+  'file-write',
+  'file-edit',
+  'file-delete',
+  'file-move',
+  'rename-symbol',
+  'code-action',
+  'code-format',
+  'memory-write',
+  'memory-delete',
+  'rollback-checkpoint',
+]);
+
+/**
+ * Narrow a task-scoped agent's eligible capability pool to a deterministic,
+ * bounded subset for this turn. This is context selection, not authorization:
+ * the agent allowlist, turn envelope, tool policy, and approvals still apply.
+ */
+export function selectTaskScopedSkills(
+  agent: Pick<AgentDefinition, 'skills' | 'skillPolicy'>,
+  eligibleSkills: SkillDefinition[],
+  userMessage: string,
+  requestContext: Record<string, unknown> = {},
+): SkillDefinition[] {
+  if (resolveAgentSkillPolicy(agent) !== 'task-scoped') {
+    return eligibleSkills;
+  }
+
+  const byId = new Map(eligibleSkills.map(skill => [skill.id, skill]));
+  const selected: SkillDefinition[] = [];
+  const selectedIds = new Set<string>();
+  const add = (...ids: string[]): void => {
+    for (const id of ids) {
+      if (selected.length >= MAX_TASK_SCOPED_SKILLS) {
+        return;
+      }
+      const skill = byId.get(id);
+      if (skill && !selectedIds.has(id)) {
+        selectedIds.add(id);
+        selected.push(skill);
+      }
+    }
+  };
+
+  const normalizedPrompt = normalizeToolIntentPhrase(userMessage);
+  for (const skill of eligibleSkills) {
+    const normalizedId = normalizeToolIntentPhrase(skill.id);
+    if (normalizedId && ` ${normalizedPrompt} `.includes(` ${normalizedId} `)) {
+      add(skill.id);
+    }
+  }
+
+  const testing = TASK_SCOPED_TEST_PATTERN.test(userMessage);
+  const command = TASK_SCOPED_COMMAND_PATTERN.test(userMessage);
+  const contextualAction = shouldBiasTowardDirectAction(userMessage, requestContext);
+  const contextualInvestigation = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext);
+  const priorContext = [
+    requestContext['sessionContext'],
+    requestContext['nativeChatContext'],
+    requestContext['attachmentContext'],
+  ].filter((value): value is string => typeof value === 'string').join('\n');
+  const verificationOnly = /\b(?:did you|have you|was it|were they|check whether|verify whether|confirm whether)\b/i.test(userMessage)
+    && !/\b(?:fix|patch|repair|implement|update|change|edit|write|create|delete|remove|move|rename|refactor)\b[^.!?\n]{0,40}\b(?:now|after|then|if)\b/i.test(userMessage);
+  const mutation = (!verificationOnly && TASK_SCOPED_ACTION_PATTERN.test(userMessage))
+    || (contextualAction && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(priorContext));
+  const action = mutation
+    || TASK_SCOPED_TOOL_ACTION_PATTERN.test(userMessage)
+    || contextualAction;
+  const git = TASK_SCOPED_GIT_PATTERN.test(userMessage);
+  const memory = TASK_SCOPED_MEMORY_PATTERN.test(userMessage);
+  const web = TASK_SCOPED_WEB_PATTERN.test(userMessage);
+  const conceptualExplanation = TASK_SCOPED_EXPLANATION_PATTERN.test(userMessage)
+    && !TASK_SCOPED_STRONG_WORKSPACE_PATTERN.test(userMessage);
+  const workspace = (!conceptualExplanation && TASK_SCOPED_WORKSPACE_PATTERN.test(userMessage))
+    || contextualInvestigation
+    || (testing && (command || action));
+
+  if (git) {
+    add('git-status', 'git-diff', 'git-log');
+    if (/\bcommit\b/i.test(userMessage)) { add('git-commit'); }
+    if (/\bpush\b/i.test(userMessage)) { add('git-push'); }
+    if (/\bbranch|checkout\b/i.test(userMessage)) { add('git-branch'); }
+    if (/\bblame\b/i.test(userMessage)) { add('git-blame'); }
+    if (/\bapply(?:\s+a)?\s+patch|patch\b/i.test(userMessage)) { add('git-apply-patch'); }
+  }
+
+  if (workspace) {
+    add('file-search', 'text-search', 'file-read', 'directory-list', 'code-symbols');
+  }
+  if (testing && workspace) {
+    add('framework-detect', 'diagnostics', 'test-run');
+  }
+  if (mutation && workspace) {
+    add('file-edit', 'file-write', 'diff-preview');
+    if (/\bdelete|remove\b/i.test(userMessage)) { add('file-delete'); }
+    if (/\bmove|rename\b/i.test(userMessage)) { add('file-move'); }
+    if (/\brename\b/i.test(userMessage)) { add('rename-symbol'); }
+  }
+  if (command) {
+    add('terminal-run', 'npm-scripts');
+    if (testing) { add('test-run'); }
+    if (/\bdocker\b/i.test(userMessage)) { add('docker-cli'); }
+  }
+  if (memory) {
+    add('memory-query');
+    if (mutation || /\bremember|save\b/i.test(userMessage)) { add('memory-write'); }
+  }
+  if (web) {
+    add('web-fetch', 'simple-browser');
+    if (/\bapi|request|post|put|patch|delete\b/i.test(userMessage)) { add('http-request'); }
+  }
+
+  const shouldRankByIntent = selected.length > 0 || workspace || action || command || git || memory || web;
+  const ranked = (shouldRankByIntent ? eligibleSkills : [])
+    .filter(skill =>
+      !selectedIds.has(skill.id)
+      && (mutation || !TASK_SCOPED_MUTATING_SKILL_IDS.has(skill.id)),
+    )
+    .map(skill => ({
+      skill,
+      score: scoreSkillIntentMatch(userMessage, inferSkillRoutingHints(skill)),
+    }))
+    .filter(candidate => candidate.score > 0)
+    .sort((left, right) => right.score - left.score || left.skill.id.localeCompare(right.skill.id));
+  const scoreFloor = ranked.length > 0 ? Math.max(3, ranked[0]!.score - 2) : Number.POSITIVE_INFINITY;
+  for (const candidate of ranked.slice(0, 5)) {
+    if (candidate.score >= scoreFloor) {
+      add(candidate.skill.id);
+    }
+  }
+
+  return selected;
+}
+
 function buildToolDefinitions(skills: SkillDefinition[]): ToolDefinition[] {
   return skills.map(skill => {
     const routingHints = inferSkillRoutingHints(skill);
@@ -4906,16 +5265,49 @@ function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints
   };
 }
 
-function getProviderTimeoutMs(_providerId: string, defaultTimeoutMs: number): number {
-  return defaultTimeoutMs;
+/**
+ * Turn-local circuit-breaker scope. Model and effort variants backed by the
+ * same ACP agent or local endpoint share a scope, so a timeout cannot trigger a
+ * procession of cosmetic variants against the same unhealthy process.
+ */
+export function executionEndpointScope(modelId: string, providerId: string): string {
+  if (providerId === 'acp') {
+    const agentId = modelId.replace(/^acp\//, '').split(/[@#]/, 1)[0] || 'unknown';
+    return `acp:${agentId}`;
+  }
+  if (providerId === 'local') {
+    const endpointId = modelId.replace(/^local\//, '').split('@@', 1)[0] || 'default';
+    return `local:${endpointId}`;
+  }
+  return `provider:${providerId}`;
 }
 
-function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionBundleChars: number; sessionChars: number; memoryChars: number; supplementalChars: number } {
+function shouldOpenEndpointCircuit(errorMessage: string): boolean {
+  return /\b(?:timed?\s*out|timeout|temporarily unavailable|socket|transport|network|connection|econn\w*|fetch failed|upstream outage)\b/i.test(errorMessage);
+}
+
+function boundedAttemptReason(reason: string | undefined): string | undefined {
+  const normalized = reason?.replace(/\s+/g, ' ').trim();
+  return normalized ? normalized.slice(0, 300) : undefined;
+}
+
+export function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): number {
+  return providerId === 'acp'
+    ? Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS)
+    : defaultTimeoutMs;
+}
+
+function buildPromptBudget(
+  contextWindow: number | undefined,
+  imageCount: number,
+  reservedToolTokens = 0,
+): { sessionBundleChars: number; sessionChars: number; memoryChars: number; supplementalChars: number } {
   const inputTokens = typeof contextWindow === 'number' && contextWindow > 0 ? contextWindow : 32000;
   // Allow chars to scale with the model's actual context window, not a fixed ceiling.
-  // 4 chars/token is a conservative estimate; subtract headroom for output and overhead.
+  // 4 chars/token is a conservative estimate; subtract image and tool-schema
+  // headroom because providers count all three against the same context window.
   const scaledChars = Math.floor((inputTokens * 0.35) * 4); // 35% of context window, 4 chars/token
-  const usableChars = Math.max(2400, scaledChars - (imageCount * 1200));
+  const usableChars = Math.max(2400, scaledChars - (imageCount * 1200) - (reservedToolTokens * 4));
   // Session bundle gets its own dedicated budget: scales from 2k (small models) to ~16k (200k models).
   const sessionBundleChars = Math.min(16000, Math.max(2000, Math.floor(usableChars * 0.12)));
   return {
@@ -5232,6 +5624,66 @@ export function collapseDuplicatedTrailingBlock(text: string): string {
     }
   }
   return text;
+}
+
+/**
+ * Keep provider/runtime diagnostics out of answer prose and remove repeated
+ * long-form paragraphs outside code fences. Diagnostics are returned
+ * separately so callers can surface each once as progress.
+ */
+export function sanitizeAssistantResponse(text: string): { content: string; diagnostics: string[] } {
+  if (!text) {
+    return { content: text, diagnostics: [] };
+  }
+  const diagnostics: string[] = [];
+  const withoutDiagnosticLines = text
+    .split(/\r?\n/)
+    .filter(line => {
+      const normalized = line.trim().replace(/^>\s*/, '');
+      if (/^(?:warning:\s*)?(?:exceeded skills context budget|skill descriptions were shortened)\b/i.test(normalized)) {
+        diagnostics.push(normalized.replace(/^warning:\s*/i, 'Model diagnostic: '));
+        return false;
+      }
+      return true;
+    })
+    .join('\n');
+
+  let collapsed = withoutDiagnosticLines;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = collapseDuplicatedTrailingBlock(collapsed);
+    if (next === collapsed) {
+      break;
+    }
+    collapsed = next;
+  }
+
+  const seen = new Set<string>();
+  let inCodeFence = false;
+  const blocks = collapsed.split(/\n{2,}/);
+  const kept = blocks.filter(block => {
+    const fenceCount = (block.match(/```/g) ?? []).length;
+    const blockStartsInCode = inCodeFence;
+    if (fenceCount % 2 !== 0) {
+      inCodeFence = !inCodeFence;
+    }
+    if (blockStartsInCode || fenceCount > 0) {
+      return true;
+    }
+    const normalized = block.replace(/\s+/g, ' ').trim();
+    if (normalized.length < 60) {
+      return true;
+    }
+    if (seen.has(normalized)) {
+      return false;
+    }
+    seen.add(normalized);
+    return true;
+  });
+
+  return {
+    content: kept.map(block => block.trim()).join('\n\n').trim(),
+    diagnostics: [...new Set(diagnostics)],
+  };
 }
 
 export function shouldBiasTowardWorkspaceInvestigation(
@@ -5645,34 +6097,6 @@ function inferSkillRoutingHints(skill: SkillDefinition): string[] {
   }
 
   return [...hints].filter(hint => hint.length >= 3 && hint.length <= 80).slice(0, 8);
-}
-
-function buildLikelyToolMatchGuidance(userMessage: string, skills: SkillDefinition[]): string {
-  const ranked = skills
-    .map(skill => {
-      const routingHints = inferSkillRoutingHints(skill);
-      return {
-        skill,
-        routingHints,
-        score: scoreSkillIntentMatch(userMessage, routingHints),
-      };
-    })
-    .filter(candidate => candidate.score > 0)
-    .sort((left, right) => right.score - left.score || left.skill.id.localeCompare(right.skill.id));
-
-  if (ranked.length === 0) {
-    return '';
-  }
-
-  const topMatches = ranked.slice(0, Math.min(3, ranked.length)).filter(candidate => candidate.score >= Math.max(3, ranked[0]!.score - 2));
-  const ambiguous = topMatches.length > 1 && topMatches[1]!.score >= (topMatches[0]!.score - 1);
-
-  return [
-    'Likely tool matches for this request:',
-    ...topMatches.map(candidate => `- ${candidate.skill.id}: ${candidate.routingHints.slice(0, 4).join(', ') || candidate.skill.name}`),
-    'If more than one tool looks equally plausible, ask the user exactly what they mean before calling a tool.',
-    ...(ambiguous ? [] : ['If one tool clearly matches, call it directly instead of waiting for the user to provide the raw tool id.']),
-  ].join('\n');
 }
 
 function scoreSkillIntentMatch(userMessage: string, routingHints: string[]): number {

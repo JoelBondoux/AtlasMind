@@ -72,6 +72,7 @@ function agentToEntry(agent: AgentDefinition, publisher: string, updatedAt: stri
       role: agent.role,
       description: agent.description,
       skills: agent.skills,
+      skillPolicy: agent.skillPolicy ?? (agent.skills.length > 0 ? 'allowlist' : 'task-scoped'),
     },
     description: agent.description,
     ...(agent.role ? { representativeQueries: [agent.role] } : {}),

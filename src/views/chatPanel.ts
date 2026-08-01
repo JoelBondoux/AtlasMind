@@ -1265,7 +1265,9 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
-      const completedModels = this.streamingModels.length > 0 ? [...this.streamingModels] : undefined;
+      const completedModels = result.modelAttempts && result.modelAttempts.length > 1
+        ? [...new Set(result.modelAttempts.map(attempt => attempt.model))]
+        : undefined;
       this.streamingModels = [];
       const assistantMeta = {
         ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {

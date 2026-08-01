@@ -193,6 +193,15 @@ Minimum validation for provider work:
 - Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
 - Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
 
+For the Windows ACP private-desktop helper, rebuild the pinned Rust source, copy
+the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
+`ACP_PRIVATE_DESKTOP_HELPER_SHA256`, and run
+`tests/providers/acpWindowsLauncher.test.ts`. Preserve the create-suspended →
+assign kill-on-close Job Object → resume ordering, the restricted inherited
+handle list, and `STARTF_USESHOWWINDOW`/`SW_HIDE`. The Windows test must execute
+the shipped PE around a real redirected-stdio child; binary hash agreement alone
+does not prove the launcher works.
+
 ## Debugging Orchestration And Concurrency
 
 1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
@@ -200,6 +209,11 @@ Minimum validation for provider work:
 3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
 4. For race-condition or dependency-order problems, add a focused scheduler or integration regression before changing concurrency behavior.
 5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+Failover is capped at three invoked endpoints, not three model labels. ACP
+model/effort variants share an endpoint circuit, and local models on the same
+configured server do too. Use `TaskResult.modelAttempts` for diagnostics; router
+previews and abandoned stream fragments are not evidence that a model ran.
 
 AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
 

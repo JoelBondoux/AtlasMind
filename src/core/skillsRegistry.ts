@@ -1,4 +1,4 @@
-import type { AgentDefinition, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, AgentSkillPolicy, SkillDefinition, SkillScanResult } from '../types.js';
 
 /**
  * Registry for skill definitions.
@@ -105,17 +105,34 @@ export class SkillsRegistry {
   // ── Agent context ─────────────────────────────────────────────
 
   /**
-   * Return the skills available and enabled for a given agent.
+   * Return the enabled skills eligible for a given agent before per-turn
+   * relevance and capability narrowing.
    */
   getSkillsForAgent(agent: AgentDefinition): SkillDefinition[] {
-    const candidates = agent.skills.length === 0
+    const policy = resolveAgentSkillPolicy(agent);
+    const explicitlyNamed = [...new Set(agent.skills)]
+      .map(id => this.skills.get(id))
+      .filter((s): s is SkillDefinition => s !== undefined);
+    const candidates = policy === 'all'
       ? this.listSkills()
-      : agent.skills
-        .map(id => this.skills.get(id))
-        .filter((s): s is SkillDefinition => s !== undefined);
+      : policy === 'allowlist' || explicitlyNamed.length > 0
+        ? explicitlyNamed
+        : this.listSkills().filter(skill => skill.builtIn === true && !isMcpSkill(skill));
 
     return candidates.filter(s => this.isEnabled(s.id));
   }
+}
+
+/**
+ * Safe compatibility rule for persisted agents created before `skillPolicy`.
+ * A populated list remains an allowlist; an empty list becomes task-scoped
+ * built-ins rather than silently inheriting every present and future skill.
+ */
+export function resolveAgentSkillPolicy(agent: Pick<AgentDefinition, 'skills' | 'skillPolicy'>): AgentSkillPolicy {
+  if (agent.skillPolicy === 'task-scoped' || agent.skillPolicy === 'allowlist' || agent.skillPolicy === 'all') {
+    return agent.skillPolicy;
+  }
+  return agent.skills.length > 0 ? 'allowlist' : 'task-scoped';
 }
 
 function getUserCustomSkillFolderPath(skill: SkillDefinition): string | undefined {

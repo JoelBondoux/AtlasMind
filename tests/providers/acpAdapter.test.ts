@@ -396,6 +396,25 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(launchModes).toEqual([true]);
   });
 
+  it('emits data-minimal evidence of the effective private-desktop launch boundary', async () => {
+    const { factory } = scriptedAgent();
+    const events: Array<{ agentId: string; requestedPrivateDesktop: boolean; mode: string }> = [];
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      hideConsoleWindows: true,
+      onProcessLaunch: event => events.push(event),
+    }).probe();
+
+    expect(events).toEqual([{
+      agentId: AGENT.id,
+      requestedPrivateDesktop: true,
+      mode: 'private-desktop',
+    }]);
+    expect(Object.keys(events[0]!).sort()).toEqual(['agentId', 'mode', 'requestedPrivateDesktop']);
+  });
+
   it('leaves the probe on the ordinary desktop when the setting is off', async () => {
     const { factory } = scriptedAgent();
     const launchModes: Array<boolean | undefined> = [];

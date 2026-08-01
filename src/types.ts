@@ -365,6 +365,13 @@ export interface ModelStruggleState {
  */
 export type AgentAutoUpdateCadence = 'never' | 'every-use' | 'daily' | 'weekly' | 'monthly';
 
+/**
+ * How an agent's declared `skills` list becomes an execution-time eligibility
+ * pool. Missing values are treated as the safe legacy default:
+ * `allowlist` when ids are present, otherwise `task-scoped`.
+ */
+export type AgentSkillPolicy = 'task-scoped' | 'allowlist' | 'all';
+
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -373,7 +380,14 @@ export interface AgentDefinition {
   systemPrompt: string;
   allowedModels?: string[];  // model IDs – empty = any
   costLimitUsd?: number;
-  skills: string[];           // skill IDs
+  skills: string[];           // skill IDs; meaning is controlled by skillPolicy
+  /**
+   * `task-scoped`: deterministically select a small relevant subset per turn.
+   * An empty list means built-in skills are eligible; external/MCP skills must
+   * be named explicitly. `allowlist`: expose exactly the named enabled skills.
+   * `all`: deliberately expose every enabled skill, including external skills.
+   */
+  skillPolicy?: AgentSkillPolicy;
   /**
    * Routing need IDs this agent is the primary handler for.
    * Used by the orchestrator as the dominant signal when the classifier
@@ -2780,6 +2794,20 @@ export interface TaskImageAttachment {
   dataBase64: string;
 }
 
+/** One model endpoint AtlasMind actually invoked while producing a task result. */
+export interface TaskModelAttempt {
+  model: string;
+  providerId: string;
+  /** Turn-local circuit-breaker key. Contains no URL, command, or credential. */
+  endpointScope: string;
+  status: 'completed' | 'timeout' | 'error' | 'capability-mismatch' | 'escalated';
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Bounded diagnostic text for failed or superseded attempts. */
+  reason?: string;
+}
+
 export interface TaskResult {
   id: string;
   agentId: string;
@@ -2790,6 +2818,8 @@ export interface TaskResult {
   outputTokens: number;
   contextCompressionSavingsUsd?: number;
   durationMs: number;
+  /** Every model endpoint actually invoked, in order. Selection previews are excluded. */
+  modelAttempts?: TaskModelAttempt[];
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
   /** Set when a provider was automatically paused mid-request (e.g. billing failure). */
   autoDisabledProvider?: {

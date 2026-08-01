@@ -539,6 +539,15 @@
       }
       return;
     }
+    if (action === 'branch-discuss') {
+      // The branch name and Git evidence never cross from the webview. The host
+      // resolves this opaque id against a newly collected inventory and authors
+      // the first Chat response from local Git facts.
+      if (payload) {
+        vscode.postMessage({ type: 'discussBranch', payload });
+      }
+      return;
+    }
     if (action === 'contributor-filter') {
       // Clicking the active contributor clears the filter, so the ring and the
       // segmented control are both a toggle rather than a one-way trip.
@@ -2678,6 +2687,15 @@
           ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
         </div>
         <div class="branch-card-actions">
+          ${renderAtlasDiscussAction(
+            'branch-discuss',
+            branch.id || '',
+            'Ask Atlas',
+            {
+              iconOnly: true,
+              title: `Ask Atlas for a deterministic summary of ${branch.name}`,
+            },
+          )}
           <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
         </div>
       </article>

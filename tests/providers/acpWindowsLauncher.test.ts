@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
 import {
   ACP_PRIVATE_DESKTOP_HELPER_SHA256,
   createAcpPrivateDesktopProbe,
@@ -26,6 +27,38 @@ describe('the ACP private-desktop launch boundary', () => {
     const shipped = createAcpPrivateDesktopProbe();
     expect(shipped.fileExists(shipped.helperPath), shipped.helperPath).toBe(true);
     expect(shipped.sha256(shipped.helperPath)).toBe(ACP_PRIVATE_DESKTOP_HELPER_SHA256);
+  });
+
+  it.skipIf(process.platform !== 'win32')('runs the shipped helper and preserves redirected stdio', async () => {
+    const commandInterpreter = process.env.ComSpec;
+    expect(commandInterpreter).toBeTruthy();
+    const launch = wrapAcpLaunchForPrivateDesktop(
+      commandInterpreter!,
+      ['/d', '/s', '/c', 'echo atlasmind-private-desktop-ok'],
+      true,
+      createAcpPrivateDesktopProbe(),
+    );
+    expect(launch.status).toBe('private-desktop');
+    if (launch.status !== 'private-desktop') {
+      return;
+    }
+
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        launch.command,
+        launch.args,
+        { windowsHide: true, timeout: 10_000 },
+        (error, output, stderr) => {
+          if (error) {
+            reject(new Error(`${error.message}\n${stderr}`));
+            return;
+          }
+          resolve(output);
+        },
+      );
+    });
+
+    expect(stdout.trim()).toBe('atlasmind-private-desktop-ok');
   });
 
   it('does nothing unless the user explicitly opts in', () => {

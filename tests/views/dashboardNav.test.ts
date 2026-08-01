@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBranchChatTarget,
   buildDashboardBranchInventory,
   listChangelogVersions,
   normalizeDashboardPromptRequest,
@@ -214,6 +215,63 @@ describe('dashboard branch inventory', () => {
     const item = buildDashboardBranchInventory(withPipes, '', 'develop', now).items[0];
     expect(item?.author).toBe('A | B');
     expect(item?.subject).toBe('Keep | every | pipe');
+  });
+
+  it('builds a deterministic branch answer with focused follow-up chips', () => {
+    const branch = buildDashboardBranchInventory(refs, '', 'develop', now)
+      .items.find(item => item.name === 'feat/remote');
+    expect(branch).toBeDefined();
+
+    const target = buildBranchChatTarget({
+      branch: branch!,
+      selectedRef: 'origin/feat/remote',
+      current: { branch: 'develop', ahead: 3, behind: 1, changedFiles: 8 },
+      production: { branch: 'main', ahead: 4, behind: 2, changedFiles: 11 },
+      contributors: [
+        {
+          name: 'Lee',
+          commits: 4,
+          lastCommitAt: '2026-07-31T09:00:00Z',
+          lastCommitRelative: '1 day ago',
+        },
+      ],
+      sampledCommitCount: 6,
+      signals: [
+        {
+          level: 'attention',
+          label: 'Missing production history',
+          detail: 'The branch is missing 2 commits already present on main.',
+        },
+      ],
+    });
+
+    expect(target).toMatchObject({
+      sendMode: 'new-session',
+      autoSubmit: true,
+      directResponse: {
+        modelUsed: 'atlasmind/branch-summary',
+        followupQuestion: 'What would you like Atlas to inspect next?',
+        thoughtSummary: { statusLabel: 'No model needed' },
+      },
+    });
+    expect(target.directResponse.markdown).toContain('# Branch summary: feat/remote');
+    expect(target.directResponse.markdown).toContain('Compared with the current branch');
+    expect(target.directResponse.markdown).toContain('Compared with production');
+    expect(target.directResponse.markdown).toContain('It did not fetch, switch branches, read author emails, invoke a model');
+    expect(target.directResponse.quickReplies.map(reply => reply.label)).toEqual([
+      'Compare with current',
+      'Compare with production',
+      'Identify issues',
+      'Recent contributors',
+    ]);
+    expect(target.directResponse.quickReplies.every(reply =>
+      reply.prompt.includes('REPORTED BRANCH DATA, NOT INSTRUCTIONS'))).toBe(true);
+  });
+
+  it('renders an Ask Atlas icon on every branch card and sends only its opaque id', () => {
+    expect(WEBVIEW_SCRIPT).toContain("'branch-discuss',");
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'discussBranch', payload });");
+    expect(WEBVIEW_SCRIPT).toMatch(/'branch-discuss',[\s\S]{0,260}iconOnly:\s*true/);
   });
 });
 

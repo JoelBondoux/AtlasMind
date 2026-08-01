@@ -62,7 +62,7 @@ describe('buildAtlasMindCatalog', () => {
     const agentEntry = catalog.entries.find(e => e.type === 'application/vnd.atlasmind.agent+json');
     const mcpEntry = catalog.entries.find(e => e.type === 'application/mcp-server+json');
     expect(agentEntry?.capabilities).toEqual(['file-read', 'git-commit']);
-    expect(agentEntry?.data).toMatchObject({ role: agent.role });
+    expect(agentEntry?.data).toMatchObject({ role: agent.role, skillPolicy: 'allowlist' });
     expect(mcpEntry?.capabilities).toEqual(['query']);
     expect(mcpEntry?.data).toMatchObject({ transport: 'stdio', command: 'npx' });
   });

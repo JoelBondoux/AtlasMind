@@ -28,13 +28,17 @@ const TRUE: Bool = 1;
 const INFINITE: Dword = 0xffff_ffff;
 const WAIT_FAILED: Dword = 0xffff_ffff;
 const DESKTOP_CREATEWINDOW: Dword = 0x0000_0002;
+const STARTF_USESHOWWINDOW: Dword = 0x0000_0001;
 const STARTF_USESTDHANDLES: Dword = 0x0000_0100;
 const EXTENDED_STARTUPINFO_PRESENT: Dword = 0x0008_0000;
+const CREATE_SUSPENDED: Dword = 0x0000_0004;
 const CREATE_NO_WINDOW: Dword = 0x0800_0000;
 const STD_INPUT_HANDLE: Dword = (-10_i32) as Dword;
 const STD_OUTPUT_HANDLE: Dword = (-11_i32) as Dword;
 const STD_ERROR_HANDLE: Dword = (-12_i32) as Dword;
 const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: usize = 0x0002_0002;
+const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
+const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Dword = 0x0000_2000;
 
 #[repr(C)]
 struct StartupInfoW {
@@ -72,6 +76,39 @@ struct ProcessInformation {
     thread_id: Dword,
 }
 
+#[repr(C)]
+struct JobObjectBasicLimitInformation {
+    per_process_user_time_limit: i64,
+    per_job_user_time_limit: i64,
+    limit_flags: Dword,
+    minimum_working_set_size: usize,
+    maximum_working_set_size: usize,
+    active_process_limit: Dword,
+    affinity: usize,
+    priority_class: Dword,
+    scheduling_class: Dword,
+}
+
+#[repr(C)]
+struct IoCounters {
+    read_operation_count: u64,
+    write_operation_count: u64,
+    other_operation_count: u64,
+    read_transfer_count: u64,
+    write_transfer_count: u64,
+    other_transfer_count: u64,
+}
+
+#[repr(C)]
+struct JobObjectExtendedLimitInformation {
+    basic_limit_information: JobObjectBasicLimitInformation,
+    io_info: IoCounters,
+    process_memory_limit: usize,
+    job_memory_limit: usize,
+    peak_process_memory_used: usize,
+    peak_job_memory_used: usize,
+}
+
 #[link(name = "user32")]
 unsafe extern "system" {
     fn CreateDesktopW(
@@ -88,6 +125,7 @@ unsafe extern "system" {
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn CloseHandle(handle: Handle) -> Bool;
+    fn CreateJobObjectW(job_attributes: Lpvoid, name: *const u16) -> Handle;
     fn CreateProcessW(
         application_name: *const u16,
         command_line: *mut u16,
@@ -119,6 +157,15 @@ unsafe extern "system" {
         previous_value: Lpvoid,
         return_size: *mut SizeT,
     ) -> Bool;
+    fn AssignProcessToJobObject(job: Handle, process: Handle) -> Bool;
+    fn ResumeThread(thread: Handle) -> Dword;
+    fn SetInformationJobObject(
+        job: Handle,
+        information_class: i32,
+        information: Lpvoid,
+        information_length: Dword,
+    ) -> Bool;
+    fn TerminateProcess(process: Handle, exit_code: u32) -> Bool;
     fn WaitForSingleObject(handle: Handle, milliseconds: Dword) -> Dword;
 }
 
@@ -282,7 +329,8 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
     let mut startup: StartupInfoExW = unsafe { zeroed() };
     startup.startup_info.cb = size_of::<StartupInfoExW>() as Dword;
     startup.startup_info.desktop = desktop_path.as_mut_ptr();
-    startup.startup_info.flags = STARTF_USESTDHANDLES;
+    startup.startup_info.flags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.startup_info.show_window = 0;
     startup.startup_info.std_input = standard_handles[0];
     startup.startup_info.std_output = standard_handles[1];
     startup.startup_info.std_error = standard_handles[2];
@@ -298,7 +346,7 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
             null_mut(),
             null_mut(),
             TRUE,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED,
             null_mut(),
             null(),
             &mut startup.startup_info,
@@ -310,7 +358,47 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
     }
 
     let process_handle = OwnedHandle(process.process);
-    let _thread_handle = OwnedHandle(process.thread);
+    let thread_handle = OwnedHandle(process.thread);
+    let raw_job = unsafe { CreateJobObjectW(null_mut(), null()) };
+    if raw_job.is_null() {
+        let error = io::Error::last_os_error();
+        unsafe {
+            TerminateProcess(process_handle.0, 126);
+        }
+        return Err(error);
+    }
+    let _job_handle = OwnedHandle(raw_job);
+    let mut job_limits: JobObjectExtendedLimitInformation = unsafe { zeroed() };
+    job_limits.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if unsafe {
+        SetInformationJobObject(
+            raw_job,
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+            (&mut job_limits as *mut JobObjectExtendedLimitInformation).cast::<c_void>(),
+            size_of::<JobObjectExtendedLimitInformation>() as Dword,
+        )
+    } == FALSE
+    {
+        let error = io::Error::last_os_error();
+        unsafe {
+            TerminateProcess(process_handle.0, 126);
+        }
+        return Err(error);
+    }
+    if unsafe { AssignProcessToJobObject(raw_job, process_handle.0) } == FALSE {
+        let error = io::Error::last_os_error();
+        unsafe {
+            TerminateProcess(process_handle.0, 126);
+        }
+        return Err(error);
+    }
+    if unsafe { ResumeThread(thread_handle.0) } == Dword::MAX {
+        let error = io::Error::last_os_error();
+        unsafe {
+            TerminateProcess(process_handle.0, 126);
+        }
+        return Err(error);
+    }
     if unsafe { WaitForSingleObject(process_handle.0, INFINITE) } == WAIT_FAILED {
         return Err(io::Error::last_os_error());
     }
