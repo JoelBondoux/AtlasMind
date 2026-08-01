@@ -68,6 +68,8 @@ AtlasMind now also carries an immutable legality-and-human-respect baseline in r
 
 The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill pool as the default agent. Their specialization comes from routing metadata and system prompt differences rather than from narrower tool access.
 
+After AtlasMind selects an agent, it resolves the execution model separately. A skill-bearing task normally requires AtlasMind `function_calling`. When **Let subscription agents act** (`atlasmind.acp.toolsEnabled`) is enabled, an ACP subscription model declaring delegated native-tool execution can satisfy that requirement: AtlasMind passes no skill schemas, the agent uses its own tools, and each operation still returns through the ACP approval broker. Turning the setting off leaves ACP available for tool-free chat/reasoning but excludes it from tool-backed routes. The opt-in makes ACP eligible; explicit pins, agent model allowlists, provider health, privacy gates, and normal routing scores can still select or exclude it.
+
 For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
 - The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable, and it should create that minimal spec when the repo does not already have one.
 - Workspace Debugger prefers reproducing testable regressions with a failing automated signal before implementation, creating the smallest missing regression test first when needed, and then reporting the failing-to-passing evidence.
@@ -140,6 +142,8 @@ Above the matrix, the **Policy coverage** board reports what each *enabled* meth
 - **Practice — not file-evident** — exploratory, black-box, gray-box, white-box, V-model, test-design, and agile testing leave no artifact to detect, so they are labelled rather than counted as gaps.
 
 Failing tests are read from the newest JUnit-style report the project has written (`test-results/junit.xml`, `junit.xml`, `target/surefire-reports/*.xml`, and similar) and attributed to the policy that owns the file, with a per-policy **Fix with Atlas** action. AtlasMind never runs a test command to populate this: if the project has produced no report, the page states that pass/fail is *unknown* and shows the command for the detected framework, because "0 failing" from a run that never happened is worse than no number. A report that predates your newest test file is marked **May be out of date**. Skipped-test counts are derived from the test files themselves, so that signal is available with or without a report.
+
+Every policy card also has a visible **Ask Atlas** action. Its first response is built directly from AtlasMind's 23-methodology catalogue and the live evidence row — what the method means, what is required, the expected result, why it is useful, why the current status follows, and the safest next step. Because that answer is already AtlasMind-owned data, it uses no model, provider fallback, tool, ACP subscription, or metered API. Status-specific chips then offer the optional routed work: check whether the policy fits this repository, plan a smallest useful test, explain disabling it, review coverage, diagnose failures, or draft evidence for a practice.
 
 #### Agent Testing Roles
 
@@ -253,6 +257,12 @@ Change this once in the Manage Agents sidebar under **Defaults & automation**. T
 The built-in exclusion is enforced before any provider call and is shown as a locked control in Agent Manager. **Safety:** If an update call for a user-created agent fails, the original definition is used and `lastAutoUpdated` is not advanced.
 
 ## Operational Boundaries
+
+### Subscription agents as routed ACP providers
+
+ACP native tools are not an extra AtlasMind skill set. Provider discovery declares only that the agent supports delegated execution; the live tools-enabled setting independently authorizes that execution shape for the current turn. Both must be present before the router treats ACP as satisfying a tool requirement. The Orchestrator then stands down its own function loop for that attempt, while ordinary-provider failover restores the original AtlasMind tools.
+
+This split keeps capability, routing, and permission distinct. Discovering an installed subscription agent grants no authority, enabling the checkbox grants no individual operation, and a missing or failed permission policy denies the requested action.
 
 ### AtlasMind as a Buzz/ACP managed agent
 

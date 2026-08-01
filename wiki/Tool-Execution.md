@@ -171,6 +171,8 @@ An agent AtlasMind has no recipe for — one the user named themselves — is ne
 
 An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
 
+The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled. Both are required for a tool-backed turn. If ACP is selected, AtlasMind sends no `ToolDefinition` schemas—the adapter rejects them—and the agent uses its native tools. If routing falls back to an ordinary function-calling provider, that attempt receives the original AtlasMind schemas.
+
 - **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
 - **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.
 - **AtlasMind never selects `allow_always`.** The protocol offers it; accepting would store the grant inside the agent's own persistent state, where AtlasMind can neither display nor revoke it. AtlasMind answers `allow_once` every time and keeps "always" on its own side, in `ToolApprovalManager`, where it is visible and clears on restart. If `allow_always` is the only way to approve, the operation is declined.
@@ -188,6 +190,8 @@ agent boot and console churn. That changes process lifetime only:
 - AtlasMind still selects at most an allow-once option and never `allow_always`;
 - changing the MCP list or switching between completion-only isolation and
   delegated execution invalidates the session before the next prompt;
+- an empty MCP allowlist does not imply completion-only mode when delegated
+  execution is enabled, because the agent may still expose built-in tools;
 - a private Windows desktop hides UI only — it is not a sandbox and grants or
   removes no filesystem, network, or command authority.
 

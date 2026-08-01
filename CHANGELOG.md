@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.238.1] - 2026-08-01
+
+### Fixed
+- **Testing Policy Coverage no longer spends a fleet of models to explain AtlasMind’s own policy.** Every protocol now has declared beginner-facing guidance for what it is, what is needed, the expected result, why it is useful, and its main trade-off. **Ask Atlas** immediately combines that catalogue with the host-rebuilt live evidence and recommendation; the deterministic first answer bypasses the orchestrator, uses zero model/provider capacity, and cannot enter fallback or escalation.
+- **Policy questions now lead to explicit choices instead of an open clarification dead end.** The response ends with status-appropriate reply chips — project fit, a smallest useful starting point, disabling an irrelevant policy, reviewing coverage, diagnosing failures, or drafting practice evidence — and the card action is visibly labelled **Ask Atlas** instead of relying on an unexplained icon.
+- **“Let subscription agents act” now affects the routing decision it describes.** Tool-backed work may select an eligible ACP subscription agent when `atlasmind.acp.toolsEnabled` is on; AtlasMind sends no incompatible function schemas and lets the agent use its own tools instead. With the setting off, the same model remains ineligible for that requirement. An empty MCP allowlist no longer disguises an enabled agent as a completion-only session, and changing the setting invalidates any live session created on the other side of that boundary.
+
+### Security
+- **Host-authored Chat responses are one-shot, bounded, redacted, and non-executable.** Only `atlasmind/*` source identifiers are accepted, Markdown and metadata are size-capped, controls and likely secrets are removed, action chips can submit bounded follow-up prompts but cannot name extension commands, and the response is consumed before any asynchronous work so it cannot leak into a later turn.
+- **ACP delegated-tool eligibility requires capability and live authority.** Discovery marks the provider’s native execution ability, while the router separately requires the current `acp.toolsEnabled` value; neither fact grants the other. The adapter still rejects AtlasMind tool definitions, every native operation still crosses the existing one-turn permission broker, a missing or throwing broker still denies, and completion-only sessions remain settings-isolated.
+
 ## [0.238.0] - 2026-08-01
 
 ### Added

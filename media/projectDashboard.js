@@ -3132,9 +3132,8 @@
               ${renderAtlasDiscussAction(
                 'discuss-testing-policy',
                 row.id,
-                `Discuss ${row.label} with Atlas`,
+                'Ask Atlas',
                 {
-                  iconOnly: true,
                   title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options`,
                 },
               )}

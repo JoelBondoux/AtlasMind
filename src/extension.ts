@@ -1991,6 +1991,8 @@ async function bootstrapAtlasMind(
         // Delegated execution is never delegated authorization: the agent runs
         // its own tools, but every one of them has to come back through here.
         permissionPolicy: async request => (acpAuthorize ? acpAuthorize(request) : false),
+        delegatedExecutionEnabled: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<boolean>('acp.toolsEnabled', false),
         getMcpServers: () => acpMcpServers(),
         // What the agent actually did, as it does it. Approval covers what may
         // run; this is the record of what ran, which is the half you need after
@@ -4446,6 +4448,7 @@ function mergeProviderModels(
           contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
           name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
           capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
+          delegatedToolExecution: hint?.delegatedToolExecution ?? existing.delegatedToolExecution,
           inputPricePer1k: hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
           outputPricePer1k: hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
           ...(resolvedMultiplier !== undefined ? { premiumRequestMultiplier: resolvedMultiplier } : {}),
@@ -4516,6 +4519,7 @@ export function inferModelMetadata(
   const name = liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
   const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
   const capabilities = liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId, isLocalProvider);
+  const delegatedToolExecution = hint?.delegatedToolExecution;
   const specialistDomains = mergeSpecialistDomains(
     catalogEntry?.specialistDomains,
     hint?.specialistDomains,
@@ -4553,6 +4557,7 @@ export function inferModelMetadata(
     inputPricePer1k,
     outputPricePer1k,
     capabilities,
+    ...(delegatedToolExecution !== undefined ? { delegatedToolExecution } : {}),
     ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
     enabled: true,
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1

@@ -1134,6 +1134,7 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0,
           outputPricePer1k: 0,
           capabilities: ['chat', 'code', 'reasoning'],
+          delegatedToolExecution: true,
           enabled: true,
         },
       ],

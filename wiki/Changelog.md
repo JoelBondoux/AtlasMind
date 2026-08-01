@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.238.1 — Testing explanations that answer before they ask
+
+**Every Testing Policy Coverage card now opens with a complete beginner-facing answer, not a general-agent investigation.** The visible **Ask Atlas** action explains what the selected method is, what is required to practise it, the expected result, why it is useful, the live status, what AtlasMind can and cannot infer, and the safest next step.
+
+AtlasMind already owns those definitions and evidence rules, so the first reply is host-authored and deterministic: no model is selected, no provider fallback or escalation runs, and no ACP subscription or metered API capacity is consumed. Status-appropriate chips then make the discussion productive — for example **Check whether it fits**, **Plan a starting point**, **Explain turning it off**, **Review what it covers**, or **Explain the failures**. The one-shot direct-response boundary caps and redacts content and allows follow-up prompts only; a chip cannot name an extension command.
+
+**The ACP tools checkbox now reaches routing as well as permission handling.** With **Let subscription agents act** enabled, a configured ACP subscription agent can satisfy a tool-backed task through its native tools. AtlasMind stands down its incompatible function-calling loop, every native operation still asks through the one-turn approval broker, and the router requires both provider capability and the live setting. With the switch off ACP remains completion-only. An empty MCP allowlist no longer hides the enabled execution mode, and toggling it replaces any live session created under the opposite isolation policy.
+
 ## v0.238.0 — AtlasMind can be the managed agent behind Buzz
 
 **Buzz can now launch AtlasMind as an ACP v1 agent rather than treating a Director contact as though it were executable.** Run **AtlasMind: Copy Buzz ACP Agent Setup**, create a managed agent in Buzz, choose **Provider → Custom command**, and paste the copied command and comma-separated arguments. Buzz keeps its `buzz-acp` harness and identity/channel controls; AtlasMind supplies orchestration, model routing, project memory, and approval-gated tools.

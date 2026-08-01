@@ -101,6 +101,11 @@ export interface DiscoveredModel {
   contextWindow?: number;
   /** Known capabilities of this model. */
   capabilities?: ModelCapability[];
+  /**
+   * Whether this provider can complete tool-backed work through its own
+   * approval-gated agent tools instead of AtlasMind function calls.
+   */
+  delegatedToolExecution?: boolean;
   /** Optional domain tags used by specialist routing. */
   specialistDomains?: SpecialistDomain[];
   /** Estimated or actual cost per 1 000 input tokens (USD). */

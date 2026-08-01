@@ -949,9 +949,16 @@ export class Orchestrator {
     // original model only when nothing better is available.
     this.router.recordModelFailure(modelUsed, 'Returned an empty completion (no content).');
     this.noteModelStruggle(modelUsed, 'empty', taskProfile);
+    const recoveryNeedsToolExecution = tools.length > 0
+      || request.constraints.requiredCapabilities?.includes('function_calling') === true;
+    const recoveryRoutingConstraints: RoutingConstraints = {
+      ...buildExecutionRoutingConstraints(request.constraints, tools.length > 0),
+      allowDelegatedToolExecution: recoveryNeedsToolExecution
+        && this.readSetting<boolean>('acp.toolsEnabled', false),
+    };
     const escalatedModel = this.selectEscalatedModel(
       modelUsed,
-      buildExecutionRoutingConstraints(request.constraints, tools.length > 0),
+      recoveryRoutingConstraints,
       agent.allowedModels,
       taskProfile,
       tools.length > 0,
@@ -959,6 +966,9 @@ export class Orchestrator {
     const recoveryModel = escalatedModel ?? modelUsed;
     const providerId = resolveProviderIdForModel(recoveryModel, this.router, 'local');
     const provider = this.providers.get(providerId);
+    const recoveryUsesDelegatedTools = providerId === 'acp'
+      && recoveryRoutingConstraints.allowDelegatedToolExecution === true
+      && this.router.getModelInfo(recoveryModel)?.delegatedToolExecution === true;
 
     if (provider) {
       const baseMessages = this.buildMessages(
@@ -985,7 +995,7 @@ export class Orchestrator {
           provider,
           recoveryModel,
           recoveryMessages,
-          tools,
+          recoveryUsesDelegatedTools ? [] : tools,
           {
             taskId: `${request.id}-recovery`,
             agentId: agent.id,
@@ -1177,6 +1187,14 @@ export class Orchestrator {
       requiresTools: activeAgentSkills.length > 0,
     });
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
+    // The setting authorizes a different execution shape, not a wider function
+    // schema: an ACP agent may satisfy the task with its own tools, each coming
+    // back through the ACP permission broker. Without it ACP remains a
+    // completion source and cannot satisfy this function-calling requirement.
+    const taskRequiresToolExecution = activeAgentSkills.length > 0
+      || request.constraints.requiredCapabilities?.includes('function_calling') === true;
+    const acpDelegatedToolsEnabled = taskRequiresToolExecution
+      && this.readSetting<boolean>('acp.toolsEnabled', false);
 
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
@@ -1212,7 +1230,10 @@ export class Orchestrator {
       }
     }
 
-    let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+    let routingConstraints: RoutingConstraints = {
+      ...buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0),
+      allowDelegatedToolExecution: acpDelegatedToolsEnabled,
+    };
 
     // Data Privacy routing gate — when the assembled context contains
     // confidential / regulated data, restrict routing to the user's trusted
@@ -1481,6 +1502,15 @@ export class Orchestrator {
       for (;;) {
         const selectedProvider = resolveProviderIdForModel(currentModel, this.router, 'local');
         const provider = this.providers.get(selectedProvider);
+        const usesDelegatedAcpTools = selectedProvider === 'acp'
+          && acpDelegatedToolsEnabled
+          && this.router.getModelInfo(currentModel)?.delegatedToolExecution === true;
+        // ACP cannot receive AtlasMind ToolDefinition schemas. When delegated
+        // execution is authorized, standing down this loop is the whole point:
+        // the ACP agent uses its native tools and every operation is approved by
+        // the adapter's permission policy. A non-ACP failover receives the
+        // original tools again on its next iteration.
+        const attemptTools = usesDelegatedAcpTools ? [] : tools;
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
           : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
@@ -1512,6 +1542,9 @@ export class Orchestrator {
         }
 
         const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+        if (usesDelegatedAcpTools) {
+          onProgress?.(`Delegating this tool-backed turn to "${currentModel}" using its approval-gated native tools.`);
+        }
         const escalatedModel = escalationAttempts < MAX_MODEL_ESCALATION_ATTEMPTS
           ? this.selectEscalatedModel(
               currentModel,
@@ -1527,7 +1560,7 @@ export class Orchestrator {
             provider,
             currentModel,
             messages,
-            tools,
+            attemptTools,
             {
               taskId: request.id,
               agentId: agent.id,
@@ -1854,10 +1887,16 @@ export class Orchestrator {
     const qualityCompletion = result.response === completion.content
       ? completion
       : { ...completion, content: result.response };
+    const completedWithDelegatedTools = acpDelegatedToolsEnabled
+      && this.router.getModelInfo(modelUsed)?.delegatedToolExecution === true;
     this.router.recordExecutionOutcome(
       modelUsed,
       gradeExecutionQuality(qualityCompletion, {
-        expectedToolUse: getWorkspaceToolBias(initialMessages, tools) !== 'none',
+        // ACP-native tool calls are observed and approval-gated by the adapter,
+        // but they are not AtlasMind tool-call artifacts. Do not grade a
+        // successful delegated turn as if it ignored schemas it never received.
+        expectedToolUse: !completedWithDelegatedTools
+          && getWorkspaceToolBias(initialMessages, tools) !== 'none',
         toolCallCount: executionArtifacts?.toolCallCount ?? 0,
         failedToolCallCount: executionArtifacts?.failedToolCallCount ?? 0,
         verificationSummary: executionArtifacts?.verificationSummary,

@@ -156,6 +156,8 @@ An activated-testing repair remains one normal approval-gated task, but its life
 
 The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. Each protocol has the same shared plain-English description, *When to use*, *Key tools*, and *Trade-offs* as Settings rather than a labels-only dashboard copy. Its **Fix activated testing** action gives the normal approval-gated Atlas task the host-derived enabled-policy coverage and report failures, so it can inspect, repair, and re-run the existing relevant test surfaces without inventing a command or silently weakening a test. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
 
+Every Policy Coverage card also has a visible **Ask Atlas** explainer. This is not an agent task: `buildTestingPolicyLaymanGuide` declares beginner-facing copy for all 23 methodologies, and the Dashboard combines it with the live evidence row to answer what the method is, what it needs, the expected result, why it is useful, why the displayed status follows, and what to do next. The first reply bypasses model routing and tools entirely, then offers status-specific chips for an optional project-fit review, smallest-test plan, disablement explanation, coverage review, failure diagnosis, or practice checklist. Those follow-ups become ordinary routed turns only after the operator chooses one.
+
 #### Agent Testing Roles
 
 The **Agent Editor** shows a **Testing Roles** section below Skills. When a methodology is assigned to the agent in `testing-config.json`, the section renders read-only chips for each methodology plus per-methodology model override inputs. When no methodologies are assigned, a **Configure in Testing Strategy →** link opens the Settings Panel Testing page.
@@ -189,6 +191,8 @@ Selection behavior:
 4. Workspace bug-report style prompts add an extra boost for agents that look investigation-ready.
 5. Highest score wins; ties break by agent name.
 6. If no enabled registered agent exists, the built-in fallback agent is used.
+
+Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP; the subscription agent uses its own tools and every requested operation returns through the normal ACP permission broker. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply, so the checkbox makes eligible ACP capacity usable rather than forcing every turn onto it.
 
 AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether the workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.
 
@@ -541,6 +545,8 @@ AtlasMind-side approval: `allow_always` is never selected, and a missing or
 throwing policy still denies. Enabling tools, changing the MCP allowlist, or
 crossing between completion-only isolation and delegated execution invalidates
 the session before another prompt is sent.
+
+`atlasmind.acp.toolsEnabled` now participates in routing as well as permission handling. The adapter advertises only the distinct `delegatedToolExecution` shape and never claims it can consume AtlasMind `function_calling` schemas. The live setting supplies the second, per-turn authority signal; if either half is absent, a tool-backed route cannot select ACP. An empty MCP allowlist does not switch the agent back to completion-only mode because its built-in tools may still exist.
 
 Conversation reuse is exact, not inferred. AtlasMind records the outer
 transcript and sends only a suffix after proving the record is a byte-for-byte

@@ -664,6 +664,15 @@ export class AcpAdapter implements ProviderAdapter {
        */
       getMcpServers?: () => AcpMcpServer[];
       /**
+       * Whether the user has allowed this agent to execute its own tools.
+       *
+       * Kept separate from `getMcpServers`: delegated execution may be enabled
+       * with no explicitly shared MCP server, in which case the agent still has
+       * its built-in tools and must not be launched as a completion-only,
+       * settings-isolated session. A missing or throwing getter means disabled.
+       */
+      delegatedExecutionEnabled?: boolean | (() => boolean);
+      /**
        * The authorization gate for delegated execution.
        *
        * **Omitting it is a denial, not a bypass.** With no policy, every
@@ -730,8 +739,10 @@ export class AcpAdapter implements ProviderAdapter {
    * elsewhere.
    *
    * `function_calling` is deliberately never declared. ACP has no way to expose
-   * AtlasMind's own `ToolDefinition`s to the agent, so a task requiring that
-   * must not be routed here — see the refusal in {@link run}.
+   * AtlasMind's own `ToolDefinition`s to the agent. Instead,
+   * `delegatedToolExecution` identifies the distinct path where the orchestrator
+   * sends no schemas and the agent uses its own tools. The router considers that
+   * path only when the live turn carries explicit delegated-execution authority.
    */
   async discoverModels(): Promise<DiscoveredModel[]> {
     return this.agents().flatMap(agent => {
@@ -751,6 +762,10 @@ export class AcpAdapter implements ProviderAdapter {
         inputPricePer1k: 0,
         outputPricePer1k: 0,
         capabilities,
+        // Capability, not authority. The router also requires the live
+        // allowDelegatedToolExecution constraint derived from the user's
+        // acp.toolsEnabled setting before this can satisfy a tool-backed task.
+        delegatedToolExecution: true,
       };
 
       // One row per effort level the agent actually offers. Read from the cached
@@ -779,6 +794,7 @@ export class AcpAdapter implements ProviderAdapter {
             inputPricePer1k: 0,
             outputPricePer1k: 0,
             capabilities,
+            delegatedToolExecution: true,
             // What the router already knows how to reason about. `reasoningDepth`
             // drives task-fit scoring and `premiumRequestMultiplier` drives the
             // budget gate, so the effort gradient falls out of existing machinery
@@ -810,6 +826,7 @@ export class AcpAdapter implements ProviderAdapter {
             inputPricePer1k: 0,
             outputPricePer1k: 0,
             capabilities,
+            delegatedToolExecution: true,
             ...composed,
           };
         }),
@@ -1103,11 +1120,13 @@ export class AcpAdapter implements ProviderAdapter {
 
     const resolvedForKey = this.resolveAgent(request.model);
     const serversForKey = this.mcpServers();
+    const delegatedExecutionForKey = this.delegatedExecutionEnabled(serversForKey);
     const executionEpoch = resolvedForKey
       ? JSON.stringify({
         agent: resolvedForKey.agent,
         cwd: this.options?.cwd,
         privateDesktop: this.hideConsoleWindows(),
+        isolatedSettings: !delegatedExecutionForKey,
         settingsStamp: this.settingsStamp(resolvedForKey.agent, serversForKey),
         mcpServers: serversForKey,
       })
@@ -1195,6 +1214,7 @@ export class AcpAdapter implements ProviderAdapter {
     this.refuseAtlasMindTools(request);
 
     const mcpServers = this.mcpServers();
+    const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
     const privateDesktop = this.hideConsoleWindows();
     const wanted: AcpSessionFingerprint = {
       agentId: agent.id,
@@ -1205,7 +1225,7 @@ export class AcpAdapter implements ProviderAdapter {
       modelValue: modelChoice?.value,
       effortValue: effort?.value,
       mcpServerNames: mcpServers.map(server => server.name).sort(),
-      isolatedSettings: mcpServers.length === 0,
+      isolatedSettings: !delegatedExecution,
       settingsStamp: this.settingsStamp(agent, mcpServers),
     };
 
@@ -1301,7 +1321,7 @@ export class AcpAdapter implements ProviderAdapter {
         throw new Error(`${agent.command} speaks ACP version ${initialized.protocolVersion}, but AtlasMind speaks ${ACP_PROTOCOL_VERSION}.`);
       }
       try {
-        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
+        await session.newSession(mcpServers, { isolateAgentSettings: fingerprint.isolatedSettings });
       } catch (error) {
         if (error instanceof AcpAuthRequiredError) {
           throw new Error(
@@ -1368,6 +1388,21 @@ export class AcpAdapter implements ProviderAdapter {
       return this.options?.getMcpServers?.() ?? [];
     } catch {
       return [];
+    }
+  }
+
+  private delegatedExecutionEnabled(mcpServers?: AcpMcpServer[]): boolean {
+    try {
+      const configured = this.options?.delegatedExecutionEnabled;
+      if (configured !== undefined) {
+        return (typeof configured === 'function' ? configured() : configured) === true;
+      }
+      // Backward-compatible embedding contract: callers predating the explicit
+      // flag already expressed delegated execution by supplying MCP servers.
+      return (mcpServers ?? this.mcpServers()).length > 0;
+    } catch {
+      // A broken settings boundary must keep the agent completion-only.
+      return false;
     }
   }
 
@@ -1523,14 +1558,13 @@ export class AcpAdapter implements ProviderAdapter {
       // must not take down a turn, so it degrades to the deny-by-default empty
       // list, which is the same thing an unconfigured install sends.
       const mcpServers = this.mcpServers();
+      const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
       try {
         // Isolate the agent from the machine's own settings **only** while it
-        // is a completion source. `mcpServers` is empty exactly when delegated
-        // execution is off (the getter returns [] unless `acp.toolsEnabled`),
-        // so it is the honest signal for which mode this turn is in — and it
-        // keeps the decision next to the thing it is about rather than reading
-        // a setting from inside the adapter.
-        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
+        // is a completion source. This must read delegated-execution authority
+        // directly: an enabled agent with built-in tools may have an empty MCP
+        // allowlist, so `mcpServers.length` cannot answer whether it may act.
+        await session.newSession(mcpServers, { isolateAgentSettings: !delegatedExecution });
       } catch (error) {
         // A login the user has to perform is not the same failure as a broken
         // agent, and saying so is the difference between an actionable message

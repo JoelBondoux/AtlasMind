@@ -278,6 +278,150 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   'agile-testing': { practiceOnly: true },
 };
 
+// ── Plain-language guidance ──────────────────────────────────────
+
+/**
+ * The novice-facing explanation behind every Policy Coverage "Ask Atlas"
+ * action.
+ *
+ * These sentences are declared rather than model-generated because AtlasMind
+ * already owns the meaning of its policy catalogue. Asking a general model to
+ * rediscover that meaning is slower, costs capacity, and can turn an
+ * explanation into a clarification loop. Keeping one row per methodology also
+ * makes the promise total: a newly-added methodology cannot quietly fall back
+ * to jargon without a type error and a failing completeness test.
+ */
+const POLICY_LAYMAN_COPY: Record<TestingMethodologyId, { whatItIs: string; expectedResult: string }> = {
+  tdd: {
+    whatItIs: 'Write a small test for the next behaviour before writing the behaviour itself. Watch the test fail, add only enough code to make it pass, then tidy the code without breaking the test.',
+    expectedResult: 'Each change starts with a meaningful failing test and ends with that test, plus the existing suite, passing. The test remains as a guard against the same bug returning.',
+  },
+  bdd: {
+    whatItIs: 'Describe behaviour as concrete examples that product, testing, and engineering people can all read — usually “Given this starting point, when this happens, then this result should follow.”',
+    expectedResult: 'The agreed examples become repeatable scenarios. They pass when the product behaves as the examples promise and fail when a user-visible rule changes or breaks.',
+  },
+  atdd: {
+    whatItIs: 'Agree the customer-facing acceptance checks before building the feature, then automate those checks where practical.',
+    expectedResult: 'A feature is complete only when its agreed acceptance examples pass, giving the customer or product owner visible evidence that the requested outcome was delivered.',
+  },
+  sdd: {
+    whatItIs: 'Write the interface specification first — for example an API schema — and use it as the shared agreement that implementation and consumers must follow.',
+    expectedResult: 'The specification can be validated automatically, and implementations fail the check when they drift from the published requests, responses, fields, or rules.',
+  },
+  'v-model': {
+    whatItIs: 'Pair every planning and design stage with a later check: requirements with acceptance tests, system design with system tests, and component design with component tests.',
+    expectedResult: 'Every important requirement can be traced to a named check and a recorded result, so an unverified requirement is visible rather than assumed.',
+  },
+  unit: {
+    whatItIs: 'Check one small piece of code — usually a function or class — on its own, without starting the whole application or relying on real external services.',
+    expectedResult: 'Fast, focused tests pass for correct inputs and fail close to the faulty function when a small rule or calculation regresses.',
+  },
+  integration: {
+    whatItIs: 'Check that two or more real parts of the system work together, such as application code with a database, queue, filesystem, or service adapter.',
+    expectedResult: 'The test proves that the parts exchange the right data and handle real boundary behaviour; it fails when wiring, schemas, configuration, or assumptions no longer match.',
+  },
+  mutation: {
+    whatItIs: 'Deliberately make many tiny faults in the code and check whether the existing tests notice. It measures the strength of the tests, not just how many lines they execute.',
+    expectedResult: 'Good tests “kill” most artificial faults by failing. Surviving faults reveal assertions or cases that may be too weak.',
+  },
+  property: {
+    whatItIs: 'Describe a rule that should always hold, then let a tool generate many different inputs — including awkward edge cases — to try to disprove it.',
+    expectedResult: 'The property holds across the generated examples, or the tool returns a small reproducible counter-example that exposes a real edge case.',
+  },
+  continuous: {
+    whatItIs: 'Run the project’s checks automatically and early — normally on every pull request or commit — instead of relying on somebody to remember before release.',
+    expectedResult: 'The pipeline gives a repeatable pass/fail result for each change and blocks or clearly flags a change when the configured checks fail.',
+  },
+  'white-box': {
+    whatItIs: 'Design tests with knowledge of the code inside, deliberately covering important branches, conditions, error paths, and data flows.',
+    expectedResult: 'Important internal paths have named tests and coverage evidence; a missed branch or broken internal rule is visible instead of hidden behind a single happy-path check.',
+  },
+  e2e: {
+    whatItIs: 'Exercise a complete user journey through the running product — for example signing in, changing a setting, or completing checkout — in the way a user would.',
+    expectedResult: 'The critical journey completes from start to finish in a realistic environment and fails when any participating screen, service, or connection breaks the flow.',
+  },
+  snapshot: {
+    whatItIs: 'Save a reviewed example of stable output, then compare future output with it so unexpected changes are shown as a diff.',
+    expectedResult: 'Unchanged behaviour matches the approved snapshot; an intentional change produces a reviewable diff, and an accidental change fails the test.',
+  },
+  contract: {
+    whatItIs: 'Check that two separately built components agree on exactly how they communicate. A consumer records the requests and responses it relies on, and the provider proves it still honours them.',
+    expectedResult: 'Consumer and provider checks pass while both sides honour the agreement and fail before deployment when a request, response, field, status, or rule changes incompatibly.',
+  },
+  mbt: {
+    whatItIs: 'Describe the system as states and allowed transitions, then generate tests that travel through that model instead of hand-writing every possible journey.',
+    expectedResult: 'Generated paths cover the important states and transitions and expose an implementation that allows a forbidden move or mishandles a valid one.',
+  },
+  'test-design': {
+    whatItIs: 'Choose test cases systematically — for example values just below, on, and above a boundary — so a small set represents the important input space.',
+    expectedResult: 'Each input group, boundary, and important combination has a deliberate case, reducing blind spots without trying every possible value.',
+  },
+  'black-box': {
+    whatItIs: 'Test only through the public behaviour or interface, without using knowledge of how the code is implemented inside.',
+    expectedResult: 'Inputs produce the promised outputs and errors from a user or consumer perspective, regardless of the internal implementation.',
+  },
+  'gray-box': {
+    whatItIs: 'Test through the public interface while using limited inside knowledge — such as a schema or state model — to choose stronger cases.',
+    expectedResult: 'Public behaviour is verified with cases informed by known internal risks, while the test remains independent of most implementation details.',
+  },
+  performance: {
+    whatItIs: 'Measure speed, throughput, and stability under a defined amount of realistic work rather than relying on how fast the product feels on one machine.',
+    expectedResult: 'Results show whether agreed response-time and capacity targets are met, and identify the load at which the system slows down or fails.',
+  },
+  'security-testing': {
+    whatItIs: 'Use repeatable checks to find vulnerable code, unsafe dependencies, leaked secrets, or weaknesses in a running application.',
+    expectedResult: 'The chosen scans and attack-focused tests produce a reviewable finding list, fail on policy-breaking issues, and can be rerun to prove fixes remain effective.',
+  },
+  visual: {
+    whatItIs: 'Capture approved screenshots of important screens or components and compare later renders to catch unintended visual changes.',
+    expectedResult: 'Intended screens match their baselines; layout, colour, spacing, font, or rendering changes produce a reviewable image difference.',
+  },
+  exploratory: {
+    whatItIs: 'A person investigates the product with a focused question or charter, follows what they learn, and records surprises that scripted tests did not anticipate.',
+    expectedResult: 'The session records its scope, observations, risks, and follow-up work. It produces learning rather than a simple automated pass/fail result.',
+  },
+  'agile-testing': {
+    whatItIs: 'Make quality a shared activity throughout each piece of work: clarify examples early, test while building, and include verification in the team’s definition of done.',
+    expectedResult: 'Each work item carries agreed quality checks and evidence before it is called done, with gaps owned during the iteration rather than handed to a final testing phase.',
+  },
+};
+
+export interface TestingPolicyLaymanGuide {
+  whatItIs: string;
+  whatYouNeed: string;
+  expectedResult: string;
+  whyUseIt: string;
+  tradeoff: string;
+}
+
+/**
+ * Return the complete, model-free novice guide for one methodology.
+ */
+export function buildTestingPolicyLaymanGuide(id: TestingMethodologyId): TestingPolicyLaymanGuide {
+  // The registry and copy table are both total over TestingMethodologyId; the
+  // completeness test additionally walks the runtime array so a drift cannot
+  // survive CI. TypeScript cannot infer that relationship through Array.find.
+  const definition = TESTING_METHODOLOGY_DEFINITIONS.find(entry => entry.id === id)!;
+  const copy = POLICY_LAYMAN_COPY[id];
+  const markers = POLICY_MARKERS[id];
+
+  const whatYouNeed = markers.practiceOnly
+    ? 'A named owner, an agreed way of working, and a small durable record such as a checklist, charter, traceability table, or Definition of Done. This is a team practice, so installing a test package alone cannot establish it.'
+    : markers.configIsEvidence
+      ? `A working CI pipeline file, existing test or verification commands for it to call, and an agreed rule for when a failed check stops delivery. Common platforms include: ${definition.keyTools}.`
+      : id === 'tdd'
+        ? `A fast test runner, one clearly stated behaviour at a time, and the discipline to see the new test fail before implementation begins. Common tools include: ${definition.keyTools}.`
+        : `A real behaviour or boundary worth protecting, a clear example of the correct result, one or more matching test files, and a repeatable command that runs them. Common tools include: ${definition.keyTools}.`;
+
+  return {
+    whatItIs: copy.whatItIs,
+    whatYouNeed,
+    expectedResult: copy.expectedResult,
+    whyUseIt: definition.whenToUse,
+    tradeoff: definition.tradeoffs,
+  };
+}
+
 // ── Report parsing (untrusted input) ─────────────────────────────
 
 export interface ParsedTestReportCase {

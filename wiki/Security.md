@@ -147,6 +147,7 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 - For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
 - Repo-maintenance actions such as Dependabot merges, rebases, or dependency branch resolution are evaluated by the normal approval gate, but they are not blocked by the implementation-only red-to-green TDD requirement.
 - Atlas also uses recent session context to interpret terse deictic follow-up requests before deciding whether to stay advisory or move into tool-backed action, which reduces misclassification without weakening the approval gate itself.
+- Routed ACP tools retain two gates: the live `atlasmind.acp.toolsEnabled` setting makes a declared delegated-tool model eligible for the turn, then each native operation still requires the independent ACP permission policy. Model discovery or setting state alone cannot approve an action.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately
@@ -157,6 +158,17 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 - `ProjectRunHistory` persists preview, running, completed, and failed autonomous-run records so operators can review what happened after reload.
 - `ToolWebhookDispatcher` is the current hook for centralized auditing or alerting; AtlasMind itself does not yet ship a hosted alerting backend.
 - Tool parameters in webhook payloads are redacted for sensitive fields before they leave the extension host.
+
+### 6b. Routed ACP Delegated-Execution Boundary
+
+ACP subscription agents use their own tool implementations, so AtlasMind separates capability, route authority, schema delivery, and operation approval:
+
+- `ModelInfo.delegatedToolExecution` says only that the provider can act natively. It never grants permission and never aliases the model's capabilities to `function_calling`.
+- `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both flags before ACP can satisfy a tool-backed task.
+- The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model, and `AcpAdapter` independently refuses any request containing those schemas. A normal-provider failover receives the original schemas.
+- Delegated execution mode is read independently of the MCP allowlist. An agent may have built-in tools with no shared MCP server; conversely, an absent or throwing setting boundary fails closed to completion-only isolation.
+- Changing the setting alters the ACP execution/session fingerprint, invalidating an incompatible live session and short replay entry before another prompt.
+- Eligibility never authorizes an individual operation. `session/request_permission` still passes through `AcpPermission` and `ToolApprovalManager`; a missing or failing policy denies.
 
 ### 7. Skill Security Scanner
 
@@ -319,6 +331,7 @@ The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded o
 | Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
+| ACP capability metadata or tools-enabled setting mistaken for action approval | Capability + live routing-authority split, no AtlasMind schemas across the ACP boundary, per-operation permission broker, deny on missing policy |
 | ACP prompt replay / duplicated delegated work | Stable per-tool-round identity + exact transcript-prefix reuse + in-flight single-flight + short completed-result ledger + exclusion from generic retries + outer-timeout `session/cancel` and teardown after an uncertain `session/prompt` |
 | Hidden-desktop dual use / EDR detection | Off-by-default disclosed choice + source-visible SHA-256-pinned helper + no desktop switching/control + minimal handle inheritance + visible failure, with ordinary launch available |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |

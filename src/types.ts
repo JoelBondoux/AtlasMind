@@ -55,6 +55,16 @@ export interface ModelInfo {
   inputPricePer1k: number;   // USD
   outputPricePer1k: number;  // USD
   capabilities: ModelCapability[];
+  /**
+   * The provider can satisfy a tool-backed task by letting its agent execute
+   * native tools inside the provider session, rather than by returning
+   * AtlasMind `tool_calls`.
+   *
+   * This is capability only, never permission. Routing may use it only when
+   * `RoutingConstraints.allowDelegatedToolExecution` is true, and the provider
+   * remains responsible for approval-gating every native operation.
+   */
+  delegatedToolExecution?: boolean;
   specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
@@ -217,6 +227,15 @@ export interface RoutingConstraints {
   preferredModel?: string;
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
+  /**
+   * Permit a model with `delegatedToolExecution` to satisfy a
+   * `function_calling` requirement using its provider-native tools.
+   *
+   * Off unless the host has an explicit delegated-execution authorization
+   * setting. It never means AtlasMind tool schemas may be passed to that
+   * provider.
+   */
+  allowDelegatedToolExecution?: boolean;
   /**
    * Number of concurrent model slots the caller needs for this task batch.
    * When > 1, the router will allow pay-per-token overflow beyond

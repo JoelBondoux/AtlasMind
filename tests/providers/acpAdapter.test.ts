@@ -569,6 +569,36 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(agents[0]!.killed).toBe(true);
     await adapter.shutdown();
   });
+
+  it('invalidates a completion-only session when delegated execution is enabled without MCP servers', async () => {
+    const { factory, agents } = scriptedAgent();
+    let delegated = false;
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+      delegatedExecutionEnabled: () => delegated,
+      getMcpServers: () => [],
+    });
+
+    const first = await adapter.complete(request());
+    delegated = true;
+    await adapter.complete(request({
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Inspect the workspace now' },
+      ],
+    }));
+
+    const firstSession = agents[0]!.method('session/new')!['params'] as Record<string, unknown>;
+    const secondSession = agents[1]!.method('session/new')!['params'] as Record<string, unknown>;
+    expect(firstSession['_meta']).toBeDefined();
+    expect(secondSession['_meta']).toBeUndefined();
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
 });
 
 describe('AcpAdapter — restricted mode is the security boundary', () => {
@@ -754,7 +784,11 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     // The load-bearing default. A caller that enables tools but forgets the gate
     // must get an agent that cannot act, not one that acts unsupervised.
     const { factory, agents } = permissionAgent();
-    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      delegatedExecutionEnabled: true,
+    }).complete(request());
 
     const reply = agents[0]!.written.find(frame => frame['id'] === 77);
     expect(reply!['error']).toBeDefined();
@@ -954,7 +988,12 @@ describe('AcpAdapter — discovery and probing', () => {
   it('prices subscription capacity at zero per token', async () => {
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent().factory });
     const [model] = await adapter.discoverModels();
-    expect(model).toMatchObject({ id: 'acp/fake', inputPricePer1k: 0, outputPricePer1k: 0 });
+    expect(model).toMatchObject({
+      id: 'acp/fake',
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      delegatedToolExecution: true,
+    });
   });
 
   it('probe reports installed + authenticated on a clean handshake', async () => {
@@ -1275,6 +1314,7 @@ describe('AcpAdapter — effort inside a subscription', () => {
     // router ask for the deep model at low effort. Every model comes before any
     // effort variant, so a long lineup truncates efforts rather than models.
     const models = await adapter.discoverModels();
+    expect(models.every(model => model.delegatedToolExecution === true)).toBe(true);
     expect(models.map(m => m.id)).toEqual([
       'acp/fake',
       'acp/fake@opus', 'acp/fake@haiku',
@@ -1625,6 +1665,21 @@ describe('AcpAdapter — isolating the agent from the machine\'s own settings', 
       agents: [AGENT],
       spawnProcess: factory,
       getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [] }],
+    }).complete(request());
+
+    expect(metaOf(agents[0]!)).toBeUndefined();
+  });
+
+  it('does NOT isolate delegated execution when the MCP allowlist is empty', async () => {
+    // Built-in agent tools still exist without a shared MCP server. The old
+    // `mcpServers.length === 0` proxy silently ignored acp.toolsEnabled and
+    // created a completion-only session despite the checkbox being on.
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      delegatedExecutionEnabled: true,
+      getMcpServers: () => [],
     }).complete(request());
 
     expect(metaOf(agents[0]!)).toBeUndefined();

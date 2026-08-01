@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.238.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.238.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,7 +68,7 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.238.0
+## What's new in 0.238.1
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -80,7 +80,9 @@ Since the last Marketplace publication, **v0.235.0**, source builds have added t
 
 - **The Models sidebar can now be decluttered without changing routing.** An eye-closed icon on every provider, subscription route, and model row hides only that line from the tree. **Settings → Models & Integrations → Sidebar visibility** lists the hidden entries with individual Restore buttons; credentials, enablement, agent assignments, and router eligibility are unchanged.
 
-- **Errors and testing-policy cards now lead somewhere useful.** MCP connection/setup errors and Project Dashboard failures carry a consistent AtlasMind-logo action that opens the current problem as a reviewable Atlas Chat draft. Every Testing Policy Coverage card has the same compact affordance for a plain-language explanation of its evidence and configuration options. The webview sends stable identifiers where possible; the extension host re-reads live state, redacts likely secrets, fences reported text as data, and never auto-submits the draft.
+- **Testing-policy explanations are immediate, useful, and model-free.** Every Testing Policy Coverage card now has a visible **Ask Atlas** action that opens with four beginner-facing answers: what the method is, what it needs, what result to expect, and why to use it. It then explains the live status and evidence limits, recommends a next step, and offers relevant chips such as **Check whether it fits**, **Plan a starting point**, or **Explain turning it off**. AtlasMind owns these facts, so this first answer bypasses routing entirely: zero models, zero provider fallbacks, and no subscription or API capacity. MCP connection/setup errors and Project Dashboard failures retain their separate reviewable, redacted Chat drafts.
+
+- **The ACP tools checkbox now makes subscription agents eligible for tool-backed work.** When **Let subscription agents act** is selected, the router can choose a configured ACP agent for a task that needs workspace actions. AtlasMind passes no incompatible function schemas; the subscription agent uses its own tools and every operation still asks through AtlasMind’s existing approval broker. With the checkbox off, ACP remains completion-only.
 
 - **Webview controls and compact rows stay legible as panels resize.** Labels, buttons, and badges no longer volunteer to shrink below the width of an ordinary word and then split it into fragments. Structural panel boxes remain responsive, prose wraps at word boundaries, long URLs still contain themselves, and Project Ideation's memory checklist and confidence/risk analytics keep their labels and scores intact while the flexible text column takes the available space.
 
@@ -366,7 +368,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
-| `acp.toolsEnabled` | `false` | **Let subscription agents act**: allow their own tools one approval at a time |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: make ACP eligible for tool-backed work using its own tools, one approval at a time |
 | `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.

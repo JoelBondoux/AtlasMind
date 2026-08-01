@@ -97,8 +97,10 @@ function makeOrchestrator(
         inputPricePer1k: number;
         outputPricePer1k: number;
         capabilities: ModelCapability[];
+        delegatedToolExecution?: boolean;
       }>;
     }>;
+    readSetting?: <T>(key: string, fallback: T) => T;
   },
 ): Orchestrator {
   const agents = new AgentRegistry();
@@ -165,7 +167,14 @@ function makeOrchestrator(
     taskProfiler,
     undefined,
     toolWebhookDispatcher as never,
-    { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate, onModelStruggleRecorded: options?.onModelStruggleRecorded } as never,
+    {
+      readSetting: options?.readSetting,
+      toolApprovalGate,
+      writeCheckpointHook,
+      postToolVerifier,
+      generatedSkillApprovalGate,
+      onModelStruggleRecorded: options?.onModelStruggleRecorded,
+    } as never,
   );
 }
 
@@ -1198,6 +1207,7 @@ describe('Orchestrator agentic loop', () => {
                 inputPricePer1k: 0,
                 outputPricePer1k: 0,
                 capabilities: ['chat', 'code', 'reasoning'],
+                delegatedToolExecution: true,
               },
             ],
           },
@@ -1241,6 +1251,96 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Timer started for "test timer".');
     expect(result.modelUsed).toBe('copilot/gpt-4.1');
     expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('routes tool-backed work to ACP native tools when the user enabled delegated execution', async () => {
+    const acpProvider: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn().mockResolvedValue({
+        content: 'I inspected the workspace with the subscription agent.',
+        model: 'acp/claude@opus',
+        inputTokens: 40,
+        outputTokens: 12,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['acp/claude@opus']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const readSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a workspace file.',
+      parameters: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+      execute: vi.fn().mockResolvedValue('contents'),
+    };
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'local fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [readSkill],
+      makeSkillContext(),
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        readSetting: <T>(key: string, fallback: T) =>
+          (key === 'acp.toolsEnabled' ? true : fallback) as T,
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acpProvider,
+          models: [{
+            id: 'acp/claude@opus',
+            name: 'Claude via ACP (Opus)',
+            contextWindow: 200000,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'reasoning'],
+            delegatedToolExecution: true,
+          }],
+        }],
+      },
+    );
+    const progress: string[] = [];
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-acp-native-tools',
+      userMessage: 'Inspect the current testing configuration and explain what is missing.',
+      context: {},
+      constraints: {
+        budget: 'balanced',
+        speed: 'balanced',
+        preferredProvider: 'acp',
+      },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'workspace-reader',
+      name: 'Workspace Reader',
+      role: 'workspace investigator',
+      description: 'Reads workspace evidence.',
+      systemPrompt: 'Inspect the repository before answering.',
+      skills: ['file-read'],
+      allowedModels: ['acp/claude@opus'],
+    }, undefined, message => progress.push(message));
+
+    expect(result.modelUsed).toBe('acp/claude@opus');
+    expect(result.response).toContain('inspected the workspace');
+    expect(acpProvider.complete).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(acpProvider.complete).mock.calls[0]![0].tools).toEqual([]);
+    expect(readSkill.execute).not.toHaveBeenCalled();
+    expect(progress.join('\n')).toMatch(/approval-gated native tools/i);
   });
 
   it('flags an explicit tools-disabled refusal for immediate executor handoff', async () => {

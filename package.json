@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.238.0",
+  "version": "0.238.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2137,8 +2137,8 @@
         "atlasmind.acp.toolsEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Let subscription agents act — allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
-          "markdownDescription": "**Let subscription agents act.** **Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
+          "description": "Let subscription agents act — make ACP agents eligible for tool-backed work using their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
+          "markdownDescription": "**Let subscription agents act.** **Off by default.** Makes an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — eligible for work that needs actions, then lets it use its own tools to edit files, run commands, search, or fetch.\n\nAtlasMind does not pass its own function schemas into ACP. It stands down that tool loop and the subscription agent acts inside its own process. Every operation still comes back through AtlasMind for approval; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, ACP agents remain eligible for chat, code, and reasoning that needs no tools; tool-backed work routes to a provider that can accept AtlasMind function calls. See also `#atlasmind.acp.mcpServers#`."
         },
         "atlasmind.acp.mcpServers": {
           "type": "array",
