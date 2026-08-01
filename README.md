@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.241.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.242.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.241.0
+## What's new in 0.242.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **AtlasMind Lens can now connect code-side TypeScript fields directly to API/schema/database declarations.** **Review Contract Wiring** discovers filename-signalled TypeScript DTO, model, schema, type, entity, contract, interface, request, and response files alongside OpenAPI 3, JSON Schema, and SQL sources. Top-level interfaces and object type aliases retain exact field locations, optional/null unions, scalars, arrays, literal enums, references, functions, and object records, so a developer can select a DTO/model and a SQL table as the two boundaries. The TypeScript adapter is syntax-only, local, non-executing, and explicitly partial: it does not claim to resolve inheritance, imports, mapped types, runtime validators, decorators, or initializers. The v0.240 filterable Field Wiring board and static code journeys remain available.
+- **Field Wiring now includes a filterable Contract Drift Review that tells proven conflicts from incomplete evidence.** The board summarizes active findings, conflicts, warnings, missing evidence, and suppressions, then annotates each relevant wire as a definite conflict, likely drift, missing evidence, intentional transform, dead mapping wire, dropped wire, or undocumented introduction. An ordinary unmatched field remains informational missing evidence—it is never called dropped, dead, or undocumented merely because discovery lacks a link. Suppressed findings stay visible but do not inflate active severity counts, and **Ask about finding** prepares an editable Atlas draft containing the normalized class, severity, reason, and source anchor. The v0.241 TypeScript-to-schema/database bridge remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -371,6 +371,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
+| `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |

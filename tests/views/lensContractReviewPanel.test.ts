@@ -72,7 +72,7 @@ import { normalizeLensContract, normalizeLensContractMappingFile } from '../../s
 import { createSourceLensTarget } from '../../src/core/lensTarget';
 import { LensContractReviewPanel } from '../../src/views/lensContractReviewPanel';
 
-function contract(id: string, label: string, fieldId: string, fieldLabel: string) {
+function contract(id: string, label: string, fieldId: string, fieldLabel: string, dataType = 'string') {
   const target = createSourceLensTarget({
     kind: 'code-range',
     label: fieldLabel,
@@ -92,7 +92,7 @@ function contract(id: string, label: string, fieldId: string, fieldLabel: string
       id: fieldId,
       path: fieldLabel,
       label: fieldLabel,
-      dataType: 'string',
+      dataType,
       presence: 'required',
       nullability: 'non-null',
       target,
@@ -104,19 +104,23 @@ function contract(id: string, label: string, fieldId: string, fieldLabel: string
 describe('Lens contract review panel', () => {
   it('posts normalized review data after ready and resolves field/wire actions in the host', async () => {
     const upstream = contract('api:user', 'User request', 'api:email', '</script><script>bad()</script>');
-    const downstream = contract('database:users', 'users', 'db:email', '</script><script>bad()</script>');
+    const downstream = contract('database:users', 'users', 'db:email', '</script><script>bad()</script>', 'number');
     const mappingFile = normalizeLensContractMappingFile({ version: 1, mappings: [], suppressions: [] })!;
 
     LensContractReviewPanel.createOrShow({ upstream, downstream, mappingFile, sourceNotices: [] });
 
     expect(panel.webview.html).toContain('Field wiring');
+    expect(panel.webview.html).toContain('Contract drift review');
     expect(panel.webview.html).toContain('Content-Security-Policy');
     expect(panel.webview.html).not.toContain('bad()');
     const handleMessage = messageHandlers.at(-1);
     handleMessage?.({ type: 'ready' });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'snapshot',
-      snapshot: expect.objectContaining({ review: expect.objectContaining({ wires: expect.any(Array) }) }),
+      snapshot: expect.objectContaining({
+        review: expect.objectContaining({ wires: expect.any(Array) }),
+        drift: expect.objectContaining({ findings: expect.any(Array), summary: expect.any(Object) }),
+      }),
     }));
 
     handleMessage?.({ type: 'openField', fieldId: 'api:email' });
@@ -125,7 +129,11 @@ describe('Lens contract review panel', () => {
     const wireId = snapshot.review.wires[0].id as string;
     handleMessage?.({ type: 'askWire', wireId });
     await vi.waitFor(() => expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
-      contextPatch: expect.objectContaining({ atlasmindLens: expect.any(Object) }),
+      contextPatch: expect.objectContaining({
+        atlasmindLens: expect.objectContaining({
+          target: expect.objectContaining({ detail: expect.stringContaining('definite-conflict') }),
+        }),
+      }),
     })));
   });
 });

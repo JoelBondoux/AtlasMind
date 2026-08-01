@@ -53,7 +53,7 @@ Developers can set a bounded scenario—request parameters, feature flags, envir
 
 The first prototype starts from a language-service symbol selected in Code Explorer. It combines VS Code call hierarchy and references into a host-normalized **possible flow**, opens as an editor webview, and supports exact source and Ask Atlas actions on each node. It is intentionally not yet a framework-route detector, scenario evaluator, or runtime trace.
 
-### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0–v0.241.0)
+### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0–v0.242.0)
 
 Review the full field journey across application and data boundaries:
 
@@ -81,6 +81,8 @@ The v0.239 foundation normalizes contract layers, source kinds, fields, evidence
 The v0.240 vertical slice discovers bounded OpenAPI 3 component schemas, JSON Schema object declarations, and heuristic SQL `CREATE TABLE` declarations without executing project code or SQL. A user selects an ordered same-root pair and opens the first Field Wiring board, where every source-backed field and individual wire can be opened or queried. The SQL adapter declares partial coverage, format evidence is separate from base type, and a malformed mapping file stops the review. ORM, validator, GraphQL/protobuf, generated-client, relationship, drift, and change-impact adapters remain active Phase 3 work.
 
 The v0.241 adapter adds the first code-to-database bridge: filename-signalled TypeScript interfaces and object type aliases become line-backed contracts that can be selected against any supported API/schema/SQL boundary. Scalar, array, literal-enum, named-reference, optional, and nullable syntax is retained, while the adapter reports partial coverage and does not execute modules or claim compiler/runtime resolution. Validator, ORM/decorator, GraphQL/protobuf, generated-client, relationship, drift, and change-impact work remains active.
+
+The v0.242 board adds a deterministic Contract Drift Review over normalized wires. Definite conflicts, stale explicit mapping endpoints, intentional changes, drops, inferences, and non-intentional introductions/transforms receive distinct classes and severities; missing evidence stays informational. Findings are filterable and source-anchored Ask actions include their class/severity/reason. Historical contract comparison, validator/ORM/decorator, GraphQL/protobuf, generated-client, relationship, and schema change-impact work remains active.
 
 ### Phase 4 — Change Impact Map
 

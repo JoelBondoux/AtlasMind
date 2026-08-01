@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.242.0 — Lens separates contract drift from missing evidence
+
+**Field Wiring now includes a deterministic Contract Drift Review.** It summarizes and filters definite conflicts, likely drift, missing evidence, intentional transforms, dead explicit mappings, dropped wires, and undocumented introductions. Suppressed findings remain visible but do not inflate active severity totals.
+
+**Unknown remains unknown.** An unmatched field is informational missing evidence—not an automatic drop, dead wire, or defect. Finding Ask actions attach the host-resolved class, severity, reason, and source-anchored relation to an editable Atlas draft without submitting it.
+
 ## v0.241.0 — Lens connects TypeScript fields to schemas and tables
 
 **Field Wiring can now compare code-side TypeScript declarations directly with OpenAPI, JSON Schema, or SQL boundaries.** Filename-signalled DTO, model, schema, type, entity, contract, interface, request, and response files yield top-level interface/object-type contracts with exact field locations and useful optional, null, scalar, array, enum, reference, function, and object evidence.

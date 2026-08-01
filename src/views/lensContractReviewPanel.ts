@@ -5,6 +5,7 @@ import {
   normalizeLensContractMappingFile,
   reviewLensContractWiring,
 } from '../core/lensContract.js';
+import { analyzeLensContractDrift } from '../core/lensContractDrift.js';
 import {
   buildLensContextPatch,
   buildLensDraftPrompt,
@@ -12,6 +13,8 @@ import {
 } from '../core/lensTarget.js';
 import type {
   LensContract,
+  LensContractDriftFinding,
+  LensContractDriftReport,
   LensContractField,
   LensContractMappingFile,
   LensContractReview,
@@ -33,6 +36,7 @@ interface LensContractReviewSnapshot {
   upstream: LensContract;
   downstream: LensContract;
   review: LensContractReview;
+  drift: LensContractDriftReport;
   notices: string[];
 }
 
@@ -50,6 +54,7 @@ export class LensContractReviewPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private fieldById = new Map<string, LensContractField>();
   private wireById = new Map<string, LensFieldWire>();
+  private findingByWireId = new Map<string, LensContractDriftFinding>();
   private ready = false;
 
   public static createOrShow(candidate: LensContractReviewPanelInput): void {
@@ -104,6 +109,7 @@ export class LensContractReviewPanel {
       [...snapshot.upstream.fields, ...snapshot.downstream.fields].map(field => [field.id, field]),
     );
     this.wireById = new Map(snapshot.review.wires.map(wire => [wire.id, wire]));
+    this.findingByWireId = new Map(snapshot.drift.findings.map(finding => [finding.wireId, finding]));
   }
 
   private async handleMessage(message: LensContractReviewMessage): Promise<void> {
@@ -156,12 +162,15 @@ export class LensContractReviewPanel {
     }
     const fromLabel = wire.from?.fieldPath ?? '∅';
     const toLabel = wire.to?.fieldPath ?? '∅';
+    const finding = this.findingByWireId.get(wire.id);
     return normalizeLensTarget({
       ...anchor,
       id: `lens:relation:${wire.id}`,
       kind: 'relation',
       label: `${fromLabel} → ${toLabel}`,
-      detail: `${wire.status}: ${wire.reason}`,
+      detail: finding
+        ? `${finding.findingClass} (${finding.severity}): ${finding.reason}`
+        : `${wire.status}: ${wire.reason}`,
       evidence: wire.evidence,
     });
   }
@@ -188,12 +197,14 @@ function normalizePanelInput(value: LensContractReviewPanelInput): LensContractR
       .filter((notice): notice is string => Boolean(notice))
     : [];
   const review = reviewLensContractWiring(upstream, downstream, mappingFile);
+  const drift = analyzeLensContractDrift(review);
   return {
     version: 1,
     upstream,
     downstream,
     review,
-    notices: [...sourceNotices, ...review.notices].slice(0, 50),
+    drift,
+    notices: [...sourceNotices, ...review.notices, ...drift.notices].slice(0, 50),
   };
 }
 
@@ -292,9 +303,34 @@ function buildContractReviewHtml(cspSource: string): string {
               <option value="unverified">Unverified</option>
               <option value="inferred">Inferred</option>
             </select>
+            <label for="finding-filter">Finding</label>
+            <select id="finding-filter">
+              <option value="all">All rows</option>
+              <option value="findings">Findings only</option>
+              <option value="definite-conflict">Definite conflict</option>
+              <option value="likely-drift">Likely drift</option>
+              <option value="missing-evidence">Missing evidence</option>
+              <option value="intentional-transform">Intentional transform</option>
+              <option value="dead-wire">Dead wire</option>
+              <option value="dropped-wire">Dropped wire</option>
+              <option value="undocumented-wire">Undocumented wire</option>
+            </select>
             <label class="suppression-toggle"><input id="show-suppressed" type="checkbox" checked /> Show suppressed</label>
           </div>
         </header>
+        <section class="drift-review" aria-labelledby="drift-heading">
+          <div>
+            <p class="eyebrow">Evidence-based triage</p>
+            <h2 id="drift-heading">Contract drift review</h2>
+          </div>
+          <dl class="drift-summary" aria-label="Contract finding summary">
+            <div><dt>Active</dt><dd id="drift-active">0</dd></div>
+            <div><dt>Conflicts</dt><dd id="drift-errors">0</dd></div>
+            <div><dt>Warnings</dt><dd id="drift-warnings">0</dd></div>
+            <div><dt>Missing evidence</dt><dd id="drift-missing">0</dd></div>
+            <div><dt>Suppressed</dt><dd id="drift-suppressed">0</dd></div>
+          </dl>
+        </section>
         <ul id="wiring-notices" class="notices" aria-label="Evidence notices"></ul>
         <div class="table-scroll">
           <table>
@@ -314,6 +350,12 @@ function buildContractReviewHtml(cspSource: string): string {
       .filters select { border: 1px solid var(--vscode-dropdown-border); padding: 4px 7px; }
       .suppression-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
       .notices { padding-left: 20px; color: var(--vscode-descriptionForeground); }
+      .drift-review { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 18px 0 8px; padding: 13px; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
+      .drift-review h2 { margin: 0; font-size: 1rem; }
+      .drift-summary { display: flex; flex-wrap: wrap; gap: 9px; margin: 0; }
+      .drift-summary div { min-width: 82px; padding: 7px 9px; border-radius: 5px; background: var(--vscode-editorWidget-background); }
+      .drift-summary dt { color: var(--vscode-descriptionForeground); font-size: 0.72rem; }
+      .drift-summary dd { margin: 2px 0 0; font-size: 1.05rem; font-weight: 700; }
       .table-scroll { overflow: auto; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
       table { min-width: 840px; margin: 0; }
       th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); }
@@ -330,6 +372,10 @@ function buildContractReviewHtml(cspSource: string): string {
       .status-incompatible, .status-dropped { color: var(--vscode-testing-iconFailed, #f14c4c); }
       .status-introduced { color: var(--vscode-charts-purple, #b180d7); }
       .status-unverified { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .finding { display: block; margin-top: 6px; font-size: 0.78rem; font-weight: 650; }
+      .finding-error { color: var(--vscode-testing-iconFailed, #f14c4c); }
+      .finding-warning { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .finding-info { color: var(--vscode-descriptionForeground); }
       tr.is-suppressed { opacity: 0.72; }
       .empty-cell { color: var(--vscode-descriptionForeground); }
       @media (max-width: 700px) { .wiring-header { flex-direction: column; } }
@@ -342,7 +388,13 @@ function buildContractReviewHtml(cspSource: string): string {
       const upstreamHeading = document.getElementById('upstream-heading');
       const downstreamHeading = document.getElementById('downstream-heading');
       const statusFilter = document.getElementById('status-filter');
+      const findingFilter = document.getElementById('finding-filter');
       const showSuppressed = document.getElementById('show-suppressed');
+      const driftActive = document.getElementById('drift-active');
+      const driftErrors = document.getElementById('drift-errors');
+      const driftWarnings = document.getElementById('drift-warnings');
+      const driftMissing = document.getElementById('drift-missing');
+      const driftSuppressed = document.getElementById('drift-suppressed');
       let activeSnapshot;
 
       function textElement(parent, tag, className, value) {
@@ -378,11 +430,19 @@ function buildContractReviewHtml(cspSource: string): string {
         if (!activeSnapshot) { return; }
         rows.replaceChildren();
         const fields = new Map([...activeSnapshot.upstream.fields, ...activeSnapshot.downstream.fields].map(field => [field.id, field]));
+        const findings = new Map(activeSnapshot.drift.findings.map(finding => [finding.wireId, finding]));
         const status = statusFilter.value;
+        const findingClass = findingFilter.value;
         const includeSuppressed = showSuppressed.checked;
         let visible = 0;
         for (const wire of activeSnapshot.review.wires) {
-          if ((status !== 'all' && wire.status !== status) || (!includeSuppressed && wire.suppressed)) { continue; }
+          const finding = findings.get(wire.id);
+          if (
+            (status !== 'all' && wire.status !== status) ||
+            (findingClass === 'findings' && !finding) ||
+            (findingClass !== 'all' && findingClass !== 'findings' && finding?.findingClass !== findingClass) ||
+            (!includeSuppressed && wire.suppressed)
+          ) { continue; }
           visible += 1;
           const row = document.createElement('tr');
           row.dataset.status = wire.status;
@@ -398,11 +458,14 @@ function buildContractReviewHtml(cspSource: string): string {
           const evidence = document.createElement('td');
           textElement(evidence, 'span', 'wire-reason', wire.reason);
           textElement(evidence, 'span', 'wire-evidence', wire.evidence.kind + ' — ' + wire.evidence.source);
+          if (finding) {
+            textElement(evidence, 'span', 'finding finding-' + finding.severity, finding.label + ' · ' + finding.findingClass + ' · ' + finding.severity);
+          }
           if (wire.suppressed) { textElement(evidence, 'span', 'suppression', 'Suppressed: ' + (wire.suppressionReason || 'declared suppression')); }
           if (fromField?.target || toField?.target) {
             const wireActions = document.createElement('div');
             wireActions.className = 'wire-actions';
-            action(wireActions, 'Ask about connection', { type: 'askWire', wireId: wire.id });
+            action(wireActions, finding ? 'Ask about finding' : 'Ask about connection', { type: 'askWire', wireId: wire.id });
             evidence.appendChild(wireActions);
           }
           row.append(upstream, statusCell, downstream, evidence);
@@ -415,12 +478,18 @@ function buildContractReviewHtml(cspSource: string): string {
         activeSnapshot = snapshot;
         upstreamHeading.textContent = snapshot.upstream.label + ' (' + snapshot.upstream.layer + ')';
         downstreamHeading.textContent = snapshot.downstream.label + ' (' + snapshot.downstream.layer + ')';
+        driftActive.textContent = String(snapshot.drift.summary.active);
+        driftErrors.textContent = String(snapshot.drift.summary.errors);
+        driftWarnings.textContent = String(snapshot.drift.summary.warnings);
+        driftMissing.textContent = String(snapshot.drift.summary.byClass['missing-evidence']);
+        driftSuppressed.textContent = String(snapshot.drift.summary.suppressed);
         notices.replaceChildren();
         for (const notice of snapshot.notices) { textElement(notices, 'li', '', notice); }
         render();
       }
 
       statusFilter.addEventListener('change', render);
+      findingFilter.addEventListener('change', render);
       showSuppressed.addEventListener('change', render);
       window.addEventListener('message', event => {
         const message = event.data;

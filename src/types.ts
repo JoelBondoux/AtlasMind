@@ -2372,6 +2372,50 @@ export interface LensContractReview {
   truncated: boolean;
 }
 
+export type LensContractFindingClass =
+  | 'definite-conflict'
+  | 'likely-drift'
+  | 'missing-evidence'
+  | 'intentional-transform'
+  | 'dead-wire'
+  | 'dropped-wire'
+  | 'undocumented-wire';
+
+export type LensContractFindingSeverity = 'error' | 'warning' | 'info';
+
+/** One deterministic interpretation of a contract wire; suppressed findings remain present. */
+export interface LensContractDriftFinding {
+  id: string;
+  wireId: string;
+  findingClass: LensContractFindingClass;
+  severity: LensContractFindingSeverity;
+  label: string;
+  reason: string;
+  suppressed: boolean;
+  suppressionReason?: string;
+}
+
+export interface LensContractDriftSummary {
+  total: number;
+  active: number;
+  suppressed: number;
+  errors: number;
+  warnings: number;
+  information: number;
+  byClass: Record<LensContractFindingClass, number>;
+}
+
+/** Finding-oriented projection of one Field Wiring review. */
+export interface LensContractDriftReport {
+  version: 1;
+  id: string;
+  reviewId: string;
+  findings: LensContractDriftFinding[];
+  summary: LensContractDriftSummary;
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

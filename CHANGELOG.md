@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.242.0] - 2026-08-01
+
+### Added
+
+- **The Field Wiring board now includes a deterministic Contract Drift Review.** A summary separates active findings, definite conflicts, warnings, missing evidence, and suppressed findings; every wire is annotated with a review class and severity where applicable, and the board can filter to findings or an individual class.
+- **Drift classes preserve what the evidence actually proves.** Incompatible declared shapes become `definite-conflict`; unresolved endpoints in an explicit repository mapping become `dead-wire`; intentional renames/transforms/introductions and drops remain reviewable informational findings; inferred or non-intentional transformations become `likely-drift`; and a non-intentional introduction becomes `undocumented-wire`. Ordinary unmatched fields remain informational `missing-evidence` and are never promoted to dropped/dead/undocumented defects.
+- **Findings remain queryable through Atlas chat.** **Ask about finding** attaches a normalized source-anchored relation whose detail includes the finding class, severity, and reason. It prepares an editable draft and never submits automatically.
+
+### Security
+
+- **The drift report is a bounded projection of the already normalized wiring review.** It performs no additional file access, project execution, model call, or database connection. Suppressions annotate findings rather than erasing them; suppressed findings remain in totals while active error/warning counts exclude them.
+
 ## [0.241.0] - 2026-08-01
 
 ### Added
