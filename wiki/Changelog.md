@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.243.0 — Lens previews schema change impact
+
+**Every Field Wiring field can now preview a proposed rename, removal, type, format, required/optional, or nullability change without editing the project.** AtlasMind ranks the connected declaration, explicit mapping, API/serialization, validation, migration, and deployment implications; source-backed items can open or prepare an editable Ask draft.
+
+**Scope and evidence remain visible.** Direct wires keep their evidence, broader risk rules are inferred, output is bounded, and the preview names tests, callers, runtime traces, migration history, deployment state, and workspace-wide consumers as unknown until adapters contribute. Missing connectivity never means zero consumers.
+
 ## v0.242.0 — Lens separates contract drift from missing evidence
 
 **Field Wiring now includes a deterministic Contract Drift Review.** It summarizes and filters definite conflicts, likely drift, missing evidence, intentional transforms, dead explicit mappings, dropped wires, and undocumented introductions. Suppressed findings remain visible but do not inflate active severity totals.

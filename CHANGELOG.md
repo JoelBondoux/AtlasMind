@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.243.0] - 2026-08-01
+
+### Added
+
+- **Every Field Wiring field can now open a bounded Schema Change Impact preview.** Choose rename, removal, type, format, required/optional, or nullability without editing the project. AtlasMind ranks the selected declaration, its normalized connected endpoint, explicit mapping, API compatibility/serialization, validation, database migration, and deployment-ordering implications by severity and proximity.
+- **Impact evidence remains explicit.** Direct normalized field connections and mapping records retain their declared evidence; API, validation, migration, and deployment implications are labelled rule-based inferences. A source-backed item can open its exact declaration or prepare an editable Ask Atlas draft carrying the category, severity, detail, and evidence.
+
+### Security
+
+- **Impact preview is local, non-mutating, and bounded to 80 ranked items.** The webview sends only a host-held field or impact-item id. The extension host chooses the change kind, recomputes from normalized contracts/wires, resolves targets against the live workspace root, and performs no project/model/SQL execution or database/deployment connection.
+- **Unknown consumers stay unknown.** The preview names its two-contract scope and explicitly records tests, callers, runtime traces, migration history, and deployment state as unavailable until their Lens adapters provide evidence. A missing connected endpoint is not reported as proof of zero consumers.
+
 ## [0.242.0] - 2026-08-01
 
 ### Added

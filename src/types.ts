@@ -2416,6 +2416,48 @@ export interface LensContractDriftReport {
   truncated: boolean;
 }
 
+export type LensSchemaChangeKind =
+  | 'rename'
+  | 'remove'
+  | 'type'
+  | 'format'
+  | 'presence'
+  | 'nullability';
+
+export type LensSchemaImpactCategory =
+  | 'contract'
+  | 'mapping'
+  | 'validation'
+  | 'serialization'
+  | 'migration'
+  | 'deployment';
+
+export type LensSchemaImpactSeverity = 'high' | 'medium' | 'review';
+
+export interface LensSchemaImpactItem {
+  id: string;
+  label: string;
+  detail: string;
+  category: LensSchemaImpactCategory;
+  severity: LensSchemaImpactSeverity;
+  /** Zero is the selected field; larger values are farther evidence-backed implications. */
+  proximity: number;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** Bounded impact preview for one proposed field-shape change across the selected contract boundary. */
+export interface LensSchemaChangeImpact {
+  version: 1;
+  id: string;
+  seedContractId: string;
+  seedFieldId: string;
+  changeKind: LensSchemaChangeKind;
+  items: LensSchemaImpactItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

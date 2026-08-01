@@ -4,6 +4,7 @@ const {
   createWebviewPanel,
   postMessage,
   showTextDocument,
+  showQuickPick,
   revealPreferredChatSurface,
   workspaceFolder,
   messageHandlers,
@@ -29,6 +30,7 @@ const {
     createWebviewPanel: vi.fn(() => panel),
     postMessage: webview.postMessage,
     showTextDocument: vi.fn(),
+    showQuickPick: vi.fn(),
     revealPreferredChatSurface: vi.fn(),
     workspaceFolder: { name: 'atlasmind', index: 0, uri: uri('/workspace') },
     messageHandlers,
@@ -57,6 +59,7 @@ vi.mock('vscode', () => ({
   window: {
     createWebviewPanel,
     showTextDocument,
+    showQuickPick,
     showWarningMessage: vi.fn(),
   },
   workspace: {
@@ -106,6 +109,7 @@ describe('Lens contract review panel', () => {
     const upstream = contract('api:user', 'User request', 'api:email', '</script><script>bad()</script>');
     const downstream = contract('database:users', 'users', 'db:email', '</script><script>bad()</script>', 'number');
     const mappingFile = normalizeLensContractMappingFile({ version: 1, mappings: [], suppressions: [] })!;
+    showQuickPick.mockResolvedValue({ label: 'Remove field', changeKind: 'remove' });
 
     LensContractReviewPanel.createOrShow({ upstream, downstream, mappingFile, sourceNotices: [] });
 
@@ -132,6 +136,22 @@ describe('Lens contract review panel', () => {
       contextPatch: expect.objectContaining({
         atlasmindLens: expect.objectContaining({
           target: expect.objectContaining({ detail: expect.stringContaining('definite-conflict') }),
+        }),
+      }),
+    })));
+
+    handleMessage?.({ type: 'previewImpact', fieldId: 'api:email' });
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'impact',
+      impact: expect.objectContaining({ changeKind: 'remove', items: expect.any(Array) }),
+    })));
+    const impact = postMessage.mock.calls.find(call => call[0]?.type === 'impact')?.[0]?.impact;
+    const impactItemId = impact.items.find((item: { target?: unknown }) => item.target)?.id as string;
+    handleMessage?.({ type: 'askImpact', impactItemId });
+    await vi.waitFor(() => expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
+      contextPatch: expect.objectContaining({
+        atlasmindLens: expect.objectContaining({
+          target: expect.objectContaining({ kind: 'schema', detail: expect.stringContaining('high') }),
         }),
       }),
     })));

@@ -53,7 +53,7 @@ Developers can set a bounded scenario—request parameters, feature flags, envir
 
 The first prototype starts from a language-service symbol selected in Code Explorer. It combines VS Code call hierarchy and references into a host-normalized **possible flow**, opens as an editor webview, and supports exact source and Ask Atlas actions on each node. It is intentionally not yet a framework-route detector, scenario evaluator, or runtime trace.
 
-### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0–v0.242.0)
+### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0–v0.243.0)
 
 Review the full field journey across application and data boundaries:
 
@@ -83,6 +83,8 @@ The v0.240 vertical slice discovers bounded OpenAPI 3 component schemas, JSON Sc
 The v0.241 adapter adds the first code-to-database bridge: filename-signalled TypeScript interfaces and object type aliases become line-backed contracts that can be selected against any supported API/schema/SQL boundary. Scalar, array, literal-enum, named-reference, optional, and nullable syntax is retained, while the adapter reports partial coverage and does not execute modules or claim compiler/runtime resolution. Validator, ORM/decorator, GraphQL/protobuf, generated-client, relationship, drift, and change-impact work remains active.
 
 The v0.242 board adds a deterministic Contract Drift Review over normalized wires. Definite conflicts, stale explicit mapping endpoints, intentional changes, drops, inferences, and non-intentional introductions/transforms receive distinct classes and severities; missing evidence stays informational. Findings are filterable and source-anchored Ask actions include their class/severity/reason. Historical contract comparison, validator/ORM/decorator, GraphQL/protobuf, generated-client, relationship, and schema change-impact work remains active.
+
+The v0.243 board adds the first Schema Change Impact preview for rename, removal, type, format, presence, and nullability proposals. It ranks evidence-backed endpoints/mappings and clearly labelled API, validation, serialization, migration, and deployment-rule inferences within the selected two-contract boundary; it makes no edits. Tests, callers, runtime traces, migration history, deployment state, and workspace-wide reachability remain named unknowns until their adapters land. Validator/ORM/decorator, GraphQL/protobuf, generated-client, relationship, historical drift, and wider change-impact work remains active.
 
 ### Phase 4 — Change Impact Map
 

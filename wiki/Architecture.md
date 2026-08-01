@@ -185,6 +185,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 
 **Contract Drift Review projects those wires into evidence-aware findings.** Incompatible declarations are definite conflicts; stale endpoints in an explicit mapping are dead wires; intentional transforms/introductions/drops remain visible information; inferred and non-intentional transforms are likely drift; and non-intentional introductions are undocumented wires. Unmatched fields remain missing evidence, not an automatic defect. The board summarizes and filters classes, keeps suppressed findings inspectable while excluding them from active severity totals, and prepares source-anchored Ask drafts containing the host-resolved class, severity, and reason. The classifier performs no new I/O, execution, database access, or model call.
 
+**Schema Change Impact previews one proposed field change without applying it.** Rename, removal, type, format, required/optional, and nullability previews verify the host-selected field against the normalized pair, follow only its existing wires, and rank at most 80 declaration, mapping, API/serialization, validation, migration, and deployment implications. Direct endpoint/mapping items retain declared evidence; broader risk rules are marked inferred. The panel names its two-contract scope and keeps tests, callers, traces, migration history, deployment state, and workspace-wide reachability unknown until adapters provide evidence. Webview actions send bounded ids; Open/Ask targets are host-held and workspace-revalidated. No contract, mapping, migration, test, or deployment file is edited.
+
 Concurrent chat surfaces keep their selected sessions pinned locally. Session-change refresh events update UI state without force-switching every open chat surface to the global active session.
 
 Project-run proposals cross the chat webview boundary as validated transcript metadata rather than browser-owned commands. Interactive chat renders **Start run**, **Save for later**, and **Cancel**; the extension host re-reads the pending proposal, accepts only those three actions, prevents double resolution, and sends saved proposals through Project Run Center preview persistence. Only Autopilot may bypass the card and auto-start when the matching setting permits it. Provider catalog refresh follows the same host-authoritative principle: successful live discovery replaces the prior list (including an empty result), while provider-confirmed removed/deprecated models keep a session tombstone that stale discovery cannot resurrect.
@@ -351,6 +353,7 @@ src/
 |  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
 |  |- lensContractSources.ts TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 |  |- lensContractDrift.ts Contract finding classes and severity summary
+|  |- lensSchemaImpact.ts Proposed field-change impact ranking
 |  |- websiteWorkspaceManager.ts  Website brief/design/hosting/platform/n8n SSOT
 |  |- planner.ts         Goal -> DAG decomposition
 |  |- taskScheduler.ts   DAG -> parallel batch execution

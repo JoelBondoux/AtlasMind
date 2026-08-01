@@ -6,6 +6,7 @@ import {
   reviewLensContractWiring,
 } from '../core/lensContract.js';
 import { analyzeLensContractDrift } from '../core/lensContractDrift.js';
+import { analyzeLensSchemaChangeImpact } from '../core/lensSchemaImpact.js';
 import {
   buildLensContextPatch,
   buildLensDraftPrompt,
@@ -19,6 +20,8 @@ import type {
   LensContractMappingFile,
   LensContractReview,
   LensFieldWire,
+  LensSchemaChangeImpact,
+  LensSchemaChangeKind,
   LensVisualTarget,
 } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
@@ -44,7 +47,23 @@ type LensContractReviewMessage =
   | { type: 'ready' }
   | { type: 'openField'; fieldId: string }
   | { type: 'askField'; fieldId: string }
-  | { type: 'askWire'; wireId: string };
+  | { type: 'askWire'; wireId: string }
+  | { type: 'previewImpact'; fieldId: string }
+  | { type: 'openImpact'; impactItemId: string }
+  | { type: 'askImpact'; impactItemId: string };
+
+interface ImpactChangePick extends vscode.QuickPickItem {
+  changeKind: LensSchemaChangeKind;
+}
+
+const IMPACT_CHANGE_PICKS: ImpactChangePick[] = [
+  { label: '$(edit) Rename field', description: 'Preview compatibility, mapping, migration, and rollout implications.', changeKind: 'rename' },
+  { label: '$(trash) Remove field', description: 'Preview consumers, staged removal, retention, and rollback implications.', changeKind: 'remove' },
+  { label: '$(symbol-keyword) Change type', description: 'Preview serialization, cast, persistence, and compatibility implications.', changeKind: 'type' },
+  { label: '$(symbol-string) Change format', description: 'Preview validation, serialization, and historical-data implications.', changeKind: 'format' },
+  { label: '$(question) Change required/optional', description: 'Preview request, validation, default, and stored-data implications.', changeKind: 'presence' },
+  { label: '$(circle-outline) Change nullability', description: 'Preview validation, backfill, constraint, and rollout implications.', changeKind: 'nullability' },
+];
 
 /** Secure field-wiring board for two normalized adjacent contract layers. */
 export class LensContractReviewPanel {
@@ -55,6 +74,7 @@ export class LensContractReviewPanel {
   private fieldById = new Map<string, LensContractField>();
   private wireById = new Map<string, LensFieldWire>();
   private findingByWireId = new Map<string, LensContractDriftFinding>();
+  private impactTargetById = new Map<string, LensVisualTarget>();
   private ready = false;
 
   public static createOrShow(candidate: LensContractReviewPanelInput): void {
@@ -110,12 +130,32 @@ export class LensContractReviewPanel {
     );
     this.wireById = new Map(snapshot.review.wires.map(wire => [wire.id, wire]));
     this.findingByWireId = new Map(snapshot.drift.findings.map(finding => [finding.wireId, finding]));
+    this.impactTargetById.clear();
   }
 
   private async handleMessage(message: LensContractReviewMessage): Promise<void> {
     if (message.type === 'ready') {
       this.ready = true;
       await this.panel.webview.postMessage({ type: 'snapshot', snapshot: this.snapshot });
+      return;
+    }
+    if (message.type === 'previewImpact') {
+      await this.previewImpact(message.fieldId);
+      return;
+    }
+    if (message.type === 'openImpact' || message.type === 'askImpact') {
+      const target = this.impactTargetById.get(message.impactItemId);
+      if (!target) {
+        return;
+      }
+      if (message.type === 'askImpact') {
+        await revealPreferredChatSurface({
+          draftPrompt: buildLensDraftPrompt(target),
+          contextPatch: buildLensContextPatch(target),
+        });
+      } else {
+        await this.openTarget(target);
+      }
       return;
     }
     if (message.type === 'askWire') {
@@ -142,9 +182,45 @@ export class LensContractReviewPanel {
       });
       return;
     }
+    await this.openTarget(target);
+  }
+
+  private async previewImpact(fieldId: string): Promise<void> {
+    const field = this.fieldById.get(fieldId);
+    if (!field) {
+      return;
+    }
+    const pick = await vscode.window.showQuickPick(IMPACT_CHANGE_PICKS, {
+      title: `AtlasMind Lens — preview a change to ${field.path}`,
+      placeHolder: 'Choose the proposed field-shape change; AtlasMind will not edit the workspace',
+      matchOnDescription: true,
+    });
+    if (!pick) {
+      return;
+    }
+    const impact = analyzeLensSchemaChangeImpact({
+      upstream: this.snapshot.upstream,
+      downstream: this.snapshot.downstream,
+      review: this.snapshot.review,
+      seedFieldId: field.id,
+      changeKind: pick.changeKind,
+    });
+    this.indexImpact(impact);
+    await this.panel.webview.postMessage({ type: 'impact', impact });
+  }
+
+  private indexImpact(impact: LensSchemaChangeImpact): void {
+    this.impactTargetById = new Map(
+      impact.items
+        .filter(item => Boolean(item.target))
+        .map(item => [item.id, item.target!]),
+    );
+  }
+
+  private async openTarget(target: LensVisualTarget): Promise<void> {
     const uri = resolveWorkspaceTarget(target);
     if (!uri) {
-      void vscode.window.showWarningMessage('AtlasMind Lens refused an invalid or out-of-workspace contract field target.');
+      void vscode.window.showWarningMessage('AtlasMind Lens refused an invalid or out-of-workspace contract target.');
       return;
     }
     await vscode.window.showTextDocument(uri, {
@@ -216,13 +292,19 @@ function normalizeMessage(value: unknown): LensContractReviewMessage | undefined
     return { type: 'ready' };
   }
   if (
-    (value.type === 'openField' || value.type === 'askField') &&
+    (value.type === 'openField' || value.type === 'askField' || value.type === 'previewImpact') &&
     boundedId(value.fieldId)
   ) {
     return { type: value.type, fieldId: value.fieldId as string };
   }
   if (value.type === 'askWire' && boundedId(value.wireId)) {
     return { type: 'askWire', wireId: value.wireId as string };
+  }
+  if (
+    (value.type === 'openImpact' || value.type === 'askImpact') &&
+    boundedId(value.impactItemId)
+  ) {
+    return { type: value.type, impactItemId: value.impactItemId as string };
   }
   return undefined;
 }
@@ -332,6 +414,18 @@ function buildContractReviewHtml(cspSource: string): string {
           </dl>
         </section>
         <ul id="wiring-notices" class="notices" aria-label="Evidence notices"></ul>
+        <section id="impact-preview" class="impact-preview" aria-labelledby="impact-heading" hidden>
+          <div class="impact-header">
+            <div>
+              <p class="eyebrow">Proposed change — no edits made</p>
+              <h2 id="impact-heading">Schema change impact</h2>
+              <p id="impact-summary"></p>
+            </div>
+            <button id="close-impact" type="button" class="small-action">Close preview</button>
+          </div>
+          <ul id="impact-notices" class="notices" aria-label="Impact evidence notices"></ul>
+          <div id="impact-items" class="impact-items" role="list" aria-label="Ranked impact items"></div>
+        </section>
         <div class="table-scroll">
           <table>
             <thead><tr><th id="upstream-heading">Upstream</th><th>Status</th><th id="downstream-heading">Downstream</th><th>Evidence and actions</th></tr></thead>
@@ -356,6 +450,20 @@ function buildContractReviewHtml(cspSource: string): string {
       .drift-summary div { min-width: 82px; padding: 7px 9px; border-radius: 5px; background: var(--vscode-editorWidget-background); }
       .drift-summary dt { color: var(--vscode-descriptionForeground); font-size: 0.72rem; }
       .drift-summary dd { margin: 2px 0 0; font-size: 1.05rem; font-weight: 700; }
+      .impact-preview { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-focusBorder); border-radius: 7px; background: var(--vscode-editorWidget-background); }
+      .impact-preview[hidden] { display: none; }
+      .impact-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+      .impact-header h2 { margin: 0; }
+      .impact-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
+      .impact-items { display: grid; gap: 8px; }
+      .impact-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 5px; background: var(--vscode-editor-background); }
+      .impact-item-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+      .impact-label { font-weight: 700; }
+      .impact-meta, .impact-detail, .impact-evidence { display: block; margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
+      .impact-severity { border-radius: 999px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--vscode-widget-border); }
+      .impact-severity-high { color: var(--vscode-testing-iconFailed, #f14c4c); }
+      .impact-severity-medium { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .impact-severity-review { color: var(--vscode-descriptionForeground); }
       .table-scroll { overflow: auto; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
       table { min-width: 840px; margin: 0; }
       th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); }
@@ -390,6 +498,11 @@ function buildContractReviewHtml(cspSource: string): string {
       const statusFilter = document.getElementById('status-filter');
       const findingFilter = document.getElementById('finding-filter');
       const showSuppressed = document.getElementById('show-suppressed');
+      const impactPreview = document.getElementById('impact-preview');
+      const impactSummary = document.getElementById('impact-summary');
+      const impactNotices = document.getElementById('impact-notices');
+      const impactItems = document.getElementById('impact-items');
+      const closeImpact = document.getElementById('close-impact');
       const driftActive = document.getElementById('drift-active');
       const driftErrors = document.getElementById('drift-errors');
       const driftWarnings = document.getElementById('drift-warnings');
@@ -416,14 +529,45 @@ function buildContractReviewHtml(cspSource: string): string {
         textElement(cell, 'span', 'field-name', field.path);
         textElement(cell, 'span', 'field-shape', field.dataType + (field.format ? ':' + field.format : '') + ' · ' + field.presence + ' · ' + field.nullability);
         textElement(cell, 'span', 'field-shape', field.evidence.kind + ' — ' + field.evidence.source);
+        const actions = document.createElement('div');
+        actions.className = 'field-actions';
         if (field.target) {
-          const actions = document.createElement('div');
-          actions.className = 'field-actions';
           action(actions, 'Open', { type: 'openField', fieldId: field.id });
           action(actions, 'Ask Atlas', { type: 'askField', fieldId: field.id });
-          cell.appendChild(actions);
         }
+        action(actions, 'Preview impact', { type: 'previewImpact', fieldId: field.id });
+        cell.appendChild(actions);
         cell.setAttribute('data-side', side);
+      }
+
+      function renderImpact(impact) {
+        impactPreview.hidden = false;
+        impactSummary.textContent = impact.changeKind + ' · ' + impact.items.length + ' ranked implications' + (impact.truncated ? ' · bounded view' : '');
+        impactNotices.replaceChildren();
+        for (const notice of impact.notices) { textElement(impactNotices, 'li', '', notice); }
+        impactItems.replaceChildren();
+        for (const item of impact.items) {
+          const container = document.createElement('article');
+          container.className = 'impact-item';
+          container.setAttribute('role', 'listitem');
+          const head = document.createElement('div');
+          head.className = 'impact-item-head';
+          textElement(head, 'span', 'impact-label', item.label);
+          textElement(head, 'span', 'impact-severity impact-severity-' + item.severity, item.severity);
+          container.appendChild(head);
+          textElement(container, 'span', 'impact-meta', item.category + ' · proximity ' + item.proximity);
+          textElement(container, 'span', 'impact-detail', item.detail);
+          textElement(container, 'span', 'impact-evidence', item.evidence.kind + ' — ' + item.evidence.source);
+          if (item.target) {
+            const actions = document.createElement('div');
+            actions.className = 'field-actions';
+            action(actions, 'Open', { type: 'openImpact', impactItemId: item.id });
+            action(actions, 'Ask Atlas', { type: 'askImpact', impactItemId: item.id });
+            container.appendChild(actions);
+          }
+          impactItems.appendChild(container);
+        }
+        impactPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
 
       function render() {
@@ -491,9 +635,11 @@ function buildContractReviewHtml(cspSource: string): string {
       statusFilter.addEventListener('change', render);
       findingFilter.addEventListener('change', render);
       showSuppressed.addEventListener('change', render);
+      closeImpact.addEventListener('click', () => { impactPreview.hidden = true; });
       window.addEventListener('message', event => {
         const message = event.data;
         if (message && message.type === 'snapshot' && message.snapshot) { load(message.snapshot); }
+        if (message && message.type === 'impact' && message.impact) { renderImpact(message.impact); }
       });
       vscode.postMessage({ type: 'ready' });
     `,

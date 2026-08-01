@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.242.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.243.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.242.0
+## What's new in 0.243.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Field Wiring now includes a filterable Contract Drift Review that tells proven conflicts from incomplete evidence.** The board summarizes active findings, conflicts, warnings, missing evidence, and suppressions, then annotates each relevant wire as a definite conflict, likely drift, missing evidence, intentional transform, dead mapping wire, dropped wire, or undocumented introduction. An ordinary unmatched field remains informational missing evidence—it is never called dropped, dead, or undocumented merely because discovery lacks a link. Suppressed findings stay visible but do not inflate active severity counts, and **Ask about finding** prepares an editable Atlas draft containing the normalized class, severity, reason, and source anchor. The v0.241 TypeScript-to-schema/database bridge remains available.
+- **Every field in Field Wiring can now preview Schema Change Impact without editing the project.** Choose rename, removal, type, format, required/optional, or nullability and AtlasMind ranks the selected declaration, its normalized connected endpoint, explicit mapping, API compatibility/serialization, validation, database migration, and deployment-ordering implications. Direct links retain their declared evidence while risk rules are labelled inferred. Source-backed items can open or prepare an editable Atlas draft with category, severity, detail, and evidence. The preview is bounded to the selected two-contract boundary and explicitly names tests, callers, runtime traces, migration history, and deployment state as unknown until adapters provide evidence; missing connectivity never means zero consumers. The v0.242 drift classifier remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -372,6 +372,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
+| `src/core/lensSchemaImpact.ts` | Bounded proposed field-change impact ranking across the selected contract boundary |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
