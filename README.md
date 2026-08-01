@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.246.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.247.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.246.0
+## What's new in 0.247.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Find tests now opens a source-backed Test & Behaviour evidence map for a selected symbol.** AtlasMind filters bounded VS Code caller/reference evidence through conservative test filename/folder signals, groups linked sources as unit, integration, contract, end-to-end, or unknown kind, and shows exact Open/Ask actions plus a text equivalent. It never runs tests, reads coverage/assertions, or turns no discovery result into an untested verdict. The v0.245 Change Impact Map remains available.
+- **Field Wiring fields can now open a Data Trust Map across their normalized connection.** Explicit `.atlasmind/lens-data-trust.json` rules attach public/internal/confidential/restricted classifications and declared consent, authorization, redaction, encryption, retention, and residency controls to exact contract fields. Unknown metadata stays unknown; AtlasMind never guesses from field names/values, reads no data or secrets, and does not claim a declared control is runtime-verified. Source-backed endpoints offer exact Open/Ask actions. The v0.246 Test & Behaviour evidence map remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -371,6 +371,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/core/lensCodeImpact.ts` | Deterministic caller/callee/reference projection for the first general Change Impact Map |
 | `src/core/lensTestMap.ts` | Conservative test-path classification over source-backed callers and references |
+| `src/core/lensDataTrust.ts` | Explicit field trust-policy normalization and connected-endpoint projection |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
@@ -391,6 +392,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |
 | `src/views/lensContractReviewPanel.ts` | Filterable Field Wiring board with source-backed field and relation actions |
 | `schemas/lens-mappings.schema.json` | VS Code validation and completion for `.atlasmind/lens-mappings.json` |
+| `schemas/lens-data-trust.schema.json` | VS Code validation and completion for `.atlasmind/lens-data-trust.json` |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |

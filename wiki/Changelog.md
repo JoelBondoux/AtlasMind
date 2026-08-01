@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.247.0 — Lens maps declared data trust
+
+**A Field Wiring field can now open a Data Trust Map across its normalized connection.** Exact `.atlasmind/lens-data-trust.json` rules declare public/internal/confidential/restricted classification and consent, authorization, redaction, encryption, retention, and residency controls; source-backed endpoints can open or prepare an editable Ask draft.
+
+**Policy metadata is not data or runtime proof.** AtlasMind reads no values, secrets, database contents, traffic, or telemetry, never guesses sensitivity from field names, and keeps absent declarations unknown. A declared control records intent rather than verified implementation.
+
 ## v0.246.0 — Lens maps discovered test evidence
 
 **Find tests on a Code Explorer symbol now opens a Test & Behaviour evidence map.** Bounded language-service callers/references with explicit test-like paths are grouped as unit, integration, contract, end-to-end, or unknown kind, with exact Open/Ask actions, kind counts, and an equivalent text view.

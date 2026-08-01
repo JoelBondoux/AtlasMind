@@ -100,9 +100,11 @@ Connect production symbols, routes, contracts, and behaviours to unit, integrati
 
 The v0.246 vertical slice turns **Find tests** on a Code Explorer symbol into a bounded map of language-service test callers/references. Explicit path signals classify unit, integration, contract, end-to-end, or unknown test-like sources while remaining separate from call/reference evidence. The map provides exact Open/Ask actions and a text equivalent, executes no tests, reads no coverage/assertions, and never treats no discovered link as no coverage. Route/contract/behaviour links, exploratory evidence, coverage ingestion, pass/fail state, and orphan-test analysis remain active Phase 5 work.
 
-### Phase 6 — Data Journey and Trust Map
+### Phase 6 — Data Journey and Trust Map (in progress, v0.247.0)
 
 Trace data from collection through validation, transformation, storage, cache, queue, API, analytics, and deletion. Overlay trust boundaries, redaction, encryption, retention, residency, and authorization evidence. This view should integrate with the schema wiring foundation rather than maintain a second model of fields.
+
+The v0.247 vertical slice integrates an explicit field-level Data Trust Map into Field Wiring. `.atlasmind/lens-data-trust.json` declares exact normalized contract-field classifications and consent, authorization, redaction, encryption, retention, and residency controls. Review follows the selected field and resolved wire endpoint, provides Open/Ask plus DOM-text rendering, reads no values/secrets, guesses nothing from names, and treats declared policy as intent rather than runtime verification. Collection/cache/queue/analytics/deletion stages, trust-boundary edges, live control evidence, and wider multi-hop journeys remain active Phase 6 work.
 
 ### Phase 7 — State and Lifecycle Explorer
 
@@ -139,6 +141,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Establish graph performance budgets and accessibility acceptance tests.
 - [x] Open the first source-backed Change Impact Map from a selected symbol.
 - [x] Open the first conservative Test & Behaviour evidence map from a selected symbol.
+- [x] Integrate explicit field trust metadata into the first Data Trust Map.
 
 ## Out of scope for the foundation
 

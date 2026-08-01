@@ -2538,6 +2538,58 @@ export interface LensContractRelation {
   evidence: LensEvidence;
 }
 
+export type LensDataClassification = 'public' | 'internal' | 'confidential' | 'restricted';
+
+export type LensDataControlKind =
+  | 'consent'
+  | 'authorization'
+  | 'redaction'
+  | 'encryption'
+  | 'retention'
+  | 'residency';
+
+export interface LensDataTrustFieldRule {
+  id: string;
+  contractId: string;
+  fieldPath: string;
+  classification: LensDataClassification;
+  controls: LensDataControlKind[];
+  note?: string;
+}
+
+/** Explicit repository policy from `.atlasmind/lens-data-trust.json`; contains metadata, never data values. */
+export interface LensDataTrustPolicyFile {
+  version: 1;
+  fields: LensDataTrustFieldRule[];
+}
+
+export type LensDataTrustStatus = 'declared' | 'unknown';
+
+export interface LensDataTrustItem {
+  id: string;
+  contractId: string;
+  fieldId: string;
+  label: string;
+  status: LensDataTrustStatus;
+  classification?: LensDataClassification;
+  controls: LensDataControlKind[];
+  note?: string;
+  proximity: number;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** Bounded trust-policy projection across one selected normalized field wire. */
+export interface LensDataTrustMap {
+  version: 1;
+  id: string;
+  seedContractId: string;
+  seedFieldId: string;
+  items: LensDataTrustItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

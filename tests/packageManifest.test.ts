@@ -77,6 +77,21 @@ describe('package manifest', () => {
     }));
   });
 
+  it('provides validation and editor guidance for Lens data trust policy', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-data-trust.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-data-trust.json',
+      url: './schemas/lens-data-trust.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens data trust policy',
+      additionalProperties: false,
+    }));
+  });
+
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 

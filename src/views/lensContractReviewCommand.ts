@@ -6,6 +6,10 @@ import {
 } from '../core/lensContract.js';
 import { resolveLensContractRelations } from '../core/lensContractRelations.js';
 import {
+  LENS_DATA_TRUST_FILE,
+  normalizeLensDataTrustPolicyFile,
+} from '../core/lensDataTrust.js';
+import {
   extractJsonContractSources,
   extractSqlContractSources,
   extractTypeScriptContractSources,
@@ -14,6 +18,7 @@ import type {
   LensContract,
   LensContractMappingFile,
   LensContractRelation,
+  LensDataTrustPolicyFile,
   LensWorkspaceIdentity,
 } from '../types.js';
 import { LensContractReviewPanel } from './lensContractReviewPanel.js';
@@ -82,13 +87,43 @@ export async function reviewWorkspaceContractWiring(): Promise<void> {
   if (!mappingFile) {
     return;
   }
+  const dataTrustPolicy = await loadDataTrustPolicy(upstreamPick.contract);
+  if (!dataTrustPolicy) {
+    return;
+  }
   LensContractReviewPanel.createOrShow({
     upstream: upstreamPick.contract,
     downstream: downstreamPick.contract,
     mappingFile,
+    dataTrustPolicy,
     relations: discovery.relations,
     sourceNotices: discovery.notices,
   });
+}
+
+async function loadDataTrustPolicy(contract: LensContract): Promise<LensDataTrustPolicyFile | undefined> {
+  const folder = resolveContractFolder(contract);
+  if (!folder) {
+    void vscode.window.showWarningMessage('AtlasMind Lens could not resolve the data-trust policy workspace root.');
+    return undefined;
+  }
+  const uri = vscode.Uri.joinPath(folder.uri, ...LENS_DATA_TRUST_FILE.split('/'));
+  let raw: unknown = { version: 1, fields: [] };
+  try {
+    raw = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))) as unknown;
+  } catch (error) {
+    if (!isFileNotFound(error)) {
+      void vscode.window.showWarningMessage(
+        `AtlasMind Lens refused ${LENS_DATA_TRUST_FILE} because it is malformed or unreadable.`,
+      );
+      return undefined;
+    }
+  }
+  const policy = normalizeLensDataTrustPolicyFile(raw);
+  if (!policy) {
+    void vscode.window.showWarningMessage(`AtlasMind Lens refused invalid entries in ${LENS_DATA_TRUST_FILE}.`);
+  }
+  return policy;
 }
 
 async function discoverContracts(
@@ -147,13 +182,7 @@ async function discoverContracts(
 }
 
 async function loadMappingFile(contract: LensContract): Promise<LensContractMappingFile | undefined> {
-  const identity = contract.target?.workspace;
-  const folder = identity
-    ? vscode.workspace.workspaceFolders?.find(candidate => sameWorkspace(
-      { name: candidate.name, index: candidate.index },
-      identity,
-    ))
-    : undefined;
+  const folder = resolveContractFolder(contract);
   if (!folder) {
     void vscode.window.showWarningMessage('AtlasMind Lens could not resolve the contract workspace root.');
     return undefined;
@@ -177,6 +206,16 @@ async function loadMappingFile(contract: LensContract): Promise<LensContractMapp
     );
   }
   return mappingFile;
+}
+
+function resolveContractFolder(contract: LensContract): vscode.WorkspaceFolder | undefined {
+  const identity = contract.target?.workspace;
+  return identity
+    ? vscode.workspace.workspaceFolders?.find(candidate => sameWorkspace(
+      { name: candidate.name, index: candidate.index },
+      identity,
+    ))
+    : undefined;
 }
 
 function toPicks(contracts: LensContract[]): ContractPick[] {

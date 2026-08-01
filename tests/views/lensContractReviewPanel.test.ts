@@ -72,6 +72,7 @@ vi.mock('vscode', () => ({
 vi.mock('../../src/views/chatPanel', () => ({ revealPreferredChatSurface }));
 
 import { normalizeLensContract, normalizeLensContractMappingFile } from '../../src/core/lensContract';
+import { normalizeLensDataTrustPolicyFile } from '../../src/core/lensDataTrust';
 import { createSourceLensTarget } from '../../src/core/lensTarget';
 import { LensContractReviewPanel } from '../../src/views/lensContractReviewPanel';
 
@@ -109,12 +110,23 @@ describe('Lens contract review panel', () => {
     const upstream = contract('api:user', 'User request', 'api:email', '</script><script>bad()</script>');
     const downstream = contract('database:users', 'users', 'db:email', '</script><script>bad()</script>', 'number');
     const mappingFile = normalizeLensContractMappingFile({ version: 1, mappings: [], suppressions: [] })!;
+    const dataTrustPolicy = normalizeLensDataTrustPolicyFile({
+      version: 1,
+      fields: [{
+        id: 'api-email',
+        contractId: upstream.id,
+        fieldPath: fieldLabel(upstream),
+        classification: 'confidential',
+        controls: ['authorization', 'redaction'],
+      }],
+    })!;
     showQuickPick.mockResolvedValue({ label: 'Remove field', changeKind: 'remove' });
 
     LensContractReviewPanel.createOrShow({
       upstream,
       downstream,
       mappingFile,
+      dataTrustPolicy,
       relations: [{
         id: 'relation:users-account',
         kind: 'foreign-key',
@@ -130,6 +142,7 @@ describe('Lens contract review panel', () => {
     expect(panel.webview.html).toContain('Field wiring');
     expect(panel.webview.html).toContain('Contract drift review');
     expect(panel.webview.html).toContain('Relationship map');
+    expect(panel.webview.html).toContain('Data trust map');
     expect(panel.webview.html).toContain('Content-Security-Policy');
     expect(panel.webview.html).not.toContain('bad()');
     const handleMessage = messageHandlers.at(-1);
@@ -177,6 +190,24 @@ describe('Lens contract review panel', () => {
       contextPatch: expect.objectContaining({
         atlasmindLens: expect.objectContaining({
           target: expect.objectContaining({ kind: 'relation', detail: expect.stringContaining('foreign-key') }),
+        }),
+      }),
+    })));
+
+    handleMessage?.({ type: 'previewTrust', fieldId: 'api:email' });
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'dataTrust',
+      dataTrust: expect.objectContaining({
+        items: expect.arrayContaining([expect.objectContaining({ classification: 'confidential' })]),
+      }),
+    })));
+    const dataTrust = postMessage.mock.calls.find(call => call[0]?.type === 'dataTrust')?.[0]?.dataTrust;
+    const trustItemId = dataTrust.items.find((item: { target?: unknown }) => item.target)?.id as string;
+    handleMessage?.({ type: 'askTrust', trustItemId });
+    await vi.waitFor(() => expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
+      contextPatch: expect.objectContaining({
+        atlasmindLens: expect.objectContaining({
+          target: expect.objectContaining({ kind: 'schema', detail: expect.stringContaining('confidential') }),
         }),
       }),
     })));

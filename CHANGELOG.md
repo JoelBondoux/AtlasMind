@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.247.0] - 2026-08-01
+
+### Added
+
+- **Field Wiring fields can now open the first Data Trust Map across their normalized connection.** The map shows the selected and connected field endpoints, their contract proximity, explicit public/internal/confidential/restricted classification, and declared consent, authorization, redaction, encryption, retention, and residency controls. Exact source-backed items can open or prepare an editable Ask Atlas draft.
+- **Repositories can declare trust metadata in `.atlasmind/lens-data-trust.json`.** AtlasMind contributes JSON Schema validation/completion for bounded field rules; every rule names an exact normalized contract id and field path. Missing rules remain visibly unknown instead of being inferred from names or values.
+
+### Security
+
+- **The trust file contains policy metadata only and forbids undeclared properties.** AtlasMind reads no data values, secret values, sample payloads, database contents, runtime traffic, or provider telemetry. Notes and identifiers are bounded/control-safe, duplicate endpoints fail closed, and the file guidance explicitly forbids secrets and personal values.
+- **Declared controls are not claimed as runtime verification.** A declaration proves repository intent only; an absent classification/control is missing evidence, not proof that data is public or unprotected. The existing ready-handshake, DOM-text rendering, bounded-id messaging, and live workspace revalidation protect Open/Ask actions.
+
 ## [0.246.0] - 2026-08-01
 
 ### Added

@@ -7,6 +7,10 @@ import {
 } from '../core/lensContract.js';
 import { analyzeLensContractDrift } from '../core/lensContractDrift.js';
 import { normalizeLensContractRelations } from '../core/lensContractRelations.js';
+import {
+  analyzeLensDataTrust,
+  normalizeLensDataTrustPolicyFile,
+} from '../core/lensDataTrust.js';
 import { analyzeLensSchemaChangeImpact } from '../core/lensSchemaImpact.js';
 import {
   buildLensContextPatch,
@@ -21,6 +25,8 @@ import type {
   LensContractMappingFile,
   LensContractRelation,
   LensContractReview,
+  LensDataTrustMap,
+  LensDataTrustPolicyFile,
   LensFieldWire,
   LensSchemaChangeImpact,
   LensSchemaChangeKind,
@@ -33,6 +39,7 @@ export interface LensContractReviewPanelInput {
   upstream: LensContract;
   downstream: LensContract;
   mappingFile: LensContractMappingFile;
+  dataTrustPolicy: LensDataTrustPolicyFile;
   relations?: LensContractRelation[];
   sourceNotices?: string[];
 }
@@ -47,6 +54,11 @@ interface LensContractReviewSnapshot {
   notices: string[];
 }
 
+interface NormalizedLensContractReviewPanelInput {
+  snapshot: LensContractReviewSnapshot;
+  dataTrustPolicy: LensDataTrustPolicyFile;
+}
+
 type LensContractReviewMessage =
   | { type: 'ready' }
   | { type: 'openField'; fieldId: string }
@@ -55,6 +67,9 @@ type LensContractReviewMessage =
   | { type: 'previewImpact'; fieldId: string }
   | { type: 'openImpact'; impactItemId: string }
   | { type: 'askImpact'; impactItemId: string }
+  | { type: 'previewTrust'; fieldId: string }
+  | { type: 'openTrust'; trustItemId: string }
+  | { type: 'askTrust'; trustItemId: string }
   | { type: 'openRelation'; relationId: string }
   | { type: 'askRelation'; relationId: string };
 
@@ -81,18 +96,19 @@ export class LensContractReviewPanel {
   private wireById = new Map<string, LensFieldWire>();
   private findingByWireId = new Map<string, LensContractDriftFinding>();
   private impactTargetById = new Map<string, LensVisualTarget>();
+  private trustTargetById = new Map<string, LensVisualTarget>();
   private relationTargetById = new Map<string, LensVisualTarget>();
   private ready = false;
 
   public static createOrShow(candidate: LensContractReviewPanelInput): void {
-    const snapshot = normalizePanelInput(candidate);
-    if (!snapshot) {
+    const normalized = normalizePanelInput(candidate);
+    if (!normalized) {
       void vscode.window.showWarningMessage('AtlasMind Lens refused an invalid contract review.');
       return;
     }
     if (LensContractReviewPanel.currentPanel) {
       LensContractReviewPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
-      LensContractReviewPanel.currentPanel.replaceSnapshot(snapshot);
+      LensContractReviewPanel.currentPanel.replaceInput(normalized);
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -101,12 +117,17 @@ export class LensContractReviewPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
-    LensContractReviewPanel.currentPanel = new LensContractReviewPanel(panel, snapshot);
+    LensContractReviewPanel.currentPanel = new LensContractReviewPanel(
+      panel,
+      normalized.snapshot,
+      normalized.dataTrustPolicy,
+    );
   }
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private snapshot: LensContractReviewSnapshot,
+    private dataTrustPolicy: LensDataTrustPolicyFile,
   ) {
     this.indexSnapshot(snapshot);
     this.panel.webview.html = buildContractReviewHtml(this.panel.webview.cspSource);
@@ -123,11 +144,12 @@ export class LensContractReviewPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
-  private replaceSnapshot(snapshot: LensContractReviewSnapshot): void {
-    this.snapshot = snapshot;
-    this.indexSnapshot(snapshot);
+  private replaceInput(normalized: NormalizedLensContractReviewPanelInput): void {
+    this.snapshot = normalized.snapshot;
+    this.dataTrustPolicy = normalized.dataTrustPolicy;
+    this.indexSnapshot(normalized.snapshot);
     if (this.ready) {
-      void this.panel.webview.postMessage({ type: 'snapshot', snapshot });
+      void this.panel.webview.postMessage({ type: 'snapshot', snapshot: normalized.snapshot });
     }
   }
 
@@ -138,6 +160,7 @@ export class LensContractReviewPanel {
     this.wireById = new Map(snapshot.review.wires.map(wire => [wire.id, wire]));
     this.findingByWireId = new Map(snapshot.drift.findings.map(finding => [finding.wireId, finding]));
     this.impactTargetById.clear();
+    this.trustTargetById.clear();
     this.relationTargetById = new Map(
       snapshot.relations.flatMap(relation => {
         const target = relation.target ? normalizeLensTarget({
@@ -161,6 +184,25 @@ export class LensContractReviewPanel {
     }
     if (message.type === 'previewImpact') {
       await this.previewImpact(message.fieldId);
+      return;
+    }
+    if (message.type === 'previewTrust') {
+      this.previewTrust(message.fieldId);
+      return;
+    }
+    if (message.type === 'openTrust' || message.type === 'askTrust') {
+      const target = this.trustTargetById.get(message.trustItemId);
+      if (!target) {
+        return;
+      }
+      if (message.type === 'askTrust') {
+        await revealPreferredChatSurface({
+          draftPrompt: buildLensDraftPrompt(target),
+          contextPatch: buildLensContextPatch(target),
+        });
+      } else {
+        await this.openTarget(target);
+      }
       return;
     }
     if (message.type === 'openImpact' || message.type === 'askImpact') {
@@ -253,6 +295,29 @@ export class LensContractReviewPanel {
     );
   }
 
+  private previewTrust(fieldId: string): void {
+    if (!this.fieldById.has(fieldId)) {
+      return;
+    }
+    const dataTrust = analyzeLensDataTrust({
+      upstream: this.snapshot.upstream,
+      downstream: this.snapshot.downstream,
+      review: this.snapshot.review,
+      policy: this.dataTrustPolicy,
+      seedFieldId: fieldId,
+    });
+    this.indexTrust(dataTrust);
+    void this.panel.webview.postMessage({ type: 'dataTrust', dataTrust });
+  }
+
+  private indexTrust(dataTrust: LensDataTrustMap): void {
+    this.trustTargetById = new Map(
+      dataTrust.items
+        .filter(item => Boolean(item.target))
+        .map(item => [item.id, item.target!]),
+    );
+  }
+
   private async openTarget(target: LensVisualTarget): Promise<void> {
     const uri = resolveWorkspaceTarget(target);
     if (!uri) {
@@ -295,12 +360,13 @@ export class LensContractReviewPanel {
   }
 }
 
-function normalizePanelInput(value: LensContractReviewPanelInput): LensContractReviewSnapshot | undefined {
+function normalizePanelInput(value: LensContractReviewPanelInput): NormalizedLensContractReviewPanelInput | undefined {
   const upstream = normalizeLensContract(value.upstream);
   const downstream = normalizeLensContract(value.downstream);
   const mappingFile = normalizeLensContractMappingFile(value.mappingFile);
+  const dataTrustPolicy = normalizeLensDataTrustPolicyFile(value.dataTrustPolicy);
   const allRelations = normalizeLensContractRelations(value.relations ?? []);
-  if (!upstream || !downstream || !mappingFile || !allRelations) {
+  if (!upstream || !downstream || !mappingFile || !dataTrustPolicy || !allRelations) {
     return undefined;
   }
   const sourceNotices = Array.isArray(value.sourceNotices)
@@ -320,13 +386,16 @@ function normalizePanelInput(value: LensContractReviewPanelInput): LensContractR
     relationLabels.has(relation.to.contractLabel.toLowerCase()),
   );
   return {
-    version: 1,
-    upstream,
-    downstream,
-    review,
-    drift,
-    relations,
-    notices: [...sourceNotices, ...review.notices, ...drift.notices].slice(0, 50),
+    dataTrustPolicy,
+    snapshot: {
+      version: 1,
+      upstream,
+      downstream,
+      review,
+      drift,
+      relations,
+      notices: [...sourceNotices, ...review.notices, ...drift.notices].slice(0, 50),
+    },
   };
 }
 
@@ -338,7 +407,7 @@ function normalizeMessage(value: unknown): LensContractReviewMessage | undefined
     return { type: 'ready' };
   }
   if (
-    (value.type === 'openField' || value.type === 'askField' || value.type === 'previewImpact') &&
+    (value.type === 'openField' || value.type === 'askField' || value.type === 'previewImpact' || value.type === 'previewTrust') &&
     boundedId(value.fieldId)
   ) {
     return { type: value.type, fieldId: value.fieldId as string };
@@ -351,6 +420,12 @@ function normalizeMessage(value: unknown): LensContractReviewMessage | undefined
     boundedId(value.impactItemId)
   ) {
     return { type: value.type, impactItemId: value.impactItemId as string };
+  }
+  if (
+    (value.type === 'openTrust' || value.type === 'askTrust') &&
+    boundedId(value.trustItemId)
+  ) {
+    return { type: value.type, trustItemId: value.trustItemId as string };
   }
   if (
     (value.type === 'openRelation' || value.type === 'askRelation') &&
@@ -486,6 +561,18 @@ function buildContractReviewHtml(cspSource: string): string {
           <ul id="impact-notices" class="notices" aria-label="Impact evidence notices"></ul>
           <div id="impact-items" class="impact-items" role="list" aria-label="Ranked impact items"></div>
         </section>
+        <section id="trust-preview" class="trust-preview" aria-labelledby="trust-heading" hidden>
+          <div class="impact-header">
+            <div>
+              <p class="eyebrow">Declared policy metadata — no data values</p>
+              <h2 id="trust-heading">Data trust map</h2>
+              <p id="trust-summary"></p>
+            </div>
+            <button id="close-trust" type="button" class="small-action">Close map</button>
+          </div>
+          <ul id="trust-notices" class="notices" aria-label="Data trust evidence notices"></ul>
+          <div id="trust-items" class="trust-items" role="list" aria-label="Data trust field journey"></div>
+        </section>
         <div class="table-scroll">
           <table>
             <thead><tr><th id="upstream-heading">Upstream</th><th>Status</th><th id="downstream-heading">Downstream</th><th>Evidence and actions</th></tr></thead>
@@ -533,6 +620,13 @@ function buildContractReviewHtml(cspSource: string): string {
       .impact-severity-high { color: var(--vscode-testing-iconFailed, #f14c4c); }
       .impact-severity-medium { color: var(--vscode-editorWarning-foreground, #cca700); }
       .impact-severity-review { color: var(--vscode-descriptionForeground); }
+      .trust-preview { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-charts-purple, var(--vscode-focusBorder)); border-radius: 7px; background: var(--vscode-editorWidget-background); }
+      .trust-preview[hidden] { display: none; }
+      .trust-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+      .trust-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-charts-purple, #b180d7); border-radius: 5px; background: var(--vscode-editor-background); }
+      .trust-item[data-status="unknown"] { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
+      .trust-label { font-weight: 700; }
+      .trust-meta, .trust-controls, .trust-note, .trust-evidence { display: block; margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
       .table-scroll { overflow: auto; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
       table { min-width: 840px; margin: 0; }
       th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); }
@@ -572,6 +666,11 @@ function buildContractReviewHtml(cspSource: string): string {
       const impactNotices = document.getElementById('impact-notices');
       const impactItems = document.getElementById('impact-items');
       const closeImpact = document.getElementById('close-impact');
+      const trustPreview = document.getElementById('trust-preview');
+      const trustSummary = document.getElementById('trust-summary');
+      const trustNotices = document.getElementById('trust-notices');
+      const trustItems = document.getElementById('trust-items');
+      const closeTrust = document.getElementById('close-trust');
       const relationshipMap = document.getElementById('relationship-map');
       const relationshipSummary = document.getElementById('relationship-summary');
       const relationshipItems = document.getElementById('relationship-items');
@@ -608,6 +707,7 @@ function buildContractReviewHtml(cspSource: string): string {
           action(actions, 'Ask Atlas', { type: 'askField', fieldId: field.id });
         }
         action(actions, 'Preview impact', { type: 'previewImpact', fieldId: field.id });
+        action(actions, 'Review trust', { type: 'previewTrust', fieldId: field.id });
         cell.appendChild(actions);
         cell.setAttribute('data-side', side);
       }
@@ -640,6 +740,35 @@ function buildContractReviewHtml(cspSource: string): string {
           impactItems.appendChild(container);
         }
         impactPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function renderTrust(dataTrust) {
+        trustPreview.hidden = false;
+        const declared = dataTrust.items.filter(item => item.status === 'declared').length;
+        trustSummary.textContent = dataTrust.items.length + ' field endpoints · ' + declared + ' with declared trust metadata' + (dataTrust.truncated ? ' · bounded view' : '');
+        trustNotices.replaceChildren();
+        for (const notice of dataTrust.notices) { textElement(trustNotices, 'li', '', notice); }
+        trustItems.replaceChildren();
+        for (const item of dataTrust.items) {
+          const container = document.createElement('article');
+          container.className = 'trust-item';
+          container.dataset.status = item.status;
+          container.setAttribute('role', 'listitem');
+          textElement(container, 'span', 'trust-label', item.label);
+          textElement(container, 'span', 'trust-meta', item.status + ' · ' + (item.classification || 'classification unknown') + ' · proximity ' + item.proximity);
+          textElement(container, 'span', 'trust-controls', item.controls.length ? 'Declared controls: ' + item.controls.join(', ') : 'No controls declared for this endpoint');
+          if (item.note) { textElement(container, 'span', 'trust-note', item.note); }
+          textElement(container, 'span', 'trust-evidence', item.evidence.kind + ' — ' + item.evidence.source);
+          if (item.target) {
+            const actions = document.createElement('div');
+            actions.className = 'field-actions';
+            action(actions, 'Open', { type: 'openTrust', trustItemId: item.id });
+            action(actions, 'Ask Atlas', { type: 'askTrust', trustItemId: item.id });
+            container.appendChild(actions);
+          }
+          trustItems.appendChild(container);
+        }
+        trustPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
 
       function renderRelationships(relations) {
@@ -738,10 +867,12 @@ function buildContractReviewHtml(cspSource: string): string {
       findingFilter.addEventListener('change', render);
       showSuppressed.addEventListener('change', render);
       closeImpact.addEventListener('click', () => { impactPreview.hidden = true; });
+      closeTrust.addEventListener('click', () => { trustPreview.hidden = true; });
       window.addEventListener('message', event => {
         const message = event.data;
         if (message && message.type === 'snapshot' && message.snapshot) { load(message.snapshot); }
         if (message && message.type === 'impact' && message.impact) { renderImpact(message.impact); }
+        if (message && message.type === 'dataTrust' && message.dataTrust) { renderTrust(message.dataTrust); }
       });
       vscode.postMessage({ type: 'ready' });
     `,

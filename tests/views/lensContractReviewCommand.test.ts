@@ -89,11 +89,20 @@ describe('Lens contract review command', () => {
         ? SQL
         : uri.path.endsWith('.ts') ? TYPESCRIPT : OPENAPI,
     }));
-    readFile.mockReset().mockResolvedValue(new TextEncoder().encode(JSON.stringify({
-      version: 1,
-      mappings: [],
-      suppressions: [],
-    })));
+    readFile.mockReset().mockImplementation((uri: { path: string }) => Promise.resolve(new TextEncoder().encode(JSON.stringify(
+      uri.path.endsWith('lens-data-trust.json')
+        ? {
+          version: 1,
+          fields: [{
+            id: 'api-email',
+            contractId: 'lens-contract:openapi:fixture',
+            fieldPath: 'email',
+            classification: 'confidential',
+            controls: ['authorization'],
+          }],
+        }
+        : { version: 1, mappings: [], suppressions: [] },
+    ))));
     showQuickPick.mockReset();
     showWarningMessage.mockReset();
     showInformationMessage.mockReset();
@@ -124,6 +133,7 @@ describe('Lens contract review command', () => {
       upstream: expect.objectContaining({ label: 'CreateUser', layer: 'api' }),
       downstream: expect.objectContaining({ label: 'users', layer: 'database' }),
       mappingFile: { version: 1, mappings: [], suppressions: [] },
+      dataTrustPolicy: expect.objectContaining({ version: 1, fields: expect.any(Array) }),
       relations: expect.arrayContaining([
         expect.objectContaining({
           label: 'users.account_id → accounts.id',

@@ -122,6 +122,7 @@ AtlasMind/
 │   │   ├── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
 │   │   ├── lensCodeImpact.ts Deterministic caller/callee/reference change-impact projection
 │   │   ├── lensTestMap.ts Conservative test-path classification over source-backed links
+│   │   ├── lensDataTrust.ts Explicit field trust policy and connected-endpoint projection
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
@@ -144,7 +145,8 @@ AtlasMind/
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── schemas/
-│   └── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
+│   ├── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
+│   └── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
@@ -165,6 +167,8 @@ Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, bind eve
 Graph adapters must finish at `normalizeLensGraph`; do not pass raw language-provider or model records to a webview. The initial possible-flow budget is 80 nodes, 160 edges, and two outgoing-call levels. Keep provider failure as an evidence notice rather than converting unknown relationships into defects. `LensJourneyPanel` receives graph data only through the host-to-webview ready handshake and renders labels with DOM text nodes. Its `openNode` and `askNode` messages contain only a node id; resolve the target from the host-held graph and revalidate workspace ownership before acting. Every visual graph needs an equivalent text/list view and keyboard-operable actions.
 
 Contract adapters must emit complete `LensContract` records and pass them through `normalizeLensContract`; never silently discard malformed fields, because doing so can manufacture a false missing wire. Use `coverage: partial` or `unknown` when the source cannot prove completeness. Compare adjacent boundaries with `reviewLensContractWiring`. Exact compatible declarations may match automatically by field path, but drops, introductions, renames, transforms, and explicit inferences belong in `.atlasmind/lens-mappings.json`. Every mapping names both contract ids even when one field endpoint is absent, so the rule cannot apply to another boundary. The manifest-contributed schema is editing guidance; `normalizeLensContractMappingFile` remains the untrusted-file boundary. Suppressions stay attached to output as reviewable annotations rather than hiding wires.
+
+Data-trust metadata belongs in `.atlasmind/lens-data-trust.json`, not in source-name heuristics or sample values. Every rule must name one normalized contract id and field path; duplicate endpoints make the file invalid. Store classifications, declared control names, and bounded policy context only—never secret or personal data values. JSON Schema is editor guidance; `normalizeLensDataTrustPolicyFile` is the runtime boundary. A declared control records policy intent and must not be described as observed implementation or runtime verification.
 
 The initial discovery command deliberately scans filename-signalled JSON (`schema`, `contract`, `openapi`, `swagger`), TypeScript (`dto`, `model`, `schema`, `type`, `entity`, `contract`, `interface`, `request`, `response`), plus SQL, with 200-file/200-contract and 2 MB per-source budgets. Keep JSON parsing strict and SQL/TypeScript extraction declaration-only; never execute SQL or import/evaluate project modules to improve coverage. The TypeScript syntax adapter must keep partial coverage and must not claim to resolve aliases, inheritance, mapped types, decorators, initializers, or runtime validators. New adapters must state `complete`, `partial`, or `unknown`, preserve source-kind/evidence, and attach a normalized source target only when the range is defensible. Keep base type separate from format or other constraints: one-sided evidence is unverified, while two contradictory declarations are incompatible. `LensContractReviewPanel` must receive only normalized/recomputed snapshots after its ready handshake, render untrusted text through DOM nodes, and resolve field/wire ids in the host. Do not render an Ask/Open affordance when no source anchor exists.
 
