@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.239.0] - 2026-08-01
+
+### Added
+
+- **Lens now has a normalized foundation for contract and schema wiring review.** API, validator, domain, persistence, database, UI, and external declarations can share one bounded contract/field model while retaining their source kind, coverage, evidence, type, presence, nullability, and optional exact source target.
+- **Repositories can declare intentional wires in `.atlasmind/lens-mappings.json`.** The versioned format records exact boundary-scoped equivalence, renames, transformations, drops, introductions, and explicit inferences plus reviewable suppressions. AtlasMind ships JSON Schema validation and editor guidance for the file.
+- **Deterministic fixtures now cover the principal wiring outcomes.** The contract reviewer classifies exact, renamed, transformed, deliberately dropped, deliberately introduced, incompatible, and unverifiable fields, including boundary-scoping and suppression behaviour.
+
+### Security
+
+- **Missing evidence is not converted into a defect.** An unmatched field remains `unverified`; only a valid explicit rule can call it dropped or introduced. Contract and mapping inputs are bounded, enum-checked, control-safe, duplicate-free, and refused as a whole when malformed, preventing a partially discarded declaration from producing a confident but misleading review.
+
 ## [0.238.0] - 2026-08-01
 
 ### Added

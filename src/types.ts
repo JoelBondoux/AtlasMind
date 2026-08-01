@@ -2259,6 +2259,117 @@ export interface LensGraph {
   truncated: boolean;
 }
 
+export type LensContractLayer =
+  | 'ui'
+  | 'api'
+  | 'validator'
+  | 'domain'
+  | 'persistence'
+  | 'database'
+  | 'external';
+
+export type LensContractSourceKind =
+  | 'typescript'
+  | 'openapi'
+  | 'json-schema'
+  | 'graphql'
+  | 'protobuf'
+  | 'validator'
+  | 'orm'
+  | 'sql'
+  | 'manual';
+
+export type LensContractCoverage = 'complete' | 'partial' | 'unknown';
+export type LensFieldPresence = 'required' | 'optional' | 'unknown';
+export type LensFieldNullability = 'nullable' | 'non-null' | 'unknown';
+
+export interface LensContractField {
+  id: string;
+  path: string;
+  label: string;
+  dataType: string;
+  presence: LensFieldPresence;
+  nullability: LensFieldNullability;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** One normalized declaration boundary such as an OpenAPI shape, DTO, ORM model, or SQL table. */
+export interface LensContract {
+  version: 1;
+  id: string;
+  label: string;
+  layer: LensContractLayer;
+  sourceKind: LensContractSourceKind;
+  coverage: LensContractCoverage;
+  target?: LensVisualTarget;
+  fields: LensContractField[];
+}
+
+export interface LensContractFieldRef {
+  contractId: string;
+  fieldPath: string;
+}
+
+export type LensFieldMappingKind = 'equivalent' | 'rename' | 'transform' | 'drop' | 'introduce' | 'inferred';
+
+export interface LensExplicitFieldMapping {
+  id: string;
+  kind: LensFieldMappingKind;
+  upstreamContractId: string;
+  downstreamContractId: string;
+  from?: LensContractFieldRef;
+  to?: LensContractFieldRef;
+  note?: string;
+  intentional: boolean;
+}
+
+export interface LensFieldSuppression {
+  id: string;
+  field: LensContractFieldRef;
+  reason: string;
+}
+
+/** Normalized contents of `.atlasmind/lens-mappings.json`. */
+export interface LensContractMappingFile {
+  version: 1;
+  mappings: LensExplicitFieldMapping[];
+  suppressions: LensFieldSuppression[];
+}
+
+export type LensFieldWireStatus =
+  | 'exact'
+  | 'transformed'
+  | 'dropped'
+  | 'introduced'
+  | 'incompatible'
+  | 'unverified'
+  | 'inferred';
+
+export interface LensFieldWire {
+  id: string;
+  status: LensFieldWireStatus;
+  from?: LensContractFieldRef;
+  to?: LensContractFieldRef;
+  fromFieldId?: string;
+  toFieldId?: string;
+  mappingKind?: LensFieldMappingKind;
+  reason: string;
+  evidence: LensEvidence;
+  intentional: boolean;
+  suppressed: boolean;
+  suppressionReason?: string;
+}
+
+export interface LensContractReview {
+  version: 1;
+  id: string;
+  upstreamContractId: string;
+  downstreamContractId: string;
+  wires: LensFieldWire[];
+  notices: string[];
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

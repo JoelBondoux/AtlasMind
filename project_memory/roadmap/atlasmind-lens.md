@@ -53,7 +53,7 @@ Developers can set a bounded scenario—request parameters, feature flags, envir
 
 The first prototype starts from a language-service symbol selected in Code Explorer. It combines VS Code call hierarchy and references into a host-normalized **possible flow**, opens as an editor webview, and supports exact source and Ask Atlas actions on each node. It is intentionally not yet a framework-route detector, scenario evaluator, or runtime trace.
 
-### Phase 3 — Contract Map and Schema Wiring Review
+### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0)
 
 Review the full field journey across application and data boundaries:
 
@@ -75,6 +75,8 @@ Views:
 4. **Schema Change Impact** — starts from a proposed field, type, constraint, or relation change and finds consumers, migrations, tests, and deployment risks.
 
 Finding classes remain explicit: definite conflict, likely drift, missing evidence, intentional transform, dead wire, dropped wire, and undocumented wire. Projects can declare mappings and suppressions so deliberate renames and transformations do not become permanent false positives. Missing evidence never becomes an automatic defect.
+
+The v0.239 foundation normalizes contract layers, source kinds, fields, evidence, coverage, and field-shape attributes, then compares adjacent named boundaries deterministically. `.atlasmind/lens-mappings.json` records boundary-scoped equivalence, renames, transforms, drops, introductions, inferences, and suppressions with shipped JSON Schema guidance. Unmatched fields remain `unverified`; adapters and review surfaces come next.
 
 ### Phase 4 — Change Impact Map
 
@@ -118,8 +120,8 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Add symbol kind/filter controls and target actions beyond Ask Atlas.
 - [x] Add reference and call-hierarchy adapters with evidence labels.
 - [x] Prototype the editor-hosted journey graph on one entrypoint type.
-- [ ] Define the normalized contract/schema source model and explicit mapping file.
-- [ ] Add fixtures for renamed, transformed, dropped, incompatible, and unverifiable fields.
+- [x] Define the normalized contract/schema source model and explicit mapping file.
+- [x] Add fixtures for renamed, transformed, dropped, incompatible, and unverifiable fields.
 - [x] Establish graph performance budgets and accessibility acceptance tests.
 
 ## Out of scope for the foundation

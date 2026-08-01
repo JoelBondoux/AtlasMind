@@ -119,7 +119,8 @@ AtlasMind/
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensTarget.ts Versioned, validated source/evidence target contract for Lens
-│   │   └── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
+│   │   ├── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
+│   │   └── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
@@ -132,6 +133,8 @@ AtlasMind/
 │   │   └── lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
+├── schemas/
+│   └── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
@@ -150,6 +153,8 @@ The first Lens surface is intentionally native: `LensTreeProvider` asks VS Code'
 Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, bind every source target to the live workspace folder name and index, keep paths root-relative, and revalidate all three values against the selected URI before acting. Target actions must be host-declared choices rather than browser- or language-provider-supplied prompts. Never attach source contents automatically, and route questions through the preferred chat surface as a draft plus one-shot context. A view becoming visible or a filter changing must not spend model budget or execute project code.
 
 Graph adapters must finish at `normalizeLensGraph`; do not pass raw language-provider or model records to a webview. The initial possible-flow budget is 80 nodes, 160 edges, and two outgoing-call levels. Keep provider failure as an evidence notice rather than converting unknown relationships into defects. `LensJourneyPanel` receives graph data only through the host-to-webview ready handshake and renders labels with DOM text nodes. Its `openNode` and `askNode` messages contain only a node id; resolve the target from the host-held graph and revalidate workspace ownership before acting. Every visual graph needs an equivalent text/list view and keyboard-operable actions.
+
+Contract adapters must emit complete `LensContract` records and pass them through `normalizeLensContract`; never silently discard malformed fields, because doing so can manufacture a false missing wire. Use `coverage: partial` or `unknown` when the source cannot prove completeness. Compare adjacent boundaries with `reviewLensContractWiring`. Exact compatible declarations may match automatically by field path, but drops, introductions, renames, transforms, and explicit inferences belong in `.atlasmind/lens-mappings.json`. Every mapping names both contract ids even when one field endpoint is absent, so the rule cannot apply to another boundary. The manifest-contributed schema is editing guidance; `normalizeLensContractMappingFile` remains the untrusted-file boundary. Suppressions stay attached to output as reviewable annotations rather than hiding wires.
 
 ### Rebuilding the Windows ACP launcher
 

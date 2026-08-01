@@ -16,6 +16,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval, source-backed evidence pointers, and security scanning |
 | **LensTarget** | `src/core/lensTarget.ts` | Versioned visual-target contract for AtlasMind Lens. Carries a validated workspace-root identity plus root-relative path, refuses absolute/traversal paths and invalid ranges, bounds labels and evidence, and carries no source contents across command or chat-context boundaries |
 | **LensGraph** | `src/core/lensGraph.ts` | Versioned graph trust boundary for Lens journeys. Requires normalized target nodes, valid endpoints, explicit evidence, and a present root; caps views at 80 nodes and 160 edges and marks truncation |
+| **LensContract** | `src/core/lensContract.ts` | Normalizes bounded contract fields and `.atlasmind/lens-mappings.json`, then deterministically labels adjacent field wires exact, transformed, dropped, introduced, incompatible, inferred, or unverified without treating missing evidence as a defect |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
 | **DataPrivacyManager** | `src/core/dataPrivacyManager.ts` | Classifies confidential/proprietary terms, regexes, and file/folder paths and gates classified content to user-selected "trusted" models; redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models. The orchestrator's gate is tiered by `sensitivity`: `secret` (PCI/HIPAA) restricts routing, `confidential`/`proprietary` (GDPR/CCPA) are advisory and rely on redaction, so a heuristic hit in the context bundle can't silently re-route an unrelated task. Deny-by-default: an empty trusted list trusts nothing. Policy stored at `project_memory/operations/data-privacy.json` |
@@ -177,6 +178,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 **AtlasMind Lens begins as a native, queryable Code Explorer.** `LensTreeProvider` in `src/views/lensTreeView.ts` follows the active editor and uses VS Code's installed document-symbol provider, so opening or filtering the collapsed view neither invokes a model nor runs project code. Nested symbols open at their exact language-service range. A remembered symbol-role filter focuses the tree on types, callables, data, or containers while retaining ancestors of matching descendants. Version 2 visual targets bind each root-relative path to the live workspace folder's name and index, which keeps identical paths in separate roots distinct without exposing root URIs. **Ask Atlas about this**, focused Explain/impact/test actions, and exact navigation revalidate that root identity, path, selected URI, and the `LensVisualTarget`; chat actions open editable drafts carrying a one-shot context patch and never auto-submit. Targets are bounded, control-safe, source-free records with explicit evidence provenance (`source`, `runtime`, `framework`, `declared`, or `inferred`).
 
 **A selected symbol can now open the first editor-hosted possible-flow journey.** `LensLanguageGraphAdapter` combines VS Code incoming calls, two levels of outgoing calls, and references; every edge names the source provider, and unavailable providers become notices instead of invented wires. `normalizeLensGraph` refuses malformed roots/endpoints and caps the graph at 80 nodes and 160 edges. `LensJourneyPanel` receives only the normalized graph after a ready handshake, uses DOM text nodes rather than interpolated HTML, and offers both the visual columns and a textual relationship list. Open/Ask actions return only a node id; the extension resolves it from the retained graph and rechecks the live workspace identity and path. This is static **possible** flow, never a claim of observed runtime execution, and it invokes no model unless the user explicitly chooses Ask Atlas.
+
+**Contract/schema review now shares one normalized field model.** UI, API, validator, domain, persistence, database, and external declarations retain source kind, coverage, type, presence, nullability, evidence, and optional exact code targets. The pure contract reviewer automatically accepts only exact path/shape matches; incompatible declarations are named, and anything without enough evidence remains unverified. Deliberate equivalence, renames, transforms, drops, introductions, and inferences live in the versioned `.atlasmind/lens-mappings.json` file, with VS Code JSON Schema guidance. Every rule names its exact upstream/downstream contract pair. Suppressions annotate rather than erase review output, and no live database connection or project-schema write occurs in this foundation.
 
 Concurrent chat surfaces keep their selected sessions pinned locally. Session-change refresh events update UI state without force-switching every open chat surface to the global active session.
 
@@ -341,6 +344,7 @@ src/
 |  |- costTracker.ts     Token cost accounting
 |  |- lensTarget.ts      Validated Lens source/evidence target contract
 |  |- lensGraph.ts       Bounded Lens graph/evidence trust boundary
+|  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
 |  |- websiteWorkspaceManager.ts  Website brief/design/hosting/platform/n8n SSOT
 |  |- planner.ts         Goal -> DAG decomposition
 |  |- taskScheduler.ts   DAG -> parallel batch execution
@@ -386,6 +390,8 @@ src/
 |  |- localModelRecommendationRegistry.ts  Release-aware local recommendation candidates + `.atlasmind/local-model-recommendations.json` override loader
 |  |- registry.ts        Host-neutral provider registry + local adapter
 |  `- index.ts           Provider barrel for the extension host
+|- schemas/
+|  `- lens-mappings.schema.json  Editor validation for Lens mapping files
 |- runtime/
 |  |- core.ts            Shared runtime builder
 |  `- secrets.ts         Host-neutral secret access contract

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.238.0",
+  "version": "0.239.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -45,6 +45,12 @@
     "atlasmind": "./out/cli/main.js"
   },
   "contributes": {
+    "jsonValidation": [
+      {
+        "fileMatch": "**/.atlasmind/lens-mappings.json",
+        "url": "./schemas/lens-mappings.schema.json"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "atlasmind.orchestrator",

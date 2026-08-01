@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.239.0 — Lens learns contract and schema wiring
+
+**AtlasMind now has a common field model for UI, API, validator, domain, persistence, database, and external declarations.** A deterministic review labels exact, explicitly renamed or transformed, deliberately dropped or introduced, incompatible, inferred, and unverified wires while retaining source evidence and completeness.
+
+**Intentional wiring belongs in `.atlasmind/lens-mappings.json`.** The versioned file names the exact contract boundary for every rule and can retain reviewable suppressions; AtlasMind contributes JSON Schema completion and validation. Missing evidence never becomes an automatic dropped-wire claim, and this foundation neither connects to a live database nor changes a schema.
+
 ## v0.238.0 — Lens traces possible code journeys
 
 **A Code Explorer symbol can now become a source-backed journey.** Choose **More Target Actions… → Trace possible flow** to combine incoming calls, two bounded outgoing-call levels, and references from the active VS Code language provider. Every wire names its evidence, missing provider results remain visible, and static reachability is explicitly not presented as runtime observation.
