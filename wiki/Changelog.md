@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.234.0 — Instructions you can follow, and panels you can reach
+
+**"Installed but not signed in" now names the command that signs you in.** It used to say to run the agent once in a terminal, naming nothing — and the command on screen at that moment is the one that *cannot* log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials rather than holding its own. The sign-in command is now recorded separately, read from each vendor's documentation, and offered as **Open a terminal with the command** — which types it and stops there. AtlasMind never presses Enter and never sees the credential. An agent it has no documented flow for is told as much, rather than handed a guess.
+
+**The ACP console-window choice is on a Settings page.** Settings → Safety & Verification → *Delegated agents (ACP)* carries the Windows private-desktop checkbox, its endpoint-security disclosure, and a button that reopens the guided comparison. Searching the Settings panel for `acp: hide console windows` previously found nothing twice over: the control was only in VS Code's own settings editor, and the search compared the whole query as one substring against keyword lists written as separate words. Multi-word searches now match a page when every word appears.
+
+**Website Studio can be opened from the panels it links to.** Project Dashboard → Delivery and the Project Ideation board both offer it. The Studio pointed at both and neither pointed back, which left the command palette as the only way in.
+
 ## v0.233.3 — Honest tool previews and exploratory testing
 
 **An approval card no longer presents unserializable tool arguments as `{}`.** A non-empty object that collapses during JSON serialization is labelled **unserializable arguments**; representable values still pass through secret redaction and the normal preview length cap.

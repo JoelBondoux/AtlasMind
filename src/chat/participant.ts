@@ -2115,7 +2115,7 @@ export async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<im
 export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
   const [
     { buildAcpSetupPlan },
-    { parseAcpAgentSettings, AcpAdapter, VERIFIED_ACP_AGENTS, acpInstallCommand },
+    { parseAcpAgentSettings, AcpAdapter, VERIFIED_ACP_AGENTS, acpInstallCommand, acpSignInFor },
     { ACP_PROTOCOL_VERSION },
   ] = await Promise.all([
     import('../core/acpSetupPlan.js'),
@@ -2172,6 +2172,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       args: agent.args,
       install: acpInstallCommand(agent.npmPackage),
     })),
+    // Absent for an agent whose sign-in AtlasMind has never read — the guide
+    // says so rather than printing a command nobody verified.
+    ...(agents[0] ? (signIn => signIn ? { signIn } : {})(acpSignInFor(agents[0].command)) : {}),
   });
 }
 

@@ -250,6 +250,97 @@ export function acpInstallCommand(npmPackage: string): string {
 }
 
 /**
+ * When each entry in {@link ACP_SIGN_IN} was last read from the agent's own
+ * documentation. Same discipline as `ACP_SPEC_VERIFIED_AT`: a login command is
+ * somebody else's published fact, and one recorded from memory is a wrong
+ * command typed into a terminal.
+ */
+export const ACP_SIGN_IN_VERIFIED_AT = '2026-08-01';
+
+/**
+ * How to sign in to an agent — the step AtlasMind deliberately does not do.
+ *
+ * The probe can tell that an agent is installed and refusing to open a session,
+ * and that is exactly the moment the old message left somebody stranded: *"run
+ * it once in a terminal"*, naming no command. Worse, the command AtlasMind
+ * already knew was the wrong one — `gemini --acp` starts a JSON-RPC server that
+ * will never show a login prompt, and `claude-agent-acp` is not where the Claude
+ * credential lives at all.
+ *
+ * So the launch command and the sign-in command are separate facts, and the
+ * second one is **read from each vendor's documentation**, not derived from the
+ * first. Four of the five are an interactive CLI whose sign-in is a slash
+ * command *inside* it, which is why {@link AcpSignIn.then} exists rather than
+ * pretending one line of shell finishes the job.
+ *
+ * Keyed on the **launch command**, not the agent id: the id is a label the user
+ * chose and can be anything, while the binary is what actually has a login. An
+ * agent that is not in this table gets no button — a guessed login command is
+ * worse than none, because the user runs it and believes the answer.
+ */
+export interface AcpSignIn {
+  /** Typed into a terminal, never submitted. The user presses Enter. */
+  command: string;
+  /** What to do once it is running, where the command is not the whole flow. */
+  then?: string;
+  /** The page this was read from. */
+  docs: string;
+}
+
+const ACP_SIGN_IN: Readonly<Record<string, AcpSignIn>> = {
+  // The adapter has no credential of its own — it drives the Claude CLI, so the
+  // login that matters belongs to a command that is not the one being probed.
+  'claude-agent-acp': {
+    command: 'claude',
+    then: 'Sign in with `/login` if Claude Code does not prompt you. `claude-agent-acp` uses the Claude CLI\'s own credentials, so signing in there is what signs in here.',
+    docs: 'https://github.com/agentclientprotocol/claude-agent-acp',
+  },
+  // The only one of the five with a real login subcommand.
+  'codex-acp': {
+    command: 'codex login',
+    then: 'A browser opens for your ChatGPT account. Where no browser is available, `codex login --device-auth` completes the same flow with a code.',
+    docs: 'https://developers.openai.com/codex/auth',
+  },
+  gemini: {
+    command: 'gemini',
+    then: 'Choose **Sign in with Google** when it starts, or run `/auth` if it does not ask.',
+    docs: 'https://google-gemini.github.io/gemini-cli/docs/get-started/authentication.html',
+  },
+  copilot: {
+    command: 'copilot',
+    then: 'Run `/login` and follow the on-screen instructions.',
+    docs: 'https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli',
+  },
+  qwen: {
+    command: 'qwen',
+    then: 'Run `/auth` and choose a provider. Qwen OAuth\'s free tier ended on 15 April 2026, so this is an Alibaba ModelStudio plan, a third-party provider, or an API key.',
+    docs: 'https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/',
+  },
+};
+
+/**
+ * The published sign-in flow for a configured agent, or `undefined` when the
+ * command is one AtlasMind has never read documentation for.
+ *
+ * `undefined` is a real answer and is rendered as one. Any agent that speaks ACP
+ * can be named in `atlasmind.acp.agents`, and inventing `<command> login` for an
+ * arbitrary binary would produce a confident instruction nobody verified.
+ */
+export function acpSignInFor(command: string): AcpSignIn | undefined {
+  return ACP_SIGN_IN[typeof command === 'string' ? command.trim() : ''];
+}
+
+/**
+ * Every sign-in command, for the terminal allowlist.
+ *
+ * `atlasmind.setup.prepareCommand` is reachable from a webview, so what it may
+ * type is checked against this list at the handler rather than trusted from the
+ * payload — the same property `BUZZ_SETUP_COMMANDS` provides for Buzz.
+ */
+export const ACP_SIGN_IN_COMMANDS: readonly string[] = Object.values(ACP_SIGN_IN)
+  .map(entry => entry.command);
+
+/**
  * Which pay-per-token provider each ACP agent is the subscription alternative to.
  *
  * "ACP" is a protocol name, and nobody goes looking for a protocol. Someone

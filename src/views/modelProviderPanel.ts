@@ -1511,9 +1511,7 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
   }
 
   if (!probe.authenticated) {
-    void vscode.window.showWarningMessage(
-      `\`${bridge.command}\` is installed but not signed in. Run it once in a terminal and complete its own login — AtlasMind never handles that credential — then press this button again.`,
-    );
+    await offerAcpSignIn(bridge.command);
     return;
   }
 
@@ -1548,6 +1546,62 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
       : `\`acp/${bridge.agentId}\` is configured and enabled, but its first health check did not pass, so the router will skip it for now. `
         + `Run \`${bridge.command}\` once in a terminal to see what it reports.`,
   );
+}
+
+/**
+ * "Installed, but it will not open a session" — the one probe answer AtlasMind
+ * cannot fix for you, and used to be unhelpful about.
+ *
+ * The old message said to run the agent in a terminal and complete its login. It
+ * named no command, and the command the reader would reasonably infer is the one
+ * on screen — which is the *launch* command. `gemini --acp`, `copilot --acp` and
+ * `qwen --acp` all start a JSON-RPC server that will never show a login prompt,
+ * and `claude-agent-acp` does not own the Claude credential at all. So the
+ * instruction was not merely vague, it pointed at the wrong binary.
+ *
+ * What this does *not* do is complete the sign-in. Every one of these flows opens
+ * a browser and asks for an account password; none of them is something an
+ * extension should be running unattended, and AtlasMind never sees the credential
+ * either way. The button types the verified command into a terminal and stops —
+ * pressing Enter, and answering what follows, stays with the user.
+ *
+ * An agent with no documented flow gets the plain message and no button, because
+ * `<command> login` invented for an unknown binary is a confident instruction
+ * nobody checked.
+ */
+export async function offerAcpSignIn(command: string): Promise<void> {
+  const { acpSignInFor } = await import('../providers/acp.js');
+  const signIn = acpSignInFor(command);
+
+  if (!signIn) {
+    void vscode.window.showWarningMessage(
+      `\`${command}\` is installed but not signed in. Complete its own login — AtlasMind never handles that credential — then try again. `
+      + 'AtlasMind has no published sign-in flow recorded for this agent, so it cannot tell you the exact command.',
+    );
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    `\`${command}\` is installed but not signed in.`,
+    {
+      modal: true,
+      detail: `Sign in with the agent's own login — AtlasMind never handles that credential.\n\nRun:\n\n${signIn.command}\n\n`
+        + `${signIn.then ? `${signIn.then.replace(/[`*]/g, '')}\n\n` : ''}`
+        + 'Then try this again.',
+    },
+    'Open a terminal with the command',
+    'Copy the command',
+    'Read the docs',
+  );
+
+  if (choice === 'Open a terminal with the command') {
+    await vscode.commands.executeCommand('atlasmind.setup.prepareCommand', signIn.command);
+  } else if (choice === 'Copy the command') {
+    await vscode.env.clipboard.writeText(signIn.command);
+    void vscode.window.showInformationMessage(`Copied \`${signIn.command}\`. Run it in a terminal, then try again.`);
+  } else if (choice === 'Read the docs') {
+    await vscode.env.openExternal(vscode.Uri.parse(signIn.docs));
+  }
 }
 
 /**
@@ -1809,9 +1863,7 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     return;
   }
   if (!probe.authenticated) {
-    void vscode.window.showWarningMessage(
-      `\`${command}\` is installed but not signed in. Run it once in a terminal and follow its own login, then run this again.`,
-    );
+    await offerAcpSignIn(command);
     return;
   }
 

@@ -551,7 +551,12 @@ On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
 windows may appear, not what the process may do. The private desktop is neither
 a sandbox nor an authorization boundary; the agent retains the same user-level
 filesystem/network access. It is opt-in and disclosed because hidden desktops
-are also used by hVNC malware and can attract Defender/EDR detection.
+are also used by hVNC malware and can attract Defender/EDR detection. The same
+value is reachable from three places that all write it: the guided picker
+(**AtlasMind: Choose ACP Console Window Behaviour**), the *Delegated agents
+(ACP)* card on Settings → Safety & Verification, and VS Code's settings editor.
+The panel checkbox exists because the control was previously in VS Code's editor
+only, so searching the AtlasMind Settings panel for it found nothing.
 
 **Workspace-path defaulting**: Before dispatch, `McpClient.callTool` (`applyMcpWorkspacePathDefaults`) fills repo/working-directory parameters the model omitted with the current workspace folder, keyed off the tool's input schema. This prevents failures such as GitKraken `git_status` rejecting a call with "repoPath is required". Only string-typed, currently-empty params whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted; a bare `path`/`file` argument is untouched and explicit caller values are preserved.
 

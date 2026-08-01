@@ -1239,6 +1239,7 @@
             '<button type="button" class="action-link" data-action="ideation-speak-response" ' + (state.ideationResponse || snapshot.lastAtlasResponse ? '' : 'disabled') + tooltipAttrs('Read the latest Atlas facilitation response aloud so you can review it without staring at the panel.') + '>Narrate</button>' +
             '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVoicePanel"' + tooltipAttrs('Open the Voice panel for richer speech workflows related to this ideation session.') + '>Voice panel</button>' +
             '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVisionPanel"' + tooltipAttrs('Open the Vision panel if you need richer visual artifact analysis outside the ideation board itself.') + '>Vision panel</button>' +
+            '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio"' + tooltipAttrs('Open Website Studio to take a website idea from client brief to sitemap, wireframes, UI system, platform choice and automations.') + '>Website studio</button>' +
           '</div>' +
         '</div>' +
         '<div class="ideation-response-box">' + escapeHtml(state.ideationResponse || snapshot.lastAtlasResponse || 'Atlas feedback will appear here after you run the ideation loop.').replace(/\n/g, '<br/>') + '</div>' +

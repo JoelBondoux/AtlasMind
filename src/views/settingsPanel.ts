@@ -264,6 +264,7 @@ type SettingsMessage =
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
   | { type: 'setAcpToolsEnabled'; payload: boolean }
+  | { type: 'setAcpHideConsoleWindows'; payload: boolean }
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
@@ -324,6 +325,7 @@ type SettingsMessage =
   | { type: 'openCompareModels' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
+  | { type: 'chooseAcpConsoleMode' }
   | { type: 'openChat' }
   | { type: 'recommendLocalModels' }
   | { type: 'installRecommendedLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string } }
@@ -841,6 +843,17 @@ export class SettingsPanel {
         await configuration.update('acp.toolsEnabled', message.payload === true, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setAcpHideConsoleWindows':
+        // Global, matching the guided picker: this is a property of the machine
+        // and its endpoint security, not of the repository, and writing it to
+        // the workspace would dirty `.vscode/settings.json` for everyone else.
+        await configuration.update(
+          'acp.hideConsoleWindows',
+          message.payload === true,
+          vscode.ConfigurationTarget.Global,
+        );
+        return;
+
       case 'setAutoVerifyAfterWrite':
         await configuration.update('autoVerifyAfterWrite', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -1153,6 +1166,14 @@ export class SettingsPanel {
 
       case 'openVisionPanel':
         await vscode.commands.executeCommand('atlasmind.openVisionPanel');
+        return;
+
+      case 'chooseAcpConsoleMode':
+        // The picker writes whichever option is selected, so the checkbox on
+        // this page can be out of date the moment it returns. Re-render rather
+        // than leave two controls disagreeing about the same setting.
+        await vscode.commands.executeCommand('atlasmind.acp.chooseConsoleMode');
+        this.panel.webview.html = this.getHtml();
         return;
 
       case 'openChat':
@@ -1978,6 +1999,11 @@ export class SettingsPanel {
     const acpAgentCount = Array.isArray(configuration.get<unknown>('acp.agents'))
       ? (configuration.get<unknown[]>('acp.agents') ?? []).length
       : 0;
+    // Windows-only, and stated as such rather than shown everywhere as a
+    // checkbox that does nothing: the pop-up windows it suppresses are a
+    // consequence of how Windows allocates a console to a child process.
+    const acpConsoleChoiceApplies = process.platform === 'win32';
+    const acpHideConsoleWindows = configuration.get<boolean>('acp.hideConsoleWindows', false);
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
@@ -2113,7 +2139,7 @@ export class SettingsPanel {
           </div>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Guardrails</span>
-            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit acp agent client protocol acp tools delegated execution agent permissions allow once always allow acp mcp servers" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit acp agent client protocol acp tools delegated execution agent permissions allow once always allow acp mcp servers hide console windows private desktop pop-up popup black terminal window focus stealing windows launcher" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
             <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           </div>
           <div class="nav-group" role="presentation">
@@ -2506,6 +2532,33 @@ export class SettingsPanel {
                 ${acpAgentCount === 0
                   ? '<p class="muted-line">No ACP agent is configured yet, so this setting has nothing to govern. Set one up from Model Providers — look for &ldquo;Use my Claude subscription&rdquo;.</p>'
                   : ''}
+              </article>
+
+              <article class="settings-card" id="acpConsoleWindowsCard">
+                <div class="card-header">
+                  <p class="card-kicker">Delegated agents (ACP)</p>
+                  <h3>Where ACP console windows appear</h3>
+                </div>
+                ${acpConsoleChoiceApplies
+                  ? `<label class="checkbox-card">
+                  <input id="acpHideConsoleWindows" type="checkbox" ${acpHideConsoleWindows ? 'checked' : ''}>
+                  <span>
+                    <strong>Hide ACP windows on a private Windows desktop</strong>
+                    <span class="muted-line">
+                      An ACP agent starts its own child processes, and on Windows each one may briefly open a black terminal window that
+                      takes focus. With this on, AtlasMind starts the agent and its descendants on a dedicated, non-visible desktop instead.
+                    </span>
+                  </span>
+                </label>
+                <p class="muted-line top-gap">
+                  Hidden desktops are also used by hVNC malware, so Microsoft Defender or corporate endpoint security may flag or block the
+                  launcher — AtlasMind never switches to that desktop or controls it remotely, and it fails visibly rather than silently
+                  falling back. Leave this off where policy forbids it.
+                </p>
+                <div class="button-stack top-gap">
+                  <button id="chooseAcpConsoleMode" class="secondary-button">Compare both options</button>
+                </div>`
+                  : '<p class="muted-line">This choice is Windows-only. On this platform ACP agents do not create console pop-ups, so there is nothing to suppress.</p>'}
               </article>
 
               <article class="settings-card">
@@ -4197,6 +4250,13 @@ export class SettingsPanel {
 
         function updateSearch(query, options = {}) {
           const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+          // Every word must appear, rather than the whole phrase as one string.
+          // A setting is most often searched for by the name it has in the VS
+          // Code settings UI — "acp: hide console windows" — and as a substring
+          // that matches nothing, because keyword lists are written as keywords.
+          // Punctuation goes the same way: a trailing colon should not be the
+          // reason a page is hidden.
+          const terms = normalized.split(/[^a-z0-9.+#-]+/).filter(term => term.length > 0);
           let visibleCount = 0;
 
           navButtons.forEach(button => {
@@ -4204,7 +4264,7 @@ export class SettingsPanel {
               return;
             }
             const haystack = ((button.textContent ?? '') + ' ' + (button.dataset.search ?? '')).toLowerCase();
-            const matches = normalized.length === 0 || haystack.includes(normalized);
+            const matches = terms.length === 0 || terms.every(term => haystack.includes(term));
             button.classList.toggle('hidden-by-search', !matches);
             if (matches) {
               visibleCount += 1;
@@ -4320,6 +4380,7 @@ export class SettingsPanel {
           bindCommandButton('openCompareModels', 'openCompareModels');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
+          bindCommandButton('chooseAcpConsoleMode', 'chooseAcpConsoleMode');
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
@@ -4695,6 +4756,13 @@ export class SettingsPanel {
           if (acpToolsEnabled instanceof HTMLInputElement) {
             acpToolsEnabled.addEventListener('change', () => {
               vscode.postMessage({ type: 'setAcpToolsEnabled', payload: acpToolsEnabled.checked });
+            });
+          }
+
+          const acpHideConsoleWindows = document.getElementById('acpHideConsoleWindows');
+          if (acpHideConsoleWindows instanceof HTMLInputElement) {
+            acpHideConsoleWindows.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAcpHideConsoleWindows', payload: acpHideConsoleWindows.checked });
             });
           }
 
@@ -6524,6 +6592,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'boolean';
   }
 
+  if (message.type === 'setAcpHideConsoleWindows') {
+    return typeof message.payload === 'boolean';
+  }
+
   if (message.type === 'setAutoVerifyAfterWrite') {
     return typeof message.payload === 'boolean';
   }
@@ -6660,6 +6732,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openCompareModels' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||
+    message.type === 'chooseAcpConsoleMode' ||
     message.type === 'openChat' ||
     message.type === 'recommendLocalModels' ||
     message.type === 'scanAiInstructions' ||

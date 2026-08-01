@@ -312,10 +312,28 @@ The spec's real signal is the reserved error code **`-32000` (authentication req
 | Outcome | Meaning |
 |---|---|
 | session created | signed in and usable |
-| `-32000` | not signed in; the message names the advertised logins to run |
+| `-32000` | not signed in; AtlasMind names the published sign-in command for that agent |
 | any other error | the agent is broken, reported as such rather than as a login problem |
 
 The probe is TTL-cached, so the extra round-trip is paid rarely, and it buys a stronger claim: that the agent *can be used*, not merely that it started.
+
+### The launch command is not the sign-in command
+
+`-32000` used to produce "run it once in a terminal and complete its own login", which names nothing. The command on screen at that moment is the *launch* command, and following that inference does not work for any of the five published agents: `gemini --acp`, `copilot --acp` and `qwen --acp` each start a JSON-RPC server that will never show a login prompt, and `claude-agent-acp` does not hold the Claude credential at all — it drives the Claude CLI.
+
+So the two facts are separate, and the second is read from each vendor's own documentation rather than derived from the first. `ACP_SIGN_IN` in `src/providers/acp.ts` records it, keyed on the **launch command** (an agent id is a label the user chose; the binary is what has a login), with `ACP_SIGN_IN_VERIFIED_AT` recording when each was last checked:
+
+| Launch command | Sign in with | Then |
+|---|---|---|
+| `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt. The adapter uses the Claude CLI's credentials |
+| `codex-acp` | `codex login` | Browser flow; `codex login --device-auth` where no browser is available |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or `/auth` |
+| `copilot --acp` | `copilot` | `/login` |
+| `qwen --acp` | `qwen` | `/auth`, then a provider — Qwen OAuth's free tier ended 15 April 2026 |
+
+`acpSignInFor(command)` returns `undefined` for anything else, and every surface renders that as an answer: the message says AtlasMind has no recorded flow for this agent instead of printing `<command> login`. Any agent that speaks ACP can be named in `atlasmind.acp.agents`, so a guess here would be a confident instruction nobody verified, typed into a terminal.
+
+AtlasMind never completes the sign-in. `atlasmind.setup.prepareCommand` opens a terminal and **types** the verified command without submitting it; pressing Enter, and everything the browser asks for afterwards, stays with the user. The payload is checked against `ACP_SIGN_IN_COMMANDS` at the handler, because the command id is reachable from a webview.
 
 **A session is far more expensive than a handshake, and the TTL is sized for that.** `session/new` on a coding agent starts the agent's whole runtime, not a lightweight object: measured on Windows, `claude-agent-acp` launches the user's entire configured MCP fleet inside the session (a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several via `cmd.exe`) and `codex-acp` starts an `app-server` plus a REPL host. Each `cmd.exe` causes Windows to allocate a `conhost.exe` — a console window that flashes on screen.
 

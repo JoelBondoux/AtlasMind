@@ -195,6 +195,24 @@ The moment you switch on **Let subscription agents act**, that isolation is drop
 
 If you want fewer still in that mode, trimming the MCP servers configured in the agent itself is the lever — that is what is being started.
 
+### When it says the agent is installed but not signed in
+
+That message used to end at "run it once in a terminal and complete its own login". It named no command, and the command on screen at that moment is the wrong one: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server that will never ask you to log in, and `claude-agent-acp` does not hold the Claude credential at all — it uses the Claude CLI's.
+
+So AtlasMind now records the sign-in command separately, read from each vendor's own documentation:
+
+| Agent | Sign in with | Then |
+|---|---|---|
+| `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt you |
+| `codex-acp` | `codex login` | A browser opens; `codex login --device-auth` if none is available |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth` |
+| `copilot --acp` | `copilot` | `/login` |
+| `qwen --acp` | `qwen` | `/auth`, then pick a provider |
+
+The warning offers **Open a terminal with the command**, which types it and stops there. AtlasMind does not press Enter, and never sees the credential — every one of these flows opens a browser and asks for an account password, which is not something an extension should be running for you. The same command and button appear as step 4 of the `/acp` walkthrough.
+
+For any other agent — anything you name yourself in `atlasmind.acp.agents` — the message says AtlasMind has no recorded sign-in flow rather than inventing `<command> login`. A guessed command is worse than none, because you would run it and believe the answer.
+
 ### When a row says an agent is not responding
 
 Health is tracked **per agent**, so the *Anthropic — Claude subscription* row reports `claude-agent-acp` and nothing else. Every configured agent is probed, concurrently, and the provider counts as healthy when any of them can be used — a broken agent no longer condemns a working one.

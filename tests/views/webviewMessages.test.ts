@@ -69,6 +69,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: false })).toBe(true);
     expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAcpHideConsoleWindows', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAcpHideConsoleWindows', payload: false })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyScripts', payload: 'test, lint' })).toBe(true);
   });
@@ -113,6 +115,7 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
+    expect(isSettingsMessage({ type: 'chooseAcpConsoleMode' })).toBe(true);
     expect(isSettingsMessage({ type: 'refreshTestingInventory' })).toBe(true);
     expect(isSettingsMessage({ type: 'createTestFile' })).toBe(true);
     expect(isSettingsMessage({ type: 'openCoverageReport' })).toBe(true);
@@ -189,6 +192,7 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: 'yes' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setAcpHideConsoleWindows', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: 'true' })).toBe(false);
   });
 

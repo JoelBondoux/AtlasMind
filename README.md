@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.233.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.234.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.233.3
+## What's new in 0.234.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
+
+- **The ACP console-window choice is now on a Settings page, and the Settings search finds it.** Settings → Safety & Verification → *Delegated agents (ACP)* carries the Windows private-desktop checkbox with its endpoint-security disclosure and a button that reopens the guided comparison. Searching the panel for `acp: hide console windows` previously found nothing for two reasons: the control existed only in VS Code's own settings editor, and the search compared the whole query as a single substring against keyword lists written as separate words. Multi-word searches now match when every word appears.
+
+- **Website Studio can be reached from the panels it links to.** Project Dashboard → Delivery and the Project Ideation board both offer it now. The Studio pointed at both and neither pointed back, leaving the command palette as the only way in.
 
 - **Tool approvals fail visibly when their arguments cannot be represented.** A non-empty argument object that serializes as `{}` is now labelled **unserializable arguments**, while normal previews retain secret redaction and length limits. The project’s committed testing posture also swaps performance testing for charter-based exploratory testing and keeps the generated strategy and agent instruction blocks synchronized.
 
@@ -341,7 +347,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
 | `acp.toolsEnabled` | `false` | **Let subscription agents act**: allow their own tools one approval at a time |
-| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR |
+| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
 

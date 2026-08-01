@@ -40,6 +40,9 @@ const ALLOWED_IDEATION_COMMANDS = new Set([
   'atlasmind.openChatPanel',
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
+  // Website Studio offers a button back to this board; the return trip did not
+  // exist, which left the Studio reachable from the command palette alone.
+  'atlasmind.openWebsiteStudio',
   'atlasmind.openSettingsProject',
 ]);
 

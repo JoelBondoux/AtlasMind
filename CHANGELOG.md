@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.234.0] - 2026-08-01
+
+### Added
+- **"Installed but not signed in" now names the command that can actually sign you in, and offers a terminal with it typed.** The message previously said to run the agent once in a terminal and complete its own login, naming nothing — and the command a reader would infer is the *launch* command, which is the wrong one for every published agent: `gemini --acp`, `copilot --acp` and `qwen --acp` each start a JSON-RPC server that never shows a login prompt, and `claude-agent-acp` does not hold the Claude credential at all. The sign-in command is now a separate fact, read from each vendor's own documentation (`claude`, `codex login`, `gemini`, `copilot`, `qwen`, with the slash command that follows where there is one) and recorded with the date it was last verified. The same command and button appear as step 4 of the `/acp` walkthrough.
+- **The ACP console-window choice is now a control on a page.** **Settings → Safety & Verification → Delegated agents (ACP)** carries the Windows private-desktop checkbox and a button that reopens the guided comparison. It writes the same `atlasmind.acp.hideConsoleWindows` value, to User settings, as the picker does, and keeps the endpoint-security disclosure next to the control rather than only in the setting's description. Non-Windows platforms are told the choice does not apply instead of being shown a checkbox that does nothing.
+- **Website Studio is reachable from the two panels it links to.** **Project Dashboard → Delivery** and the Project Ideation board now offer it. The Studio pointed at both — the delivery pipeline for publishing, the board for the thinking that precedes a brief — and neither pointed back, so the only way in was typing its name into the command palette.
+
+### Fixed
+- **The Settings panel search now matches every word rather than the whole phrase.** Searching for a setting by the name VS Code gives it — `acp: hide console windows` — tested the raw query as a single substring against keyword lists written, correctly, as individual words, so any multi-word query found nothing. Punctuation no longer counts against a match either.
+
+### Security
+- **The setup terminal types; it never runs.** `atlasmind.setup.prepareCommand` composes a command in a reused terminal and stops, as `atlasmind.buzz.prepareCommand` already did — every ACP sign-in opens a browser and asks for an account password, which is not something an extension should submit unattended. The payload is checked against a list AtlasMind wrote (`ACP_SIGN_IN_COMMANDS` plus the Buzz setup commands) at the handler, because the command id is reachable from a webview; an unrecognised one is refused out loud.
+- **An agent with no documented sign-in flow gets no command.** `acpSignInFor` returns nothing for any agent AtlasMind has not read the documentation for, and every surface renders that as an answer rather than printing `<command> login`. Any ACP agent can be named in `atlasmind.acp.agents`, so a guess would be a confident instruction nobody verified, typed into a shell.
+
 ## [0.233.3] - 2026-08-01
 
 ### Changed

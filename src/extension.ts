@@ -15,6 +15,15 @@ import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 
 /** The walkthrough lives in its own thread rather than interrupting another. */
 const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
+
+/**
+ * One reused terminal for setup commands AtlasMind types.
+ *
+ * Named rather than anonymous so a second prepared command lands in the terminal
+ * the user is already looking at, and so the sign-in flow they are half-way
+ * through is not buried under a stack of identical panes.
+ */
+const SETUP_TERMINAL_NAME = 'AtlasMind setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -3294,6 +3303,31 @@ async function bootstrapAtlasMind(
         ?? vscode.window.createTerminal({ name: 'Buzz setup' });
       terminal.show(true);
       // `false` types the command without submitting it.
+      terminal.sendText(text, false);
+    }),
+
+    // The same affordance as `buzz.prepareCommand`, for setup commands that are
+    // not Buzz's. It exists because "run it once in a terminal and complete its
+    // own login" is not an instruction anybody can act on when it names no
+    // command — and the command AtlasMind knew was the launch one, which for
+    // four of the five agents starts a JSON-RPC server that never shows a login.
+    //
+    // It still only *types*. Pressing Enter stays with the user, because an
+    // extension silently running a command that opens a browser and asks for a
+    // password is the shape of the thing this codebase refuses everywhere else.
+    vscode.commands.registerCommand('atlasmind.setup.prepareCommand', async (command?: string) => {
+      const text = typeof command === 'string' ? command.trim() : '';
+      // Reachable from a webview, so the payload names a command rather than
+      // being one: it has to appear in a list AtlasMind authored.
+      const { ACP_SIGN_IN_COMMANDS } = await import('./providers/acp.js');
+      const allowed = [...BUZZ_SETUP_COMMANDS, ...ACP_SIGN_IN_COMMANDS];
+      if (!text || !allowed.includes(text)) {
+        void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      const terminal = vscode.window.terminals.find((entry) => entry.name === SETUP_TERMINAL_NAME)
+        ?? vscode.window.createTerminal({ name: SETUP_TERMINAL_NAME });
+      terminal.show(true);
       terminal.sendText(text, false);
     }),
 

@@ -8,7 +8,7 @@ import {
   type AcpSetupState,
 } from '../../src/core/acpSetupPlan.ts';
 import { nextSetupStep, summarizeSetupProgress } from '../../src/core/setupWalkthrough.ts';
-import { VERIFIED_ACP_AGENTS, acpInstallCommand } from '../../src/providers/acp.ts';
+import { ACP_SIGN_IN_COMMANDS, VERIFIED_ACP_AGENTS, acpInstallCommand, acpSignInFor } from '../../src/providers/acp.ts';
 
 /**
  * The suggestions the caller injects, built the way `collectAcpSetupSteps` does.
@@ -228,5 +228,90 @@ describe('the suggestions the guide shows', () => {
 
     const guidance = buildAcpSetupPlan(state()).find(step => step.id === 'agent')?.guidance ?? [];
     expect(guidance.map(entry => entry.text).join('\n')).toContain('gemini --acp');
+  });
+});
+
+describe('the sign-in step names a command that can actually sign you in', () => {
+  const SIGN_IN = { command: 'gemini', then: 'Choose Sign in with Google.', docs: 'https://example.invalid/auth' };
+
+  const notSignedIn = (over: Partial<AcpSetupState> = {}) => buildAcpSetupPlan(state({
+    configuredAgents: [{ id: 'gemini', command: 'gemini' }],
+    installed: true,
+    authenticated: false,
+    ...over,
+  }));
+
+  it('offers the verified command as an authored one, and a terminal to type it into', () => {
+    const step = notSignedIn({ signIn: SIGN_IN }).find(entry => entry.id === 'authenticated');
+    const authored = (step?.guidance ?? []).filter(line => line.authored);
+    expect(authored.map(line => line.command)).toEqual(['gemini']);
+    expect(step?.action).toEqual({
+      command: 'atlasmind.setup.prepareCommand',
+      title: 'Open a terminal with the command',
+      args: ['gemini'],
+    });
+  });
+
+  it('never offers the ACP launch line, which is the command that cannot log in', () => {
+    // `gemini --acp` starts a JSON-RPC server. Sending somebody there to sign in
+    // is the bug this step exists to fix, so it is asserted rather than assumed.
+    const step = notSignedIn({ signIn: SIGN_IN }).find(entry => entry.id === 'authenticated');
+    for (const line of step?.guidance ?? []) {
+      expect(line.command ?? '').not.toContain('--acp');
+    }
+    expect(step?.action?.args).not.toContain('gemini --acp');
+  });
+
+  it('says so rather than guessing when the agent has no documented flow', () => {
+    const step = buildAcpSetupPlan(state({
+      configuredAgents: [{ id: 'mine', command: 'my-agent' }],
+      installed: true,
+      authenticated: false,
+    })).find(entry => entry.id === 'authenticated');
+    // No action, because there is no command worth typing for somebody.
+    expect(step?.action).toBeUndefined();
+    expect((step?.guidance ?? []).some(line => line.authored)).toBe(false);
+    expect(JSON.stringify(step?.guidance)).toMatch(/will not guess/i);
+  });
+
+  it('stops offering the terminal once signing in is not the next thing to do', () => {
+    const signedIn = notSignedIn({ signIn: SIGN_IN, authenticated: true });
+    expect(signedIn.find(entry => entry.id === 'authenticated')?.action).toBeUndefined();
+
+    // A protocol mismatch is not fixed by logging in again.
+    const mismatched = notSignedIn({ signIn: SIGN_IN, protocolVersion: 99 });
+    expect(mismatched.find(entry => entry.id === 'authenticated')?.action).toBeUndefined();
+  });
+});
+
+describe('acpSignInFor — read from each vendor, never derived from the launch command', () => {
+  it('covers every agent AtlasMind offers to install', () => {
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      expect(acpSignInFor(agent.command), `${agent.command} has no recorded sign-in`).toBeDefined();
+    }
+  });
+
+  it('never returns the launch line, and never a bare guess at one', () => {
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      const signIn = acpSignInFor(agent.command)!;
+      expect(signIn.command).not.toContain('--acp');
+      expect(signIn.command).not.toBe(acpLaunchLine(agent));
+      expect(signIn.docs.startsWith('https://')).toBe(true);
+    }
+    // The one that is not the probed binary at all: claude-agent-acp drives the
+    // Claude CLI, so the credential lives with a different command.
+    expect(acpSignInFor('claude-agent-acp')?.command).toBe('claude');
+  });
+
+  it('answers undefined for an agent nobody has read the docs for', () => {
+    expect(acpSignInFor('my-agent')).toBeUndefined();
+    expect(acpSignInFor('')).toBeUndefined();
+  });
+
+  it('allowlists exactly the commands it would ask a terminal to type', () => {
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      expect(ACP_SIGN_IN_COMMANDS).toContain(acpSignInFor(agent.command)!.command);
+    }
+    expect(ACP_SIGN_IN_COMMANDS.every(command => !/[;&|><$`\n]/.test(command))).toBe(true);
   });
 });

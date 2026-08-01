@@ -61,6 +61,15 @@ export interface AcpSetupState {
    * recommend a package that installs a differently-named binary.
    */
   suggestions: readonly AcpAgentSuggestion[];
+  /**
+   * The first agent's published sign-in flow, from `acpSignInFor`.
+   *
+   * Injected for the same reason as `suggestions`, and **absent for any agent
+   * whose flow AtlasMind has not read**. The guide then says so rather than
+   * printing a plausible command: this step is the one where somebody types what
+   * they are told into a terminal, so a guess here is worse than a gap.
+   */
+  signIn?: { command: string; then?: string; docs: string };
 }
 
 export const ACP_DOCS_URL = 'https://agentclientprotocol.com/get-started/introduction';
@@ -210,11 +219,41 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
           : `\`${first?.command}\` is installed but not signed in.${state.probeMessage ? ` ${state.probeMessage}` : ''}`,
     guidance: !installed || authenticated || versionMismatch ? undefined : [
       {
-        text: 'Sign in with the agent\'s own login — AtlasMind never handles that credential, and never stores it. Run the agent once in a terminal and follow its prompts.',
+        text: 'Sign in with the agent\'s own login — AtlasMind never handles that credential, and never stores it.',
       },
-      { text: 'For the Claude agent this is the Claude Code login; for Codex it is your ChatGPT account; for Gemini CLI it is your Google account.' },
+      // The launch command is not the sign-in command, and telling someone to
+      // "run the agent" when the agent runs as `gemini --acp` sends them to a
+      // JSON-RPC server that will never prompt them for anything.
+      ...(state.signIn
+        ? [
+          {
+            text: 'Run this in a terminal — AtlasMind types it for you and stops there, because what follows asks for your account password:',
+            command: state.signIn.command,
+            authored: true,
+          },
+          ...(state.signIn.then ? [{ text: state.signIn.then }] : []),
+          { text: 'Then come back and run `/acp` again.', ...(state.signIn.docs ? { url: state.signIn.docs } : {}) },
+        ]
+        : [
+          {
+            text: `AtlasMind has no published sign-in flow recorded for \`${first?.command}\`, so it will not guess one. Check the agent's own documentation — note that the command that starts it in ACP mode is usually **not** the one that signs it in.`,
+            url: ACP_AGENTS_URL,
+          },
+        ]),
       { text: 'An agent that lists sign-in methods has not necessarily asked you for one — AtlasMind decides by trying to open a session, not by reading that list.' },
     ],
+    // Offered only while signing in is actually the next thing to do. A version
+    // mismatch is not fixed by logging in again, and a step already done does
+    // not need a terminal opening for it.
+    ...(state.signIn && installed && !authenticated && !versionMismatch
+      ? {
+        action: {
+          command: 'atlasmind.setup.prepareCommand',
+          title: 'Open a terminal with the command',
+          args: [state.signIn.command],
+        },
+      }
+      : {}),
   });
 
   // 5 — enable the provider

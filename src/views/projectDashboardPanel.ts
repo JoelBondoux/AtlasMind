@@ -350,6 +350,9 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openAgentPanel',
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
+  // Website Studio points at the delivery pipeline on this dashboard in its own
+  // copy, and nothing pointed back — the only way in was the command palette.
+  'atlasmind.openWebsiteStudio',
   'atlasmind.toggleAutopilot',
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
