@@ -7,13 +7,14 @@ import {
 import {
   extractJsonContractSources,
   extractSqlContractSources,
+  extractTypeScriptContractSources,
 } from '../core/lensContractSources.js';
 import type { LensContract, LensContractMappingFile, LensWorkspaceIdentity } from '../types.js';
 import { LensContractReviewPanel } from './lensContractReviewPanel.js';
 
 const MAX_SOURCE_FILES = 200;
 const MAX_DISCOVERED_CONTRACTS = 200;
-const SOURCE_GLOB = '**/*.{json,sql}';
+const SOURCE_GLOB = '**/*.{json,sql,ts,tsx}';
 const SOURCE_EXCLUDE = '**/{node_modules,.git,out,dist,build,coverage,vendor,.next}/**';
 
 interface ContractPick extends vscode.QuickPickItem {
@@ -108,9 +109,12 @@ async function discoverContracts(
         workspacePath,
         text: document.getText(),
       };
-      const extraction = workspacePath.toLowerCase().endsWith('.sql')
+      const lowerPath = workspacePath.toLowerCase();
+      const extraction = lowerPath.endsWith('.sql')
         ? extractSqlContractSources(input)
-        : extractJsonContractSources(input);
+        : lowerPath.endsWith('.ts') || lowerPath.endsWith('.tsx')
+          ? extractTypeScriptContractSources(input)
+          : extractJsonContractSources(input);
       contracts.push(...extraction.contracts.slice(0, MAX_DISCOVERED_CONTRACTS - contracts.length));
       if (extraction.contracts.length > 0) {
         notices.push(...extraction.notices.map(notice => `${workspacePath}: ${notice}`));
@@ -173,6 +177,10 @@ function isCandidateSource(workspacePath: string): boolean {
     return lower !== LENS_CONTRACT_MAPPING_FILE;
   }
   const fileName = lower.split('/').at(-1) ?? lower;
+  if (fileName.endsWith('.ts') || fileName.endsWith('.tsx')) {
+    return !fileName.endsWith('.d.ts') &&
+      /(?:dto|model|schema|types?|entity|contract|interface|request|response)/.test(fileName);
+  }
   return /(?:openapi|swagger|schema|contract)/.test(fileName);
 }
 

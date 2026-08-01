@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractJsonContractSources,
   extractSqlContractSources,
+  extractTypeScriptContractSources,
 } from '../../src/core/lensContractSources';
 
 const SOURCE = {
@@ -81,6 +82,44 @@ describe('AtlasMind Lens contract source adapters', () => {
     ]));
   });
 
+  it('extracts TypeScript interfaces and object type aliases without claiming type resolution', () => {
+    const result = extractTypeScriptContractSources({
+      ...SOURCE,
+      workspacePath: 'src/contracts/create-user.dto.ts',
+      text: `export interface CreateUserDto {
+  readonly email: string;
+  /** Optional legacy age. */
+  age?: number | null;
+  profile: Profile;
+  tags: Array<string>;
+}
+
+export type AuditRecord = {
+  id: string;
+  state: 'new' | 'done';
+};`,
+    });
+
+    expect(result.notices).toEqual(expect.arrayContaining([expect.stringContaining('syntax-only')]));
+    expect(result.contracts).toHaveLength(2);
+    expect(result.contracts[0]).toEqual(expect.objectContaining({
+      label: 'CreateUserDto',
+      layer: 'api',
+      sourceKind: 'typescript',
+      coverage: 'partial',
+    }));
+    expect(result.contracts[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'email', dataType: 'string', presence: 'required', nullability: 'non-null' }),
+      expect.objectContaining({ path: 'age', dataType: 'number', presence: 'optional', nullability: 'nullable' }),
+      expect.objectContaining({ path: 'profile', dataType: 'ref:Profile' }),
+      expect.objectContaining({ path: 'tags', dataType: 'array<string>' }),
+    ]));
+    expect(result.contracts[0]?.fields[1]?.target?.range?.startLine).toBe(4);
+    expect(result.contracts[1]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'state', dataType: 'enum' }),
+    ]));
+  });
+
   it('returns named evidence gaps for malformed or unsupported documents instead of throwing', () => {
     expect(extractJsonContractSources({ ...SOURCE, text: '{ not-json' })).toEqual({
       contracts: [],
@@ -89,6 +128,10 @@ describe('AtlasMind Lens contract source adapters', () => {
     expect(extractSqlContractSources({ ...SOURCE, text: 'SELECT 1;' })).toEqual({
       contracts: [],
       notices: ['No supported CREATE TABLE declarations were found.'],
+    });
+    expect(extractTypeScriptContractSources({ ...SOURCE, text: 'export const value = 1;' })).toEqual({
+      contracts: [],
+      notices: ['No supported top-level TypeScript interface or object type declarations were found.'],
     });
   });
 });

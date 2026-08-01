@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.240.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.241.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.240.0
+## What's new in 0.241.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **AtlasMind Lens can now review real contract/schema wiring from the workspace.** Run **AtlasMind: Lens: Review Contract Wiring** (or use the Lens title action) to discover OpenAPI 3 components, JSON Schema objects, and SQL `CREATE TABLE` declarations; choose the upstream and downstream boundary; apply `.atlasmind/lens-mappings.json`; and open the Field Wiring board. Filter exact, transformed, dropped, introduced, incompatible, inferred, or unverified wires, retain declared suppressions, open source-backed fields, and ask Atlas about any field or connection through an editable draft. Discovery is local and bounded, never executes SQL or project code, never connects to a database, and labels SQL coverage heuristic/partial. An unmatched field still stays **unverified**, and static code journeys remain available through **Trace possible flow**.
+- **AtlasMind Lens can now connect code-side TypeScript fields directly to API/schema/database declarations.** **Review Contract Wiring** discovers filename-signalled TypeScript DTO, model, schema, type, entity, contract, interface, request, and response files alongside OpenAPI 3, JSON Schema, and SQL sources. Top-level interfaces and object type aliases retain exact field locations, optional/null unions, scalars, arrays, literal enums, references, functions, and object records, so a developer can select a DTO/model and a SQL table as the two boundaries. The TypeScript adapter is syntax-only, local, non-executing, and explicitly partial: it does not claim to resolve inheritance, imports, mapped types, runtime validators, decorators, or initializers. The v0.240 filterable Field Wiring board and static code journeys remain available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -290,7 +290,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
-| `AtlasMind: Lens: Review Contract Wiring` | Discover supported OpenAPI, JSON Schema, and SQL declarations and compare one ordered field boundary |
+| `AtlasMind: Lens: Review Contract Wiring` | Discover supported TypeScript, OpenAPI, JSON Schema, and SQL declarations and compare one ordered field boundary |
 | `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
@@ -370,7 +370,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
-| `src/core/lensContractSources.ts` | Bounded OpenAPI/JSON Schema and heuristic SQL declaration adapters |
+| `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |

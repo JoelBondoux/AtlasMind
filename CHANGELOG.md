@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.241.0] - 2026-08-01
+
+### Added
+
+- **Field Wiring now bridges TypeScript code declarations to schemas and database tables.** The workspace review discovers filename-signalled `.ts`/`.tsx` contract, DTO, model, schema, entity, request, response, interface, and type files; extracts top-level interfaces and object type aliases; retains exact declaration/field locations; and lets developers compare those code-side fields directly with OpenAPI, JSON Schema, or SQL boundaries.
+- **The TypeScript adapter recognizes useful field-shape evidence without pretending to run the compiler.** It records optional and nullable unions, scalar types, arrays, literal enums, named references, functions, and object records, while using path/name signals to classify UI, API, domain, persistence, and external boundaries.
+
+### Security
+
+- **TypeScript inspection is bounded, local, and declaration-only.** AtlasMind masks comments and string/template contents before declaration discovery, never imports or executes project modules, and never evaluates decorators or initializers. It reports partial coverage and a syntax-only notice because inheritance, imported aliases, mapped/conditional types, compiler resolution, and runtime validators are not proven by this adapter.
+
 ## [0.240.0] - 2026-08-01
 
 ### Added

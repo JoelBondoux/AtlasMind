@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.241.0 — Lens connects TypeScript fields to schemas and tables
+
+**Field Wiring can now compare code-side TypeScript declarations directly with OpenAPI, JSON Schema, or SQL boundaries.** Filename-signalled DTO, model, schema, type, entity, contract, interface, request, and response files yield top-level interface/object-type contracts with exact field locations and useful optional, null, scalar, array, enum, reference, function, and object evidence.
+
+**The adapter is deliberately syntax-only.** It reports partial coverage, masks comments/string contents during discovery, imports or executes no module, and does not claim compiler resolution for aliases, inheritance, mapped types, decorators, initializers, or runtime validators.
+
 ## v0.240.0 — Lens opens the Field Wiring board
 
 **Review Contract Wiring turns real OpenAPI, JSON Schema, and SQL declarations into an ordered field comparison.** Choose the two same-root boundaries, apply the repository mapping file, then filter exact, transformed, dropped, introduced, incompatible, inferred, or unverified wires. Source-backed fields and individual connections can open source or prepare an editable Ask Atlas draft.

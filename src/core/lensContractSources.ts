@@ -151,6 +151,32 @@ export function extractSqlContractSources(input: LensContractDocumentInput): Len
     : { contracts: [], notices: ['No supported CREATE TABLE declarations were found.'] };
 }
 
+/**
+ * Extract a conservative subset of top-level TypeScript interface and object
+ * type declarations. This is intentionally a syntax adapter rather than a type
+ * checker: aliases and imported types remain references, and coverage is always
+ * partial until a language-service adapter proves resolution.
+ */
+export function extractTypeScriptContractSources(input: LensContractDocumentInput): LensContractExtraction {
+  if (!isValidInput(input)) {
+    return { contracts: [], notices: ['The TypeScript contract source was too large or had an invalid workspace location.'] };
+  }
+  const lineMap = new LineMap(input.text);
+  const masked = maskTypeScriptTrivia(input.text);
+  const declarations = findTypeScriptObjectDeclarations(masked).slice(0, MAX_CONTRACTS);
+  const contracts = declarations
+    .map(declaration => buildTypeScriptContract(input, declaration, lineMap))
+    .filter((contract): contract is LensContract => Boolean(contract));
+  return contracts.length > 0
+    ? {
+      contracts,
+      notices: [
+        'TypeScript extraction is syntax-only and intentionally reports partial coverage; aliases, inheritance, mapped types, and runtime validators are not resolved.',
+      ],
+    }
+    : { contracts: [], notices: ['No supported top-level TypeScript interface or object type declarations were found.'] };
+}
+
 function buildJsonContract(
   input: LensContractDocumentInput,
   candidate: {
@@ -211,6 +237,337 @@ interface SqlColumnSegment {
   text: string;
   startOffset: number;
   endOffset: number;
+}
+
+interface TypeScriptObjectDeclaration {
+  name: string;
+  startOffset: number;
+  openOffset: number;
+  closeOffset: number;
+}
+
+function buildTypeScriptContract(
+  input: LensContractDocumentInput,
+  declaration: TypeScriptObjectDeclaration,
+  lineMap: LineMap,
+): LensContract | undefined {
+  const fields = splitTypeScriptMembers(input.text, declaration.openOffset + 1, declaration.closeOffset)
+    .slice(0, 500)
+    .map(member => buildTypeScriptField(input, declaration.name, member, lineMap))
+    .filter((field): field is LensContractField => Boolean(field));
+  const target = sourceTarget(
+    input,
+    declaration.name,
+    lineMap.range(declaration.startOffset, declaration.closeOffset + 1),
+    'Interface',
+  );
+  return normalizeLensContract({
+    version: 1,
+    id: `lens-contract:typescript:${stableHash(`${input.workspace.index}:${input.workspacePath}:${declaration.name}`)}`,
+    label: declaration.name,
+    layer: inferTypeScriptLayer(input.workspacePath, declaration.name),
+    sourceKind: 'typescript',
+    coverage: 'partial',
+    ...(target ? { target } : {}),
+    fields,
+  });
+}
+
+function buildTypeScriptField(
+  input: LensContractDocumentInput,
+  contractName: string,
+  member: SqlColumnSegment,
+  lineMap: LineMap,
+): LensContractField | undefined {
+  const content = stripLeadingTypeScriptTrivia(member.text);
+  if (!content) {
+    return undefined;
+  }
+  const text = content.text.replace(/[,;]$/, '').trimEnd();
+  const match = /^(?:readonly\s+)?(?:([A-Za-z_$][\w$]*)|["']([^"']+)["'])(\?)?\s*:\s*([\s\S]+)$/.exec(text);
+  const path = match?.[1] ?? match?.[2];
+  const declaredType = match?.[4]?.trim();
+  if (!path || !declaredType || path.length > 400 || /[\u0000-\u001f\u007f]/.test(path)) {
+    return undefined;
+  }
+  const optional = match?.[3] === '?' || unionIncludesType(declaredType, 'undefined');
+  const nullable = unionIncludesType(declaredType, 'null');
+  const target = sourceTarget(
+    input,
+    path,
+    lineMap.range(member.startOffset + content.offset, member.endOffset),
+    'Field',
+  );
+  return {
+    id: `lens-contract-field:${stableHash(`${input.workspace.index}:${input.workspacePath}:${contractName}:${path}`)}`,
+    path,
+    label: path,
+    dataType: canonicalTypeScriptType(declaredType),
+    presence: optional ? 'optional' : 'required',
+    nullability: nullable ? 'nullable' : 'non-null',
+    ...(target ? { target } : {}),
+    evidence: { kind: 'declared', source: 'TypeScript object declaration', confidence: 0.8 },
+  };
+}
+
+function stripLeadingTypeScriptTrivia(value: string): { text: string; offset: number } | undefined {
+  let offset = 0;
+  while (offset < value.length) {
+    const whitespace = /^\s+/.exec(value.slice(offset));
+    if (whitespace) {
+      offset += whitespace[0].length;
+      continue;
+    }
+    if (value.startsWith('//', offset)) {
+      const newline = value.indexOf('\n', offset + 2);
+      if (newline < 0) return undefined;
+      offset = newline + 1;
+      continue;
+    }
+    if (value.startsWith('/*', offset)) {
+      const close = value.indexOf('*/', offset + 2);
+      if (close < 0) return undefined;
+      offset = close + 2;
+      continue;
+    }
+    break;
+  }
+  const text = value.slice(offset).trimEnd();
+  return text ? { text, offset } : undefined;
+}
+
+function findTypeScriptObjectDeclarations(masked: string): TypeScriptObjectDeclaration[] {
+  const declarations: TypeScriptObjectDeclaration[] = [];
+  const patterns = [
+    /\b(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)(?:\s*<[^{};]*>)?(?:\s+extends\s+[^{};]+)?\s*\{/g,
+    /\b(?:export\s+)?(?:declare\s+)?type\s+([A-Za-z_$][\w$]*)(?:\s*<[^{};=]*>)?\s*=\s*\{/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(masked)) && declarations.length < MAX_CONTRACTS * 2) {
+      const openOffset = pattern.lastIndex - 1;
+      const closeOffset = findClosingBrace(masked, openOffset);
+      if (closeOffset !== undefined) {
+        declarations.push({
+          name: match[1] ?? '',
+          startOffset: match.index,
+          openOffset,
+          closeOffset,
+        });
+        pattern.lastIndex = closeOffset + 1;
+      }
+    }
+  }
+  return declarations
+    .filter(declaration => Boolean(declaration.name))
+    .sort((left, right) => left.startOffset - right.startOffset);
+}
+
+function splitTypeScriptMembers(text: string, startOffset: number, endOffset: number): SqlColumnSegment[] {
+  const segments: SqlColumnSegment[] = [];
+  let start = startOffset;
+  let roundDepth = 0;
+  let squareDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: string | undefined;
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = startOffset; index < endOffset; index += 1) {
+    const character = text[index] ?? '';
+    const next = text[index + 1] ?? '';
+    if (lineComment) {
+      if (character === '\n') {
+        lineComment = false;
+      } else {
+        continue;
+      }
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === quote && text[index - 1] !== '\\') {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '/' && next === '*') {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (character === '(') roundDepth += 1;
+    else if (character === ')') roundDepth = Math.max(0, roundDepth - 1);
+    else if (character === '[') squareDepth += 1;
+    else if (character === ']') squareDepth = Math.max(0, squareDepth - 1);
+    else if (character === '{') braceDepth += 1;
+    else if (character === '}') braceDepth = Math.max(0, braceDepth - 1);
+    else if (character === '<') angleDepth += 1;
+    else if (character === '>') angleDepth = Math.max(0, angleDepth - 1);
+    const atTopLevel = roundDepth === 0 && squareDepth === 0 && braceDepth === 0 && angleDepth === 0;
+    if (atTopLevel && (character === ';' || character === ',' || character === '\n')) {
+      if (text.slice(start, index).trim()) {
+        segments.push({ text: text.slice(start, index), startOffset: start, endOffset: index });
+      }
+      start = index + 1;
+    }
+  }
+  if (text.slice(start, endOffset).trim()) {
+    segments.push({ text: text.slice(start, endOffset), startOffset: start, endOffset });
+  }
+  return segments;
+}
+
+function canonicalTypeScriptType(value: string): string {
+  const members = splitTypeUnion(value)
+    .map(member => stripOuterParentheses(member.trim()))
+    .filter(member => member && member !== 'null' && member !== 'undefined');
+  if (members.length > 1) {
+    const literals = members.every(member => /^(?:["'][^"']*["']|-?\d+(?:\.\d+)?|true|false)$/.test(member));
+    return literals ? 'enum' : members.map(canonicalTypeScriptType).join('|').slice(0, 240);
+  }
+  const type = members[0] ?? 'unknown';
+  const array = /^(.*)\[\]$/.exec(type);
+  const genericArray = /^(?:ReadonlyArray|Array)\s*<([\s\S]+)>$/.exec(type);
+  if (array?.[1] || genericArray?.[1]) {
+    return `array<${canonicalTypeScriptType((array?.[1] ?? genericArray?.[1]) as string)}>`;
+  }
+  if (/^(?:string|String)$/.test(type)) return 'string';
+  if (/^(?:number|Number|bigint|BigInt)$/.test(type)) return 'number';
+  if (/^(?:boolean|Boolean)$/.test(type)) return 'boolean';
+  if (/^(?:Date)$/.test(type)) return 'timestamp';
+  if (/^(?:unknown|any|never|void)$/.test(type)) return 'unknown';
+  if (/^(?:Record\s*<|\{)/.test(type)) return 'object';
+  if (/=>/.test(type)) return 'function';
+  const reference = /^([A-Za-z_$][\w$]*)(?:\s*<.*>)?$/.exec(type)?.[1];
+  return reference ? `ref:${reference}` : type.replace(/\s+/g, ' ').slice(0, 240) || 'unknown';
+}
+
+function splitTypeUnion(value: string): string[] {
+  const members: string[] = [];
+  let start = 0;
+  let roundDepth = 0;
+  let squareDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: string | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? '';
+    if (quote) {
+      if (character === quote && value[index - 1] !== '\\') quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') quote = character;
+    else if (character === '(') roundDepth += 1;
+    else if (character === ')') roundDepth = Math.max(0, roundDepth - 1);
+    else if (character === '[') squareDepth += 1;
+    else if (character === ']') squareDepth = Math.max(0, squareDepth - 1);
+    else if (character === '{') braceDepth += 1;
+    else if (character === '}') braceDepth = Math.max(0, braceDepth - 1);
+    else if (character === '<') angleDepth += 1;
+    else if (character === '>') angleDepth = Math.max(0, angleDepth - 1);
+    else if (character === '|' && roundDepth === 0 && squareDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+      members.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  members.push(value.slice(start));
+  return members;
+}
+
+function unionIncludesType(value: string, expected: string): boolean {
+  return splitTypeUnion(value).some(member => stripOuterParentheses(member.trim()) === expected);
+}
+
+function stripOuterParentheses(value: string): string {
+  let text = value;
+  while (text.startsWith('(') && text.endsWith(')')) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function inferTypeScriptLayer(workspacePath: string, name: string): LensContractLayer {
+  const signal = `${workspacePath} ${name}`.toLowerCase();
+  if (/(?:^|[^a-z])(external|client|sdk)(?:[^a-z]|$)/.test(signal)) return 'external';
+  if (/(?:^|[^a-z])(form|props|viewmodel|ui)(?:[^a-z]|$)/.test(signal)) return 'ui';
+  if (/(?:^|[^a-z])(dto|request|response|api)(?:[^a-z]|$)/.test(signal)) return 'api';
+  if (/(?:^|[^a-z])(entity|record|repository|persistence)(?:[^a-z]|$)/.test(signal)) return 'persistence';
+  return 'domain';
+}
+
+function maskTypeScriptTrivia(text: string): string {
+  // `split('')` preserves UTF-16 code-unit offsets used by VS Code ranges.
+  const characters = text.split('');
+  let quote: string | undefined;
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index] ?? '';
+    const next = characters[index + 1] ?? '';
+    if (lineComment) {
+      if (character === '\n') lineComment = false;
+      else characters[index] = ' ';
+      continue;
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        characters[index] = ' ';
+        characters[index + 1] = ' ';
+        blockComment = false;
+        index += 1;
+      } else if (character !== '\n') {
+        characters[index] = ' ';
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === quote && text[index - 1] !== '\\') quote = undefined;
+      if (character !== '\n') characters[index] = ' ';
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      characters[index] = ' ';
+      characters[index + 1] = ' ';
+      lineComment = true;
+      index += 1;
+    } else if (character === '/' && next === '*') {
+      characters[index] = ' ';
+      characters[index + 1] = ' ';
+      blockComment = true;
+      index += 1;
+    } else if (character === '"' || character === "'" || character === '`') {
+      characters[index] = ' ';
+      quote = character;
+    }
+  }
+  return characters.join('');
+}
+
+function findClosingBrace(text: string, openOffset: number): number | undefined {
+  let depth = 0;
+  for (let index = openOffset; index < text.length; index += 1) {
+    if (text[index] === '{') depth += 1;
+    else if (text[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return undefined;
 }
 
 function buildSqlField(

@@ -11,6 +11,7 @@ const {
   folder,
   openApiUri,
   sqlUri,
+  typeScriptUri,
 } = vi.hoisted(() => {
   const uri = (path: string) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
   return {
@@ -24,6 +25,7 @@ const {
     folder: { name: 'atlasmind', index: 0, uri: uri('/workspace') },
     openApiUri: uri('/workspace/openapi.json'),
     sqlUri: uri('/workspace/schema.sql'),
+    typeScriptUri: uri('/workspace/create-user.dto.ts'),
   };
 });
 
@@ -76,12 +78,15 @@ const OPENAPI = JSON.stringify({
   },
 });
 const SQL = 'CREATE TABLE users (email TEXT NOT NULL);';
+const TYPESCRIPT = 'export interface CreateUserDto { email: string; }';
 
 describe('Lens contract review command', () => {
   beforeEach(() => {
-    findFiles.mockReset().mockResolvedValue([openApiUri, sqlUri]);
+    findFiles.mockReset().mockResolvedValue([openApiUri, sqlUri, typeScriptUri]);
     openTextDocument.mockReset().mockImplementation((uri: { path: string }) => Promise.resolve({
-      getText: () => uri.path.endsWith('.sql') ? SQL : OPENAPI,
+      getText: () => uri.path.endsWith('.sql')
+        ? SQL
+        : uri.path.endsWith('.ts') ? TYPESCRIPT : OPENAPI,
     }));
     readFile.mockReset().mockResolvedValue(new TextEncoder().encode(JSON.stringify({
       version: 1,
@@ -92,6 +97,19 @@ describe('Lens contract review command', () => {
     showWarningMessage.mockReset();
     showInformationMessage.mockReset();
     showContractReview.mockReset();
+  });
+
+  it('can compare a code-side TypeScript declaration directly with a SQL table', async () => {
+    showQuickPick
+      .mockImplementationOnce(async (items: Array<{ label: string }>) => items.find(item => item.label.includes('CreateUserDto')))
+      .mockImplementationOnce(async (items: Array<{ label: string }>) => items.find(item => item.label.includes('users')));
+
+    await reviewWorkspaceContractWiring();
+
+    expect(showContractReview).toHaveBeenCalledWith(expect.objectContaining({
+      upstream: expect.objectContaining({ label: 'CreateUserDto', sourceKind: 'typescript' }),
+      downstream: expect.objectContaining({ label: 'users', sourceKind: 'sql' }),
+    }));
   });
 
   it('discovers supported declarations, asks for an ordered pair, and opens the review panel', async () => {
