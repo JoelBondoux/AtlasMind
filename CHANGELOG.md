@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.236.0] - 2026-08-01
+
+### Changed
+
+- **AtlasMind Lens source targets now identify their workspace root as well as their relative path.** Version 2 of `LensVisualTarget` carries the live root name and index through file targets, nested symbols, exact navigation, tooltips, and reviewable chat drafts. Identical paths such as `src/index.ts` in separate folders now produce distinct target ids and visible locations.
+
+### Security
+
+- **Lens refuses cross-root source navigation.** Open and Ask Atlas actions revalidate the target's root name, root index, and root-relative path against the selected URI before exposing the source or attaching context. Missing, malformed, stale, or rebound workspace identities fail closed without adding absolute paths or source contents to the payload.
+
 ## [0.235.0] - 2026-08-01
 
 ### Added

@@ -19,14 +19,14 @@ The first implementation establishes a host-neutral `LensVisualTarget` contract.
 
 Each target carries:
 
-- a stable id, kind, label, optional detail, and workspace-relative source range;
+- a stable id, kind, label, optional detail, workspace-root identity, and root-relative source range;
 - bounded evidence records labelled `source`, `runtime`, `framework`, `declared`, or `inferred`;
 - optional confidence only where confidence is meaningful;
 - actions such as **Open source**, **Ask Atlas**, **Explain connection**, **Trace from here**, **Show impact**, **Find tests**, and **Add to task**, according to the target kind.
 
 ## Delivery sequence
 
-### Phase 1 — Queryable Code Outline (in progress, v0.235.0)
+### Phase 1 — Queryable Code Outline (in progress, v0.235.0–v0.236.0)
 
 Add **Lens — Code Explorer** to the AtlasMind sidebar. It follows the active editor, renders nested symbols through VS Code's language services, opens a symbol at its exact range, and attaches a validated source target to an editable Atlas Chat draft.
 
@@ -37,7 +37,8 @@ Exit criteria:
 - Ask Atlas opens a draft and never auto-submits;
 - target payloads do not contain source text or absolute filesystem paths;
 - empty, unsupported, and outside-workspace states are explicit;
-- multi-root ownership and symbol filtering are designed before workspace-wide expansion.
+- multi-root ownership is explicit and revalidated before source or chat actions;
+- symbol filtering is designed before workspace-wide expansion.
 
 ### Phase 2 — Entrypoint Journey and Execution Flow Explorer
 
@@ -110,7 +111,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Define and test the shared Lens visual-target contract.
 - [x] Add the native active-file Code Explorer outline.
 - [x] Add exact source navigation and reviewable Ask Atlas drafts.
-- [ ] Add multi-root-aware workspace identity to source targets.
+- [x] Add multi-root-aware workspace identity to source targets.
 - [ ] Add symbol kind/filter controls and target actions beyond Ask Atlas.
 - [ ] Add reference and call-hierarchy adapters with evidence labels.
 - [ ] Prototype the editor-hosted journey graph on one entrypoint type.

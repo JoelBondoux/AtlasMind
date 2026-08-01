@@ -2172,6 +2172,13 @@ export interface LensSourceRange {
   endColumn: number;
 }
 
+/** Identifies one root in the currently open VS Code workspace without exposing its absolute URI. */
+export interface LensWorkspaceIdentity {
+  name: string;
+  /** Zero-based position in `vscode.workspace.workspaceFolders`. */
+  index: number;
+}
+
 /**
  * The visual objects AtlasMind Lens can make queryable.
  *
@@ -2204,11 +2211,12 @@ export interface LensEvidence {
  * It deliberately contains no source text or absolute filesystem path.
  */
 export interface LensVisualTarget {
-  version: 1;
+  version: 2;
   id: string;
   kind: LensTargetKind;
   label: string;
   detail?: string;
+  workspace: LensWorkspaceIdentity;
   workspacePath: string;
   range?: LensSourceRange;
   symbolKind?: string;

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.236.0 — Lens knows which project a target belongs to
+
+**Lens targets are now safe in multi-root workspaces.** Each file and symbol carries the live workspace root's name and position alongside its root-relative path, so matching files in separate projects remain distinct in target ids, labels, navigation, and Ask Atlas context.
+
+**A stale or rebound target cannot cross a root boundary.** Lens rechecks the root identity and relative path against the selected URI before opening source or preparing chat context. Invalid identities fail visibly and still never expose source contents or absolute paths.
+
 ## v0.235.0 — AtlasMind Lens begins
 
 **Lens — Code Explorer adds a queryable active-file outline to the sidebar.** It uses the installed VS Code language service to render nested symbols and opens any selected target at its exact source range. **Ask Atlas about this** creates an editable chat draft with a validated, workspace-relative target; it does not submit the prompt, include source text, or expose an absolute path.

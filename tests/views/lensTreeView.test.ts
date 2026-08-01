@@ -1,15 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { executeCommand, showTextDocument, activeEditor } = vi.hoisted(() => ({
-  executeCommand: vi.fn(),
-  showTextDocument: vi.fn(),
-  activeEditor: {
-    document: {
-      uri: { scheme: 'file', path: '/workspace/src/example.ts', fsPath: '/workspace/src/example.ts' },
-      fileName: '/workspace/src/example.ts',
+const { executeCommand, showTextDocument, showWarningMessage, activeEditor, primaryUri, secondaryUri, workspaceFolders } = vi.hoisted(() => {
+  const primaryUri = { scheme: 'file', path: '/workspace/src/example.ts', fsPath: '/workspace/src/example.ts' };
+  const secondaryUri = { scheme: 'file', path: '/api/src/example.ts', fsPath: '/api/src/example.ts' };
+  return {
+    executeCommand: vi.fn(),
+    showTextDocument: vi.fn(),
+    showWarningMessage: vi.fn(),
+    primaryUri,
+    secondaryUri,
+    workspaceFolders: [
+      { name: 'web', index: 0, uri: { scheme: 'file', path: '/workspace', fsPath: '/workspace' } },
+      { name: 'api', index: 1, uri: { scheme: 'file', path: '/api', fsPath: '/api' } },
+    ],
+    activeEditor: {
+      document: {
+        uri: primaryUri,
+        fileName: '/workspace/src/example.ts',
+      },
     },
-  },
-}));
+  };
+});
 
 vi.mock('vscode', () => ({
   EventEmitter: class {
@@ -43,10 +54,11 @@ vi.mock('vscode', () => ({
     activeTextEditor: activeEditor,
     onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: vi.fn() })),
     showTextDocument,
+    showWarningMessage,
   },
   workspace: {
-    workspaceFolders: [{ name: 'workspace', uri: { scheme: 'file', path: '/workspace', fsPath: '/workspace' } }],
-    getWorkspaceFolder: vi.fn(() => ({ name: 'workspace', uri: { scheme: 'file', path: '/workspace', fsPath: '/workspace' } })),
+    workspaceFolders,
+    getWorkspaceFolder: vi.fn((uri: { path: string }) => uri.path.startsWith('/api/') ? workspaceFolders[1] : workspaceFolders[0]),
     asRelativePath: vi.fn(() => 'src/example.ts'),
     onDidSaveTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
     onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
@@ -58,8 +70,10 @@ import { LensTreeProvider } from '../../src/views/lensTreeView';
 
 describe('AtlasMind Lens outline tree', () => {
   beforeEach(() => {
+    activeEditor.document.uri = primaryUri;
     executeCommand.mockReset();
     showTextDocument.mockReset();
+    showWarningMessage.mockReset();
   });
 
   it('maps the active file and nested language-service symbols into queryable targets', async () => {
@@ -98,11 +112,13 @@ describe('AtlasMind Lens outline tree', () => {
 
     expect(roots[0]?.target).toEqual(expect.objectContaining({
       kind: 'file',
+      workspace: { name: 'web', index: 0 },
       workspacePath: 'src/example.ts',
     }));
     expect(symbols[0]?.target).toEqual(expect.objectContaining({
       kind: 'symbol',
       label: 'Example',
+      workspace: { name: 'web', index: 0 },
       symbolKind: 'Class',
       range: { startLine: 3, startColumn: 1, endLine: 21, endColumn: 2 },
     }));
@@ -151,5 +167,35 @@ describe('AtlasMind Lens outline tree', () => {
     }));
     expect(tooltip).not.toContain('[handler](command:malicious)');
     expect(tooltip).not.toContain('![pixel](https://example.invalid/x)');
+  });
+
+  it('gives identical relative paths distinct workspace-root identities', async () => {
+    executeCommand.mockResolvedValue([]);
+    const provider = new LensTreeProvider();
+
+    const primary = await provider.getChildren();
+    activeEditor.document.uri = secondaryUri;
+    const secondary = await provider.getChildren();
+
+    expect(primary[0]?.target.workspace).toEqual({ name: 'web', index: 0 });
+    expect(secondary[0]?.target.workspace).toEqual({ name: 'api', index: 1 });
+    expect(primary[0]?.target.workspacePath).toBe('src/example.ts');
+    expect(secondary[0]?.target.workspacePath).toBe('src/example.ts');
+    expect(primary[0]?.target.id).not.toBe(secondary[0]?.target.id);
+  });
+
+  it('refuses navigation when the target names a different workspace root', async () => {
+    executeCommand.mockResolvedValue([]);
+    const provider = new LensTreeProvider();
+    const roots = await provider.getChildren();
+    (roots[0] as unknown as { target: { workspace: { name: string; index: number } } }).target.workspace = {
+      name: 'api',
+      index: 1,
+    };
+
+    await provider.openTarget(roots[0]);
+
+    expect(showTextDocument).not.toHaveBeenCalled();
+    expect(showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('invalid or out-of-workspace'));
   });
 });

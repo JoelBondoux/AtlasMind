@@ -3,6 +3,7 @@ import type {
   LensSourceRange,
   LensTargetKind,
   LensVisualTarget,
+  LensWorkspaceIdentity,
 } from '../types.js';
 
 const TARGET_KINDS = new Set<LensTargetKind>([
@@ -30,11 +31,14 @@ const MAX_DETAIL = 400;
 const MAX_PATH = 1_000;
 const MAX_KIND = 80;
 const MAX_EVIDENCE_SOURCE = 160;
+const MAX_WORKSPACE_NAME = 160;
+const MAX_WORKSPACE_INDEX = 10_000;
 
 export interface CreateSourceLensTargetInput {
   kind: 'file' | 'symbol' | 'code-range';
   label: string;
   detail?: string;
+  workspace: LensWorkspaceIdentity;
   workspacePath: string;
   range?: LensSourceRange;
   symbolKind?: string;
@@ -47,19 +51,21 @@ export interface CreateSourceLensTargetInput {
  * same total normalizer used for externally supplied command arguments.
  */
 export function createSourceLensTarget(input: CreateSourceLensTargetInput): LensVisualTarget {
+  const workspace = normalizeWorkspaceIdentity(input.workspace);
   const workspacePath = normalizeWorkspacePath(input.workspacePath);
-  if (!workspacePath) {
+  if (!workspace || !workspacePath) {
     throw new Error('AtlasMind Lens could not create a safe workspace-relative source target.');
   }
   const rangeId = input.range
     ? `${input.range.startLine}:${input.range.startColumn}-${input.range.endLine}:${input.range.endColumn}`
     : 'file';
   const normalized = normalizeLensTarget({
-    version: 1,
-    id: `lens:${input.kind}:${workspacePath}:${rangeId}:${input.label}`,
+    version: 2,
+    id: `lens:${input.kind}:${workspace.index}:${workspace.name}:${workspacePath}:${rangeId}:${input.label}`,
     kind: input.kind,
     label: input.label,
     detail: input.detail,
+    workspace,
     workspacePath,
     range: input.range,
     symbolKind: input.symbolKind,
@@ -77,7 +83,7 @@ export function createSourceLensTarget(input: CreateSourceLensTargetInput): Lens
 
 /** Normalize a Lens command/context payload. Invalid input is refused, never partially trusted. */
 export function normalizeLensTarget(value: unknown): LensVisualTarget | undefined {
-  if (!isRecord(value) || value.version !== 1) {
+  if (!isRecord(value) || value.version !== 2) {
     return undefined;
   }
 
@@ -86,9 +92,10 @@ export function normalizeLensTarget(value: unknown): LensVisualTarget | undefine
     : undefined;
   const id = boundedId(value.id);
   const label = boundedText(value.label, MAX_LABEL);
+  const workspace = normalizeWorkspaceIdentity(value.workspace);
   const workspacePath = normalizeWorkspacePath(value.workspacePath);
   const evidence = normalizeEvidence(value.evidence);
-  if (!kind || !id || !label || !workspacePath || !evidence) {
+  if (!kind || !id || !label || !workspace || !workspacePath || !evidence) {
     return undefined;
   }
 
@@ -100,10 +107,11 @@ export function normalizeLensTarget(value: unknown): LensVisualTarget | undefine
   const detail = boundedText(value.detail, MAX_DETAIL);
   const symbolKind = boundedText(value.symbolKind, MAX_KIND);
   return {
-    version: 1,
+    version: 2,
     id,
     kind,
     label,
+    workspace,
     workspacePath,
     ...(range ? { range } : {}),
     ...(detail ? { detail } : {}),
@@ -115,9 +123,10 @@ export function normalizeLensTarget(value: unknown): LensVisualTarget | undefine
 /** Human-editable composer seed. It identifies the target but leaves the question to the operator. */
 export function buildLensDraftPrompt(target: LensVisualTarget): string {
   const normalized = requireNormalizedTarget(target);
-  const location = normalized.range
+  const sourceLocation = normalized.range
     ? `${normalized.workspacePath}:${normalized.range.startLine}-${normalized.range.endLine}`
     : normalized.workspacePath;
+  const location = `${normalized.workspace.name} :: ${sourceLocation}`;
   return `Question about \`${normalized.label}\` (${location}):`;
 }
 
@@ -184,6 +193,21 @@ function normalizeRange(value: unknown): LensSourceRange | undefined {
   return { startLine, startColumn, endLine, endColumn };
 }
 
+function normalizeWorkspaceIdentity(value: unknown): LensWorkspaceIdentity | undefined {
+  if (!isRecord(value) || typeof value.name !== 'string') {
+    return undefined;
+  }
+  if (
+    value.name.length === 0 ||
+    value.name.length > MAX_WORKSPACE_NAME ||
+    /[\u0000-\u001f\u007f]/.test(value.name)
+  ) {
+    return undefined;
+  }
+  const index = boundedNonNegativeInteger(value.index, MAX_WORKSPACE_INDEX);
+  return index === undefined ? undefined : { name: value.name, index };
+}
+
 function normalizeWorkspacePath(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_PATH || /[\u0000-\u001f\u007f]/.test(value)) {
     return undefined;
@@ -220,6 +244,12 @@ function boundedId(value: unknown): string | undefined {
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function boundedNonNegativeInteger(value: unknown, maximum: number): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= maximum
+    ? value
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -6,7 +6,7 @@ import {
   createSourceLensTarget,
   normalizeLensTarget,
 } from '../core/lensTarget.js';
-import type { LensSourceRange, LensVisualTarget } from '../types.js';
+import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
 
 const LENS_VIEW_ID = 'atlasmind.lensView';
@@ -99,7 +99,11 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     }
     if (element?.target.kind === 'file') {
       if (!element.children) {
-        element.children = await this.loadDocumentSymbols(element.uri, element.target.workspacePath);
+        element.children = await this.loadDocumentSymbols(
+          element.uri,
+          element.target.workspacePath,
+          element.target.workspace,
+        );
       }
       return element.children.length > 0
         ? element.children
@@ -123,14 +127,15 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
       return [new LensMessageTreeItem('Unavailable source path', 'Lens could not form a safe workspace-relative target.', 'warning')];
     }
     const fileName = workspacePath.split('/').at(-1) ?? workspacePath;
-    const target = createSourceLensTarget({ kind: 'file', label: fileName, workspacePath });
+    const workspace = toLensWorkspaceIdentity(workspaceFolder);
+    const target = createSourceLensTarget({ kind: 'file', label: fileName, workspace, workspacePath });
     return [new LensTreeItem(target, editor.document.uri)];
   }
 
   public async openTarget(candidate: unknown): Promise<void> {
     const item = candidate instanceof LensTreeItem ? candidate : undefined;
     const target = normalizeLensTarget(item?.target);
-    if (!item || !target || !isMatchingWorkspaceUri(item.uri, target.workspacePath)) {
+    if (!item || !target || !isMatchingWorkspaceUri(item.uri, target)) {
       void vscode.window.showWarningMessage('AtlasMind refused an invalid or out-of-workspace Lens target.');
       return;
     }
@@ -144,7 +149,7 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
   public async askAboutTarget(candidate: unknown): Promise<void> {
     const item = candidate instanceof LensTreeItem ? candidate : undefined;
     const target = normalizeLensTarget(item?.target);
-    if (!item || !target || !isMatchingWorkspaceUri(item.uri, target.workspacePath)) {
+    if (!item || !target || !isMatchingWorkspaceUri(item.uri, target)) {
       void vscode.window.showWarningMessage('AtlasMind refused an invalid or out-of-workspace Lens target.');
       return;
     }
@@ -155,9 +160,13 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     });
   }
 
-  private async loadDocumentSymbols(uri: vscode.Uri, workspacePath: string): Promise<LensTreeItem[]> {
+  private async loadDocumentSymbols(
+    uri: vscode.Uri,
+    workspacePath: string,
+    workspace: LensWorkspaceIdentity,
+  ): Promise<LensTreeItem[]> {
     const raw = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
-    return raw.flatMap(symbol => toLensTreeItem(symbol, uri, workspacePath));
+    return raw.flatMap(symbol => toLensTreeItem(symbol, uri, workspacePath, workspace));
   }
 }
 
@@ -172,7 +181,12 @@ export function registerLensTreeView(context: vscode.ExtensionContext): void {
   );
 }
 
-function toLensTreeItem(value: unknown, uri: vscode.Uri, workspacePath: string): LensTreeItem[] {
+function toLensTreeItem(
+  value: unknown,
+  uri: vscode.Uri,
+  workspacePath: string,
+  workspace: LensWorkspaceIdentity,
+): LensTreeItem[] {
   if (!isRecord(value) || typeof value.name !== 'string' || typeof value.kind !== 'number') {
     return [];
   }
@@ -187,7 +201,7 @@ function toLensTreeItem(value: unknown, uri: vscode.Uri, workspacePath: string):
   }
   const symbolKind = vscode.SymbolKind[value.kind] ?? 'Unknown';
   const children = Array.isArray(value.children)
-    ? value.children.flatMap(child => toLensTreeItem(child, uri, workspacePath))
+    ? value.children.flatMap(child => toLensTreeItem(child, uri, workspacePath, workspace))
     : [];
   const detail = typeof value.detail === 'string' && value.detail.trim()
     ? value.detail
@@ -197,6 +211,7 @@ function toLensTreeItem(value: unknown, uri: vscode.Uri, workspacePath: string):
   const target = createSourceLensTarget({
     kind: 'symbol',
     label: value.name,
+    workspace,
     workspacePath,
     range,
     symbolKind,
@@ -226,11 +241,16 @@ function toSelection(range: LensSourceRange): vscode.Selection {
   );
 }
 
-function isMatchingWorkspaceUri(uri: vscode.Uri, expectedPath: string): boolean {
-  if (!vscode.workspace.getWorkspaceFolder(uri)) {
+function isMatchingWorkspaceUri(uri: vscode.Uri, target: LensVisualTarget): boolean {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!folder || folder.name !== target.workspace.name || folder.index !== target.workspace.index) {
     return false;
   }
-  return normalizeRelativePath(vscode.workspace.asRelativePath(uri, false)) === expectedPath;
+  return normalizeRelativePath(vscode.workspace.asRelativePath(uri, false)) === target.workspacePath;
+}
+
+function toLensWorkspaceIdentity(folder: vscode.WorkspaceFolder): LensWorkspaceIdentity {
+  return { name: folder.name, index: folder.index };
 }
 
 function normalizeRelativePath(value: string): string | undefined {
@@ -246,7 +266,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function describeTarget(target: LensVisualTarget): string {
   if (target.kind === 'file') {
-    return target.workspacePath;
+    return `${target.workspace.name} · ${target.workspacePath}`;
   }
   const range = target.range ? ` · ${target.range.startLine}-${target.range.endLine}` : '';
   return `${target.symbolKind ?? target.kind}${range}`;
@@ -254,8 +274,8 @@ function describeTarget(target: LensVisualTarget): string {
 
 function buildTargetTooltip(target: LensVisualTarget): string {
   const location = target.range
-    ? `${target.workspacePath}:${target.range.startLine}:${target.range.startColumn}`
-    : target.workspacePath;
+    ? `${target.workspace.name} :: ${target.workspacePath}:${target.range.startLine}:${target.range.startColumn}`
+    : `${target.workspace.name} :: ${target.workspacePath}`;
   return `**${escapeMarkdown(target.label)}**\n\n${target.detail ? `${escapeMarkdown(target.detail)}\n\n` : ''}` +
     `Location: ${escapeMarkdown(location)}\n\n` +
     `Evidence: ${escapeMarkdown(target.evidence.kind)} — ${escapeMarkdown(target.evidence.source)}\n\n` +

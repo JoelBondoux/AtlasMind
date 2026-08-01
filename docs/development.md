@@ -144,7 +144,7 @@ AtlasMind/
 
 The first Lens surface is intentionally native: `LensTreeProvider` asks VS Code's document-symbol provider for the active file and renders the returned nested symbols. Keep language-specific parsing out of the view. New Lens adapters should normalize their output into `LensVisualTarget`, publish evidence provenance, and remain useful when only part of a graph is known.
 
-Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, keep paths workspace-relative, never attach source contents automatically, and route questions through the preferred chat surface as a draft plus one-shot context. A view becoming visible must not spend model budget or execute project code.
+Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, bind every source target to the live workspace folder name and index, keep paths root-relative, and revalidate all three values against the selected URI before acting. Never attach source contents automatically, and route questions through the preferred chat surface as a draft plus one-shot context. A view becoming visible must not spend model budget or execute project code.
 
 ### Rebuilding the Windows ACP launcher
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.235.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.236.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.235.0
+## What's new in 0.236.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **AtlasMind Lens starts with a queryable code outline.** The collapsed **Lens — Code Explorer** sidebar follows the active file and uses the installed VS Code language service to render nested symbols. Select a symbol to open its exact source range, or use **Ask Atlas about this** to open an editable chat draft carrying the validated, workspace-relative target. Opening the view never calls a model, the action never auto-submits, and target payloads contain neither source text nor absolute paths. The broader Lens roadmap covers execution journeys, schema/API wiring review, change impact, tests, data trust, state, configuration, and PR maps.
+- **AtlasMind Lens starts with a queryable, multi-root-safe code outline.** The collapsed **Lens — Code Explorer** sidebar follows the active file and uses the installed VS Code language service to render nested symbols. Select a symbol to open its exact source range, or use **Ask Atlas about this** to open an editable chat draft carrying the validated target. Every target identifies both its workspace root and root-relative path, so two projects with the same relative source path cannot collide or navigate across roots. Opening the view never calls a model, the action never auto-submits, and target payloads contain neither source text nor absolute paths. The broader Lens roadmap covers execution journeys, schema/API wiring review, change impact, tests, data trust, state, configuration, and PR maps.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
