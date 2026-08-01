@@ -77,7 +77,8 @@ const OPENAPI = JSON.stringify({
     },
   },
 });
-const SQL = 'CREATE TABLE users (email TEXT NOT NULL);';
+const SQL = `CREATE TABLE accounts (id INTEGER PRIMARY KEY);
+CREATE TABLE users (email TEXT NOT NULL, account_id INTEGER REFERENCES accounts(id));`;
 const TYPESCRIPT = 'export interface CreateUserDto { email: string; }';
 
 describe('Lens contract review command', () => {
@@ -123,6 +124,12 @@ describe('Lens contract review command', () => {
       upstream: expect.objectContaining({ label: 'CreateUser', layer: 'api' }),
       downstream: expect.objectContaining({ label: 'users', layer: 'database' }),
       mappingFile: { version: 1, mappings: [], suppressions: [] },
+      relations: expect.arrayContaining([
+        expect.objectContaining({
+          label: 'users.account_id → accounts.id',
+          to: expect.objectContaining({ fieldId: expect.any(String) }),
+        }),
+      ]),
     }));
   });
 

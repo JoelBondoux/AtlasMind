@@ -111,10 +111,25 @@ describe('Lens contract review panel', () => {
     const mappingFile = normalizeLensContractMappingFile({ version: 1, mappings: [], suppressions: [] })!;
     showQuickPick.mockResolvedValue({ label: 'Remove field', changeKind: 'remove' });
 
-    LensContractReviewPanel.createOrShow({ upstream, downstream, mappingFile, sourceNotices: [] });
+    LensContractReviewPanel.createOrShow({
+      upstream,
+      downstream,
+      mappingFile,
+      relations: [{
+        id: 'relation:users-account',
+        kind: 'foreign-key',
+        label: 'users.email → accounts.id',
+        from: { contractLabel: 'users', contractId: downstream.id, fieldPath: fieldLabel(downstream), fieldId: 'db:email' },
+        to: { contractLabel: 'accounts', fieldPath: 'id' },
+        target: downstream.fields[0]!.target,
+        evidence: { kind: 'declared', source: 'SQL FOREIGN KEY', confidence: 1 },
+      }],
+      sourceNotices: [],
+    });
 
     expect(panel.webview.html).toContain('Field wiring');
     expect(panel.webview.html).toContain('Contract drift review');
+    expect(panel.webview.html).toContain('Relationship map');
     expect(panel.webview.html).toContain('Content-Security-Policy');
     expect(panel.webview.html).not.toContain('bad()');
     const handleMessage = messageHandlers.at(-1);
@@ -124,6 +139,7 @@ describe('Lens contract review panel', () => {
       snapshot: expect.objectContaining({
         review: expect.objectContaining({ wires: expect.any(Array) }),
         drift: expect.objectContaining({ findings: expect.any(Array), summary: expect.any(Object) }),
+        relations: expect.arrayContaining([expect.objectContaining({ kind: 'foreign-key' })]),
       }),
     }));
 
@@ -155,5 +171,18 @@ describe('Lens contract review panel', () => {
         }),
       }),
     })));
+
+    handleMessage?.({ type: 'askRelation', relationId: 'relation:users-account' });
+    await vi.waitFor(() => expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
+      contextPatch: expect.objectContaining({
+        atlasmindLens: expect.objectContaining({
+          target: expect.objectContaining({ kind: 'relation', detail: expect.stringContaining('foreign-key') }),
+        }),
+      }),
+    })));
   });
 });
+
+function fieldLabel(contractValue: ReturnType<typeof contract>): string {
+  return contractValue.fields[0]?.path ?? 'email';
+}

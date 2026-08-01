@@ -37,6 +37,32 @@ describe('AtlasMind Lens schema change impact', () => {
     expect(impact.notices).toEqual(expect.arrayContaining([expect.stringContaining('Tests, callers')]));
   });
 
+  it('includes declared relationships that touch the proposed field change', () => {
+    const upstream = normalizeLensContract(fixture['upstream'])!;
+    const downstream = normalizeLensContract(fixture['downstream'])!;
+    const review = reviewLensContractWiring(upstream, downstream);
+    const email = downstream.fields.find(field => field.path === 'email')!;
+    const impact = analyzeLensSchemaChangeImpact({
+      upstream,
+      downstream,
+      review,
+      seedFieldId: email.id,
+      changeKind: 'rename',
+      relations: [{
+        id: 'relation:users-account',
+        kind: 'foreign-key',
+        label: 'users.email → accounts.id',
+        from: { contractLabel: downstream.label, contractId: downstream.id, fieldPath: email.path, fieldId: email.id },
+        to: { contractLabel: 'accounts', fieldPath: 'id' },
+        evidence: { kind: 'declared', source: 'SQL FOREIGN KEY' },
+      }],
+    });
+
+    expect(impact.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'relationship', label: 'users.email → accounts.id', severity: 'high' }),
+    ]));
+  });
+
   it('names absent connectivity as unknown instead of claiming no consumers', () => {
     const upstream = normalizeLensContract(fixture['upstream'])!;
     const downstream = normalizeLensContract(fixture['downstream'])!;

@@ -4,12 +4,18 @@ import {
   LENS_CONTRACT_MAPPING_FILE,
   normalizeLensContractMappingFile,
 } from '../core/lensContract.js';
+import { resolveLensContractRelations } from '../core/lensContractRelations.js';
 import {
   extractJsonContractSources,
   extractSqlContractSources,
   extractTypeScriptContractSources,
 } from '../core/lensContractSources.js';
-import type { LensContract, LensContractMappingFile, LensWorkspaceIdentity } from '../types.js';
+import type {
+  LensContract,
+  LensContractMappingFile,
+  LensContractRelation,
+  LensWorkspaceIdentity,
+} from '../types.js';
 import { LensContractReviewPanel } from './lensContractReviewPanel.js';
 
 const MAX_SOURCE_FILES = 200;
@@ -23,6 +29,7 @@ interface ContractPick extends vscode.QuickPickItem {
 
 interface DiscoveryResult {
   contracts: LensContract[];
+  relations: LensContractRelation[];
   notices: string[];
 }
 
@@ -79,6 +86,7 @@ export async function reviewWorkspaceContractWiring(): Promise<void> {
     upstream: upstreamPick.contract,
     downstream: downstreamPick.contract,
     mappingFile,
+    relations: discovery.relations,
     sourceNotices: discovery.notices,
   });
 }
@@ -89,6 +97,7 @@ async function discoverContracts(
 ): Promise<DiscoveryResult> {
   const uris = await vscode.workspace.findFiles(SOURCE_GLOB, SOURCE_EXCLUDE, MAX_SOURCE_FILES);
   const contracts: LensContract[] = [];
+  const relations: LensContractRelation[] = [];
   const notices: string[] = [];
   for (let index = 0; index < uris.length && contracts.length < MAX_DISCOVERED_CONTRACTS; index += 1) {
     if (token.isCancellationRequested) {
@@ -116,6 +125,9 @@ async function discoverContracts(
           ? extractTypeScriptContractSources(input)
           : extractJsonContractSources(input);
       contracts.push(...extraction.contracts.slice(0, MAX_DISCOVERED_CONTRACTS - contracts.length));
+      if (extraction.relations) {
+        relations.push(...extraction.relations.slice(0, Math.max(0, 500 - relations.length)));
+      }
       if (extraction.contracts.length > 0) {
         notices.push(...extraction.notices.map(notice => `${workspacePath}: ${notice}`));
       }
@@ -126,7 +138,12 @@ async function discoverContracts(
   if (uris.length >= MAX_SOURCE_FILES) {
     notices.push(`Discovery inspected at most ${MAX_SOURCE_FILES} candidate files.`);
   }
-  return { contracts, notices: notices.slice(0, 50) };
+  const resolvedRelations = resolveLensContractRelations(relations, contracts) ?? [];
+  const unresolvedCount = resolvedRelations.filter(relation => !relation.from.fieldId || !relation.to.fieldId).length;
+  if (unresolvedCount > 0) {
+    notices.push(`${unresolvedCount} declared relationship endpoint(s) remain unresolved in the bounded declaration set.`);
+  }
+  return { contracts, relations: resolvedRelations, notices: notices.slice(0, 50) };
 }
 
 async function loadMappingFile(contract: LensContract): Promise<LensContractMappingFile | undefined> {

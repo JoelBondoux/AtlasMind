@@ -187,6 +187,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 
 **Schema Change Impact previews one proposed field change without applying it.** Rename, removal, type, format, required/optional, and nullability previews verify the host-selected field against the normalized pair, follow only its existing wires, and rank at most 80 declaration, mapping, API/serialization, validation, migration, and deployment implications. Direct endpoint/mapping items retain declared evidence; broader risk rules are marked inferred. The panel names its two-contract scope and keeps tests, callers, traces, migration history, deployment state, and workspace-wide reachability unknown until adapters provide evidence. Webview actions send bounded ids; Open/Ask targets are host-held and workspace-revalidated. No contract, mapping, migration, test, or deployment file is edited.
 
+**Relationship Map starts with declared SQL foreign keys.** Inline `REFERENCES` and single-column table `FOREIGN KEY` clauses become exact source-backed relation records. A bounded resolver attaches contract/field ids only for a unique same-workspace label match; missing, ambiguous, composite, and dialect-specific endpoints remain visibly unresolved. Relations touching either selected boundary render as compact source → target cards with evidence and host-resolved Open/Ask actions, and a relation touching a proposed field contributes to Schema Change Impact. Declaration topology is not reported as observed application traversal.
+
 Concurrent chat surfaces keep their selected sessions pinned locally. Session-change refresh events update UI state without force-switching every open chat surface to the global active session.
 
 Project-run proposals cross the chat webview boundary as validated transcript metadata rather than browser-owned commands. Interactive chat renders **Start run**, **Save for later**, and **Cancel**; the extension host re-reads the pending proposal, accepts only those three actions, prevents double resolution, and sends saved proposals through Project Run Center preview persistence. Only Autopilot may bypass the card and auto-start when the matching setting permits it. Provider catalog refresh follows the same host-authoritative principle: successful live discovery replaces the prior list (including an empty result), while provider-confirmed removed/deprecated models keep a session tombstone that stale discovery cannot resurrect.
@@ -354,6 +356,7 @@ src/
 |  |- lensContractSources.ts TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 |  |- lensContractDrift.ts Contract finding classes and severity summary
 |  |- lensSchemaImpact.ts Proposed field-change impact ranking
+|  |- lensContractRelations.ts Relationship normalization and endpoint resolution
 |  |- websiteWorkspaceManager.ts  Website brief/design/hosting/platform/n8n SSOT
 |  |- planner.ts         Goal -> DAG decomposition
 |  |- taskScheduler.ts   DAG -> parallel batch execution

@@ -2,6 +2,7 @@ import type {
   LensContract,
   LensContractField,
   LensContractLayer,
+  LensContractRelation,
   LensContractSourceKind,
   LensFieldNullability,
   LensSourceRange,
@@ -22,6 +23,7 @@ export interface LensContractDocumentInput {
 
 export interface LensContractExtraction {
   contracts: LensContract[];
+  relations?: LensContractRelation[];
   notices: string[];
 }
 
@@ -106,6 +108,8 @@ export function extractSqlContractSources(input: LensContractDocumentInput): Len
   }
   const lineMap = new LineMap(input.text);
   const contracts: LensContract[] = [];
+  const relations: LensContractRelation[] = [];
+  let skippedCompositeRelation = false;
   const declaration = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*))?)\s*\(/gi;
   let match: RegExpExecArray | null;
   while ((match = declaration.exec(input.text)) && contracts.length < MAX_CONTRACTS) {
@@ -119,7 +123,8 @@ export function extractSqlContractSources(input: LensContractDocumentInput): Len
     if (!tableName) {
       continue;
     }
-    const fields = splitSqlColumns(input.text, openOffset + 1, closeOffset)
+    const segments = splitSqlColumns(input.text, openOffset + 1, closeOffset);
+    const fields = segments
       .map(segment => buildSqlField(input, tableName, segment, lineMap))
       .filter((field): field is LensContractField => Boolean(field));
     const target = sourceTarget(
@@ -140,13 +145,22 @@ export function extractSqlContractSources(input: LensContractDocumentInput): Len
     });
     if (contract) {
       contracts.push(contract);
+      const extracted = extractSqlRelations(input, contract, segments, lineMap);
+      relations.push(...extracted.relations.slice(0, Math.max(0, 500 - relations.length)));
+      skippedCompositeRelation ||= extracted.skippedComposite;
     }
     declaration.lastIndex = closeOffset + 1;
   }
   return contracts.length > 0
     ? {
       contracts,
-      notices: ['SQL extraction is heuristic and intentionally reports partial coverage; review dialect-specific declarations.'],
+      ...(relations.length > 0 ? { relations } : {}),
+      notices: [
+        'SQL extraction is heuristic and intentionally reports partial coverage; review dialect-specific declarations.',
+        ...(skippedCompositeRelation
+          ? ['Composite or dialect-specific foreign keys were left unresolved by the initial relationship adapter.']
+          : []),
+      ],
     }
     : { contracts: [], notices: ['No supported CREATE TABLE declarations were found.'] };
 }
@@ -237,6 +251,86 @@ interface SqlColumnSegment {
   text: string;
   startOffset: number;
   endOffset: number;
+}
+
+function extractSqlRelations(
+  input: LensContractDocumentInput,
+  contract: LensContract,
+  segments: SqlColumnSegment[],
+  lineMap: LineMap,
+): { relations: LensContractRelation[]; skippedComposite: boolean } {
+  const relations: LensContractRelation[] = [];
+  let skippedComposite = false;
+  for (const segment of segments) {
+    const text = segment.text.trim();
+    if (!/\bREFERENCES\b/i.test(text)) {
+      continue;
+    }
+    const tableLevel = /^(?:CONSTRAINT\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s+)?FOREIGN\s+KEY\s*\(\s*("[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s*\)\s*REFERENCES\s+((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*))?)\s*\(\s*("[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s*\)/i.exec(text);
+    if (tableLevel) {
+      relations.push(buildSqlRelation(
+        input,
+        contract,
+        unquoteSqlIdentifier(tableLevel[1] ?? ''),
+        tableLevel[2] ?? '',
+        unquoteSqlIdentifier(tableLevel[3] ?? ''),
+        segment,
+        lineMap,
+      ));
+      continue;
+    }
+    const inline = /^("[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s+[\s\S]*?\bREFERENCES\s+((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*))?)\s*\(\s*("[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s*\)/i.exec(text);
+    if (inline) {
+      relations.push(buildSqlRelation(
+        input,
+        contract,
+        unquoteSqlIdentifier(inline[1] ?? ''),
+        inline[2] ?? '',
+        unquoteSqlIdentifier(inline[3] ?? ''),
+        segment,
+        lineMap,
+      ));
+    } else {
+      skippedComposite = true;
+    }
+  }
+  return { relations, skippedComposite };
+}
+
+function buildSqlRelation(
+  input: LensContractDocumentInput,
+  contract: LensContract,
+  fromPath: string,
+  qualifiedTarget: string,
+  toPath: string,
+  segment: SqlColumnSegment,
+  lineMap: LineMap,
+): LensContractRelation {
+  const targetLabel = unquoteSqlIdentifier(qualifiedTarget.split('.').at(-1)?.trim() ?? qualifiedTarget);
+  const fromField = contract.fields.find(field => field.path.toLowerCase() === fromPath.toLowerCase());
+  const label = `${contract.label}.${fromPath} → ${targetLabel}.${toPath}`;
+  const leading = Math.max(0, segment.text.search(/\S/));
+  const trailingWhitespace = /\s*$/.exec(segment.text)?.[0].length ?? 0;
+  const target = sourceTarget(
+    input,
+    label,
+    lineMap.range(segment.startOffset + leading, Math.max(segment.startOffset + leading, segment.endOffset - trailingWhitespace)),
+    'Reference',
+  );
+  return {
+    id: `lens-contract-relation:${stableHash(`${input.workspace.index}:${input.workspacePath}:${label}`)}`,
+    kind: 'foreign-key',
+    label,
+    from: {
+      contractLabel: contract.label,
+      contractId: contract.id,
+      fieldPath: fromPath,
+      ...(fromField ? { fieldId: fromField.id } : {}),
+    },
+    to: { contractLabel: targetLabel, fieldPath: toPath },
+    ...(target ? { target } : {}),
+    evidence: { kind: 'declared', source: 'SQL FOREIGN KEY / REFERENCES declaration', confidence: 1 },
+  };
 }
 
 interface TypeScriptObjectDeclaration {

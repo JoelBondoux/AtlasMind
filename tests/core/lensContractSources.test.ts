@@ -82,6 +82,34 @@ describe('AtlasMind Lens contract source adapters', () => {
     ]));
   });
 
+  it('extracts inline and table-level SQL foreign keys as source-backed relationship evidence', () => {
+    const result = extractSqlContractSources({
+      ...SOURCE,
+      workspacePath: 'schema.sql',
+      text: `CREATE TABLE accounts (id INTEGER PRIMARY KEY);
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id),
+  manager_id INTEGER,
+  CONSTRAINT users_manager_fk FOREIGN KEY (manager_id) REFERENCES users(id)
+);`,
+    });
+
+    expect(result.relations).toEqual([
+      expect.objectContaining({
+        kind: 'foreign-key',
+        label: 'users.account_id → accounts.id',
+        from: expect.objectContaining({ fieldPath: 'account_id', fieldId: expect.any(String) }),
+        to: { contractLabel: 'accounts', fieldPath: 'id' },
+        target: expect.objectContaining({ range: expect.objectContaining({ startLine: 4 }) }),
+      }),
+      expect.objectContaining({
+        label: 'users.manager_id → users.id',
+        target: expect.objectContaining({ range: expect.objectContaining({ startLine: 6 }) }),
+      }),
+    ]);
+  });
+
   it('extracts TypeScript interfaces and object type aliases without claiming type resolution', () => {
     const result = extractTypeScriptContractSources({
       ...SOURCE,

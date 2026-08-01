@@ -6,6 +6,7 @@ import {
   reviewLensContractWiring,
 } from '../core/lensContract.js';
 import { analyzeLensContractDrift } from '../core/lensContractDrift.js';
+import { normalizeLensContractRelations } from '../core/lensContractRelations.js';
 import { analyzeLensSchemaChangeImpact } from '../core/lensSchemaImpact.js';
 import {
   buildLensContextPatch,
@@ -18,6 +19,7 @@ import type {
   LensContractDriftReport,
   LensContractField,
   LensContractMappingFile,
+  LensContractRelation,
   LensContractReview,
   LensFieldWire,
   LensSchemaChangeImpact,
@@ -31,6 +33,7 @@ export interface LensContractReviewPanelInput {
   upstream: LensContract;
   downstream: LensContract;
   mappingFile: LensContractMappingFile;
+  relations?: LensContractRelation[];
   sourceNotices?: string[];
 }
 
@@ -40,6 +43,7 @@ interface LensContractReviewSnapshot {
   downstream: LensContract;
   review: LensContractReview;
   drift: LensContractDriftReport;
+  relations: LensContractRelation[];
   notices: string[];
 }
 
@@ -50,7 +54,9 @@ type LensContractReviewMessage =
   | { type: 'askWire'; wireId: string }
   | { type: 'previewImpact'; fieldId: string }
   | { type: 'openImpact'; impactItemId: string }
-  | { type: 'askImpact'; impactItemId: string };
+  | { type: 'askImpact'; impactItemId: string }
+  | { type: 'openRelation'; relationId: string }
+  | { type: 'askRelation'; relationId: string };
 
 interface ImpactChangePick extends vscode.QuickPickItem {
   changeKind: LensSchemaChangeKind;
@@ -75,6 +81,7 @@ export class LensContractReviewPanel {
   private wireById = new Map<string, LensFieldWire>();
   private findingByWireId = new Map<string, LensContractDriftFinding>();
   private impactTargetById = new Map<string, LensVisualTarget>();
+  private relationTargetById = new Map<string, LensVisualTarget>();
   private ready = false;
 
   public static createOrShow(candidate: LensContractReviewPanelInput): void {
@@ -131,6 +138,19 @@ export class LensContractReviewPanel {
     this.wireById = new Map(snapshot.review.wires.map(wire => [wire.id, wire]));
     this.findingByWireId = new Map(snapshot.drift.findings.map(finding => [finding.wireId, finding]));
     this.impactTargetById.clear();
+    this.relationTargetById = new Map(
+      snapshot.relations.flatMap(relation => {
+        const target = relation.target ? normalizeLensTarget({
+          ...relation.target,
+          id: `lens:relation:${relation.id}`,
+          kind: 'relation',
+          label: relation.label,
+          detail: `${relation.kind}: ${relation.from.contractLabel}.${relation.from.fieldPath} → ${relation.to.contractLabel}.${relation.to.fieldPath}`,
+          evidence: relation.evidence,
+        }) : undefined;
+        return target ? [[relation.id, target] as const] : [];
+      }),
+    );
   }
 
   private async handleMessage(message: LensContractReviewMessage): Promise<void> {
@@ -149,6 +169,21 @@ export class LensContractReviewPanel {
         return;
       }
       if (message.type === 'askImpact') {
+        await revealPreferredChatSurface({
+          draftPrompt: buildLensDraftPrompt(target),
+          contextPatch: buildLensContextPatch(target),
+        });
+      } else {
+        await this.openTarget(target);
+      }
+      return;
+    }
+    if (message.type === 'openRelation' || message.type === 'askRelation') {
+      const target = this.relationTargetById.get(message.relationId);
+      if (!target) {
+        return;
+      }
+      if (message.type === 'askRelation') {
         await revealPreferredChatSurface({
           draftPrompt: buildLensDraftPrompt(target),
           contextPatch: buildLensContextPatch(target),
@@ -202,6 +237,7 @@ export class LensContractReviewPanel {
       upstream: this.snapshot.upstream,
       downstream: this.snapshot.downstream,
       review: this.snapshot.review,
+      relations: this.snapshot.relations,
       seedFieldId: field.id,
       changeKind: pick.changeKind,
     });
@@ -263,7 +299,8 @@ function normalizePanelInput(value: LensContractReviewPanelInput): LensContractR
   const upstream = normalizeLensContract(value.upstream);
   const downstream = normalizeLensContract(value.downstream);
   const mappingFile = normalizeLensContractMappingFile(value.mappingFile);
-  if (!upstream || !downstream || !mappingFile) {
+  const allRelations = normalizeLensContractRelations(value.relations ?? []);
+  if (!upstream || !downstream || !mappingFile || !allRelations) {
     return undefined;
   }
   const sourceNotices = Array.isArray(value.sourceNotices)
@@ -274,12 +311,21 @@ function normalizePanelInput(value: LensContractReviewPanelInput): LensContractR
     : [];
   const review = reviewLensContractWiring(upstream, downstream, mappingFile);
   const drift = analyzeLensContractDrift(review);
+  const relationContractIds = new Set([upstream.id, downstream.id]);
+  const relationLabels = new Set([upstream.label.toLowerCase(), downstream.label.toLowerCase()]);
+  const relations = allRelations.filter(relation =>
+    (relation.from.contractId && relationContractIds.has(relation.from.contractId)) ||
+    (relation.to.contractId && relationContractIds.has(relation.to.contractId)) ||
+    relationLabels.has(relation.from.contractLabel.toLowerCase()) ||
+    relationLabels.has(relation.to.contractLabel.toLowerCase()),
+  );
   return {
     version: 1,
     upstream,
     downstream,
     review,
     drift,
+    relations,
     notices: [...sourceNotices, ...review.notices, ...drift.notices].slice(0, 50),
   };
 }
@@ -305,6 +351,12 @@ function normalizeMessage(value: unknown): LensContractReviewMessage | undefined
     boundedId(value.impactItemId)
   ) {
     return { type: value.type, impactItemId: value.impactItemId as string };
+  }
+  if (
+    (value.type === 'openRelation' || value.type === 'askRelation') &&
+    boundedId(value.relationId)
+  ) {
+    return { type: value.type, relationId: value.relationId as string };
   }
   return undefined;
 }
@@ -413,6 +465,14 @@ function buildContractReviewHtml(cspSource: string): string {
             <div><dt>Suppressed</dt><dd id="drift-suppressed">0</dd></div>
           </dl>
         </section>
+        <section id="relationship-map" class="relationship-map" aria-labelledby="relationship-heading" hidden>
+          <div>
+            <p class="eyebrow">Declared traversal evidence</p>
+            <h2 id="relationship-heading">Relationship map</h2>
+            <p id="relationship-summary"></p>
+          </div>
+          <div id="relationship-items" class="relationship-items" role="list" aria-label="Declared contract relationships"></div>
+        </section>
         <ul id="wiring-notices" class="notices" aria-label="Evidence notices"></ul>
         <section id="impact-preview" class="impact-preview" aria-labelledby="impact-heading" hidden>
           <div class="impact-header">
@@ -450,6 +510,15 @@ function buildContractReviewHtml(cspSource: string): string {
       .drift-summary div { min-width: 82px; padding: 7px 9px; border-radius: 5px; background: var(--vscode-editorWidget-background); }
       .drift-summary dt { color: var(--vscode-descriptionForeground); font-size: 0.72rem; }
       .drift-summary dd { margin: 2px 0 0; font-size: 1.05rem; font-weight: 700; }
+      .relationship-map { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
+      .relationship-map[hidden] { display: none; }
+      .relationship-map h2 { margin: 0; font-size: 1rem; }
+      .relationship-map p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
+      .relationship-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+      .relationship-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 5px; background: var(--vscode-editorWidget-background); }
+      .relationship-path { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-weight: 700; }
+      .relationship-arrow { color: var(--vscode-charts-blue, #75beff); }
+      .relationship-meta, .relationship-evidence { display: block; margin-top: 5px; color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
       .impact-preview { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-focusBorder); border-radius: 7px; background: var(--vscode-editorWidget-background); }
       .impact-preview[hidden] { display: none; }
       .impact-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
@@ -503,6 +572,9 @@ function buildContractReviewHtml(cspSource: string): string {
       const impactNotices = document.getElementById('impact-notices');
       const impactItems = document.getElementById('impact-items');
       const closeImpact = document.getElementById('close-impact');
+      const relationshipMap = document.getElementById('relationship-map');
+      const relationshipSummary = document.getElementById('relationship-summary');
+      const relationshipItems = document.getElementById('relationship-items');
       const driftActive = document.getElementById('drift-active');
       const driftErrors = document.getElementById('drift-errors');
       const driftWarnings = document.getElementById('drift-warnings');
@@ -570,6 +642,35 @@ function buildContractReviewHtml(cspSource: string): string {
         impactPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
 
+      function renderRelationships(relations) {
+        relationshipItems.replaceChildren();
+        relationshipMap.hidden = relations.length === 0;
+        if (relations.length === 0) { return; }
+        const resolved = relations.filter(relation => relation.from.fieldId && relation.to.fieldId).length;
+        relationshipSummary.textContent = relations.length + ' declared relation' + (relations.length === 1 ? '' : 's') + ' · ' + resolved + ' fully resolved in the bounded declaration set';
+        for (const relation of relations) {
+          const item = document.createElement('article');
+          item.className = 'relationship-item';
+          item.setAttribute('role', 'listitem');
+          const path = document.createElement('div');
+          path.className = 'relationship-path';
+          textElement(path, 'span', '', relation.from.contractLabel + '.' + relation.from.fieldPath);
+          textElement(path, 'span', 'relationship-arrow', '→');
+          textElement(path, 'span', '', relation.to.contractLabel + '.' + relation.to.fieldPath);
+          item.appendChild(path);
+          textElement(item, 'span', 'relationship-meta', relation.kind + ' · ' + (relation.from.fieldId && relation.to.fieldId ? 'resolved endpoints' : 'unresolved endpoint'));
+          textElement(item, 'span', 'relationship-evidence', relation.evidence.kind + ' — ' + relation.evidence.source);
+          if (relation.target) {
+            const actions = document.createElement('div');
+            actions.className = 'field-actions';
+            action(actions, 'Open declaration', { type: 'openRelation', relationId: relation.id });
+            action(actions, 'Ask Atlas', { type: 'askRelation', relationId: relation.id });
+            item.appendChild(actions);
+          }
+          relationshipItems.appendChild(item);
+        }
+      }
+
       function render() {
         if (!activeSnapshot) { return; }
         rows.replaceChildren();
@@ -627,6 +728,7 @@ function buildContractReviewHtml(cspSource: string): string {
         driftWarnings.textContent = String(snapshot.drift.summary.warnings);
         driftMissing.textContent = String(snapshot.drift.summary.byClass['missing-evidence']);
         driftSuppressed.textContent = String(snapshot.drift.summary.suppressed);
+        renderRelationships(snapshot.relations);
         notices.replaceChildren();
         for (const notice of snapshot.notices) { textElement(notices, 'li', '', notice); }
         render();

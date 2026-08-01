@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.244.0] - 2026-08-01
+
+### Added
+
+- **Field Wiring now includes its first Relationship Map.** The SQL adapter extracts inline `REFERENCES` and single-column table-level `FOREIGN KEY` declarations as line-backed relations. The bounded workspace discovery pass resolves uniquely named table/field endpoints across the contracts it found, while unresolved or ambiguous endpoints remain visible by declared label.
+- **Relationship cards expose exact evidence and actions.** Each selected-boundary relation shows its source/target fields, kind, endpoint resolution state, and evidence. Source-backed declarations can open at the exact SQL clause or prepare an editable Ask Atlas draft with a normalized `relation` target.
+- **Schema Change Impact includes relations touching the proposed field.** Removal, rename, and type changes rank a declared relationship as high impact; format, presence, and nullability rank it medium, retaining the relation's own declared evidence.
+
+### Security
+
+- **Relationship discovery is declaration-only and bounded to 500 normalized records.** It executes no SQL, imports no project code, opens no database connection, and resolves only unique same-workspace declarations already present in the bounded scan. Composite and dialect-specific foreign keys remain named unknowns instead of being guessed.
+- **Relationship webview actions carry only host-held ids.** The extension host creates the source-anchored target and revalidates its workspace path before opening or preparing chat context.
+
 ## [0.243.0] - 2026-08-01
 
 ### Added

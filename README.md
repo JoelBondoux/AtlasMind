@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.243.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.244.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.243.0
+## What's new in 0.244.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Every field in Field Wiring can now preview Schema Change Impact without editing the project.** Choose rename, removal, type, format, required/optional, or nullability and AtlasMind ranks the selected declaration, its normalized connected endpoint, explicit mapping, API compatibility/serialization, validation, database migration, and deployment-ordering implications. Direct links retain their declared evidence while risk rules are labelled inferred. Source-backed items can open or prepare an editable Atlas draft with category, severity, detail, and evidence. The preview is bounded to the selected two-contract boundary and explicitly names tests, callers, runtime traces, migration history, and deployment state as unknown until adapters provide evidence; missing connectivity never means zero consumers. The v0.242 drift classifier remains available.
+- **Field Wiring now includes a Relationship Map for declared SQL foreign keys.** Inline `REFERENCES` and single-column table `FOREIGN KEY` clauses become exact line-backed cards showing source/target fields, resolution state, and declared evidence. Unique table/field endpoints resolve across the bounded workspace discovery set; unresolved, ambiguous, composite, or dialect-specific endpoints stay visibly unknown rather than guessed. A relation can open at its declaration or prepare an editable Atlas draft, and Schema Change Impact now ranks any declared relationship touching the proposed field. Discovery remains local/declaration-only and never executes SQL or connects to a database. The v0.243 field-change preview remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -290,7 +290,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
-| `AtlasMind: Lens: Review Contract Wiring` | Discover supported TypeScript, OpenAPI, JSON Schema, and SQL declarations and compare one ordered field boundary |
+| `AtlasMind: Lens: Review Contract Wiring` | Compare one ordered TypeScript/OpenAPI/JSON Schema/SQL field boundary and inspect declared SQL relationships |
 | `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
@@ -373,6 +373,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
 | `src/core/lensSchemaImpact.ts` | Bounded proposed field-change impact ranking across the selected contract boundary |
+| `src/core/lensContractRelations.ts` | Bounded relationship normalization and unique same-root endpoint resolution |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |

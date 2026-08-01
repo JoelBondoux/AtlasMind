@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.244.0 — Lens maps declared SQL relationships
+
+**Field Wiring now shows inline `REFERENCES` and single-column table `FOREIGN KEY` declarations as a Relationship Map.** Exact clause-backed cards name source/target fields, endpoint resolution, and evidence; they can open source or prepare an editable Ask draft, and affected relations contribute to Schema Change Impact.
+
+**Resolution stays conservative.** AtlasMind attaches endpoint ids only for unique same-root declaration matches. Missing, ambiguous, composite, and dialect-specific relationships remain visibly unresolved; SQL is never executed and declared topology is not claimed as runtime traversal.
+
 ## v0.243.0 — Lens previews schema change impact
 
 **Every Field Wiring field can now preview a proposed rename, removal, type, format, required/optional, or nullability change without editing the project.** AtlasMind ranks the connected declaration, explicit mapping, API/serialization, validation, migration, and deployment implications; source-backed items can open or prepare an editable Ask draft.

@@ -123,7 +123,8 @@ AtlasMind/
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
-│   │   └── lensSchemaImpact.ts Bounded proposed field-change impact ranking
+│   │   ├── lensSchemaImpact.ts Bounded proposed field-change impact ranking
+│   │   └── lensContractRelations.ts Relationship trust boundary and endpoint resolution
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
@@ -166,6 +167,8 @@ The initial discovery command deliberately scans filename-signalled JSON (`schem
 Contract drift classification consumes only `LensContractReview`; it must not rediscover endpoints or reinterpret absence as a defect. Keep exact wires finding-free, incompatible declarations definite, stale endpoints in an explicit mapping dead, and ordinary unmatched wires informational/missing-evidence. Suppressions remain records and must be excluded only from active severity counts, never from total/class counts. When a finding is handed to chat, enrich the existing source-anchored relation target in the host; the webview still sends only the bounded wire id.
 
 Schema change-impact preview must remain a proposal, not a write path. Resolve the seed field and change kind in the extension host, re-normalize contracts, verify the selected review boundary, follow only normalized wires, cap output, and label rule-based compatibility/validation/migration/deployment implications as inferred. Keep tests, callers, traces, migration history, deployment state, and workspace-wide reachability in notices until evidence adapters exist; absence of a connected endpoint is not absence of consumers. The webview sends field/impact-item ids only, and Open/Ask reuses live workspace-target validation.
+
+Contract relations must pass `normalizeLensContractRelations` before any panel use. Resolve by declared label only when exactly one same-root contract and field match; retain unresolved labels otherwise. SQL extraction currently accepts inline references and single-column foreign-key constraints only, attaches the exact clause target, caps aggregate output, and never executes SQL. Composite/dialect-specific keys stay unknown. The Relationship Map renders text through DOM nodes and returns relation ids only; host-held targets handle Open/Ask. A declared relation can inform change impact but cannot prove runtime traversal.
 
 ### Rebuilding the Windows ACP launcher
 

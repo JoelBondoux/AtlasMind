@@ -1,6 +1,7 @@
 import type {
   LensContract,
   LensContractField,
+  LensContractRelation,
   LensContractReview,
   LensEvidence,
   LensFieldWire,
@@ -12,6 +13,7 @@ import type {
   LensVisualTarget,
 } from '../types.js';
 import { normalizeLensContract } from './lensContract.js';
+import { normalizeLensContractRelations } from './lensContractRelations.js';
 import { normalizeLensTarget } from './lensTarget.js';
 
 export const LENS_SCHEMA_IMPACT_MAX_ITEMS = 80;
@@ -20,6 +22,7 @@ export interface LensSchemaImpactInput {
   upstream: LensContract;
   downstream: LensContract;
   review: LensContractReview;
+  relations?: LensContractRelation[];
   seedFieldId: string;
   changeKind: LensSchemaChangeKind;
 }
@@ -77,6 +80,27 @@ export function analyzeLensSchemaChangeImpact(candidate: LensSchemaImpactInput):
         evidence: wire.evidence,
       }));
     }
+  }
+
+  const relations = normalizeLensContractRelations(candidate.relations ?? []);
+  if (!relations) {
+    throw new Error('AtlasMind Lens refused invalid schema relationship evidence.');
+  }
+  for (const relation of relations.filter(item =>
+    item.from.fieldId === candidate.seedFieldId || item.to.fieldId === candidate.seedFieldId,
+  )) {
+    addItem(items, ids, buildItem({
+      key: `${relation.id}:${candidate.changeKind}`,
+      label: relation.label,
+      detail: `Declared ${relation.kind} may be affected by the proposed ${candidate.changeKind}; review referential integrity, traversal code, and change ordering.`,
+      category: 'relationship',
+      severity: candidate.changeKind === 'remove' || candidate.changeKind === 'rename' || candidate.changeKind === 'type'
+        ? 'high'
+        : 'medium',
+      proximity: 1,
+      target: relation.target,
+      evidence: relation.evidence,
+    }));
   }
 
   addBoundaryRisks(items, ids, upstream, downstream, seedLocation.contract, seedLocation.field, candidate.changeKind);

@@ -2426,6 +2426,7 @@ export type LensSchemaChangeKind =
 
 export type LensSchemaImpactCategory =
   | 'contract'
+  | 'relationship'
   | 'mapping'
   | 'validation'
   | 'serialization'
@@ -2456,6 +2457,32 @@ export interface LensSchemaChangeImpact {
   items: LensSchemaImpactItem[];
   notices: string[];
   truncated: boolean;
+}
+
+export type LensContractRelationKind =
+  | 'foreign-key'
+  | 'reference'
+  | 'orm'
+  | 'resolver'
+  | 'loader'
+  | 'query';
+
+export interface LensContractRelationEndpoint {
+  contractLabel: string;
+  fieldPath: string;
+  contractId?: string;
+  fieldId?: string;
+}
+
+/** A declared relationship between fields; unresolved endpoints remain visible by label. */
+export interface LensContractRelation {
+  id: string;
+  kind: LensContractRelationKind;
+  label: string;
+  from: LensContractRelationEndpoint;
+  to: LensContractRelationEndpoint;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
 }
 
 // ── Memory / SSOT ───────────────────────────────────────────────
