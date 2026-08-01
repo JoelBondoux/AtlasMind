@@ -2162,6 +2162,59 @@ export interface MemoryScanResult {
   issues: MemoryScanIssue[];
 }
 
+// ── AtlasMind Lens ─────────────────────────────────────────────
+
+/** A source range carried between Lens visualisations and AtlasMind chat. All positions are 1-based. */
+export interface LensSourceRange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+/**
+ * The visual objects AtlasMind Lens can make queryable.
+ *
+ * Only `file` and `symbol` are emitted by the first outline slice. The remaining
+ * kinds reserve one shared contract for the roadmap's graphs, rather than each
+ * future surface inventing an incompatible chat handoff.
+ */
+export type LensTargetKind =
+  | 'file'
+  | 'symbol'
+  | 'code-range'
+  | 'relation'
+  | 'command'
+  | 'route'
+  | 'schema'
+  | 'runtime-event';
+
+/** How AtlasMind knows that a Lens node or edge exists. Unknown is never represented as proven. */
+export type LensEvidenceKind = 'source' | 'runtime' | 'framework' | 'declared' | 'inferred';
+
+export interface LensEvidence {
+  kind: LensEvidenceKind;
+  source: string;
+  /** 0–1, used only when the producer has a meaningful confidence value. */
+  confidence?: number;
+}
+
+/**
+ * A bounded, workspace-relative reference passed from a Lens visualisation to chat.
+ * It deliberately contains no source text or absolute filesystem path.
+ */
+export interface LensVisualTarget {
+  version: 1;
+  id: string;
+  kind: LensTargetKind;
+  label: string;
+  detail?: string;
+  workspacePath: string;
+  range?: LensSourceRange;
+  symbolKind?: string;
+  evidence: LensEvidence;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

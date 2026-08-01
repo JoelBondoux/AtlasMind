@@ -118,6 +118,7 @@ AtlasMind/
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   │   └── lensTarget.ts Versioned, validated source/evidence target contract for Lens
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
@@ -125,6 +126,7 @@ AtlasMind/
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpWindowsLauncher.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`); the chat panel's slash handling is `chatSlashRouting.ts` (pure router) + `chatStreamCollector.ts` (replays the participant's handlers into memory)
+│   │   └── lensTreeView.ts Active-file Code Explorer and explicit chat handoff
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
@@ -137,6 +139,12 @@ AtlasMind/
 
 - **User Environment Tracking**: On activation, AtlasMind detects and stores each user's OS, hardware, shell, and editor in a private, user-scoped location (VS Code SecretStorage). This is never shared with other users or the workspace. Multiple environments per user are supported.
 ```
+
+### AtlasMind Lens development boundary
+
+The first Lens surface is intentionally native: `LensTreeProvider` asks VS Code's document-symbol provider for the active file and renders the returned nested symbols. Keep language-specific parsing out of the view. New Lens adapters should normalize their output into `LensVisualTarget`, publish evidence provenance, and remain useful when only part of a graph is known.
+
+Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, keep paths workspace-relative, never attach source contents automatically, and route questions through the preferred chat surface as a draft plus one-shot context. A view becoming visible must not spend model budget or execute project code.
 
 ### Rebuilding the Windows ACP launcher
 

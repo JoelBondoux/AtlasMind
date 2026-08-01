@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.234.0",
+  "version": "0.235.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -196,6 +196,21 @@
       {
         "command": "atlasmind.openChatPanel",
         "title": "AtlasMind: Open Chat Panel",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.lens.refresh",
+        "title": "AtlasMind: Lens: Refresh Active Outline",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "atlasmind.lens.openTarget",
+        "title": "AtlasMind Lens: Open Target",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "atlasmind.lens.askTarget",
+        "title": "AtlasMind Lens: Ask Atlas About This",
         "icon": "$(comment-discussion)"
       },
       {
@@ -574,6 +589,16 @@
       ],
       "view/title": [
         {
+          "command": "atlasmind.lens.refresh",
+          "when": "view == atlasmind.lensView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.lensView",
+          "group": "navigation@2"
+        },
+        {
           "command": "atlasmind.openProjectDashboard",
           "when": "view == atlasmind.chatView",
           "group": "navigation@1"
@@ -756,6 +781,11 @@
       ],
       "view/item/context": [
         {
+          "command": "atlasmind.lens.askTarget",
+          "when": "view == atlasmind.lensView && (viewItem == lens-file || viewItem == lens-target)",
+          "group": "inline@1"
+        },
+        {
           "command": "atlasmind.agents.showDetails",
           "when": "view == atlasmind.agentsView && viewItem =~ /^agent-/",
           "group": "inline@1"
@@ -877,6 +907,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "atlasmind.lens.openTarget",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.lens.askTarget",
+          "when": "false"
+        },
         {
           "command": "atlasmind.agents.showDetails",
           "when": "false"
@@ -1113,6 +1151,13 @@
           "name": "Chat",
           "icon": "media/icon.svg",
           "type": "webview"
+        },
+        {
+          "id": "atlasmind.lensView",
+          "name": "Lens — Code Explorer",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
         },
         {
           "id": "atlasmind.projectDirectorView",

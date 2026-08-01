@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.235.0] - 2026-08-01
+
+### Added
+
+- **AtlasMind Lens begins with a queryable Code Explorer.** The new collapsed sidebar view follows the active editor, asks VS Code's installed language service for nested document symbols, and opens a selected file or symbol at its exact source range. A title action refreshes the outline, and every source-backed row exposes **Ask Atlas about this**.
+- **Lens targets are a shared, validated contract rather than ad-hoc command arguments.** `LensVisualTarget` records a bounded workspace-relative location plus evidence labelled source, runtime, framework, declared, or inferred, providing the common base for the roadmap's execution, schema, impact, test, data, state, configuration, and PR visualisations.
+- **The full AtlasMind Lens roadmap is now part of project memory.** It sequences the Code Explorer, entrypoint journeys, schema and API contract wiring review, change impact, test/behaviour mapping, data trust, lifecycle, configuration resolution, and change-story views, with cross-cutting performance, accessibility, and evidence requirements.
+
+### Security
+
+- **Opening Lens performs no model call, and Ask Atlas remains a draft.** Lens target payloads are normalized at the command boundary, reject absolute and traversal paths or invalid ranges, strip control characters, omit source contents, and attach to a one-shot chat context only after an explicit operator action. The question remains editable and is never submitted automatically.
+
 ## [0.234.0] - 2026-08-01
 
 ### Added

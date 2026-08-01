@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.234.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.235.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.234.0
+## What's new in 0.235.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **AtlasMind Lens starts with a queryable code outline.** The collapsed **Lens — Code Explorer** sidebar follows the active file and uses the installed VS Code language service to render nested symbols. Select a symbol to open its exact source range, or use **Ask Atlas about this** to open an editable chat draft carrying the validated, workspace-relative target. Opening the view never calls a model, the action never auto-submits, and target payloads contain neither source text nor absolute paths. The broader Lens roadmap covers execution journeys, schema/API wiring review, change impact, tests, data trust, state, configuration, and PR maps.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -286,6 +288,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
@@ -320,6 +323,8 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
+
+Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable chat draft carrying that validated target; neither internal action appears in the Command Palette.
 
 ---
 
@@ -360,6 +365,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | Path | Responsibility |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
@@ -367,6 +373,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
+| `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and reviewable Ask Atlas actions |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |

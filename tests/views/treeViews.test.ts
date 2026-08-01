@@ -16,8 +16,12 @@ vi.mock('vscode', () => ({
       get: vi.fn(),
       inspect: vi.fn().mockReturnValue(undefined),
     }),
+    onDidSaveTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    onDidChangeTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
   },
   window: {
+    activeTextEditor: undefined,
+    onDidChangeActiveTextEditor: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     registerWebviewViewProvider: vi.fn(),
     registerTreeDataProvider: vi.fn(),
     createTreeView: vi.fn().mockReturnValue({
@@ -56,16 +60,17 @@ describe('registerTreeViews', () => {
     registerTreeViews(mockContext as any, mockAtlas as any);
 
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
-    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(6);
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(7);
     // Sessions, Models, Project Director, Project State — the four that need a
     // TreeView handle rather than just a data provider, because each carries a
     // badge or a selection listener.
     expect(vscode.window.createTreeView).toHaveBeenCalledTimes(4);
-    // Three: two memory-entry commands plus `refreshProjectState`, which the
+    // Six: the three Lens commands, two memory-entry commands, and
+    // `refreshProjectState`, which the
     // Project State titlebar needs. The refresh already existed as a closure
     // and only tree events reached it — a glance surface whose only way to
     // update is an unrelated event firing is one people learn not to trust.
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(3);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(6);
   });
 });
 

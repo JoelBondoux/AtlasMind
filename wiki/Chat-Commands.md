@@ -300,6 +300,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Project Settings` | Opens the AtlasMind Settings workspace directly on the project-runs page |
 | `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container; active request status names the currently routed model |
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Active request status names the currently routed model. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
+| `AtlasMind: Lens: Refresh Active Outline` | Refreshes **Lens — Code Explorer** from the active editor's installed language service. It does not invoke a model |
 | `AtlasMind: Open a Setup Guide` | Starts a setup walkthrough — `acp`, `buzz`, or the `/setup` index — **always in a new chat session**, auto-submitted. Every surface that offers a guide routes through this one command, so a walkthrough can never land in an unrelated conversation and inherit its context. An unrecognised name falls back to `/setup` |
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
 | `AtlasMind: Set Buzz Agent Key` | Stores the Nostr secret key (`nsec…`) AtlasMind signs Buzz relay authentication with, in VS Code **SecretStorage**. Submitting an empty value removes it; cancelling leaves it untouched. Never written to settings or project memory. Falls back to an ambient `BUZZ_PRIVATE_KEY` when nothing is stored |
@@ -347,6 +348,8 @@ These remain available inside their owning views and do not appear in the Comman
 
 | Action | Where it appears | What it does |
 |---------|------------------|-------------|
+| `Open Lens Target` | Selecting a Lens file or symbol | Opens the target's validated workspace URI and exact source range |
+| `Ask Atlas About This` | Lens file or symbol inline action | Opens an editable chat draft with a one-shot, source-backed target context. It never auto-submits and carries no source text or absolute path |
 | `Show Agent Details` | Agents row inline action | Opens the selected agent's details panel |
 | `Toggle Agent Enabled` | Agents row inline action | Enables or disables the selected agent |
 | `Add Skill` | Skills view title bar or folder row | Starts a new custom skill inside the selected folder context |

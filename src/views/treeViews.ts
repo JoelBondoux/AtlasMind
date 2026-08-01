@@ -20,6 +20,7 @@ import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '.
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
+import { registerLensTreeView } from './lensTreeView.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
 
@@ -43,6 +44,7 @@ export function registerTreeViews(
   atlas: AtlasMindContext,
 ): void {
   const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
+  registerLensTreeView(context);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
   const sessionsProvider = new SessionsTreeProvider(atlas);

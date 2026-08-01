@@ -307,9 +307,9 @@ describe('package manifest', () => {
   it('ships the AtlasMind sidebar tree views in the default operational order and collapsed by default', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
-    // The order reads top to bottom as a sentence: where you work, who needs
-    // you, where you stand, what has happened, what the project knows, what
-    // does the work, what it runs on, what it can reach.
+    // The order reads top to bottom as a sentence: where you work, what you
+    // are exploring, who needs you, where you stand, what has happened, what
+    // the project knows, what does the work, what it runs on, what it can reach.
     //
     // Set to the arrangement the maintainer reached by actually using it, which
     // beats a reasoned guess about a layout nobody had lived with yet. The two
@@ -318,8 +318,11 @@ describe('package manifest', () => {
     // the Director's overdue badge is somewhere you do not have to scroll to.
     expect(views.map(entry => entry.id)).toEqual([
       'atlasmind.chatView',
-      // First of the trees, because it is the one that asks something of you —
-      // and it carries the overdue badge.
+      // The compact active-file explorer belongs next to Chat because its
+      // primary action attaches a selected target to a new Chat question.
+      'atlasmind.lensView',
+      // First operational-state tree, because it is the one that asks
+      // something of you — and it carries the overdue badge.
       'atlasmind.projectDirectorView',
       // Still near the top: the view you glance at, kept above the inventory.
       'atlasmind.projectStateView',
