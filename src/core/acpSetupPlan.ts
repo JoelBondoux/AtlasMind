@@ -95,6 +95,8 @@ export interface AcpAgentSuggestion {
   /** Arguments that put the CLI into ACP mode, if any. */
   args: string[];
   install: string;
+  /** Vendor account-tier boundary, when the command is not open to every plan. */
+  eligibility?: string;
 }
 
 /** Rendered `command` plus `args`, which is what a user actually has to type. */
@@ -105,7 +107,7 @@ export function acpLaunchLine(agent: Pick<AcpAgentSuggestion, 'command' | 'args'
 export const ACP_SETUP_GUIDE: SetupGuideSummary = {
   id: 'acp',
   label: 'ACP agents',
-  blurb: 'Use a Claude, ChatGPT or Gemini subscription as routable capacity, over the Agent Client Protocol.',
+  blurb: 'Use a Claude or ChatGPT subscription, or an eligible Gemini Code Assist license, as routable capacity over the Agent Client Protocol.',
   command: '/acp',
   stepIds: ['agent', 'console', 'installed', 'authenticated', 'provider', 'firstTurn'],
 };
@@ -128,10 +130,12 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
       : 'AtlasMind does not know which agent to run. Nothing is installed for you — you name a command, and it spawns only that.',
     guidance: hasAgent ? undefined : [
       {
-        text: 'Pick an agent you already have a subscription for. These publish their ACP launch command:',
+        text: 'Pick an agent you already have a subscription or eligible product license for. These publish their ACP launch command:',
       },
       ...state.suggestions.map(agent => ({
-        text: `${agent.label} — runs as \`${acpLaunchLine(agent)}\`, installed with:`,
+        text: `${agent.label} — runs as \`${acpLaunchLine(agent)}\`.`
+          + (agent.eligibility ? ` ${agent.eligibility}` : '')
+          + ' Install with:',
         command: agent.install,
         // Somebody else's install command: quoted, attributed, never a button.
         authored: false,

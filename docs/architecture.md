@@ -63,7 +63,7 @@
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
     - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery. It also owns a `HostSpeechSynthesizer` (`src/voice/hostSpeechSynthesizer.ts`) that drives the OS's built-in speech engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) on-device when `atlasmind.voice.hostSpeechEnabled` is set; TTS backend priority is ElevenLabs → OS host engine → Web Speech API. For speech-to-text it owns a `LocalTranscriber` (`src/voice/localTranscriber.ts`) that runs a local `whisper-cli` on webview-captured WAV audio; the model (and, on Windows x64, the binary) are SHA-256-verified downloads provisioned on first use, and audio never leaves the machine. STT engine selection (`atlasmind.voice.sttEngine`) is `auto` | `webspeech` | `local`.
-  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription bridge.
+  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription/license bridge. Gemini is advertised there only with the assigned Code Assist Standard/Enterprise entitlement it requires; a published ACP command is not treated as proof that a personal plan may use it.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.

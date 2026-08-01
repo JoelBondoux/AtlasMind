@@ -169,7 +169,7 @@ An agent AtlasMind has no recipe for — one the user named themselves — is ne
 
 ## Delegated execution (ACP) is never delegated authorization
 
-An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Gemini, Copilot or Qwen subscription — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
+An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
 
 - **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
 - **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.

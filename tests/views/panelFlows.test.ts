@@ -147,6 +147,7 @@ import {
   getProviderActionLabel,
   isProviderConfigured,
   requiresApiKey,
+  useSubscriptionForProvider,
 } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
@@ -2302,7 +2303,7 @@ describe('panel refresh flows', () => {
       ]
       : fallback);
     mocks.showQuickPick.mockResolvedValue({ label: 'Gemini CLI', agentId: 'gemini' });
-    mocks.showInputBox.mockResolvedValue('Google AI Ultra');
+    mocks.showInputBox.mockResolvedValue('Gemini Code Assist Enterprise');
 
     const globalState = {
       get: vi.fn((_key: string, fallback?: unknown) => fallback),
@@ -2328,10 +2329,27 @@ describe('panel refresh flows', () => {
     }));
     expect(JSON.stringify(mocks.showInputBox.mock.calls).toLowerCase()).not.toContain('credit');
     expect(globalState.update).toHaveBeenCalledWith('atlasmind.acpSubscriptionPlans', {
-      'acp/gemini': 'Google AI Ultra',
+      'acp/gemini': 'Gemini Code Assist Enterprise',
     });
     expect(modelRouter.clearSubscriptionQuota).toHaveBeenCalledWith('acp');
     expect(modelRouter.clearModelSubscriptionQuota).toHaveBeenCalledWith('acp/claude');
+  });
+
+  it('requires an explicit Code Assist entitlement before Gemini ACP setup starts', async () => {
+    mocks.showInformationMessage.mockResolvedValue(undefined);
+
+    await useSubscriptionForProvider({} as never, 'google');
+
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      'Gemini Code Assist Standard or Enterprise license eligibility',
+      expect.objectContaining({
+        modal: true,
+        detail: expect.stringMatching(/personal Google AI Pro and Ultra/),
+      }),
+      'I have an eligible license',
+    );
+    expect(mocks.configurationGet).not.toHaveBeenCalled();
+    expect(mocks.configurationUpdate).not.toHaveBeenCalled();
   });
 
   it('shows configured status for saved provider keys on initial render', async () => {

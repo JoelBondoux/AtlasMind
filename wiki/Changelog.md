@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.235.3 — Webview text stays readable when panels resize
+
+**Labels, buttons, badges, and compact data rows now preserve normal words instead of shrinking them into character-wide columns.** The shared webview shell keeps `min-width: 0` on structural containers, where responsive grid and flex layouts need it, but no longer applies it to inline content and controls. Normal prose wraps between words, genuinely long links can still break anywhere, and controls remain bounded by their panel.
+
+Project Ideation also gives its memory-sync checkbox labels intrinsic content width and lays out analytics rows as kind · flexible title/meter · score, so `knowledge-graph`, `requirement`, and `evidence` remain legible at the panel widths where they previously fragmented.
+
+## v0.235.2 — Gemini ACP names the license that still works
+
+**The Google card no longer promises that a personal Gemini subscription can become ACP capacity.** Google stopped serving Gemini CLI requests for free individual and personal Google AI Pro and Ultra accounts on 18 June 2026; the browser OAuth flow can still succeed before the Code Assist backend rejects the client. The offer is now **Use my Code Assist license**, and the picker, `/acp` guide, sign-in step, settings schema, and setup confirmation all state the same boundary before anything is installed or probed: the user must have an assigned Gemini Code Assist Standard or Enterprise license.
+
+Gemini Enterprise Standard and Plus include Code Assist Standard after a separate assignment; Gemini Enterprise Business and Frontline do not. AtlasMind's direct Gemini API provider is unchanged.
+
 ## v0.235.1 — The remaining Dependabot alert, closed
 
 **Stryker's development-only REST client no longer resolves vulnerable `qs@6.15.1`.** The parent pins that version exactly, npm's normal audit fix proposes no change, and the latest REST-client release still carries the same constraint. A root override forces patched `6.15.2` across the tree; every other consumer already used or accepted that release, AtlasMind's production dependency audit remains clean, and a manifest test keeps the override in place until upstream catches up.

@@ -28,12 +28,30 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     *::after {
       box-sizing: border-box;
     }
-    :where(section, article, div, button, label, p, h1, h2, h3, h4, h5, h6, span, strong, small, em, a, ul, ol, li, textarea, input, select, table, th, td) {
+    /* Only structural boxes get a zero minimum. Applying this to inline text,
+       labels and controls lets flex/grid shrink them below their longest word;
+       Chromium then "solves" the row by rendering a word like "requirement"
+       as fragments. Containers should shrink, content-sized controls
+       should wrap or move to the next row. */
+    :where(section, article, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li, textarea, input, select, table, th, td) {
       min-width: 0;
     }
-    :where(p, h1, h2, h3, h4, h5, h6, li, td, th, button, label, strong, span, a) {
+    /* "break-word" contains a genuinely long token without changing the
+       element's min-content width. "anywhere" does change that width and is
+       reserved below for links, where an unbroken URL really may be wider than
+       the panel. */
+    :where(p, h1, h2, h3, h4, h5, h6, li, td, th, strong, span) {
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    :where(a) {
       overflow-wrap: anywhere;
       word-break: break-word;
+    }
+    :where(button, label) {
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     html, body {
       max-width: 100%;
@@ -86,6 +104,8 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
       border-radius: 2px;
       font-family: inherit;
       color: inherit;
+      max-width: 100%;
+      white-space: normal;
     }
     /* Same hazard, same fix, for text-entry controls: unstyled they take the UA
        "field"/"fieldtext" pair (white on black text). Colour and background are

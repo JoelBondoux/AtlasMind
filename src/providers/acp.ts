@@ -181,6 +181,13 @@ export interface VerifiedAcpAgent {
   modelId: string;
   /** The npm package whose `bin` provides `command`. */
   npmPackage: string;
+  /**
+   * A vendor eligibility boundary that cannot be inferred from the executable.
+   *
+   * This travels with every built-in setup surface so a published ACP command
+   * is never presented as proof that the user's account tier may use it.
+   */
+  eligibility?: string;
 }
 
 export const VERIFIED_ACP_AGENTS: readonly VerifiedAcpAgent[] = [
@@ -207,6 +214,10 @@ export const VERIFIED_ACP_AGENTS: readonly VerifiedAcpAgent[] = [
     args: ['--acp'],
     modelId: 'acp/gemini',
     npmPackage: '@google/gemini-cli',
+    eligibility: 'Requires an assigned Gemini Code Assist Standard or Enterprise license. '
+      + 'Gemini Enterprise Standard and Plus include Code Assist Standard after separate assignment; '
+      + 'Gemini Enterprise Business and Frontline do not include it, and personal Google AI Pro and Ultra plans '
+      + 'and free individual accounts no longer authorize Gemini CLI. Use AtlasMind\'s Google API provider for metered access.',
   },
   {
     id: 'copilot',
@@ -303,8 +314,11 @@ const ACP_SIGN_IN: Readonly<Record<string, AcpSignIn>> = {
   },
   gemini: {
     command: 'gemini',
-    then: 'Choose **Sign in with Google** when it starts, or run `/auth` if it does not ask.',
-    docs: 'https://google-gemini.github.io/gemini-cli/docs/get-started/authentication.html',
+    then: 'Choose **Sign in with Google** when it starts, or run `/auth` if it does not ask. '
+      + 'This route requires an assigned Gemini Code Assist Standard or Enterprise license; '
+      + 'personal Google AI Pro, Ultra, and free individual accounts stopped working with Gemini CLI on 18 June 2026. '
+      + 'Use AtlasMind\'s Google API provider for metered access.',
+    docs: 'https://geminicli.com/docs/get-started/authentication/',
   },
   copilot: {
     command: 'copilot',
@@ -348,10 +362,10 @@ export const ACP_SIGN_IN_COMMANDS: readonly string[] = Object.values(ACP_SIGN_IN
  * offer belongs on the **Anthropic** card, phrased in those terms, rather than
  * behind a separate entry they must first know exists and then decode.
  *
- * Only vendors whose launch command is actually published appear here. Google is
- * now among them: Gemini CLI's ACP invocation was unpublished when this list was
- * written and is declared in the registry today, so the offer on the Google card
- * is a button that works rather than one that cannot.
+ * Only vendors whose launch command is actually published appear here. A
+ * published command is not enough on its own: where a vendor restricts that
+ * command to particular account tiers, the offer carries that eligibility
+ * boundary through every setup surface.
  *
  * `install` is **derived** from the agent's entry in {@link VERIFIED_ACP_AGENTS}
  * rather than written out again here. Keeping a second copy is what produced the
@@ -379,6 +393,8 @@ export interface AcpProviderBridge {
   /** Button text — the user's words, not the protocol's. */
   offerLabel: string;
   install: string;
+  /** Account-tier boundary that must be disclosed before setup starts. */
+  eligibility?: string;
 }
 
 /** Which vendor card carries which agent's offer, and in whose words. */
@@ -403,8 +419,8 @@ const ACP_BRIDGE_OFFERS: ReadonlyArray<{
   {
     providerId: 'google',
     agentId: 'gemini',
-    subscriptionName: 'Google AI Pro or Ultra subscription',
-    offerLabel: 'Use my Gemini subscription',
+    subscriptionName: 'Gemini Code Assist Standard or Enterprise license',
+    offerLabel: 'Use my Code Assist license',
   },
 ];
 
@@ -421,6 +437,7 @@ export const ACP_PROVIDER_BRIDGES: readonly AcpProviderBridge[] = ACP_BRIDGE_OFF
       subscriptionName: offer.subscriptionName,
       offerLabel: offer.offerLabel,
       install: acpInstallCommand(agent.npmPackage),
+      ...(agent.eligibility ? { eligibility: agent.eligibility } : {}),
     }]
     : [];
 });

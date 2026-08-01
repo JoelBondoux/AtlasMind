@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.235.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.235.3</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -36,7 +36,7 @@ Use a focused chat turn for a small fix, `/project` for a coordinated delivery p
 
 ### Bring the models you already trust
 
-Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **the subscription you already pay for** — a Claude, ChatGPT, Gemini, Copilot or Qwen plan becomes routable capacity over the Agent Client Protocol, with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
+Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **capacity you already pay for** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code Assist license, becomes routable over the Agent Client Protocol with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
 
 ### Work the way your repository already works
 
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.235.1
+## What's new in 0.235.3
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Webview controls and compact rows stay legible as panels resize.** Labels, buttons, and badges no longer volunteer to shrink below the width of an ordinary word and then split it into fragments. Structural panel boxes remain responsive, prose wraps at word boundaries, long URLs still contain themselves, and Project Ideation's memory checklist and confidence/risk analytics keep their labels and scores intact while the flexible text column takes the available space.
+
+- **Gemini ACP now names the license it actually requires.** Google stopped serving Gemini CLI requests for free individual and personal Google AI Pro and Ultra accounts on 18 June 2026. The Google provider card now offers **Use my Code Assist license**, and setup states that an assigned Gemini Code Assist Standard or Enterprise license is required before it installs or probes anything. Gemini Enterprise Standard and Plus can qualify after the bundled Code Assist Standard license is assigned; Business and Frontline do not include it. The direct Gemini API provider is unchanged.
 
 - **The remaining Dependabot alert is resolved.** Stryker's development-only REST client pins vulnerable `qs@6.15.1`, so npm's normal audit fix cannot move it and upgrading the parent does not help. AtlasMind now forces patched `6.15.2` across the dependency tree; every other consumer already used or accepted that version, and production dependencies were already clean.
 
@@ -96,7 +100,7 @@ Since the last Marketplace publication, **v0.235.0**, source builds have added t
 
 - **Scaffold Testing Framework can begin the first real test.** It still creates only missing starter files and never alters manifests. It now also synchronises the chosen testing guidance into existing AI-agent instruction files and, if the project already has Vitest or Jest plus a small exported source candidate, asks AtlasMind to author one focused code-specific test. That task follows the normal approval rules, inspects the source first, and makes no dependency or production-code change; if it cannot establish a stable behaviour, it makes no test change at all.
 
-- **ACP subscription plans now follow your installed configuration, not a stale vendor table.** Configure Agent Plan lists every agent in `atlasmind.acp.agents`—including Gemini and custom ACP clients—and records the plan name you enter. ACP does not expose a trustworthy tier or remaining allowance, so AtlasMind no longer asks for, estimates, decrements, or routes on subscription credits. Copilot’s separate credit flow is unchanged.
+- **ACP subscription plans now follow your installed configuration, not a stale vendor table.** Configure Agent Plan lists every agent in `atlasmind.acp.agents`—including eligible Gemini Code Assist and custom ACP clients—and records the plan name you enter. ACP does not expose a trustworthy tier or remaining allowance, so AtlasMind no longer asks for, estimates, decrements, or routes on subscription credits. Copilot’s separate credit flow is unchanged.
 
 - **ACP tool permission now stays set.** The Safety & Verification checkbox that lets ACP agents use their own tools is saved to your workspace and remains selected when you return to Settings.
 
@@ -159,7 +163,7 @@ Since the last Marketplace publication, **v0.235.0**, source builds have added t
 ## What is included
 
 - **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight. Agents can hand a question to a better-placed specialist, and a handoff transfers the question without widening the caller's permissions.
-- **Outcome-aware model routing** — cloud providers, local runtimes, or a Claude/ChatGPT/Gemini/Copilot/Qwen **subscription** used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
+- **Outcome-aware model routing** — cloud providers, local runtimes, a Claude/ChatGPT/Copilot/Qwen subscription, or an eligible Gemini Code Assist license used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
 - **A guided GitHub workflow** — ideation, issues, branches, pull requests, review, pipeline, release, and tech debt, each with its own automation level from *observe* to *act*. Specialised by your project's shape and traits, and written to a file your team owns.
 - **Ideation that reaches the backlog** — cards become roadmap items carrying the connections that argued for them, and a roadmap item becomes a GitHub issue draft with labels drawn only from your repository's real taxonomy.
 - **A tech-debt register** — deferred work found by scanning your own markers, graded by a **published rule table** rather than a model's opinion, with entries that transition instead of disappearing. Any entry can be handed to an agent as a proposal, never a mandate.

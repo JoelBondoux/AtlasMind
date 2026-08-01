@@ -23,6 +23,7 @@ const SUGGESTIONS: AcpAgentSuggestion[] = VERIFIED_ACP_AGENTS.map(agent => ({
   command: agent.command,
   args: agent.args,
   install: acpInstallCommand(agent.npmPackage),
+  ...(agent.eligibility ? { eligibility: agent.eligibility } : {}),
 }));
 
 const state = (over: Partial<AcpSetupState> = {}): AcpSetupState => ({
@@ -228,6 +229,13 @@ describe('the suggestions the guide shows', () => {
 
     const guidance = buildAcpSetupPlan(state()).find(step => step.id === 'agent')?.guidance ?? [];
     expect(guidance.map(entry => entry.text).join('\n')).toContain('gemini --acp');
+  });
+
+  it('states Gemini account eligibility before suggesting its install', () => {
+    const guidance = buildAcpSetupPlan(state()).find(step => step.id === 'agent')?.guidance ?? [];
+    const gemini = guidance.find(entry => entry.command === 'npm install -g @google/gemini-cli');
+    expect(gemini?.text).toContain('Gemini Code Assist Standard or Enterprise');
+    expect(gemini?.text).toContain('Google AI Pro and Ultra');
   });
 });
 

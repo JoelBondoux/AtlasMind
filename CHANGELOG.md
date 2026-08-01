@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.235.3] - 2026-08-01
+
+### Fixed
+- **Webview labels, buttons, badges, and compact analytics rows now size to readable content instead of splitting ordinary words into fragments.** The shared shell applied `min-width: 0` and `overflow-wrap: anywhere` to inline text and controls as well as structural containers, so flex and grid layouts could compress `requirement`, `evidence`, and `knowledge-graph` into a few characters per line even when the surrounding panel had room. Zero minimum widths are now limited to structural boxes, prose wraps at word boundaries, only genuinely unbroken links use anywhere wrapping, and controls remain bounded by their panel. Project Ideation's memory targets now wrap as whole content-sized checkbox labels, while analytics rows reserve intrinsic columns for kind and score and give the flexible middle column to card titles and meters.
+
+## [0.235.2] - 2026-08-01
+
+### Fixed
+- **Gemini ACP no longer advertises personal Google AI subscriptions that Google stopped serving.** Google ended Gemini CLI access for free individual and personal Google AI Pro and Ultra accounts on 18 June 2026; OAuth still succeeds in the browser before the Code Assist backend rejects the client, which made AtlasMind's **Use my Gemini subscription** offer a dead end. The Google card now says **Use my Code Assist license**, every built-in setup surface carries the same entitlement boundary, and setup confirms it before installing or probing: an assigned Gemini Code Assist Standard or Enterprise license is required. Gemini Enterprise Standard and Plus include Code Assist Standard after separate assignment; Business and Frontline do not. The direct Google Gemini API provider is unchanged.
+
 ## [0.235.1] - 2026-08-01
 
 ### Security

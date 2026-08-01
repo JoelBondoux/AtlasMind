@@ -2171,6 +2171,7 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       command: agent.command,
       args: agent.args,
       install: acpInstallCommand(agent.npmPackage),
+      ...(agent.eligibility ? { eligibility: agent.eligibility } : {}),
     })),
     // Absent for an agent whose sign-in AtlasMind has never read — the guide
     // says so rather than printing a command nobody verified.

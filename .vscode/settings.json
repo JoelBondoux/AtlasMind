@@ -39,5 +39,6 @@
             "id": "claude",
             "command": "claude-agent-acp"
         }
-    ]
+    ],
+    "atlasmind.acp.toolsEnabled": true
 }

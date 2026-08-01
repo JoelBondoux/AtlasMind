@@ -527,6 +527,13 @@ MCP skills are registered in `SkillsRegistry` when a server connects and automat
 
 ### ACP process lifetime does not widen ACP authority
 
+ACP availability does not widen vendor entitlement either. A published launch
+command says the process speaks ACP; it does not say the user's plan may call
+the backing service. Gemini CLI is offered only with the explicit requirement
+for an assigned Gemini Code Assist Standard or Enterprise license. Personal
+Google AI Pro, Ultra, and free accounts stopped working with Gemini CLI on
+18 June 2026, so setup states that boundary before installing or probing.
+
 The routed ACP adapter may keep a successful agent session alive for 30 idle
 minutes, but every permission request in every turn still traverses the same
 `session/request_permission` policy. A live process does not retain an

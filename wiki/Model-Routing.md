@@ -64,7 +64,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **ACP Agents (subscription)** | `acp` | Subscription | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio using that vendor's subscription. Streams, has no argv prompt ceiling, and sends images when the agent declares support. A completion source by default — no MCP pass-through, permission requests refused — until `atlasmind.acp.toolsEnabled` lets the agent act, one approved operation at a time. Declares `vision` once a handshake reports image support; never `function_calling`. Seeded disabled — nothing is spawned until you name a command you have installed. See [ACP agents](#acp-agents) below |
+| **ACP Agents (subscription/license)** | `acp` | Subscription/license | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio using that vendor's subscription or eligible product license. Streams, has no argv prompt ceiling, and sends images when the agent declares support. A completion source by default — no MCP pass-through, permission requests refused — until `atlasmind.acp.toolsEnabled` lets the agent act, one approved operation at a time. Declares `vision` once a handshake reports image support; never `function_calling`. Seeded disabled — nothing is spawned until you name a command you have installed. See [ACP agents](#acp-agents) below |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -84,7 +84,7 @@ The short model names you may see initially are **seed entries**, not AtlasMind'
 
 ## ACP agents
 
-The `acp` provider turns a subscription you already pay for into capacity the router can select, by driving a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio.
+The `acp` provider turns a subscription or eligible product license you already pay for into capacity the router can select, by driving a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio.
 
 ### Agents AtlasMind can name and install
 
@@ -97,6 +97,19 @@ Transcribed from the [ACP registry](https://github.com/agentclientprotocol/regis
 | Gemini CLI | `gemini --acp` | `npm install -g @google/gemini-cli` |
 | GitHub Copilot CLI | `copilot --acp` | `npm install -g @github/copilot` |
 | Qwen Code | `qwen --acp` | `npm install -g @qwen-code/qwen-code` |
+
+The Gemini row has a narrower entitlement than its published command suggests.
+Since [18 June
+2026](https://docs.cloud.google.com/gemini/docs/codeassist/set-up-gemini),
+`gemini --acp` requires an assigned Gemini Code Assist Standard or Enterprise
+license (or separately metered Google Cloud/API access). Free individual and
+personal Google AI Pro and Ultra accounts no longer work.
+Gemini Enterprise Standard and Plus include Code Assist Standard after separate
+assignment; Gemini Enterprise Business and Frontline do not. AtlasMind carries
+that eligibility boundary through the Google-card tooltip, agent picker, `/acp`
+guide, sign-in guidance, and a confirmation before install or probe.
+Metered Google access belongs on AtlasMind's direct Google provider, where token
+costs remain attributable; it is not advertised as zero-cost ACP capacity.
 
 The package and the command are **one fact**, not two. Keeping a second copy is what let AtlasMind advise `@zed-industries/claude-code-acp` while spawning `claude-agent-acp` — that package's `bin` is `claude-code-acp`, so following the instructions installed a binary AtlasMind then failed to find.
 
@@ -174,7 +187,7 @@ If a tier cannot be applied, the turn still runs at the agent's default rather t
 
 `acp` fronts several unrelated subscriptions, so a plan is recorded **per configured agent**, not per protocol provider.
 
-**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; Gemini and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
+**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; eligible Gemini Code Assist and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
 
 ### Why checking an ACP agent is expensive
 
@@ -205,7 +218,7 @@ So AtlasMind now records the sign-in command separately, read from each vendor's
 |---|---|---|
 | `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt you |
 | `codex-acp` | `codex login` | A browser opens; `codex login --device-auth` if none is available |
-| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth` |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth`; requires an assigned Gemini Code Assist Standard/Enterprise license |
 | `copilot --acp` | `copilot` | `/login` |
 | `qwen --acp` | `qwen` | `/auth`, then pick a provider |
 

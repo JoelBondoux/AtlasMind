@@ -244,7 +244,7 @@ current budget/speed settings and inferred task profile.
 | Provider | ID | Discovery source | Notes |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
-| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the argv-based CLI bridge it replaced it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent unattended. See [ACP agents](#acp-agents) below for the launch, authentication and usage details |
+| ACP Agents (subscription/license) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription or eligible product license. Unlike the argv-based CLI bridge it replaced it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent unattended. See [ACP agents](#acp-agents) below for the launch, authentication and usage details |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
 | Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
@@ -274,7 +274,7 @@ When a routed model fails during execution, AtlasMind marks that model as failed
 
 ## ACP agents
 
-The `acp` provider drives a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio — so a subscription you already pay for becomes capacity the router can select. Four things about it are easy to get wrong, and each one was got wrong at some point before v0.209.0.
+The `acp` provider drives a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio — so a subscription or eligible product license you already pay for becomes capacity the router can select. Four things about it are easy to get wrong, and each one was got wrong at some point before v0.209.0.
 
 ### Launch commands come from the registry, transcribed by hand
 
@@ -287,6 +287,20 @@ The `acp` provider drives a coding agent over the [Agent Client Protocol](https:
 | Gemini CLI | `gemini --acp` | `@google/gemini-cli` |
 | GitHub Copilot CLI | `copilot --acp` | `@github/copilot` |
 | Qwen Code | `qwen --acp` | `@qwen-code/qwen-code` |
+
+The registry proves that `gemini --acp` is a launch command; it does **not**
+prove that every Gemini plan may use it. [Since 18 June
+2026](https://docs.cloud.google.com/gemini/docs/codeassist/set-up-gemini), Gemini
+CLI serves only assigned Gemini Code Assist Standard or Enterprise licenses and
+separately metered Google Cloud/API-backed access—not free individual or
+personal Google AI Pro and Ultra accounts. Gemini Enterprise Standard and Plus include Code Assist
+Standard after a separate assignment; Business and Frontline do not. AtlasMind
+therefore carries this eligibility note with the verified agent into the
+provider-card tooltip, picker, `/acp` guide, sign-in step, and a confirmation
+shown before install or probe. A published executable must never be presented
+as an account entitlement. AtlasMind does not present the CLI's metered modes as
+subscription capacity; use the direct Google provider so token costs remain
+attributable.
 
 Two rules hold here:
 
@@ -327,7 +341,7 @@ So the two facts are separate, and the second is read from each vendor's own doc
 |---|---|---|
 | `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt. The adapter uses the Claude CLI's credentials |
 | `codex-acp` | `codex login` | Browser flow; `codex login --device-auth` where no browser is available |
-| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or `/auth` |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or `/auth`; requires an assigned Gemini Code Assist Standard/Enterprise license |
 | `copilot --acp` | `copilot` | `/login` |
 | `qwen --acp` | `qwen` | `/auth`, then a provider — Qwen OAuth's free tier ended 15 April 2026 |
 
@@ -679,7 +693,7 @@ interface SubscriptionQuota {
 
 `subscriptionQuotaForModel` still supports a provider that exposes an authoritative per-model allowance, falling back to the provider-level record where appropriate. This is not used for ACP. On activation AtlasMind retires legacy `acp` quota records rather than carrying an old manual estimate into a new session.
 
-The `$ Configure agent plan` control reads `atlasmind.acp.agents` live. It lists every currently configured agent—including Gemini and self-installed clients—then records the plan name the user enters. It never offers a vendor-tier table or asks for credits, a reset date, request totals, or a cost per unit: the ACP protocol cannot validate any of those values.
+The `$ Configure agent plan` control reads `atlasmind.acp.agents` live. It lists every currently configured agent—including eligible Gemini Code Assist and self-installed clients—then records the plan name the user enters. It never offers a vendor-tier table or asks for credits, a reset date, request totals, or a cost per unit: the ACP protocol cannot validate any of those values.
 
 ### Premium Request Multiplier
 

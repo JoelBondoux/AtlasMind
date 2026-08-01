@@ -45,6 +45,7 @@
 - Anthropic adapters must apply the same compatibility rule for tool names. Preserve Atlas skill ids internally, sanitize provider-facing tool names only at the adapter boundary, and map returned tool calls back to the original ids before the orchestrator executes them.
 - The local provider path in `src/providers/registry.ts` now aggregates one or more labeled local endpoints under the single `local` provider id. Preserve that stable provider id when extending local routing, and encode endpoint identity into discovered local model ids instead of inventing new routed provider ids per engine.
 - ACP agents do not expose a portable subscription-plan or remaining-allowance API. Derive the available agent choices from the user's configured ACP agents, treat a plan name as a user-recorded label, and never manufacture a quota or decrement a subscription balance for routing.
+- An ACP registry entry proves a launch command, not an account entitlement. Keep vendor tier restrictions on the verified agent record and carry them into every built-in setup surface. Gemini is the concrete case: personal Google AI tiers no longer authorize Gemini CLI, while an assigned Gemini Code Assist Standard or Enterprise license does.
 
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.

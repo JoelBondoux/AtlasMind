@@ -4694,6 +4694,8 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .action-link {
     cursor: pointer;
     padding: 9px 14px;
+    width: fit-content;
+    max-width: 100%;
   }
   .action-icon {
     display: inline-block;
@@ -4928,8 +4930,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 12px;
   }
   .ideation-constraint-grid,
-  .ideation-score-grid,
-  .ideation-sync-grid {
+  .ideation-score-grid {
     display: grid;
     gap: 12px;
   }
@@ -4937,9 +4938,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .ideation-score-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .ideation-sync-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .ideation-workspace-switcher {
@@ -5021,11 +5019,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .ideation-analytics-suggestion strong {
     font-size: 13px;
     line-height: 1.45;
-  }
-  .ideation-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
   .ideation-dropzone,
   .ideation-board-stage,
@@ -5466,6 +5459,10 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     padding: 4px 10px;
     font-size: 12px;
     border-radius: 999px;
+    width: fit-content;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .tag {
     border: 1px solid var(--vscode-widget-border, #444);
@@ -5659,8 +5656,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     .ideation-mode-bar,
     .ideation-workspace-switcher,
     .ideation-constraint-grid,
-    .ideation-score-grid,
-    .ideation-sync-grid {
+    .ideation-score-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -5680,9 +5676,18 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 8px;
   }
   .ideation-dist-row {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: start;
     gap: 8px;
+  }
+  .ideation-dist-row > .tag,
+  .ideation-dist-row > .list-meta {
+    white-space: nowrap;
+  }
+  .ideation-dist-row > .stat-detail {
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .ideation-dist-bar-wrap {
     flex: 1;
@@ -5703,15 +5708,22 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 10px;
   }
   .ideation-check {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     cursor: pointer;
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+  .ideation-check input[type="checkbox"] {
+    flex: 0 0 auto;
   }
   .ideation-sync-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 10px 18px;
     margin-bottom: 6px;
   }
   .ideation-constraint-grid {

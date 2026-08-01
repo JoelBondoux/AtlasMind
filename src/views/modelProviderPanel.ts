@@ -804,8 +804,9 @@ function renderSubscriptionOffer(providerId: ProviderId): string {
   if (!bridge) {
     return '';
   }
+  const eligibility = bridge.eligibility ? ` ${bridge.eligibility}` : '';
   return `<button type="button" class="action-secondary" data-acp-bridge="${escapeHtml(bridge.providerId)}" `
-    + `title="${escapeHtml(`Route these models through your ${bridge.subscriptionName} instead of paying per token, using the Agent Client Protocol.`)}">`
+    + `title="${escapeHtml(`Route these models through your ${bridge.subscriptionName} instead of paying per token, using the Agent Client Protocol.${eligibility}`)}">`
     + `${escapeHtml(bridge.offerLabel)}</button>`;
 }
 
@@ -881,7 +882,7 @@ export function subscriptionButtonLabel(providerId: ProviderId, displayName: str
 
 function subscriptionButtonTooltip(providerId: ProviderId, displayName: string): string {
   return providerId === ACP_PROVIDER_ID
-    ? 'Record the subscription behind one of your configured ACP agents. The list is taken from your current ACP configuration, so Gemini and custom agents appear when configured.'
+    ? 'Record the subscription or eligible license behind one of your configured ACP agents. The list is taken from your current ACP configuration, so eligible Gemini Code Assist and custom agents appear when configured.'
     : `Set your ${displayName} plan tier and monthly allowance.`;
 }
 
@@ -1034,7 +1035,7 @@ function getSubscriptionDetailsHtml(
  * One row per configured ACP agent, because one row could only ever be wrong.
  *
  * The card derives its rows from `atlasmind.acp.agents`, rather than from a
- * vendor table. This is why Gemini and a self-installed ACP agent appear as
+ * vendor table. This is why eligible Gemini Code Assist and a self-installed ACP agent appear as
  * soon as the user has configured them — no extension release needs to learn a
  * new vendor plan first.
  *
@@ -1170,7 +1171,7 @@ async function resolveAcpSubscriptionPlanScope(
       }),
       {
         title: 'ACP: Which agent subscription are you recording?',
-        placeHolder: 'This list comes from your configured ACP agents, including Gemini and custom agents',
+        placeHolder: 'This list comes from your configured ACP agents, including eligible Gemini Code Assist and custom agents',
       },
     );
     if (!picked) {
@@ -1473,6 +1474,17 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
   const bridge = findAcpBridge(providerId);
   if (!bridge) {
     return;
+  }
+
+  if (bridge.eligibility) {
+    const choice = await vscode.window.showInformationMessage(
+      `${bridge.subscriptionName} eligibility`,
+      { modal: true, detail: bridge.eligibility },
+      'I have an eligible license',
+    );
+    if (choice !== 'I have an eligible license') {
+      return;
+    }
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -1796,7 +1808,8 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
       ...VERIFIED_ACP_AGENTS.map(agent => ({
         label: agent.label,
         description: [agent.command, ...agent.args].join(' '),
-        detail: `Launch command declared in the ACP registry. Installs with npm as ${agent.npmPackage}.`,
+        detail: `Launch command declared in the ACP registry. Installs with npm as ${agent.npmPackage}.`
+          + (agent.eligibility ? ` ${agent.eligibility}` : ''),
         agent,
       })),
       {

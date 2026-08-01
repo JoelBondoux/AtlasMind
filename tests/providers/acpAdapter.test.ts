@@ -1162,13 +1162,16 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
   });
 
   it('offers Gemini on the Google card, now that its invocation is published', () => {
-    // Absent until the ACP registry declared `gemini --acp`; a guessed flag
-    // would have been a button that cannot work.
+    // The registry proves the launch command, not account eligibility. Personal
+    // Google AI plans no longer authorize Gemini CLI, so the narrower enterprise
+    // entitlement must travel with the offer.
     expect(findAcpBridge('google')).toMatchObject({
       agentId: 'gemini',
       command: 'gemini',
       args: ['--acp'],
-      offerLabel: 'Use my Gemini subscription',
+      subscriptionName: 'Gemini Code Assist Standard or Enterprise license',
+      offerLabel: 'Use my Code Assist license',
+      eligibility: expect.stringMatching(/Google AI Pro and Ultra/),
     });
   });
 
@@ -1210,7 +1213,7 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
   it('phrases the offer in the user\'s terms, not the protocol\'s', () => {
     for (const bridge of ACP_PROVIDER_BRIDGES) {
       expect(bridge.offerLabel.toLowerCase()).not.toContain('acp');
-      expect(bridge.offerLabel.toLowerCase()).toContain('subscription');
+      expect(bridge.offerLabel.toLowerCase()).toMatch(/subscription|license/);
       expect(bridge.install.length).toBeGreaterThan(0);
     }
   });
