@@ -466,6 +466,8 @@ atlas.skillsRegistry.register({
 
 The following skills are registered automatically at extension activation (`src/skills/`):
 
+Approval surfaces receive a bounded host-produced argument preview rather than serializing tool parameters in the webview. `toJsonPreview` applies secret redaction and a length cap to representable JSON; a non-empty object that collapses to `{}` is labelled `[unserializable arguments]` so the operator is not asked to approve a falsely empty parameter set.
+
 | Skill | Status | Description |
 |---|---|---|
 | `file-read` | ✅ Implemented | Read file contents (supports optional `startLine`/`endLine` range) |

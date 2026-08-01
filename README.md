@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.233.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.233.3</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.233.2
+## What's new in 0.233.3
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Tool approvals fail visibly when their arguments cannot be represented.** A non-empty argument object that serializes as `{}` is now labelled **unserializable arguments**, while normal previews retain secret redaction and length limits. The project’s committed testing posture also swaps performance testing for charter-based exploratory testing and keeps the generated strategy and agent instruction blocks synchronized.
 
 - **Project assessments now use the capacity you already have, and empty answers fail visibly.** Whole-project review prompts receive a high-reasoning profile instead of being mistaken for trivial chat. Adequate local or subscription-backed models are preferred over a metered provider that is merely a little faster. If every recovery attempt still produces no answer, Chat says that directly and offers **Retry** and **Provider status** chips instead of claiming it answered from context or asking you to type “Proceed.”
 

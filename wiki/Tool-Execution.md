@@ -73,6 +73,8 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
   - `Autopilot` — skip approval prompts for the rest of the current session
 6. `Deny` rejects the tool call without leaving the chat surface
 
+Tool parameters are previewed host-side through `toJsonPreview` before they reach an approval surface. Representable JSON is secret-redacted and length-capped. If a non-empty object collapses to `{}` during serialization—for example through custom serialization behaviour—the preview is `[unserializable arguments]` rather than a misleading empty-object claim.
+
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
 ### Mission Loop checkpoints

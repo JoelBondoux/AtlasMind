@@ -4,11 +4,15 @@ export function toJsonPreview(value: Record<string, unknown> | undefined, maxLen
   }
 
   try {
-    const serialized = redactSensitiveText(JSON.stringify(value));
-    if (serialized.length <= maxLength) {
-      return serialized;
+    const serialized = JSON.stringify(value);
+    if (serialized === '{}' && value !== null && typeof value === 'object' && Object.keys(value).length > 0) {
+      return '[unserializable arguments]';
     }
-    return serialized.slice(0, maxLength) + '...';
+    const redacted = redactSensitiveText(serialized);
+    if (redacted.length <= maxLength) {
+      return redacted;
+    }
+    return redacted.slice(0, maxLength) + '...';
   } catch {
     return '[unserializable arguments]';
   }

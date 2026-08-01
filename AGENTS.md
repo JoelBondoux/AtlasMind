@@ -369,13 +369,6 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
 - **Primary owner:** Test Developer
 
-### Performance
-
-- **What:** Load, stress, and latency benchmarks (k6, Artillery, JMeter)
-- **When to apply:** APIs, real-time systems, or any application with SLA targets. Run before a major release or infrastructure change to validate throughput and latency under load.
-- **Key tools:** k6, Artillery, Apache JMeter, Gatling, Locust, autocannon, wrk
-- **Primary owner:** Test Developer
-
 ### Security
 
 - **What:** SAST / DAST and dependency vulnerability scanning
@@ -383,7 +376,14 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Snyk, OWASP ZAP, Semgrep, Trivy, CodeQL, Dependabot, npm audit, OWASP Dependency-Check
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:47711aebd82c3099 -->
+### Exploratory
+
+- **What:** Session-based manual discovery and charter testing
+- **When to apply:** New features, usability-sensitive workflows, and any area where automation has not yet caught up. Pairs well with a formal charter to keep sessions focused.
+- **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
+- **Primary owner:** Test Developer
+
+<!-- atlasmind:source-digest:abbcf2f8467c5276 -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->

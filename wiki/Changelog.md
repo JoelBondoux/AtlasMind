@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.233.3 — Honest tool previews and exploratory testing
+
+**An approval card no longer presents unserializable tool arguments as `{}`.** A non-empty object that collapses during JSON serialization is labelled **unserializable arguments**; representable values still pass through secret redaction and the normal preview length cap.
+
+**The committed testing posture now enables exploratory testing instead of performance testing.** The testing configuration, generated strategy, and managed instruction blocks stay synchronized, with charter-based exploratory work assigned to the Test Developer.
+
 ## v0.233.2 — Honest routing and honest empty states
 
 **Whole-project assessment prompts now carry a high-reasoning floor.** AtlasMind no longer treats a short request for an overall project assessment as low-effort chat, and adequate local or active subscription-backed capacity wins over a pay-per-token route whose only edge is a small speed-score difference. Capability still comes first for broad review, planning, and synthesis.

@@ -33,6 +33,7 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 ### 3. Webview Security
 
 - All webview panels use a strict **Content Security Policy (CSP)**
+- Tool-argument previews are built in the extension host, secret-redacted, and length-capped before display. A non-empty object that cannot be represented faithfully and serializes as `{}` is shown as `[unserializable arguments]`, so an approval decision is never invited on a falsely empty parameter set.
 - Chat execution-limit chips are treated as untrusted messages: the protocol accepts only finite bounded integers, and the extension host re-resolves the referenced assistant entry, verifies that recovery is still pending, and requires the submitted value to match the server-stored suggestion before changing either the live Orchestrator or workspace configuration. One-run changes are restored after the retry.
 - Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
 - Delivery **stage edits** are posted whole and re-sanitised server-side (`sanitizeDeliveryConfig`) before they touch disk: string lengths are clamped, types coerced (booleans strict `=== true`), ids de-duplicated, and dangling/self promotion edges dropped. No secret values are ever stored — only config-source *locations*

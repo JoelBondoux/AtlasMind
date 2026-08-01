@@ -112,16 +112,6 @@ Derive test cases from formal system models — state machines, UML diagrams, de
 - **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
 - **Trade-offs:** Requires expertise in formal modelling. Model creation and maintenance adds overhead. Overkill for simple CRUD applications where a direct test is faster to write than a model.
 
-## Performance
-
-Load, stress, and latency benchmarks (k6, Artillery, JMeter)
-
-- **When to apply:** APIs, real-time systems, or any application with SLA targets. Run before a major release or infrastructure change to validate throughput and latency under load.
-- **Key tools:** k6, Artillery, Apache JMeter, Gatling, Locust, autocannon, wrk
-- **Trade-offs:** Requires a representative test environment; results on localhost are misleading. Defining realistic load scenarios takes time and domain knowledge.
-- **Set up (Node (JS/TS)):** Install k6 (https://k6.io/docs/get-started/installation/) — run: k6 run performance/load.k6.js
-- **Starter file:** `performance/load.k6.js`
-
 ## Security
 
 SAST / DAST and dependency vulnerability scanning
@@ -130,3 +120,11 @@ SAST / DAST and dependency vulnerability scanning
 - **Key tools:** Snyk, OWASP ZAP, Semgrep, Trivy, CodeQL, Dependabot, npm audit, OWASP Dependency-Check
 - **Trade-offs:** SAST tools produce false positives that need triage. DAST requires a running environment. Both add CI time and require a process for managing findings.
 - **Set up (Node (JS/TS)):** npx audit-ci  •  consider Snyk / Semgrep / Trivy in CI
+
+## Exploratory
+
+Session-based manual discovery and charter testing
+
+- **When to apply:** New features, usability-sensitive workflows, and any area where automation has not yet caught up. Pairs well with a formal charter to keep sessions focused.
+- **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
+- **Trade-offs:** Not repeatable and depends on tester skill. Should complement automation, not replace it. Results are only as good as the debrief and reporting discipline.
