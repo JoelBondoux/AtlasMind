@@ -165,7 +165,7 @@ performed by the **Planner service**, not by an agent — it is a service in
 | Operation | Command | Built |
 |---|---|---|
 | Resolve repository | `gh repo view --json nameWithOwner` | ✅ |
-| Read issues | `gh issue list --json number,title,state,author,labels,assignees,body,url,createdAt,updatedAt,comments` | ✅ |
+| Read issues | `gh issue list --json number,title,state,author,labels,assignees,body,url,createdAt,updatedAt,comments` | ✅ — one shared dashboard-ready snapshot, five-minute freshness window |
 | Create | `gh issue create --title --body --label` | ✅ |
 | Comment | `gh issue comment <n> --body` | ✅ |
 | Close / reopen | `gh issue close <n>` · `gh issue reopen <n>` | ✅ |

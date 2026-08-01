@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.241.1 — GitHub work is visible when the dashboard opens
+
+Project Dashboard now loads one bounded GitHub activity snapshot on its ready handshake and refreshes it only after a five-minute freshness window. Issues, pull requests, CI, releases, labels, and milestones therefore arrive together without a hidden dependency on opening Issues first. The dashboard-wide Refresh control updates the remote-backed pages too, Pull Requests can refresh itself, and its navigation badge reports open/draft/review/unlinked work.
+
+Issues now explains why work may exist without a ticket: AtlasMind never silently publishes an issue from a commit. It shows commits since the last tag, open PRs with no linked issue, and the effective issue-intake gate. An unlinked PR can be converted into a deterministic editable draft, while the existing permission and modal confirmation remain the only route to posting it.
+
+The installed dependency tree is also verified clean: the `qs@6.15.2` override leaves `npm audit` at zero vulnerabilities. GitHub's alert closes when this source reaches the default branch, because Dependabot evaluates `main`, not the already-patched `develop` branch.
+
 ## v0.241.0 — A task-sized skill context
 
 AtlasMind now distinguishes three skill policies. **Task-scoped** agents receive at most 12 deterministic, request-relevant tools; **allowlist** agents receive exactly the enabled skills they name; and the advanced **all** policy deliberately admits every enabled capability. Legacy agents migrate safely without rewriting stored data: a populated list remains an allowlist, while an empty list becomes task-scoped built-ins rather than every present and future custom/MCP integration.

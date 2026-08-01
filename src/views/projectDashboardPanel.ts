@@ -147,6 +147,7 @@ import {
 } from '../core/workflowConfig.js';
 import {
   buildReviewCommentPrompt,
+  derivePullRequestIssueDraft,
   describePullRequestAction,
   parseGhPullRequestList,
   parseGhReviewComments,
@@ -284,6 +285,31 @@ const SERIES_DAY_RANGE = 90;
 const MAX_IDEATION_CARDS = 48;
 const MAX_IDEATION_CONNECTIONS = 96;
 const MAX_IDEATION_HISTORY = 18;
+const REPOSITORY_ACTIVITY_REFRESH_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Whether opening or revealing the dashboard should refresh its GitHub state.
+ *
+ * Kept pure so the two promises this refresh makes are testable: one request at
+ * a time, and no second request inside the freshness window. A manual Refresh
+ * action bypasses the time check but still uses the in-flight guard.
+ */
+export function shouldRefreshRepositoryActivity(input: {
+  running: boolean;
+  lastAttemptAt: number;
+  now?: number;
+  ttlMs?: number;
+}): boolean {
+  if (input.running) {
+    return false;
+  }
+  const now = input.now ?? Date.now();
+  const ttlMs = input.ttlMs ?? REPOSITORY_ACTIVITY_REFRESH_TTL_MS;
+  if (!Number.isFinite(input.lastAttemptAt) || input.lastAttemptAt <= 0) {
+    return true;
+  }
+  return now - input.lastAttemptAt >= Math.max(0, ttlMs);
+}
 const PRODUCTION_BRANCH_CANDIDATES = ['main', 'master', 'production', 'prod', 'release'] as const;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
@@ -492,6 +518,7 @@ type ProjectDashboardMessage =
   | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
   | { type: 'draftIssueFromRoadmap'; payload: { itemId: string } }
+  | { type: 'draftIssueFromPullRequest'; payload: { number: number } }
   | { type: 'openGithubLink'; payload: { page: string; id: string } }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
@@ -3022,6 +3049,10 @@ export class ProjectDashboardPanel {
   private lastGitRemoteUrl: string | undefined;
   /** Prevent one impatient double-click from starting two remote fetches. */
   private branchesFetchRunning = false;
+  /** The GitHub activity refresh is shared by Issues, PRs, CI, and releases. */
+  private repositoryActivityRefreshRunning = false;
+  /** Start time of the last attempt, successful or not, for bounded retries. */
+  private repositoryActivityLastAttemptAt = 0;
 
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
@@ -3140,7 +3171,9 @@ export class ProjectDashboardPanel {
       if (targetPage) {
         ProjectDashboardPanel.currentPanel.queueNavigation(targetPage);
       }
-      void ProjectDashboardPanel.currentPanel.syncState();
+      if (!ProjectDashboardPanel.currentPanel.refreshRepositoryActivityIfStale()) {
+        void ProjectDashboardPanel.currentPanel.syncState();
+      }
       return;
     }
 
@@ -3189,7 +3222,9 @@ export class ProjectDashboardPanel {
     }, null, this.disposables);
     this.panel.onDidChangeViewState(({ webviewPanel }) => {
       if (webviewPanel.visible) {
-        void this.syncState();
+        if (!this.refreshRepositoryActivityIfStale()) {
+          void this.syncState();
+        }
       }
     }, null, this.disposables);
 
@@ -3237,8 +3272,15 @@ export class ProjectDashboardPanel {
 
     switch (message.type) {
       case 'ready':
+        if (!this.refreshRepositoryActivityIfStale()) {
+          await this.syncState();
+        }
+        return;
       case 'refresh':
-        await this.syncState();
+        // The dashboard-wide Refresh button must refresh the GitHub-backed
+        // pages too. Re-rendering only local state made the button appear to
+        // succeed while an open PR remained invisible.
+        await this.handleRefreshIssues();
         return;
       case 'fetchBranches':
         await this.handleFetchBranches();
@@ -3474,6 +3516,9 @@ export class ProjectDashboardPanel {
         return;
       case 'draftIssueFromRoadmap':
         await this.handleDraftIssueFromRoadmap(message.payload);
+        return;
+      case 'draftIssueFromPullRequest':
+        await this.handleDraftIssueFromPullRequest(message.payload);
         return;
       case 'openGithubLink':
         await this.handleOpenGithubLink(message.payload);
@@ -4050,14 +4095,38 @@ export class ProjectDashboardPanel {
   // ── Issues (GitHub, via the gh CLI) ─────────────────────────────
 
   /**
-   * Load the repository's issues.
+   * Start one background refresh when the current GitHub reading is stale.
    *
-   * Read-only and user-triggered. Each failure mode is reported as itself with
-   * the command that fixes it — "no issues" and "we could not look" are
-   * different facts, and collapsing them would report a clean tracker nobody
-   * checked.
+   * Returning whether work started lets callers avoid an immediate duplicate
+   * `syncState()`: the refresh publishes a busy snapshot first and a terminal
+   * snapshot last. The actual refresh owns the in-flight guard too, so a manual
+   * click made while this is running is a no-op rather than a second API burst.
+   */
+  private refreshRepositoryActivityIfStale(): boolean {
+    if (!shouldRefreshRepositoryActivity({
+      running: this.repositoryActivityRefreshRunning,
+      lastAttemptAt: this.repositoryActivityLastAttemptAt,
+    })) {
+      return false;
+    }
+    void this.handleRefreshIssues();
+    return true;
+  }
+
+  /**
+   * Load the repository's issues, pull requests, CI, taxonomy, and releases.
+   *
+   * Read-only and triggered by opening/revealing the dashboard once per
+   * freshness window, or explicitly by Refresh. Each failure mode is reported
+   * as itself with the command that fixes it — "no issues" and "we could not
+   * look" are different facts, and collapsing them would report a clean tracker
+   * nobody checked.
    */
   private async handleRefreshIssues(): Promise<void> {
+    if (this.repositoryActivityRefreshRunning) {
+      return;
+    }
+
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       this.issuesState = { status: 'no-repo', detail: 'Open a workspace folder to read its issues.', issues: [], busy: false };
@@ -4065,6 +4134,8 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    this.repositoryActivityRefreshRunning = true;
+    this.repositoryActivityLastAttemptAt = Date.now();
     this.issuesState = { ...this.issuesState, busy: true };
     await this.syncState();
 
@@ -4163,8 +4234,10 @@ export class ProjectDashboardPanel {
       }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
+    } finally {
+      this.repositoryActivityRefreshRunning = false;
+      await this.syncState();
     }
-    await this.syncState();
   }
 
   /**
@@ -5149,6 +5222,39 @@ export class ProjectDashboardPanel {
       labels: draft.labels,
       ...(draft.droppedLabels.length === 0 ? {} : { droppedLabels: [...draft.droppedLabels] }),
     } });
+    await this.syncState();
+  }
+
+  /**
+   * Draft a tracking issue for an open pull request that has no linked issue.
+   *
+   * The webview supplies only the PR number. The host resolves the current
+   * sanitized record again, derives fixed-order text without a model, and opens
+   * the existing issue composer. Nothing is posted here: the normal issue-write
+   * gate and modal confirmation remain the only route to GitHub.
+   */
+  private async handleDraftIssueFromPullRequest(payload: { number: number }): Promise<void> {
+    const pullRequest = this.pullRequestsState?.find(entry => entry.number === payload.number);
+    if (!pullRequest || (pullRequest.state !== 'open' && pullRequest.state !== 'draft')) {
+      void vscode.window.showWarningMessage(
+        'That open pull request is no longer in the dashboard reading. Refresh GitHub activity and try again.',
+      );
+      return;
+    }
+    if (pullRequest.linkedIssues.length > 0) {
+      void vscode.window.showInformationMessage(
+        `Pull request #${pullRequest.number} already links issue #${pullRequest.linkedIssues[0]}.`,
+      );
+      return;
+    }
+
+    const declaredLabels = this.taxonomyState?.labels.map(label => label.name) ?? [];
+    const draft = derivePullRequestIssueDraft(pullRequest, declaredLabels);
+    this.pendingNavigationTarget = 'issues';
+    await this.postMessage({
+      type: 'issueDraft',
+      payload: draft,
+    });
     await this.syncState();
   }
 
@@ -7070,6 +7176,14 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     // not there produces nothing. The webview never supplies the issue text.
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null && typeof payload['itemId'] === 'string';
+  }
+
+  if (candidate['type'] === 'draftIssueFromPullRequest') {
+    // Number only. The host resolves it against the refreshed, sanitized PR
+    // list and refuses anything already linked or no longer open.
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    const number = payload?.['number'];
+    return typeof number === 'number' && Number.isInteger(number) && number > 0;
   }
 
   if (candidate['type'] === 'openGithubLink') {
