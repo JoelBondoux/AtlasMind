@@ -122,6 +122,20 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'openWorkspaceFile', payload: 'tests/commands.test.ts' })).toBe(true);
   });
 
+  it('accepts only bounded sidebar restore identities', () => {
+    expect(isSettingsMessage({
+      type: 'restoreModelSidebarEntry',
+      payload: 'model:local:local%2Fqwen%3A7b',
+    })).toBe(true);
+    expect(isSettingsMessage({ type: 'restoreModelSidebarEntry', payload: '' })).toBe(false);
+    expect(isSettingsMessage({ type: 'restoreModelSidebarEntry', payload: 'provider:\nopenai' })).toBe(false);
+    expect(isSettingsMessage({ type: 'restoreModelSidebarEntry', payload: 42 })).toBe(false);
+    expect(isSettingsMessage({
+      type: 'restoreModelSidebarEntry',
+      payload: `provider:${'x'.repeat(4096)}`,
+    })).toBe(false);
+  });
+
   it('accepts a valid setProjectRunReportFolder message', () => {
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: 'project_memory/ops' })).toBe(true);
   });
@@ -677,6 +691,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTesting' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openTestingFixChat' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'unit' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'discussDashboardError' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: 'P1' })).toBe(true);
@@ -729,6 +745,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 42 } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'not-a-source:record-1' })).toBe(false);
@@ -857,6 +875,9 @@ describe('validatePanelMessage (MCP)', () => {
   it('validates MCP quick-action navigation messages', () => {
     expect(validatePanelMessage({ type: 'openSettingsSafety' })).toEqual({ type: 'openSettingsSafety' });
     expect(validatePanelMessage({ type: 'openAgentPanel' })).toEqual({ type: 'openAgentPanel' });
+    expect(validatePanelMessage({ type: 'discussPanelStatus' })).toEqual({ type: 'discussPanelStatus' });
+    expect(validatePanelMessage({ type: 'discussServerError', payload: { id: 'server-123' } }))
+      .toEqual({ type: 'discussServerError', payload: { id: 'server-123' } });
   });
 
   it('rejects null', () => {
@@ -879,6 +900,7 @@ describe('validatePanelMessage (MCP)', () => {
 
   it('rejects removeServer without id', () => {
     expect(validatePanelMessage({ type: 'removeServer', payload: { id: '' } })).toBeNull();
+    expect(validatePanelMessage({ type: 'discussServerError', payload: { id: '../server' } })).toBeNull();
   });
 
   it('rejects toggleEnabled without boolean enabled', () => {

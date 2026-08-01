@@ -356,6 +356,7 @@ These remain available inside their owning views and do not appear in the Comman
 | `Toggle Skill Enabled` | Skills row inline action | Enables or disables the selected skill |
 | `Show Scan Details` | Skills row context action | Opens the latest scan details for the selected skill |
 | `Toggle Model Enabled` | Models row inline action | Enables or disables a provider or individual model |
+| `Hide from Models Sidebar` | Provider, subscription route, or model row eye-closed action | Hides only that row from the current VS Code user profile. It does not disable or remove anything; restore entries individually under Settings → Models & Integrations → Sidebar visibility |
 | `Open Model Info` | Models row inline action | Opens the provider's model documentation |
 | `Configure Model Provider` | Provider row action | Prompts for provider credentials or opens local model configuration |
 | `Refresh Available Models` | Configured provider row action **and the Models view title bar** | Refreshes the routed provider catalog after credential or upstream changes. It always refreshed every provider, whichever row it was invoked from, so the title bar is its honest home. |

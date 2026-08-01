@@ -6,6 +6,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.237.0 — A quieter Models sidebar, without changing routing
+
+**Any provider, subscription route, or individual model can now be hidden with the eye-closed action on its sidebar row.** This is a user-profile display preference, not provider configuration: hidden models remain enabled, assigned, credentialed, and eligible for routing.
+
+Settings → Models & Integrations now includes a **Sidebar visibility** card that lists every hidden entry and restores them individually. If all providers or every model under one provider is hidden, the tree keeps a direct Settings placeholder instead of becoming an unexplained blank. Restore messages carry only a bounded opaque identity; the extension host removes it only when it exactly matches an entry already in user storage.
+
+## v0.236.0 — Errors and policy evidence can be discussed with Atlas
+
+**Operational messages now offer a consistent AtlasMind-logo route into a reviewable Chat draft.** MCP connection failures and guided-setup warnings/errors, Project Dashboard refresh failures, and retained activated-testing results no longer leave the operator at a dead end. The existing activated-testing result handoff is live again as part of the same pattern.
+
+On Windows, `atlasmind.acp.hideConsoleWindows` now also governs the ACP health probe. The probe was the one launch path that never asked for the private desktop, and because a panel or tree refresh past its five-minute cache re-runs it, it was the path most likely to be seen — a ticked checkbox could still be followed by terminal windows.
+
+Every Testing Policy Coverage card also carries a compact AtlasMind logo. It drafts a plain-language conversation about what that methodology is intended to prove, what the current evidence can establish, and whether configuration or tests should change. The webview sends only a server or policy id where live state exists; the host re-resolves that state, redacts likely secrets, bounds it, fences it as reported data, and leaves the draft unsent for review.
+
 ## v0.235.3 — Webview text stays readable when panels resize
 
 **Labels, buttons, badges, and compact data rows now preserve normal words instead of shrinking them into character-wide columns.** The shared webview shell keeps `min-width: 0` on structural containers, where responsive grid and flex layouts need it, but no longer applies it to inline content and controls. Normal prose wraps between words, genuinely long links can still break anywhere, and controls remain bounded by their panel.

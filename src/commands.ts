@@ -13,8 +13,9 @@ import { pickWorkspaceFolder } from './utils/workspacePicker.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from './utils/aiInstructionSync.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
-import type { ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
+import type { AcpBridgeTreeItem, ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 import { parseCustomDebtMarkers } from './core/debtRegister.js';
+import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -1277,6 +1278,31 @@ export function registerCommands(
       await postSidebarSummaryToChat(atlas, heading, await buildModelSummary(atlas, item));
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.hideFromSidebar', async (
+      item?: ModelProviderTreeItem | ModelTreeItem | AcpBridgeTreeItem,
+    ) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item) { return; }
+
+      let entry: ModelSidebarHiddenEntry | undefined;
+      if (isModelTreeItem(item)) {
+        entry = { kind: 'model', providerId: item.providerId, modelId: item.modelId };
+      } else if (isModelProviderTreeItem(item)) {
+        entry = { kind: 'provider', providerId: item.providerId };
+      } else if (isAcpBridgeTreeItem(item)) {
+        entry = { kind: 'bridge', vendorId: item.vendorId, agentId: item.agentId };
+      }
+      if (!entry) { return; }
+
+      await hideModelSidebarEntry(context.globalState, entry);
+      atlas.modelsRefresh.fire();
+      const label = typeof item.label === 'string' ? item.label : item.label?.label ?? 'model row';
+      vscode.window.setStatusBarMessage(
+        `Hidden ${label} from the Models sidebar. Restore it in Settings → Models & Integrations.`,
+        6000,
+      );
+    }),
+
     vscode.commands.registerCommand('atlasmind.models.configureProvider', async (item?: ModelProviderTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas || !isModelProviderTreeItem(item)) { return; }
@@ -1451,6 +1477,16 @@ function isModelProviderTreeItem(item: unknown): item is ModelProviderTreeItem {
 function isModelTreeItem(item: unknown): item is ModelTreeItem {
   return typeof item === 'object' && item !== null
     && 'providerId' in item && 'modelId' in item && isModelContextValue(item);
+}
+
+function isAcpBridgeTreeItem(item: unknown): item is AcpBridgeTreeItem {
+  const candidate = item as { contextValue?: unknown; vendorId?: unknown; agentId?: unknown } | null;
+  return candidate !== null
+    && typeof candidate === 'object'
+    && typeof candidate.contextValue === 'string'
+    && candidate.contextValue.startsWith('acp-bridge-')
+    && typeof candidate.vendorId === 'string'
+    && typeof candidate.agentId === 'string';
 }
 
 function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): string {

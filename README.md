@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.235.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.237.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.235.3
+## What's new in 0.237.0
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Models sidebar can now be decluttered without changing routing.** An eye-closed icon on every provider, subscription route, and model row hides only that line from the tree. **Settings → Models & Integrations → Sidebar visibility** lists the hidden entries with individual Restore buttons; credentials, enablement, agent assignments, and router eligibility are unchanged.
+
+- **Errors and testing-policy cards now lead somewhere useful.** MCP connection/setup errors and Project Dashboard failures carry a consistent AtlasMind-logo action that opens the current problem as a reviewable Atlas Chat draft. Every Testing Policy Coverage card has the same compact affordance for a plain-language explanation of its evidence and configuration options. The webview sends stable identifiers where possible; the extension host re-reads live state, redacts likely secrets, fences reported text as data, and never auto-submits the draft.
 
 - **Webview controls and compact rows stay legible as panels resize.** Labels, buttons, and badges no longer volunteer to shrink below the width of an ordinary word and then split it into fragments. Structural panel boxes remain responsive, prose wraps at word boundaries, long URLs still contain themselves, and Project Ideation's memory checklist and confidence/risk analytics keep their labels and scores intact while the flexible text column takes the available space.
 
@@ -312,6 +316,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
 | `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
 | `AtlasMind: Compare Models on a Prompt` | Run a controlled prompt across configured models |
+| `Hide from Models Sidebar` | Sidebar-only eye-closed action that hides one provider, subscription route, or model until it is restored in Models & Integrations settings |
 | `AtlasMind: Manage MCP Servers` | Connect and manage MCP tool servers |
 | `AtlasMind: Resource Discovery` | Search, install, manage, and export agentic resources |
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
@@ -375,6 +380,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
+| `src/views/modelSidebarVisibility.ts` | User-level, presentation-only persistence for hidden Models sidebar rows and exact-entry restoration |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |

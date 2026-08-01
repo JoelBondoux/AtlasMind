@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.237.0] - 2026-08-01
+
+### Added
+- **Providers, subscription routes, and individual models can now be hidden from the Models sidebar without disabling them.** Every applicable row has an eye-closed action; the preference follows the VS Code user profile and changes presentation only, so credentials, enablement, agent assignments, and model routing remain untouched.
+- **Settings → Models & Integrations now restores hidden rows one by one.** The Sidebar Visibility card keeps hidden entries visible even when a provider is temporarily unavailable, resolves friendly live names when it can, and leaves a direct Settings placeholder in the tree when every provider or every child model is hidden.
+
+### Security
+- **The restore boundary accepts only a bounded opaque identity and matches it against host-owned user storage.** A Settings webview cannot manufacture a provider mutation or affect routing; unknown restore identities are ignored, malformed stored entries are discarded, and duplicate preferences are collapsed.
+
+## [0.236.0] - 2026-08-01
+
+### Added
+- **Operational errors now offer a direct, recognisable path into Atlas Chat.** MCP server-card failures and guided-setup warnings/errors show a shared AtlasMind-logo **Resolve with Atlas** action, while Project Dashboard refresh failures and retained activated-testing results use the same affordance. Each action opens a reviewable new-session draft instead of submitting anything automatically.
+- **Every Testing Policy Coverage card can now be discussed in context.** A compact AtlasMind logo beside the live status opens a plain-language explanation of what the enabled methodology is meant to establish, what the current files/report/tooling do and do not prove, and whether leaving the policy alone, changing configuration, or improving tests is the safest next step.
+
+### Fixed
+- **The retained activated-testing result handoff works again.** Its browser action had a validated message and a host-owned, redacted prompt builder, but the handler call itself was commented out, leaving the visible **Open result in Atlas Chat** control inert.
+- **`atlasmind.acp.hideConsoleWindows` now covers the ACP health probe, which is the path that launches most often.** Of the three places that start an agent, only the probe omitted its launch options, so the private-desktop wrapper saw no request and started the agent — and every console its descendants allocate — on the visible desktop. Any panel or tree refresh past the 5-minute probe TTL relaunched it, which is why a ticked checkbox still produced terminal windows. The probe cache key had always keyed on this setting; now the spawn honours it too.
+
+### Security
+- **Discussion actions re-resolve live host state instead of trusting displayed error or policy text.** MCP errors cross the webview boundary as a server id, Testing coverage as a fixed methodology id, and dashboard refresh failures use the host-retained error. Before any of those values reaches a chat draft, likely secrets are redacted, controls and length are bounded, and repository/process text is fenced explicitly as reported data rather than instructions.
+
 ## [0.235.3] - 2026-08-01
 
 ### Fixed

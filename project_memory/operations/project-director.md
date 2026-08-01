@@ -23,6 +23,7 @@ _None recorded yet._
 | dependabot[bot] | contributor | — | email (Email) |
 | copilot-swe-agent[bot] | contributor | — | email (Email) |
 | @JoelBondoux | code-owner | — | github (GitHub) |
+| atlasmind-local | contributor | — | buzz (Local Buzz) |
 
 ## Responsibilities
 
@@ -39,4 +40,4 @@ _None recorded yet._
 _No open follow-ups._
 ---
 
-_Last updated: 2026-07-28T02:14:47.553Z._
+_Last updated: 2026-08-01T11:24:00.535Z._

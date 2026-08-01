@@ -340,6 +340,12 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### Models Sidebar Visibility (`src/views/modelSidebarVisibility.ts`)
+
+The Models tree treats hidden rows as a **user-profile presentation preference**, never as model configuration. `ModelsTreeProvider` filters provider, ACP subscription-route, and model identities read from `globalState`; it does not call provider enablement, alter credentials, change agent assignments, or remove a candidate from `ModelRouter`. When filtering removes every root or every child of an expanded provider, the tree renders a Settings-linked placeholder so an intentionally quiet view cannot be mistaken for missing configuration.
+
+Settings → Models & Integrations reads the same bounded, sanitized entries and renders one Restore action per identity. The webview sends only an encoded entry key. The extension host re-reads its own stored array and removes an exact match, so a browser-originated message cannot invent a provider operation or use this presentation control to mutate routing. Entries retain raw provider/model ids rather than display labels, allowing live names to change without orphaning the restore preference.
+
 ### ProjectStateTree (`src/core/projectStateTree.ts`)
 
 The project state worth a glance without opening a panel, backing the sidebar's **Project State** view.
@@ -1043,6 +1049,7 @@ extension.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
+  ├── views/modelSidebarVisibility.ts (user-level Models tree filtering + exact-entry restore)
   └── core/orchestrator.ts
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.235.3",
+  "version": "0.237.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -391,6 +391,11 @@
         "command": "atlasmind.models.openInfo",
         "title": "Summarize Model In Chat",
         "icon": "$(info)"
+      },
+      {
+        "command": "atlasmind.models.hideFromSidebar",
+        "title": "Hide from Models Sidebar",
+        "icon": "$(eye-closed)"
       },
       {
         "command": "atlasmind.models.configureProvider",
@@ -876,6 +881,11 @@
           "group": "inline@5"
         },
         {
+          "command": "atlasmind.models.hideFromSidebar",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^(model-|acp-bridge-)/",
+          "group": "inline@7"
+        },
+        {
           "command": "atlasmind.acp.setUpBridge",
           "when": "view == atlasmind.modelsView && viewItem == acp-bridge-incomplete",
           "group": "inline@1"
@@ -945,6 +955,10 @@
         },
         {
           "command": "atlasmind.models.openInfo",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.models.hideFromSidebar",
           "when": "false"
         },
         {

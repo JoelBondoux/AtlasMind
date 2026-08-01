@@ -373,6 +373,46 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(summaries.at(-1)).toEqual({ total: 0, ordinary: 0, privateDesktop: 0 });
   });
 
+  it('launches the probe on the private desktop too, not just a turn', async () => {
+    // The bug this pins: `handshakeOnly` built its session without launch
+    // options, so `wrapAcpLaunchForPrivateDesktop` saw `requested: false` and
+    // started the agent — and every console its descendants allocate — on the
+    // user's visible desktop while `hideConsoleWindows` was ticked. The probe is
+    // the most frequently launched of the three paths (any panel or tree
+    // refresh past the TTL relaunches it), so it was also the one the user saw.
+    const { factory } = scriptedAgent();
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      hideConsoleWindows: true,
+    }).probe();
+
+    expect(launchModes).toEqual([true]);
+  });
+
+  it('leaves the probe on the ordinary desktop when the setting is off', async () => {
+    const { factory } = scriptedAgent();
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      hideConsoleWindows: false,
+    }).probe();
+
+    expect(launchModes).toEqual([false]);
+  });
+
   it('refuses every spawn until the Windows console-mode choice is recorded', async () => {
     const { factory, agents } = scriptedAgent();
     const adapter = new AcpAdapter({

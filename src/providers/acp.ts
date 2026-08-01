@@ -994,7 +994,26 @@ export class AcpAdapter implements ProviderAdapter {
   private async handshakeOnly(agent: AcpAgentConfig): Promise<AcpProbeResult> {
     let session: AcpSession | undefined;
     try {
-      session = new AcpSession(agent, this.spawnFactory(), this.options?.cwd, this.clientVersion(), PROBE_TIMEOUT_MS);
+      // The launch options are **not** optional here, even though a probe runs
+      // no tools and needs no permission policy. `privateDesktop` is not a
+      // session concern, it is a *launch* concern: omitting it made
+      // `wrapAcpLaunchForPrivateDesktop` take its `!requested` branch, so the
+      // probe started the agent — and every console its descendants allocate —
+      // on the user's visible desktop while the setting said otherwise. Since
+      // the probe is the most frequently launched path of the three (a TTL
+      // miss on any panel or tree refresh relaunches it), it was also the one
+      // the user saw, which is what made a ticked checkbox look ignored.
+      // `probeCacheKey` has always keyed on this value; now the spawn honours it.
+      session = new AcpSession(
+        agent,
+        this.spawnFactory(),
+        this.options?.cwd,
+        this.clientVersion(),
+        PROBE_TIMEOUT_MS,
+        undefined,
+        undefined,
+        { privateDesktop: this.hideConsoleWindows() },
+      );
       const initialized = await session.initialize();
       if (!initialized.compatible) {
         return {

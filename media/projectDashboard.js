@@ -11,6 +11,7 @@
   const versionStrip = document.getElementById('dashboard-version-strip');
   const noProjectBanner = document.getElementById('no-project-banner');
   const statusRegion = document.getElementById('dashboard-status');
+  const atlasDiscussIconUri = root?.dataset.atlasDiscussIcon || '';
 
   // Targeted announcement, replacing the aria-live that used to wrap the whole
   // dashboard and re-read all 14 pages on every render.
@@ -18,6 +19,12 @@
     if (statusRegion) {
       statusRegion.textContent = message;
     }
+  }
+
+  function renderAtlasDiscussAction(action, payload, label, options = {}) {
+    const iconOnly = options.iconOnly === true;
+    const title = options.title || label;
+    return `<button type="button" class="atlas-discuss-action${iconOnly ? ' icon-only' : ''}" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
   noProjectBanner?.addEventListener('click', event => {
@@ -541,6 +548,18 @@
     }
     if (action === 'prompt') {
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
+      return;
+    }
+    if (action === 'discuss-testing-policy') {
+      // Re-resolved from the current host-side testing snapshot. No displayed
+      // description, failure text or proposed instruction crosses this boundary.
+      vscode.postMessage({ type: 'discussTestingPolicy', payload: { id: payload } });
+      return;
+    }
+    if (action === 'discuss-dashboard-error') {
+      // The host retained the error that it sent. A webview-side render failure
+      // falls back to a generic diagnosis prompt rather than round-tripping DOM.
+      vscode.postMessage({ type: 'discussDashboardError' });
       return;
     }
     if (action === 'risk-run') {
@@ -2005,6 +2024,14 @@
         <div>
           <strong>Dashboard refresh failed</strong>
           <div class="stat-detail">${escapeHtml(message)}</div>
+          <div class="tag-row" style="margin-top:10px">
+            ${renderAtlasDiscussAction(
+              'discuss-dashboard-error',
+              '',
+              'Resolve with Atlas',
+              { title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
+            )}
+          </div>
         </div>
       </div>
     `;
@@ -3026,7 +3053,12 @@
       : '';
     const chatAction = result
       ? `<div class="tag-row testing-fix-actions">
-          <button type="button" class="action-link" data-action="testing-fix-chat">Open result in Atlas Chat</button>
+          ${renderAtlasDiscussAction(
+            'testing-fix-chat',
+            '',
+            result.outcome === 'failed' ? 'Resolve with Atlas' : 'Discuss with Atlas',
+            { title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
+          )}
           <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
         </div>`
       : '';
@@ -3095,7 +3127,18 @@
         <div class="policy-card status-${escapeAttr(row.status)}${row.failedCount > 0 ? ' has-failures' : ''}">
           <div class="policy-card-head">
             <strong>${escapeHtml(row.label)}</strong>
-            <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+            <div class="policy-card-head-actions">
+              <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+              ${renderAtlasDiscussAction(
+                'discuss-testing-policy',
+                row.id,
+                `Discuss ${row.label} with Atlas`,
+                {
+                  iconOnly: true,
+                  title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options`,
+                },
+              )}
+            </div>
           </div>
           ${counts.length > 0 ? `<div class="policy-card-signals">${escapeHtml(counts.join(' · '))}</div>` : ''}
           <div class="policy-card-detail">${escapeHtml(row.detail)}</div>
