@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.235.0] - 2026-08-01
+
+### Changed
+- **Personality Profile returns to the native AtlasMind Chat title bar, joined by Website Studio.** The existing account and globe commands now occupy visible top-right icon slots alongside Project Dashboard, Mission Control, and Settings. Project Ideation and Cost Dashboard remain reachable from the title bar’s `…` overflow, preserving the tested five-inline-action ceiling instead of silently hiding one of the requested shortcuts.
+
 ## [0.234.0] - 2026-08-01
 
 ### Added

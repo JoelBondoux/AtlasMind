@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.235.0 — Personality and Web/UI at the top of Chat
+
+**Personality Profile is back in the native AtlasMind Chat title bar, and Website Studio joins it.** The account and globe icons are visible at the top right alongside Project Dashboard, Mission Control, and Settings. Project Ideation and Cost Dashboard stay available under `…`, so both requested manager links remain one click away without exceeding the five-inline-action limit.
+
 ## v0.234.0 — Instructions you can follow, and panels you can reach
 
 **"Installed but not signed in" now names the command that signs you in.** It used to say to run the agent once in a terminal, naming nothing — and the command on screen at that moment is the one that *cannot* log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials rather than holding its own. The sign-in command is now recorded separately, read from each vendor's documentation, and offered as **Open a terminal with the command** — which types it and stops there. AtlasMind never presses Enter and never sees the credential. An agent it has no documented flow for is told as much, rather than handed a guess.

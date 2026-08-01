@@ -19,6 +19,7 @@ type Walkthrough = {
 type ContributedCommand = {
   command: string;
   title?: string;
+  icon?: string;
 };
 
 type ContributedKeybinding = {
@@ -428,20 +429,42 @@ describe('package manifest', () => {
     ]));
   });
 
-  it('adds a dashboard shortcut to the AtlasMind chat view title bar', () => {
+  it('keeps Personality and Website Studio visible in the AtlasMind chat title bar', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+
+    expect(commands.find(entry => entry.command === 'atlasmind.openPersonalityProfile')?.icon).toBe('$(account)');
+    expect(commands.find(entry => entry.command === 'atlasmind.openWebsiteStudio')?.icon).toBe('$(globe)');
     expect(menus).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.openProjectDashboard',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@1',
       }),
       expect.objectContaining({
-        command: 'atlasmind.openCostDashboard',
+        command: 'atlasmind.openPersonalityProfile',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@3',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openWebsiteStudio',
+        when: 'view == atlasmind.chatView',
+        group: 'navigation@4',
       }),
       expect.objectContaining({
         command: 'atlasmind.openSettings',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@5',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.chatView',
+        group: '2_workspaces@1',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openCostDashboard',
+        when: 'view == atlasmind.chatView',
+        group: '2_workspaces@2',
       }),
       expect.objectContaining({
         command: 'atlasmind.importProject',
