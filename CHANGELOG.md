@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.245.0] - 2026-08-01
+
+### Added
+
+- **Show impact now opens the first general code Change Impact Map for a selected symbol.** AtlasMind reuses the active VS Code language provider's bounded call-hierarchy and reference evidence, then groups source-backed implications into upstream callers, downstream callees, and other source consumers. Direct and second-level call proximity stays visible, and every item can open its exact source or prepare an editable impact-focused Ask Atlas draft.
+- **The visual map includes an equivalent text view and explicit evidence gaps.** Contracts, schemas, configuration, documentation, tests, and runtime reachability remain named unknowns until their own adapters contribute; absence from the map is never presented as proof of zero impact.
+
+### Security
+
+- **Impact analysis is local, static, bounded, and non-mutating.** Opening it invokes no model, runs no project code, and makes no source change. The CSP-protected webview receives normalized data only after its ready handshake, renders labels through DOM text, and returns only a bounded host-held target id. The extension revalidates the live workspace identity and path before opening source or attaching the item to a reviewable chat draft.
+
 ## [0.244.0] - 2026-08-01
 
 ### Added

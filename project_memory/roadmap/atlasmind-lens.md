@@ -88,9 +88,11 @@ The v0.243 board adds the first Schema Change Impact preview for rename, removal
 
 The v0.244 board adds the first Relationship Map from SQL inline `REFERENCES` and single-column table `FOREIGN KEY` declarations. Relations keep exact clause locations, resolve unique endpoints across the bounded same-root declaration set, preserve unresolved/ambiguous labels, support Open/Ask, and contribute to Schema Change Impact. Composite/dialect-specific keys, ORM relations, GraphQL resolvers, loaders, queries, runtime traversal, validator/ORM/decorator contracts, generated clients, historical drift, and wider change impact remain active work.
 
-### Phase 4 — Change Impact Map
+### Phase 4 — Change Impact Map (in progress, v0.245.0)
 
 Starting from a target or working-tree diff, show upstream callers, downstream consumers, public contracts, configuration, schemas, tests, documentation, and operational surfaces likely to be affected. Rank by evidence and proximity, expose why each item is present, and preserve unknowns.
+
+The v0.245 vertical slice turns **Show impact** on a Code Explorer symbol into a bounded editor map of language-service callers, two outgoing-call levels, and other references. It groups upstream, downstream, and consumer evidence; retains proximity/provider evidence; offers exact Open/Ask actions and a text equivalent; and makes no edits. Working-tree diffs, file-level analysis, public contracts, configuration, schemas, tests, documentation, operational surfaces, and runtime reachability remain named unknowns until their adapters land.
 
 ### Phase 5 — Test and Behaviour Map
 
@@ -133,6 +135,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Define the normalized contract/schema source model and explicit mapping file.
 - [x] Add fixtures for renamed, transformed, dropped, incompatible, and unverifiable fields.
 - [x] Establish graph performance budgets and accessibility acceptance tests.
+- [x] Open the first source-backed Change Impact Map from a selected symbol.
 
 ## Out of scope for the foundation
 

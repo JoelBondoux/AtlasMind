@@ -8,6 +8,7 @@ const {
   revealPreferredChatSurface,
   buildPossibleFlow,
   showJourney,
+  showImpact,
   activeEditor,
   primaryUri,
   secondaryUri,
@@ -23,6 +24,7 @@ const {
     revealPreferredChatSurface: vi.fn(),
     buildPossibleFlow: vi.fn(),
     showJourney: vi.fn(),
+    showImpact: vi.fn(),
     primaryUri,
     secondaryUri,
     workspaceFolders: [
@@ -101,6 +103,9 @@ vi.mock('../../src/views/lensLanguageGraph', () => ({
 vi.mock('../../src/views/lensJourneyPanel', () => ({
   LensJourneyPanel: { createOrShow: showJourney },
 }));
+vi.mock('../../src/views/lensImpactPanel', () => ({
+  LensImpactPanel: { createOrShow: showImpact },
+}));
 
 import { LensTreeProvider } from '../../src/views/lensTreeView';
 
@@ -114,6 +119,7 @@ describe('AtlasMind Lens outline tree', () => {
     revealPreferredChatSurface.mockReset();
     buildPossibleFlow.mockReset();
     showJourney.mockReset();
+    showImpact.mockReset();
   });
 
   it('maps the active file and nested language-service symbols into queryable targets', async () => {
@@ -309,6 +315,28 @@ describe('AtlasMind Lens outline tree', () => {
 
     expect(buildPossibleFlow).toHaveBeenCalledWith(symbols[0]?.target, primaryUri);
     expect(showJourney).toHaveBeenCalledWith(graph);
+    expect(revealPreferredChatSurface).not.toHaveBeenCalled();
+  });
+
+  it('builds and opens a change-impact map from the selected symbol', async () => {
+    executeCommand.mockResolvedValueOnce([{
+      name: 'run',
+      kind: 11,
+      range: { start: { line: 3, character: 0 }, end: { line: 6, character: 1 } },
+      selectionRange: { start: { line: 3, character: 0 }, end: { line: 3, character: 3 } },
+      children: [],
+    }]);
+    showQuickPick.mockResolvedValue({ label: 'Show impact', action: 'impact' });
+    const graph = { id: 'impact-graph' };
+    buildPossibleFlow.mockResolvedValue(graph);
+    const provider = new LensTreeProvider();
+    const roots = await provider.getChildren();
+    const symbols = await provider.getChildren(roots[0]);
+
+    await provider.runTargetAction(symbols[0]);
+
+    expect(buildPossibleFlow).toHaveBeenCalledWith(symbols[0]?.target, primaryUri);
+    expect(showImpact).toHaveBeenCalledWith(graph);
     expect(revealPreferredChatSurface).not.toHaveBeenCalled();
   });
 });

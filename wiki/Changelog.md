@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.245.0 — Lens maps source-backed code impact
+
+**Show impact on a Code Explorer symbol now opens an editor-hosted Change Impact Map.** Bounded VS Code call-hierarchy and reference evidence is grouped into upstream callers, downstream callees, and other source consumers, with visible proximity, exact Open/Ask actions, and an equivalent text view.
+
+**The first slice stays honest about its boundary.** It is static and code-only; contracts, schemas, configuration, documentation, tests, and runtime reachability remain named unknowns. The map invokes no model, executes no project code, edits nothing, and treats absence as missing evidence rather than zero impact.
+
 ## v0.244.0 — Lens maps declared SQL relationships
 
 **Field Wiring now shows inline `REFERENCES` and single-column table `FOREIGN KEY` declarations as a Relationship Map.** Exact clause-backed cards name source/target fields, endpoint resolution, and evidence; they can open source or prepare an editable Ask draft, and affected relations contribute to Schema Change Impact.

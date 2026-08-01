@@ -11,6 +11,7 @@ import type { LensTargetActionId } from '../core/lensTarget.js';
 import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
 import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
+import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
 
@@ -235,12 +236,23 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     if (!selected) {
       return;
     }
-    if (selected.action === 'journey') {
+    if (
+      selected.action === 'journey' ||
+      (selected.action === 'impact' && target.kind === 'symbol' && Boolean(target.range))
+    ) {
       try {
         const graph = await this.languageGraph.buildPossibleFlow(target, item.uri);
-        LensJourneyPanel.createOrShow(graph);
+        if (selected.action === 'impact') {
+          LensImpactPanel.createOrShow(graph);
+        } else {
+          LensJourneyPanel.createOrShow(graph);
+        }
       } catch {
-        void vscode.window.showWarningMessage('AtlasMind Lens could not build a safe possible-flow journey for this symbol.');
+        void vscode.window.showWarningMessage(
+          selected.action === 'impact'
+            ? 'AtlasMind Lens could not build a safe change-impact map for this symbol.'
+            : 'AtlasMind Lens could not build a safe possible-flow journey for this symbol.',
+        );
       }
       return;
     }

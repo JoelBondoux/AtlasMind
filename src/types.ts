@@ -2259,6 +2259,34 @@ export interface LensGraph {
   truncated: boolean;
 }
 
+export type LensCodeImpactCategory =
+  | 'upstream-caller'
+  | 'downstream-callee'
+  | 'consumer-reference';
+
+/** One evidence-backed reason a selected symbol may be affected by, or affect, another source target. */
+export interface LensCodeImpactItem {
+  id: string;
+  category: LensCodeImpactCategory;
+  relation: LensGraphRelation;
+  /** One is directly connected to the selected symbol; larger values are farther away. */
+  proximity: number;
+  target: LensVisualTarget;
+  reason: string;
+  evidence: LensEvidence;
+}
+
+/** Bounded projection of a language-service graph into a change-review surface. */
+export interface LensCodeImpact {
+  version: 1;
+  id: string;
+  label: string;
+  root: LensVisualTarget;
+  items: LensCodeImpactItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
 export type LensContractLayer =
   | 'ui'
   | 'api'

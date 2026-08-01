@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.244.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.245.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.244.0
+## What's new in 0.245.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Field Wiring now includes a Relationship Map for declared SQL foreign keys.** Inline `REFERENCES` and single-column table `FOREIGN KEY` clauses become exact line-backed cards showing source/target fields, resolution state, and declared evidence. Unique table/field endpoints resolve across the bounded workspace discovery set; unresolved, ambiguous, composite, or dialect-specific endpoints stay visibly unknown rather than guessed. A relation can open at its declaration or prepare an editable Atlas draft, and Schema Change Impact now ranks any declared relationship touching the proposed field. Discovery remains local/declaration-only and never executes SQL or connects to a database. The v0.243 field-change preview remains available.
+- **Show impact now opens a source-backed Change Impact Map for a selected symbol.** The map groups bounded VS Code call-hierarchy/reference evidence into upstream callers, downstream callees, and other source consumers, retains proximity and provider evidence, and offers exact Open and editable Ask Atlas actions plus an accessible text view. Contracts, schemas, configuration, documentation, tests, and runtime reachability remain visibly unknown until later adapters contribute; missing evidence is never presented as no impact. Opening the map invokes no model, executes no project code, and makes no source edit. The v0.244 SQL Relationship Map remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -326,7 +326,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 
-Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow** for symbols plus focused Explain, impact, and test-review drafts. Journey nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
+Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow** and a bounded **Show impact** map for symbols plus focused Explain and test-review drafts. File-level Show impact remains an editable draft until file/diff adapters land. Journey and impact nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
 
 ---
 
@@ -369,6 +369,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
+| `src/core/lensCodeImpact.ts` | Deterministic caller/callee/reference projection for the first general Change Impact Map |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
@@ -384,6 +385,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and Lens action menu |
 | `src/views/lensLanguageGraph.ts` | VS Code reference and call-hierarchy adapter for static possible-flow journeys |
 | `src/views/lensJourneyPanel.ts` | Secure editor-hosted journey graph with exact source/chat actions and a text alternative |
+| `src/views/lensImpactPanel.ts` | Secure editor-hosted code-impact map with exact source/chat actions and a text alternative |
 | `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |
 | `src/views/lensContractReviewPanel.ts` | Filterable Field Wiring board with source-backed field and relation actions |
 | `schemas/lens-mappings.schema.json` | VS Code validation and completion for `.atlasmind/lens-mappings.json` |
