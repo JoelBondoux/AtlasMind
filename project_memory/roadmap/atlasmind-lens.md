@@ -26,7 +26,7 @@ Each target carries:
 
 ## Delivery sequence
 
-### Phase 1 — Queryable Code Outline (in progress, v0.235.0–v0.236.0)
+### Phase 1 — Queryable Code Outline (complete, v0.235.0–v0.237.0)
 
 Add **Lens — Code Explorer** to the AtlasMind sidebar. It follows the active editor, renders nested symbols through VS Code's language services, opens a symbol at its exact range, and attaches a validated source target to an editable Atlas Chat draft.
 
@@ -38,7 +38,8 @@ Exit criteria:
 - target payloads do not contain source text or absolute filesystem paths;
 - empty, unsupported, and outside-workspace states are explicit;
 - multi-root ownership is explicit and revalidated before source or chat actions;
-- symbol filtering is designed before workspace-wide expansion.
+- symbol-role filtering preserves matching descendants and their structural ancestors;
+- focused Explain, impact, and test-review actions prepare drafts without auto-submitting.
 
 ### Phase 2 — Entrypoint Journey and Execution Flow Explorer
 
@@ -112,7 +113,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Add the native active-file Code Explorer outline.
 - [x] Add exact source navigation and reviewable Ask Atlas drafts.
 - [x] Add multi-root-aware workspace identity to source targets.
-- [ ] Add symbol kind/filter controls and target actions beyond Ask Atlas.
+- [x] Add symbol kind/filter controls and target actions beyond Ask Atlas.
 - [ ] Add reference and call-hierarchy adapters with evidence labels.
 - [ ] Prototype the editor-hosted journey graph on one entrypoint type.
 - [ ] Define the normalized contract/schema source model and explicit mapping file.

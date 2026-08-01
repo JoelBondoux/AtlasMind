@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.237.0] - 2026-08-01
+
+### Added
+
+- **Lens Code Explorer can now focus the outline by symbol role.** A filter action in the view title selects all symbols, types, callables, data, or containers and remembers the choice for the workspace. Filtering prunes non-matches while retaining an unmatched ancestor when one of its descendants matches, so structural context is not lost.
+- **Every Lens file and symbol now has explicit follow-up actions beyond a free-form question.** **Explain this**, **Show impact**, and **Find tests** prepare focused, editable Atlas Chat drafts using the same validated source target and evidence context. The actions are grouped behind one item menu rather than crowding the sidebar.
+
+### Security
+
+- **Lens follow-up actions preserve the existing source trust boundary.** The selected URI, workspace root, relative path, and target payload are revalidated before the action picker opens; drafts contain no source text or absolute path and are never submitted automatically.
+
 ## [0.236.0] - 2026-08-01
 
 ### Changed

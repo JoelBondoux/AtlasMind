@@ -44,6 +44,8 @@ export interface CreateSourceLensTargetInput {
   symbolKind?: string;
 }
 
+export type LensTargetActionId = 'explain' | 'impact' | 'tests';
+
 /**
  * Build a target from a VS Code language-service result.
  *
@@ -123,11 +125,22 @@ export function normalizeLensTarget(value: unknown): LensVisualTarget | undefine
 /** Human-editable composer seed. It identifies the target but leaves the question to the operator. */
 export function buildLensDraftPrompt(target: LensVisualTarget): string {
   const normalized = requireNormalizedTarget(target);
-  const sourceLocation = normalized.range
-    ? `${normalized.workspacePath}:${normalized.range.startLine}-${normalized.range.endLine}`
-    : normalized.workspacePath;
-  const location = `${normalized.workspace.name} :: ${sourceLocation}`;
+  const location = describeLensTargetLocation(normalized);
   return `Question about \`${normalized.label}\` (${location}):`;
+}
+
+/** Build one of the explicit, reviewable Lens target-action drafts. */
+export function buildLensActionDraftPrompt(
+  target: LensVisualTarget,
+  action: LensTargetActionId,
+): string {
+  const normalized = requireNormalizedTarget(target);
+  const request = action === 'explain'
+    ? `Explain how \`${normalized.label}\` works, including its inputs, outputs, dependencies, and side effects.`
+    : action === 'impact'
+      ? `Assess the change impact of \`${normalized.label}\`. Identify likely callers, consumers, contracts, tests, and risks, and distinguish proven links from inferences.`
+      : `Find and assess tests for \`${normalized.label}\`. Identify covered behaviour, missing evidence, and the smallest useful tests to add.`;
+  return `${request}\n\nTarget: ${describeLensTargetLocation(normalized)}\n\nInspect the live workspace before making claims.`;
 }
 
 /**
@@ -153,6 +166,13 @@ function requireNormalizedTarget(target: LensVisualTarget): LensVisualTarget {
     throw new Error('Invalid AtlasMind Lens target.');
   }
   return normalized;
+}
+
+function describeLensTargetLocation(target: LensVisualTarget): string {
+  const sourceLocation = target.range
+    ? `${target.workspacePath}:${target.range.startLine}-${target.range.endLine}`
+    : target.workspacePath;
+  return `${target.workspace.name} :: ${sourceLocation}`;
 }
 
 function normalizeEvidence(value: unknown): LensVisualTarget['evidence'] | undefined {

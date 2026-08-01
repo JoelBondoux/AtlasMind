@@ -294,6 +294,30 @@ describe('package manifest', () => {
     ]));
   });
 
+  it('contributes Lens filtering and item actions without exposing item-only commands in the palette', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
+    const itemMenus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
+    const titleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+
+    expect(commands.map(entry => entry.command)).toEqual(expect.arrayContaining([
+      'atlasmind.lens.filterSymbols',
+      'atlasmind.lens.moreTargetActions',
+    ]));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.filterSymbols',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(itemMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.moreTargetActions',
+      when: expect.stringContaining('atlasmind.lensView'),
+    }));
+    expect(paletteMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.moreTargetActions',
+      when: 'false',
+    }));
+  });
+
   it('contributes the Sessions sidebar view', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string; visibility?: string }>;
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');

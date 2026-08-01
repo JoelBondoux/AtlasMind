@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.237.0 — Lens can focus and ask sharper questions
+
+**Code Explorer can filter by symbol role without flattening the code's structure.** Choose all symbols, types, callables, data, or containers from the Lens title bar. A class or namespace remains visible when one of its descendants matches, and the workspace remembers the choice.
+
+**Files and symbols now offer focused follow-ups.** **More Target Actions…** prepares Explain, change-impact, or test-review drafts using the same validated target and evidence context as Ask Atlas. The selected workspace root and path are rechecked first, source is not copied, and the draft is never sent automatically.
+
 ## v0.236.0 — Lens knows which project a target belongs to
 
 **Lens targets are now safe in multi-root workspaces.** Each file and symbol carries the live workspace root's name and position alongside its root-relative path, so matching files in separate projects remain distinct in target ids, labels, navigation, and Ask Atlas context.

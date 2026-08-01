@@ -1,15 +1,42 @@
 import * as vscode from 'vscode';
 
 import {
+  buildLensActionDraftPrompt,
   buildLensContextPatch,
   buildLensDraftPrompt,
   createSourceLensTarget,
   normalizeLensTarget,
 } from '../core/lensTarget.js';
+import type { LensTargetActionId } from '../core/lensTarget.js';
 import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
 
 const LENS_VIEW_ID = 'atlasmind.lensView';
+const LENS_FILTER_STORAGE_KEY = 'atlasmind.lens.symbolFilter';
+
+type LensSymbolFilter = 'all' | 'types' | 'callables' | 'data' | 'containers';
+
+interface LensSymbolFilterOption extends vscode.QuickPickItem {
+  filter: LensSymbolFilter;
+}
+
+interface LensTargetActionOption extends vscode.QuickPickItem {
+  action: LensTargetActionId;
+}
+
+const SYMBOL_FILTER_OPTIONS: readonly LensSymbolFilterOption[] = [
+  { label: 'All symbols', description: 'Show every symbol returned by the language service', filter: 'all' },
+  { label: 'Types', description: 'Classes, interfaces, structs, enums, and type parameters', filter: 'types' },
+  { label: 'Callables', description: 'Functions, methods, constructors, and operators', filter: 'callables' },
+  { label: 'Data', description: 'Variables, constants, properties, fields, and enum members', filter: 'data' },
+  { label: 'Containers', description: 'Modules, namespaces, packages, objects, and classes', filter: 'containers' },
+];
+
+const TARGET_ACTION_OPTIONS: readonly LensTargetActionOption[] = [
+  { label: 'Explain this', description: 'Draft a question about behaviour and dependencies', action: 'explain' },
+  { label: 'Show impact', description: 'Draft a change-impact review with evidence labels', action: 'impact' },
+  { label: 'Find tests', description: 'Draft a test and behaviour coverage review', action: 'tests' },
+];
 
 /** A source-backed file or symbol displayed in the first AtlasMind Lens view. */
 export class LensTreeItem extends vscode.TreeItem {
@@ -59,10 +86,12 @@ class LensMessageTreeItem extends vscode.TreeItem {
 export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | LensMessageTreeItem>, vscode.Disposable {
   private readonly changeEmitter = new vscode.EventEmitter<LensTreeItem | LensMessageTreeItem | undefined>();
   private readonly disposables: vscode.Disposable[];
+  private symbolFilter: LensSymbolFilter;
 
   public readonly onDidChangeTreeData = this.changeEmitter.event;
 
-  constructor() {
+  constructor(private readonly workspaceState?: vscode.Memento) {
+    this.symbolFilter = normalizeSymbolFilter(workspaceState?.get<unknown>(LENS_FILTER_STORAGE_KEY));
     this.disposables = [
       vscode.window.onDidChangeActiveTextEditor(() => this.refresh()),
       vscode.workspace.onDidSaveTextDocument(document => {
@@ -89,6 +118,22 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     }
   }
 
+  public async chooseSymbolFilter(): Promise<void> {
+    const selected = await vscode.window.showQuickPick(
+      SYMBOL_FILTER_OPTIONS.map(option => ({ ...option, picked: option.filter === this.symbolFilter })),
+      {
+        title: 'AtlasMind Lens symbol filter',
+        placeHolder: 'Choose which symbol kinds the Code Explorer should show',
+      },
+    );
+    if (!selected || selected.filter === this.symbolFilter) {
+      return;
+    }
+    this.symbolFilter = selected.filter;
+    await this.workspaceState?.update(LENS_FILTER_STORAGE_KEY, selected.filter);
+    this.refresh();
+  }
+
   public getTreeItem(element: LensTreeItem | LensMessageTreeItem): vscode.TreeItem {
     return element;
   }
@@ -107,7 +152,12 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
       }
       return element.children.length > 0
         ? element.children
-        : [new LensMessageTreeItem('No outline available', 'The active language service returned no symbols.')];
+        : [new LensMessageTreeItem(
+          this.symbolFilter === 'all' ? 'No outline available' : 'No symbols match the filter',
+          this.symbolFilter === 'all'
+            ? 'The active language service returned no symbols.'
+            : `The active language service returned no ${symbolFilterLabel(this.symbolFilter).toLowerCase()}.`,
+        )];
     }
     if (element) {
       return element.children ?? [];
@@ -160,25 +210,86 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     });
   }
 
+  public async runTargetAction(candidate: unknown): Promise<void> {
+    const item = candidate instanceof LensTreeItem ? candidate : undefined;
+    const target = normalizeLensTarget(item?.target);
+    if (!item || !target || !isMatchingWorkspaceUri(item.uri, target)) {
+      void vscode.window.showWarningMessage('AtlasMind refused an invalid or out-of-workspace Lens target.');
+      return;
+    }
+
+    const selected = await vscode.window.showQuickPick([...TARGET_ACTION_OPTIONS], {
+      title: `Lens actions for ${target.label}`,
+      placeHolder: 'Choose a reviewable Atlas Chat draft',
+    });
+    if (!selected) {
+      return;
+    }
+    await revealPreferredChatSurface({
+      draftPrompt: buildLensActionDraftPrompt(target, selected.action),
+      contextPatch: buildLensContextPatch(target),
+    });
+  }
+
   private async loadDocumentSymbols(
     uri: vscode.Uri,
     workspacePath: string,
     workspace: LensWorkspaceIdentity,
   ): Promise<LensTreeItem[]> {
     const raw = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
-    return raw.flatMap(symbol => toLensTreeItem(symbol, uri, workspacePath, workspace));
+    const symbols = raw.flatMap(symbol => toLensTreeItem(symbol, uri, workspacePath, workspace));
+    return filterLensTreeItems(symbols, this.symbolFilter);
   }
 }
 
 export function registerLensTreeView(context: vscode.ExtensionContext): void {
-  const provider = new LensTreeProvider();
+  const provider = new LensTreeProvider(context.workspaceState);
   context.subscriptions.push(
     provider,
     vscode.window.registerTreeDataProvider(LENS_VIEW_ID, provider),
     vscode.commands.registerCommand('atlasmind.lens.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('atlasmind.lens.filterSymbols', () => provider.chooseSymbolFilter()),
     vscode.commands.registerCommand('atlasmind.lens.openTarget', (item?: unknown) => provider.openTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.askTarget', (item?: unknown) => provider.askAboutTarget(item)),
+    vscode.commands.registerCommand('atlasmind.lens.moreTargetActions', (item?: unknown) => provider.runTargetAction(item)),
   );
+}
+
+function filterLensTreeItems(items: LensTreeItem[], filter: LensSymbolFilter): LensTreeItem[] {
+  if (filter === 'all') {
+    return items;
+  }
+  return items.flatMap(item => {
+    const children = filterLensTreeItems(item.children ?? [], filter);
+    if (!matchesSymbolFilter(item.target.symbolKind, filter) && children.length === 0) {
+      return [];
+    }
+    return [new LensTreeItem(item.target, item.uri, item.navigationRange, children)];
+  });
+}
+
+function matchesSymbolFilter(kind: string | undefined, filter: LensSymbolFilter): boolean {
+  const normalized = kind?.toLowerCase() ?? '';
+  if (filter === 'types') {
+    return ['class', 'interface', 'struct', 'enum', 'typeparameter'].includes(normalized);
+  }
+  if (filter === 'callables') {
+    return ['function', 'method', 'constructor', 'operator'].includes(normalized);
+  }
+  if (filter === 'data') {
+    return ['variable', 'constant', 'property', 'field', 'enummember'].includes(normalized);
+  }
+  return ['module', 'namespace', 'package', 'object', 'class'].includes(normalized);
+}
+
+function normalizeSymbolFilter(value: unknown): LensSymbolFilter {
+  return value === 'types' || value === 'callables' || value === 'data' || value === 'containers'
+    ? value
+    : 'all';
+}
+
+function symbolFilterLabel(filter: LensSymbolFilter): string {
+  return SYMBOL_FILTER_OPTIONS.find(option => option.filter === filter)?.label ?? 'All symbols';
 }
 
 function toLensTreeItem(

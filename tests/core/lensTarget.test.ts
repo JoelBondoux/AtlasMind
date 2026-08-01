@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildLensActionDraftPrompt,
   buildLensContextPatch,
   buildLensDraftPrompt,
   createSourceLensTarget,
@@ -148,5 +149,10 @@ describe('AtlasMind Lens visual targets', () => {
         instruction: expect.stringContaining('inspect live workspace evidence'),
       },
     });
+
+    expect(buildLensActionDraftPrompt(target, 'explain')).toContain('Explain how `routePanelPrompt` works');
+    expect(buildLensActionDraftPrompt(target, 'impact')).toContain('Assess the change impact of `routePanelPrompt`');
+    expect(buildLensActionDraftPrompt(target, 'tests')).toContain('Find and assess tests for `routePanelPrompt`');
+    expect(buildLensActionDraftPrompt(target, 'impact')).toContain('atlasmind :: src/views/chatSlashRouting.ts:80-130');
   });
 });

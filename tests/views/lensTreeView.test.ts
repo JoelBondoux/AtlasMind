@@ -1,12 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { executeCommand, showTextDocument, showWarningMessage, activeEditor, primaryUri, secondaryUri, workspaceFolders } = vi.hoisted(() => {
+const {
+  executeCommand,
+  showQuickPick,
+  showTextDocument,
+  showWarningMessage,
+  revealPreferredChatSurface,
+  activeEditor,
+  primaryUri,
+  secondaryUri,
+  workspaceFolders,
+} = vi.hoisted(() => {
   const primaryUri = { scheme: 'file', path: '/workspace/src/example.ts', fsPath: '/workspace/src/example.ts' };
   const secondaryUri = { scheme: 'file', path: '/api/src/example.ts', fsPath: '/api/src/example.ts' };
   return {
     executeCommand: vi.fn(),
+    showQuickPick: vi.fn(),
     showTextDocument: vi.fn(),
     showWarningMessage: vi.fn(),
+    revealPreferredChatSurface: vi.fn(),
     primaryUri,
     secondaryUri,
     workspaceFolders: [
@@ -39,7 +51,16 @@ vi.mock('vscode', () => ({
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
   ThemeIcon: class { constructor(public readonly id: string) {} },
   MarkdownString: class { constructor(public readonly value: string) {} },
-  SymbolKind: { 4: 'Class', 11: 'Function', Class: 4, Function: 11 },
+  SymbolKind: {
+    4: 'Class',
+    5: 'Method',
+    7: 'Property',
+    11: 'Function',
+    Class: 4,
+    Method: 5,
+    Property: 7,
+    Function: 11,
+  },
   Selection: class {
     constructor(public readonly start: unknown, public readonly end: unknown) {}
   },
@@ -55,6 +76,7 @@ vi.mock('vscode', () => ({
     onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: vi.fn() })),
     showTextDocument,
     showWarningMessage,
+    showQuickPick,
   },
   workspace: {
     workspaceFolders,
@@ -66,14 +88,18 @@ vi.mock('vscode', () => ({
   commands: { executeCommand },
 }));
 
+vi.mock('../../src/views/chatPanel', () => ({ revealPreferredChatSurface }));
+
 import { LensTreeProvider } from '../../src/views/lensTreeView';
 
 describe('AtlasMind Lens outline tree', () => {
   beforeEach(() => {
     activeEditor.document.uri = primaryUri;
     executeCommand.mockReset();
+    showQuickPick.mockReset();
     showTextDocument.mockReset();
     showWarningMessage.mockReset();
+    revealPreferredChatSurface.mockReset();
   });
 
   it('maps the active file and nested language-service symbols into queryable targets', async () => {
@@ -197,5 +223,56 @@ describe('AtlasMind Lens outline tree', () => {
 
     expect(showTextDocument).not.toHaveBeenCalled();
     expect(showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('invalid or out-of-workspace'));
+  });
+
+  it('filters symbol kinds while retaining ancestors of matching descendants', async () => {
+    executeCommand.mockResolvedValueOnce([{
+      name: 'Controller',
+      kind: 4,
+      range: { start: { line: 1, character: 0 }, end: { line: 20, character: 1 } },
+      selectionRange: { start: { line: 1, character: 6 }, end: { line: 1, character: 16 } },
+      children: [
+        {
+          name: 'run',
+          kind: 5,
+          range: { start: { line: 4, character: 2 }, end: { line: 8, character: 3 } },
+          selectionRange: { start: { line: 4, character: 2 }, end: { line: 4, character: 5 } },
+          children: [],
+        },
+        {
+          name: 'status',
+          kind: 7,
+          range: { start: { line: 10, character: 2 }, end: { line: 10, character: 20 } },
+          selectionRange: { start: { line: 10, character: 2 }, end: { line: 10, character: 8 } },
+          children: [],
+        },
+      ],
+    }]);
+    showQuickPick.mockResolvedValue({ label: 'Callables', filter: 'callables' });
+    const provider = new LensTreeProvider();
+
+    await provider.chooseSymbolFilter();
+    const roots = await provider.getChildren();
+    const symbols = await provider.getChildren(roots[0]);
+    const children = await provider.getChildren(symbols[0]);
+
+    expect(symbols.map(item => item.label)).toEqual(['Controller']);
+    expect(children.map(item => item.label)).toEqual(['run']);
+  });
+
+  it('turns a selected target action into an editable, evidence-aware chat draft', async () => {
+    executeCommand.mockResolvedValue([]);
+    showQuickPick.mockResolvedValue({ label: 'Show impact', action: 'impact' });
+    const provider = new LensTreeProvider();
+    const roots = await provider.getChildren();
+
+    await provider.runTargetAction(roots[0]);
+
+    expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
+      draftPrompt: expect.stringContaining('Assess the change impact'),
+      contextPatch: expect.objectContaining({
+        atlasmindLens: expect.objectContaining({ target: roots[0]?.target }),
+      }),
+    }));
   });
 });

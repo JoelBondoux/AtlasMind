@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.236.0",
+  "version": "0.237.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -204,6 +204,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "atlasmind.lens.filterSymbols",
+        "title": "AtlasMind: Lens: Filter Symbols",
+        "icon": "$(filter)"
+      },
+      {
         "command": "atlasmind.lens.openTarget",
         "title": "AtlasMind Lens: Open Target",
         "icon": "$(go-to-file)"
@@ -212,6 +217,11 @@
         "command": "atlasmind.lens.askTarget",
         "title": "AtlasMind Lens: Ask Atlas About This",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.lens.moreTargetActions",
+        "title": "AtlasMind Lens: More Target Actions…",
+        "icon": "$(kebab-horizontal)"
       },
       {
         "command": "atlasmind.openSetupGuide",
@@ -589,14 +599,19 @@
       ],
       "view/title": [
         {
-          "command": "atlasmind.lens.refresh",
+          "command": "atlasmind.lens.filterSymbols",
           "when": "view == atlasmind.lensView",
           "group": "navigation@1"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.lens.refresh",
           "when": "view == atlasmind.lensView",
           "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.lensView",
+          "group": "navigation@3"
         },
         {
           "command": "atlasmind.openProjectDashboard",
@@ -786,6 +801,11 @@
           "group": "inline@1"
         },
         {
+          "command": "atlasmind.lens.moreTargetActions",
+          "when": "view == atlasmind.lensView && (viewItem == lens-file || viewItem == lens-target)",
+          "group": "navigation@1"
+        },
+        {
           "command": "atlasmind.agents.showDetails",
           "when": "view == atlasmind.agentsView && viewItem =~ /^agent-/",
           "group": "inline@1"
@@ -913,6 +933,10 @@
         },
         {
           "command": "atlasmind.lens.askTarget",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.lens.moreTargetActions",
           "when": "false"
         },
         {

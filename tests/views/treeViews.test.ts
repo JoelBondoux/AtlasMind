@@ -65,12 +65,12 @@ describe('registerTreeViews', () => {
     // TreeView handle rather than just a data provider, because each carries a
     // badge or a selection listener.
     expect(vscode.window.createTreeView).toHaveBeenCalledTimes(4);
-    // Six: the three Lens commands, two memory-entry commands, and
+    // Eight: the five Lens commands, two memory-entry commands, and
     // `refreshProjectState`, which the
     // Project State titlebar needs. The refresh already existed as a closure
     // and only tree events reached it — a glance surface whose only way to
     // update is an unrelated event firing is one people learn not to trust.
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(6);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(8);
   });
 });
 
