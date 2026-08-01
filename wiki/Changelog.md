@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.235.1 — The remaining Dependabot alert, closed
+
+**Stryker's development-only REST client no longer resolves vulnerable `qs@6.15.1`.** The parent pins that version exactly, npm's normal audit fix proposes no change, and the latest REST-client release still carries the same constraint. A root override forces patched `6.15.2` across the tree; every other consumer already used or accepted that release, AtlasMind's production dependency audit remains clean, and a manifest test keeps the override in place until upstream catches up.
+
 ## v0.235.0 — Personality and Web/UI at the top of Chat
 
 **Personality Profile is back in the native AtlasMind Chat title bar, and Website Studio joins it.** The account and globe icons are visible at the top right alongside Project Dashboard, Mission Control, and Settings. Project Ideation and Cost Dashboard stay available under `…`, so both requested manager links remain one click away without exceeding the five-inline-action limit.

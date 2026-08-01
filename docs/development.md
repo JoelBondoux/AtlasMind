@@ -293,6 +293,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
 - Mutation testing is available through `npm run test:mutation`; the committed Stryker configuration starts with the safety-critical criticality, tool-policy, and agent-registry modules. It is deliberately a separate, slower check rather than part of the normal test command.
+- Stryker's `typed-rest-client@2.3.1` pins `qs@6.15.1` exactly even though `6.15.2` contains the CVE-2026-8723 fix. The root manifest therefore overrides `qs` to `6.15.2` across the dependency tree; every other consumer already resolves to or accepts that patch. Keep the override until upstream removes the vulnerable exact pin, and verify both `npm ls qs --all` and production/full `npm audit` before deleting it.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 
 ## Security Reporting

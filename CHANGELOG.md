@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.235.1] - 2026-08-01
+
+### Security
+- **Closed the remaining Dependabot alert for `qs` without widening the production dependency graph.** `@stryker-mutator/core@9.6.1` brings in `typed-rest-client@2.3.1`, which pins vulnerable `qs@6.15.1` exactly; npm cannot lift that transitive edge with a normal audit fix, and even `typed-rest-client@3.0.0` still carries the same pin. The root npm override now forces patched `qs@6.15.2` across the tree; every other consumer already resolved to or accepted that release, so the practical graph change is the single development-only Stryker copy. The production audit remains clean, and a manifest test prevents the override from disappearing before upstream removes the vulnerable constraint.
+
 ## [0.235.0] - 2026-08-01
 
 ### Changed

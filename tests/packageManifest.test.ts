@@ -63,6 +63,12 @@ describe('package manifest', () => {
     expect(readme).toContain(`Current source version: ${manifest.version}`);
   });
 
+  it('keeps the Stryker REST client on the patched qs release', () => {
+    const overrides = manifest.overrides as Record<string, unknown>;
+
+    expect(overrides.qs).toBe('6.15.2');
+  });
+
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 

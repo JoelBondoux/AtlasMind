@@ -42,7 +42,7 @@ npm run monitor:integrations:audit # Enforce monitoring coverage for new third-p
 ```
 
 CI executes compile, lint, full unit tests, and a focused local-recommendation registry regression gate on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
-Dependabot handles npm and GitHub Actions updates weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move.
+Dependabot checks npm dependencies daily and GitHub Actions weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move. The root manifest's `qs@6.15.2` override is a temporary security constraint: Stryker's REST client pins vulnerable `6.15.1` exactly, while every other consumer already resolves to or accepts the patched release. Keep the override until upstream removes that pin and confirm both the production and full audits before deleting it.
 
 ### Lint
 
