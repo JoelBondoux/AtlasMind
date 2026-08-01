@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.249.0] - 2026-08-01
+
+### Added
+
+- **Lens now explains an explicitly declared configuration precedence chain.** **Review Configuration Resolution** selects one `.atlasmind/lens-config.json` setting and lays out defaults, config files, environment variables, workspace/user settings, feature flags, and runtime overrides from low to high precedence. It identifies the highest applying source as the winner, distinguishes shadowed and inactive sources, provides a text equivalent, and offers exact Open/Ask actions for source anchors.
+- **Repositories choose `display` or `masked` value policy per setting.** Displayable scalar metadata is bounded and control-safe. Masked sources cannot contain a value at all; they expose only declared presence, so a secret value cannot cross the file normalizer, webview protocol, or chat handoff.
+
+### Security
+
+- **The first configuration slice is a declared model, not a live environment inspector.** AtlasMind reads no environment values, runtime memory, remote flag service, user SecretStorage, or deployed process. Duplicate settings/sources/precedence levels, malformed scalar values, unsafe paths, and masked records containing values fail closed.
+- **Ask Atlas receives provenance and resolution status, never a configuration value.** Source-backed targets describe kind, precedence, and winner/shadowed/inactive state only. The ready handshake, DOM-text rendering, bounded host-held ids, and live workspace revalidation remain in force.
+
 ## [0.248.0] - 2026-08-01
 
 ### Added

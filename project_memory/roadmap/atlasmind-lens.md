@@ -112,9 +112,11 @@ Render application states, transitions, guards, effects, persistence, retry path
 
 The v0.248 vertical slice adds a repository-declared lifecycle explorer. `.atlasmind/lens-state.json` names bounded machines, states, transitions, event/guard/effect labels, and optional exact source anchors. Lens derives declared reachability, minimum transition depth, unreachable states, terminal states, and non-terminal dead ends; its sidebar command provides host-validated Open/Ask actions and a DOM-text transition view. It imports and executes no project code and never presents declared topology as observed behaviour. Framework adapters, persistence/retry/cancellation semantics, runtime transition evidence, and declared-versus-observed comparison remain active Phase 7 work.
 
-### Phase 8 — Configuration Resolution Explorer
+### Phase 8 — Configuration Resolution Explorer (in progress, v0.249.0)
 
 Explain an effective setting from defaults through config files, environment variables, workspace/user settings, feature flags, and runtime overrides. Every winning and shadowed value names its source; secret values are never rendered or attached to chat.
+
+The v0.249 vertical slice visualizes an explicit `.atlasmind/lens-config.json` precedence declaration. One setting is rendered from low to high precedence across defaults, files, environment, VS Code scopes, feature flags, and runtime overrides; the highest applying source wins while lower applying and inactive sources remain visible. Source anchors offer exact Open/Ask, but chat targets omit values. A required per-setting policy makes masked sources structurally incapable of containing a value. The first slice reads no live environment, SecretStorage, remote flag service, or runtime process, so automatic source adapters and declared-versus-observed comparison remain active Phase 8 work.
 
 ### Phase 9 — Change Story / PR Map
 
@@ -145,6 +147,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Open the first conservative Test & Behaviour evidence map from a selected symbol.
 - [x] Integrate explicit field trust metadata into the first Data Trust Map.
 - [x] Open the first explicit State Lifecycle Explorer from a repository declaration.
+- [x] Open the first secret-safe Configuration Resolution Explorer from an explicit precedence declaration.
 
 ## Out of scope for the foundation
 

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.249.0 — Lens explains configuration precedence safely
+
+**Review Configuration Resolution now visualizes one explicit setting from low to high precedence.** Defaults, files, environment, workspace/user settings, feature flags, and runtime overrides retain winner, shadowed, or inactive status plus optional exact source Open/Ask actions.
+
+**Masked settings are structurally value-free.** `.atlasmind/lens-config.json` cannot put a value in a masked source, and chat targets carry provenance/status only. The view reads no live environment, SecretStorage, remote flag service, or runtime memory, so it reports declared intent rather than observed process state.
+
 ## v0.248.0 — Lens visualizes declared state lifecycles
 
 **Review State Lifecycle now opens a repository-declared lifecycle map.** Bounded `.atlasmind/lens-state.json` machines show initial and terminal states, reachable depth, unreachable states, non-terminal dead ends, and event/guard/effect labels. Optional source anchors can open exactly or prepare an editable Ask draft.
