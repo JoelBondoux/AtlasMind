@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.253.1] - 2026-08-02
+
+### Fixed
+
+- **Change Story “Ask Atlas” now reads the selected committed ref and makes that evidence visible to the selected model.** The host resolves the retained change id, captures a bounded patch plus small-file content directly from the exact local or cached remote Git object, and names the ref in the draft. The Orchestrator validates and fences that one-shot context as reported source data instead of leaving it in host-only metadata. Large files contribute their byte count and focused patch; a failed object read refuses the handoff instead of substituting the checked-out file.
+- **Remote Change Story questions cannot turn into an ACP workspace investigation.** These evidence-complete requests are forced to completion-only mode: AtlasMind clears workspace skills and the individual ACP delegated-execution authorization before dispatch. ACP itself now requires both the global tools setting and an explicit per-provider-request authority bit; a completion-only request shares no MCP servers and receives no permission policy even when **Let subscription agents act** is enabled.
+- **Windows ACP descendants are isolated from the interactive window station.** The native helper now creates a token-ACL-scoped, non-interactive window station and its default desktop before starting the already-resolved agent suspended. Because Windows only lets `WinSta0` display UI, a third-party descendant that chooses a new desktop can no longer reconnect itself to a visible console merely by declining desktop inheritance. Stdio-only inheritance, the kill-on-close Job Object, SHA-256 pin, opt-in disclosure, and fail-closed behavior remain.
+
 ## [0.253.0] - 2026-08-02
 
 ### Added

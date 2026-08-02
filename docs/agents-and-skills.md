@@ -197,7 +197,7 @@ Selection behavior:
 5. Highest score wins; ties break by agent name.
 6. If no enabled registered agent exists, the built-in fallback agent is used.
 
-Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP; the subscription agent uses its own tools and every requested operation returns through the normal ACP permission broker. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply, so the checkbox makes eligible ACP capacity usable rather than forcing every turn onto it.
+Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP and authorizes only that exact provider request; the subscription agent uses its own tools and every requested operation returns through the normal ACP permission broker. The global setting alone does not authorize an ordinary completion. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply.
 
 That delegated alternative is never used when the current task has a read-only or no-command capability envelope. The normal function-calling path receives the narrowed read schemas and can therefore inspect without escalating authority; ACP remains a completion candidate only after repository-tool requirements are deliberately removed.
 
@@ -558,7 +558,9 @@ throwing policy still denies. Enabling tools, changing the MCP allowlist, or
 crossing between completion-only isolation and delegated execution invalidates
 the session before another prompt is sent.
 
-`atlasmind.acp.toolsEnabled` now participates in routing as well as permission handling. The adapter advertises only the distinct `delegatedToolExecution` shape and never claims it can consume AtlasMind `function_calling` schemas. The live setting supplies the second, per-turn authority signal; if either half is absent, a tool-backed route cannot select ACP. An empty MCP allowlist does not switch the agent back to completion-only mode because its built-in tools may still exist.
+`atlasmind.acp.toolsEnabled` now participates in routing as well as permission handling. The adapter advertises only the distinct `delegatedToolExecution` shape and never claims it can consume AtlasMind `function_calling` schemas. The live setting makes a route eligible, but the Orchestrator must also stamp the individual `CompletionRequest` with delegated-execution authority. The ACP adapter requires both; omitted or false request authority creates an isolated completion-only session, shares no MCP servers, and wires no approval policy even while the global setting remains on. An empty MCP allowlist does not switch an authorized delegated turn back to completion-only mode because its built-in tools may still exist.
+
+Change Story **Ask Atlas** is deliberately one such completion-only turn. The extension host reads the selected path from the exact committed head ref first, and the Orchestrator serializes the validated, bounded evidence into a model-visible user message. It clears workspace skills and ACP request authority for that turn so an external agent cannot replace exact-ref evidence with commands against the checked-out branch.
 
 Conversation reuse is exact, not inferred. AtlasMind records the outer
 transcript and sends only a suffix after proving the record is a byte-for-byte
@@ -573,10 +575,14 @@ prompt to an agent that may act can duplicate the requested operation even
 though each individual permission remains gated.
 
 On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
-windows may appear, not what the process may do. The private desktop is neither
-a sandbox nor an authorization boundary; the agent retains the same user-level
-filesystem/network access. It is opt-in and disclosed because hidden desktops
-are also used by hVNC malware and can attract Defender/EDR detection. The same
+windows may appear, not what the process may do. The helper now creates a
+non-interactive window station plus its default private desktop; Windows permits
+visible UI only on `WinSta0`, so a descendant that chooses a new desktop cannot
+escape back to the input screen merely by declining inheritance. The station's
+ACL comes from the current user's token. This is neither a sandbox nor an
+authorization boundary; the agent retains the same user-level filesystem/network
+access. It is opt-in and disclosed because unusual hidden UI boundaries and an
+unsigned native helper can attract application-control/EDR detection. The same
 value is reachable from three places that all write it: the guided picker
 (**AtlasMind: Choose ACP Console Window Behaviour**), the *Delegated agents
 (ACP)* card on Settings → Safety & Verification, and VS Code's settings editor.

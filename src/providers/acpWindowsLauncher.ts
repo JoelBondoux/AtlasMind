@@ -3,18 +3,17 @@
  *
  * `windowsHide: true` controls only the process Node starts. ACP adapters then
  * start native agents, package-manager shims, MCP servers, and console hosts of
- * their own; those descendants are free to allocate a visible console and take
- * keyboard/mouse focus. The bundled helper creates a private Windows desktop
- * and sets it on the real agent's STARTUPINFO. Descendants inherit that desktop,
- * so any console they allocate exists but cannot appear on the user's input
- * desktop.
+ * their own. The bundled helper creates a private, non-interactive Windows
+ * window station with its own desktop and sets it on the real agent's
+ * STARTUPINFO. Descendants inherit the station, so a child that chooses a fresh
+ * desktop still cannot connect to the interactive station or display a console.
  *
- * This is opt-in. Microsoft Defender deliberately surfaces processes on hidden
- * desktops because hVNC malware uses the same Windows primitive. A legitimate,
- * disclosed use can therefore attract an EDR rule, and silently falling back
- * after such a block would both ignore the user's choice and bring the focus
- * stealing back. Missing, modified, or blocked helpers fail with an actionable
- * error instead.
+ * This is opt-in. Enterprise application control or EDR may block an unsigned
+ * native helper or unusual non-interactive UI boundary, and silently falling
+ * back after such a block would both ignore the user's choice and bring the
+ * focus stealing back. Missing, modified, or blocked helpers fail with an
+ * actionable error instead. This controls window placement, not the child's
+ * same-user filesystem or network authority.
  */
 
 import { createHash } from 'node:crypto';
@@ -40,7 +39,7 @@ export function isAcpConsoleModeChosen(
 
 /** Hash of the reviewed release binary in `media/bin`. */
 export const ACP_PRIVATE_DESKTOP_HELPER_SHA256 =
-  'd6bfd7502f319163823e5e9fe270d0ad7e8a1f41330b5ee80e28de3d4cbdcbdd';
+  '1870b11edffdc55d2f18e3e59e102ecd0a319df5aa97d35dc54589ddfb7fdd0a';
 
 export interface AcpPrivateDesktopProbe {
   platform: string;

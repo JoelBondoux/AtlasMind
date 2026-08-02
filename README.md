@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.253.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.253.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.253.0
+## What's new in 0.253.1
 
-Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Declaration-backed Lens views now lead users from absence to a safe starter.** Getting Started, Settings → Project Runs, Project Dashboard Overview, and the State/Configuration missing-file messages share one status and setup flow for `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json`. Starters are valid, empty, create-only files—AtlasMind never invents project semantics or overwrites an existing declaration.
+
+- **Ask Atlas from a remote Change Story now receives the remote evidence.** Lens reads the exact selected ref and path through fixed Git argument arrays, attaches a bounded patch and small-file content to the one-shot Chat context, and the Orchestrator turns that validated context into a fenced model-visible message. Large files such as `package-lock.json` contribute the focused branch patch plus byte count; a failed ref read opens no misleading draft. The turn is completion-only, so neither AtlasMind workspace tools nor ACP-native tools can replace the selected revision with the checked-out file.
+
+- **ACP console suppression now leaves the interactive Windows station entirely.** The opt-in helper creates a non-interactive window station and default desktop before starting the agent, so a descendant that creates its own desktop cannot surface a terminal on `WinSta0`. The helper remains hash-pinned, stdio-only, same-user, fail-closed, and visibly disclosed rather than being treated as a sandbox.
+
+- **ACP delegated execution is authorized per request.** **Let subscription agents act** remains the global ceiling, but the adapter now also requires the Orchestrator's authority for the exact tool-backed provider call. Ordinary completions share no MCP servers and receive no permission policy, even while the global setting is on.
 
 - **Dedicated implementation branches are now permitted for AtlasMind itself.** The repository workflow grants branch creation and local development while keeping issue, PR, CI, release, maintenance, and general automation permissions unchanged.
 
@@ -132,7 +138,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **Personality Profile and Website Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
 
-- **Lens now tells the review story of a committed local branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with HEAD, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. It runs fixed read-only Git commands, detects but excludes uncommitted work, reads no diff content or remote PR/CI data, and never substitutes filename signals for semantic impact. The actual diff remains authoritative. The v0.249 Configuration Resolution Explorer remains available.
+- **Lens now tells the review story of a committed local or cached remote branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with the selected head, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. The map reads no diff content; only an explicit **Ask Atlas** captures that host-retained path's bounded patch and, when small enough, exact file content from the selected ref. Uncommitted work stays excluded, remote PR/CI data stays unread, and filename signals never become semantic impact. The actual diff remains authoritative.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -162,7 +168,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
 
-- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns the hidden desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
+- **Windows console pop-ups are an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox uses a bundled native launcher to put the agent and its descendants on a non-interactive window station and private desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns that station/desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
 
   While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
 
@@ -421,8 +427,8 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
-| `acp.toolsEnabled` | `false` | **Let subscription agents act**: make ACP eligible for tool-backed work using its own tools, one approval at a time |
-| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR. Also a checkbox on Settings → Safety & Verification |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: global ceiling for ACP tool-backed work; the exact provider request must also be authorized, and ordinary completions remain isolated |
+| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a non-interactive private window station so consoles cannot pop up or steal focus; may be blocked by application control/EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
 
@@ -454,7 +460,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensContractRelations.ts` | Bounded relationship normalization and unique same-root endpoint resolution |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
-| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows non-interactive-station launcher; the pinned release binary ships under `media/bin/` |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |

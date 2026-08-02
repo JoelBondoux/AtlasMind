@@ -58,6 +58,14 @@ export interface CompletionRequest {
   /** Tools available to the model. When provided the model may respond with tool calls. */
   tools?: ToolDefinition[];
   /**
+   * Per-turn authorization for a provider-native agent to use its own tools.
+   *
+   * This is distinct from `tools`, which contains AtlasMind function schemas.
+   * Omitted or false means completion-only even when the provider's global
+   * delegated-execution setting is enabled.
+   */
+  allowDelegatedToolExecution?: boolean;
+  /**
    * Hint that this turn's stable prompt prefix (system head + tools) is expected
    * to be reused — e.g. a threaded conversation — so cache-capable providers
    * should write it to the prompt cache even without tools. Adapters that do not

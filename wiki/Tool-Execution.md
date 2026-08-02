@@ -57,7 +57,7 @@ The separate `SecurityReviewManager` follows the same authority boundary: it can
 
 ### Branch Dashboard actions
 
-Branch readiness, PR/CI status, ownership, traceability, inspection, and two-branch comparison are computed in the extension host. They do not grant an agent a Git tool or turn **Ask Atlas** into an execution shortcut. Opening a PR uses the host-retained, HTTPS `github.com` URL; opening a Change Story passes host-resolved refs to the existing read-only story collector without checking out either branch.
+Branch readiness, PR/CI status, ownership, traceability, inspection, and two-branch comparison are computed in the extension host. They do not grant an agent a Git tool or turn **Ask Atlas** into an execution shortcut. Opening a PR uses the host-retained, HTTPS `github.com` URL; opening a Change Story passes host-resolved refs to the read-only story collector without checking out either branch. Asking about one listed file sends only the opaque change id back to the host. The host re-resolves it, reads a bounded patch and—only below the size cap—file content from the exact selected ref, then attaches it to one Chat turn. The Orchestrator validates and fences that Git output as model-visible reported source data and clears both workspace skills and ACP-native authority for the turn. A failed ref/object read opens no draft; AtlasMind never substitutes or shells out against the checked-out branch.
 
 Branch cleanup is a direct, operator-initiated dashboard workflow rather than a callable skill. The webview sends only an opaque inventory id. Before offering any deletion, the host refreshes remotes, re-resolves the id, refuses current/default/protected/other-worktree branches, proves the selected commit is contained by the current or production baseline with no unique commits, and checks loaded pull-request state. Local deletion runs only `git branch -d -- <host-resolved-ref>` after a modal evidence review; AtlasMind never substitutes `-D`. Remote deletion requires the same review plus a live `ls-remote` hash match and an exact typed branch name before the host runs the fixed `git push --porcelain <host-resolved-remote> --delete <host-resolved-branch>` shape. A missing proof is a refusal, not an approval prompt.
 
@@ -185,7 +185,7 @@ An agent AtlasMind has no recipe for — one the user named themselves — is ne
 
 An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
 
-The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled **and the current turn permits native tools**. Both are required for a tool-backed turn. If ACP is selected, AtlasMind sends no `ToolDefinition` schemas—the adapter rejects them—and the agent uses its native tools. If routing falls back to an ordinary function-calling provider, that attempt receives only the schemas permitted by the same turn envelope.
+The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled **and the current turn permits native tools**. If ACP is selected, it sends no `ToolDefinition` schemas—the adapter rejects them—and stamps only that provider request with delegated authority. The adapter independently requires the global setting and that request stamp before sharing MCP servers or wiring its permission policy. Omitted/false request authority is completion-only. If routing falls back to an ordinary function-calling provider, that attempt receives only the schemas permitted by the same turn envelope.
 
 - **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
 - **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.
@@ -202,8 +202,9 @@ agent boot and console churn. That changes process lifetime only:
 
 - every operation still arrives through `session/request_permission`;
 - AtlasMind still selects at most an allow-once option and never `allow_always`;
-- changing the MCP list or switching between completion-only isolation and
-  delegated execution invalidates the session before the next prompt;
+- changing the MCP list, global setting, or per-request authority between
+  completion-only isolation and delegated execution invalidates the session
+  before the next prompt;
 - an empty MCP allowlist does not imply completion-only mode when delegated
   execution is enabled, because the agent may still expose built-in tools;
 - a private Windows desktop hides UI only — it is not a sandbox and grants or

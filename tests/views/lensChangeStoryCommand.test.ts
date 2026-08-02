@@ -31,7 +31,10 @@ describe('Lens change story command', () => {
       else if (operation === 'for-each-ref') callback(null, 'main\nfeature/story\norigin/main\norigin/HEAD\n');
       else if (operation === 'merge-base') callback(null, `${'a'.repeat(40)}\n`);
       else if (operation === 'log') callback(null, `${'b'.repeat(40)}\n2026-08-01T10:00:00Z\nDeveloper\nfeat: story\0`);
-      else if (operation === 'diff') callback(null, 'M\0src/app.ts\0A\0tests/app.test.ts\0R100\0src/old.ts\0src/new.ts\0');
+      else if (operation === 'diff' && args.includes('--name-status')) callback(null, 'M\0src/app.ts\0A\0tests/app.test.ts\0R100\0src/old.ts\0src/new.ts\0');
+      else if (operation === 'diff') callback(null, 'diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n');
+      else if (operation === 'cat-file' && args[1] === '-s') callback(null, '21\n');
+      else if (operation === 'cat-file') callback(null, 'export const value = 2;\n');
       else if (operation === 'status') callback(null, ' M src/local.ts\0');
       else callback(new Error('unexpected git call'), '');
     });
@@ -49,7 +52,7 @@ describe('Lens change story command', () => {
         expect.objectContaining({ workspacePath: 'src/app.ts', status: 'modified' }),
         expect.objectContaining({ workspacePath: 'src/new.ts', previousPath: 'src/old.ts', status: 'renamed' }),
       ]),
-    }));
+    }), expect.any(Function));
     expect(execFile.mock.calls.every(call => call[0] === 'git' && Array.isArray(call[1]))).toBe(true);
   });
 
@@ -72,12 +75,25 @@ describe('Lens change story command', () => {
     expect(showStory).toHaveBeenCalledWith(expect.objectContaining({
       branch: 'feature/story',
       baseRef: 'origin/main',
-    }));
+    }), expect.any(Function));
     expect(execFile.mock.calls.some(call =>
       call[1][0] === 'log' && call[1].some((arg: string) => arg.endsWith('..origin/feature/story')))).toBe(true);
     expect(execFile.mock.calls.some(call =>
       call[1][0] === 'diff' && call[1].includes('origin/feature/story'))).toBe(true);
     expect(execFile.mock.calls.some(call =>
       call[1][0] === 'switch' || call[1][0] === 'checkout')).toBe(false);
+
+    const [map, readEvidence] = showStory.mock.calls.at(-1)!;
+    const evidence = await readEvidence(map.changes[0]);
+    expect(evidence).toMatchObject({
+      headRef: 'origin/feature/story',
+      workspacePath: 'src/app.ts',
+      patch: expect.stringContaining('+new'),
+      content: 'export const value = 2;',
+    });
+    expect(execFile.mock.calls).toContainEqual(expect.arrayContaining([
+      'git',
+      expect.arrayContaining(['diff', 'origin/feature/story', '--', 'src/app.ts']),
+    ]));
   });
 });

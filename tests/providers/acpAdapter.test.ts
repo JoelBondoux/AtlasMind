@@ -604,6 +604,7 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     const first = await adapter.complete(request());
     delegated = true;
     await adapter.complete(request({
+      allowDelegatedToolExecution: true,
       messages: [
         { role: 'user', content: 'Say hello' },
         { role: 'assistant', content: first.content },
@@ -807,11 +808,27 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
       agents: [AGENT],
       spawnProcess: factory,
       delegatedExecutionEnabled: true,
+    }).complete(request({ allowDelegatedToolExecution: true }));
+
+    const reply = agents[0]!.written.find(frame => frame['id'] === 77);
+    expect(reply!['error']).toBeDefined();
+    expect(permissionOutcome(agents[0]!)).toBeUndefined();
+  });
+
+  it('keeps a turn completion-only when only the global delegated-execution setting is enabled', async () => {
+    const { factory, agents } = permissionAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      delegatedExecutionEnabled: true,
+      permissionPolicy: async () => true,
     }).complete(request());
 
     const reply = agents[0]!.written.find(frame => frame['id'] === 77);
     expect(reply!['error']).toBeDefined();
     expect(permissionOutcome(agents[0]!)).toBeUndefined();
+    const session = agents[0]!.method('session/new')!['params'] as Record<string, unknown>;
+    expect(session['_meta']).toBeDefined();
   });
 
   it('selects a reject option when the policy declines', async () => {
@@ -819,8 +836,9 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => false,
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
   });
@@ -832,8 +850,9 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => true,
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'once' });
   });
@@ -848,8 +867,9 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => true,
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
   });
@@ -859,8 +879,9 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => { throw new Error('dialog blew up'); },
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
   });
@@ -871,9 +892,10 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => false,
       onToolEvent: event => seen.push(`${event.kind}:${event.title}`),
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(seen).toContain('execute:Run the build');
   });
@@ -900,8 +922,9 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
+      delegatedExecutionEnabled: true,
       permissionPolicy: async () => true,
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     for (const id of [55, 56]) {
       const reply = agents[0]!.written.find(frame => frame['id'] === id);
@@ -909,17 +932,25 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     }
   });
 
-  it('hands over only the MCP servers it was given, and none by default', async () => {
+  it('hands over configured MCP servers only on a delegated-authority request', async () => {
     const { factory: bare, agents: bareAgents } = scriptedAgent();
     await new AcpAdapter({ agents: [AGENT], spawnProcess: bare }).complete(request());
     expect((bareAgents[0]!.method('session/new')!['params'] as Record<string, unknown>)['mcpServers']).toEqual([]);
+
+    const { factory: isolated, agents: isolatedAgents } = scriptedAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: isolated,
+      getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [] }],
+    }).complete(request());
+    expect((isolatedAgents[0]!.method('session/new')!['params'] as Record<string, unknown>)['mcpServers']).toEqual([]);
 
     const { factory, agents } = scriptedAgent();
     await new AcpAdapter({
       agents: [AGENT],
       spawnProcess: factory,
       getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [{ name: 'MODE', value: 'ro' }] }],
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     const params = agents[0]!.method('session/new')!['params'] as Record<string, unknown>;
     // Stdio entries are `#[serde(untagged)]` — a `type` field would break them.
@@ -1684,7 +1715,7 @@ describe('AcpAdapter — isolating the agent from the machine\'s own settings', 
       agents: [AGENT],
       spawnProcess: factory,
       getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [] }],
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(metaOf(agents[0]!)).toBeUndefined();
   });
@@ -1699,7 +1730,7 @@ describe('AcpAdapter — isolating the agent from the machine\'s own settings', 
       spawnProcess: factory,
       delegatedExecutionEnabled: true,
       getMcpServers: () => [],
-    }).complete(request());
+    }).complete(request({ allowDelegatedToolExecution: true }));
 
     expect(metaOf(agents[0]!)).toBeUndefined();
   });

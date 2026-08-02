@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.253.1 — Exact-ref Lens answers and stricter ACP isolation
+
+**Ask Atlas** from a Change Story now reads the selected Git ref and changed path rather than asking a model to infer a cached remote file from the checked-out workspace. The Orchestrator validates the one-shot context and sends a bounded, explicitly fenced patch plus small-file content as a model-visible message. Large files receive the patch and object size; a failed read refuses the handoff. These turns are completion-only and cannot invoke workspace or ACP-native tools.
+
+ACP delegated execution now requires two independent gates: the global **Let subscription agents act** setting and authority on the exact provider request. An ordinary completion shares no configured MCP servers and receives no permission policy. On Windows, the opt-in helper now launches the agent on a token-ACL-scoped, non-interactive window station and its default desktop, closing the path where a descendant could choose a new desktop on `WinSta0`. It remains same-user, stdio-only, hash-pinned, Job-bounded, disclosed, and fail-closed.
+
 ## v0.253.0 — Lens declarations explain their setup
 
 State Lifecycle and Configuration Resolution no longer assume users already know about their repository-authored inputs. The Getting Started walkthrough, Settings → Project Runs, and Project Dashboard Overview now show or link to the same declaration setup flow. The dashboard reports whether each required file is missing, an empty starter, ready, invalid, or unreadable.

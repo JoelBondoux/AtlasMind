@@ -1,13 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! Starts one ACP agent on a private Windows desktop while preserving stdio.
+//! Starts one ACP agent on a private, non-interactive Windows window station
+//! while preserving stdio.
 //!
 //! This is deliberately a process, not an in-process native addon. A malformed
 //! third-party command line or a Windows API failure can take this helper down
 //! without taking VS Code's extension host with it. The helper has one job:
-//! create a desktop, put the requested process on it, wait, and return the same
-//! exit code. It never switches to that desktop and never opens a network
-//! endpoint.
+//! create a non-interactive station and desktop, put the requested process on
+//! it, wait, and return the same exit code. It never switches to that desktop
+//! and never opens a network endpoint.
 
 use std::env;
 use std::ffi::{OsStr, OsString, c_void};
@@ -20,6 +21,7 @@ type Bool = i32;
 type Dword = u32;
 type Handle = *mut c_void;
 type Hdesk = Handle;
+type Hwinsta = Handle;
 type Lpvoid = *mut c_void;
 type SizeT = usize;
 
@@ -28,6 +30,8 @@ const TRUE: Bool = 1;
 const INFINITE: Dword = 0xffff_ffff;
 const WAIT_FAILED: Dword = 0xffff_ffff;
 const DESKTOP_CREATEWINDOW: Dword = 0x0000_0002;
+const WINSTA_CREATEDESKTOP: Dword = 0x0000_0008;
+const WINSTA_READATTRIBUTES: Dword = 0x0000_0002;
 const STARTF_USESHOWWINDOW: Dword = 0x0000_0001;
 const STARTF_USESTDHANDLES: Dword = 0x0000_0100;
 const EXTENDED_STARTUPINFO_PRESENT: Dword = 0x0008_0000;
@@ -39,6 +43,12 @@ const STD_ERROR_HANDLE: Dword = (-12_i32) as Dword;
 const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: usize = 0x0002_0002;
 const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Dword = 0x0000_2000;
+const UOI_NAME: i32 = 2;
+
+fn last_error(operation: &str) -> io::Error {
+    let error = io::Error::last_os_error();
+    io::Error::new(error.kind(), format!("{operation}: {error}"))
+}
 
 #[repr(C)]
 struct StartupInfoW {
@@ -77,6 +87,13 @@ struct ProcessInformation {
 }
 
 #[repr(C)]
+struct SecurityAttributes {
+    length: Dword,
+    security_descriptor: Lpvoid,
+    inherit_handle: Bool,
+}
+
+#[repr(C)]
 struct JobObjectBasicLimitInformation {
     per_process_user_time_limit: i64,
     per_job_user_time_limit: i64,
@@ -111,6 +128,13 @@ struct JobObjectExtendedLimitInformation {
 
 #[link(name = "user32")]
 unsafe extern "system" {
+    fn CreateWindowStationW(
+        window_station: *const u16,
+        flags: Dword,
+        desired_access: Dword,
+        security_attributes: Lpvoid,
+    ) -> Hwinsta;
+    fn CloseWindowStation(window_station: Hwinsta) -> Bool;
     fn CreateDesktopW(
         desktop: *const u16,
         device: *const u16,
@@ -120,6 +144,15 @@ unsafe extern "system" {
         security_attributes: Lpvoid,
     ) -> Hdesk;
     fn CloseDesktop(desktop: Hdesk) -> Bool;
+    fn GetProcessWindowStation() -> Hwinsta;
+    fn GetUserObjectInformationW(
+        object: Handle,
+        index: i32,
+        information: Lpvoid,
+        information_length: Dword,
+        length_needed: *mut Dword,
+    ) -> Bool;
+    fn SetProcessWindowStation(window_station: Hwinsta) -> Bool;
 }
 
 #[link(name = "kernel32")]
@@ -139,7 +172,6 @@ unsafe extern "system" {
         process_information: *mut ProcessInformation,
     ) -> Bool;
     fn DeleteProcThreadAttributeList(attribute_list: Lpvoid);
-    fn GetCurrentProcessId() -> Dword;
     fn GetExitCodeProcess(process: Handle, exit_code: *mut Dword) -> Bool;
     fn GetStdHandle(std_handle: Dword) -> Handle;
     fn InitializeProcThreadAttributeList(
@@ -176,6 +208,23 @@ impl Drop for Desktop {
         // SAFETY: the handle came from CreateDesktopW and is closed exactly once.
         unsafe {
             CloseDesktop(self.0);
+        }
+    }
+}
+
+struct WindowStation {
+    private: Hwinsta,
+    original: Hwinsta,
+}
+
+impl Drop for WindowStation {
+    fn drop(&mut self) {
+        // Restore the extension host's inherited interactive station before
+        // closing ours. The original handle belongs to the process and must
+        // not itself be closed.
+        unsafe {
+            SetProcessWindowStation(self.original);
+            CloseWindowStation(self.private);
         }
     }
 }
@@ -245,6 +294,38 @@ fn command_line(arguments: &[OsString]) -> Vec<u16> {
     wide(&line)
 }
 
+fn user_object_name(object: Handle) -> io::Result<String> {
+    let mut bytes = 0u32;
+    unsafe {
+        GetUserObjectInformationW(object, UOI_NAME, null_mut(), 0, &mut bytes);
+    }
+    if bytes < 2 {
+        return Err(last_error("GetUserObjectInformationW(size)"));
+    }
+    let mut buffer = vec![0u16; (bytes as usize).div_ceil(size_of::<u16>())];
+    if unsafe {
+        GetUserObjectInformationW(
+            object,
+            UOI_NAME,
+            buffer.as_mut_ptr().cast::<c_void>(),
+            bytes,
+            &mut bytes,
+        )
+    } == FALSE
+    {
+        return Err(last_error("GetUserObjectInformationW"));
+    }
+    if buffer.last() == Some(&0) {
+        buffer.pop();
+    }
+    String::from_utf16(&buffer).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Windows returned a non-Unicode window-station name",
+        )
+    })
+}
+
 fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
     let Some(application) = arguments.first() else {
         return Err(io::Error::new(
@@ -253,11 +334,61 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         ));
     };
 
-    // A process-unique name prevents one extension host from attaching a new
-    // child to another host's desktop. CreateDesktop inherits the window
-    // station's ACL and the handle itself is deliberately non-inheritable.
-    let desktop_leaf = format!("AtlasMindAcp-{}", unsafe { GetCurrentProcessId() });
-    let desktop_leaf_wide = wide(OsStr::new(&desktop_leaf));
+    // A private desktop inside WinSta0 is hidden only while every descendant
+    // inherits that exact desktop. A third-party launcher can pass an empty
+    // STARTUPINFO.lpDesktop and reconnect its child to WinSta0\Default, putting
+    // a console back on the operator's screen. A dedicated window station is a
+    // stronger boundary: Windows makes every station other than WinSta0
+    // non-interactive, so none of its desktops can display UI or receive input.
+    let original_window_station = unsafe { GetProcessWindowStation() };
+    if original_window_station.is_null() {
+        return Err(last_error("GetProcessWindowStation"));
+    }
+    // Windows lets only administrators choose a station name. Passing NULL
+    // asks the OS for a non-interactive name tied to this logon session. A
+    // non-null SECURITY_ATTRIBUTES with a null descriptor deliberately selects
+    // the creator token's default DACL instead of CreateWindowStationW's
+    // surprising null-attributes behaviour, which grants all users access.
+    let mut security_attributes = SecurityAttributes {
+        length: size_of::<SecurityAttributes>() as Dword,
+        security_descriptor: null_mut(),
+        inherit_handle: FALSE,
+    };
+    let private_window_station = unsafe {
+        CreateWindowStationW(
+            null(),
+            0,
+            WINSTA_CREATEDESKTOP | WINSTA_READATTRIBUTES,
+            (&mut security_attributes as *mut SecurityAttributes).cast::<c_void>(),
+        )
+    };
+    if private_window_station.is_null() {
+        return Err(last_error("CreateWindowStationW"));
+    }
+    if unsafe { SetProcessWindowStation(private_window_station) } == FALSE {
+        let error = last_error("SetProcessWindowStation");
+        unsafe {
+            CloseWindowStation(private_window_station);
+        }
+        return Err(error);
+    }
+    let _window_station_owner = WindowStation {
+        private: private_window_station,
+        original: original_window_station,
+    };
+    let window_station_leaf = user_object_name(private_window_station)?;
+    if window_station_leaf.eq_ignore_ascii_case("WinSta0") {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Windows returned the interactive window station; refusing the hidden launch",
+        ));
+    }
+
+    // "Default" makes an agent descendant that deliberately asks Windows to
+    // choose a desktop land on a real desktop in the same non-interactive
+    // station.
+    let desktop_leaf = "Default";
+    let desktop_leaf_wide = wide(OsStr::new(desktop_leaf));
     let desktop = unsafe {
         CreateDesktopW(
             desktop_leaf_wide.as_ptr(),
@@ -268,14 +399,16 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
             // child runs. Ask for the one access right CreateDesktop requires,
             // not GENERIC_ALL over a UI object in the interactive station.
             DESKTOP_CREATEWINDOW,
-            null_mut(),
+            (&mut security_attributes as *mut SecurityAttributes).cast::<c_void>(),
         )
     };
     if desktop.is_null() {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("CreateDesktopW"));
     }
     let _desktop_owner = Desktop(desktop);
-    let mut desktop_path = wide(OsStr::new(&format!("WinSta0\\{desktop_leaf}")));
+    let mut desktop_path = wide(OsStr::new(&format!(
+        "{window_station_leaf}\\{desktop_leaf}"
+    )));
 
     let mut attribute_bytes = 0usize;
     unsafe {
@@ -283,7 +416,7 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut attribute_bytes);
     }
     if attribute_bytes == 0 {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("InitializeProcThreadAttributeList(size)"));
     }
     let word_count = attribute_bytes.div_ceil(size_of::<usize>());
     let mut attribute_storage = vec![0usize; word_count];
@@ -291,7 +424,7 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
     if unsafe { InitializeProcThreadAttributeList(attribute_pointer, 1, 0, &mut attribute_bytes) }
         == FALSE
     {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("InitializeProcThreadAttributeList"));
     }
     let _attribute_owner = AttributeList(attribute_pointer);
 
@@ -323,7 +456,7 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         )
     } == FALSE
     {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("UpdateProcThreadAttribute"));
     }
 
     let mut startup: StartupInfoExW = unsafe { zeroed() };
@@ -354,14 +487,14 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         )
     };
     if created == FALSE {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("CreateProcessW"));
     }
 
     let process_handle = OwnedHandle(process.process);
     let thread_handle = OwnedHandle(process.thread);
     let raw_job = unsafe { CreateJobObjectW(null_mut(), null()) };
     if raw_job.is_null() {
-        let error = io::Error::last_os_error();
+        let error = last_error("CreateJobObjectW");
         unsafe {
             TerminateProcess(process_handle.0, 126);
         }
@@ -379,32 +512,32 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         )
     } == FALSE
     {
-        let error = io::Error::last_os_error();
+        let error = last_error("SetInformationJobObject");
         unsafe {
             TerminateProcess(process_handle.0, 126);
         }
         return Err(error);
     }
     if unsafe { AssignProcessToJobObject(raw_job, process_handle.0) } == FALSE {
-        let error = io::Error::last_os_error();
+        let error = last_error("AssignProcessToJobObject");
         unsafe {
             TerminateProcess(process_handle.0, 126);
         }
         return Err(error);
     }
     if unsafe { ResumeThread(thread_handle.0) } == Dword::MAX {
-        let error = io::Error::last_os_error();
+        let error = last_error("ResumeThread");
         unsafe {
             TerminateProcess(process_handle.0, 126);
         }
         return Err(error);
     }
     if unsafe { WaitForSingleObject(process_handle.0, INFINITE) } == WAIT_FAILED {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("WaitForSingleObject"));
     }
     let mut exit_code = 1u32;
     if unsafe { GetExitCodeProcess(process_handle.0, &mut exit_code) } == FALSE {
-        return Err(io::Error::last_os_error());
+        return Err(last_error("GetExitCodeProcess"));
     }
     Ok(exit_code)
 }
@@ -424,5 +557,24 @@ fn main() {
             );
             std::process::exit(126);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launches_a_console_descendant_on_the_noninteractive_station() {
+        let command = env::var_os("ComSpec").expect("Windows command interpreter");
+        let exit_code = launch(vec![
+            command,
+            OsString::from("/d"),
+            OsString::from("/s"),
+            OsString::from("/c"),
+            OsString::from("exit 0"),
+        ])
+        .expect("private station launch");
+        assert_eq!(exit_code, 0);
     }
 }

@@ -168,10 +168,10 @@ Before approval is considered, AtlasMind minimizes capability exposure. `AgentDe
 ACP subscription agents use their own tool implementations, so AtlasMind separates capability, route authority, schema delivery, and operation approval:
 
 - `ModelInfo.delegatedToolExecution` says only that the provider can act natively. It never grants permission and never aliases the model's capabilities to `function_calling`.
-- `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both flags before ACP can satisfy a tool-backed task.
-- The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model, and `AcpAdapter` independently refuses any request containing those schemas. A normal-provider failover receives the original schemas.
-- Delegated execution mode is read independently of the MCP allowlist. An agent may have built-in tools with no shared MCP server; conversely, an absent or throwing setting boundary fails closed to completion-only isolation.
-- Changing the setting alters the ACP execution/session fingerprint, invalidating an incompatible live session and short replay entry before another prompt.
+- `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both capability and live route authority before ACP can satisfy a tool-backed task.
+- The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model and stamps only that provider request with `CompletionRequest.allowDelegatedToolExecution: true`; `AcpAdapter` independently refuses any request containing AtlasMind schemas.
+- The adapter requires both the live global setting and the per-request stamp. Omitted/false request authority is completion-only, shares no configured MCP servers, and wires no permission policy. A normal-provider failover receives the original schemas.
+- Delegated execution mode is independent of MCP count because an agent may have built-in tools with no shared server. Setting, request authority, MCP set, and isolation participate in the session/replay fingerprint, so incompatible authority cannot reuse or replay an earlier session.
 - Eligibility never authorizes an individual operation. `session/request_permission` still passes through `AcpPermission` and `ToolApprovalManager`; a missing or failing policy denies.
 
 ### 7. Skill Security Scanner
@@ -222,25 +222,27 @@ See [[Remote Control]] for the full model.
 - **Agentic Resource Discovery (ARD)** treats every fetched manifest and `/search` response as untrusted: strict schema validation (`urn:ai:` identifiers, the spec's value-or-reference exclusivity, byte/entry caps). Discovered and referral URLs must be **HTTPS** and are screened against private/loopback/link-local hosts (same SSRF guard as `web-fetch`); `http`/localhost is only permitted for finders the user explicitly marked insecure with `atlasmind.ard.allowInsecureEndpoints`. Federation and nested-catalog expansion are **depth-bounded** to prevent referral loops. Agent Finders ship **disabled** (no outbound discovery until opt-in). The relevance score is surfaced as informational only and **must not** be read as a trust or safety rating; `trustManifest` metadata is shown read-only and is not cryptographically verified. Nothing auto-installs — discovered MCP servers land disabled behind the existing MCP trust gate, and the `discover-resources` skill is read-only. Catalog export redacts system prompts, secrets, and MCP `env`. See [[Resource Discovery]].
 - **Buzz live communications** are doubly gated: the global `buzz.enabled` setting, remote-relay consent/TLS policy, the connected MCP server, the Project Director's per-project `outboundEnabled`, and a per-send modal confirmation. The bundled bridge accepts only a CLI whose required command/flag surface matches the pinned v0.4.26 contract, invokes it directly without a shell, passes message bodies over stdin, validates UUID/event/pubkey inputs, caps duration/output, and redacts the private key/NIP-OA grant. Buzz developer shell/file tools are deliberately outside the connector.
 
-### 8a. ACP private-desktop boundary
+### 8a. ACP non-interactive UI boundary
 
 `atlasmind.acp.hideConsoleWindows` is a Windows UX control, not a sandbox. When
-selected, a bundled native helper creates a private desktop and starts the
-already-resolved ACP executable there so descendant console windows cannot
-reach the user's input desktop. The child still runs as the same user with the
-same filesystem and network access.
+selected, a bundled native helper creates a non-interactive window station and
+its default private desktop, then starts the already-resolved ACP executable
+there. Windows only lets `WinSta0` display UI or receive input, so a descendant
+that chooses a new desktop still cannot put a console on the user's screen. The
+child runs as the same user with the same filesystem and network access.
 
-The dual-use risk is explicit. Hidden VNC malware uses private desktops for
-covert interactive processes, and [Microsoft Defender for Endpoint exposes a
-`DesktopName` field](https://techcommunity.microsoft.com/blog/microsoftdefenderatpblog/detect-suspicious-processes-running-on-hidden-desktops/4072322)
-so defenders can hunt that behaviour. AtlasMind therefore:
+The unusual native/UI boundary remains explicit. Hidden VNC malware uses
+private desktops for covert interactive processes, and endpoint controls may
+also block a newly built unsigned helper before it starts. AtlasMind therefore:
 
 - leaves the feature off until the user selects it, and asks before the first
   ACP probe;
-- never switches to, captures, or remotely controls the created desktop;
+- never switches to, captures, or remotely controls the created station;
 - keeps the helper dependency-free and source-visible under
   `native/acp-private-desktop/`;
-- gives its desktop handle only the required `DESKTOP_CREATEWINDOW` access;
+- asks only for `WINSTA_CREATEDESKTOP | WINSTA_READATTRIBUTES` and
+  `DESKTOP_CREATEWINDOW`, and applies the creator token's default ACL instead of
+  `CreateWindowStationW`'s all-users null-attributes default;
 - passes an already-resolved executable and argv with no shell;
 - uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
 - creates the agent suspended, assigns it to a Job Object with
@@ -253,7 +255,7 @@ so defenders can hunt that behaviour. AtlasMind therefore:
   focus-stealing visible launch.
 
 AtlasMind also records a minimal local launch-boundary event—configured agent id,
-whether private desktop was requested, and whether the effective launch was
+whether private mode was requested, and whether the effective launch was
 private or ordinary—in the ACP output channel. It does not log argv, paths,
 prompts, PIDs, or credentials. This makes a future focus regression diagnosable
 without expanding the disclosure boundary.
