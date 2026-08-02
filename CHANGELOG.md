@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.255.2] - 2026-08-02
+
+### Changed
+
+- **Committed ideation feedback assets and updated chat-command references.** New Atlas ideation workspace feedback artifacts were added and chat-command documentation was aligned to the corresponding workflow flow.
+
 ## [0.255.1] - 2026-08-02
 
 ### Fixed

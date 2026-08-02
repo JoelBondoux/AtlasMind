@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.255.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.255.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,9 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.255.1
+## What's new in 0.255.2
 
-Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.255.1**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Hidden ACP launches now support PowerShell without a modal startup failure.** The opt-in Windows helper gives non-interactive descendants the UI-object access PowerShell needs, inherits the already-established private station/desktop connection, and converts loader failures into process failures rather than focus-stealing Windows error dialogs.
 

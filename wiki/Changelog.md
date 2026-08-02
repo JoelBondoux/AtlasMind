@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.255.2 — Feedback workspace documentation updates
+
+The latest release includes documented updates to ideation workspace feedback tracking and chat-command guidance. The changes capture AtlasMind workspace ideas and command coverage used by the current project context.
+
 ## v0.255.1 — Clearer branches and reliable hidden ACP PowerShell
 
 The Branch dashboard now uses VS Code's theme blue for local branch-title chips and theme purple for remote-only chips. The persisted **Show SCM colours** checkbox has moved directly above the branch-card inventory and sits beside a live Local/Remote preview, so the setting and its effect remain in the same place.
