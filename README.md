@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.255.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.256.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.255.3
+## What's new in 0.256.0
 
 Since the last Marketplace publication, **v0.255.1**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **One delivery request now stays one chat turn.** `atlasmind.workflow.chatGuidance` defaults to `follow`: ask AtlasMind to commit, push, promote, or publish once and it applies the enabled declared route without stopping for a second “follow the workflow” message. This is sequencing policy, not extra authority—tool approvals, protected-ref checks, release gates, and outward-write confirmations still apply. Pre-existing unrelated edits are left untouched; branch-changing release work prefers an isolated Git worktree instead of stashing or switching the active checkout.
 
 - **Enabling ACP tools no longer produces an approval dialog for every operation.** **Let subscription agents act** is now the explicit, off-by-default standing authorization for routed tool-backed ACP turns. AtlasMind automatically answers each request with a one-operation grant, records the category, risk, and action in its output log, and never stores an `allow_always` grant inside the external agent. Ordinary ACP completions remain isolated and switching the setting off stops later requests from a live session.
 
@@ -435,6 +437,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `ssotPath` | `project_memory` | Workspace-relative project-memory location |
 | `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints |
 | `loop.enabled` | `true` | Whether Mission Loop can run |
+| `workflow.chatGuidance` | `follow` | Apply the enabled declared commit/push/PR/release route in the same chat turn; `inform`, `gate`, and `off` remain available |
 | `feedbackRoutingWeight` | `1` | Strength of saved response feedback in routing |
 | `remote.enabled` | `false` | Whether desktop remote control is available |
 | `buzz.enabled` | `false` | Master switch for the Buzz integration (Settings → Buzz) |

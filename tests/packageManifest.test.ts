@@ -37,6 +37,7 @@ type ManifestMenuItem = {
 type ManifestConfigurationProperty = {
   type?: string | string[];
   default?: unknown;
+  enum?: unknown[];
   minimum?: number;
   maximum?: number;
   description?: string;
@@ -144,6 +145,15 @@ describe('package manifest', () => {
     expect(property?.markdownDescription).toContain('Let subscription agents act');
     expect(property?.description).toContain('without prompting for each operation');
     expect(property?.markdownDescription).toContain('automatically answers each permission request');
+  });
+
+  it('defaults workflow chat guidance to same-turn following with explicit alternatives', () => {
+    const property = manifest.contributes?.configuration?.properties?.['atlasmind.workflow.chatGuidance'] as ManifestConfigurationProperty | undefined;
+
+    expect(property?.default).toBe('follow');
+    expect(property?.enum).toEqual(['off', 'follow', 'inform', 'gate']);
+    expect(property?.markdownDescription).toContain('Existing tool approvals, automation ceilings, protected-ref checks, release');
+    expect(property?.markdownDescription).toContain('gates, and outward-write confirmations are unchanged');
   });
 
   it('keeps the wiki comparison page and navigation removed', () => {

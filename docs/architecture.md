@@ -397,6 +397,16 @@ The eight-stage guided GitHub workflow as *teachable data*, backing the Project 
 
 **Absent evidence is never "done".** `statusFrom` reports `todo` for undetermined evidence rather than `done` — "not known" and "not done" are different, and only one is the user's problem. `deriveStageStatus` and `summarizeWorkflowProgress` exclude `optional` steps, so a stage is not unfinished because somebody declined something they were told was a choice; an empty curriculum reports **unfinished**, never finished.
 
+### WorkflowChatGuard (`src/core/workflowChatGuard.ts`)
+
+The chat-side bridge from an outcome request to the committed workflow. `detectGovernedAction` uses one ordered keyword table for commit, push, branch, pull-request, promotion, and release intent; the release rule comes first because publishing is also a push. A normal prompt pays one synchronous regex pass and no model call.
+
+`atlasmind.workflow.chatGuidance` defaults to `follow`. The user asks for the outcome once, and both chat surfaces carry a narrow `WorkflowChatExecutionPolicy` into that same turn. `Orchestrator.buildMessages()` does **not** trust policy prose from the repository: `buildWorkflowExecutionSystemGuidance` validates the complete object, accepts only the known action plus Git-safe integration/release branch names and a boolean protected-branch reading, then emits fixed system text. Free-form checks, blockers, commands, and stage names remain display/evidence data and cannot gain system-prompt priority.
+
+Following is sequencing, not authorization. It grants no tool, protected-ref, or outward-write capability; all automation ceilings, approvals, release gates, and confirmations still apply. It also treats pre-existing unrelated edits as outside the delivery request: no automatic stash, discard, staging, or commit merely to satisfy cleanliness. If promotion would otherwise switch the operator's active checkout, the agent is directed to use an isolated temporary Git worktree when possible and to apply cleanliness checks to the ref/worktree being delivered.
+
+The other modes remain explicit: `inform` shows the expectation and continues exactly as asked, `gate` stops, and `off` is silent. A missing workflow, disabled owning stage, or unmatched prompt produces no policy because there is nothing declared to follow.
+
 ### WorkflowMetrics (`src/core/workflowMetrics.ts`)
 
 Every statistic on the Workflow page, derived purely so each is testable against fixtures rather than inspected by eye in a webview. No I/O, no `vscode`, and no clock — `now` is always a parameter, so a windowed metric is reproducible in a test.

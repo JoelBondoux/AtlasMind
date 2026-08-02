@@ -942,9 +942,13 @@ async function handleChatRequest(
     ? await buildWorkflowNoticeForChat(prompt, atlas)
     : undefined;
   if (workflowNotice) {
-    stream.markdown(`${workflowNotice.markdown}
+    if (workflowNotice.executionPolicy) {
+      stream.progress(`Following the declared ${workflowNotice.stageId} workflow…`);
+    } else {
+      stream.markdown(`${workflowNotice.markdown}
 
 `);
+    }
     if (workflowNotice.blocking) {
       return { metadata: { command: command ?? 'freeform', outcome: undefined } };
     }
@@ -995,7 +999,14 @@ async function handleChatRequest(
         break;
       }
 
-      projectOutcome = await handleFreeformMessage(request, stream, token, atlas, sessionId);
+      projectOutcome = await handleFreeformMessage(
+        request,
+        stream,
+        token,
+        atlas,
+        sessionId,
+        workflowNotice?.executionPolicy,
+      );
       break;
     }
   }
@@ -1024,7 +1035,7 @@ async function buildWorkflowNoticeForChat(
       import('../core/workflowConfig.js'),
     ]);
     const settings = vscode.workspace.getConfiguration('atlasmind');
-    const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'inform'));
+    const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'follow'));
     if (mode === 'off') {
       return undefined;
     }
@@ -3316,6 +3327,7 @@ async function handleFreeformMessage(
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
   sessionId: string,
+  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
 ): Promise<ProjectRunOutcome | undefined> {
   const prompt = request.prompt;
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
@@ -3327,7 +3339,14 @@ async function handleFreeformMessage(
     return undefined;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  const responseText = await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+  const responseText = await runChatTask(
+    prompt,
+    stream,
+    atlas,
+    imageAttachments,
+    sessionId,
+    workflowExecutionPolicy,
+  );
 
   // If the reply offered an autonomous project run, flow straight into it rather
   // than stopping for the operator to type "Proceed" — they already asked for the
@@ -3436,6 +3455,7 @@ async function runChatTask(
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
   sessionId?: string,
+  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
 ): Promise<string> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
@@ -3457,6 +3477,7 @@ async function runChatTask(
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
+      ...(workflowExecutionPolicy ? { __workflowChatPolicy: workflowExecutionPolicy } : {}),
     },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),

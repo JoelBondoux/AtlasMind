@@ -1015,9 +1015,9 @@ export class ChatPanel {
     // dashboard page and in *other* tools' instruction files, so asking Atlas to
     // "commit and push this" got no workflow awareness at all. A novice's
     // failure mode is not breaking a rule, it is not knowing one existed — so at
-    // the default level this adds a sentence and proceeds. `gate` stops instead,
-    // and is opt-in because a prompt on every commit becomes one people learn to
-    // click through.
+    // the default level this follows the enabled route in the same turn. `gate`
+    // stops instead, and is opt-in because a prompt on every commit becomes one
+    // people learn to click through.
     //
     // Steering is exempt for the same reason it is exempt from slash routing:
     // mid-run text redirects a request already in flight.
@@ -1028,11 +1028,13 @@ export class ChatPanel {
     // delayed the busy indicator on every message — the identical mistake the
     // slash router made, caught by the identical microtask-counting test. An
     // ordinary prompt now pays one regex pass and no microtask.
+    let workflowExecutionPolicy: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy | undefined;
     if (mode !== 'steer' && detectGovernedAction(prompt)) {
-      const stop = await this.announceWorkflowExpectation(prompt);
-      if (stop) {
+      const workflowDecision = await this.announceWorkflowExpectation(prompt);
+      if (workflowDecision.stop) {
         return;
       }
+      workflowExecutionPolicy = workflowDecision.executionPolicy;
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -1080,6 +1082,7 @@ export class ChatPanel {
       activeSessionId,
       sessionContextBundle ?? undefined,
       forcedProjectGoal,
+      workflowExecutionPolicy,
     );
     const assistantMessageId = this.atlas.sessionConversation.appendMessage(
       'assistant',
@@ -2374,16 +2377,19 @@ export class ChatPanel {
   /**
    * Say what the declared workflow expects, before doing what was asked.
    *
-   * Returns `true` only when the caller must **stop** — which happens solely at
-   * `gate`. At `inform` the notice is appended to the transcript and the turn
-   * continues, because informing that costs the user their request would be
-   * gating with extra steps.
+   * Returns `stop: true` only at `gate`. `follow` stays off the durable
+   * transcript: a short status line shows that the policy was applied, and the
+   * validated execution policy travels to the Orchestrator as trusted host
+   * context for this turn. `inform` remains a visible, non-blocking note.
    *
    * Reads its own settings rather than taking them as arguments: this is the
    * `vscode`-aware half, and `workflowChatGuard.ts` is the pure half that decides
    * what to say.
    */
-  private async announceWorkflowExpectation(prompt: string): Promise<boolean> {
+  private async announceWorkflowExpectation(prompt: string): Promise<{
+    stop: boolean;
+    executionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy;
+  }> {
     let notice: import('../core/workflowChatGuard.js').WorkflowChatNotice | undefined;
     try {
       const [{ buildWorkflowChatNotice, parseWorkflowChatGuidanceMode }, { readWorkflowConfig }] = await Promise.all([
@@ -2391,13 +2397,13 @@ export class ChatPanel {
         import('../core/workflowConfig.js'),
       ]);
       const settings = vscode.workspace.getConfiguration('atlasmind');
-      const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'inform'));
+      const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'follow'));
       if (mode === 'off') {
-        return false;
+        return { stop: false };
       }
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {
-        return false;
+        return { stop: false };
       }
       const branch = await readCurrentBranch(workspaceRoot);
       notice = buildWorkflowChatNotice({
@@ -2409,11 +2415,11 @@ export class ChatPanel {
     } catch {
       // Advisory by nature. A guard that took a turn down would be worse than
       // the silence it was meant to replace.
-      return false;
+      return { stop: false };
     }
 
     if (!notice) {
-      return false;
+      return { stop: false };
     }
 
     const sessionId = this.selectedSessionId;
@@ -2423,12 +2429,20 @@ export class ChatPanel {
       this.atlas.sessionConversation.appendMessage('user', prompt, sessionId);
       this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
       await this.syncState();
-      return true;
+      return { stop: true };
+    }
+
+    if (notice.executionPolicy) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `Following the declared ${notice.stageId} workflow for this request.`,
+      });
+      return { stop: false, executionPolicy: notice.executionPolicy };
     }
 
     this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
     await this.syncState();
-    return false;
+    return { stop: false };
   }
 
   /** Put a short AtlasMind-authored reply in the transcript, with no model involved. */
@@ -2458,6 +2472,8 @@ export class ChatPanel {
      * gate is the only thing standing between `/project` and an unattended run.
      */
     forcedProjectGoal?: string,
+    /** Validated host policy for a governed chat action; never user-authored text. */
+    workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
   ): Promise<PreparedPromptRequest> {
     const hostAuthoredResponse = this.pendingDirectResponse;
     if (hostAuthoredResponse) {
@@ -2537,6 +2553,7 @@ export class ChatPanel {
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
+      ...(workflowExecutionPolicy ? { __workflowChatPolicy: workflowExecutionPolicy } : {}),
     };
     if (this.pendingComposerContextPatch) {
       Object.assign(context, this.pendingComposerContextPatch);

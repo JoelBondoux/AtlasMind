@@ -61,6 +61,12 @@ Branch readiness, PR/CI status, ownership, traceability, inspection, and two-bra
 
 Branch cleanup is a direct, operator-initiated dashboard workflow rather than a callable skill. The webview sends only an opaque inventory id. Before offering any deletion, the host refreshes remotes, re-resolves the id, refuses current/default/protected/other-worktree branches, proves the selected commit is contained by the current or production baseline with no unique commits, and checks loaded pull-request state. Local deletion runs only `git branch -d -- <host-resolved-ref>` after a modal evidence review; AtlasMind never substitutes `-D`. Remote deletion requires the same review plus a live `ls-remote` hash match and an exact typed branch name before the host runs the fixed `git push --porcelain <host-resolved-remote> --delete <host-resolved-branch>` shape. A missing proof is a refusal, not an approval prompt.
 
+### Workflow-following chat turns
+
+`atlasmind.workflow.chatGuidance = follow` changes how a governed outcome is sequenced, not which tools may run. A single request to commit, push, open a pull request, promote, or publish carries the enabled declared route into the same agent turn. Every selected Git, terminal, network, or outward-facing tool still reaches its ordinary risk classification, automation ceiling, protected-ref check, and approval/confirmation path.
+
+Pre-existing unrelated edits do not become part of the request. AtlasMind must not stash, discard, stage, or commit them just to make a delivery check green. When a release step needs another branch, the standing guidance prefers an isolated temporary Git worktree so the operator's active checkout and editor state remain undisturbed. A clean release worktree is not permission to ignore a dirty target ref; it only keeps unrelated local state separate from the ref being verified.
+
 ## Approval Modes
 
 The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:

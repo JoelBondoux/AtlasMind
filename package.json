@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.255.3",
+  "version": "0.256.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2392,19 +2392,21 @@
         },
         "atlasmind.workflow.chatGuidance": {
           "type": "string",
-          "default": "inform",
+          "default": "follow",
           "enum": [
             "off",
+            "follow",
             "inform",
             "gate"
           ],
           "enumDescriptions": [
             "Say nothing. The declared workflow is not mentioned in chat.",
-            "State what the workflow expects before acting, and offer both paths. Default.",
+            "Follow the declared route in the same turn, without asking you to repeat the request. Default.",
+            "State what the workflow expects, then continue exactly as asked.",
             "Refuse until you say to go ahead anyway."
           ],
-          "description": "What AtlasMind does when a chat request would commit, push, branch, open a pull request, or release. Defaults to informing you, not blocking.",
-          "markdownDescription": "What AtlasMind does when something you ask for in chat is covered by the declared workflow —\na commit, a push, a new branch, a pull request, or a release.\n\nUntil this existed the workflow was invisible where most people stand: only the Workflow\ndashboard page and other tools' instruction files ever read it, so asking Atlas to \"commit and\npush this\" got no workflow awareness at all.\n\n- `inform` **(default)** — states what the workflow expects, then offers to follow it or to carry\n  on as asked. A newcomer learns the rule at the one moment it matters; an expert ignores a line.\n- `gate` — refuses until you explicitly say to go ahead. Stronger, and opt-in on purpose: a prompt\n  that appears on every commit becomes one people learn to click through, at which point it\n  protects nobody and is still in the way.\n- `off` — no notices.\n\nDetection is a **published keyword table**, not a model: no model call in front of every chat turn,\nand the same prompt always produces the same notice, so the advice is something you can learn\nfrom. Being wording-based it can miss an unusual phrasing — which is survivable precisely because\nthe default only adds a sentence. That asymmetry is why `gate` is not the default.\n\nNothing is said when no workflow is declared, or when the stage that owns the action is disabled.\nThere would be no rule to report, and inventing one would describe a process the project never\nadopted."
+          "description": "What AtlasMind does when a chat request would commit, push, branch, open a pull request, promote, or publish. Defaults to following the declared route in the same turn.",
+          "markdownDescription": "What AtlasMind does when something you ask for in chat is covered by the declared workflow —\na commit, a push, a new branch, a pull request, a promotion, or a release.\n\n- `follow` **(default)** — treats the declared workflow as a standing policy for this turn. Ask for\nthe outcome once; AtlasMind follows the enabled route without requiring a second \"follow the\nworkflow\" message. Existing tool approvals, automation ceilings, protected-ref checks, release\ngates, and outward-write confirmations are unchanged. Unrelated working-tree edits are never\nstashed or included merely to make a release clean; branch-changing delivery work should use an\nisolated Git worktree when possible.\n- `inform` — states what the workflow expects, then continues exactly as asked. It does not ask a\nquestion or stop the turn.\n- `gate` — refuses until you explicitly say to go ahead. Stronger, and opt-in on purpose: a prompt\nthat appears on every commit becomes one people learn to click through, at which point it protects\nnobody and is still in the way.\n- `off` — no workflow chat policy or notice.\n\nDetection is a **published keyword table**, not a model: no model call in front of every chat turn,\nand the same prompt always produces the same decision. The host passes only a narrow validated\npolicy object into the Orchestrator; free-form checks, blockers, and commands from the repository\nnever become system-prompt text.\n\nNothing is applied when no workflow is declared, or when the stage that owns the action is disabled.\nThere would be no rule to follow, and inventing one would describe a process the project never adopted."
         }
       }
     }

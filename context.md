@@ -1,31 +1,34 @@
 ## Goal
-Give an honest assessment of the AtlasMind project status while continuing the rolling session context, with emphasis on what is known to be true, what changed, and what remains constrained.
+Resume the interrupted release workflow for `fix/lens-acp-hidden-launch`. Preserve the verified commit/push baseline, keep the session-only context edit out of the release path, and complete promotion/publication once the branch target and release policy are reconciled.
 
 ## Approach
-I reviewed the existing `context.md`, checked the repo-level instructions in `AGENTS.md`, and captured objective evidence from the available session history. No code changes were made; this update is a status artifact only.
+Treat `810ae2ba` on `origin/fix/lens-acp-hidden-launch` as the known-good baseline. Continue with the repo’s release workflow unless the user overrides it: separate the context-file edit from branch work, then promote through the documented branch path before marketplace publication.
 
 ## Findings
-- `context.md` already existed and documented recent prior work on routing-test remediation (Vitest migration, explicit fallback assertions, BDD cleanup), so this turn is a context refresh rather than a new implementation pass.
-- Repository instructions are unusually strict: commit-level version/changelog/readme/wiki/doc synchronization rules and branch/release discipline are strongly defined, indicating a mature, process-heavy project.
-- The last visible assistant state in this session explicitly reports a hard budget guard (`£7.45 spent today / £16.2434 total`) and blocked new requests until the limit changes or the day resets.
-- No new functional errors or API changes were discovered in this turn; the root constraint is operational budget/continuation policy, not code-level breakage evidence.
+- Commit `810ae2ba` (`chore: commit staged changes`) was created from the staged files and pushed to `origin/fix/lens-acp-hidden-launch`.
+- The working tree was clean at that handoff; no source edits were left behind from the prior turn.
+- The current release continuation hit a sandbox boundary while trying to stash the session-only `context.md` change; `.git/index.lock` blocked the stash step.
+- Repo policy in `AGENTS.md` says the normal release route is `develop` first, then promotion to `main`, so the user’s literal “main” wording still needs reconciliation with the documented workflow.
+- No branch promotion, tag, build, package, or marketplace publish step has started in this resumed thread.
 
 ## Concluded
-- Consolidated the latest context into a single updated `context.md` document using the requested section format.
-- Confirmed this session’s focus remains assessment/status tracking, not feature implementation.
-- Recorded the pre-existing routing-work context and preserved it as historical continuity.
+- Preserved the verified commit/push state for `810ae2ba`.
+- Kept the interruption boundary explicit so the release can resume from a known-good point.
+- Isolated the session context update from product code changes.
 
 ## Open Threads
-- Ongoing external constraint: the assistant may again self-block work if the daily cost cap remains in force.
-- Need a user decision on whether to proceed into a deeper technical audit (tests, debt register, routing health, security coverage) versus a brief status readout.
+- ~~Re-establish the interrupted release context.~~
+- Resolve the `.git/index.lock` / stash issue so the session-only `context.md` change stays out of the release path.
+- Decide whether to follow the repo release path (`develop` → `main`) or honor the user’s literal “promote to main” wording.
+- Confirm whether marketplace publication should happen only after branch promotion under the repo workflow.
 
 ## SSOT Links
 AGENTS.md
-context.md
+docs/guided-github-workflow.md
+docs/github-workflow.md
 package.json
-README.md
 CHANGELOG.md
-docs/architecture.md
+context.md
 
 ## Current State
-I updated `context.md` to reflect the current user objective and the latest constraints, with a concise, evidence-based status. No repository files besides `context.md` were modified, and the immediate next step is to continue only after budget policy allows or after a narrower scope is approved.
+The most recent turn refreshed the rolling context for the interrupted release handoff. Branch promotion is still paused; no tag, build, or publish action has run in this turn.

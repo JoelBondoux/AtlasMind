@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.256.0 — One request, one declared delivery route
+
+Commit, push, pull-request, promotion, and publication requests can now follow the project’s enabled declared workflow in the same chat turn. `atlasmind.workflow.chatGuidance` defaults to `follow`, so AtlasMind no longer asks for a second “follow the workflow” message after the operator already named the desired outcome. `inform` remains available for a visible non-blocking note, `gate` remains the explicit stop, and `off` remains silent.
+
+Following changes sequencing, not authority. Existing tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations still apply. The host gives the Orchestrator only a narrow validated policy object; free-form repository text never becomes system-prompt instruction. Unrelated working-tree edits are left untouched, and branch-changing delivery work prefers an isolated temporary Git worktree instead of stashing or switching the operator’s active checkout.
+
 ## v0.255.3 — Quiet authorized ACP execution
 
 **Let subscription agents act** now means what its opt-in wording suggests for routed tool-backed work: once enabled, AtlasMind automatically answers readable ACP operation requests with `allow_once` rather than showing a modal for every edit, command, or search. Ordinary completions remain isolated, the Orchestrator must still authorize the exact tool-backed provider request, every operation is classified and logged, disabling the setting is checked live, and no permanent `allow_always` grant is stored inside the external agent.

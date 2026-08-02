@@ -11,6 +11,19 @@ AtlasMind registers the native VS Code chat participant under the id `atlasmind`
 
 Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
 
+### Commit, push, promote, and publish in one turn
+
+Freeform delivery requests use `atlasmind.workflow.chatGuidance`. Its default, `follow`, means you ask for the outcome once: AtlasMind applies the enabled committed workflow to the same turn instead of replying with “say follow the workflow” and waiting for a second message. This is also used for promotion wording such as “promote develop to main,” not only “publish a release.”
+
+The policy does not pre-approve any action. Tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations still occur where configured. Existing unrelated edits remain outside the request; AtlasMind does not stash or include them to make a release look clean and prefers an isolated Git worktree for branch-changing delivery work.
+
+Set the policy once in VS Code settings:
+
+- `follow` — apply the declared route in the same turn (default)
+- `inform` — show the expectation and continue exactly as asked
+- `gate` — stop until explicitly released
+- `off` — no workflow chat policy or notice
+
 ## Slash Commands
 
 | Command | Description |

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.256.0] - 2026-08-02
+
+### Added
+
+- **Declared workflow following is now a standing chat policy.** `atlasmind.workflow.chatGuidance` adds `follow` and makes it the default. A single commit, push, pull-request, promotion, or publication request now continues through the enabled declared route in the same turn instead of asking the operator to type “follow the workflow” and repeat the outcome. The host passes a narrow validated policy object to the Orchestrator, which renders fixed system guidance; free-form workflow checks, blockers, and commands never gain system-prompt authority.
+
+### Changed
+
+- **Release guidance preserves the operator’s active checkout.** Following the workflow grants no new tool or external-write authority and keeps all automation ceilings, approvals, protected-ref checks, release gates, and outward-write confirmations. Pre-existing unrelated edits must not be stashed, discarded, staged, or committed merely to satisfy cleanliness; branch-changing delivery work prefers an isolated temporary Git worktree and pauses only at a real approval, irreversible-action, missing-authority, or external-state boundary.
+- **`inform` no longer asks a question while continuing anyway.** It now states the workflow expectation and continues exactly as requested. `gate` remains the explicit blocking mode, and `off` remains silent.
+
 ## [0.255.3] - 2026-08-02
 
 ### Fixed
