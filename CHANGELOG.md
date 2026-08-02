@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.255.3] - 2026-08-02
+
+### Fixed
+
+- **ACP tool-backed turns no longer interrupt for every operation after the user has explicitly enabled them.** The off-by-default **Let subscription agents act** setting is now the standing operation grant for an independently authorized tool-backed provider turn. AtlasMind automatically answers each readable request with the agent's one-operation option, records its risk/category/action in the output log, rechecks the setting live, and still refuses malformed requests, missing policies, or an `allow_always`-only choice.
+- **ACP model and tool launches no longer create blank, focus-stealing Windows terminals when private mode is selected.** Capability probes, routed processes, and replacements all remain under one native supervisor. That parent now creates a single `SW_HIDE` console for the whole descendant tree to inherit—rather than giving only the first process `CREATE_NO_WINDOW` and leaving later shells to allocate a visible `conhost.exe`—while its non-interactive window station and Job Object continue to contain UI and lifetime. Windows npm adapters now run under a real `node.exe` instead of VS Code's GUI `Code.exe`; AtlasMind refuses the launch with an actionable error if Node is unavailable. Native and shipped-binary regressions exercise supervisor → Node → PowerShell and verify that the nested console is not visible.
+
 ## [0.255.2] - 2026-08-02
 
 ### Changed

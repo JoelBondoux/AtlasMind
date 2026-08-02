@@ -142,6 +142,8 @@ describe('package manifest', () => {
     const property = manifest.contributes?.configuration?.properties?.['atlasmind.acp.toolsEnabled'] as ManifestConfigurationProperty | undefined;
     expect(property?.description).toContain('Let subscription agents act');
     expect(property?.markdownDescription).toContain('Let subscription agents act');
+    expect(property?.description).toContain('without prompting for each operation');
+    expect(property?.markdownDescription).toContain('automatically answers each permission request');
   });
 
   it('keeps the wiki comparison page and navigation removed', () => {

@@ -58,7 +58,7 @@ const STARTF_USESHOWWINDOW: Dword = 0x0000_0001;
 const STARTF_USESTDHANDLES: Dword = 0x0000_0100;
 const EXTENDED_STARTUPINFO_PRESENT: Dword = 0x0008_0000;
 const CREATE_SUSPENDED: Dword = 0x0000_0004;
-const CREATE_NO_WINDOW: Dword = 0x0800_0000;
+const CREATE_NEW_CONSOLE: Dword = 0x0000_0010;
 const STD_INPUT_HANDLE: Dword = (-10_i32) as Dword;
 const STD_OUTPUT_HANDLE: Dword = (-11_i32) as Dword;
 const STD_ERROR_HANDLE: Dword = (-12_i32) as Dword;
@@ -499,6 +499,10 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
     // non-interactive station rather than reconnecting to WinSta0.
     startup.startup_info.desktop = null_mut();
     startup.startup_info.flags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    // SW_HIDE applies while Windows creates the console, before the ACP entry
+    // point can run. The console is nevertheless real and inherited by every
+    // console descendant, so a later tool process has no reason to allocate a
+    // separate, focus-stealing conhost window on WinSta0.
     startup.startup_info.show_window = 0;
     startup.startup_info.std_input = standard_handles[0];
     startup.startup_info.std_output = standard_handles[1];
@@ -515,7 +519,14 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
             null_mut(),
             null_mut(),
             TRUE,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED,
+            // CREATE_NO_WINDOW was the original implementation, but it only
+            // suppresses the direct child. It deliberately gives that child no
+            // console to pass to descendants, so a later native CLI or shell
+            // can allocate a fresh conhost of its own. One SW_HIDE console at
+            // this supervisor boundary is the containment mechanism: the ACP
+            // adapter and its entire job inherit it while stdio remains on the
+            // JSON-RPC pipes above.
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE | CREATE_SUSPENDED,
             null_mut(),
             null(),
             &mut startup.startup_info,
@@ -637,5 +648,51 @@ mod tests {
         ])
         .expect("PowerShell private-station launch");
         assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn gives_nested_tools_one_inherited_console_that_is_not_visible() {
+        let Some(node) = executable_on_path("node.exe") else {
+            return;
+        };
+        let Some(powershell) = executable_on_path("pwsh.exe") else {
+            return;
+        };
+        // This is the production shape that exposed the regression:
+        //
+        //   supervisor -> Node ACP adapter -> native CLI/shell
+        //
+        // The old CREATE_NO_WINDOW boundary left Node without a console. Its
+        // later shell could therefore allocate a visible conhost on the user's
+        // desktop. The shell exits 42 if Windows says its inherited console has
+        // a visible window, turning the user-facing symptom into an assertion.
+        let inspect_console = concat!(
+            "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; ",
+            "public static class NativeConsole { ",
+            "[DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow(); ",
+            "[DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd); }'; ",
+            "$window = [NativeConsole]::GetConsoleWindow(); ",
+            "if ($window -ne [IntPtr]::Zero -and [NativeConsole]::IsWindowVisible($window)) { exit 42 }; ",
+            "exit 0",
+        );
+        let node_script = concat!(
+            "const { spawnSync } = require('node:child_process');",
+            "const child = spawnSync(process.argv[1], ",
+            "['-NoLogo','-NoProfile','-NonInteractive','-Command',process.argv[2]], ",
+            "{ stdio: 'inherit', windowsHide: false });",
+            "process.exit(child.status ?? 43);",
+        );
+        let exit_code = launch(vec![
+            node,
+            OsString::from("-e"),
+            OsString::from(node_script),
+            powershell,
+            OsString::from(inspect_console),
+        ])
+        .expect("nested private-station launch");
+        assert_eq!(
+            exit_code, 0,
+            "the nested ACP tool inherited a visible console window"
+        );
     }
 }

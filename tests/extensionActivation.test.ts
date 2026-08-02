@@ -69,6 +69,20 @@ describe('runActivationStep', () => {
     expect(source).toContain('await atlasContext!.refreshProviderModels(true);');
   });
 
+  it('auto-acknowledges ACP operations only after the live tools setting gate', () => {
+    const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
+    const start = source.indexOf('acpAuthorize = async request =>');
+    const end = source.indexOf('// ── Agentic Resource Discovery', start);
+    const gate = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(gate).toContain("config.get<boolean>('acp.toolsEnabled') !== true");
+    expect(gate).toContain('automatically allowed once by atlasmind.acp.toolsEnabled');
+    expect(gate).not.toContain('showWarningMessage');
+    expect(gate).not.toContain('shouldBypass');
+  });
+
   it('builds a workspace identity prompt from the saved personality profile and project soul', () => {
     const prompt = buildWorkspaceIdentityPrompt({
       get: vi.fn().mockReturnValue({

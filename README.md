@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.255.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.255.3</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.255.2
+## What's new in 0.255.3
 
 Since the last Marketplace publication, **v0.255.1**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Enabling ACP tools no longer produces an approval dialog for every operation.** **Let subscription agents act** is now the explicit, off-by-default standing authorization for routed tool-backed ACP turns. AtlasMind automatically answers each request with a one-operation grant, records the category, risk, and action in its output log, and never stores an `allow_always` grant inside the external agent. Ordinary ACP completions remain isolated and switching the setting off stops later requests from a live session.
+
+- **ACP model and tool launches stay behind one Windows supervisor without taking focus.** The routed process, capability probe, replacement model, and later native tools all inherit the selected private boundary. The parent owns a non-interactive window station, a kill-on-close Job Object, and one `SW_HIDE` console shared by the descendant tree, so a later PowerShell or CLI does not allocate a new visible `conhost.exe`. Windows npm adapters run under a real `node.exe`, never VS Code's GUI `Code.exe`; nested-process coverage checks the shipped helper as supervisor → Node → PowerShell and verifies that the console remains non-visible.
 
 - **Hidden ACP launches now support PowerShell without a modal startup failure.** The opt-in Windows helper gives non-interactive descendants the UI-object access PowerShell needs, inherits the already-established private station/desktop connection, and converts loader failures into process failures rather than focus-stealing Windows error dialogs.
 
@@ -138,7 +142,7 @@ Since the last Marketplace publication, **v0.255.1**, source builds have added t
 
 - **Testing-policy explanations are immediate, useful, and model-free.** Every Testing Policy Coverage card now has a visible **Ask Atlas** action that opens with four beginner-facing answers: what the method is, what it needs, what result to expect, and why to use it. It then explains the live status and evidence limits, recommends a next step, and offers relevant chips such as **Check whether it fits**, **Plan a starting point**, or **Explain turning it off**. AtlasMind owns these facts, so this first answer bypasses routing entirely: zero models, zero provider fallbacks, and no subscription or API capacity. MCP connection/setup errors and Project Dashboard failures retain their separate reviewable, redacted Chat drafts.
 
-- **The ACP tools checkbox now makes subscription agents eligible for tool-backed work.** When **Let subscription agents act** is selected, the router can choose a configured ACP agent for a task that needs workspace actions. AtlasMind passes no incompatible function schemas; the subscription agent uses its own tools and every operation still asks through AtlasMind’s existing approval broker. With the checkbox off, ACP remains completion-only.
+- **The ACP tools checkbox now makes subscription agents eligible for tool-backed work.** When **Let subscription agents act** is selected, the router can choose a configured ACP agent for a task that needs workspace actions. AtlasMind passes no incompatible function schemas; the subscription agent uses its own tools and AtlasMind automatically acknowledges each operation with a logged, one-operation grant. With the checkbox off, ACP remains completion-only.
 
 - **Webview controls and compact rows stay legible as panels resize.** Labels, buttons, and badges no longer volunteer to shrink below the width of an ordinary word and then split it into fragments. Structural panel boxes remain responsive, prose wraps at word boundaries, long URLs still contain themselves, and Project Ideation's memory checklist and confidence/risk analytics keep their labels and scores intact while the flexible text column takes the available space.
 
@@ -182,7 +186,7 @@ Since the last Marketplace publication, **v0.255.1**, source builds have added t
 
   While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
 
-- **ACP setup uses plain language and its Settings link works.** The provider card now says that AtlasMind can use the Claude Code or Codex agent already installed and signed in on your computer; it does not need another AtlasMind API key. Its **Settings → Safety** link opens the switch that lets an agent act, one approval at a time.
+- **ACP setup uses plain language and its Settings link works.** The provider card now says that AtlasMind can use the Claude Code or Codex agent already installed and signed in on your computer; it does not need another AtlasMind API key. Its **Settings → Safety** link opens the off-by-default switch that authorizes tool-backed ACP turns without repeated operation prompts.
 
 - **The test baseline now includes property and mutation checks.** `fast-check` keeps a real property test in the normal Vitest suite, while `npm run test:mutation` runs the slower Stryker check over AtlasMind's criticality, tool-policy, and agent-registry decisions.
 
@@ -437,7 +441,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
-| `acp.toolsEnabled` | `false` | **Let subscription agents act**: global ceiling for ACP tool-backed work; the exact provider request must also be authorized, and ordinary completions remain isolated |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: standing authorization for routed ACP tool-backed work; operations are automatically granted once and logged, while ordinary completions remain isolated |
 | `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a non-interactive private window station so consoles cannot pop up or steal focus; may be blocked by application control/EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.

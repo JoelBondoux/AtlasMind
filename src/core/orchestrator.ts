@@ -1590,8 +1590,8 @@ export class Orchestrator {
           && this.router.getModelInfo(currentModel)?.delegatedToolExecution === true;
         // ACP cannot receive AtlasMind ToolDefinition schemas. When delegated
         // execution is authorized, standing down this loop is the whole point:
-        // the ACP agent uses its native tools and every operation is approved by
-        // the adapter's permission policy. A non-ACP failover receives the
+        // the ACP agent uses its native tools and every operation is answered by
+        // the adapter's scoped permission policy. A non-ACP failover receives the
         // original tools again on its next iteration.
         const attemptTools = usesDelegatedAcpTools ? [] : tools;
         const taskProfile = escalationAttempts === 0

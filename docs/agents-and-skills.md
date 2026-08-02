@@ -197,7 +197,7 @@ Selection behavior:
 5. Highest score wins; ties break by agent name.
 6. If no enabled registered agent exists, the built-in fallback agent is used.
 
-Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP and authorizes only that exact provider request; the subscription agent uses its own tools and every requested operation returns through the normal ACP permission broker. The global setting alone does not authorize an ordinary completion. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply.
+Agent selection and model execution remain separate decisions. If the selected agent has skills, its task normally requires a function-calling model. With `atlasmind.acp.toolsEnabled` enabled, an ACP subscription model that declares delegated native-tool execution may satisfy that requirement instead. AtlasMind then sends no skill schemas to ACP and authorizes only that exact provider request; the subscription agent uses its own tools and each readable operation request is automatically answered `allow_once` and written to the audit log. The global setting alone does not authorize an ordinary completion. With the setting off, ACP stays available for tool-free chat/reasoning while tool-backed work routes elsewhere. Explicit provider/model pins, agent allowlists, provider health, privacy gates, and normal scoring still apply.
 
 That delegated alternative is never used when the current task has a read-only or no-command capability envelope. The normal function-calling path receives the narrowed read schemas and can therefore inspect without escalating authority; ACP remains a completion candidate only after repository-tool requirements are deliberately removed.
 
@@ -551,10 +551,11 @@ Google AI Pro, Ultra, and free accounts stopped working with Gemini CLI on
 18 June 2026, so setup states that boundary before installing or probing.
 
 The routed ACP adapter may keep a successful agent session alive for 30 idle
-minutes, but every permission request in every turn still traverses the same
-`session/request_permission` policy. A live process does not retain an
-AtlasMind-side approval: `allow_always` is never selected, and a missing or
-throwing policy still denies. Enabling tools, changing the MCP allowlist, or
+minutes, but every operation in every turn still traverses the same
+`session/request_permission` policy. The live `acp.toolsEnabled` value is read
+again for each request and automatically produces only a one-operation
+`allow_once` response; `allow_always` is never selected, and a missing or
+throwing policy still denies. Disabling tools, changing the MCP allowlist, or
 crossing between completion-only isolation and delegated execution invalidates
 the session before another prompt is sent.
 
@@ -572,7 +573,7 @@ after a prompt may have crossed stdio is never automatically resent. The outer
 provider timeout aborts the ACP attempt, sends `session/cancel`, and tears down
 the uncertain session. This matters for tools as much as cost — duplicating a
 prompt to an agent that may act can duplicate the requested operation even
-though each individual permission remains gated.
+though each individual operation remains visible in the permission and tool logs.
 
 On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
 windows may appear, not what the process may do. The helper now creates a
@@ -582,6 +583,12 @@ on `WinSta0`, so a descendant that chooses a new desktop cannot escape back to
 the input screen merely by declining inheritance. The child inherits the
 helper's established station/desktop connection instead of reopening generated
 names, which lets PowerShell initialize without weakening the token-default ACL.
+The supervisor creates one `SW_HIDE` console before the agent runs, so Node,
+native CLIs, and later shells inherit the same non-visible console instead of
+allocating separate `conhost.exe` windows. `CREATE_NO_WINDOW` is deliberately
+not used: it hid only the first process and left descendants with no console to
+inherit. Windows npm adapters are also resolved to a real `node.exe`; VS Code's
+GUI `Code.exe` is refused as a JavaScript runtime.
 Inherited system-error flags also turn a loader failure into a process failure
 instead of a modal dialog that blocks Chat. This is neither a sandbox nor an
 authorization boundary; the agent retains the same user-level filesystem/network

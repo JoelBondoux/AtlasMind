@@ -16,14 +16,12 @@
  *   `promptCapabilities.image` says it accepts them — and dropped with a note
  *   when it does not, rather than sent hopefully.
  *
- * **Restricted mode is mandatory at this tier, and is what lets it ship without
- * touching the authorization gate.** The agent is initialised with no
+ * **Restricted mode remains the default.** The agent is initialised with no
  * filesystem capability, no terminal capability, and an empty `mcpServers`
- * list. It is a completion source, not an executor. Delegated execution —
- * where `session/request_permission` must resolve through `toolApprovalManager`
- * — is Tier 3, and this adapter deliberately **refuses** any permission request
- * rather than answering one it has no policy for: failing closed is the only
- * safe behaviour for a request this tier was not built to authorize.
+ * list. It is a completion source, not an executor. Delegated execution is a
+ * separate shape requiring the live off-by-default setting and an exact
+ * per-request Orchestrator stamp. Only then may `session/request_permission`
+ * reach the supplied policy; without one, the adapter deliberately refuses.
  *
  * The launch command is **user-authored** (`atlasmind.acp.agents`). Nothing here
  * installs, downloads, or `npx`-fetches an agent: the adapter probes for a
@@ -2278,11 +2276,10 @@ class AcpSession {
   /**
    * Answer a `session/request_permission` request.
    *
-   * The order of the guards is the policy. Before anything is asked of the user
-   * the request must be *readable*, and before any approval can be granted a
-   * policy must *exist* — a missing gate is a denial, never an open door. Only
-   * then does the decision reach the user, and only an explicit `true` can
-   * produce a selection of an allow option.
+   * The order of the guards is the policy. Before the authorization policy is
+   * consulted the request must be *readable*, and before any approval can be
+   * granted a policy must *exist* — a missing gate is a denial, never an open
+   * door. Only an explicit `true` can produce a selection of an allow option.
    *
    * Nothing here throws. This runs on the stdout read loop, where an exception
    * would strand the turn holding a permission the agent is still waiting on;
@@ -2301,8 +2298,8 @@ class AcpSession {
       return;
     }
 
-    // Announce the pending call before prompting: the approval dialog is about
-    // to describe it, and the run log should already show what was asked.
+    // Announce the pending call before deciding so the run log already shows
+    // what was requested even if the policy fails closed.
     this.emitToolEvent(request.toolCall);
 
     if (!this.permissionPolicy) {

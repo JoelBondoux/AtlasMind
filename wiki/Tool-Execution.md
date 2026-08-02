@@ -181,27 +181,29 @@ Four constraints make that safe, each pinned by test:
 
 An agent AtlasMind has no recipe for — one the user named themselves — is never given a guessed install command.
 
-## Delegated execution (ACP) is never delegated authorization
+## Delegated execution (ACP) uses explicit standing authorization
 
-An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
+An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). Turning it on is standing authorization for operations inside a routed tool-backed ACP turn; AtlasMind automatically answers each readable `session/request_permission` with a one-operation grant and writes the request to its output log instead of opening another dialog.
 
 The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled **and the current turn permits native tools**. If ACP is selected, it sends no `ToolDefinition` schemas—the adapter rejects them—and stamps only that provider request with delegated authority. The adapter independently requires the global setting and that request stamp before sharing MCP servers or wiring its permission policy. Omitted/false request authority is completion-only. If routing falls back to an ordinary function-calling provider, that attempt receives only the schemas permitted by the same turn envelope.
 
-- **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
-- **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.
-- **AtlasMind never selects `allow_always`.** The protocol offers it; accepting would store the grant inside the agent's own persistent state, where AtlasMind can neither display nor revoke it. AtlasMind answers `allow_once` every time and keeps "always" on its own side, in `ToolApprovalManager`, where it is visible and clears on restart. If `allow_always` is the only way to approve, the operation is declined.
+- **The checkbox is the broad decision.** It authorizes edits, deletes, commands, network fetches, and unrecognised ACP operations during a routed tool-backed turn. Keep it off unless that scope is intended.
+- **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses so the audit record stays comparable. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
+- **`ToolKind::Other` is the highest audit-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there and is recorded at the most severe classification.
+- **AtlasMind never selects `allow_always`.** The protocol offers it; accepting would store the grant inside the agent's own persistent state, where AtlasMind can neither display nor revoke it. AtlasMind answers `allow_once` every time and keeps the standing choice in its own live setting. If `allow_always` is the only way to approve, the operation is declined.
 - **A missing or failing gate is a refusal.** An adapter built without a permission policy refuses every request; a policy that throws is treated as a denial. Wiring mistakes produce an agent that cannot act, never one that acts unsupervised.
 - **Unreadable requests are refused, not guessed.** Inventing an `optionId` would be inventing consent.
 - **MCP servers are shared only by explicit allowlist** (`atlasmind.acp.mcpServers`, empty by default), and two kinds are held back even when listed: servers whose credentials live in SecretStorage (forwarding would copy a key given to AtlasMind into another vendor's process) and HTTP/SSE servers, whose headers carry bearer tokens.
-- **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The permission gate is where the authority lives.
+- **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The setting plus routed request stamp is where authority lives.
 
-### Keeping the process alive does not keep an approval alive
+### Keeping the process alive does not create an agent-owned grant
 
 ACP sessions can now remain live for 30 idle minutes, which removes repeated
 agent boot and console churn. That changes process lifetime only:
 
-- every operation still arrives through `session/request_permission`;
-- AtlasMind still selects at most an allow-once option and never `allow_always`;
+- every operation still arrives through `session/request_permission` and is logged;
+- the live setting is re-read before AtlasMind automatically selects an allow-once option;
+- AtlasMind never selects `allow_always`;
 - changing the MCP list, global setting, or per-request authority between
   completion-only isolation and delegated execution invalidates the session
   before the next prompt;
@@ -214,7 +216,11 @@ The opt-in Windows ACP helper establishes a non-interactive window station and
 desktop with the published non-interactive UI-object access sets and the current
 token's default ACL. The child inherits that established connection instead of
 reopening generated names, which prevents PowerShell's USER32 initialization
-from failing while keeping descendants off `WinSta0`. Inherited
+from failing while keeping descendants off `WinSta0`. The supervisor also
+creates one `SW_HIDE` console inherited by the full ACP tree; a later native CLI
+or shell therefore does not allocate a separate visible `conhost.exe`.
+Windows npm adapters use a real `node.exe`, not VS Code's GUI `Code.exe`.
+Inherited
 `SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX` error mode prevents a future
 loader failure from blocking Chat behind a modal system dialog. These controls
 change launch and error presentation only; every ACP operation still follows the

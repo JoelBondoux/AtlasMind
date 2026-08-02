@@ -432,6 +432,37 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(launchModes).toEqual([false]);
   });
 
+  it('keeps every model-switch process behind the private-desktop parent', async () => {
+    const { factory } = configurableAgent();
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      keepAlive: true,
+      hideConsoleWindows: true,
+      settingsStamp: () => 'stable',
+    });
+
+    await adapter.healthCheck();
+    const first = await adapter.complete(request({ model: 'acp/fake@opus' }));
+    await adapter.complete(request({
+      model: 'acp/fake@haiku',
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Continue with the lighter model' },
+      ],
+    }));
+
+    expect(launchModes.length).toBeGreaterThanOrEqual(3);
+    expect(launchModes.every(mode => mode === true)).toBe(true);
+    await adapter.shutdown();
+  });
+
   it('refuses every spawn until the Windows console-mode choice is recorded', async () => {
     const { factory, agents } = scriptedAgent();
     const adapter = new AcpAdapter({
