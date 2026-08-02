@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.252.1 — Dedicated implementation branches
+
+AtlasMind's committed workflow now permits branch creation and local development for this repository. Issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits, so the permission change is deliberately scoped to building work on dedicated branches.
+
 ## v0.252.0 — Branches becomes the daily decision dashboard
 
 Project Dashboard → Branches now answers the operational questions behind the inventory. Every card combines local drift with the last explicitly loaded PR, review decision, mergeability, unresolved review comments, branch-level CI, issue linkage, and roadmap references through one deterministic rule table. The result is a visible readiness verdict with its reasons, not a model score; GitHub evidence that has not been loaded remains unknown instead of becoming a reassuring zero.

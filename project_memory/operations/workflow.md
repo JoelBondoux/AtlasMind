@@ -26,8 +26,8 @@ one of them agrees.
 | Stage | Enabled | Requests | Attestations | CI checks | Command | Blockers |
 |---|---|---|---|---|---|---|
 | Planning & issue intake | yes | `observe` (reports only) | Acceptance criteria written | — | n/a | — |
-| Branch creation & naming | yes | `observe` (reports only) | — | — | n/a | — |
-| Local development & orchestration | yes | `observe` (reports only) | — | — | n/a | — |
+| Branch creation & naming | yes | `auto` (writes unattended) | — | — | n/a | — |
+| Local development & orchestration | yes | `auto` (writes unattended) | — | — | n/a | — |
 | Pull requests & reviews | yes | `observe` (reports only) | Self-reviewed the diff; Linked to an issue; Version bumped and changelog written | CI | n/a | — |
 | CI/CD & failure analysis | yes | `observe` (reports only) | — | CI | n/a | — |
 | Release automation | yes | `observe` (reports only) | Changelog entry written; Version bumped; README banner matches package.json | CI | `npm run tag:release` | — |

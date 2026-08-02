@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.252.1] - 2026-08-02
+
+### Changed
+
+- **AtlasMind may create feature branches and carry out local development for this repository.** The committed workflow now grants `auto` to branch creation and local development while issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits.
+
 ## [0.252.0] - 2026-08-02
 
 ### Added

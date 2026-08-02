@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.252.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.252.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.252.0
+## What's new in 0.252.1
 
 Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Dedicated implementation branches are now permitted for AtlasMind itself.** The repository workflow grants branch creation and local development while keeping issue, PR, CI, release, maintenance, and general automation permissions unchanged.
 
 - **Branches is now a decision dashboard, not an inventory.** Every card carries a deterministic `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged verdict derived from local drift plus the last explicitly loaded PR, review, mergeability, CI, issue, and roadmap evidence. Unknown remote state stays unknown until refresh; no model assigns the verdict.
 
