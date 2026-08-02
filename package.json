@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.252.1",
+  "version": "0.255.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -226,6 +226,11 @@
         "command": "atlasmind.lens.filterSymbols",
         "title": "AtlasMind: Lens: Filter Symbols",
         "icon": "$(filter)"
+      },
+      {
+        "command": "atlasmind.lens.setupDeclarations",
+        "title": "AtlasMind: Lens: Set Up Repository Declarations",
+        "icon": "$(new-file)"
       },
       {
         "command": "atlasmind.lens.reviewContracts",
@@ -1144,7 +1149,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in five steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in six steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -1168,6 +1173,17 @@
             "completionEvents": [
               "onCommand:atlasmind.bootstrapProject",
               "onCommand:atlasmind.importProject"
+            ]
+          },
+          {
+            "id": "setupLensDeclarations",
+            "title": "Set up repository-backed Lens views",
+            "description": "State Lifecycle and Configuration Resolution use explicit repository declarations instead of guessing from whichever file is open. Review their status, create safe empty starters, and complete only the views your project needs.\n[Set Up Lens Declarations](command:atlasmind.lens.setupDeclarations)",
+            "media": {
+              "markdown": "media/walkthrough/lens-declarations.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.lens.setupDeclarations"
             ]
           },
           {
@@ -1455,8 +1471,8 @@
         "atlasmind.acp.hideConsoleWindows": {
           "type": "boolean",
           "default": false,
-          "description": "Windows only: keep ACP agent console windows on a private desktop so they cannot pop up or steal focus. Off by default.",
-          "markdownDescription": "**Windows only, off by default.** Keep an ACP agent and the child processes it launches on a dedicated, non-visible Windows desktop. This prevents black console windows from appearing or taking keyboard/mouse focus.\n\nWith this unchecked, AtlasMind uses ordinary process launching. The first ACP start — and any restart after settings change or 30 minutes idle — may briefly show terminal windows created by the agent or its MCP servers. AtlasMind reuses a safe live session, so it no longer starts that process tree for every answer.\n\nWith this checked, AtlasMind uses a bundled, SHA-256-pinned native launcher. It creates a private desktop, passes through only stdin/stdout/stderr, starts the already-resolved agent command without a shell, and never switches to or remotely controls that desktop. If the helper is missing, modified, or blocked, the ACP launch fails visibly; AtlasMind does not silently fall back.\n\n**Security software note:** hidden desktops are also used by hVNC malware. Microsoft Defender exposes and hunts processes on them for that reason, so enterprise EDR may flag this legitimate use. The hash pin checks AtlasMind's expected bytes; it is not an Authenticode signature, and this helper is not Authenticode-signed in v0.230.0. Leave this unchecked where policy forbids it, or if your security team has not approved the launcher."
+          "description": "Windows only: keep ACP agent console windows on a non-interactive private window station so they cannot pop up or steal focus. Off by default.",
+          "markdownDescription": "**Windows only, off by default.** Keep an ACP agent and the child processes it launches on a dedicated, non-interactive Windows window station. Windows permits screen and input only on `WinSta0`; descendants on this station cannot display black console windows or take keyboard/mouse focus, even if one chooses a fresh desktop.\n\nWith this unchecked, AtlasMind uses ordinary process launching. The first ACP start — and any restart after settings change or 30 minutes idle — may briefly show terminal windows created by the agent or its MCP servers. AtlasMind reuses a safe live session, so it no longer starts that process tree for every answer.\n\nWith this checked, AtlasMind uses a bundled, SHA-256-pinned native launcher. It creates the non-interactive station and its private desktop, passes through only stdin/stdout/stderr, starts the already-resolved agent command without a shell, and never switches to or remotely controls that station. If the helper is missing, modified, or blocked, the ACP launch fails visibly; AtlasMind does not silently fall back.\n\n**Security software note:** unusual hidden UI boundaries and unsigned native helpers may be flagged or blocked by enterprise application control or EDR. The station's ACL comes from the current user's token and the child retains that user's filesystem/network authority: this is a window-placement control, not a sandbox. The hash pin checks AtlasMind's expected bytes; it is not an Authenticode signature. Leave this unchecked where policy forbids it, or if your security team has not approved the launcher."
         },
         "atlasmind.acp.modelStanding": {
           "type": "object",
@@ -2265,7 +2281,7 @@
           "type": "boolean",
           "default": false,
           "description": "Let subscription agents act — make ACP agents eligible for tool-backed work using their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
-          "markdownDescription": "**Let subscription agents act.** **Off by default.** Makes an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — eligible for work that needs actions, then lets it use its own tools to edit files, run commands, search, or fetch.\n\nAtlasMind does not pass its own function schemas into ACP. It stands down that tool loop and the subscription agent acts inside its own process. Every operation still comes back through AtlasMind for approval; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, ACP agents remain eligible for chat, code, and reasoning that needs no tools; tool-backed work routes to a provider that can accept AtlasMind function calls. See also `#atlasmind.acp.mcpServers#`."
+          "markdownDescription": "**Let subscription agents act.** **Off by default.** Makes an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — eligible for work that needs actions, then lets it use its own tools to edit files, run commands, search, or fetch.\n\nThis is a global ceiling, not blanket authority for every ACP answer. AtlasMind also authorizes the exact provider request only when the selected turn genuinely needs native tools. Ordinary completions remain settings-isolated, receive no configured MCP servers, and have no approval policy even while this switch is on.\n\nAtlasMind does not pass its own function schemas into ACP. It stands down that tool loop and the subscription agent acts inside its own process. Every authorized operation still comes back through AtlasMind for approval; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, ACP agents remain eligible for chat, code, and reasoning that needs no tools; tool-backed work routes to a provider that can accept AtlasMind function calls. See also `#atlasmind.acp.mcpServers#`."
         },
         "atlasmind.acp.mcpServers": {
           "type": "array",

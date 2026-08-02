@@ -8,7 +8,12 @@ import {
   LENS_CHANGE_STORY_MAX_CHANGES,
   LENS_CHANGE_STORY_MAX_COMMITS,
 } from '../core/lensChangeStory.js';
-import type { LensChangeCommit, LensChangedPath, LensChangeStatus } from '../core/lensChangeStory.js';
+import type { LensChangeCommit, LensChangedPath, LensChangeStatus, LensChangeStoryItem } from '../core/lensChangeStory.js';
+import {
+  LENS_CHANGE_CONTENT_MAX_BYTES,
+  LENS_CHANGE_PATCH_MAX_CHARS,
+  type LensChangeStoryFileEvidence,
+} from '../core/lensTarget.js';
 import { LensChangeStoryPanel } from './lensChangeStoryPanel.js';
 
 interface WorkspacePick extends vscode.QuickPickItem { folder: vscode.WorkspaceFolder }
@@ -55,7 +60,10 @@ export async function reviewWorkspaceChangeStory(): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: 'AtlasMind Lens: reading committed branch evidence', cancellable: false },
       async () => collectChangeStory(workspaceRoot, folder, branch, base.ref, 'HEAD'),
     );
-    LensChangeStoryPanel.createOrShow(result);
+    LensChangeStoryPanel.createOrShow(
+      result,
+      change => collectChangeStoryFileEvidence(workspaceRoot, result, 'HEAD', change),
+    );
   } catch {
     void vscode.window.showWarningMessage('AtlasMind Lens could not build a safe local change story from this repository.');
   }
@@ -95,7 +103,89 @@ export async function reviewWorkspaceChangeStoryForRefs(
       selection.headRef,
     ),
   );
-  LensChangeStoryPanel.createOrShow(result);
+  LensChangeStoryPanel.createOrShow(
+    result,
+    change => collectChangeStoryFileEvidence(workspaceRoot, result, selection.headRef, change),
+  );
+}
+
+/**
+ * Read the selected committed file from the exact ref that produced the map.
+ *
+ * The checked-out workspace can describe a different branch, so an ordinary
+ * Lens path is not evidence for this action. Both Git outputs are bounded
+ * before crossing into chat; large files contribute their focused patch and
+ * byte count rather than flooding the model context.
+ */
+async function collectChangeStoryFileEvidence(
+  workspaceRoot: string,
+  map: ReturnType<typeof buildLensChangeStory>,
+  headRef: string,
+  change: LensChangeStoryItem,
+): Promise<LensChangeStoryFileEvidence> {
+  const live = map.changes.find(candidate => candidate.id === change.id);
+  if (
+    !live
+    || live.workspacePath !== change.workspacePath
+    || live.workspacePath.includes(':')
+    || !isSafeRef(headRef)
+  ) {
+    throw new Error('AtlasMind Lens refused stale or invalid branch-file evidence.');
+  }
+
+  const patchOutput = await runGit(workspaceRoot, [
+    'diff',
+    '--no-ext-diff',
+    '--no-color',
+    '--unified=60',
+    map.mergeBase,
+    headRef,
+    '--',
+    live.workspacePath,
+  ]);
+  const patchTruncated = patchOutput.length > LENS_CHANGE_PATCH_MAX_CHARS;
+  const patch = patchTruncated
+    ? `${patchOutput.slice(0, LENS_CHANGE_PATCH_MAX_CHARS)}\n[AtlasMind Lens truncated this branch patch.]`
+    : patchOutput;
+
+  const objectSpec = `${headRef}:${live.workspacePath}`;
+  let objectBytes: number | undefined;
+  let content: string | undefined;
+  let contentOmitted: string | undefined;
+  if (live.status !== 'deleted') {
+    const sizeText = await runGit(workspaceRoot, ['cat-file', '-s', objectSpec]);
+    objectBytes = /^\d+$/.test(sizeText) ? Number(sizeText) : undefined;
+    if (objectBytes === undefined || !Number.isSafeInteger(objectBytes) || objectBytes < 0) {
+      throw new Error('AtlasMind Lens received an invalid Git object size.');
+    }
+    if (objectBytes <= LENS_CHANGE_CONTENT_MAX_BYTES) {
+      const candidate = await runGit(workspaceRoot, ['cat-file', 'blob', objectSpec]);
+      if (candidate.includes('\0')) {
+        contentOmitted = 'The selected Git object is binary; its text content was not attached.';
+      } else {
+        content = candidate;
+      }
+    } else {
+      contentOmitted =
+        `The selected Git object is ${objectBytes} bytes, above the ${LENS_CHANGE_CONTENT_MAX_BYTES}-byte content limit. `
+        + 'Use the bounded branch patch above and say when it is insufficient.';
+    }
+  }
+
+  return {
+    version: 1,
+    branch: map.branch,
+    headRef,
+    mergeBase: map.mergeBase,
+    workspacePath: live.workspacePath,
+    status: live.status,
+    ...(live.previousPath ? { previousPath: live.previousPath } : {}),
+    ...(objectBytes === undefined ? {} : { objectBytes }),
+    patch,
+    patchTruncated,
+    ...(content === undefined ? {} : { content }),
+    ...(contentOmitted === undefined ? {} : { contentOmitted }),
+  };
 }
 
 async function collectChangeStory(

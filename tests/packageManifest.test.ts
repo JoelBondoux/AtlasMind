@@ -194,6 +194,18 @@ describe('package manifest', () => {
     expect(gettingStarted?.title).toBe('AtlasMind: Getting Started');
   });
 
+  it('makes Lens declaration setup discoverable from onboarding and the Command Palette', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const walkthroughs = (manifest.contributes?.walkthroughs ?? []) as Walkthrough[];
+    const getStarted = walkthroughs.find(entry => entry.id === 'atlasmind.getStarted');
+    const lensSetup = getStarted?.steps?.find(step => step.id === 'setupLensDeclarations');
+
+    expect(commands.find(entry => entry.command === 'atlasmind.lens.setupDeclarations')?.title)
+      .toBe('AtlasMind: Lens: Set Up Repository Declarations');
+    expect(lensSetup?.description).toContain('(command:atlasmind.lens.setupDeclarations)');
+    expect(lensSetup?.completionEvents).toContain('onCommand:atlasmind.lens.setupDeclarations');
+  });
+
   it('contributes a dedicated AtlasMind chat panel command', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatPanel = commands.find(entry => entry.command === 'atlasmind.openChatPanel');

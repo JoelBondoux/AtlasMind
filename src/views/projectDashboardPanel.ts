@@ -194,6 +194,7 @@ import {
 } from '../core/teamRoles.js';
 import { upsertManagedBlock } from '../utils/managedBlock.js';
 import { classifyLensChangePath } from '../core/lensChangeStory.js';
+import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
   buildCiFailureReport,
@@ -399,6 +400,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
   'atlasmind.openMcpServers',
+  'atlasmind.lens.setupDeclarations',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -586,6 +588,9 @@ type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
   | { type: 'error'; payload: string }
   | { type: 'navigate'; payload: DashboardPageId }
+  | { type: 'repositoryRefreshBusy'; payload: boolean }
+  | { type: 'branchFetchBusy'; payload: boolean }
+  | { type: 'branchInspectionBusy'; payload: { branchId: string; busy: boolean } }
   | { type: 'ideationBusy'; payload: boolean }
   | { type: 'ideationStatus'; payload: string }
   | { type: 'ideationResponseReset' }
@@ -3412,6 +3417,9 @@ export class ProjectDashboardPanel {
       case 'openCommand':
         if (ALLOWED_DASHBOARD_COMMANDS.has(message.payload)) {
           await vscode.commands.executeCommand(message.payload);
+          if (message.payload === 'atlasmind.lens.setupDeclarations') {
+            await this.syncState();
+          }
         } else {
           // Never silently. A dropped command produced a button that did
           // nothing and said nothing — indistinguishable, from the outside,
@@ -3894,6 +3902,7 @@ export class ProjectDashboardPanel {
   private async handleFetchBranches(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
+      await this.postMessage({ type: 'branchFetchBusy', payload: false });
       void vscode.window.showWarningMessage('Open a Git workspace before refreshing branches.');
       return;
     }
@@ -3903,6 +3912,7 @@ export class ProjectDashboardPanel {
     }
 
     this.branchesFetchRunning = true;
+    await this.postMessage({ type: 'branchFetchBusy', payload: true });
     try {
       await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
@@ -3919,6 +3929,7 @@ export class ProjectDashboardPanel {
       void vscode.window.showErrorMessage(`AtlasMind could not fetch branch updates: ${detail}`);
     } finally {
       this.branchesFetchRunning = false;
+      await this.postMessage({ type: 'branchFetchBusy', payload: false });
     }
   }
 
@@ -4029,6 +4040,7 @@ export class ProjectDashboardPanel {
 
   /** Collect changed-area, impact, contributor, and CODEOWNERS evidence on demand. */
   private async handleInspectBranch(branchId: string): Promise<void> {
+    await this.postMessage({ type: 'branchInspectionBusy', payload: { branchId, busy: true } });
     try {
       const live = await this.resolveLiveBranchAction(branchId);
       if (!live) return;
@@ -4094,6 +4106,8 @@ export class ProjectDashboardPanel {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`AtlasMind could not inspect that branch: ${detail}`);
+    } finally {
+      await this.postMessage({ type: 'branchInspectionBusy', payload: { branchId, busy: false } });
     }
   }
 
@@ -4616,12 +4630,14 @@ export class ProjectDashboardPanel {
     if (!workspaceRoot) {
       this.issuesState = { status: 'no-repo', detail: 'Open a workspace folder to read its issues.', issues: [], busy: false };
       await this.syncState();
+      await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
       return;
     }
 
     this.repositoryActivityRefreshRunning = true;
     this.repositoryActivityLastAttemptAt = Date.now();
     this.issuesState = { ...this.issuesState, busy: true };
+    await this.postMessage({ type: 'repositoryRefreshBusy', payload: true });
     await this.syncState();
 
     try {
@@ -4726,6 +4742,7 @@ export class ProjectDashboardPanel {
     } finally {
       this.repositoryActivityRefreshRunning = false;
       await this.syncState();
+      await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
     }
   }
 
@@ -7534,7 +7551,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
-              <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost" type="button">Refresh</button>
+              <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
+                aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
+                title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
+                <span class="refresh-button-label">Refresh</span>
+                <kbd class="dashboard-refresh-shortcut" aria-hidden="true">Ctrl⇧R</kbd>
+              </button>
             </div>
           </div>
           <!-- No aria-live here. render() replaces this entire subtree on every
@@ -8665,11 +8687,17 @@ async function collectDashboardSnapshot(
   reviewComments?: Record<string, ReviewCommentRecord[]>,
   taxonomy?: { labels: LabelRecord[]; milestones: MilestoneRecord[] },
 ): Promise<DashboardSnapshot> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceRoot = workspaceFolder?.uri.fsPath;
+  const workspaceName = workspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
   const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
+  const lensDeclarations = inspectLensDeclarations(
+    workspaceFolder?.uri.scheme === 'file' || workspaceFolder?.uri.scheme === 'vscode-remote'
+      ? workspaceRoot
+      : undefined,
+  );
   const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
   const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
@@ -8875,6 +8903,20 @@ async function collectDashboardSnapshot(
       detail: `${ideationBoard.nextPrompts.length} follow-up prompt${ideationBoard.nextPrompts.length === 1 ? '' : 's'} queued, ${ideationAttachments.length} live attachment${ideationAttachments.length === 1 ? '' : 's'}.`,
       tone: ideationBoard.cards.length > 0 ? 'accent' : 'neutral',
       command: 'atlasmind.openProjectIdeation',
+    },
+    {
+      id: 'lens',
+      label: 'Lens Declarations',
+      value: `${lensDeclarations.readyCount}/${lensDeclarations.totalCount} ready`,
+      detail: lensDeclarations.files
+        .map(file => `${file.label}: ${lensDeclarationStatusLabel(file.status).toLowerCase()}`)
+        .join(' • '),
+      tone: lensDeclarations.readyCount === lensDeclarations.totalCount
+        ? 'good'
+        : lensDeclarations.files.some(file => file.status === 'invalid' || file.status === 'unreadable')
+          ? 'critical'
+          : 'warn',
+      command: 'atlasmind.lens.setupDeclarations',
     },
   ];
 
@@ -14909,6 +14951,59 @@ const DASHBOARD_CSS = `
     color: var(--vscode-foreground);
   }
 
+  .dashboard-refresh-shortcut {
+    position: relative;
+    z-index: 1;
+    margin-left: 7px;
+    padding: 1px 5px;
+    border: 1px solid color-mix(in srgb, var(--dash-border) 78%, transparent);
+    border-radius: 5px;
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-panel) 66%, transparent);
+    font: 500 10px/1.4 var(--vscode-editor-font-family, monospace);
+  }
+
+  /* One refresh language everywhere: the progress bar lives inside the button
+     and uses VS Code's progress colour, so no detached spinner shifts layout. */
+  .refresh-progress-button {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .refresh-progress-button > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .refresh-progress-button::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0 auto 0 0;
+    width: 46%;
+    opacity: 0;
+    transform: translateX(-110%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--vscode-progressBar-background, var(--dash-accent-strong)) 78%, transparent),
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  .refresh-progress-button.is-refreshing::before {
+    opacity: 0.72;
+    animation: dashboardRefreshProgress 1.15s ease-in-out infinite;
+  }
+
+  .refresh-progress-button.is-refreshing,
+  .refresh-progress-button.is-refreshing:disabled {
+    cursor: wait;
+    opacity: 0.88;
+  }
+
   .dashboard-root {
     display: flex;
     flex-direction: column;
@@ -16212,7 +16307,7 @@ const DASHBOARD_CSS = `
 
   .branch-view-controls {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) repeat(2, minmax(140px, 190px));
+    grid-template-columns: minmax(0, 1fr) repeat(3, minmax(130px, 180px));
     gap: 12px;
     align-items: end;
   }
@@ -16243,6 +16338,52 @@ const DASHBOARD_CSS = `
     font-weight: 600;
   }
 
+  .branch-card-display-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 6%, transparent), transparent 42%),
+      var(--dash-panel);
+  }
+
+  .branch-card-display-controls .section-copy {
+    margin: 3px 0 0;
+  }
+
+  .branch-chip-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    color: var(--dash-muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .branch-chip-toggle input {
+    margin: 0;
+    accent-color: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
+  }
+
+  .branch-chip-preview {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .branch-chip-preview .branch-title-chip {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
   .branch-filter-control button {
     border-radius: 999px;
     border: 1px solid var(--dash-border);
@@ -16271,10 +16412,17 @@ const DASHBOARD_CSS = `
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
     gap: 14px;
+    align-items: start;
   }
 
   .branch-inventory-grid > .dashboard-empty {
     grid-column: 1 / -1;
+  }
+
+  .branch-inventory-item {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
   }
 
   .branch-inventory-card {
@@ -16282,6 +16430,61 @@ const DASHBOARD_CSS = `
     flex-direction: column;
     gap: 10px;
     min-width: 0;
+    padding: 14px;
+    transition: border-color 160ms ease, box-shadow 160ms ease, padding 160ms ease;
+  }
+
+  .branch-inventory-card.is-expanded {
+    padding: 18px;
+  }
+
+  .branch-card-summary {
+    display: grid;
+    gap: 9px;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .branch-card-summary:hover .branch-expand-hint,
+  .branch-card-summary:focus-visible .branch-expand-hint {
+    color: var(--vscode-foreground);
+  }
+
+  .branch-card-summary:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 5px;
+    border-radius: 6px;
+  }
+
+  .branch-card-details {
+    display: grid;
+    gap: 10px;
+    padding-top: 11px;
+    border-top: 1px solid var(--dash-border);
+  }
+
+  .branch-compact-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .branch-expand-hint {
+    flex: 0 0 auto;
+    color: var(--dash-muted);
+    font-size: 10px;
+    font-weight: 600;
+    transition: color 160ms ease;
   }
 
   .branch-inventory-card.is-current {
@@ -16292,6 +16495,14 @@ const DASHBOARD_CSS = `
   .branch-inventory-card.is-compare-selected {
     border-color: color-mix(in srgb, var(--dash-accent-strong) 72%, var(--dash-border));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 40%, transparent), var(--dash-shadow);
+  }
+
+  .branch-inventory-card.has-failure {
+    border-color: color-mix(in srgb, var(--dash-critical) 64%, var(--dash-border));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dash-critical) 88%, transparent), var(--dash-shadow);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--dash-critical) 7%, transparent), transparent 48%),
+      var(--dash-panel);
   }
 
   .branch-group {
@@ -16313,11 +16524,6 @@ const DASHBOARD_CSS = `
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-  }
-
-  button.branch-readiness-button {
-    font: inherit;
-    cursor: pointer;
   }
 
   .branch-pr-summary {
@@ -16353,7 +16559,7 @@ const DASHBOARD_CSS = `
   }
 
   .branch-readiness-reasons .reason-blocker {
-    color: color-mix(in srgb, var(--dash-warn) 84%, var(--vscode-foreground));
+    color: color-mix(in srgb, var(--dash-critical) 84%, var(--vscode-foreground));
   }
 
   .branch-card-actions .danger-link {
@@ -16376,6 +16582,12 @@ const DASHBOARD_CSS = `
     gap: 14px;
     margin-bottom: 16px;
     border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border));
+  }
+
+  .branch-inventory-item > .branch-review-result {
+    margin-bottom: 0;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
   }
 
   .branch-evidence-grid {
@@ -16416,16 +16628,65 @@ const DASHBOARD_CSS = `
     line-height: 1.5;
   }
 
+  .branch-card-head > div {
+    min-width: 0;
+  }
+
   .branch-card-head h3 {
     margin: 0;
     overflow-wrap: anywhere;
   }
 
+  .branch-title-chip {
+    --branch-chip-color: var(--vscode-textLink-foreground, #3794ff);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 9px;
+    border: 1px solid color-mix(
+      in srgb,
+      var(--branch-chip-color) 66%,
+      var(--dash-border)
+    );
+    border-radius: 999px;
+    color: var(--branch-chip-color);
+    background: color-mix(
+      in srgb,
+      var(--branch-chip-color) 16%,
+      transparent
+    );
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .branch-title-chip.is-local {
+    --branch-chip-color: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
+  }
+
+  .branch-title-chip.is-remote {
+    --branch-chip-color: var(--vscode-charts-purple, #b180d7);
+  }
+
+  .branch-title-chip span {
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+
   .branch-subject {
     margin: 2px 0 0;
-    min-height: 2.8em;
+    min-height: 1.4em;
     color: var(--vscode-foreground);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
     overflow-wrap: anywhere;
+  }
+
+  .branch-inventory-card.is-expanded .branch-subject {
+    -webkit-line-clamp: 2;
   }
 
   .branch-commit-meta {
@@ -16445,7 +16706,8 @@ const DASHBOARD_CSS = `
     .branch-view-controls { grid-template-columns: 1fr; }
     .branch-compare-toolbar,
     .branch-review-source,
-    .branch-operation-status { align-items: stretch; flex-direction: column; }
+    .branch-operation-status,
+    .branch-card-display-controls { align-items: stretch; flex-direction: column; }
   }
 
   .inline-notice.warning {
@@ -17828,6 +18090,20 @@ const DASHBOARD_CSS = `
   @keyframes dashBarRise {
     from { transform: scaleY(0.2); opacity: 0.25; }
     to { transform: scaleY(1); opacity: 0.92; }
+  }
+
+  @keyframes dashboardRefreshProgress {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(240%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-progress-button.is-refreshing::before {
+      width: 100%;
+      opacity: 0.24;
+      transform: none;
+      animation: none;
+    }
   }
   .methodology-dashboard-table { width: 100%; border-collapse: collapse; }
   .methodology-dashboard-table td { padding: 5px 8px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); font-size: 0.88em; }

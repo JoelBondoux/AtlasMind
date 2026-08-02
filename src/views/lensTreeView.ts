@@ -13,6 +13,7 @@ import { revealPreferredChatSurface } from './chatPanel.js';
 import { reviewWorkspaceChangeStory } from './lensChangeStoryCommand.js';
 import { reviewWorkspaceConfiguration } from './lensConfigCommand.js';
 import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
+import { registerLensDeclarationSetup } from './lensDeclarationSetup.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
@@ -284,6 +285,7 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
 
 export function registerLensTreeView(context: vscode.ExtensionContext): void {
   const provider = new LensTreeProvider(context.workspaceState);
+  registerLensDeclarationSetup(context);
   context.subscriptions.push(
     provider,
     vscode.window.registerTreeDataProvider(LENS_VIEW_ID, provider),

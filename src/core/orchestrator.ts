@@ -30,6 +30,7 @@ import { classifyToolInvocation } from './toolPolicy.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
+import { buildLensRequestContextMessage, hasLensChangeStoryEvidence } from './lensTarget.js';
 import {
   MAX_TOOL_ITERATIONS,
   MAX_TOOL_CALLS_PER_TURN,
@@ -401,6 +402,7 @@ interface TaskAttemptContext {
   userMessage?: string;
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
+  allowDelegatedToolExecution?: boolean;
   turnCapabilities?: TurnCapabilityEnvelope;
 }
 
@@ -443,6 +445,7 @@ type ProviderCompletionRequest = {
   maxTokens: number;
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
+  allowDelegatedToolExecution?: boolean;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
@@ -1038,6 +1041,7 @@ export class Orchestrator {
             userMessage: request.userMessage,
             signal: request.signal,
             turnCapabilities,
+            allowDelegatedToolExecution: recoveryUsesDelegatedTools,
           },
           onTextChunk,
           onProgress,
@@ -1208,6 +1212,15 @@ export class Orchestrator {
       isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
     );
     let activeAgentSkills = selectTaskScopedSkills(agent, eligibleAgentSkills, request.userMessage, request.context);
+    const isCommittedChangeStoryDiscussion = hasLensChangeStoryEvidence(request.context['atlasmindLens']);
+    if (isCommittedChangeStoryDiscussion) {
+      // A Change Story file is read from an exact committed ref by the trusted
+      // extension host before Chat opens. Letting the model investigate the
+      // checked-out workspace would both discard that evidence and risk
+      // shelling out against a different revision.
+      activeAgentSkills = [];
+      onProgress?.('Using the selected committed Change Story evidence in completion-only mode; workspace and ACP-native tools are disabled for this turn.');
+    }
     // Recorded here rather than taken from a tool argument, so a handoff is
     // attributed to what the orchestrator knows is running. A model able to
     // name its own caller could name a more privileged one.
@@ -1230,8 +1243,10 @@ export class Orchestrator {
     // schema: an ACP agent may satisfy the task with its own tools, each coming
     // back through the ACP permission broker. Without it ACP remains a
     // completion source and cannot satisfy this function-calling requirement.
-    const taskRequiresToolExecution = activeAgentSkills.length > 0
-      || request.constraints.requiredCapabilities?.includes('function_calling') === true;
+    const taskRequiresToolExecution = !isCommittedChangeStoryDiscussion && (
+      activeAgentSkills.length > 0
+      || request.constraints.requiredCapabilities?.includes('function_calling') === true
+    );
     const acpDelegatedToolsEnabled = taskRequiresToolExecution
       && turnCapabilities.writesAllowed
       && turnCapabilities.commandsAllowed
@@ -1284,6 +1299,15 @@ export class Orchestrator {
       ...buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0),
       allowDelegatedToolExecution: acpDelegatedToolsEnabled,
     };
+    if (isCommittedChangeStoryDiscussion) {
+      routingConstraints = {
+        ...routingConstraints,
+        requiredCapabilities: routingConstraints.requiredCapabilities?.filter(
+          capability => capability !== 'function_calling',
+        ),
+        allowDelegatedToolExecution: false,
+      };
+    }
 
     // Data Privacy routing gate — when the assembled context contains
     // confidential / regulated data, restrict routing to the user's trusted
@@ -1647,6 +1671,7 @@ export class Orchestrator {
               userMessage: request.userMessage,
               signal: request.signal,
               turnCapabilities,
+              allowDelegatedToolExecution: usesDelegatedAcpTools,
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
               // via tools; this covers threaded chat with a substantial prefix).
@@ -2556,6 +2581,7 @@ export class Orchestrator {
         maxTokens: clampedMaxTokens,
         signal: context.signal,
         ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
+        ...(context.allowDelegatedToolExecution ? { allowDelegatedToolExecution: true } : {}),
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
@@ -4047,6 +4073,13 @@ export class Orchestrator {
       { id: 'native-chat-context', label: 'Native chat context', content: this.privacyRedact(rawNativeChatContext, modelId) },
       { id: 'attachment-context', label: 'Attached context', content: this.privacyRedact(rawAttachmentContext, modelId) },
     ], promptBudget.supplementalChars);
+    const lensContextMessage = this.privacyRedact(
+      buildLensRequestContextMessage(
+        requestContext['atlasmindLens'],
+        Math.max(4_000, promptBudget.supplementalChars),
+      ),
+      modelId,
+    );
     // The LLM classifier gives a single workspaceBias value ('act'|'investigate'|'none').
     // The legacy heuristics are OR'd in because:
     //   1. Both biases can be true simultaneously (e.g. "fix the broken sidebar" is both act + investigate).
@@ -4155,6 +4188,13 @@ export class Orchestrator {
       messages.push({
         role: 'user',
         content: supplementalContext.message,
+      });
+    }
+
+    if (lensContextMessage) {
+      messages.push({
+        role: 'user',
+        content: lensContextMessage,
       });
     }
 

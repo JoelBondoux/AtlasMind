@@ -6,6 +6,38 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.255.1 — Clearer branches and reliable hidden ACP PowerShell
+
+The Branch dashboard now uses VS Code's theme blue for local branch-title chips and theme purple for remote-only chips. The persisted **Show SCM colours** checkbox has moved directly above the branch-card inventory and sits beside a live Local/Remote preview, so the setting and its effect remain in the same place.
+
+The opt-in Windows ACP helper now gives processes on its non-interactive station the documented station/desktop access sets and lets children inherit the established connection instead of reopening generated objects by name. PowerShell can therefore initialize there without the blocking `0xc0000142` dialog. Inherited Windows error-mode flags also keep future loader failures on the process failure path instead of presenting an unattended modal dialog.
+
+## v0.255.0 — Refreshes show their work
+
+Every Project Dashboard refresh now carries visible progress inside the button that started it. The dashboard-wide action, Issues, Pull Requests, branch PR/CI, remote branch fetch, and branch-review controls share the same VS Code progress colour, active label, disabled duplicate-click state, and accessible busy announcement. Progress follows explicit extension-host start and finish messages rather than an arbitrary animation timer; reduced-motion users see a static fill.
+
+The dashboard-wide refresh is also available without scrolling: press **Ctrl+Shift+R** on Windows/Linux or **⌘⇧R** on macOS anywhere while focus is inside the dashboard. The shortcut is visible beside the header action and carried in its tooltip and accessibility metadata.
+
+## v0.254.0 — A quieter, ordered Branch dashboard
+
+Branch cards now start compact, leading with branch identity, readiness, CI, traceability, and the latest commit. Click a card to disclose its full evidence and actions, or use **Expand all** / **Collapse all** for the whole inventory. Commit subjects truncate with an ellipsis when necessary and retain their complete text on hover.
+
+Review Details is no longer a detached panel above every branch. It stays absent until the explicit action is pressed on an expanded card, then appears immediately below that branch and can be closed. Failing CI, blocked readiness, merge conflicts, change requests, unresolved review comments, and broken branch state now use critical red styling rather than sharing amber with pending signals.
+
+Ordering is explicit in both directions: newest/oldest activity, highest/lowest risk, most/least drift, and A–Z/Z–A. Branch-family grouping keeps matching prefixes together while applying that order inside each family. A persisted checkbox can render branch names as chips using VS Code's own Source Control Git-decoration colour.
+
+## v0.253.1 — Exact-ref Lens answers and stricter ACP isolation
+
+**Ask Atlas** from a Change Story now reads the selected Git ref and changed path rather than asking a model to infer a cached remote file from the checked-out workspace. The Orchestrator validates the one-shot context and sends a bounded, explicitly fenced patch plus small-file content as a model-visible message. Large files receive the patch and object size; a failed read refuses the handoff. These turns are completion-only and cannot invoke workspace or ACP-native tools.
+
+ACP delegated execution now requires two independent gates: the global **Let subscription agents act** setting and authority on the exact provider request. An ordinary completion shares no configured MCP servers and receives no permission policy. On Windows, the opt-in helper now launches the agent on a token-ACL-scoped, non-interactive window station and its default desktop, closing the path where a descendant could choose a new desktop on `WinSta0`. It remains same-user, stdio-only, hash-pinned, Job-bounded, disclosed, and fail-closed.
+
+## v0.253.0 — Lens declarations explain their setup
+
+State Lifecycle and Configuration Resolution no longer assume users already know about their repository-authored inputs. The Getting Started walkthrough, Settings → Project Runs, and Project Dashboard Overview now show or link to the same declaration setup flow. The dashboard reports whether each required file is missing, an empty starter, ready, invalid, or unreadable.
+
+**AtlasMind: Lens: Set Up Repository Declarations** creates a valid empty `.atlasmind/lens-state.json` or `.atlasmind/lens-config.json` starter and opens it with the installed schema/autocomplete. Creation is exclusive and never overwrites an existing declaration; the starter contains no invented project states, transitions, configuration values, or secrets. Missing-file messages explain why the active editor is not used and offer the same direct remedy.
+
 ## v0.252.1 — Dedicated implementation branches
 
 AtlasMind's committed workflow now permits branch creation and local development for this repository. Issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits, so the permission change is deliberately scoped to building work on dedicated branches.

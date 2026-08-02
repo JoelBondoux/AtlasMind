@@ -89,7 +89,7 @@ The checked-in `.gitignore` keeps `project_memory_old/` out of source control, w
 | `src/cli/`       | Headless CLI hosts, including the `atlasmind-acp` stdio agent |
 | `src/chat/`      | Chat participant and slash commands                           |
 | `src/providers/` | LLM provider adapters                                         |
-| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP private-desktop launcher; the release PE is SHA-256-pinned under `media/bin/` |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP non-interactive-station launcher; the release PE is SHA-256-pinned under `media/bin/` |
 | `src/skills/`    | Built-in skill implementations                                |
 | `src/memory/`    | Memory manager and scanner                                    |
 | `src/mcp/`       | MCP client and server registry                                |

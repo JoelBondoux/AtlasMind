@@ -28,6 +28,30 @@
     return `<button type="button" class="atlas-discuss-action${iconOnly ? ' icon-only' : ''}" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
+  /**
+   * Every dashboard refresh uses the same in-button progress treatment.
+   * `busy` is host-backed; the optimistic webview state only covers the
+   * message round-trip so a click can never look inert.
+   */
+  function renderRefreshAction(action, label, busy, options = {}) {
+    const busyLabel = options.busyLabel || 'Refreshing…';
+    const primary = options.primary === true ? ' primary' : '';
+    const payload = options.payload ? ` data-payload="${escapeAttr(options.payload)}"` : '';
+    const title = options.title ? ` title="${escapeAttr(options.title)}"` : '';
+    return `<button type="button" class="action-link${primary} refresh-progress-button${busy ? ' is-refreshing' : ''}" data-action="${escapeAttr(action)}"${payload}${title} aria-busy="${busy ? 'true' : 'false'}" ${busy ? 'disabled' : ''}><span class="refresh-button-label">${escapeHtml(busy ? busyLabel : label)}</span></button>`;
+  }
+
+  function setDashboardRefreshBusy(busy) {
+    if (!refreshButton) { return; }
+    refreshButton.classList.toggle('is-refreshing', busy);
+    refreshButton.disabled = busy;
+    refreshButton.setAttribute('aria-busy', busy ? 'true' : 'false');
+    const label = refreshButton.querySelector('.refresh-button-label');
+    if (label) {
+      label.textContent = busy ? 'Refreshing…' : 'Refresh';
+    }
+  }
+
   noProjectBanner?.addEventListener('click', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
     if (!(target instanceof HTMLElement)) {
@@ -186,6 +210,12 @@
     gapStatus: '',
     riskBusy: false,
     riskStatus: '',
+    /** Host-backed state shared by dashboard, Issues, PR, CI, and release refreshes. */
+    repositoryRefreshBusy: false,
+    /** Explicit remote-ref fetch progress; separate because it mutates cached refs. */
+    branchFetchBusy: false,
+    /** Opaque branch id whose on-demand review evidence is currently loading. */
+    branchInspectionBusyId: '',
     // The host owns every entry in this activity record. Keeping it separate
     // from the snapshot means an evidence refresh cannot erase the task the
     // user just started or its terminal outcome.
@@ -222,8 +252,15 @@
       ? persistedWebviewState.branchView : 'all',
     branchSort: ['activity', 'readiness', 'drift', 'name'].includes(persistedWebviewState.branchSort)
       ? persistedWebviewState.branchSort : 'activity',
-    branchGroup: ['none', 'readiness', 'pull-request'].includes(persistedWebviewState.branchGroup)
+    branchSortDirection: ['asc', 'desc'].includes(persistedWebviewState.branchSortDirection)
+      ? persistedWebviewState.branchSortDirection
+      : persistedWebviewState.branchSort === 'name' ? 'asc' : 'desc',
+    branchGroup: ['none', 'readiness', 'pull-request', 'branch-family'].includes(persistedWebviewState.branchGroup)
       ? persistedWebviewState.branchGroup : 'none',
+    /** Cards always start compact; expansion is intentionally session-local. */
+    branchExpandedIds: [],
+    /** Distinguish local and remote-only refs with VS Code theme colours. */
+    branchScmChips: persistedWebviewState.branchScmChips !== false,
     branchCompareIds: [],
     branchComparison: null,
     branchInspection: null,
@@ -286,12 +323,44 @@
       ...(vscode.getState() || {}),
       branchView: state.branchView,
       branchSort: state.branchSort,
+      branchSortDirection: state.branchSortDirection,
       branchGroup: state.branchGroup,
+      branchScmChips: state.branchScmChips,
     });
   }
 
+  function requestRepositoryRefresh(type) {
+    if (state.repositoryRefreshBusy) { return; }
+    state.repositoryRefreshBusy = true;
+    setDashboardRefreshBusy(true);
+    announce(type === 'refresh' ? 'Refreshing the dashboard…' : 'Refreshing GitHub activity…');
+    if (state.snapshot) {
+      render();
+    }
+    vscode.postMessage({ type });
+  }
+
   refreshButton?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'refresh' });
+    requestRepositoryRefresh('refresh');
+  });
+
+  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘⇧R' : 'Ctrl⇧R';
+  const shortcutHint = refreshButton?.querySelector('.dashboard-refresh-shortcut');
+  if (shortcutHint) {
+    shortcutHint.textContent = shortcutLabel;
+  }
+
+  // Available wherever focus sits inside the dashboard, so refreshing never
+  // requires scrolling back to the top action row.
+  window.addEventListener('keydown', event => {
+    if (!event.isComposing
+      && (event.ctrlKey || event.metaKey)
+      && event.shiftKey
+      && !event.altKey
+      && event.key.toLowerCase() === 'r') {
+      event.preventDefault();
+      requestRepositoryRefresh('refresh');
+    }
   });
 
   // WAI-ARIA tabs keyboard support. The container declared role="tablist" but
@@ -339,8 +408,12 @@
 
     if (message.type === 'state') {
       state.snapshot = message.payload;
+      if (message.payload?.issues?.busy) {
+        state.repositoryRefreshBusy = true;
+      }
       const liveIds = new Set(((message.payload && message.payload.branches && message.payload.branches.items) || []).map(branch => branch.id));
       state.branchCompareIds = state.branchCompareIds.filter(id => liveIds.has(id)).slice(0, 2);
+      state.branchExpandedIds = state.branchExpandedIds.filter(id => liveIds.has(id));
       if (state.branchInspection && !liveIds.has(state.branchInspection.branchId)) {
         state.branchInspection = null;
       }
@@ -357,9 +430,38 @@
 
     if (message.type === 'branchInspection') {
       state.branchInspection = message.payload || null;
+      if (state.branchInspection
+        && !state.branchExpandedIds.includes(state.branchInspection.branchId)) {
+        state.branchExpandedIds = state.branchExpandedIds.concat(state.branchInspection.branchId);
+      }
       announce(state.branchInspection
         ? `Branch review details loaded for ${state.branchInspection.branchName}.`
         : 'Branch review details were unavailable.');
+      render();
+      return;
+    }
+
+    if (message.type === 'repositoryRefreshBusy') {
+      state.repositoryRefreshBusy = message.payload === true;
+      announce(state.repositoryRefreshBusy ? 'Refreshing GitHub activity…' : 'Dashboard refresh finished.');
+      render();
+      return;
+    }
+
+    if (message.type === 'branchFetchBusy') {
+      state.branchFetchBusy = message.payload === true;
+      announce(state.branchFetchBusy ? 'Fetching branch updates…' : 'Branch fetch finished.');
+      render();
+      return;
+    }
+
+    if (message.type === 'branchInspectionBusy') {
+      const payload = message.payload || {};
+      if (payload.busy === true && typeof payload.branchId === 'string') {
+        state.branchInspectionBusyId = payload.branchId;
+      } else if (state.branchInspectionBusyId === payload.branchId) {
+        state.branchInspectionBusyId = '';
+      }
       render();
       return;
     }
@@ -591,7 +693,33 @@
       render();
       return;
     }
+    if (action === 'branch-card-toggle') {
+      if (!payload) { return; }
+      state.branchExpandedIds = state.branchExpandedIds.includes(payload)
+        ? state.branchExpandedIds.filter(id => id !== payload)
+        : state.branchExpandedIds.concat(payload);
+      refocusAfterRender = 'button[data-action="branch-card-toggle"][data-payload="' + cssEscape(payload) + '"]';
+      render();
+      return;
+    }
+    if (action === 'branch-toggle-all') {
+      const visibleIds = [...root.querySelectorAll('.branch-inventory-card[data-branch-id]')]
+        .map(card => card.getAttribute('data-branch-id'))
+        .filter(Boolean);
+      const allExpanded = visibleIds.length > 0
+        && visibleIds.every(id => state.branchExpandedIds.includes(id));
+      state.branchExpandedIds = allExpanded
+        ? state.branchExpandedIds.filter(id => !visibleIds.includes(id))
+        : [...new Set(state.branchExpandedIds.concat(visibleIds))];
+      refocusAfterRender = 'button[data-action="branch-toggle-all"]';
+      render();
+      return;
+    }
     if (action === 'branch-fetch') {
+      if (state.branchFetchBusy) { return; }
+      state.branchFetchBusy = true;
+      announce('Fetching branch updates…');
+      render();
       vscode.postMessage({ type: 'fetchBranches' });
       return;
     }
@@ -612,7 +740,26 @@
     }
     if (action === 'branch-inspect') {
       if (payload) {
+        if (state.branchInspectionBusyId === payload) { return; }
+        state.branchInspectionBusyId = payload;
+        if (!state.branchExpandedIds.includes(payload)) {
+          state.branchExpandedIds = state.branchExpandedIds.concat(payload);
+        }
+        if (state.branchInspection && state.branchInspection.branchId !== payload) {
+          state.branchInspection = null;
+        }
+        render();
         vscode.postMessage({ type: 'inspectBranch', payload });
+      }
+      return;
+    }
+    if (action === 'branch-inspection-close') {
+      if (!payload || (state.branchInspection && state.branchInspection.branchId === payload)) {
+        state.branchInspection = null;
+        refocusAfterRender = payload
+          ? 'button[data-action="branch-inspect"][data-payload="' + cssEscape(payload) + '"]'
+          : '';
+        render();
       }
       return;
     }
@@ -662,7 +809,7 @@
       return;
     }
     if (action === 'branch-review-refresh') {
-      vscode.postMessage({ type: 'refreshIssues' });
+      requestRepositoryRefresh('refreshIssues');
       return;
     }
     if (action === 'contributor-filter') {
@@ -826,7 +973,7 @@
     // Reads are a plain message; every *write* posts data only and is confirmed
     // extension-side, because it lands on a tracker other people can see.
     if (action === 'issues-refresh') {
-      vscode.postMessage({ type: 'refreshIssues' });
+      requestRepositoryRefresh('refreshIssues');
       return;
     }
     if (action === 'issues-filter') {
@@ -1646,6 +1793,12 @@
 
   root?.addEventListener('change', event => {
     const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target instanceof HTMLInputElement && target.id === 'branch-scm-chip-toggle') {
+      state.branchScmChips = target.checked;
+      persistBranchPreferences();
+      render();
+      return;
+    }
     if (!(target instanceof HTMLSelectElement)) {
       return;
     }
@@ -1659,8 +1812,14 @@
       render();
       return;
     }
+    if (target.id === 'branch-sort-direction-select') {
+      state.branchSortDirection = target.value === 'asc' ? 'asc' : 'desc';
+      persistBranchPreferences();
+      render();
+      return;
+    }
     if (target.id === 'branch-group-select') {
-      state.branchGroup = ['readiness', 'pull-request'].includes(target.value) ? target.value : 'none';
+      state.branchGroup = ['readiness', 'pull-request', 'branch-family'].includes(target.value) ? target.value : 'none';
       persistBranchPreferences();
       render();
       return;
@@ -1904,6 +2063,7 @@
     if (!root) {
       return;
     }
+    setDashboardRefreshBusy(state.repositoryRefreshBusy);
 
     // A selector for one control to re-focus after this render, set by whichever
     // handler triggered it. The `activeId` mechanism below only covers three
@@ -2712,6 +2872,7 @@
       checkedOutElsewhereCount: 0,
     };
     const items = Array.isArray(branches.items) ? branches.items : [];
+    const githubRefreshing = state.repositoryRefreshBusy;
     const query = String(state.branchSearch || '').trim().toLowerCase();
     const filter = state.branchFilter || 'all';
     const view = ['mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup'].includes(state.branchView)
@@ -2741,7 +2902,8 @@
         (insight.ci || {}).label,
       ].some(value => String(value || '').toLowerCase().includes(query));
     });
-    const sorted = filtered.slice().sort((left, right) => compareBranchCards(left, right, state.branchSort));
+    const sorted = filtered.slice().sort((left, right) =>
+      compareBranchCards(left, right, state.branchSort, state.branchSortDirection));
     const dirty = Boolean(snapshot.repo && snapshot.repo.dirty);
     const attentionCount = items.filter(branch =>
       ['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
@@ -2749,6 +2911,8 @@
       || ['attention', 'blocked'].includes((((branch.insight || {}).readiness) || {}).level)).length;
     const mergedCount = items.filter(branch => branch.mergedIntoCurrent).length;
     const compareNames = state.branchCompareIds.map(id => (items.find(branch => branch.id === id) || {}).name).filter(Boolean);
+    const allVisibleExpanded = sorted.length > 0
+      && sorted.every(branch => state.branchExpandedIds.includes(branch.id));
 
     return `
       ${pageSectionOpen('branches')}
@@ -2758,15 +2922,15 @@
           summary: `${items.length} logical branch${items.length === 1 ? '' : 'es'} across ${branches.localCount} local and ${branches.remoteOnlyCount} remote-only ref${branches.remoteOnlyCount === 1 ? '' : 's'}. Readiness is derived from declared rules over local Git plus the last explicitly loaded GitHub activity; it is never a model score. ${dirty ? 'The working tree has pending changes, so branch switching is paused.' : 'The working tree is clean, so another branch can be brought local safely.'}`,
           chips: [
             { label: `${branches.readyCount || 0} ready`, tone: branches.readyCount ? 'good' : undefined },
-            { label: `${branches.blockedCount || 0} blocked`, tone: branches.blockedCount ? 'warn' : 'good' },
-            { label: `${branches.ciFailingCount || 0} CI failing`, tone: branches.ciFailingCount ? 'warn' : 'good' },
+            { label: `${branches.blockedCount || 0} blocked`, tone: branches.blockedCount ? 'critical' : 'good' },
+            { label: `${branches.ciFailingCount || 0} CI failing`, tone: branches.ciFailingCount ? 'critical' : 'good' },
             { label: `${branches.cleanupCount || 0} cleanup candidates`, tone: branches.cleanupCount ? 'accent' : undefined },
           ],
         })}
         ${branches.githubLoaded ? '' : `
           <div class="inline-notice warning branch-review-source">
             <div><strong>GitHub readiness is not loaded.</strong> PR, requested-reviewer, and CI facts remain unknown rather than being treated as clear.</div>
-            <button type="button" class="action-link" data-action="branch-review-refresh">Refresh GitHub activity</button>
+            ${renderRefreshAction('branch-review-refresh', 'Refresh GitHub activity', githubRefreshing, { busyLabel: 'Refreshing GitHub…' })}
           </div>
         `}
         ${state.branchOperationStatus ? `<div class="inline-notice branch-operation-status">${escapeHtml(state.branchOperationStatus)}</div>` : ''}
@@ -2777,8 +2941,8 @@
             <p class="section-copy">The built-in views remember their last selection. Tracked local and remote refs are folded into one card; no view fetches or changes Git by itself.</p>
           </div>
           <div class="branch-control-actions">
-            <button type="button" class="action-link" data-action="branch-fetch">Fetch latest from remotes</button>
-            <button type="button" class="action-link" data-action="branch-review-refresh">Refresh PR &amp; CI</button>
+            ${renderRefreshAction('branch-fetch', 'Fetch latest from remotes', state.branchFetchBusy, { busyLabel: 'Fetching remotes…' })}
+            ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…' })}
             <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
           </div>
           <div>
@@ -2820,12 +2984,18 @@
                 ].map(entry => `<option value="${entry[0]}" ${state.branchSort === entry[0] ? 'selected' : ''}>${entry[1]}</option>`).join('')}
               </select>
             </label>
+            <label>Order
+              <select id="branch-sort-direction-select" class="compact-select">
+                ${branchSortDirectionOptions(state.branchSort).map(entry => `<option value="${entry[0]}" ${state.branchSortDirection === entry[0] ? 'selected' : ''}>${entry[1]}</option>`).join('')}
+              </select>
+            </label>
             <label>Group
               <select id="branch-group-select" class="compact-select">
                 ${[
                   ['none', 'No grouping'],
                   ['readiness', 'Readiness'],
                   ['pull-request', 'Pull request'],
+                  ['branch-family', 'Branch family'],
                 ].map(entry => `<option value="${entry[0]}" ${state.branchGroup === entry[0] ? 'selected' : ''}>${entry[1]}</option>`).join('')}
               </select>
             </label>
@@ -2844,7 +3014,23 @@
           </div>
         </article>
         ${renderBranchComparison(state.branchComparison)}
-        ${renderBranchInspection(state.branchInspection)}
+        <div class="branch-card-display-controls" aria-label="Branch card display">
+          <div>
+            <span class="dashboard-search-label">Branch card display</span>
+            <p id="branch-chip-help" class="section-copy">Cards start compact. SCM colours use theme blue for local branches and theme purple for remote-only branches.</p>
+          </div>
+          <div class="branch-control-actions">
+            <div class="branch-chip-preview" aria-hidden="true">
+              <span class="branch-title-chip is-local"><span>⎇</span> Local</span>
+              <span class="branch-title-chip is-remote"><span>☁</span> Remote</span>
+            </div>
+            <label class="branch-chip-toggle" for="branch-scm-chip-toggle">
+              <input id="branch-scm-chip-toggle" type="checkbox" aria-describedby="branch-chip-help" ${state.branchScmChips ? 'checked' : ''} />
+              Show SCM colours
+            </label>
+            <button type="button" class="action-link" data-action="branch-toggle-all" ${sorted.length ? '' : 'disabled'}>${allVisibleExpanded ? 'Collapse all' : 'Expand all'}</button>
+          </div>
+        </div>
         ${sorted.length > 0
           ? renderBranchGroups(sorted, dirty, state.branchGroup)
           : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another saved view, scope, or filter.'}</p></div></div>`}
@@ -2852,23 +3038,40 @@
     `;
   }
 
-  function compareBranchCards(left, right, sort) {
+  function branchSortDirectionOptions(sort) {
+    if (sort === 'name') {
+      return [['asc', 'A → Z'], ['desc', 'Z → A']];
+    }
+    if (sort === 'readiness') {
+      return [['desc', 'Highest risk first'], ['asc', 'Lowest risk first']];
+    }
+    if (sort === 'drift') {
+      return [['desc', 'Most drift first'], ['asc', 'Least drift first']];
+    }
+    return [['desc', 'Newest first'], ['asc', 'Oldest first']];
+  }
+
+  function compareBranchCards(left, right, sort, direction) {
     const leftInsight = left.insight || {};
     const rightInsight = right.insight || {};
+    const order = direction === 'asc' ? 1 : -1;
     if (sort === 'readiness') {
-      return Number(rightInsight.riskRank || 0) - Number(leftInsight.riskRank || 0)
+      return order * (Number(leftInsight.riskRank || 0) - Number(rightInsight.riskRank || 0))
         || (Date.parse(right.lastCommitAt) || 0) - (Date.parse(left.lastCommitAt) || 0)
         || String(left.name).localeCompare(String(right.name));
     }
     if (sort === 'drift') {
-      return (Number(right.ahead || 0) + Number(right.behind || 0)) - (Number(left.ahead || 0) + Number(left.behind || 0))
+      return order * (
+        (Number(left.ahead || 0) + Number(left.behind || 0))
+        - (Number(right.ahead || 0) + Number(right.behind || 0))
+      )
         || Number(rightInsight.riskRank || 0) - Number(leftInsight.riskRank || 0)
         || String(left.name).localeCompare(String(right.name));
     }
     if (sort === 'name') {
-      return String(left.name).localeCompare(String(right.name));
+      return order * String(left.name).localeCompare(String(right.name));
     }
-    return (Date.parse(right.lastCommitAt) || 0) - (Date.parse(left.lastCommitAt) || 0)
+    return order * ((Date.parse(left.lastCommitAt) || 0) - (Date.parse(right.lastCommitAt) || 0))
       || String(left.name).localeCompare(String(right.name));
   }
 
@@ -2887,6 +3090,16 @@
       return pr
         ? { key: pr.state || 'open', label: pr.state === 'draft' ? 'Draft pull request' : `${String(pr.state || 'open').replace('-', ' ')} pull request`, order: pr.state === 'open' ? 0 : pr.state === 'draft' ? 1 : pr.state === 'merged' ? 2 : 3 }
         : { key: 'none', label: 'No linked pull request', order: 4 };
+    }
+    if (grouping === 'branch-family') {
+      const name = String(branch.name || '');
+      const slash = name.indexOf('/');
+      if (slash < 1) {
+        return { key: 'root', label: 'Root branches', order: 0 };
+      }
+      const family = name.slice(0, slash).toLowerCase();
+      const label = `${family.charAt(0).toUpperCase()}${family.slice(1)} branches`;
+      return { key: `family:${family}`, label, order: 1 };
     }
     return { key: 'all', label: '', order: 0 };
   }
@@ -2949,10 +3162,13 @@
       ? items.map(item => `<li><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(String(item.count))}</strong></li>`).join('')
       : '<li><span>No evidence in this category</span></li>';
     return `
-      <article class="panel-card branch-review-result">
+      <article class="panel-card branch-review-result" aria-label="Review details for ${escapeAttr(inspection.branchName)}">
         <div class="row-head">
           <div><p class="section-kicker">Review details</p><h3>${escapeHtml(inspection.branchName)}</h3></div>
-          <span class="tag">${escapeHtml(String(inspection.changedFileCount))} changed files${inspection.changedFilesTruncated ? ' · partial' : ''}</span>
+          <div class="branch-control-actions">
+            <span class="tag">${escapeHtml(String(inspection.changedFileCount))} changed files${inspection.changedFilesTruncated ? ' · partial' : ''}</span>
+            <button type="button" class="action-link" data-action="branch-inspection-close" data-payload="${escapeAttr(inspection.branchId || '')}">Close</button>
+          </div>
         </div>
         <p class="section-copy">${escapeHtml(inspection.ownershipSummary || '')}</p>
         <div class="branch-evidence-grid">
@@ -2967,10 +3183,13 @@
   }
 
   function renderBranchInventoryCard(branch, dirty) {
-    const warningStatuses = ['behind', 'diverged', 'upstream-gone', 'name-conflict'];
+    const warningStatuses = ['behind'];
+    const criticalStatuses = ['diverged', 'upstream-gone', 'name-conflict'];
     const statusClass = branch.status === 'current' || branch.status === 'synced'
       ? 'tag-good'
-      : warningStatuses.includes(branch.status) || branch.stale
+      : criticalStatuses.includes(branch.status)
+        ? 'tag-critical'
+        : warningStatuses.includes(branch.status) || branch.stale
         ? 'tag-warn'
         : '';
     const canActivate = Boolean(branch.canActivate) && !dirty && !branch.current;
@@ -2989,84 +3208,126 @@
     const readiness = insight.readiness || { level: 'attention', label: 'Not assessed', summary: 'No readiness reading is available.' };
     const readinessClass = readiness.level === 'ready' || readiness.level === 'retired' || readiness.level === 'baseline'
       ? 'tag-good'
-      : readiness.level === 'blocked' || readiness.level === 'attention' ? 'tag-warn' : '';
+      : readiness.level === 'blocked'
+        ? 'tag-critical'
+        : readiness.level === 'attention' ? 'tag-warn' : '';
     const ci = insight.ci || { state: 'unknown', label: 'CI not loaded' };
-    const ciClass = ci.state === 'pass' ? 'tag-good' : ci.state === 'fail' || ci.state === 'pending' ? 'tag-warn' : '';
+    const ciClass = ci.state === 'pass' ? 'tag-good' : ci.state === 'fail' ? 'tag-critical' : ci.state === 'pending' ? 'tag-warn' : '';
     const traceability = insight.traceability || { state: 'not-assessed', summary: 'Traceability not assessed.' };
     const traceClass = traceability.state === 'linked' ? 'tag-good' : traceability.state === 'missing' ? 'tag-warn' : '';
     const pullRequest = insight.pullRequest;
     const compareSelected = state.branchCompareIds.includes(branch.id);
     const reasons = Array.isArray(readiness.reasons) ? readiness.reasons.slice(0, 3) : [];
+    const expanded = state.branchExpandedIds.includes(branch.id);
+    const hasFailure = ci.state === 'fail'
+      || readiness.level === 'blocked'
+      || criticalStatuses.includes(branch.status)
+      || pullRequest?.reviewDecision === 'changes-requested'
+      || pullRequest?.mergeable === 'conflicting'
+      || Number(pullRequest?.unresolvedReviewComments || 0) > 0;
+    const branchTitleClass = state.branchScmChips
+      ? ` branch-title-chip ${branch.localRef ? 'is-local' : 'is-remote'}`
+      : '';
+    const branchTitleIcon = branch.localRef ? '⎇' : '☁';
+    const inspection = state.branchInspection && state.branchInspection.branchId === branch.id
+      ? state.branchInspection
+      : null;
+    const inspectionBusy = state.branchInspectionBusyId === branch.id;
+    const subject = branch.subject || 'No commit subject available.';
 
     return `
-      <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}${compareSelected ? ' is-compare-selected' : ''}">
-        <div class="row-head branch-card-head">
-          <div>
-            <p class="section-kicker">${escapeHtml(location)}</p>
-            <h3>${escapeHtml(branch.name)}</h3>
-          </div>
-          <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
-        </div>
-        <div class="branch-readiness-row">
-          <button type="button" class="tag ${readinessClass} branch-readiness-button" data-action="branch-inspect" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(readiness.summary || '')}">${escapeHtml(readiness.label || 'Not assessed')}</button>
-          <span class="tag ${ciClass}" title="${escapeAttr(ci.source === 'not-loaded' ? 'Refresh GitHub activity to load per-branch CI.' : 'Latest check per workflow or PR check rollup.')}">${escapeHtml(ci.label || 'CI unknown')}</span>
-          <span class="tag ${traceClass}" title="${escapeAttr(traceability.summary || '')}">${traceability.state === 'linked' ? 'Traceability linked' : traceability.state === 'inferred' ? 'Traceability inferred' : traceability.state === 'missing' ? 'Traceability gap' : 'Traceability unknown'}</span>
-        </div>
-        <div class="tag-row">
-          ${branch.current ? '<span class="tag tag-good">● current</span>' : ''}
-          ${branch.default ? '<span class="tag">default</span>' : ''}
-          ${branch.protected ? '<span class="tag tag-warn">protected</span>' : ''}
-          ${branch.checkedOutElsewhere ? '<span class="tag tag-warn">another worktree</span>' : ''}
-          ${branch.mergedIntoCurrent ? '<span class="tag tag-good">merged into current</span>' : ''}
-          ${branch.stale ? `<span class="tag tag-warn">stale · ${escapeHtml(branch.lastCommitRelative)}</span>` : ''}
-          ${insight.isMine ? '<span class="tag">mine</span>' : ''}
-          ${insight.needsMyReview ? '<span class="tag tag-warn">needs my review</span>' : ''}
-        </div>
-        <p class="branch-subject">${escapeHtml(branch.subject || 'No commit subject available.')}</p>
-        <div class="branch-commit-meta">
-          <span class="mono">${escapeHtml(branch.hash || '—')}</span>
-          <span>${escapeHtml(branch.author || 'Unknown author')}</span>
-          <span>${escapeHtml(branch.lastCommitRelative || 'Unknown date')}</span>
-        </div>
-        <div class="tag-row">
-          ${tracking}
-          ${branch.ahead ? `<span class="tag">${escapeHtml(String(branch.ahead))} ahead</span>` : ''}
-          ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
-        </div>
-        ${pullRequest ? `
-          <div class="branch-pr-summary">
-            <div><strong>PR #${escapeHtml(String(pullRequest.number))}</strong> · ${escapeHtml(pullRequest.state)} → ${escapeHtml(pullRequest.baseRefName || 'base')}</div>
-            <div>${escapeHtml(pullRequest.title || 'Untitled pull request')}</div>
-            <div class="tag-row">
-              <span class="tag ${pullRequest.reviewDecision === 'approved' ? 'tag-good' : pullRequest.reviewDecision === 'changes-requested' ? 'tag-warn' : ''}">${escapeHtml(String(pullRequest.reviewDecision || 'review unknown').replace('-', ' '))}</span>
-              <span class="tag ${pullRequest.mergeable === 'conflicting' ? 'tag-warn' : pullRequest.mergeable === 'mergeable' ? 'tag-good' : ''}">${escapeHtml(pullRequest.mergeable || 'mergeability unknown')}</span>
-              ${pullRequest.unresolvedReviewComments ? `<span class="tag tag-warn">${pullRequest.unresolvedReviewComments} unresolved comments</span>` : ''}
+      <div class="branch-inventory-item">
+        <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}${compareSelected ? ' is-compare-selected' : ''}${expanded ? ' is-expanded' : ''}${hasFailure ? ' has-failure' : ''}" data-branch-id="${escapeAttr(branch.id || '')}">
+          <button type="button" class="branch-card-summary" data-action="branch-card-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="branch-details-${escapeAttr(branch.id || '')}" aria-label="${expanded ? 'Collapse' : 'Expand'} details for ${escapeAttr(branch.name)}">
+            <div class="row-head branch-card-head">
+              <div>
+                <p class="section-kicker">${escapeHtml(location)}</p>
+                <h3 class="branch-title${branchTitleClass}">${state.branchScmChips ? `<span aria-hidden="true">${branchTitleIcon}</span>` : ''}${escapeHtml(branch.name)}</h3>
+              </div>
+              <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
             </div>
-          </div>
-        ` : `<p class="stat-detail">${branchesGithubState(branch)}.</p>`}
-        <p class="branch-trace-summary"><strong>Tracking:</strong> ${escapeHtml(traceability.summary || 'Not assessed.')}
-          ${(traceability.issueTitles || []).slice(0, 2).map(title => `<span class="tag">${escapeHtml(title)}</span>`).join('')}
-          ${(traceability.roadmapItems || []).slice(0, 1).map(item => `<span class="tag" title="${escapeAttr(item)}">Roadmap linked</span>`).join('')}
-        </p>
-        ${reasons.length > 0 ? `<ul class="branch-readiness-reasons">${reasons.map(reason => `<li class="reason-${escapeAttr(reason.level)}"><strong>${escapeHtml(reason.label)}</strong> — ${escapeHtml(reason.detail)}</li>`).join('')}</ul>` : ''}
-        <div class="branch-card-actions">
-          ${renderAtlasDiscussAction(
-            'branch-discuss',
-            branch.id || '',
-            'Ask Atlas',
-            {
-              iconOnly: true,
-              title: `Ask Atlas for a deterministic summary of ${branch.name}`,
-            },
-          )}
-          <button type="button" class="action-link" data-action="branch-inspect" data-payload="${escapeAttr(branch.id || '')}">Review details</button>
-          <button type="button" class="action-link" data-action="branch-story" data-payload="${escapeAttr(branch.id || '')}">Open Change Story</button>
-          ${pullRequest ? `<button type="button" class="action-link" data-action="branch-open-pr" data-payload="${escapeAttr(branch.id || '')}">Open PR #${escapeHtml(String(pullRequest.number))}</button>` : ''}
-          <button type="button" class="action-link${compareSelected ? ' primary' : ''}" data-action="branch-compare-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-pressed="${compareSelected ? 'true' : 'false'}">${compareSelected ? 'Selected to compare' : 'Compare'}</button>
-          ${insight.cleanup && insight.cleanup.candidate ? `<button type="button" class="action-link danger-link" data-action="branch-cleanup" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${insight.cleanup.summary || ''} A remote-backed candidate is fetched before review.`)}">Review cleanup</button>` : ''}
-          <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
-        </div>
-      </article>
+            <div class="branch-readiness-row">
+              <span class="tag ${readinessClass}" title="${escapeAttr(readiness.summary || '')}">${escapeHtml(readiness.label || 'Not assessed')}</span>
+              <span class="tag ${ciClass}" title="${escapeAttr(ci.source === 'not-loaded' ? 'Refresh GitHub activity to load per-branch CI.' : 'Latest check per workflow or PR check rollup.')}">${escapeHtml(ci.label || 'CI unknown')}</span>
+              <span class="tag ${traceClass}" title="${escapeAttr(traceability.summary || '')}">${traceability.state === 'linked' ? 'Traceability linked' : traceability.state === 'inferred' ? 'Traceability inferred' : traceability.state === 'missing' ? 'Traceability gap' : 'Traceability unknown'}</span>
+            </div>
+            <p class="branch-subject" title="${escapeAttr(subject)}">${escapeHtml(subject)}</p>
+            <div class="branch-compact-footer">
+              <div class="branch-commit-meta">
+                <span>${escapeHtml(branch.author || 'Unknown author')}</span>
+                <span>${escapeHtml(branch.lastCommitRelative || 'Unknown date')}</span>
+              </div>
+              <span class="branch-expand-hint" aria-hidden="true">${expanded ? '▲ Compact' : '▼ Full details'}</span>
+            </div>
+          </button>
+          ${expanded ? `
+            <div id="branch-details-${escapeAttr(branch.id || '')}" class="branch-card-details">
+              <div class="tag-row">
+                ${branch.current ? '<span class="tag tag-good">● current</span>' : ''}
+                ${branch.default ? '<span class="tag">default</span>' : ''}
+                ${branch.protected ? '<span class="tag tag-warn">protected</span>' : ''}
+                ${branch.checkedOutElsewhere ? '<span class="tag tag-warn">another worktree</span>' : ''}
+                ${branch.mergedIntoCurrent ? '<span class="tag tag-good">merged into current</span>' : ''}
+                ${branch.stale ? `<span class="tag tag-warn">stale · ${escapeHtml(branch.lastCommitRelative)}</span>` : ''}
+                ${insight.isMine ? '<span class="tag">mine</span>' : ''}
+                ${insight.needsMyReview ? '<span class="tag tag-warn">needs my review</span>' : ''}
+              </div>
+              <div class="branch-commit-meta">
+                <span class="mono">${escapeHtml(branch.hash || '—')}</span>
+                <span>${escapeHtml(branch.author || 'Unknown author')}</span>
+                <span>${escapeHtml(branch.lastCommitRelative || 'Unknown date')}</span>
+              </div>
+              <div class="tag-row">
+                ${tracking}
+                ${branch.ahead ? `<span class="tag">${escapeHtml(String(branch.ahead))} ahead</span>` : ''}
+                ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
+              </div>
+              ${pullRequest ? `
+                <div class="branch-pr-summary">
+                  <div><strong>PR #${escapeHtml(String(pullRequest.number))}</strong> · ${escapeHtml(pullRequest.state)} → ${escapeHtml(pullRequest.baseRefName || 'base')}</div>
+                  <div>${escapeHtml(pullRequest.title || 'Untitled pull request')}</div>
+                  <div class="tag-row">
+                    <span class="tag ${pullRequest.reviewDecision === 'approved' ? 'tag-good' : pullRequest.reviewDecision === 'changes-requested' ? 'tag-critical' : ''}">${escapeHtml(String(pullRequest.reviewDecision || 'review unknown').replace('-', ' '))}</span>
+                    <span class="tag ${pullRequest.mergeable === 'conflicting' ? 'tag-critical' : pullRequest.mergeable === 'mergeable' ? 'tag-good' : ''}">${escapeHtml(pullRequest.mergeable || 'mergeability unknown')}</span>
+                    ${pullRequest.unresolvedReviewComments ? `<span class="tag tag-critical">${pullRequest.unresolvedReviewComments} unresolved comments</span>` : ''}
+                  </div>
+                </div>
+              ` : `<p class="stat-detail">${branchesGithubState(branch)}.</p>`}
+              <p class="branch-trace-summary"><strong>Tracking:</strong> ${escapeHtml(traceability.summary || 'Not assessed.')}
+                ${(traceability.issueTitles || []).slice(0, 2).map(title => `<span class="tag">${escapeHtml(title)}</span>`).join('')}
+                ${(traceability.roadmapItems || []).slice(0, 1).map(item => `<span class="tag" title="${escapeAttr(item)}">Roadmap linked</span>`).join('')}
+              </p>
+              ${reasons.length > 0 ? `<ul class="branch-readiness-reasons">${reasons.map(reason => `<li class="reason-${escapeAttr(reason.level)}"><strong>${escapeHtml(reason.label)}</strong> — ${escapeHtml(reason.detail)}</li>`).join('')}</ul>` : ''}
+              <div class="branch-card-actions">
+                ${renderAtlasDiscussAction(
+                  'branch-discuss',
+                  branch.id || '',
+                  'Ask Atlas',
+                  {
+                    iconOnly: true,
+                    title: `Ask Atlas for a deterministic summary of ${branch.name}`,
+                  },
+                )}
+                ${renderRefreshAction(
+                  'branch-inspect',
+                  inspection ? 'Refresh review details' : 'Review details',
+                  inspectionBusy,
+                  {
+                    busyLabel: inspection ? 'Refreshing review…' : 'Loading review…',
+                    payload: branch.id || '',
+                  },
+                )}
+                <button type="button" class="action-link" data-action="branch-story" data-payload="${escapeAttr(branch.id || '')}">Open Change Story</button>
+                ${pullRequest ? `<button type="button" class="action-link" data-action="branch-open-pr" data-payload="${escapeAttr(branch.id || '')}">Open PR #${escapeHtml(String(pullRequest.number))}</button>` : ''}
+                <button type="button" class="action-link${compareSelected ? ' primary' : ''}" data-action="branch-compare-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-pressed="${compareSelected ? 'true' : 'false'}">${compareSelected ? 'Selected to compare' : 'Compare'}</button>
+                ${insight.cleanup && insight.cleanup.candidate ? `<button type="button" class="action-link danger-link" data-action="branch-cleanup" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${insight.cleanup.summary || ''} A remote-backed candidate is fetched before review.`)}">Review cleanup</button>` : ''}
+                <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
+              </div>
+            </div>
+          ` : ''}
+        </article>
+        ${inspection ? renderBranchInspection(inspection) : ''}
+      </div>
     `;
   }
 
@@ -4017,6 +4278,7 @@
   // opens, then holds it across renders. Manual refresh remains available.
   function renderIssues(snapshot) {
     const issues = snapshot.issues || { status: 'not-loaded', detail: '', issues: [], busy: false };
+    const refreshBusy = Boolean(issues.busy || state.repositoryRefreshBusy);
     const workflow = snapshot.guidedWorkflow || {};
     const pullRequestRecords = Array.isArray(workflow.pullRequestRecords) ? workflow.pullRequestRecords : [];
     const list = Array.isArray(issues.issues) ? issues.issues : [];
@@ -4075,7 +4337,7 @@
             <div class="stat-detail">${escapeHtml(issues.detail || '')}</div>
             ${issues.fixCommand ? `<div class="policy-report-line"><code>${escapeHtml(issues.fixCommand)}</code></div>` : ''}
             <div class="tag-row">
-              <button type="button" class="action-link primary" data-action="issues-refresh" ${issues.busy ? 'disabled' : ''}>${issues.busy ? 'Loading…' : 'Load issues'}</button>
+              ${renderRefreshAction('issues-refresh', 'Load issues', refreshBusy, { busyLabel: 'Loading issues…', primary: true })}
             </div>
           </article>
         `}
@@ -4130,7 +4392,7 @@
                 emptyLabel: 'No labels on the open issues.',
               })}
               <div class="tag-row">
-                <button type="button" class="action-link" data-action="issues-refresh" ${issues.busy ? 'disabled' : ''}>${issues.busy ? 'Refreshing…' : 'Refresh'}</button>
+                ${renderRefreshAction('issues-refresh', 'Refresh issues', refreshBusy, { busyLabel: 'Refreshing issues…' })}
                 <button type="button" class="action-link" data-action="issues-new">New issue</button>
               </div>
             </article>
@@ -4382,6 +4644,7 @@
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
     const records = wf.pullRequestRecords;
+    const refreshBusy = state.repositoryRefreshBusy || Boolean((snapshot.issues || {}).busy);
     // Keyed by number, and `undefined` for a pull request nobody has asked
     // about. Absent and empty are different facts here: one offers the button,
     // the other says the review left no line comments.
@@ -4404,7 +4667,7 @@
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
-          <button type="button" class="action-link primary" data-action="issues-refresh">Load GitHub activity</button>
+          ${renderRefreshAction('issues-refresh', 'Load GitHub activity', refreshBusy, { busyLabel: 'Loading GitHub…', primary: true })}
         </div></div>
       </section>`;
     }
@@ -4456,7 +4719,7 @@
     return `${pageSectionOpen('pullRequests')}
       ${intro}
       <div class="tag-row">
-        <button type="button" class="action-link" data-action="issues-refresh">Refresh GitHub activity</button>
+        ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…' })}
       </div>
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
@@ -8235,6 +8498,7 @@
     'atlasmind.openCostDashboard': 'Cost Dashboard',
     'atlasmind.openAgentPanel': 'Agents',
     'atlasmind.openMcpServers': 'MCP Servers',
+    'atlasmind.lens.setupDeclarations': 'Lens declarations',
     'atlasmind.openSettingsSafety': 'Safety Settings',
     'atlasmind.openSettingsProject': 'Project Settings',
     'atlasmind.openSettingsTesting': 'Testing Settings',

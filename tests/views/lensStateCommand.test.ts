@@ -63,4 +63,16 @@ describe('Lens state lifecycle command', () => {
     expect(showState).not.toHaveBeenCalled();
     expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('malformed or unreadable'));
   });
+
+  it('explains the declaration requirement and offers setup when the file is missing', async () => {
+    readFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'FileNotFound' }));
+
+    await reviewWorkspaceStateLifecycle();
+
+    expect(showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('does not analyze the active file'),
+      'Create starter',
+      'Set up Lens declarations',
+    );
+  });
 });

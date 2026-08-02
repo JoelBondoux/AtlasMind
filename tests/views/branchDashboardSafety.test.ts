@@ -72,3 +72,60 @@ describe('Branch Dashboard host authority', () => {
     expect(webviewSource).not.toContain("type: 'openBranchPullRequest', payload: pullRequest.url");
   });
 });
+
+describe('Branch Dashboard disclosure and emphasis', () => {
+  const branchesRender = webviewSource.slice(
+    webviewSource.indexOf('function renderBranches('),
+    webviewSource.indexOf('function compareBranchCards(', webviewSource.indexOf('function renderBranches(')),
+  );
+  const cardRender = webviewSource.slice(
+    webviewSource.indexOf('function renderBranchInventoryCard('),
+    webviewSource.indexOf('function branchesGithubState(', webviewSource.indexOf('function renderBranchInventoryCard(')),
+  );
+
+  it('starts cards compact and keeps review details under only the inspected card', () => {
+    expect(webviewSource).toContain('branchExpandedIds: []');
+    expect(cardRender).toContain('data-action="branch-card-toggle"');
+    expect(cardRender).toContain('aria-expanded="${expanded ? \'true\' : \'false\'}"');
+    expect(cardRender).toContain('${expanded ? `');
+    expect(cardRender).toContain('<span class="tag ${readinessClass}"');
+    expect(cardRender).not.toContain('branch-readiness-button');
+    expect(branchesRender).not.toContain('renderBranchInspection(state.branchInspection)');
+
+    const cardClose = cardRender.indexOf('</article>');
+    const inspection = cardRender.indexOf('${inspection ? renderBranchInspection(inspection) : \'\'}');
+    expect(cardClose).toBeGreaterThan(-1);
+    expect(inspection).toBeGreaterThan(cardClose);
+  });
+
+  it('offers bulk disclosure, explicit chronological direction, and branch-family grouping', () => {
+    expect(branchesRender).toContain('data-action="branch-toggle-all"');
+    expect(branchesRender).toContain("${allVisibleExpanded ? 'Collapse all' : 'Expand all'}");
+    expect(branchesRender).toContain('id="branch-sort-direction-select"');
+    expect(branchesRender).toContain("['branch-family', 'Branch family']");
+    expect(webviewSource).toContain("return [['desc', 'Newest first'], ['asc', 'Oldest first']]");
+    expect(webviewSource).toContain("grouping === 'branch-family'");
+  });
+
+  it('keeps the SCM-colour checkbox beside the cards and distinguishes local from remote refs', () => {
+    expect(branchesRender).toContain('id="branch-scm-chip-toggle"');
+    expect(branchesRender.indexOf('id="branch-scm-chip-toggle"'))
+      .toBeGreaterThan(branchesRender.indexOf('${renderBranchComparison(state.branchComparison)}'));
+    expect(branchesRender).toContain('Show SCM colours');
+    expect(branchesRender).toContain('branch-title-chip is-local');
+    expect(branchesRender).toContain('branch-title-chip is-remote');
+    expect(webviewSource).toContain('branchScmChips: persistedWebviewState.branchScmChips !== false');
+    expect(cardRender).toContain("branch.localRef ? 'is-local' : 'is-remote'");
+    expect(hostSource).toContain('var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff))');
+    expect(hostSource).toContain('var(--vscode-charts-purple, #b180d7)');
+  });
+
+  it('renders hard failures as critical and makes truncated commit subjects discoverable', () => {
+    expect(cardRender).toContain("ci.state === 'fail' ? 'tag-critical'");
+    expect(cardRender).toContain("readiness.level === 'blocked'");
+    expect(cardRender).toContain("' has-failure'");
+    expect(cardRender).toContain('class="branch-subject" title="${escapeAttr(subject)}"');
+    expect(hostSource).toContain('-webkit-line-clamp: 1');
+    expect(hostSource).toContain('.branch-inventory-card.has-failure');
+  });
+});
