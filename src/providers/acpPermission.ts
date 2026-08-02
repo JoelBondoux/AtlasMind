@@ -4,19 +4,22 @@
  * This is the authority boundary for Tier 3 of
  * `project_memory/roadmap/acp-integration.md`. Tier 1 ran agents with no tools
  * and refused `session/request_permission` outright, which is safe but inert.
- * Enabling tools does not move authority to the agent; it moves the *question*
- * to AtlasMind. **Delegated execution is never delegated authorization.**
+ * Enabling tools does not move authority to the agent. The off-by-default
+ * AtlasMind setting is the standing grant, the Orchestrator independently
+ * authorizes only a routed tool-backed turn, and this module limits each wire
+ * response to that one operation.
  *
  * Three decisions here are load-bearing, and each one is deliberately the
  * cautious branch:
  *
  * 1. **AtlasMind never selects `allow_always`.** The protocol offers it, and it
- *    is tempting because it stops the prompting. But "always" chosen this way is
+ *    is tempting because it suppresses future permission requests. But "always"
+ *    chosen this way is
  *    remembered by *the agent*, in the agent's own persistent state — somewhere
  *    AtlasMind can neither display nor revoke. A grant the user cannot find is a
- *    grant the user cannot withdraw. AtlasMind keeps "always" on its own side
- *    (`ToolApprovalManager`'s bypass, which clears on restart and is visible in
- *    the UI) and answers the wire with `allow_once` every time.
+ *    grant the user cannot withdraw. AtlasMind keeps the standing decision in
+ *    its own `acp.toolsEnabled` setting and answers the wire with `allow_once`
+ *    every time.
  *
  * 2. **An unreadable request is refused, not guessed.** No parseable options, no
  *    option of the kind we need, an unparseable body — all produce a JSON-RPC
@@ -26,10 +29,11 @@
  * 3. **`other` is the highest-risk bucket, not the lowest.** The schema marks
  *    `ToolKind::Other` as `#[serde(other)]`, so anything a newer agent invents
  *    lands there. "A kind this build has never heard of" is precisely the case
- *    that should prompt, so it maps to the same category as running a command.
+ *    that should be reported at the highest severity in the audit log, so it
+ *    maps to the same category as running a command.
  *
- * Pure and `vscode`-free: the dialog, the settings gate, and the approval
- * manager all live at the call site, so every branch below is unit-tested.
+ * Pure and `vscode`-free: the live settings gate and audit output live at the
+ * call site, so every wire-resolution branch below is unit-tested.
  */
 
 import type { McpServerConfig, ToolRiskCategory } from '../types.js';
@@ -48,12 +52,10 @@ export interface AcpToolRisk {
 }
 
 /**
- * Map an ACP tool kind onto the risk taxonomy the approval UI already speaks.
+ * Map an ACP tool kind onto the risk taxonomy the audit log already speaks.
  *
- * Reusing `ToolRiskCategory` rather than inventing an ACP-specific one matters:
- * a user who has bypassed `workspace-write` for a task has made a decision about
- * *writing to their workspace*, and it should mean the same thing whether the
- * write comes from an AtlasMind subtask or a delegated ACP agent.
+ * Reusing `ToolRiskCategory` rather than inventing an ACP-specific one keeps the
+ * record comparable with AtlasMind-native tool execution.
  */
 export function acpToolRisk(kind: AcpToolKind): AcpToolRisk {
   switch (kind) {
@@ -161,7 +163,7 @@ export function resolveAcpPermission(
 }
 
 /**
- * One-line description of what the agent wants to do, for the dialog.
+ * One-line description of what the agent wants to do, for the audit log.
  *
  * The agent wrote the title, so it is untrusted text that has already been
  * control-stripped and clamped by the parser. The verb prefix is **ours**,

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-02T10:10:47.445Z",
+  "cards": [
+    {
+      "id": "card-1785665435466-lewvz8",
+      "title": "Next iteration",
+      "body": "Decide which learning should become the next experiment, product slice, or engineering follow-up instead of keeping the board static.",
+      "kind": "idea",
+      "author": "atlas",
+      "x": -240,
+      "y": 37,
+      "color": "sun",
+      "imageSources": [],
+      "media": [],
+      "tags": [],
+      "confidence": 50,
+      "evidenceStrength": 35,
+      "riskScore": 30,
+      "costToValidate": 35,
+      "syncTargets": [],
+      "sourceRunId": "run-1785665435465-azi5f5",
+      "revision": 1,
+      "createdAt": "2026-08-02T10:10:35.465Z",
+      "updatedAt": "2026-08-02T10:10:35.465Z"
+    },
+    {
+      "id": "card-1785665435466-y4omee",
+      "title": "Implementation learnings",
+      "body": "Artifacts and implementation notes worth carrying forward: The interesting thing is we're talking via Atlas Mind - so yes, it certainly is .",
+      "kind": "requirement",
+      "author": "atlas",
+      "x": 260,
+      "y": 52,
+      "color": "sand",
+      "imageSources": [],
+      "media": [],
+      "tags": [],
+      "confidence": 50,
+      "evidenceStrength": 35,
+      "riskScore": 30,
+      "costToValidate": 20,
+      "syncTargets": [],
+      "sourceRunId": "run-1785665435465-azi5f5",
+      "revision": 1,
+      "createdAt": "2026-08-02T10:10:35.465Z",
+      "updatedAt": "2026-08-02T10:10:35.465Z"
+    }
+  ],
+  "connections": [],
+  "constraints": {
+    "budget": "",
+    "timeline": "",
+    "teamSize": "",
+    "riskTolerance": "",
+    "technicalStack": ""
+  },
+  "focusCardId": "card-1785665435466-lewvz8",
+  "lastAtlasResponse": "Created a new ideation thread from the learned output in project run \"The interesting thing is we're talking via Atlas Mind - so yes, it certainly is\".",
+  "nextPrompts": [
+    "Which learning from this run deserves its own ideation thread?",
+    "Which completed learning should be expanded into the next experiment or project slice?",
+    "What should be kept, changed, or discarded before the next run?",
+    "Which validation experiment should be added or refined next?",
+    "What is the sharpest missing risk or blocker that still needs a card?",
+    "Add or refine the \"Validation experiment: Run outcome: The interesting thing is we're talking via Atlas Mind - so yes, it\" card and connect"
+  ],
+  "history": [
+    {
+      "role": "atlas",
+      "content": "Created a new ideation thread from the learned output in project run \"The interesting thing is we're talking via Atlas Mind - so yes, it certainly is\".",
+      "timestamp": "2026-08-02T10:10:35.465Z"
+    }
+  ],
+  "projectMetadataSummary": "",
+  "contextPackets": [
+    {
+      "id": "packet-1785665435465-lqs709",
+      "prompt": "Create a new ideation thread from the learned output in project run \"The interesting thing is we're talking via Atlas Mind - so yes, it certainly is\".",
+      "queuedMedia": [],
+      "boardSummary": "Board cards: 0. No focused card selected. No explicit constraints are set. Current board is empty. Queued follow-up prompts: - Who is the primary user, and what job are they trying to complete? - What is the sharpest constraint or risk this project needs to survive? - What is the smallest experiment that would validate the idea quickly?",
+      "constraintsSummary": "",
+      "projectMetadataSummary": "",
+      "lineage": [],
+      "createdAt": "2026-08-02T10:10:35.465Z"
+    }
+  ],
+  "runs": [
+    {
+      "id": "run-1785665435465-azi5f5",
+      "prompt": "Create a new ideation thread from the learned output in project run \"The interesting thing is we're talking via Atlas Mind - so yes, it certainly is\".",
+      "focusCardId": "card-1785665435466-mxtke8",
+      "contextPacketId": "packet-1785665435465-lqs709",
+      "createdCardIds": [
+        "card-1785665435466-mxtke8",
+        "card-1785665435466-lewvz8",
+        "card-1785665435466-y4omee"
+      ],
+      "changedCardIds": [],
+      "deltaSummary": "Evolved Run outcome: The interesting thing is we're talking via Atlas Mind - so yes, it : added 3 cards.",
+      "createdAt": "2026-08-02T10:10:35.465Z"
+    }
+  ]
+}

@@ -217,6 +217,50 @@ describe('collapseDuplicatedTrailingBlock', () => {
   });
 });
 
+describe('workflow chat execution policy wiring', () => {
+  it('places only the validated host policy in the system prompt', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        return {
+          content: 'Release route inspected.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    await orchestrator.processTask({
+      id: 'workflow-follow',
+      userMessage: 'promote develop to main and publish to the marketplace',
+      context: {
+        __workflowChatPolicy: {
+          kind: 'follow-declared-workflow',
+          action: 'release',
+          integrationBranch: 'develop',
+          releaseBranch: 'main',
+          onProtectedBranch: false,
+        },
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const executionRequest = recordedRequests.find(request =>
+      request.messages[0]?.content.includes('Workflow execution policy (host-derived for this turn)'));
+    expect(executionRequest?.messages[0]?.content).toContain('Do not ask the operator to repeat');
+    expect(executionRequest?.messages[0]?.content).toContain('isolated temporary Git worktree');
+    expect(executionRequest?.messages[0]?.content).toContain('grants no new authority');
+  });
+});
+
 describe('classifySubTaskFailure', () => {
   it('flags an unrecovered tool-execution failure', () => {
     const response = `${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- file-read: ENOENT: no such file`;

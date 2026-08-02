@@ -6,6 +6,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.256.0 — One request, one declared delivery route
+
+Commit, push, pull-request, promotion, and publication requests can now follow the project’s enabled declared workflow in the same chat turn. `atlasmind.workflow.chatGuidance` defaults to `follow`, so AtlasMind no longer asks for a second “follow the workflow” message after the operator already named the desired outcome. `inform` remains available for a visible non-blocking note, `gate` remains the explicit stop, and `off` remains silent.
+
+Following changes sequencing, not authority. Existing tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations still apply. The host gives the Orchestrator only a narrow validated policy object; free-form repository text never becomes system-prompt instruction. Unrelated working-tree edits are left untouched, and branch-changing delivery work prefers an isolated temporary Git worktree instead of stashing or switching the operator’s active checkout.
+
+## v0.255.3 — Quiet authorized ACP execution
+
+**Let subscription agents act** now means what its opt-in wording suggests for routed tool-backed work: once enabled, AtlasMind automatically answers readable ACP operation requests with `allow_once` rather than showing a modal for every edit, command, or search. Ordinary completions remain isolated, the Orchestrator must still authorize the exact tool-backed provider request, every operation is classified and logged, disabling the setting is checked live, and no permanent `allow_always` grant is stored inside the external agent.
+
+On Windows, capability probes, routed models, replacements, and later tool processes remain under one native supervisor. With private mode enabled, that parent owns a non-interactive window station, a kill-on-close Job Object, and one `SW_HIDE` console inherited by the complete tree. A later shell therefore does not allocate a separate blank `conhost.exe` or take focus. Npm adapters use a real `node.exe` rather than VS Code's GUI `Code.exe`, and native plus shipped-binary tests exercise supervisor → Node → PowerShell and verify that the nested console is not visible.
+
+## v0.255.2 — Feedback workspace documentation updates
+
+The latest release includes documented updates to ideation workspace feedback tracking and chat-command guidance. The changes capture AtlasMind workspace ideas and command coverage used by the current project context.
+
 ## v0.255.1 — Clearer branches and reliable hidden ACP PowerShell
 
 The Branch dashboard now uses VS Code's theme blue for local branch-title chips and theme purple for remote-only chips. The persisted **Show SCM colours** checkbox has moved directly above the branch-card inventory and sits beside a live Local/Remote preview, so the setting and its effect remain in the same place.

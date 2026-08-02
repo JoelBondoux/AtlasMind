@@ -48,8 +48,14 @@ export interface AcpLaunchProbe {
   readDirectory: (path: string) => string[];
   /** Parsed JSON, or undefined when missing or unparseable. */
   readJsonFile: (path: string) => unknown;
-  /** Absolute path of the Node binary running this process. */
-  nodeExecPath: string;
+  /**
+   * Absolute path of a real Node executable.
+   *
+   * VS Code's extension host reports `Code.exe` as `process.execPath`. Electron
+   * can be persuaded to interpret a JavaScript entry point, but it is a GUI
+   * process and is the wrong parent for an ACP process tree on Windows.
+   */
+  nodeExecPath: string | undefined;
 }
 
 export type AcpLaunchResolution =
@@ -122,6 +128,15 @@ export function resolveAcpLaunch(
       reason: `\`${command}\` resolved to \`${resolved}\`, which Windows cannot start without a shell — and AtlasMind will not use one. `
         + 'That path is normally a package-manager shim. Set `command` in atlasmind.acp.agents to the real executable, '
         + 'or to the agent\'s JavaScript entry point with `"args"` naming it, and AtlasMind will run it directly.',
+    };
+  }
+
+  if (!probe.nodeExecPath || !/(^|[\\/])node(?:\.exe)?$/i.test(probe.nodeExecPath)) {
+    return {
+      status: 'unresolved',
+      reason: `\`${command}\` is installed, but a real \`node.exe\` was not found on PATH. `
+        + 'AtlasMind will not run an ACP JavaScript entry point through VS Code\'s GUI executable. '
+        + 'Install Node.js or add it to PATH, then reload this VS Code window.',
     };
   }
 
@@ -263,7 +278,12 @@ export function createAcpLaunchProbe(): AcpLaunchProbe {
         return undefined;
       }
     },
-    nodeExecPath: process.execPath,
+    // In a VS Code extension host `process.execPath` is Code.exe, not Node.
+    // Starting an npm ACP entry point through it creates an Electron/GUI parent
+    // in the agent tree and defeats the console-containment boundary.
+    nodeExecPath: process.platform === 'win32'
+      ? findAcpExecutable('node.exe')
+      : process.execPath,
   };
 }
 

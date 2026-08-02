@@ -1988,8 +1988,9 @@ async function bootstrapAtlasMind(
           .get<Record<string, string>>('acp.modelStanding') ?? {},
         ...(workspaceRootPath ? { cwd: workspaceRootPath } : {}),
         clientVersion: context.extension?.packageJSON?.version ?? '0.0.0',
-        // Delegated execution is never delegated authorization: the agent runs
-        // its own tools, but every one of them has to come back through here.
+        // Delegated execution is authorized only for a routed tool-backed turn:
+        // the adapter requires the live setting and the per-request stamp before
+        // an ACP operation can reach this final, live-setting gate.
         permissionPolicy: async request => (acpAuthorize ? acpAuthorize(request) : false),
         delegatedExecutionEnabled: () => vscode.workspace.getConfiguration('atlasmind')
           .get<boolean>('acp.toolsEnabled', false),
@@ -2501,7 +2502,8 @@ async function bootstrapAtlasMind(
     // Two independent switches, both off by default. `acp.agents` decides
     // whether ACP can produce completions at all; `acp.toolsEnabled` decides
     // whether an agent may *act*. Splitting them means using a Claude
-    // subscription for chat never implies letting Claude run commands.
+    // subscription for chat never implies letting Claude run commands. The
+    // Orchestrator separately stamps only the exact tool-backed provider turn.
     acpMcpServers = () => {
       const config = vscode.workspace.getConfiguration('atlasmind');
       if (config.get<boolean>('acp.toolsEnabled') !== true) {
@@ -2531,28 +2533,16 @@ async function bootstrapAtlasMind(
       const description = startupModules.describeAcpToolCall(request.toolCall);
       outputChannel.appendLine(`[acp] permission requested (${risk} risk, ${category}): ${description}`);
 
-      // An existing bypass counts. A user who allowed workspace writes for this
-      // task decided about writing to their workspace, and it means the same
-      // thing whether the write comes from an AtlasMind subtask or a delegated
-      // agent — the taxonomy is shared precisely so this holds.
-      if (toolApprovalManager.shouldBypass(undefined, category)) {
-        outputChannel.appendLine('[acp] allowed by an existing approval bypass');
-        return true;
-      }
-
-      // Modal, because the agent is blocked waiting on the answer and a
-      // dismissible toast would silently become a refusal the user never saw.
-      const choice = await vscode.window.showWarningMessage(
-        `${request.toolCall.title || 'An ACP agent'} wants to act on your workspace.`,
-        {
-          modal: true,
-          detail: `${description}\n\nRisk: ${risk} (${category}).\n\nThis runs inside the ACP agent, not inside AtlasMind. Allow it only if you expected this step.`,
-        },
-        'Allow once',
-      );
-      const allowed = choice === 'Allow once';
-      outputChannel.appendLine(`[acp] ${allowed ? 'allowed once by the user' : 'declined'}`);
-      return allowed;
+      // The off-by-default setting is the user's standing authorization for
+      // delegated ACP operations. Re-read it for every request so switching it
+      // off stops a live session immediately. The adapter has already required
+      // the separate per-turn Orchestrator stamp before it wires this policy.
+      //
+      // The wire response remains `allow_once`, never `allow_always`: automatic
+      // acknowledgement belongs to AtlasMind's revocable setting, not to
+      // persistent state owned by the external agent.
+      outputChannel.appendLine('[acp] automatically allowed once by atlasmind.acp.toolsEnabled');
+      return true;
     };
 
     // ── Agentic Resource Discovery (ARD) ──────────────────────────

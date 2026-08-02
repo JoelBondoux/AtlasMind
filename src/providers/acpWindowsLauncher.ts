@@ -5,8 +5,10 @@
  * start native agents, package-manager shims, MCP servers, and console hosts of
  * their own. The bundled helper creates a private, non-interactive Windows
  * window station with its own desktop and sets it on the real agent's
- * STARTUPINFO. Descendants inherit the station, so a child that chooses a fresh
- * desktop still cannot connect to the interactive station or display a console.
+ * STARTUPINFO. It also creates one SW_HIDE console for the whole descendant tree
+ * to inherit, so a later CLI or shell does not allocate a separate visible
+ * conhost. Descendants inherit the station, so a child that chooses a fresh
+ * desktop still cannot connect to the interactive station or display UI.
  *
  * This is opt-in. Enterprise application control or EDR may block an unsigned
  * native helper or unusual non-interactive UI boundary, and silently falling
@@ -39,7 +41,7 @@ export function isAcpConsoleModeChosen(
 
 /** Hash of the reviewed release binary in `media/bin`. */
 export const ACP_PRIVATE_DESKTOP_HELPER_SHA256 =
-  '30ee7d9e30f434e5142e3ecd65efcd2564dda6ba371105b77dac24c66ef5c5ef';
+  'c4970295b3b6c4b30ef824193bde7915a853cb58383d818648b730fcd2c95875';
 
 export interface AcpPrivateDesktopProbe {
   platform: string;

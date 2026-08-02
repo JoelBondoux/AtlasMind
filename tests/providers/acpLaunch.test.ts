@@ -79,6 +79,30 @@ describe('resolveAcpLaunch — the Windows spawn failure that made ACP unusable'
     });
   });
 
+  it('refuses VS Code\'s GUI executable as the JavaScript runtime', () => {
+    const launch = resolveAcpLaunch({ command: 'codex-acp' }, windowsMachine({
+      nodeExecPath: 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
+    }));
+
+    expect(launch.status).toBe('unresolved');
+    if (launch.status === 'unresolved') {
+      expect(launch.reason).toContain('node.exe');
+      expect(launch.reason).toContain('GUI executable');
+    }
+  });
+
+  it('reports a missing Node runtime instead of falling back to Code.exe', () => {
+    const launch = resolveAcpLaunch({ command: 'codex-acp' }, windowsMachine({
+      nodeExecPath: undefined,
+    }));
+
+    expect(launch.status).toBe('unresolved');
+    if (launch.status === 'unresolved') {
+      expect(launch.reason).toContain('node.exe');
+      expect(launch.reason).toMatch(/reload/i);
+    }
+  });
+
   it('keeps the agent\'s own arguments after the resolved script', () => {
     // `gemini` is an interactive REPL without `--acp`, so losing the flag here
     // would produce a process that starts and never speaks a word of JSON-RPC.

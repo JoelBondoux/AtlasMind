@@ -11,6 +11,19 @@ AtlasMind registers the native VS Code chat participant under the id `atlasmind`
 
 Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
 
+### Commit, push, promote, and publish in one turn
+
+Freeform delivery requests use `atlasmind.workflow.chatGuidance`. Its default, `follow`, means you ask for the outcome once: AtlasMind applies the enabled committed workflow to the same turn instead of replying with “say follow the workflow” and waiting for a second message. This is also used for promotion wording such as “promote develop to main,” not only “publish a release.”
+
+The policy does not pre-approve any action. Tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations still occur where configured. Existing unrelated edits remain outside the request; AtlasMind does not stash or include them to make a release look clean and prefers an isolated Git worktree for branch-changing delivery work.
+
+Set the policy once in VS Code settings:
+
+- `follow` — apply the declared route in the same turn (default)
+- `inform` — show the expectation and continue exactly as asked
+- `gate` — stop until explicitly released
+- `off` — no workflow chat policy or notice
+
 ## Slash Commands
 
 | Command | Description |
@@ -302,7 +315,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Active request status names the currently routed model. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Lens: Refresh Active Outline` | Refreshes **Lens — Code Explorer** from the active editor's installed language service. It does not invoke a model |
 | `AtlasMind: Lens: Filter Symbols` | Remembers whether Code Explorer shows all symbols or focuses on types, callables, data, or containers. Filtering invokes no model |
-| `AtlasMind: Lens: Set Up Repository Declarations` | Reports State Lifecycle and Configuration Resolution declaration status, creates only missing valid-empty starters with exclusive writes, and opens existing files without replacing them |
+| `AtlasMind: Lens: Set Up Repository Declarations` | Reports whether `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json` are missing, empty starters, ready, invalid, or unreadable. Missing files can be created as valid semantics-free starters using an exclusive create-only write; existing files are opened and never overwritten |
 | `AtlasMind: Lens: Review Contract Wiring` | Scans a bounded set of supported TypeScript, OpenAPI, JSON Schema, and SQL declarations, asks for an ordered same-root pair, applies `.atlasmind/lens-mappings.json` plus explicit `.atlasmind/lens-data-trust.json` metadata, and opens Field Wiring with drift, schema-impact, SQL relationship, and Data Trust views. It imports/executes no project module, reads no data/secret values, and runs no SQL, database connection, or model |
 | `AtlasMind: Lens: Review State Lifecycle` | Chooses a workspace and explicit `.atlasmind/lens-state.json` machine, then visualizes declared transition depth, unreachable states, terminal states, dead ends, events, guards, and effects. Optional source anchors offer exact Open/Ask actions. It imports/executes no project module and does not claim declared flow is observed runtime behaviour |
 | `AtlasMind: Lens: Review Configuration Resolution` | Chooses an explicit `.atlasmind/lens-config.json` setting and shows its low-to-high default/file/environment/VS Code/flag/runtime precedence, winner, shadowed, and inactive sources. Masked settings cannot contain values; Ask targets never carry values, and the view reads no live environment, SecretStorage, remote flag service, or runtime memory |

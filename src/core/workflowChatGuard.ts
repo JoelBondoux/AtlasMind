@@ -12,10 +12,11 @@
  * That is the case this module is for, and the user it is for is a **novice**.
  * Their failure mode is not violating a rule; it is not knowing a rule existed,
  * and nothing saying so while it still mattered. Which is why the default
- * behaviour is to **inform, not to gate**:
+ * behaviour is to **follow, not to gate**:
  *
- * - Informing teaches the rule at the one moment it is relevant, and costs an
- *   expert a line of text they can ignore.
+ * - Following turns the declared workflow into a standing policy for the same
+ *   turn. The user asks for the outcome once; AtlasMind chooses the compliant
+ *   route without making them repeat a magic phrase.
  * - Gating stops the beginner, but a prompt that appears on every commit becomes
  *   a prompt people learn to click through — and then it protects nobody while
  *   still being in the way. `gate` exists because it was asked for, and it is
@@ -30,10 +31,12 @@
  *
  * The cost of a keyword table is honest and stated: it matches on wording, so it
  * will miss a phrasing nobody anticipated and will occasionally fire on a
- * question that merely mentions committing. Both are survivable **because it
- * only ever adds a sentence** at the default level. That asymmetry is what makes
- * a heuristic acceptable here and would not make it acceptable in a gate — which
- * is the deeper reason `gate` is not the default.
+ * question that merely mentions committing. Both are survivable **because the
+ * default can only narrow execution onto a workflow the project already
+ * enabled**. It grants no tool, protected-ref, or external-write permission.
+ * That asymmetry is what makes a heuristic acceptable here and would not make
+ * it acceptable in a gate — which is the deeper reason `gate` is not the
+ * default.
  *
  * Pure and `vscode`-free, so every rule is unit-tested.
  */
@@ -41,7 +44,7 @@
 import type { WorkflowConfig } from './workflowConfig.js';
 
 /** What AtlasMind does when a chat turn touches a workflow-governed action. */
-export type WorkflowChatGuidanceMode = 'off' | 'inform' | 'gate';
+export type WorkflowChatGuidanceMode = 'off' | 'follow' | 'inform' | 'gate';
 
 /**
  * The workflow-governed actions a chat prompt can imply.
@@ -91,7 +94,7 @@ const ACTION_RULES: readonly ActionRule[] = [
   // Release first: it is the most specific and it subsumes tagging and publishing.
   {
     action: 'release',
-    pattern: /\b(?:cut|make|do|ship|publish|tag)\s+(?:a\s+|the\s+|this\s+)?(?:new\s+)?(?:release|version)\b|\brelease\s+(?:it|this|now)\b|\bpublish\s+(?:it|this|to\s+(?:the\s+)?marketplace|to\s+npm)\b|\bbump\s+the\s+version\b/i,
+    pattern: /\b(?:cut|make|do|ship|publish|tag)\s+(?:a\s+|the\s+|this\s+)?(?:new\s+)?(?:release|version)\b|\brelease\s+(?:it|this|now)\b|\bpublish\s+(?:it|this|to\s+(?:the\s+)?marketplace|to\s+npm)\b|\bpromote\s+(?:(?:it|this|develop|the\s+(?:build|release|version))\s+)?to\s+(?:main|production|prod|release)\b|\bbump\s+the\s+version\b/i,
   },
   {
     action: 'pull-request',
@@ -139,6 +142,28 @@ export interface WorkflowChatNotice {
    * cannot read the text and forget the mode.
    */
   blocking: boolean;
+  /**
+   * A host-interpreted, turn-scoped policy. The model never receives this object
+   * verbatim: {@link buildWorkflowExecutionSystemGuidance} validates the shape
+   * and renders fixed system text, so a hand-edited workflow file cannot inject
+   * arbitrary instructions at system priority.
+   */
+  executionPolicy?: WorkflowChatExecutionPolicy;
+}
+
+/**
+ * The small set of validated facts AtlasMind needs to follow the workflow.
+ *
+ * Deliberately excludes free-form check names, blockers and commands from the
+ * committed file. Those remain evidence to inspect and display, not text that a
+ * repository can smuggle into a model's system prompt.
+ */
+export interface WorkflowChatExecutionPolicy {
+  kind: 'follow-declared-workflow';
+  action: WorkflowGovernedAction;
+  integrationBranch: string;
+  releaseBranch: string;
+  onProtectedBranch: boolean;
 }
 
 export interface WorkflowChatGuardInput {
@@ -197,6 +222,7 @@ export function buildWorkflowChatNotice(input: WorkflowChatGuardInput): Workflow
   }
 
   const blocking = input.mode === 'gate';
+  const following = input.mode === 'follow';
   const lines: string[] = [];
   const integration = input.config.branches.integration;
   const protectedBranches = input.config.branches.protected;
@@ -204,7 +230,9 @@ export function buildWorkflowChatNotice(input: WorkflowChatGuardInput): Workflow
 
   lines.push(blocking
     ? '**This project has a declared workflow, and it covers what you just asked for.**'
-    : '**Before I do that** — this project has a declared workflow that covers it.');
+    : following
+      ? '**Following the project’s declared workflow for this request.**'
+      : '**Workflow note** — this project has a declared route for what you asked.');
   lines.push('');
 
   // The one fact most likely to matter, and the only one that is an emergency.
@@ -225,11 +253,29 @@ export function buildWorkflowChatNotice(input: WorkflowChatGuardInput): Workflow
   lines.push(blocking
     // A gate must say how to get through it, or it is a wall.
     ? 'Tell me to go ahead anyway if you want it done directly, or ask me to follow the workflow instead.'
-    : 'Say "follow the workflow" and I will do it that way, or just tell me to carry on as asked.');
+    : following
+      ? 'I’ll keep this as one continuous turn and pause only at an approval or irreversible-action boundary that already exists.'
+      : 'I’ll continue as asked. Set `atlasmind.workflow.chatGuidance` to `follow` to make the declared route the standing policy for future turns.');
   lines.push('');
   lines.push('_Declared in `project_memory/operations/workflow.json`. Set `atlasmind.workflow.chatGuidance` to `off` to stop these notices._');
 
-  return { action, stageId, markdown: lines.join('\n'), blocking };
+  return {
+    action,
+    stageId,
+    markdown: lines.join('\n'),
+    blocking,
+    ...(following
+      ? {
+        executionPolicy: {
+          kind: 'follow-declared-workflow',
+          action,
+          integrationBranch: integration,
+          releaseBranch: input.config.branches.release,
+          onProtectedBranch: onProtected,
+        } satisfies WorkflowChatExecutionPolicy,
+      }
+      : {}),
+  };
 }
 
 /** The expectation for an action, in plain words. */
@@ -255,7 +301,61 @@ function describeExpectation(action: WorkflowGovernedAction, integration: string
   }
 }
 
-/** Read the setting, tolerating anything that is not one of the three values. */
+/**
+ * Render a validated execution policy as fixed, system-priority guidance.
+ *
+ * This is intentionally total and returns an empty string for any malformed
+ * shape. Callers may put the result in a system prompt because no free-form
+ * repository text survives this function.
+ */
+export function buildWorkflowExecutionSystemGuidance(raw: unknown): string {
+  if (!isWorkflowChatExecutionPolicy(raw)) {
+    return '';
+  }
+
+  const actionLine = raw.action === 'release'
+    ? `- Follow the enabled release route through integration branch \`${raw.integrationBranch}\` to protected release branch \`${raw.releaseBranch}\`; never reinterpret the request as permission to push directly to the protected target.`
+    : `- Follow the enabled \`${ACTION_STAGE[raw.action]}\` stage and keep \`${raw.integrationBranch}\` as the normal integration target.`;
+  const protectedLine = raw.onProtectedBranch
+    ? '- The active branch is declared protected. Do not commit or push to it directly; move the work through the declared reviewed route.'
+    : '';
+
+  return [
+    'Workflow execution policy (host-derived for this turn):',
+    '- The operator selected `follow`: pursue the requested outcome through the project’s declared workflow in this same turn.',
+    '- Do not ask the operator to repeat “follow the workflow” or restate the request.',
+    actionLine,
+    protectedLine,
+    '- This policy grants no new authority. Existing tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations remain in force.',
+    '- An explicit release request authorizes starting the declared release route; it is not blanket approval for every protected or outward-facing write on that route.',
+    '- Pre-existing unrelated working-tree edits are out of scope: do not stash, discard, overwrite, stage, or commit them merely to make the tree clean.',
+    '- If branch-changing delivery work would disturb the active checkout, prefer an isolated temporary Git worktree. Apply cleanliness checks to the ref/worktree being delivered, not to unrelated edits left in the operator’s checkout.',
+    '- Continue through safe in-scope steps and pause only when a real approval, irreversible-action, missing-authority, or external-state boundary requires the operator.',
+  ].filter(Boolean).join('\n');
+}
+
+function isWorkflowChatExecutionPolicy(value: unknown): value is WorkflowChatExecutionPolicy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return candidate['kind'] === 'follow-declared-workflow'
+    && typeof candidate['action'] === 'string'
+    && Object.prototype.hasOwnProperty.call(ACTION_STAGE, candidate['action'])
+    && isSafeBranchName(candidate['integrationBranch'])
+    && isSafeBranchName(candidate['releaseBranch'])
+    && typeof candidate['onProtectedBranch'] === 'boolean';
+}
+
+function isSafeBranchName(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 120
+    && !/[\s~^:?*[\]\\]/.test(value)
+    && !value.includes('..');
+}
+
+/** Read the setting, tolerating anything that is not one of the four values. */
 export function parseWorkflowChatGuidanceMode(raw: unknown): WorkflowChatGuidanceMode {
-  return raw === 'off' || raw === 'gate' ? raw : 'inform';
+  return raw === 'off' || raw === 'inform' || raw === 'gate' ? raw : 'follow';
 }
