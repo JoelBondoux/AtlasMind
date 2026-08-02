@@ -6849,7 +6849,7 @@
               : '<button type="button" class="action-link" data-action="delivery-reimport" data-payload="">↻ Re-import from repo</button>'}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">📖 Open runbook (delivery.md)</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
-            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio">🌐 Website Studio</button>
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio">🌐 Interface Studio</button>
           </div>
         </div>
         ${renderDeliveryReviewBanner(pipeline.review)}
@@ -8241,7 +8241,7 @@
     'atlasmind.openToolWebhooks': 'Tool Webhooks',
     'atlasmind.openVoicePanel': 'Voice',
     'atlasmind.openVisionPanel': 'Vision',
-    'atlasmind.openWebsiteStudio': 'Website Studio',
+    'atlasmind.openWebsiteStudio': 'Interface Studio',
     'atlasmind.updateProjectMemory': 'SSOT sync',
     'atlasmind.toggleAutopilot': 'Autopilot',
     'workbench.view.scm': 'Source Control',

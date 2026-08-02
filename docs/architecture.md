@@ -16,7 +16,7 @@
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
 │  │ /cost         │   │              │   │  Voice, Vision,    │  │
-│  │               │   │              │   │  Website Studio)   │  │
+│  │               │   │              │   │  Interface Studio) │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -69,7 +69,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. The native Chat title bar separately uses its five visible action slots for Project Dashboard, Mission Control, Personality Profile, Website Studio, and Settings. Project Ideation, Cost Dashboard, and contextual project-memory maintenance remain in VS Code's overflow menu, preserving the five-inline-action ceiling while keeping the operator-profile and Web/UI workspaces one click away. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. The native Chat title bar separately uses its five visible action slots for Project Dashboard, Mission Control, Personality Profile, Interface Studio, and Settings. Project Ideation, Cost Dashboard, and contextual project-memory maintenance remain in VS Code's overflow menu, preserving the five-inline-action ceiling while keeping the operator-profile and interface workspaces one click away. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
 
 ### AtlasMind Lens foundation
 
@@ -217,9 +217,19 @@ The gate's response is **tiered by sensitivity**, because it scans the assembled
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
 
+### InterfaceStudioModel (`src/core/interfaceStudioModel.ts`)
+
+Pure, host-neutral representation of visual-interface intent. Its structural hierarchy is `Project → Flow → Surface → Node`: a project contains ordered flows, each flow contains surfaces and evidence-backed transitions, and each surface contains semantic nodes. The project also owns a reusable visual language, preview profiles, and target adapters. Nodes describe names, roles, content intent, token references, and child structure rather than CSS, HTML, SwiftUI, Jetpack Compose, Flutter, or another renderer's syntax.
+
+Visual-language tokens are grouped by semantic category (color, typography, spacing, radius, elevation, motion, or custom). Preview profiles retain form factor, orientation, viewport, and input modes. Target adapters advertise a renderer and capabilities while carrying only their target-specific metadata and selection mapping. This keeps visual decisions portable while allowing a website, native application, embedded surface, or another target to preserve details that do not belong in the shared tree.
+
+`projectWebsiteWorkspaceToInterfaceStudio()` is the first adapter. It deep-clones a sanitized Website Workspace schema-v1 config, maps pages to surfaces and ordered section labels to nodes, maps the UI system to visual-language tokens and component guidance, and places routes, templates, review/SEO state, hosting/platform planning, and automations in typed Website adapter metadata. Stable readable-plus-hash ids make equivalent projections addressable without trusting display labels. The adapter retains the complete cloned v1 input as `sourceSnapshot`, so the projection is lossless and can be used for selection/context without discarding fields. It preserves page order but creates no transitions because v1 contains no evidence-backed navigation graph.
+
+The projection is not persistence or a migration. `project_memory/domain/website.json` remains `WebsiteWorkspaceConfig` schema version 1, and `WebsiteWorkspaceManager` remains its writer. `resolveInterfaceStudioSelection()` resolves a requested project/flow/surface/node path in stable order; `buildInterfaceStudioSelectionContext()` produces bounded JSON-safe selection, visual-language, preview, and adapter context; and `serializeInterfaceStudioSelectionContext()` sorts object keys for deterministic prompts, comparisons, and cache keys.
+
 ### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
 
-Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+Filesystem-only Website adapter service behind **AtlasMind: Open Interface Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
 
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
@@ -232,9 +242,17 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 `assessWebsiteHostingEnvironments()` is a non-executing readiness evaluator. It requires HTTPS for hosted environments, restricts local Develop to loopback hosts, requires password references for hosted Develop and Staging, and verifies Staging's exact `<review-label>.<production-domain>` topology. It reports missing setup separately from blocking policy violations; it never deploys.
 
-Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
+Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into Interface Studio, but refuses to overwrite an existing website plan. The Studio can also import a bounded JSON brief and normalize common form/CRM aliases.
 
-`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframes & UI, UI System, Hosting & Platforms, n8n Automations). Its Hosting & Platforms page renders the fixed three-stage environment pipeline, locked access posture, readiness issues, and platform catalog. Its message guard accepts only save/import, the two fixed website SSOT paths, and three fixed AtlasMind navigation commands. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`, where backup, preflight, approval, protected confirmation, and verification remain enforceable; n8n triggering is likewise deliberately outside this planning surface.
+`src/views/websiteStudioPanel.ts` is the compatibility-named Interface Studio webview. Its primary shell follows a conventional builder: Plan/Design/Build/Preview modes and preview controls in the toolbar; tools plus surface/layer structure on the left; a central plan or design canvas; and a synchronized selection inspector plus Atlas pane on the right. The former six dashboard concerns remain available in a secondary setup drawer as Brief, Surfaces, Visual language, Review states, Delivery, and Automations. `vscode.setState()` is presentation-only—mode, selected surface/node, tool panel, preview profile, and zoom—while the live form controls remain a separate revisioned draft.
+
+Recoverable draft state crosses into the extension host through bounded `storeDraft` messages, is sanitized, serialized through a workspace-state queue, and stored under the workspace-scoped `atlasmind.interfaceStudio.pendingDraft` key with revision and timestamp. On open, the panel restores that record only if it is valid and newer than the saved Website SSOT (or no SSOT exists); stale records are removed. `clearDraft` deletes only the revision it names, preventing an older save acknowledgement from erasing newer recovery data.
+
+Save and intake import share an ordered host queue and return their initiating revision plus the canonical sanitized config. A response matching the live revision reconciles values directly into the current controls, marks them saved, and clears the matching pending record. A stale response leaves newer changes dirty. Neither operation asks the host to re-render the webview, so selection, mode, focus, and newer DOM edits survive.
+
+Its message guard accepts only ready, bounded legacy/revisioned save and import, allow-listed settings navigation, revisioned pending-draft store/clear, bounded contextual chat, two fixed website SSOT paths, and three fixed AtlasMind navigation commands. Contextual chat sanitizes the live config in the extension host, projects it through `InterfaceStudioModel`, resolves the selected surface/node, and attaches only the active preview, visual language, bounded brief, and current unsaved context for the selected page—not the entire project draft—to an editable prompt in the existing Chat panel. It does not call a model in the Studio webview or apply a proposal automatically. **Apply** remains disabled until a future validated structured-patch return protocol exists; **Reject** only dismisses the card.
+
+Hosting/platform and n8n planning stay secondary and non-executing. Production publishing remains in `PromotionRunner`, where backup, preflight, approval, protected confirmation, and verification are enforceable; n8n triggering is likewise outside this planning surface and would require its own approved host-side tool path.
 
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
@@ -1102,7 +1120,7 @@ Command Palette or walkthrough -> openPersonalityProfile
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
 - Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
 - Bootstrap operations are constrained to safe relative paths inside the current workspace.
-- Website Studio persists only bounded, sanitized planning data and provider-prefixed secret references; it server-locks the Develop/Staging/Production access policies, validates loopback/HTTPS/review-subdomain readiness, redacts recognized secrets/n8n webhook URLs, and exposes no direct deploy or workflow-trigger message.
+- Interface Studio's Website adapter persists only bounded, sanitized schema-v1 planning data and provider-prefixed secret references; its pending-draft recovery record is separately bounded, sanitized, workspace-scoped, and revision-cleared. It server-locks the Develop/Staging/Production access policies, validates loopback/HTTPS/review-subdomain readiness, redacts recognized secrets/n8n webhook URLs, and exposes no direct deploy, workflow-trigger, or structured-patch-return message. Its renderer-neutral projection is in memory and does not bypass that writer.
 - Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
 
 ## Quality Gates
@@ -1124,6 +1142,7 @@ extension.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
   │     ├── views/websiteStudioPanel.ts
+  │     │     ├── core/interfaceStudioModel.ts
   │     │     └── core/websiteWorkspaceManager.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
@@ -1173,6 +1192,7 @@ native/acp-private-desktop/
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── interfaceStudioModel.test.ts
   ├── websiteWorkspaceManager.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts

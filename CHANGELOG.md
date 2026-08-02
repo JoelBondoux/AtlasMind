@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.253.0] - 2026-08-02
+
+### Added
+
+- **Website Studio has become a canvas-centred Interface Studio.** A compact Plan / Design / Build / Preview mode bar, surface and layer tools, responsive central artboards, a contextual inspector, and docked Atlas conversation replace the previous six-step primary navigation. Brief, route, review, delivery, and automation forms remain available in a secondary project-settings drawer.
+- **A renderer-neutral editing projection now sits above the website workspace.** `InterfaceStudioProject → Flow → Surface → Node` carries semantic visual-language tokens, stable collision-resistant entity IDs, neutral preview profiles, target adapters, deterministic selection resolution, and compact canonical chat context. The website adapter owns route, template, SEO, platform, hosting, and n8n details together with a deep-cloned lossless v1 source snapshot.
+- **Canvas, hierarchy, inspector, and conversation share one selection.** Surface and node selection updates accessible state in every region, desktop/tablet/mobile profiles resize the same artboard, inspector edits synchronize into the current draft, and colour-token changes repaint the artboard immediately.
+- **Contextual chat now uses the live selection.** Interface Studio derives the selected surface or node, active preview profile, target-neutral selection context, bounded project brief, visual language, and current unsaved fields for that selected page before it opens Atlas; the entire project draft is not attached to Chat. The proposal card's **Apply** control is disabled until a future validated structured-patch return protocol exists, while **Reject** only dismisses the card and leaves the draft unchanged.
+
+### Changed
+
+- **Unsaved work now survives panel disposal, and saving no longer destroys the active editing context.** Mode, tool, selection, preview, and zoom remain presentation-only `vscode.setState()` data. A separately bounded and sanitized pending draft is queued into extension `workspaceState`, restored only when newer than the saved website SSOT, and cleared only by a matching persisted revision. Saves and intake imports share an ordered revisioned queue; the host returns its canonical sanitized config, the webview reconciles a current response into the existing controls without a host re-render, and a stale acknowledgement leaves newer edits visibly unsaved. Reopening an already-visible Studio still sends a bounded navigation message instead of replacing its DOM state.
+- **Website-specific operations are secondary adapters, not the visual vocabulary.** The existing `website.json` version 1 schema and Markdown mirror remain unchanged and lossless. Platform selection, Develop → Staging → Production readiness, secret references, and n8n mapping move behind project settings, while the command label and surrounding navigation now say **Interface Studio**; the stable command id remains `atlasmind.openWebsiteStudio`.
+
+### Security
+
+- **The expanded webview boundary remains host-authoritative.** Contextual-chat prompts, selection IDs/indexes, preview profiles, settings navigation, imports, revisioned save payloads, and pending-draft store/clear messages are shape- and length-validated. Draft configs are capped at 1,000,000 serialized characters and pass through the existing website sanitizer before host use; only bounded selected-page context reaches Chat. HTML remains escaped under nonce-protected scripts, raw credentials and webhook values remain outside the schema, and the Studio still exposes no deploy or workflow-trigger action.
+
 ## [0.252.1] - 2026-08-02
 
 ### Changed

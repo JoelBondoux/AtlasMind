@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.252.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.253.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -48,7 +48,7 @@ The structured SSOT memory records architecture, decisions, roadmap context, ope
 
 ### See the work, not just the answer
 
-Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website Studio, and the Personality Profile turn hidden orchestration state into something you can inspect and steer.
+Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Interface Studio, and the Personality Profile turn hidden orchestration state into something you can inspect and steer.
 
 ### Grow the team around the project
 
@@ -68,9 +68,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.252.1
+## What's new in 0.253.0
 
-Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Website Studio is now Interface Studio: a familiar canvas-centred builder instead of a six-step form.** Plan, Design, Build, and Preview share one workspace with surfaces and layers on the left, a responsive artboard in the centre, a selection inspector on the right, and docked Atlas conversation. Brief, routes, delivery, and automations remain available in a secondary project-settings drawer.
+
+- **The visual model is renderer-neutral while the existing website plan remains lossless.** `Project → Flow → Surface → Node`, semantic visual-language tokens, neutral preview profiles, stable selection IDs, and target-adapter metadata form the new editing projection. Existing `website.json` v1 data is cloned into the website adapter rather than rewritten or flattened; web routes, SEO, hosting, platforms, and n8n stay adapter-specific.
+
+- **Conversation now starts from what is actually selected and edited.** Atlas receives the selected surface or node, preview profile, visual language, bounded project brief, and current unsaved context for that selected page—not the entire project draft. The proposal card can be dismissed with **Reject**; **Apply** stays disabled until a future validated structured-patch return protocol exists.
+
+- **Unsaved Interface Studio work is recoverable and saves reconcile in place.** A bounded, sanitized pending draft is retained in extension workspace state, separately from the mode/selection/zoom preferences kept in webview state, and is restored only when it is newer than the saved SSOT. Revisioned saves and intake imports run in order; the matching canonical host response updates the live controls without a host re-render, while an older acknowledgement leaves newer edits visibly unsaved.
 
 - **Dedicated implementation branches are now permitted for AtlasMind itself.** The repository workflow grants branch creation and local development while keeping issue, PR, CI, release, maintenance, and general automation permissions unchanged.
 
@@ -128,7 +136,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **The remaining Dependabot alert is resolved.** Stryker's development-only REST client pins vulnerable `qs@6.15.1`, so npm's normal audit fix cannot move it and upgrading the parent does not help. AtlasMind now forces patched `6.15.2` across the dependency tree; every other consumer already used or accepted that version, and production dependencies were already clean.
 
-- **Personality Profile and Website Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
+- **Personality Profile and Interface Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
 
 - **Lens now tells the review story of a committed local branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with HEAD, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. It runs fixed read-only Git commands, detects but excludes uncommitted work, reads no diff content or remote PR/CI data, and never substitutes filename signals for semantic impact. The actual diff remains authoritative. The v0.249 Configuration Resolution Explorer remains available.
 
@@ -136,7 +144,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **The ACP console-window choice is now on a Settings page, and the Settings search finds it.** Settings → Safety & Verification → *Delegated agents (ACP)* carries the Windows private-desktop checkbox with its endpoint-security disclosure and a button that reopens the guided comparison. Searching the panel for `acp: hide console windows` previously found nothing for two reasons: the control existed only in VS Code's own settings editor, and the search compared the whole query as a single substring against keyword lists written as separate words. Multi-word searches now match when every word appears.
 
-- **Website Studio can be reached from the panels it links to.** Project Dashboard → Delivery and the Project Ideation board both offer it now. The Studio pointed at both and neither pointed back, leaving the command palette as the only way in.
+- **Interface Studio can be reached from the panels it links to.** Project Dashboard → Delivery and the Project Ideation board both offer it now. The Studio pointed at both and neither pointed back, leaving the command palette as the only way in.
 
 - **Tool approvals fail visibly when their arguments cannot be represented.** A non-empty argument object that serializes as `{}` is now labelled **unserializable arguments**, while normal previews retain secret redaction and length limits. The project’s committed testing posture also swaps performance testing for charter-based exploratory testing and keeps the generated strategy and agent instruction blocks synchronized.
 
@@ -225,7 +233,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 - **Agent and skill workspaces** — create custom agents, define completion criteria, assign tools and models, scan custom skills, and extend through MCP.
 - **Testing strategy** — 23 configurable methodologies with per-agent ownership, model overrides, project notes, scaffolding, and protocol sync to other AI tools.
 - **Project operations** — roadmap, delivery, privacy, risk, documents, stakeholders, assignments, and follow-ups in one project dashboard, with each page linking through to the GitHub page it is about.
-- **Website Studio** — move a client site from intake through sitemap, wireframes, UI system, platform readiness, and a protected Develop → Staging → Production path.
+- **Interface Studio** — plan flows and surfaces, compose responsive visual structure, manage a reusable visual language, work from selection-aware Atlas context, and keep guarded website delivery settings close without making them the primary design workflow.
 - **Voice, vision, and remote workflows** — local or hosted speech options, multimodal image analysis, opt-in remote control, and a keep-awake lock so a long run is not killed by system sleep.
 - **Transparent cost and quality signals** — per-session and per-model spend in your own currency, model comparison, feedback, verification evidence, and routing outcomes.
 
@@ -294,7 +302,7 @@ Open Project Ideation to build a visual decision board, explore constraints and 
 
 ### Deliver a website
 
-Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
+Interface Studio connects client intake, target-neutral flows and surfaces, visual composition, design review, platform readiness, and delivery planning. See the [Interface Studio guide](docs/website-studio.md).
 
 ### Follow a professional GitHub workflow — and learn it
 
@@ -365,7 +373,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Project Dashboard` | Open project health, roadmap, operations, and governance |
 | `AtlasMind: Open Project Director` | Open stakeholder, team, assignment, and follow-up management |
 | `AtlasMind: Open Project Ideation` | Open the visual ideation workspace |
-| `AtlasMind: Open Website Studio` | Open the website planning and delivery workspace |
+| `AtlasMind: Open Interface Studio` | Open the visual planning and interface-building workspace (command id remains `atlasmind.openWebsiteStudio`) |
 | `AtlasMind: Open Project Run Center` | Review plans, runs, approvals, checkpoints, and artifacts |
 | `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
 | `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
@@ -489,7 +497,7 @@ Start with [Architecture](docs/architecture.md), [Development](docs/development.
 - [Model Routing](docs/model-routing.md)
 - [Configuration Reference](docs/configuration.md)
 - [SSOT Memory](docs/ssot-memory.md)
-- [Website Studio](docs/website-studio.md)
+- [Interface Studio](docs/website-studio.md)
 - [Remote Control](docs/remote-control.md)
 - [Security](wiki/Security.md)
 - [Tool Execution](wiki/Tool-Execution.md)

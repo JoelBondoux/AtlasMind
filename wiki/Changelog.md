@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.253.0 — Interface Studio becomes a visual builder
+
+Website Studio is now Interface Studio: Plan, Design, Build, and Preview share a familiar canvas-centred workspace with surfaces/layers at left, responsive artboards in the centre, selection-driven properties at right, and contextual Atlas conversation. The previous intake, sitemap, UI-system, review, delivery, and automation forms remain available in a secondary project-settings drawer rather than competing with visual composition.
+
+A new renderer-neutral `Project → Flow → Surface → Node` projection supplies semantic visual-language tokens, neutral preview profiles, stable entity IDs, website target-adapter metadata, deterministic selection resolution, and compact chat context. Existing `website.json` v1 remains the persisted SSOT and is copied losslessly into the website adapter; routes, SEO, hosting, platforms, and n8n are not promoted into the core visual vocabulary.
+
+Selection now stays synchronized across canvas, hierarchy, inspector, and conversation. Atlas receives the selected surface or node, preview profile, visual language, bounded brief, and current unsaved fields for that selected page—not the entire project draft. **Apply** is disabled until a future validated structured-patch return protocol exists; **Reject** dismisses the proposal card without changing the draft.
+
+Save state is explicit and durable. Presentation choices remain in `vscode.setState()`, while a bounded, sanitized pending draft is retained separately in extension `workspaceState` and recovered only when it is newer than the saved SSOT. Revisioned saves and intake imports execute in order and return the canonical host config: a matching response reconciles the existing controls without a host re-render, while an older response leaves newer changes marked unsaved. All new messages are bounded and host-validated; credentials, deployments, and workflow execution retain their prior safety boundary.
+
 ## v0.252.1 — Dedicated implementation branches
 
 AtlasMind's committed workflow now permits branch creation and local development for this repository. Issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits, so the permission change is deliberately scoped to building work on dedicated branches.

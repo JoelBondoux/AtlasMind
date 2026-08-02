@@ -379,7 +379,18 @@ export class WebsiteWorkspaceManager {
     }
     try {
       const raw = readFileSync(path.join(this.workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
-      return sanitizeWebsiteWorkspace(JSON.parse(raw) as unknown);
+      const parsed = JSON.parse(raw) as unknown;
+      const sanitized = sanitizeWebsiteWorkspace(parsed);
+      // The sanitizer timestamps new writes. A load must retain the bounded,
+      // valid timestamp already on disk so recovery data can be ordered against
+      // the canonical SSOT rather than against the moment it was read.
+      const storedUpdatedAt = asRecord(parsed)['updatedAt'];
+      const storedTimestamp = typeof storedUpdatedAt === 'string' && storedUpdatedAt.length <= 64
+        ? Date.parse(storedUpdatedAt)
+        : Number.NaN;
+      return Number.isFinite(storedTimestamp)
+        ? { ...sanitized, updatedAt: new Date(storedTimestamp).toISOString() }
+        : sanitized;
     } catch {
       return createDefaultWebsiteWorkspace();
     }

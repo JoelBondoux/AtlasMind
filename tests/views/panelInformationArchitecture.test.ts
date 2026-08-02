@@ -367,20 +367,22 @@ describe('ideation workspace order', () => {
   });
 });
 
-describe('website studio step order', () => {
+describe('interface studio information architecture', () => {
   const source = read('websiteStudioPanel.ts');
-  const steps = [...source.matchAll(/navButton\('([a-z-]+)', '(\d)'/g)].map(m => ({ id: m[1]!, n: m[2]! }));
+  const modes = [...source.matchAll(/studioModeButton\('([a-z-]+)'/g)].map(match => match[1]!);
 
-  it('defines the shared UI system before the pages that apply it', () => {
-    // Each wireframe card tracks a per-page "UI design" stage, which cannot be
-    // done consistently before the shared typography/colour/component
-    // decisions exist. The numbered steps promise a linear workflow, so the
-    // order has to actually be one.
-    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'ui-system', 'wireframes', 'platforms', 'automations']);
+  it('uses explicit Plan, Design, Build, and Preview modes instead of a forced form journey', () => {
+    expect(modes).toEqual(['plan', 'design', 'build', 'preview']);
   });
 
-  it('numbers the steps consecutively from 1', () => {
-    expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6']);
+  it('keeps project and delivery forms behind the primary canvas shell', () => {
+    const shell = source.indexOf('<div class="interface-shell"');
+    const settings = source.indexOf('id="projectSettingsDrawer"');
+
+    expect(shell).toBeGreaterThan(-1);
+    expect(settings).toBeGreaterThan(shell);
+    expect(source.slice(settings)).toContain('${renderPlatformsPage(config, activePage)}');
+    expect(source.slice(settings)).toContain('${renderAutomationsPage(config, activePage)}');
   });
 });
 

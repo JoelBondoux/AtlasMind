@@ -210,7 +210,7 @@ describe('WebsiteWorkspaceManager', () => {
       dataNotes: 'Minimize form fields',
     });
 
-    await manager.save(config);
+    const saved = await manager.save(config);
 
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
@@ -222,6 +222,7 @@ describe('WebsiteWorkspaceManager', () => {
     expect(markdown).toContain('Contact routing');
     expect(markdown).toContain('never stores API keys, passwords, n8n webhook URLs');
     expect(renderWebsiteWorkspaceMarkdown(config)).not.toContain('undefined');
+    expect(manager.load().updatedAt).toBe(saved.updatedAt);
   });
 
   it('blocks prompt-injection content before either website SSOT file is written', async () => {
