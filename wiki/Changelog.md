@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.252.0 — Branches becomes the daily decision dashboard
+
+Project Dashboard → Branches now answers the operational questions behind the inventory. Every card combines local drift with the last explicitly loaded PR, review decision, mergeability, unresolved review comments, branch-level CI, issue linkage, and roadmap references through one deterministic rule table. The result is a visible readiness verdict with its reasons, not a model score; GitHub evidence that has not been loaded remains unknown instead of becoming a reassuring zero.
+
+PR/check context, requested-reviewer and “mine” signals, issue/roadmap traceability, and cleanup candidacy sit on the card. My branches, Needs my review, Ready, CI failing, and Cleanup are persisted views with separate scope, sorting, and grouping controls. A two-card selection compares unique commits, changed files, overlap, areas, and contributors from the shared merge base. **Review details** classifies the changed areas and applies CODEOWNERS last-match-wins while naming recent contributors separately, and **Open Change Story** sends the host-resolved selected ref to Lens without switching branches.
+
+Cleanup is deliberately narrower than its visual queue. A candidate is not permission to delete: AtlasMind refreshes its remote, rebuilds the inventory, refuses current/default/protected/other-worktree/open-PR branches, proves containment and zero unique commits, and shows the evidence. Local deletion uses Git's merged-only `-d` guard. Remote deletion adds a live head-hash match and typed exact-name confirmation. There is no force-delete route.
+
+Every new webview message contains opaque ids only. The extension host owns refs, remotes, PR URLs, Git arguments, CODEOWNERS text, and changed paths; the browser receives bounded aggregate evidence. Filename categories remain path signals, overlap remains a review-order clue rather than a conflict claim, contributors remain history rather than ownership, and branch-name issue matching is visibly labelled inference.
+
 ## v0.251.0 — AtlasMind Lens joins the current develop line
 
 The complete Lens suite is now integrated with the current `develop` work: the active-file Code Explorer, source-backed possible-flow journeys, impact and test-evidence maps, contract wiring and drift review, schema-impact and relationship projections, explicit data-trust metadata, declared state lifecycles, configuration resolution, and committed-branch Change Stories. The four `.atlasmind/lens-*.json` declaration formats include editor validation, while Lens commands remain available through the Code Explorer title actions and Command Palette.

@@ -151,6 +151,44 @@ describe('state and verdict derivation', () => {
     expect(record.reviews.map(r => r.verdict))
       .toEqual(['approved', 'changes-requested', 'dismissed', 'pending', 'commented']);
   });
+
+  it('sanitizes aggregate readiness, checks, and requested-reviewer evidence', () => {
+    const record = parseOne({
+      reviewDecision: 'APPROVED',
+      mergeable: 'MERGEABLE',
+      reviewRequests: [{ login: 'ana' }, { slug: 'platform-team' }, { login: 'ana' }],
+      statusCheckRollup: [
+        {
+          name: 'test',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          detailsUrl: 'https://github.com/acme/widget/actions/runs/1',
+        },
+        {
+          context: 'security',
+          state: 'FAILURE',
+          targetUrl: 'javascript:alert(1)',
+        },
+      ],
+    });
+
+    expect(record.reviewDecision).toBe('approved');
+    expect(record.mergeable).toBe('mergeable');
+    expect(record.requestedReviewers).toEqual(['ana', 'platform-team']);
+    expect(record.statusChecks).toEqual([
+      {
+        name: 'test',
+        status: 'completed',
+        conclusion: 'success',
+        url: 'https://github.com/acme/widget/actions/runs/1',
+      },
+      {
+        name: 'security',
+        status: '',
+        conclusion: 'failure',
+      },
+    ]);
+  });
 });
 
 describe('parseLinkedIssues', () => {

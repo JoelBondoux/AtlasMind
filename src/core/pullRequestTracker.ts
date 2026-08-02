@@ -102,6 +102,22 @@ export interface PullRequestRecord {
   reviews: ReviewRecord[];
   /** Issue numbers this pull request closes, parsed from the body. */
   linkedIssues: number[];
+  /** GitHub's aggregate review decision. Absent when the feed did not expose it. */
+  reviewDecision?: 'approved' | 'changes-requested' | 'review-required' | 'unknown';
+  /** GitHub's mergeability calculation. Absent is different from "mergeable". */
+  mergeable?: 'mergeable' | 'conflicting' | 'unknown';
+  /** Latest check rollup attached to the pull request head. */
+  statusChecks?: PullRequestStatusCheck[];
+  /** Users or teams GitHub currently asks to review. */
+  requestedReviewers?: string[];
+}
+
+export interface PullRequestStatusCheck {
+  name: string;
+  status: string;
+  conclusion: string;
+  /** HTTPS only; an absent URL means the check is still useful but not clickable. */
+  url?: string;
 }
 
 export interface PullRequestSummary {
@@ -144,6 +160,8 @@ const MAX_REVIEW_BODY = 1000;
 const MAX_NAME = 60;
 const MAX_LABELS = 12;
 const MAX_REVIEWS = 30;
+const MAX_STATUS_CHECKS = 60;
+const MAX_REVIEW_REQUESTS = 30;
 const MAX_URL = 400;
 const MAX_LINKED_ISSUES = 10;
 const MAX_REVIEW_COMMENTS = 60;
@@ -343,6 +361,68 @@ function parseReviews(value: unknown): ReviewRecord[] {
   return out;
 }
 
+function cleanReviewDecision(
+  value: unknown,
+  reviews: readonly ReviewRecord[],
+  isDraft: boolean,
+): PullRequestRecord['reviewDecision'] {
+  const raw = clean(value, 40).toUpperCase().replace(/[\s-]/g, '_');
+  if (raw === 'APPROVED') return 'approved';
+  if (raw === 'CHANGES_REQUESTED') return 'changes-requested';
+  if (raw === 'REVIEW_REQUIRED') return 'review-required';
+  if (raw) return 'unknown';
+  if (reviews.some(review => review.verdict === 'changes-requested')) return 'changes-requested';
+  if (reviews.some(review => review.verdict === 'approved')) return 'approved';
+  return isDraft || reviews.length === 0 ? 'review-required' : 'unknown';
+}
+
+function cleanMergeable(value: unknown): PullRequestRecord['mergeable'] {
+  const raw = clean(value, 40).toUpperCase();
+  if (raw === 'MERGEABLE') return 'mergeable';
+  if (raw === 'CONFLICTING') return 'conflicting';
+  return raw ? 'unknown' : undefined;
+}
+
+function parseStatusChecks(value: unknown): PullRequestStatusCheck[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const checks: PullRequestStatusCheck[] = [];
+  for (const entry of value.slice(0, MAX_STATUS_CHECKS)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    const name = clean(record['name'] ?? record['context'] ?? record['workflowName'], 160);
+    if (!name) continue;
+    const status = clean(record['status'], 40).toLowerCase();
+    const conclusion = clean(record['conclusion'] ?? record['state'], 40).toLowerCase();
+    const url = cleanUrl(record['detailsUrl'] ?? record['targetUrl']);
+    checks.push({
+      name,
+      status,
+      conclusion,
+      ...(url ? { url } : {}),
+    });
+  }
+  return checks;
+}
+
+function parseReviewRequests(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names: string[] = [];
+  for (const entry of value.slice(0, MAX_REVIEW_REQUESTS)) {
+    const candidate = typeof entry === 'string'
+      ? entry
+      : entry && typeof entry === 'object'
+        ? (entry as Record<string, unknown>)['login']
+          ?? (entry as Record<string, unknown>)['slug']
+          ?? (entry as Record<string, unknown>)['name']
+        : '';
+    const name = clean(candidate, MAX_NAME).replace(/^@/, '');
+    if (name && !names.some(existing => existing.toLowerCase() === name.toLowerCase())) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
 /**
  * Parse `gh pr list --json …` output.
  *
@@ -376,6 +456,11 @@ export function parseGhPullRequestList(raw: string): PullRequestRecord[] {
     const body = cleanMultiline(record['body'], MAX_BODY);
     const mergedAt = cleanIsoDate(record['mergedAt']);
     const isDraft = record['isDraft'] === true;
+    const reviews = parseReviews(record['reviews']);
+    const reviewDecision = cleanReviewDecision(record['reviewDecision'], reviews, isDraft);
+    const mergeable = cleanMergeable(record['mergeable']);
+    const statusChecks = parseStatusChecks(record['statusCheckRollup']);
+    const requestedReviewers = parseReviewRequests(record['reviewRequests']);
 
     out.push({
       number,
@@ -395,8 +480,12 @@ export function parseGhPullRequestList(raw: string): PullRequestRecord[] {
       additions: cleanCount(record['additions']),
       deletions: cleanCount(record['deletions']),
       changedFiles: cleanCount(record['changedFiles']),
-      reviews: parseReviews(record['reviews']),
+      reviews,
       linkedIssues: parseLinkedIssues(body.text),
+      ...(reviewDecision === undefined ? {} : { reviewDecision }),
+      ...(mergeable === undefined ? {} : { mergeable }),
+      ...(statusChecks === undefined ? {} : { statusChecks }),
+      ...(requestedReviewers === undefined ? {} : { requestedReviewers }),
     });
   }
   return out;

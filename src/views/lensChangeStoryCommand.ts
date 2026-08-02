@@ -13,6 +13,11 @@ import { LensChangeStoryPanel } from './lensChangeStoryPanel.js';
 
 interface WorkspacePick extends vscode.QuickPickItem { folder: vscode.WorkspaceFolder }
 interface BasePick extends vscode.QuickPickItem { ref: string }
+export interface LensChangeStoryRefSelection {
+  branchLabel: string;
+  headRef: string;
+  baseRef: string;
+}
 
 /** Build a bounded committed-branch review story from local read-only Git evidence. */
 export async function reviewWorkspaceChangeStory(): Promise<void> {
@@ -48,7 +53,7 @@ export async function reviewWorkspaceChangeStory(): Promise<void> {
     if (!base) return;
     const result = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'AtlasMind Lens: reading committed branch evidence', cancellable: false },
-      async () => collectChangeStory(workspaceRoot, folder, branch, base.ref),
+      async () => collectChangeStory(workspaceRoot, folder, branch, base.ref, 'HEAD'),
     );
     LensChangeStoryPanel.createOrShow(result);
   } catch {
@@ -56,16 +61,54 @@ export async function reviewWorkspaceChangeStory(): Promise<void> {
   }
 }
 
+/**
+ * Open a Change Story for host-resolved refs without switching the workspace.
+ *
+ * Used by Project Dashboard branch cards. The caller resolves opaque ids; this
+ * boundary independently rechecks that both values are valid Git refs and that
+ * the selected workspace folder is the repository root.
+ */
+export async function reviewWorkspaceChangeStoryForRefs(
+  folder: vscode.WorkspaceFolder,
+  selection: LensChangeStoryRefSelection,
+): Promise<void> {
+  if (
+    !isSafeRef(selection.branchLabel)
+    || !isSafeRef(selection.headRef)
+    || !isSafeRef(selection.baseRef)
+    || selection.headRef === selection.baseRef
+  ) {
+    throw new Error('AtlasMind Lens refused invalid or identical change-story refs.');
+  }
+  const workspaceRoot = path.resolve(folder.uri.fsPath);
+  const repositoryRoot = path.resolve(await runGit(workspaceRoot, ['rev-parse', '--show-toplevel']));
+  if (!isSamePath(repositoryRoot, workspaceRoot)) {
+    throw new Error('AtlasMind Lens Change Story requires the workspace folder to be the Git repository root.');
+  }
+  const result = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'AtlasMind Lens: reading selected branch evidence', cancellable: false },
+    async () => collectChangeStory(
+      workspaceRoot,
+      folder,
+      selection.branchLabel,
+      selection.baseRef,
+      selection.headRef,
+    ),
+  );
+  LensChangeStoryPanel.createOrShow(result);
+}
+
 async function collectChangeStory(
   workspaceRoot: string,
   folder: vscode.WorkspaceFolder,
   branch: string,
   baseRef: string,
+  headRef: string,
 ) {
-  const mergeBase = await runGit(workspaceRoot, ['merge-base', '--', baseRef, 'HEAD']);
+  const mergeBase = await runGit(workspaceRoot, ['merge-base', '--', baseRef, headRef]);
   const [commitOutput, changeOutput, worktreeOutput] = await Promise.all([
-    runGit(workspaceRoot, ['log', '-z', `--max-count=${LENS_CHANGE_STORY_MAX_COMMITS + 1}`, '--format=%H%n%aI%n%an%n%s', `${mergeBase}..HEAD`, '--']),
-    runGit(workspaceRoot, ['diff', '--name-status', '-z', '--find-renames', mergeBase, 'HEAD', '--']),
+    runGit(workspaceRoot, ['log', '-z', `--max-count=${LENS_CHANGE_STORY_MAX_COMMITS + 1}`, '--format=%H%n%aI%n%an%n%s', `${mergeBase}..${headRef}`, '--']),
+    runGit(workspaceRoot, ['diff', '--name-status', '-z', '--find-renames', mergeBase, headRef, '--']),
     runGit(workspaceRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']),
   ]);
   const commits = parseCommits(commitOutput);

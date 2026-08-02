@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.251.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.252.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,21 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.251.0
+## What's new in 0.252.0
 
 Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Branches is now a decision dashboard, not an inventory.** Every card carries a deterministic `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged verdict derived from local drift plus the last explicitly loaded PR, review, mergeability, CI, issue, and roadmap evidence. Unknown remote state stays unknown until refresh; no model assigns the verdict.
+
+- **PR, CI, review, and traceability evidence meet on the branch card.** Open/draft/merged state, approvals or change requests, merge conflicts, unresolved loaded review comments, latest check results, requested-reviewer ownership, closing issue links, explicit roadmap references, and branch-name issue inference are distinguished instead of flattened into one green badge.
+
+- **Any two branches can be compared without switching either one.** Select two cards to see unique commits, changed files from their shared merge base, overlapping paths, changed areas, and bounded contributor history. Overlap is labelled as review-order evidence, never proof of a merge conflict.
+
+- **Branch review reaches the code and the people.** **Review details** classifies changed paths by area and impact surface, applies last-match-wins `CODEOWNERS` rules, and lists recent contributors separately from declared owners. **Open Change Story** reuses Lens for the selected local or cached remote ref without checking it out.
+
+- **Cleanup is a guarded queue.** Merged, stale, and gone-upstream cards enter a saved Cleanup view, but deletion is only offered after AtlasMind refreshes the relevant remote, re-resolves the opaque card id, proves current/production containment and zero unique commits, checks worktrees/protection/open PRs, and—remotely—matches the live head and requires the exact branch name. Local cleanup uses `git branch -d`; force deletion is not present.
+
+- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus activity, readiness, drift, and name sorting and readiness/PR grouping.
 
 - **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
 
@@ -288,7 +300,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use the Atlas icon for a deterministic local-Git summary with comparison and contributor follow-up chips, **Switch here** for an existing local branch, or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, readiness, PR/review/CI state, traceability, requested reviews, and cleanup candidates are visible per card; saved views, sorting and grouping keep large repositories manageable. Use the Atlas icon for a deterministic summary, **Review details** for changed areas/CODEOWNERS/contributors, select any two cards for a merge-base comparison, or open the selected ref in Lens Change Story without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
 
 ---
 
@@ -416,6 +428,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | Path | Responsibility |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/core/branchDashboard.ts` | Pure branch readiness, saved-view, PR/CI/traceability, cleanup-candidate, and CODEOWNERS routing rules |
 | `src/acp/` | Agent-side ACP v1 sessions, one-turn permission brokering, and validated Buzz reply delivery |
 | `src/cli/` | Headless AtlasMind CLI and the local `atlasmind-acp` stdio entrypoint |
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |

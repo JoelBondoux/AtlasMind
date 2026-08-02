@@ -167,6 +167,13 @@ import {
 } from '../core/labelRegistry.js';
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
+  deriveBranchDashboard,
+  matchBranchCodeowners,
+  parseBranchCodeowners,
+  type BranchDashboardInsight,
+  type BranchOwnershipMatch,
+} from '../core/branchDashboard.js';
+import {
   ARCHETYPE_LABEL,
   TRAIT_LABEL,
   describeArchetypeAgreement,
@@ -186,6 +193,8 @@ import {
   type TeamRole,
 } from '../core/teamRoles.js';
 import { upsertManagedBlock } from '../utils/managedBlock.js';
+import { classifyLensChangePath } from '../core/lensChangeStory.js';
+import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
   buildCiFailureReport,
   type CiFailureReport,
@@ -486,6 +495,11 @@ type ProjectDashboardMessage =
   | { type: 'fetchBranches' }
   | { type: 'activateBranch'; payload: string }
   | { type: 'discussBranch'; payload: string }
+  | { type: 'inspectBranch'; payload: string }
+  | { type: 'openBranchChangeStory'; payload: string }
+  | { type: 'compareBranches'; payload: { leftId: string; rightId: string } }
+  | { type: 'reviewBranchCleanup'; payload: string }
+  | { type: 'openBranchPullRequest'; payload: string }
   | { type: 'openCommand'; payload: string }
   | { type: 'openSettingKey'; payload: string }
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
@@ -591,6 +605,9 @@ type DashboardWebviewMessage =
   | { type: 'promotionError'; payload: string }
   | { type: 'rollbackResult'; payload: { ok: boolean; summary: string } }
   | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } }
+  | { type: 'branchInspection'; payload: DashboardBranchInspection }
+  | { type: 'branchComparison'; payload: DashboardBranchPairComparison }
+  | { type: 'branchOperationStatus'; payload: string }
   /**
    * Prefill the issue composer with a derived draft.
    *
@@ -924,6 +941,8 @@ export interface DashboardBranchInventoryItem {
   canActivate: boolean;
   activationLabel: string;
   blocker?: string;
+  /** Deterministic local/GitHub readiness and saved-view membership. */
+  insight?: BranchDashboardInsight;
 }
 
 export interface DashboardBranchesSnapshot {
@@ -934,6 +953,13 @@ export interface DashboardBranchesSnapshot {
   divergedCount: number;
   checkedOutElsewhereCount: number;
   defaultBranch?: string;
+  readyCount?: number;
+  blockedCount?: number;
+  cleanupCount?: number;
+  mineCount?: number;
+  needsMyReviewCount?: number;
+  ciFailingCount?: number;
+  githubLoaded?: boolean;
 }
 
 export interface DashboardBranchComparison {
@@ -977,6 +1003,39 @@ export interface DashboardBranchDiscussion {
   signals: DashboardBranchSignal[];
 }
 
+export interface DashboardBranchInspection {
+  branchId: string;
+  branchName: string;
+  baseBranch?: string;
+  changedFileCount: number;
+  changedFilesTruncated: boolean;
+  changedAreas: Array<{ name: string; count: number }>;
+  impactCategories: Array<{ name: string; count: number }>;
+  contributors: DashboardBranchContributor[];
+  ownership: BranchOwnershipMatch;
+  ownershipSummary: string;
+  reviewRouting: string[];
+  notices: string[];
+}
+
+export interface DashboardBranchPairComparison {
+  leftId: string;
+  rightId: string;
+  leftName: string;
+  rightName: string;
+  leftOnlyCommits: number;
+  rightOnlyCommits: number;
+  leftChangedFiles: number;
+  rightChangedFiles: number;
+  overlappingFiles: number;
+  mergeBase: string;
+  leftAreas: Array<{ name: string; count: number }>;
+  rightAreas: Array<{ name: string; count: number }>;
+  leftContributors: DashboardBranchContributor[];
+  rightContributors: DashboardBranchContributor[];
+  notices: string[];
+}
+
 interface DashboardCommit {
   hash: string;
   shortHash: string;
@@ -1015,6 +1074,8 @@ interface GitSnapshot {
    * setups that most need a route to the repository.
    */
   remoteUrl?: string;
+  /** Local Git identity name only; used for the persisted "My branches" view. */
+  gitUserName?: string;
 }
 
 interface PackageSnapshot {
@@ -1250,6 +1311,8 @@ interface DashboardIssuesSnapshot {
   /** Command that would fix a `no-cli` / `not-authenticated` / `no-repo` state. */
   fixCommand?: string;
   repoSlug?: string;
+  /** Authenticated GitHub login, when the explicit activity refresh could read it. */
+  viewerLogin?: string;
   issues: IssueRecord[];
   summary?: IssueSummary;
   /** When the list was last fetched; absent until the first load. */
@@ -1278,6 +1341,7 @@ interface DashboardCiRun {
   conclusion: string;
   status: string;
   headSha: string;
+  headBranch?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1291,6 +1355,8 @@ interface DashboardCiRun {
  */
 interface DashboardCiIntelligence {
   runs: DashboardCiRun[];
+  /** Repo-wide bounded runs used only for per-branch card status. */
+  branchRuns?: DashboardCiRun[];
   report?: CiFailureReport;
   logFailure?: string;
   loadedAt: string;
@@ -2784,6 +2850,25 @@ export function buildBranchChatTarget(discussion: DashboardBranchDiscussion): {
     ? discussion.contributors.map(contributor =>
       `- **${boundedDiscussionMarkdown(contributor.name, 180)}** — ${branchCountLabel(contributor.commits, 'commit')} in the ${discussion.sampledCommitCount}-commit sample; latest ${boundedDiscussionMarkdown(contributor.lastCommitRelative, 100)}.`)
     : ['- No contributor names were available from the sampled local Git history.'];
+  const insight = branch.insight;
+  const readiness = insight
+    ? [
+      '## Review readiness',
+      '',
+      `- **Verdict:** ${boundedDiscussionMarkdown(insight.readiness.label, 120)} — ${boundedDiscussionMarkdown(insight.readiness.summary, 600)}`,
+      `- **Pull request:** ${insight.pullRequest
+        ? `#${insight.pullRequest.number}, ${boundedDiscussionMarkdown(insight.pullRequest.state, 40)}, review ${boundedDiscussionMarkdown(insight.pullRequest.reviewDecision, 60)}, mergeability ${boundedDiscussionMarkdown(insight.pullRequest.mergeable, 60)}`
+        : 'No loaded pull request is linked to this head, or GitHub activity has not been loaded.'}`,
+      `- **CI:** ${boundedDiscussionMarkdown(insight.ci.label, 160)} (${boundedDiscussionMarkdown(insight.ci.source, 80)})`,
+      `- **Traceability:** ${boundedDiscussionMarkdown(insight.traceability.summary, 500)}`,
+      ...insight.readiness.reasons.slice(0, 8).map(reason =>
+        `- **${boundedDiscussionMarkdown(reason.label, 160)}:** ${boundedDiscussionMarkdown(reason.detail, 500)}`),
+    ]
+    : [
+      '## Review readiness',
+      '',
+      '- GitHub readiness was not available for this local-only reading. Refresh PR & CI on the Branches page for a declared verdict.',
+    ];
 
   const markdown = [
     `# Branch summary: ${name}`,
@@ -2793,6 +2878,8 @@ export function buildBranchChatTarget(discussion: DashboardBranchDiscussion): {
     `- **Head:** \`${boundedDiscussionMarkdown(branch.hash || 'unknown', 80)}\` — ${boundedDiscussionMarkdown(branch.subject || 'No commit subject available.', 500)}`,
     `- **Latest author:** ${boundedDiscussionMarkdown(branch.author || 'Unknown', 180)}, ${boundedDiscussionMarkdown(branch.lastCommitRelative || 'date unavailable', 120)}`,
     `- **Tracking:** ${tracking}`,
+    '',
+    ...readiness,
     '',
     ...describeBranchComparison('the current branch', discussion.current),
     '',
@@ -3290,6 +3377,21 @@ export class ProjectDashboardPanel {
         return;
       case 'discussBranch':
         await this.handleDiscussBranch(message.payload);
+        return;
+      case 'inspectBranch':
+        await this.handleInspectBranch(message.payload);
+        return;
+      case 'openBranchChangeStory':
+        await this.handleOpenBranchChangeStory(message.payload);
+        return;
+      case 'compareBranches':
+        await this.handleCompareBranches(message.payload.leftId, message.payload.rightId);
+        return;
+      case 'reviewBranchCleanup':
+        await this.handleReviewBranchCleanup(message.payload);
+        return;
+      case 'openBranchPullRequest':
+        await this.handleOpenBranchPullRequest(message.payload);
         return;
       case 'openPrompt':
         {
@@ -3847,10 +3949,29 @@ export class ProjectDashboardPanel {
         await this.syncState();
         return;
       }
+      const ssotPath = normalizeSsotPath(
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+      );
+      const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+      const branchDashboard = deriveBranchDashboard({
+        branches: [branch],
+        ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
+        ...(this.ciState?.branchRuns === undefined ? {} : { ciRuns: this.ciState.branchRuns }),
+        issuesLoaded: this.issuesState.status === 'ready',
+        issues: this.issuesState.issues,
+        roadmapItems: roadmap.items,
+        reviewComments: this.reviewCommentsState,
+        ...(this.issuesState.viewerLogin ? { viewerLogin: this.issuesState.viewerLogin } : {}),
+        ...(live.gitUserName ? { gitUserName: live.gitUserName } : {}),
+      });
+      const enrichedBranch = {
+        ...branch,
+        insight: branchDashboard.insights[branch.id],
+      };
       const discussion = await collectDashboardBranchDiscussion(
         workspaceRoot,
         { ...live, branchInventory: inventory },
-        branch,
+        enrichedBranch,
         workflow?.branches.protected ?? [],
         workflow?.branches.integration,
       );
@@ -3858,6 +3979,370 @@ export class ProjectDashboardPanel {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`AtlasMind could not summarise that branch: ${detail}`);
+    }
+  }
+
+  /**
+   * Resolve an opaque branch-card id against a fresh local inventory.
+   *
+   * Every branch action uses this boundary. The webview never supplies a ref,
+   * path, remote, PR URL, or Git argument, and a stale id cannot quietly name a
+   * different branch after a fetch.
+   */
+  private async resolveLiveBranchAction(branchId: string): Promise<{
+    workspaceRoot: string;
+    folder: vscode.WorkspaceFolder;
+    snapshot: GitSnapshot;
+    inventory: DashboardBranchesSnapshot;
+    branch: DashboardBranchInventoryItem;
+    workflow?: WorkflowConfig;
+  } | undefined> {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showWarningMessage('Open a Git workspace before using a Branch Dashboard action.');
+      return undefined;
+    }
+    const workspaceRoot = folder.uri.fsPath;
+    const workflow = this.workflowConfig.getConfig();
+    const snapshot = await collectGitSnapshot(workspaceRoot);
+    const inventory = withConfiguredProtectedBranches(
+      snapshot.branchInventory,
+      workflow?.branches.protected ?? [],
+    );
+    const branch = inventory.items.find(item => item.id === branchId);
+    if (!branch) {
+      void vscode.window.showInformationMessage(
+        'That branch is no longer available. Refresh Branches and try again.',
+      );
+      await this.syncState();
+      return undefined;
+    }
+    return {
+      workspaceRoot,
+      folder,
+      snapshot: { ...snapshot, branchInventory: inventory },
+      inventory,
+      branch,
+      ...(workflow ? { workflow } : {}),
+    };
+  }
+
+  /** Collect changed-area, impact, contributor, and CODEOWNERS evidence on demand. */
+  private async handleInspectBranch(branchId: string): Promise<void> {
+    try {
+      const live = await this.resolveLiveBranchAction(branchId);
+      if (!live) return;
+      const selectedRef = branchDiscussionRef(live.branch, false);
+      const selectedCommit = await resolveBranchCommit(live.workspaceRoot, selectedRef);
+      if (!selectedRef || !selectedCommit) {
+        throw new Error('The selected branch no longer resolves to a commit.');
+      }
+      const baseBranch = findProductionDashboardBranch(
+        live.inventory,
+        live.workflow?.branches.protected ?? [],
+        live.workflow?.branches.integration,
+      ) ?? live.inventory.items.find(item => item.current && item.id !== live.branch.id);
+      const baseRef = baseBranch ? branchDiscussionRef(baseBranch, true) : undefined;
+      const baseCommit = await resolveBranchCommit(live.workspaceRoot, baseRef);
+      if (!baseBranch || !baseRef || !baseCommit) {
+        throw new Error('AtlasMind could not resolve a current or production baseline for this review.');
+      }
+      const mergeBase = await runGit(live.workspaceRoot, ['merge-base', '--', baseCommit, selectedCommit]);
+      const changedPaths = await collectChangedPaths(live.workspaceRoot, mergeBase, selectedCommit);
+      const contributorSummary = await collectDashboardBranchContributors(live.workspaceRoot, selectedCommit, mergeBase);
+      const ownership = await collectBranchOwnership(live.workspaceRoot, changedPaths.paths);
+      const changedAreas = countChangedAreas(changedPaths.paths);
+      const impactCategories = countBranchImpactCategories(changedPaths.paths);
+      const recentContributorRoutes = contributorSummary.contributors
+        .map(contributor => contributor.name)
+        .filter(name => !ownership.owners.some(owner => owner.replace(/^@/, '').toLowerCase() === name.toLowerCase()))
+        .slice(0, 6);
+      const reviewRouting = [
+        ...ownership.owners.map(owner => `${owner} — declared by the last matching CODEOWNERS rule`),
+        ...recentContributorRoutes.map(name => `${name} — recent branch history only; not declared ownership`),
+      ];
+      const ownershipSummary = ownership.owners.length > 0
+        ? `${ownership.owners.length} declared owner${ownership.owners.length === 1 ? '' : 's'} cover ${ownership.matchedPathCount} of ${changedPaths.paths.length} reviewed path${changedPaths.paths.length === 1 ? '' : 's'}.`
+        : changedPaths.paths.length > 0
+          ? 'No declared CODEOWNERS route matched the reviewed paths.'
+          : 'No changed path was available for CODEOWNERS routing.';
+      await this.postMessage({
+        type: 'branchInspection',
+        payload: {
+          branchId: live.branch.id,
+          branchName: live.branch.name,
+          baseBranch: baseBranch.name,
+          changedFileCount: changedPaths.total,
+          changedFilesTruncated: changedPaths.truncated,
+          changedAreas,
+          impactCategories,
+          contributors: contributorSummary.contributors,
+          ownership,
+          ownershipSummary,
+          reviewRouting,
+          notices: [
+            `Compared the merge base with ${baseBranch.name}; uncommitted working-tree changes are excluded.`,
+            'Impact categories and changed areas come from paths, not semantic or runtime analysis.',
+            'CODEOWNERS is last-match-wins. Recent contributors are historical context and never presented as owners.',
+            ...(ownership.ignoredRuleCount > 0
+              ? [`${ownership.ignoredRuleCount} unsupported or unusable CODEOWNERS rule${ownership.ignoredRuleCount === 1 ? ' was' : 's were'} ignored.`]
+              : []),
+            ...(changedPaths.truncated ? ['The changed-path display budget was reached; counts are a bounded partial reading.'] : []),
+          ],
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not inspect that branch: ${detail}`);
+    }
+  }
+
+  /** Open the existing Lens Change Story for this selected ref without switching branches. */
+  private async handleOpenBranchChangeStory(branchId: string): Promise<void> {
+    try {
+      const live = await this.resolveLiveBranchAction(branchId);
+      if (!live) return;
+      const headRef = branchDiscussionRef(live.branch, false);
+      const baseBranch = findProductionDashboardBranch(
+        live.inventory,
+        live.workflow?.branches.protected ?? [],
+        live.workflow?.branches.integration,
+      ) ?? live.inventory.items.find(item => item.current && item.id !== live.branch.id);
+      const baseRef = baseBranch ? branchDiscussionRef(baseBranch, true) : undefined;
+      if (!headRef || !baseRef || baseBranch?.id === live.branch.id) {
+        void vscode.window.showInformationMessage('AtlasMind could not find a distinct current or production base for that Change Story.');
+        return;
+      }
+      await reviewWorkspaceChangeStoryForRefs(live.folder, {
+        branchLabel: live.branch.name,
+        headRef,
+        baseRef,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind Lens could not open that branch story: ${detail}`);
+    }
+  }
+
+  /** Compare any two opaque branch selections from a freshly rebuilt inventory. */
+  private async handleCompareBranches(leftId: string, rightId: string): Promise<void> {
+    if (leftId === rightId) {
+      void vscode.window.showInformationMessage('Choose two different branches to compare.');
+      return;
+    }
+    try {
+      const leftLive = await this.resolveLiveBranchAction(leftId);
+      if (!leftLive) return;
+      const right = leftLive.inventory.items.find(item => item.id === rightId);
+      if (!right) {
+        void vscode.window.showInformationMessage('The second branch is no longer available. Refresh Branches and choose it again.');
+        await this.syncState();
+        return;
+      }
+      const leftRef = branchDiscussionRef(leftLive.branch, false);
+      const rightRef = branchDiscussionRef(right, false);
+      const [leftCommit, rightCommit] = await Promise.all([
+        resolveBranchCommit(leftLive.workspaceRoot, leftRef),
+        resolveBranchCommit(leftLive.workspaceRoot, rightRef),
+      ]);
+      if (!leftCommit || !rightCommit) {
+        throw new Error('One of the selected refs no longer resolves to a commit.');
+      }
+      const mergeBase = await runGit(leftLive.workspaceRoot, ['merge-base', '--', leftCommit, rightCommit]);
+      const [countsRaw, leftPaths, rightPaths, leftContributors, rightContributors] = await Promise.all([
+        runGit(leftLive.workspaceRoot, ['rev-list', '--left-right', '--count', `${leftCommit}...${rightCommit}`]),
+        collectChangedPaths(leftLive.workspaceRoot, mergeBase, leftCommit),
+        collectChangedPaths(leftLive.workspaceRoot, mergeBase, rightCommit),
+        collectDashboardBranchContributors(leftLive.workspaceRoot, leftCommit, mergeBase),
+        collectDashboardBranchContributors(leftLive.workspaceRoot, rightCommit, mergeBase),
+      ]);
+      const [leftOnlyText = '0', rightOnlyText = '0'] = countsRaw.trim().split(/\s+/);
+      const rightPathSet = new Set(rightPaths.paths);
+      const overlappingFiles = leftPaths.paths.filter(candidate => rightPathSet.has(candidate)).length;
+      await this.postMessage({
+        type: 'branchComparison',
+        payload: {
+          leftId: leftLive.branch.id,
+          rightId: right.id,
+          leftName: leftLive.branch.name,
+          rightName: right.name,
+          leftOnlyCommits: Number(leftOnlyText) || 0,
+          rightOnlyCommits: Number(rightOnlyText) || 0,
+          leftChangedFiles: leftPaths.total,
+          rightChangedFiles: rightPaths.total,
+          overlappingFiles,
+          mergeBase: mergeBase.slice(0, 12),
+          leftAreas: countChangedAreas(leftPaths.paths),
+          rightAreas: countChangedAreas(rightPaths.paths),
+          leftContributors: leftContributors.contributors,
+          rightContributors: rightContributors.contributors,
+          notices: [
+            'Changed-file overlap is a review-order signal, not proof of a merge conflict.',
+            'Counts compare committed history from the shared merge base; working-tree changes and remote updates not already fetched are excluded.',
+            ...(leftPaths.truncated || rightPaths.truncated
+              ? ['At least one changed-path list reached the bounded display budget.']
+              : []),
+          ],
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not compare those branches: ${detail}`);
+    }
+  }
+
+  /** Open the linked pull request using only a host-retained sanitized URL. */
+  private async handleOpenBranchPullRequest(branchId: string): Promise<void> {
+    const live = await this.resolveLiveBranchAction(branchId);
+    if (!live) return;
+    const pullRequest = this.pullRequestsState
+      ?.filter(candidate => normalizeBranchRef(candidate.headRefName).toLowerCase() === live.branch.name.toLowerCase())
+      .sort((left, right) => branchPullRequestRank(left) - branchPullRequestRank(right))[0];
+    if (!pullRequest?.url || !/^https:\/\/github\.com\//i.test(pullRequest.url)) {
+      void vscode.window.showInformationMessage('No loaded GitHub pull request is linked to that branch. Refresh GitHub activity and try again.');
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(pullRequest.url));
+  }
+
+  /**
+   * Re-check a cleanup candidate and perform at most one explicitly selected
+   * deletion. Local deletion uses `git branch -d` (never `-D`). Remote deletion
+   * additionally requires a live hash match and typed branch-name confirmation.
+   */
+  private async handleReviewBranchCleanup(branchId: string): Promise<void> {
+    try {
+      let live = await this.resolveLiveBranchAction(branchId);
+      if (!live) return;
+      if (live.branch.remoteName) {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'AtlasMind: refreshing remotes before cleanup review',
+            cancellable: false,
+          },
+          async () => runGit(
+            live!.workspaceRoot,
+            ['fetch', '--all', '--prune'],
+            { timeoutMs: 60_000 },
+          ),
+        );
+        live = await this.resolveLiveBranchAction(branchId);
+        if (!live) return;
+      }
+      const branch = live.branch;
+      if (branch.current || branch.default || branch.protected || branch.checkedOutElsewhere) {
+        void vscode.window.showWarningMessage(
+          branch.current
+            ? 'The current branch cannot be deleted.'
+            : branch.checkedOutElsewhere
+              ? 'That branch is checked out in another worktree and cannot be deleted here.'
+              : 'Default and protected branches are never cleanup candidates.',
+        );
+        return;
+      }
+      const selectedRef = branchDiscussionRef(branch, false);
+      const selectedCommit = await resolveBranchCommit(live.workspaceRoot, selectedRef);
+      const production = findProductionDashboardBranch(
+        live.inventory,
+        live.workflow?.branches.protected ?? [],
+        live.workflow?.branches.integration,
+      );
+      const productionRef = production ? branchDiscussionRef(production, true) : undefined;
+      const productionCommit = await resolveBranchCommit(live.workspaceRoot, productionRef);
+      const current = live.inventory.items.find(item => item.current);
+      const currentCommit = await resolveBranchCommit(live.workspaceRoot, current ? branchDiscussionRef(current, false) : undefined);
+      if (!selectedCommit || !productionCommit || !currentCommit || !production) {
+        void vscode.window.showWarningMessage('AtlasMind could not prove containment against both the current and production branches, so cleanup was refused.');
+        return;
+      }
+      const [inProduction, inCurrent, uniqueRaw] = await Promise.all([
+        gitIsAncestor(live.workspaceRoot, selectedCommit, productionCommit),
+        gitIsAncestor(live.workspaceRoot, selectedCommit, currentCommit),
+        runGit(live.workspaceRoot, ['rev-list', '--count', selectedCommit, '--not', productionCommit, currentCommit])
+          .catch(() => 'unknown'),
+      ]);
+      const uniqueCommits = /^\d+$/.test(uniqueRaw.trim()) ? Number(uniqueRaw.trim()) : undefined;
+      const openPullRequest = this.pullRequestsState?.find(candidate =>
+        (candidate.state === 'open' || candidate.state === 'draft')
+        && normalizeBranchRef(candidate.headRefName).toLowerCase() === branch.name.toLowerCase());
+      const githubAssessed = this.pullRequestsState !== undefined;
+      const localEligible = Boolean(
+        branch.localRef
+        && (inProduction || inCurrent)
+        && uniqueCommits === 0
+        && (!branch.remoteRef || githubAssessed)
+        && !openPullRequest,
+      );
+      const remoteEligible = Boolean(
+        branch.remoteRef
+        && inProduction
+        && uniqueCommits === 0
+        && githubAssessed
+        && !openPullRequest,
+      );
+      const detail = [
+        `Branch: ${branch.name}`,
+        `Contained by production (${production.name}): ${inProduction ? 'yes' : 'no'}`,
+        `Contained by current branch: ${inCurrent ? 'yes' : 'no'}`,
+        `Unique commits outside both baselines: ${uniqueCommits ?? 'could not determine'}`,
+        `Open pull request: ${openPullRequest ? `#${openPullRequest.number}` : githubAssessed ? 'none' : 'not assessed'}`,
+        `Local deletion: ${localEligible ? 'eligible (merged-only Git guard still applies)' : 'refused'}`,
+        `Remote deletion: ${remoteEligible ? 'eligible after a live remote hash check' : 'refused'}`,
+      ].join('\n');
+      const choices = [
+        ...(localEligible ? ['Delete local branch'] : []),
+        ...(remoteEligible ? ['Delete remote branch'] : []),
+      ];
+      if (choices.length === 0) {
+        void vscode.window.showWarningMessage('AtlasMind refused branch cleanup.', { modal: true, detail });
+        return;
+      }
+      const choice = await vscode.window.showWarningMessage(
+        'Review branch cleanup',
+        { modal: true, detail: `${detail}\n\nOnly the deletion you choose below will run.` },
+        ...choices,
+      );
+      if (choice === 'Delete local branch' && branch.localRef) {
+        await runGit(live.workspaceRoot, ['branch', '-d', '--', branch.localRef]);
+        await vscode.commands.executeCommand('git.refresh');
+        await this.postMessage({ type: 'branchOperationStatus', payload: `Deleted local branch ${branch.name}. Git's merged-only guard approved the deletion.` });
+        await this.syncState();
+        return;
+      }
+      if (choice === 'Delete remote branch' && branch.remoteRef && branch.remoteName) {
+        const remoteHead = await runGit(live.workspaceRoot, [
+          'ls-remote',
+          '--exit-code',
+          '--heads',
+          branch.remoteName,
+          `refs/heads/${branch.name}`,
+        ]);
+        const liveHash = remoteHead.trim().split(/\s+/)[0] ?? '';
+        if (!/^[0-9a-f]{40,64}$/i.test(liveHash) || liveHash.toLowerCase() !== selectedCommit.toLowerCase()) {
+          void vscode.window.showWarningMessage(
+            'The live remote branch changed or could not be verified. Fetch and review it again; nothing was deleted.',
+          );
+          return;
+        }
+        const typed = await vscode.window.showInputBox({
+          title: 'Confirm remote branch deletion',
+          prompt: `Type ${branch.name} to delete it from ${branch.remoteName}. This cannot be undone from AtlasMind.`,
+          placeHolder: branch.name,
+          ignoreFocusOut: true,
+        });
+        if (typed !== branch.name) {
+          void vscode.window.showInformationMessage('Remote branch deletion cancelled.');
+          return;
+        }
+        await runGit(live.workspaceRoot, ['push', '--porcelain', branch.remoteName, '--delete', branch.name], { timeoutMs: 60_000 });
+        await vscode.commands.executeCommand('git.refresh');
+        await this.postMessage({ type: 'branchOperationStatus', payload: `Deleted remote branch ${branch.remoteName}/${branch.name} after live identity and containment checks.` });
+        await this.syncState();
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not complete branch cleanup: ${detail}`);
     }
   }
 
@@ -4152,6 +4637,9 @@ export class ProjectDashboardPanel {
         await this.syncState();
         return;
       }
+      const viewerLogin = await runGh(workspaceRoot, ['api', 'user', '--jq', '.login'])
+        .then(value => value.trim().replace(/^@/, '').slice(0, 100) || undefined)
+        .catch(() => undefined);
 
       // Closed issues are fetched too, but only recently — the page is a working
       // board, not an archive, and an unbounded closed list is a slow request
@@ -4167,6 +4655,7 @@ export class ProjectDashboardPanel {
         status: 'ready',
         detail: `Read from ${slug}.`,
         repoSlug: slug,
+        ...(viewerLogin ? { viewerLogin } : {}),
         issues,
         summary: summarizeIssues(issues, Date.now()),
         loadedAt: new Date().toISOString(),
@@ -4182,7 +4671,7 @@ export class ProjectDashboardPanel {
           'pr', 'list',
           '--state', 'all',
           '--limit', '100',
-          '--json', 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews',
+          '--json', 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews,reviewDecision,mergeable,statusCheckRollup,reviewRequests',
         ]);
         this.pullRequestsState = parseGhPullRequestList(prRaw);
       } catch {
@@ -7074,12 +7563,32 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if (candidate['type'] === 'activateBranch' || candidate['type'] === 'discussBranch') {
+  if (
+    candidate['type'] === 'activateBranch'
+    || candidate['type'] === 'discussBranch'
+    || candidate['type'] === 'inspectBranch'
+    || candidate['type'] === 'openBranchChangeStory'
+    || candidate['type'] === 'reviewBranchCleanup'
+    || candidate['type'] === 'openBranchPullRequest'
+  ) {
     // Opaque inventory id only. It is resolved against a freshly collected
     // branch list before git receives any arguments or Chat context.
     return typeof candidate['payload'] === 'string'
       && candidate['payload'].length > 0
       && candidate['payload'].length <= 600;
+  }
+
+  if (candidate['type'] === 'compareBranches') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object'
+      && payload !== null
+      && typeof payload['leftId'] === 'string'
+      && payload['leftId'].length > 0
+      && payload['leftId'].length <= 600
+      && typeof payload['rightId'] === 'string'
+      && payload['rightId'].length > 0
+      && payload['rightId'].length <= 600
+      && payload['leftId'] !== payload['rightId'];
   }
 
   if (candidate['type'] === 'refreshIssues') {
@@ -8393,6 +8902,31 @@ async function collectDashboardSnapshot(
   const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
   const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
   const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
+  const branchDashboard = deriveBranchDashboard({
+    branches: branchInventory.items,
+    ...(pullRequests === undefined ? {} : { pullRequests }),
+    ...(ci?.branchRuns === undefined ? {} : { ciRuns: ci.branchRuns }),
+    issuesLoaded: issues.status === 'ready',
+    issues: issues.issues,
+    roadmapItems: roadmapWithIdeation.items,
+    reviewComments,
+    ...(issues.viewerLogin ? { viewerLogin: issues.viewerLogin } : {}),
+    ...(gitSnapshot.gitUserName ? { gitUserName: gitSnapshot.gitUserName } : {}),
+  });
+  const enrichedBranchInventory: DashboardBranchesSnapshot = {
+    ...branchInventory,
+    items: branchInventory.items.map(item => ({
+      ...item,
+      insight: branchDashboard.insights[item.id],
+    })),
+    readyCount: branchDashboard.readyCount,
+    blockedCount: branchDashboard.blockedCount,
+    cleanupCount: branchDashboard.cleanupCount,
+    mineCount: branchDashboard.mineCount,
+    needsMyReviewCount: branchDashboard.needsMyReviewCount,
+    ciFailingCount: branchDashboard.ciFailingCount,
+    githubLoaded: pullRequests !== undefined,
+  };
   const ideationReadiness = assessIdeationReadiness({
     cards: ideationBoard.cards.map(card => ({
       id: card.id,
@@ -8464,7 +8998,7 @@ async function collectDashboardSnapshot(
       branches: gitSnapshot.branches,
       commits: gitSnapshot.commits,
     },
-    branches: branchInventory,
+    branches: enrichedBranchInventory,
     runtime: {
       enabledAgents,
       totalAgents: agents.length,
@@ -9393,6 +9927,7 @@ async function compareDashboardBranch(
 async function collectDashboardBranchContributors(
   workspaceRoot: string,
   selectedCommit: string | undefined,
+  sinceCommit?: string,
   now = Date.now(),
 ): Promise<{ contributors: DashboardBranchContributor[]; sampledCommitCount: number }> {
   if (!selectedCommit) {
@@ -9404,7 +9939,7 @@ async function collectDashboardBranchContributors(
       '-n',
       '30',
       '--format=%an%x00%aI',
-      selectedCommit,
+      sinceCommit ? `${sinceCommit}..${selectedCommit}` : selectedCommit,
     ]);
     const rows = output
       .split(/\r?\n/)
@@ -9439,6 +9974,101 @@ async function collectDashboardBranchContributors(
   } catch {
     return { contributors: [], sampledCommitCount: 0 };
   }
+}
+
+async function collectChangedPaths(
+  workspaceRoot: string,
+  mergeBase: string,
+  headCommit: string,
+): Promise<{ paths: string[]; total: number; truncated: boolean }> {
+  const raw = await runGit(workspaceRoot, [
+    'diff',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACDMRTUXB',
+    mergeBase,
+    headCommit,
+    '--',
+  ]);
+  const all = raw
+    .split('\0')
+    .map(value => value.replace(/\\/g, '/').trim())
+    .filter(value =>
+      value.length > 0
+      && value.length <= 1_000
+      && !value.split('/').some(segment => segment === '.' || segment === '..'));
+  return {
+    paths: all.slice(0, 300),
+    total: all.length,
+    truncated: all.length > 300,
+  };
+}
+
+function countChangedAreas(paths: readonly string[]): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const workspacePath of paths) {
+    const parts = workspacePath.split('/');
+    const area = parts.length > 1 ? parts[0]! : '(repository root)';
+    counts.set(area, (counts.get(area) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+    .slice(0, 12);
+}
+
+function countBranchImpactCategories(paths: readonly string[]): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const workspacePath of paths) {
+    const category = classifyLensChangePath(workspacePath);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+async function collectBranchOwnership(
+  workspaceRoot: string,
+  changedPaths: readonly string[],
+): Promise<BranchOwnershipMatch> {
+  const candidates = [
+    path.join(workspaceRoot, '.github', 'CODEOWNERS'),
+    path.join(workspaceRoot, 'CODEOWNERS'),
+    path.join(workspaceRoot, 'docs', 'CODEOWNERS'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const content = await fs.readFile(candidate, 'utf8');
+      return matchBranchCodeowners(parseBranchCodeowners(content), changedPaths);
+    } catch {
+      // GitHub uses the first CODEOWNERS file in this same search order.
+    }
+  }
+  return {
+    owners: [],
+    matchedPathCount: 0,
+    unmatchedPathCount: changedPaths.length,
+    ignoredRuleCount: 0,
+    rules: [],
+  };
+}
+
+async function gitIsAncestor(
+  workspaceRoot: string,
+  possibleAncestor: string,
+  descendant: string,
+): Promise<boolean> {
+  return runGit(workspaceRoot, ['merge-base', '--is-ancestor', possibleAncestor, descendant])
+    .then(() => true)
+    .catch(() => false);
+}
+
+function branchPullRequestRank(pullRequest: PullRequestRecord): number {
+  if (pullRequest.state === 'open') return 0;
+  if (pullRequest.state === 'draft') return 1;
+  if (pullRequest.state === 'merged') return 2;
+  return 3;
 }
 
 function deriveDashboardBranchSignals(
@@ -9531,6 +10161,25 @@ function findDashboardBranchByName(
     : undefined;
 }
 
+function findProductionDashboardBranch(
+  inventory: DashboardBranchesSnapshot,
+  configuredProtectedRefs: readonly string[],
+  integrationRef: string | undefined,
+): DashboardBranchInventoryItem | undefined {
+  const integration = normalizeBranchRef(integrationRef ?? '').toLowerCase();
+  const productionNames = [
+    ...configuredProtectedRefs
+      .map(ref => normalizeBranchRef(ref).trim())
+      .filter(Boolean)
+      .filter(name => name.toLowerCase() !== integration),
+    inventory.defaultBranch,
+    ...PRODUCTION_BRANCH_CANDIDATES,
+  ];
+  return productionNames
+    .map(name => findDashboardBranchByName(inventory, name))
+    .find((item): item is DashboardBranchInventoryItem => item !== undefined);
+}
+
 async function collectDashboardBranchDiscussion(
   workspaceRoot: string,
   snapshot: GitSnapshot,
@@ -9549,19 +10198,11 @@ async function collectDashboardBranchDiscussion(
 
   const currentBranch = snapshot.branchInventory.items.find(item => item.current)
     ?? findDashboardBranchByName(snapshot.branchInventory, snapshot.currentBranch);
-  const integration = normalizeBranchRef(integrationRef ?? '').toLowerCase();
-  const configuredProductionNames = configuredProtectedRefs
-    .map(ref => normalizeBranchRef(ref).trim())
-    .filter(Boolean)
-    .filter(name => name.toLowerCase() !== integration);
-  const productionNames = [
-    ...configuredProductionNames,
-    snapshot.branchInventory.defaultBranch,
-    ...PRODUCTION_BRANCH_CANDIDATES,
-  ];
-  const productionBranch = productionNames
-    .map(name => findDashboardBranchByName(snapshot.branchInventory, name))
-    .find((item): item is DashboardBranchInventoryItem => item !== undefined);
+  const productionBranch = findProductionDashboardBranch(
+    snapshot.branchInventory,
+    configuredProtectedRefs,
+    integrationRef,
+  );
 
   const [current, production, contributorSummary] = await Promise.all([
     compareDashboardBranch(workspaceRoot, selectedCommit, currentBranch, false),
@@ -9624,10 +10265,13 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const remoteUrl = await runGit(workspaceRoot, ['remote', 'get-url', 'origin'])
     .then(value => value.trim() || undefined)
     .catch(() => undefined);
-  const [statusOutput, branchOutput, commitOutput] = await Promise.all([
+  const [statusOutput, branchOutput, commitOutput, gitUserName] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
     runGit(workspaceRoot, ['log', '--date=iso-strict', '--pretty=format:%H|%ad|%an|%s', `-n${MAX_COMMITS}`]),
+    runGit(workspaceRoot, ['config', '--get', 'user.name'])
+      .then(value => boundedDiscussionText(value, 180) || undefined)
+      .catch(() => undefined),
   ]);
 
   const statusLines = statusOutput.split(/\r?\n/).filter(Boolean);
@@ -9700,6 +10344,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     commits,
     commitDates,
     commitLog,
+    ...(gitUserName ? { gitUserName } : {}),
     ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
 }
@@ -10072,23 +10717,32 @@ async function gatherCiIntelligence(
   workspaceRoot: string,
   branch: string,
 ): Promise<DashboardCiIntelligence> {
-  const runs = await runGh(workspaceRoot, [
-    'run', 'list',
-    '--branch', branch,
-    '--limit', '30',
-    '--json', 'databaseId,displayTitle,conclusion,status,workflowName,createdAt,updatedAt,headSha',
+  const fields = 'databaseId,displayTitle,conclusion,status,workflowName,createdAt,updatedAt,headSha,headBranch';
+  const [runs, branchRuns] = await Promise.all([
+    runGh(workspaceRoot, [
+      'run', 'list',
+      '--branch', branch,
+      '--limit', '30',
+      '--json', fields,
+    ]),
+    runGh(workspaceRoot, [
+      'run', 'list',
+      '--limit', '100',
+      '--json', fields,
+    ]),
   ]);
 
   const parsed = parseGhRunList(runs);
+  const parsedBranchRuns = parseGhRunList(branchRuns);
   if (parsed.length === 0) {
-    return { runs: [], loadedAt: new Date().toISOString() };
+    return { runs: [], branchRuns: parsedBranchRuns, loadedAt: new Date().toISOString() };
   }
 
   // Only the most recent failure is analysed. Fetching a log per failed run
   // would multiply a slow call by thirty for information nobody asked for.
   const failed = parsed.find(run => run.conclusion === 'failure');
   if (!failed) {
-    return { runs: parsed, loadedAt: new Date().toISOString() };
+    return { runs: parsed, branchRuns: parsedBranchRuns, loadedAt: new Date().toISOString() };
   }
 
   try {
@@ -10107,6 +10761,7 @@ async function gatherCiIntelligence(
 
     return {
       runs: parsed,
+      branchRuns: parsedBranchRuns,
       report: buildCiFailureReport({
         runId: String(failed.databaseId),
         jobName: failed.workflowName || failed.displayTitle,
@@ -10120,6 +10775,7 @@ async function gatherCiIntelligence(
     // "the build is fine" are different facts.
     return {
       runs: parsed,
+      branchRuns: parsedBranchRuns,
       logFailure: ghFailureOf(error).detail,
       loadedAt: new Date().toISOString(),
     };
@@ -10230,6 +10886,7 @@ export function parseGhRunList(raw: string): DashboardCiRun[] {
       conclusion: text(record['conclusion'], 40).toLowerCase(),
       status: text(record['status'], 40).toLowerCase(),
       headSha: text(record['headSha'], 64),
+      ...(text(record['headBranch'], 200) ? { headBranch: text(record['headBranch'], 200) } : {}),
       createdAt: text(record['createdAt'], 40),
       updatedAt: text(record['updatedAt'], 40),
     });
@@ -15537,6 +16194,48 @@ const DASHBOARD_CSS = `
     align-items: center;
   }
 
+  .branch-review-source,
+  .branch-operation-status {
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .branch-operation-status {
+    padding: 10px 13px;
+    border: 1px solid color-mix(in srgb, var(--dash-good) 48%, var(--dash-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-good) 9%, transparent);
+  }
+
+  .branch-view-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(2, minmax(140px, 190px));
+    gap: 12px;
+    align-items: end;
+  }
+
+  .branch-view-controls label {
+    display: grid;
+    gap: 5px;
+    color: var(--dash-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .compact-select {
+    width: 100%;
+    min-height: 34px;
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
+    padding: 5px 28px 5px 9px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-dropdown-background);
+    font: inherit;
+  }
+
   .dashboard-search-label {
     margin-bottom: -8px;
     color: var(--dash-muted);
@@ -15590,6 +16289,133 @@ const DASHBOARD_CSS = `
     box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dash-good) 82%, transparent), var(--dash-shadow);
   }
 
+  .branch-inventory-card.is-compare-selected {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 72%, var(--dash-border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 40%, transparent), var(--dash-shadow);
+  }
+
+  .branch-group {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .branch-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .branch-group-head h3 { margin: 0; }
+
+  .branch-readiness-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  button.branch-readiness-button {
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .branch-pr-summary {
+    display: grid;
+    gap: 5px;
+    padding: 9px 10px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .branch-trace-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    margin: 0;
+    color: var(--dash-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .branch-readiness-reasons {
+    display: grid;
+    gap: 5px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--dash-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .branch-readiness-reasons .reason-blocker {
+    color: color-mix(in srgb, var(--dash-warn) 84%, var(--vscode-foreground));
+  }
+
+  .branch-card-actions .danger-link {
+    color: color-mix(in srgb, var(--dash-critical) 78%, var(--vscode-foreground));
+    border-color: color-mix(in srgb, var(--dash-critical) 42%, var(--dash-border));
+  }
+
+  .branch-compare-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .branch-compare-toolbar h3 { margin: 0 0 4px; overflow-wrap: anywhere; }
+
+  .branch-review-result {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 16px;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border));
+  }
+
+  .branch-evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 12px;
+  }
+
+  .branch-evidence-grid > div {
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 18%, transparent);
+  }
+
+  .branch-evidence-grid h4 { margin: 0 0 8px; }
+
+  .branch-evidence-grid ul {
+    display: grid;
+    gap: 5px;
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+  }
+
+  .branch-evidence-grid li {
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .branch-evidence-grid li > span + strong { float: right; }
+
+  .branch-notices {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--dash-muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
   .branch-card-head h3 {
     margin: 0;
     overflow-wrap: anywhere;
@@ -15613,6 +16439,13 @@ const DASHBOARD_CSS = `
   .branch-card-actions {
     margin-top: auto;
     padding-top: 4px;
+  }
+
+  @media (max-width: 760px) {
+    .branch-view-controls { grid-template-columns: 1fr; }
+    .branch-compare-toolbar,
+    .branch-review-source,
+    .branch-operation-status { align-items: stretch; flex-direction: column; }
   }
 
   .inline-notice.warning {

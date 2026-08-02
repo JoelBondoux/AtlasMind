@@ -773,6 +773,14 @@ Until this module, nothing in AtlasMind sanitized that text — because nothing 
 
 `derivePullRequestIssueDraft` is the repair path for that traceability gap. It converts the current sanitized open PR record into fixed-order, editable issue text without a model, carries only labels that already exist on the repository, and never posts. The browser sends a positive PR number; the host re-resolves it and refuses a stale, closed, or already-linked record before opening the existing composer. The ordinary issue-write policy and confirmation remain the only route to GitHub.
 
+### BranchDashboard (`src/core/branchDashboard.ts`)
+
+The Branch Dashboard's judgement is a pure module, not webview code and not a model prompt. `deriveBranchDashboard` joins one local branch inventory with the last explicitly loaded sanitized PR/check/review feed, issues, roadmap references, and operator identities. It emits five comparable outcomes (`ready`, `attention`, `blocked`, `baseline`, `retired`), the exact ordered reasons, a deterministic risk rank, cleanup candidacy, PR/CI/traceability summaries, and built-in saved-view membership. A failing check, conflict, change request, unresolved loaded review comment, or structural Git problem is a blocker; missing refresh evidence is attention/unknown, never clear. PR closing keywords are declared issue linkage, an explicit `branch: <name>` roadmap reference is declared linkage, and a matching numeric branch segment is inference.
+
+The module also owns the conservative CODEOWNERS reader used during on-demand inspection. It caps input, validates owner handles, refuses unsupported/unusable lines rather than guessing, applies rules in last-match-wins order, and returns aggregate owner/rule/path counts. It does not store CODEOWNERS, changed paths, or contributors. Recent contributors are separately labelled historical context because commit frequency does not grant ownership.
+
+`ProjectDashboardPanel` remains the trust and I/O boundary. Ordinary render gathers lightweight local inventory and carries the bounded GitHub snapshot already loaded for Issues/PRs; it does not run a diff per branch. Inspect/compare/Change Story actions send opaque ids, re-collect inventory, resolve commits and baselines host-side, and return only aggregate evidence. Cleanup is a separate destructive boundary: fetch and re-resolution precede assessment; current/default/protected/worktree/open-PR or uniquely committed branches are refused; local deletion uses merged-only `git branch -d`; remote deletion additionally requires a live head match and typed exact-name confirmation. No force-delete route exists.
+
 ### BranchNaming (`src/core/branchNaming.ts`)
 
 `deriveBranchName` turns an issue into `feat/142-guided-github-workflow`. A branch name is the only context anyone gets before opening a branch, and deriving it means the link back to the issue is never forgotten because it was never typed.

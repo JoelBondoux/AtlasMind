@@ -16,7 +16,10 @@ vi.mock('vscode', () => ({
 }));
 vi.mock('../../src/views/lensChangeStoryPanel', () => ({ LensChangeStoryPanel: { createOrShow: showStory } }));
 
-import { reviewWorkspaceChangeStory } from '../../src/views/lensChangeStoryCommand';
+import {
+  reviewWorkspaceChangeStory,
+  reviewWorkspaceChangeStoryForRefs,
+} from '../../src/views/lensChangeStoryCommand';
 
 describe('Lens change story command', () => {
   beforeEach(() => {
@@ -57,5 +60,24 @@ describe('Lens change story command', () => {
     await reviewWorkspaceChangeStory();
     expect(showStory).not.toHaveBeenCalled();
     expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('repository root'));
+  });
+
+  it('reviews a host-resolved dashboard branch without switching HEAD', async () => {
+    await reviewWorkspaceChangeStoryForRefs(folder as never, {
+      branchLabel: 'feature/story',
+      headRef: 'origin/feature/story',
+      baseRef: 'origin/main',
+    });
+
+    expect(showStory).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feature/story',
+      baseRef: 'origin/main',
+    }));
+    expect(execFile.mock.calls.some(call =>
+      call[1][0] === 'log' && call[1].some((arg: string) => arg.endsWith('..origin/feature/story')))).toBe(true);
+    expect(execFile.mock.calls.some(call =>
+      call[1][0] === 'diff' && call[1].includes('origin/feature/story'))).toBe(true);
+    expect(execFile.mock.calls.some(call =>
+      call[1][0] === 'switch' || call[1][0] === 'checkout')).toBe(false);
   });
 });

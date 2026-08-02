@@ -81,7 +81,7 @@ export function buildLensChangeStory(candidate: LensChangeStoryInput): LensChang
     const identity = change ? `${change.status}:${change.workspacePath}:${change.previousPath ?? ''}` : '';
     if (!change || seenChanges.has(identity)) throw new Error('AtlasMind Lens refused invalid or duplicate path evidence.');
     seenChanges.add(identity);
-    const category = classifyPath(change.workspacePath);
+    const category = classifyLensChangePath(change.workspacePath);
     const component = change.workspacePath.split('/')[0] ?? change.workspacePath;
     const id = `lens-change:${stableHash(identity)}`;
     const target = change.status === 'deleted' ? undefined : toTarget(change, workspace, id, category);
@@ -152,7 +152,8 @@ function normalizeStatus(value: unknown): LensChangeStatus | undefined {
     : undefined;
 }
 
-function classifyPath(workspacePath: string): LensChangeCategory {
+/** Shared filename/folder classifier used by Lens and the Branch Dashboard. */
+export function classifyLensChangePath(workspacePath: string): LensChangeCategory {
   const lower = workspacePath.toLowerCase();
   if (/(^|\/)(test|tests|__tests__|spec|specs|e2e|integration|contract-tests?)(\/|$)|\.(test|spec)\.[^/]+$/.test(lower)) return 'test';
   if (/(^|\/)(migrations?|database\/migrations?)(\/|$)|(^|\/)\d{6,}[_-].*\.sql$/.test(lower)) return 'migration';

@@ -55,6 +55,12 @@ The reasoning is separation of duties. An advisor that reviews whether something
 
 The separate `SecurityReviewManager` follows the same authority boundary: it can persist already-produced, sanitized findings for secrets, runtime boundaries, dependencies, and permissions, but it does not invoke an agent, grant tools, execute remediation, or gate delivery. Future UI wiring must keep review invocation inside the normal approval and tool-policy pipeline.
 
+### Branch Dashboard actions
+
+Branch readiness, PR/CI status, ownership, traceability, inspection, and two-branch comparison are computed in the extension host. They do not grant an agent a Git tool or turn **Ask Atlas** into an execution shortcut. Opening a PR uses the host-retained, HTTPS `github.com` URL; opening a Change Story passes host-resolved refs to the existing read-only story collector without checking out either branch.
+
+Branch cleanup is a direct, operator-initiated dashboard workflow rather than a callable skill. The webview sends only an opaque inventory id. Before offering any deletion, the host refreshes remotes, re-resolves the id, refuses current/default/protected/other-worktree branches, proves the selected commit is contained by the current or production baseline with no unique commits, and checks loaded pull-request state. Local deletion runs only `git branch -d -- <host-resolved-ref>` after a modal evidence review; AtlasMind never substitutes `-D`. Remote deletion requires the same review plus a live `ls-remote` hash match and an exact typed branch name before the host runs the fixed `git push --porcelain <host-resolved-remote> --delete <host-resolved-branch>` shape. A missing proof is a refusal, not an approval prompt.
+
 ## Approval Modes
 
 The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:

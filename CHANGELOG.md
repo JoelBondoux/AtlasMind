@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.252.0] - 2026-08-02
+
+### Added
+
+- **Project Dashboard → Branches is now a review-readiness surface.** A pure declared rule table combines local drift with the last explicitly loaded pull request, review decision, mergeability, unresolved loaded review comments, per-branch CI, issue linkage, and roadmap references into `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged readings. Unknown remote evidence stays unknown; a model never grades a branch.
+- **Every branch card now carries its delivery context.** PR number/state/base, approval or change-request state, mergeability, CI pass/fail/pending, requested-reviewer and “mine” signals, deterministic blockers, closing issue links, explicit roadmap references, and clearly labelled branch-name issue inference are visible together. Host-authored Ask Atlas summaries include the same readiness evidence.
+- **Branches can be compared and inspected without checkout.** Selecting any two cards produces merge-base unique-commit counts, changed-file counts, path overlap, changed areas, and bounded contributor histories. **Review details** adds path-derived impact categories plus last-match-wins CODEOWNERS routing, while keeping recent contributors explicitly separate from declared owners.
+- **A selected branch can open Lens Change Story directly.** The dashboard re-resolves the opaque id and passes validated head/base refs to the existing bounded Lens collector, so local and cached remote refs can be reviewed without switching `HEAD`.
+- **Built-in branch views are persistent.** My branches, Needs my review, Ready, CI failing, and Cleanup keep their last selected view alongside independent local/remote/attention scopes, activity/readiness/drift/name sorting, and readiness/PR grouping.
+- **Merged, stale, and gone-upstream work now enters a guarded cleanup queue.** The action re-fetches the relevant remote, re-resolves inventory, checks default/protected/worktree/open-PR state, proves current/production containment and zero unique commits, and presents the evidence before one deletion can be chosen.
+
+### Changed
+
+- **GitHub activity now retains bounded repo-wide run heads for branch cards.** Current-branch CI failure analysis keeps its existing focused log path, while the per-branch surface uses the latest check per workflow. Pull-request parsing now also sanitizes aggregate review decision, mergeability, status-check rollup, and requested reviewers.
+- **Lens Change Story accepts host-resolved head/base refs internally.** The Command Palette flow is unchanged; the new dashboard path uses the same normalization and panel without checking out the selected branch.
+- **Branch traceability distinguishes evidence strength.** PR closing keywords and explicit `branch: <name>` roadmap notation are declared links; a matching numeric branch segment is inference; a refresh that has not run remains unassessed rather than missing.
+
+### Security
+
+- **Every new browser action sends opaque ids only.** Branch names, refs, remotes, PR URLs, paths, CODEOWNERS contents, and Git arguments are resolved in the extension host against fresh state. The browser receives aggregate changed areas and ownership results, not the changed-path list.
+- **Cleanup has no force path.** Local deletion uses `git branch -d`, never `-D`. Remote deletion additionally requires a live head hash equal to the reviewed commit and typed exact-name confirmation before `git push --delete`; a moved ref, unique commit, open PR, protected/default branch, active worktree, missing GitHub assessment, or unproven production containment refuses the action.
+- **Readiness remains evidence-honest.** A missing PR/CI refresh cannot become a green zero, filename impact is not called semantic or runtime impact, changed-file overlap is not called a conflict, and recent contributors are not presented as owners.
+
 ## [0.251.0] - 2026-08-02
 
 ### Added

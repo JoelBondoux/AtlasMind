@@ -333,6 +333,35 @@ describe('dashboard branch inventory', () => {
     expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'discussBranch', payload });");
     expect(WEBVIEW_SCRIPT).toMatch(/'branch-discuss',[\s\S]{0,260}iconOnly:\s*true/);
   });
+
+  it('surfaces the complete branch decision workflow without sending refs or URLs', () => {
+    for (const action of [
+      'branch-inspect',
+      'branch-story',
+      'branch-open-pr',
+      'branch-compare-toggle',
+      'branch-compare-run',
+      'branch-cleanup',
+      'branch-review-refresh',
+    ]) {
+      expect(WEBVIEW_SCRIPT).toContain(`'${action}'`);
+    }
+    expect(WEBVIEW_SCRIPT).toContain("type: 'inspectBranch', payload");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'openBranchChangeStory', payload");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'reviewBranchCleanup', payload");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'openBranchPullRequest', payload");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'compareBranches'");
+    expect(WEBVIEW_SCRIPT).toContain('Changed-file overlap');
+    expect(WEBVIEW_SCRIPT).toContain('Review routing');
+  });
+
+  it('keeps saved views, sorting, and grouping as persisted presentation preferences', () => {
+    expect(WEBVIEW_SCRIPT).toContain('persistBranchPreferences');
+    expect(WEBVIEW_SCRIPT).toContain("['mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup']");
+    expect(WEBVIEW_SCRIPT).toContain('branch-sort-select');
+    expect(WEBVIEW_SCRIPT).toContain('branch-group-select');
+    expect(WEBVIEW_SCRIPT).toContain('vscode.setState');
+  });
 });
 
 describe('testing methodology guidance', () => {
