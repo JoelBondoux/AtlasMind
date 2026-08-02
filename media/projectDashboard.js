@@ -259,7 +259,7 @@
       ? persistedWebviewState.branchGroup : 'none',
     /** Cards always start compact; expansion is intentionally session-local. */
     branchExpandedIds: [],
-    /** Use the same Git decoration colour exposed to VS Code Source Control. */
+    /** Distinguish local and remote-only refs with VS Code theme colours. */
     branchScmChips: persistedWebviewState.branchScmChips !== false,
     branchCompareIds: [],
     branchComparison: null,
@@ -2945,19 +2945,6 @@
             ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…' })}
             <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
           </div>
-          <div class="branch-card-display-controls">
-            <div>
-              <span class="dashboard-search-label">Card detail</span>
-              <p class="section-copy">Cards start compact. Open one for its full evidence and actions, or change every card together.</p>
-            </div>
-            <div class="branch-control-actions">
-              <button type="button" class="action-link" data-action="branch-toggle-all" ${sorted.length ? '' : 'disabled'}>${allVisibleExpanded ? 'Collapse all' : 'Expand all'}</button>
-              <label class="branch-chip-toggle" for="branch-scm-chip-toggle">
-                <input id="branch-scm-chip-toggle" type="checkbox" ${state.branchScmChips ? 'checked' : ''} />
-                Source Control branch colours
-              </label>
-            </div>
-          </div>
           <div>
             <span class="dashboard-search-label">Saved views</span>
             <div class="segmented-control branch-filter-control" role="group" aria-label="Saved branch views">
@@ -3027,6 +3014,23 @@
           </div>
         </article>
         ${renderBranchComparison(state.branchComparison)}
+        <div class="branch-card-display-controls" aria-label="Branch card display">
+          <div>
+            <span class="dashboard-search-label">Branch card display</span>
+            <p id="branch-chip-help" class="section-copy">Cards start compact. SCM colours use theme blue for local branches and theme purple for remote-only branches.</p>
+          </div>
+          <div class="branch-control-actions">
+            <div class="branch-chip-preview" aria-hidden="true">
+              <span class="branch-title-chip is-local"><span>⎇</span> Local</span>
+              <span class="branch-title-chip is-remote"><span>☁</span> Remote</span>
+            </div>
+            <label class="branch-chip-toggle" for="branch-scm-chip-toggle">
+              <input id="branch-scm-chip-toggle" type="checkbox" aria-describedby="branch-chip-help" ${state.branchScmChips ? 'checked' : ''} />
+              Show SCM colours
+            </label>
+            <button type="button" class="action-link" data-action="branch-toggle-all" ${sorted.length ? '' : 'disabled'}>${allVisibleExpanded ? 'Collapse all' : 'Expand all'}</button>
+          </div>
+        </div>
         ${sorted.length > 0
           ? renderBranchGroups(sorted, dirty, state.branchGroup)
           : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another saved view, scope, or filter.'}</p></div></div>`}
@@ -3221,7 +3225,10 @@
       || pullRequest?.reviewDecision === 'changes-requested'
       || pullRequest?.mergeable === 'conflicting'
       || Number(pullRequest?.unresolvedReviewComments || 0) > 0;
-    const branchTitleClass = state.branchScmChips ? ' branch-title-chip' : '';
+    const branchTitleClass = state.branchScmChips
+      ? ` branch-title-chip ${branch.localRef ? 'is-local' : 'is-remote'}`
+      : '';
+    const branchTitleIcon = branch.localRef ? '⎇' : '☁';
     const inspection = state.branchInspection && state.branchInspection.branchId === branch.id
       ? state.branchInspection
       : null;
@@ -3235,7 +3242,7 @@
             <div class="row-head branch-card-head">
               <div>
                 <p class="section-kicker">${escapeHtml(location)}</p>
-                <h3 class="branch-title${branchTitleClass}">${state.branchScmChips ? '<span aria-hidden="true">⎇</span>' : ''}${escapeHtml(branch.name)}</h3>
+                <h3 class="branch-title${branchTitleClass}">${state.branchScmChips ? `<span aria-hidden="true">${branchTitleIcon}</span>` : ''}${escapeHtml(branch.name)}</h3>
               </div>
               <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
             </div>

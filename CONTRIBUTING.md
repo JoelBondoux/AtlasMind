@@ -146,14 +146,19 @@ For the Windows ACP private-desktop helper, rebuild with the pinned Rust source,
 copy the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
 `ACP_PRIVATE_DESKTOP_HELPER_SHA256`, and run
 `cargo test --manifest-path native/acp-private-desktop/Cargo.toml -- --test-threads=1`
-plus `tests/providers/acpWindowsLauncher.test.ts`. The Rust test launches a real
-console descendant while the station exists. The helper must remain a standalone
-process rather than an in-process native addon: a native failure must not crash
-VS Code's extension host. Do not add a silent ordinary-launch fallback — an EDR
-block is a result the user needs to see. Preserve the create-suspended → assign
+plus `tests/providers/acpWindowsLauncher.test.ts`. The native suite covers both a
+console descendant and PowerShell when `pwsh.exe` is installed; the TypeScript
+suite repeats those checks against the shipped PE. Application Control may block
+an unsigned binary produced under `target/` even when it permits the reviewed
+packaged helper, so record that separately from a source compile failure and
+still exercise the shipped-binary integration. The helper must remain a
+standalone process rather than an in-process native addon: a native failure must
+not crash VS Code's extension host. Do not add a silent ordinary-launch fallback
+— an EDR block is a result the user needs to see. Preserve the documented
+non-interactive access sets, token-default ACL, inherited station/desktop
+connection, inherited system-error suppression, create-suspended → assign
 kill-on-close Job Object → resume ordering, restricted handle list, and
-`STARTF_USESHOWWINDOW`/`SW_HIDE` flags. The Windows-only test executes the
-shipped PE around a real redirected-stdio child; a hash-only test is insufficient.
+`STARTF_USESHOWWINDOW`/`SW_HIDE` flags. A hash-only test is insufficient.
 
 ## Debugging Orchestration And Concurrency
 

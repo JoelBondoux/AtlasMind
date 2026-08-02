@@ -240,9 +240,13 @@ also block a newly built unsigned helper before it starts. AtlasMind therefore:
 - never switches to, captures, or remotely controls the created station;
 - keeps the helper dependency-free and source-visible under
   `native/acp-private-desktop/`;
-- asks only for `WINSTA_CREATEDESKTOP | WINSTA_READATTRIBUTES` and
-  `DESKTOP_CREATEWINDOW`, and applies the creator token's default ACL instead of
-  `CreateWindowStationW`'s all-users null-attributes default;
+- requests Windows' documented non-interactive station/desktop access sets
+  instead of generic all-access rights, and applies the creator token's default
+  ACL instead of `CreateWindowStationW`'s all-users null-attributes default;
+- establishes the helper's station/desktop connection first and lets the child
+  inherit it, avoiding a second name-based UI-object open and DACL check;
+- sets inherited `SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX` error mode so a
+  descendant loader failure cannot block Chat behind a modal Windows dialog;
 - passes an already-resolved executable and argv with no shell;
 - uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
 - creates the agent suspended, assigns it to a Job Object with

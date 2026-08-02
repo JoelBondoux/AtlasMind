@@ -210,6 +210,16 @@ agent boot and console churn. That changes process lifetime only:
 - a private Windows desktop hides UI only — it is not a sandbox and grants or
   removes no filesystem, network, or command authority.
 
+The opt-in Windows ACP helper establishes a non-interactive window station and
+desktop with the published non-interactive UI-object access sets and the current
+token's default ACL. The child inherits that established connection instead of
+reopening generated names, which prevents PowerShell's USER32 initialization
+from failing while keeping descendants off `WinSta0`. Inherited
+`SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX` error mode prevents a future
+loader failure from blocking Chat behind a modal system dialog. These controls
+change launch and error presentation only; every ACP operation still follows the
+permission rules above.
+
 Prompt delivery is at-most-once within the adapter. The orchestrator assigns a
 stable identity to each tool round; exact concurrent calls for that identity
 join one in-flight request and a short completed-result ledger absorbs its

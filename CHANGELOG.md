@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.255.1] - 2026-08-02
+
+### Fixed
+
+- **Branch-title chip colours now distinguish local and remote-only refs.** Local logical branches use VS Code's theme blue and remote-only branches use theme purple instead of every chip inheriting the generic green added-resource decoration.
+- **The chip option is visible where its effect appears.** **Show SCM colours** now sits immediately above the branch-card inventory beside a live Local/Remote legend, rather than being buried in the earlier Decision views card.
+- **PowerShell can initialize inside the opt-in hidden ACP process boundary.** The Windows helper now requests the documented non-interactive window-station and desktop access sets, lets the child inherit that established connection instead of reopening generated UI objects by name, and suppresses inherited system-error dialogs. This fixes the blocking `pwsh.exe` `0xc0000142` dialog seen when an ACP agent starts PowerShell while keeping the process tree off `WinSta0`.
+
 ## [0.255.0] - 2026-08-02
 
 ### Added

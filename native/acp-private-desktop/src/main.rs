@@ -29,9 +29,31 @@ const FALSE: Bool = 0;
 const TRUE: Bool = 1;
 const INFINITE: Dword = 0xffff_ffff;
 const WAIT_FAILED: Dword = 0xffff_ffff;
+const STANDARD_RIGHTS_REQUIRED: Dword = 0x000f_0000;
+const DESKTOP_READOBJECTS: Dword = 0x0000_0001;
 const DESKTOP_CREATEWINDOW: Dword = 0x0000_0002;
+const DESKTOP_CREATEMENU: Dword = 0x0000_0004;
+const DESKTOP_HOOKCONTROL: Dword = 0x0000_0008;
+const DESKTOP_ENUMERATE: Dword = 0x0000_0040;
+const DESKTOP_WRITEOBJECTS: Dword = 0x0000_0080;
+const DESKTOP_NONINTERACTIVE_ACCESS: Dword = STANDARD_RIGHTS_REQUIRED
+    | DESKTOP_CREATEMENU
+    | DESKTOP_CREATEWINDOW
+    | DESKTOP_ENUMERATE
+    | DESKTOP_HOOKCONTROL
+    | DESKTOP_READOBJECTS
+    | DESKTOP_WRITEOBJECTS;
+const WINSTA_ACCESSCLIPBOARD: Dword = 0x0000_0004;
+const WINSTA_ACCESSGLOBALATOMS: Dword = 0x0000_0020;
 const WINSTA_CREATEDESKTOP: Dword = 0x0000_0008;
+const WINSTA_EXITWINDOWS: Dword = 0x0000_0040;
 const WINSTA_READATTRIBUTES: Dword = 0x0000_0002;
+const WINSTA_NONINTERACTIVE_ACCESS: Dword = STANDARD_RIGHTS_REQUIRED
+    | WINSTA_ACCESSCLIPBOARD
+    | WINSTA_ACCESSGLOBALATOMS
+    | WINSTA_CREATEDESKTOP
+    | WINSTA_EXITWINDOWS
+    | WINSTA_READATTRIBUTES;
 const STARTF_USESHOWWINDOW: Dword = 0x0000_0001;
 const STARTF_USESTDHANDLES: Dword = 0x0000_0100;
 const EXTENDED_STARTUPINFO_PRESENT: Dword = 0x0008_0000;
@@ -44,6 +66,8 @@ const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: usize = 0x0002_0002;
 const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Dword = 0x0000_2000;
 const UOI_NAME: i32 = 2;
+const SEM_FAILCRITICALERRORS: Dword = 0x0001;
+const SEM_NOGPFAULTERRORBOX: Dword = 0x0002;
 
 fn last_error(operation: &str) -> io::Error {
     let error = io::Error::last_os_error();
@@ -172,6 +196,7 @@ unsafe extern "system" {
         process_information: *mut ProcessInformation,
     ) -> Bool;
     fn DeleteProcThreadAttributeList(attribute_list: Lpvoid);
+    fn GetErrorMode() -> Dword;
     fn GetExitCodeProcess(process: Handle, exit_code: *mut Dword) -> Bool;
     fn GetStdHandle(std_handle: Dword) -> Handle;
     fn InitializeProcThreadAttributeList(
@@ -191,6 +216,7 @@ unsafe extern "system" {
     ) -> Bool;
     fn AssignProcessToJobObject(job: Handle, process: Handle) -> Bool;
     fn ResumeThread(thread: Handle) -> Dword;
+    fn SetErrorMode(mode: Dword) -> Dword;
     fn SetInformationJobObject(
         job: Handle,
         information_class: i32,
@@ -334,6 +360,14 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         ));
     };
 
+    // A loader failure in any descendant belongs on the process failure path,
+    // not in a modal system dialog that blocks an unattended ACP request.
+    // Windows documents that child processes inherit this mode unless
+    // CREATE_DEFAULT_ERROR_MODE is requested; AtlasMind never requests it.
+    unsafe {
+        SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    }
+
     // A private desktop inside WinSta0 is hidden only while every descendant
     // inherits that exact desktop. A third-party launcher can pass an empty
     // STARTUPINFO.lpDesktop and reconnect its child to WinSta0\Default, putting
@@ -358,7 +392,7 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         CreateWindowStationW(
             null(),
             0,
-            WINSTA_CREATEDESKTOP | WINSTA_READATTRIBUTES,
+            WINSTA_NONINTERACTIVE_ACCESS,
             (&mut security_attributes as *mut SecurityAttributes).cast::<c_void>(),
         )
     };
@@ -395,10 +429,11 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
             null(),
             null_mut(),
             0,
-            // The launcher only needs to keep the desktop alive while the
-            // child runs. Ask for the one access right CreateDesktop requires,
-            // not GENERIC_ALL over a UI object in the interactive station.
-            DESKTOP_CREATEWINDOW,
+            // This is the access set Windows documents for a user process on a
+            // non-interactive station. PowerShell initializes USER32 even for
+            // `-NonInteractive`; CREATEWINDOW alone lets CreateDesktop succeed
+            // but leaves that initialization unable to read/write the desktop.
+            DESKTOP_NONINTERACTIVE_ACCESS,
             (&mut security_attributes as *mut SecurityAttributes).cast::<c_void>(),
         )
     };
@@ -406,10 +441,6 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
         return Err(last_error("CreateDesktopW"));
     }
     let _desktop_owner = Desktop(desktop);
-    let mut desktop_path = wide(OsStr::new(&format!(
-        "{window_station_leaf}\\{desktop_leaf}"
-    )));
-
     let mut attribute_bytes = 0usize;
     unsafe {
         // The first call is documented to fail while returning the required size.
@@ -461,7 +492,12 @@ fn launch(arguments: Vec<OsString>) -> io::Result<u32> {
 
     let mut startup: StartupInfoExW = unsafe { zeroed() };
     startup.startup_info.cb = size_of::<StartupInfoExW>() as Dword;
-    startup.startup_info.desktop = desktop_path.as_mut_ptr();
+    // NULL inherits the station/desktop connection already established on this
+    // single-threaded helper. Supplying the generated name forced the child to
+    // reopen both objects and made initialization depend on a second DACL
+    // access check. Descendants that leave lpDesktop empty now inherit the same
+    // non-interactive station rather than reconnecting to WinSta0.
+    startup.startup_info.desktop = null_mut();
     startup.startup_info.flags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     startup.startup_info.show_window = 0;
     startup.startup_info.std_input = standard_handles[0];
@@ -564,6 +600,14 @@ fn main() {
 mod tests {
     use super::*;
 
+    fn executable_on_path(name: &str) -> Option<OsString> {
+        let path = env::var_os("PATH")?;
+        env::split_paths(&path)
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.into_os_string())
+    }
+
     #[test]
     fn launches_a_console_descendant_on_the_noninteractive_station() {
         let command = env::var_os("ComSpec").expect("Windows command interpreter");
@@ -575,6 +619,23 @@ mod tests {
             OsString::from("exit 0"),
         ])
         .expect("private station launch");
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn launches_powershell_without_a_user32_initialization_failure() {
+        let Some(powershell) = executable_on_path("pwsh.exe") else {
+            return;
+        };
+        let exit_code = launch(vec![
+            powershell,
+            OsString::from("-NoLogo"),
+            OsString::from("-NoProfile"),
+            OsString::from("-NonInteractive"),
+            OsString::from("-Command"),
+            OsString::from("exit 0"),
+        ])
+        .expect("PowerShell private-station launch");
         assert_eq!(exit_code, 0);
     }
 }

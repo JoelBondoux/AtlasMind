@@ -16340,13 +16340,17 @@ const DASHBOARD_CSS = `
 
   .branch-card-display-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
+    margin-bottom: 14px;
     padding: 10px 12px;
     border: 1px solid var(--dash-border);
     border-radius: 10px;
-    background: color-mix(in srgb, var(--dash-border) 12%, transparent);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 6%, transparent), transparent 42%),
+      var(--dash-panel);
   }
 
   .branch-card-display-controls .section-copy {
@@ -16365,7 +16369,19 @@ const DASHBOARD_CSS = `
 
   .branch-chip-toggle input {
     margin: 0;
-    accent-color: var(--vscode-gitDecoration-addedResourceForeground, var(--dash-accent-strong));
+    accent-color: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
+  }
+
+  .branch-chip-preview {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .branch-chip-preview .branch-title-chip {
+    padding: 3px 8px;
+    font-size: 11px;
   }
 
   .branch-filter-control button {
@@ -16622,6 +16638,7 @@ const DASHBOARD_CSS = `
   }
 
   .branch-title-chip {
+    --branch-chip-color: var(--vscode-textLink-foreground, #3794ff);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -16629,18 +16646,26 @@ const DASHBOARD_CSS = `
     padding: 4px 9px;
     border: 1px solid color-mix(
       in srgb,
-      var(--vscode-gitDecoration-addedResourceForeground, #73c991) 58%,
+      var(--branch-chip-color) 66%,
       var(--dash-border)
     );
     border-radius: 999px;
-    color: var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+    color: var(--branch-chip-color);
     background: color-mix(
       in srgb,
-      var(--vscode-gitDecoration-addedResourceForeground, #73c991) 13%,
+      var(--branch-chip-color) 16%,
       transparent
     );
     font-size: 14px;
     line-height: 1.2;
+  }
+
+  .branch-title-chip.is-local {
+    --branch-chip-color: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff));
+  }
+
+  .branch-title-chip.is-remote {
+    --branch-chip-color: var(--vscode-charts-purple, #b180d7);
   }
 
   .branch-title-chip span {

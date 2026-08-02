@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.255.1 — Clearer branches and reliable hidden ACP PowerShell
+
+The Branch dashboard now uses VS Code's theme blue for local branch-title chips and theme purple for remote-only chips. The persisted **Show SCM colours** checkbox has moved directly above the branch-card inventory and sits beside a live Local/Remote preview, so the setting and its effect remain in the same place.
+
+The opt-in Windows ACP helper now gives processes on its non-interactive station the documented station/desktop access sets and lets children inherit the established connection instead of reopening generated objects by name. PowerShell can therefore initialize there without the blocking `0xc0000142` dialog. Inherited Windows error-mode flags also keep future loader failures on the process failure path instead of presenting an unattended modal dialog.
+
 ## v0.255.0 — Refreshes show their work
 
 Every Project Dashboard refresh now carries visible progress inside the button that started it. The dashboard-wide action, Issues, Pull Requests, branch PR/CI, remote branch fetch, and branch-review controls share the same VS Code progress colour, active label, disabled duplicate-click state, and accessible busy announcement. Progress follows explicit extension-host start and finish messages rather than an arbitrary animation timer; reduced-motion users see a static fill.

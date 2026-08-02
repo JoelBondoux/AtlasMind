@@ -576,10 +576,14 @@ though each individual permission remains gated.
 
 On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
 windows may appear, not what the process may do. The helper now creates a
-non-interactive window station plus its default private desktop; Windows permits
-visible UI only on `WinSta0`, so a descendant that chooses a new desktop cannot
-escape back to the input screen merely by declining inheritance. The station's
-ACL comes from the current user's token. This is neither a sandbox nor an
+non-interactive window station plus its default private desktop with Windows'
+documented non-interactive UI-object access sets; Windows permits visible UI only
+on `WinSta0`, so a descendant that chooses a new desktop cannot escape back to
+the input screen merely by declining inheritance. The child inherits the
+helper's established station/desktop connection instead of reopening generated
+names, which lets PowerShell initialize without weakening the token-default ACL.
+Inherited system-error flags also turn a loader failure into a process failure
+instead of a modal dialog that blocks Chat. This is neither a sandbox nor an
 authorization boundary; the agent retains the same user-level filesystem/network
 access. It is opt-in and disclosed because unusual hidden UI boundaries and an
 unsigned native helper can attract application-control/EDR detection. The same

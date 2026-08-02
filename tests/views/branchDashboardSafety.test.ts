@@ -107,10 +107,17 @@ describe('Branch Dashboard disclosure and emphasis', () => {
     expect(webviewSource).toContain("grouping === 'branch-family'");
   });
 
-  it('uses Source Control theme colour behind an operator-controlled chip', () => {
+  it('keeps the SCM-colour checkbox beside the cards and distinguishes local from remote refs', () => {
     expect(branchesRender).toContain('id="branch-scm-chip-toggle"');
+    expect(branchesRender.indexOf('id="branch-scm-chip-toggle"'))
+      .toBeGreaterThan(branchesRender.indexOf('${renderBranchComparison(state.branchComparison)}'));
+    expect(branchesRender).toContain('Show SCM colours');
+    expect(branchesRender).toContain('branch-title-chip is-local');
+    expect(branchesRender).toContain('branch-title-chip is-remote');
     expect(webviewSource).toContain('branchScmChips: persistedWebviewState.branchScmChips !== false');
-    expect(hostSource).toContain('var(--vscode-gitDecoration-addedResourceForeground, #73c991)');
+    expect(cardRender).toContain("branch.localRef ? 'is-local' : 'is-remote'");
+    expect(hostSource).toContain('var(--vscode-charts-blue, var(--vscode-textLink-foreground, #3794ff))');
+    expect(hostSource).toContain('var(--vscode-charts-purple, #b180d7)');
   });
 
   it('renders hard failures as critical and makes truncated commit subjects discoverable', () => {

@@ -39,7 +39,7 @@ export function isAcpConsoleModeChosen(
 
 /** Hash of the reviewed release binary in `media/bin`. */
 export const ACP_PRIVATE_DESKTOP_HELPER_SHA256 =
-  '1870b11edffdc55d2f18e3e59e102ecd0a319df5aa97d35dc54589ddfb7fdd0a';
+  '30ee7d9e30f434e5142e3ecd65efcd2564dda6ba371105b77dac24c66ef5c5ef';
 
 export interface AcpPrivateDesktopProbe {
   platform: string;

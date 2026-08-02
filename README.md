@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.255.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.255.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.255.0
+## What's new in 0.255.1
 
 Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Hidden ACP launches now support PowerShell without a modal startup failure.** The opt-in Windows helper gives non-interactive descendants the UI-object access PowerShell needs, inherits the already-established private station/desktop connection, and converts loader failures into process failures rather than focus-stealing Windows error dialogs.
+
+- **Branch chip colours now communicate local versus remote state.** The clearly labelled **Show SCM colours** checkbox and a live Local/Remote legend sit directly above the branch-card inventory. Enabled local branch titles use VS Code's theme blue, while remote-only titles use its theme purple; disabling the checkbox returns titles to plain text.
 
 - **Dashboard refreshes are visible and reachable from anywhere.** The dashboard-wide, Issues, Pull Requests, branch PR/CI, remote-branch fetch, and branch-review actions now show a VS Code-themed loading bar inside the pressed button for the real host-reported lifetime of the operation. Buttons disable while active, status changes are announced accessibly, and reduced-motion themes receive a static progress fill. Press **Ctrl+Shift+R** on Windows/Linux or **⌘⇧R** on macOS anywhere in the focused dashboard to run its full refresh without returning to the top.
 
