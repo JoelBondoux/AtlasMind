@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.253.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.255.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.253.1
+## What's new in 0.255.0
 
 Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Dashboard refreshes are visible and reachable from anywhere.** The dashboard-wide, Issues, Pull Requests, branch PR/CI, remote-branch fetch, and branch-review actions now show a VS Code-themed loading bar inside the pressed button for the real host-reported lifetime of the operation. Buttons disable while active, status changes are announced accessibly, and reduced-motion themes receive a static progress fill. Press **Ctrl+Shift+R** on Windows/Linux or **⌘⇧R** on macOS anywhere in the focused dashboard to run its full refresh without returning to the top.
+
+- **Branch cards now disclose detail instead of presenting every signal at once.** Cards open in a compact summary and expand individually, with **Expand all** / **Collapse all** controls for deliberate scanning. Review Details is loaded only from the selected expanded card and appears directly beneath it. Failing CI, blocked readiness, conflicts, change requests, and broken branch state use the critical red treatment; long commit subjects truncate with an ellipsis and expose the complete text on hover.
+
+- **Branch display order is explicit.** Activity, readiness, drift, and name sorting each offer both directions, including newest/oldest chronology, and branch-family grouping can keep feature/fix/docs families together while preserving the chosen order inside each family. An optional, persisted checkbox renders branch names as chips using VS Code’s Source Control Git-decoration colour.
 
 - **Declaration-backed Lens views now lead users from absence to a safe starter.** Getting Started, Settings → Project Runs, Project Dashboard Overview, and the State/Configuration missing-file messages share one status and setup flow for `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json`. Starters are valid, empty, create-only files—AtlasMind never invents project semantics or overwrites an existing declaration.
 
@@ -92,7 +98,7 @@ Since the last Marketplace publication, **v0.252.0**, source builds have added t
 
 - **Cleanup is a guarded queue.** Merged, stale, and gone-upstream cards enter a saved Cleanup view, but deletion is only offered after AtlasMind refreshes the relevant remote, re-resolves the opaque card id, proves current/production containment and zero unique commits, checks worktrees/protection/open PRs, and—remotely—matches the live head and requires the exact branch name. Local cleanup uses `git branch -d`; force deletion is not present.
 
-- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus activity, readiness, drift, and name sorting and readiness/PR grouping.
+- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus bidirectional activity, readiness, drift, and name sorting and readiness/PR/branch-family grouping.
 
 - **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
 
@@ -310,7 +316,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, readiness, PR/review/CI state, traceability, requested reviews, and cleanup candidates are visible per card; saved views, sorting and grouping keep large repositories manageable. Use the Atlas icon for a deterministic summary, **Review details** for changed areas/CODEOWNERS/contributors, select any two cards for a merge-base comparison, or open the selected ref in Lens Change Story without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, compact cards lead with readiness, PR/CI state, traceability, and the latest commit; click one (or use **Expand all**) to reveal its full evidence and actions. Sorting supports both chronological directions plus risk, drift, and name order, with optional branch-family grouping and Source Control-coloured branch chips. **Review details** opens changed areas/CODEOWNERS/contributors directly below the selected card, any two cards can be compared from their merge base, and **Open Change Story** reads the selected ref without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
 
 ---
 

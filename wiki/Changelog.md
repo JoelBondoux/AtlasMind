@@ -6,6 +6,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.255.0 — Refreshes show their work
+
+Every Project Dashboard refresh now carries visible progress inside the button that started it. The dashboard-wide action, Issues, Pull Requests, branch PR/CI, remote branch fetch, and branch-review controls share the same VS Code progress colour, active label, disabled duplicate-click state, and accessible busy announcement. Progress follows explicit extension-host start and finish messages rather than an arbitrary animation timer; reduced-motion users see a static fill.
+
+The dashboard-wide refresh is also available without scrolling: press **Ctrl+Shift+R** on Windows/Linux or **⌘⇧R** on macOS anywhere while focus is inside the dashboard. The shortcut is visible beside the header action and carried in its tooltip and accessibility metadata.
+
+## v0.254.0 — A quieter, ordered Branch dashboard
+
+Branch cards now start compact, leading with branch identity, readiness, CI, traceability, and the latest commit. Click a card to disclose its full evidence and actions, or use **Expand all** / **Collapse all** for the whole inventory. Commit subjects truncate with an ellipsis when necessary and retain their complete text on hover.
+
+Review Details is no longer a detached panel above every branch. It stays absent until the explicit action is pressed on an expanded card, then appears immediately below that branch and can be closed. Failing CI, blocked readiness, merge conflicts, change requests, unresolved review comments, and broken branch state now use critical red styling rather than sharing amber with pending signals.
+
+Ordering is explicit in both directions: newest/oldest activity, highest/lowest risk, most/least drift, and A–Z/Z–A. Branch-family grouping keeps matching prefixes together while applying that order inside each family. A persisted checkbox can render branch names as chips using VS Code's own Source Control Git-decoration colour.
+
 ## v0.253.1 — Exact-ref Lens answers and stricter ACP isolation
 
 **Ask Atlas** from a Change Story now reads the selected Git ref and changed path rather than asking a model to infer a cached remote file from the checked-out workspace. The Orchestrator validates the one-shot context and sends a bounded, explicitly fenced patch plus small-file content as a model-visible message. Large files receive the patch and object size; a failed read refuses the handoff. These turns are completion-only and cannot invoke workspace or ACP-native tools.

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.255.0] - 2026-08-02
+
+### Added
+
+- **The Project Dashboard can be refreshed without returning to its header.** **Ctrl+Shift+R** on Windows/Linux and **⌘⇧R** on macOS run the dashboard-wide refresh whenever focus is inside the panel. The visible shortcut hint, tooltip, and `aria-keyshortcuts` metadata expose the same route.
+- **Refresh controls now carry their own progress bar.** Dashboard, Issues, Pull Requests, branch PR/CI, remote branch fetch, and branch-review controls animate VS Code's progress colour inside the button, change to an operation-specific active label, expose `aria-busy`, and disable duplicate clicks. Reduced-motion users receive a static progress fill.
+
+### Changed
+
+- **Refresh visibility follows the real host operation rather than a timer.** The extension host posts explicit start/finish state for repository activity, branch fetching, and branch inspection; optimistic webview state covers only the first message round-trip. The shared GitHub refresh marks every matching control busy together because Issues, PRs, CI, labels, milestones, and releases come from one guarded read.
+
+## [0.254.0] - 2026-08-02
+
+### Added
+
+- **Branch cards now have deliberate disclosure controls.** Every card starts as a compact readiness, CI, traceability, and latest-commit summary; clicking its summary reveals the complete branch evidence and actions. **Expand all** and **Collapse all** change the visible inventory in one step.
+- **Branch ordering now has an explicit direction.** Activity, readiness, drift, and name sorting can each be reversed, including newest-first and oldest-first chronology. Branch-family grouping keeps branches with the same prefix together while retaining the selected order inside each family.
+- **Branch names can use a Source Control-coloured chip.** A persisted dashboard checkbox toggles a Git-branch chip drawn from VS Code's `gitDecoration.addedResourceForeground` theme colour.
+
+### Changed
+
+- **Review Details now belongs to the branch that requested it.** The inspection remains invisible until the explicit action on an expanded branch card is pressed, then renders immediately below that card with its own Close action. The readiness badge no longer starts the expensive inspection.
+- **Failure signals are visually distinct from cautions.** Failing CI, blocked readiness, merge conflicts, requested changes, unresolved review comments, and structurally broken branches now use the dashboard's critical red treatment; pending and cautionary states remain amber.
+- **Long commit subjects no longer stretch branch cards.** Compact cards show a CSS ellipsis and expose the full escaped subject through the native hover tooltip.
+
 ## [0.253.1] - 2026-08-02
 
 ### Fixed
