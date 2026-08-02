@@ -13,6 +13,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
+- [ ] Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmind-lens.md`.
 - [ ] Clarify the next highest-value user or business outcome.
 - [ ] Address the highest-risk security, reliability, or correctness gap first.
 - [ ] Capture or implement the next architectural decision that reduces future churn.

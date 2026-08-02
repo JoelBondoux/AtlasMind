@@ -1,5 +1,6 @@
 (function () {
   const vscode = acquireVsCodeApi();
+  const persistedWebviewState = vscode.getState() || {};
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
@@ -216,6 +217,17 @@
     issueSearch: '',
     branchSearch: '',
     branchFilter: 'all',
+    /** Persisted built-in branch view, sort, and grouping preferences. */
+    branchView: ['all', 'mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup'].includes(persistedWebviewState.branchView)
+      ? persistedWebviewState.branchView : 'all',
+    branchSort: ['activity', 'readiness', 'drift', 'name'].includes(persistedWebviewState.branchSort)
+      ? persistedWebviewState.branchSort : 'activity',
+    branchGroup: ['none', 'readiness', 'pull-request'].includes(persistedWebviewState.branchGroup)
+      ? persistedWebviewState.branchGroup : 'none',
+    branchCompareIds: [],
+    branchComparison: null,
+    branchInspection: null,
+    branchOperationStatus: '',
     issueDraftOpen: false,
     /**
      * A derived draft waiting in the composer, or undefined.
@@ -269,6 +281,15 @@
   // and cleared by render(), so it never leaks into an unrelated update.
   let refocusAfterRender = '';
 
+  function persistBranchPreferences() {
+    vscode.setState({
+      ...(vscode.getState() || {}),
+      branchView: state.branchView,
+      branchSort: state.branchSort,
+      branchGroup: state.branchGroup,
+    });
+  }
+
   refreshButton?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
   });
@@ -318,9 +339,43 @@
 
     if (message.type === 'state') {
       state.snapshot = message.payload;
+      const liveIds = new Set(((message.payload && message.payload.branches && message.payload.branches.items) || []).map(branch => branch.id));
+      state.branchCompareIds = state.branchCompareIds.filter(id => liveIds.has(id)).slice(0, 2);
+      if (state.branchInspection && !liveIds.has(state.branchInspection.branchId)) {
+        state.branchInspection = null;
+      }
+      if (state.branchComparison
+        && (!liveIds.has(state.branchComparison.leftId) || !liveIds.has(state.branchComparison.rightId))) {
+        state.branchComparison = null;
+      }
       if (noProjectBanner) {
         noProjectBanner.style.display = message.payload?.ssotPresent === false ? 'block' : 'none';
       }
+      render();
+      return;
+    }
+
+    if (message.type === 'branchInspection') {
+      state.branchInspection = message.payload || null;
+      announce(state.branchInspection
+        ? `Branch review details loaded for ${state.branchInspection.branchName}.`
+        : 'Branch review details were unavailable.');
+      render();
+      return;
+    }
+
+    if (message.type === 'branchComparison') {
+      state.branchComparison = message.payload || null;
+      announce(state.branchComparison
+        ? `Compared ${state.branchComparison.leftName} with ${state.branchComparison.rightName}.`
+        : 'Branch comparison was unavailable.');
+      render();
+      return;
+    }
+
+    if (message.type === 'branchOperationStatus') {
+      state.branchOperationStatus = typeof message.payload === 'string' ? message.payload : '';
+      announce(state.branchOperationStatus);
       render();
       return;
     }
@@ -529,6 +584,13 @@
       render();
       return;
     }
+    if (action === 'branch-view') {
+      state.branchView = ['mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup'].includes(payload)
+        ? payload : 'all';
+      persistBranchPreferences();
+      render();
+      return;
+    }
     if (action === 'branch-fetch') {
       vscode.postMessage({ type: 'fetchBranches' });
       return;
@@ -546,6 +608,61 @@
       if (payload) {
         vscode.postMessage({ type: 'discussBranch', payload });
       }
+      return;
+    }
+    if (action === 'branch-inspect') {
+      if (payload) {
+        vscode.postMessage({ type: 'inspectBranch', payload });
+      }
+      return;
+    }
+    if (action === 'branch-story') {
+      if (payload) {
+        vscode.postMessage({ type: 'openBranchChangeStory', payload });
+      }
+      return;
+    }
+    if (action === 'branch-open-pr') {
+      if (payload) {
+        vscode.postMessage({ type: 'openBranchPullRequest', payload });
+      }
+      return;
+    }
+    if (action === 'branch-cleanup') {
+      if (payload) {
+        vscode.postMessage({ type: 'reviewBranchCleanup', payload });
+      }
+      return;
+    }
+    if (action === 'branch-compare-toggle') {
+      if (!payload) { return; }
+      const existing = state.branchCompareIds.indexOf(payload);
+      if (existing >= 0) {
+        state.branchCompareIds.splice(existing, 1);
+      } else {
+        state.branchCompareIds = state.branchCompareIds.concat(payload).slice(-2);
+      }
+      state.branchComparison = null;
+      render();
+      return;
+    }
+    if (action === 'branch-compare-run') {
+      if (state.branchCompareIds.length === 2 && state.branchCompareIds[0] !== state.branchCompareIds[1]) {
+        vscode.postMessage({
+          type: 'compareBranches',
+          payload: { leftId: state.branchCompareIds[0], rightId: state.branchCompareIds[1] },
+        });
+      }
+      return;
+    }
+    if (action === 'branch-compare-clear') {
+      state.branchCompareIds = [];
+      state.branchComparison = null;
+      render();
+      return;
+    }
+    if (action === 'branch-review-refresh') {
+      vscode.postMessage({ type: 'refreshIssues' });
       return;
     }
     if (action === 'contributor-filter') {
@@ -1535,6 +1652,18 @@
     if (target.id === 'test-select-jump') {
       state.selectedTestId = target.value;
       render();
+    }
+    if (target.id === 'branch-sort-select') {
+      state.branchSort = ['readiness', 'drift', 'name'].includes(target.value) ? target.value : 'activity';
+      persistBranchPreferences();
+      render();
+      return;
+    }
+    if (target.id === 'branch-group-select') {
+      state.branchGroup = ['readiness', 'pull-request'].includes(target.value) ? target.value : 'none';
+      persistBranchPreferences();
+      render();
+      return;
     }
     if (target.getAttribute('data-action') === 'director-assign-run') {
       const runId = target.getAttribute('data-run') || '';
@@ -2585,13 +2714,19 @@
     const items = Array.isArray(branches.items) ? branches.items : [];
     const query = String(state.branchSearch || '').trim().toLowerCase();
     const filter = state.branchFilter || 'all';
+    const view = ['mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup'].includes(state.branchView)
+      ? state.branchView : 'all';
     const filtered = items.filter(branch => {
+      const insight = branch.insight || {};
+      const savedViews = Array.isArray(insight.savedViews) ? insight.savedViews : [];
       if (filter === 'local' && !branch.localRef) { return false; }
       if (filter === 'remote' && branch.localRef) { return false; }
       if (filter === 'stale' && !branch.stale) { return false; }
       if (filter === 'attention' && !['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
-        && !(branch.ahead > 0 || branch.behind > 0) && !branch.checkedOutElsewhere) { return false; }
+        && !(branch.ahead > 0 || branch.behind > 0) && !branch.checkedOutElsewhere
+        && !['attention', 'blocked'].includes((insight.readiness || {}).level)) { return false; }
       if (filter === 'merged' && !branch.mergedIntoCurrent) { return false; }
+      if (view !== 'all' && !savedViews.includes(view)) { return false; }
       if (!query) { return true; }
       return [
         branch.name,
@@ -2600,57 +2735,234 @@
         branch.upstream,
         branch.remoteRef,
         branch.hash,
+        (insight.pullRequest || {}).title,
+        (insight.pullRequest || {}).author,
+        (insight.readiness || {}).label,
+        (insight.ci || {}).label,
       ].some(value => String(value || '').toLowerCase().includes(query));
     });
+    const sorted = filtered.slice().sort((left, right) => compareBranchCards(left, right, state.branchSort));
     const dirty = Boolean(snapshot.repo && snapshot.repo.dirty);
     const attentionCount = items.filter(branch =>
       ['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
-      || branch.ahead > 0 || branch.behind > 0 || branch.checkedOutElsewhere).length;
+      || branch.ahead > 0 || branch.behind > 0 || branch.checkedOutElsewhere
+      || ['attention', 'blocked'].includes((((branch.insight || {}).readiness) || {}).level)).length;
     const mergedCount = items.filter(branch => branch.mergedIntoCurrent).length;
+    const compareNames = state.branchCompareIds.map(id => (items.find(branch => branch.id === id) || {}).name).filter(Boolean);
 
     return `
       ${pageSectionOpen('branches')}
         ${renderPageIntro({
           kicker: 'Git branches',
-          title: 'Every branch, ready when you need it',
-          summary: `${items.length} logical branch${items.length === 1 ? '' : 'es'} across ${branches.localCount} local and ${branches.remoteOnlyCount} remote-only ref${branches.remoteOnlyCount === 1 ? '' : 's'}. Remote state is read from cached refs until you explicitly fetch. ${dirty ? 'The working tree has pending changes, so branch switching is paused.' : 'The working tree is clean, so another branch can be brought local safely.'}`,
+          title: 'Every branch, with the evidence to decide',
+          summary: `${items.length} logical branch${items.length === 1 ? '' : 'es'} across ${branches.localCount} local and ${branches.remoteOnlyCount} remote-only ref${branches.remoteOnlyCount === 1 ? '' : 's'}. Readiness is derived from declared rules over local Git plus the last explicitly loaded GitHub activity; it is never a model score. ${dirty ? 'The working tree has pending changes, so branch switching is paused.' : 'The working tree is clean, so another branch can be brought local safely.'}`,
           chips: [
-            { label: `${branches.localCount} local`, tone: 'accent' },
-            { label: `${branches.remoteOnlyCount} remote only`, tone: branches.remoteOnlyCount ? 'accent' : undefined },
-            { label: `${branches.divergedCount} drifted`, tone: branches.divergedCount ? 'warn' : 'good' },
-            { label: `${branches.staleCount} stale`, tone: branches.staleCount ? 'warn' : 'good' },
+            { label: `${branches.readyCount || 0} ready`, tone: branches.readyCount ? 'good' : undefined },
+            { label: `${branches.blockedCount || 0} blocked`, tone: branches.blockedCount ? 'warn' : 'good' },
+            { label: `${branches.ciFailingCount || 0} CI failing`, tone: branches.ciFailingCount ? 'warn' : 'good' },
+            { label: `${branches.cleanupCount || 0} cleanup candidates`, tone: branches.cleanupCount ? 'accent' : undefined },
           ],
         })}
+        ${branches.githubLoaded ? '' : `
+          <div class="inline-notice warning branch-review-source">
+            <div><strong>GitHub readiness is not loaded.</strong> PR, requested-reviewer, and CI facts remain unknown rather than being treated as clear.</div>
+            <button type="button" class="action-link" data-action="branch-review-refresh">Refresh GitHub activity</button>
+          </div>
+        `}
+        ${state.branchOperationStatus ? `<div class="inline-notice branch-operation-status">${escapeHtml(state.branchOperationStatus)}</div>` : ''}
         <article class="panel-card branch-inventory-controls">
           <div>
-            <p class="section-kicker">Branch inventory</p>
-            <h3>Find a branch</h3>
-            <p class="section-copy">Tracked local and remote refs are folded into one card. A remote-only branch creates a same-named local tracking branch when you choose <strong>Bring local</strong>.</p>
+            <p class="section-kicker">Decision views</p>
+            <h3>Find the branch that needs you</h3>
+            <p class="section-copy">The built-in views remember their last selection. Tracked local and remote refs are folded into one card; no view fetches or changes Git by itself.</p>
           </div>
           <div class="branch-control-actions">
             <button type="button" class="action-link" data-action="branch-fetch">Fetch latest from remotes</button>
+            <button type="button" class="action-link" data-action="branch-review-refresh">Refresh PR &amp; CI</button>
             <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
           </div>
+          <div>
+            <span class="dashboard-search-label">Saved views</span>
+            <div class="segmented-control branch-filter-control" role="group" aria-label="Saved branch views">
+              ${[
+                ['all', `All (${items.length})`],
+                ['mine', `My branches (${branches.mineCount || 0})`],
+                ['needs-my-review', `Needs my review (${branches.needsMyReviewCount || 0})`],
+                ['ready', `Ready (${branches.readyCount || 0})`],
+                ['ci-failing', `CI failing (${branches.ciFailingCount || 0})`],
+                ['cleanup', `Cleanup (${branches.cleanupCount || 0})`],
+              ].map(entry => `<button type="button" data-action="branch-view" data-payload="${entry[0]}" class="${view === entry[0] ? 'active' : ''}" aria-pressed="${view === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}
+            </div>
+          </div>
           <label class="dashboard-search-label" for="branch-search-input">Search branches</label>
-          <input id="branch-search-input" class="ideation-input" type="search" value="${escapeAttr(state.branchSearch || '')}" placeholder="Name, author, commit, upstream…" autocomplete="off" />
-          <div class="segmented-control branch-filter-control" role="group" aria-label="Filter branches">
-            ${[
-              ['all', `All (${items.length})`],
-              ['local', `Local (${branches.localCount})`],
-              ['remote', `Remote only (${branches.remoteOnlyCount})`],
-              ['attention', `Needs attention (${attentionCount})`],
-              ['stale', `Stale (${branches.staleCount})`],
-              ['merged', `Merged (${mergedCount})`],
-            ].map(entry => `<button type="button" data-action="branch-filter" data-payload="${entry[0]}" class="${filter === entry[0] ? 'active' : ''}" aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}
+          <input id="branch-search-input" class="ideation-input" type="search" value="${escapeAttr(state.branchSearch || '')}" placeholder="Name, author, PR, readiness, commit, upstream…" autocomplete="off" />
+          <div class="branch-view-controls">
+            <div>
+              <span class="dashboard-search-label">Scope</span>
+              <div class="segmented-control branch-filter-control" role="group" aria-label="Filter branches">
+                ${[
+                  ['all', `All (${items.length})`],
+                  ['local', `Local (${branches.localCount})`],
+                  ['remote', `Remote only (${branches.remoteOnlyCount})`],
+                  ['attention', `Attention (${attentionCount})`],
+                  ['stale', `Stale (${branches.staleCount})`],
+                  ['merged', `Merged (${mergedCount})`],
+                ].map(entry => `<button type="button" data-action="branch-filter" data-payload="${entry[0]}" class="${filter === entry[0] ? 'active' : ''}" aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}
+              </div>
+            </div>
+            <label>Sort
+              <select id="branch-sort-select" class="compact-select">
+                ${[
+                  ['activity', 'Recent activity'],
+                  ['readiness', 'Risk & readiness'],
+                  ['drift', 'Branch drift'],
+                  ['name', 'Name'],
+                ].map(entry => `<option value="${entry[0]}" ${state.branchSort === entry[0] ? 'selected' : ''}>${entry[1]}</option>`).join('')}
+              </select>
+            </label>
+            <label>Group
+              <select id="branch-group-select" class="compact-select">
+                ${[
+                  ['none', 'No grouping'],
+                  ['readiness', 'Readiness'],
+                  ['pull-request', 'Pull request'],
+                ].map(entry => `<option value="${entry[0]}" ${state.branchGroup === entry[0] ? 'selected' : ''}>${entry[1]}</option>`).join('')}
+              </select>
+            </label>
           </div>
           ${dirty ? '<div class="inline-notice warning"><strong>Switching paused.</strong> Commit, stash, or discard the current changes first. AtlasMind will not carry them onto another branch.</div>' : ''}
         </article>
-        <div class="branch-inventory-grid">
-          ${filtered.length > 0
-            ? filtered.map(branch => renderBranchInventoryCard(branch, dirty)).join('')
-            : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another filter.'}</p></div></div>`}
-        </div>
+        <article class="panel-card branch-compare-toolbar">
+          <div>
+            <p class="section-kicker">Two-branch comparison</p>
+            <h3>${compareNames.length === 0 ? 'Choose any two branch cards' : escapeHtml(compareNames.join(' ↔ '))}</h3>
+            <p class="section-copy">The comparison uses a shared merge base and reports unique commits, changed paths, overlap, areas, and contributors. File overlap is never labelled a conflict.</p>
+          </div>
+          <div class="branch-control-actions">
+            <button type="button" class="action-link primary" data-action="branch-compare-run" ${state.branchCompareIds.length === 2 ? '' : 'disabled'}>Compare selected (${state.branchCompareIds.length}/2)</button>
+            <button type="button" class="action-link" data-action="branch-compare-clear" ${state.branchCompareIds.length ? '' : 'disabled'}>Clear</button>
+          </div>
+        </article>
+        ${renderBranchComparison(state.branchComparison)}
+        ${renderBranchInspection(state.branchInspection)}
+        ${sorted.length > 0
+          ? renderBranchGroups(sorted, dirty, state.branchGroup)
+          : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another saved view, scope, or filter.'}</p></div></div>`}
       </section>
+    `;
+  }
+
+  function compareBranchCards(left, right, sort) {
+    const leftInsight = left.insight || {};
+    const rightInsight = right.insight || {};
+    if (sort === 'readiness') {
+      return Number(rightInsight.riskRank || 0) - Number(leftInsight.riskRank || 0)
+        || (Date.parse(right.lastCommitAt) || 0) - (Date.parse(left.lastCommitAt) || 0)
+        || String(left.name).localeCompare(String(right.name));
+    }
+    if (sort === 'drift') {
+      return (Number(right.ahead || 0) + Number(right.behind || 0)) - (Number(left.ahead || 0) + Number(left.behind || 0))
+        || Number(rightInsight.riskRank || 0) - Number(leftInsight.riskRank || 0)
+        || String(left.name).localeCompare(String(right.name));
+    }
+    if (sort === 'name') {
+      return String(left.name).localeCompare(String(right.name));
+    }
+    return (Date.parse(right.lastCommitAt) || 0) - (Date.parse(left.lastCommitAt) || 0)
+      || String(left.name).localeCompare(String(right.name));
+  }
+
+  function branchGroupOf(branch, grouping) {
+    const insight = branch.insight || {};
+    if (grouping === 'readiness') {
+      const readiness = insight.readiness || {};
+      return {
+        key: readiness.level || 'unknown',
+        label: readiness.label || 'Not assessed',
+        order: ({ blocked: 0, attention: 1, ready: 2, retired: 3, baseline: 4 })[readiness.level] ?? 5,
+      };
+    }
+    if (grouping === 'pull-request') {
+      const pr = insight.pullRequest;
+      return pr
+        ? { key: pr.state || 'open', label: pr.state === 'draft' ? 'Draft pull request' : `${String(pr.state || 'open').replace('-', ' ')} pull request`, order: pr.state === 'open' ? 0 : pr.state === 'draft' ? 1 : pr.state === 'merged' ? 2 : 3 }
+        : { key: 'none', label: 'No linked pull request', order: 4 };
+    }
+    return { key: 'all', label: '', order: 0 };
+  }
+
+  function renderBranchGroups(branches, dirty, grouping) {
+    if (grouping === 'none') {
+      return `<div class="branch-inventory-grid">${branches.map(branch => renderBranchInventoryCard(branch, dirty)).join('')}</div>`;
+    }
+    const groups = new Map();
+    branches.forEach(branch => {
+      const group = branchGroupOf(branch, grouping);
+      if (!groups.has(group.key)) {
+        groups.set(group.key, { ...group, branches: [] });
+      }
+      groups.get(group.key).branches.push(branch);
+    });
+    return [...groups.values()]
+      .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label))
+      .map(group => `
+        <section class="branch-group" aria-label="${escapeAttr(group.label)}">
+          <div class="branch-group-head"><h3>${escapeHtml(group.label)}</h3><span class="tag">${group.branches.length}</span></div>
+          <div class="branch-inventory-grid">${group.branches.map(branch => renderBranchInventoryCard(branch, dirty)).join('')}</div>
+        </section>
+      `).join('');
+  }
+
+  function renderBranchComparison(comparison) {
+    if (!comparison) { return ''; }
+    const countList = items => (items || []).length > 0
+      ? items.map(item => `<li><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(String(item.count))}</strong></li>`).join('')
+      : '<li><span>No changed area in the bounded reading</span></li>';
+    const contributorList = items => (items || []).length > 0
+      ? items.map(item => `<li><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(String(item.commits))}</strong></li>`).join('')
+      : '<li><span>No contributor record in the bounded history</span></li>';
+    return `
+      <article class="panel-card branch-review-result branch-comparison-result">
+        <div class="row-head">
+          <div><p class="section-kicker">Comparison result</p><h3>${escapeHtml(comparison.leftName)} ↔ ${escapeHtml(comparison.rightName)}</h3></div>
+          <span class="tag mono">base ${escapeHtml(comparison.mergeBase || 'unknown')}</span>
+        </div>
+        <div class="mini-grid">
+          ${renderMetricPill(`${comparison.leftName} only`, `${comparison.leftOnlyCommits} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill(`${comparison.rightName} only`, `${comparison.rightOnlyCommits} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill('Changed-file overlap', `${comparison.overlappingFiles}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
+        </div>
+        <div class="branch-evidence-grid">
+          <div><h4>${escapeHtml(comparison.leftName)} areas · ${comparison.leftChangedFiles} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.rightName)} areas · ${comparison.rightChangedFiles} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.leftName)} contributors</h4><ul>${contributorList(comparison.leftContributors)}</ul></div>
+          <div><h4>${escapeHtml(comparison.rightName)} contributors</h4><ul>${contributorList(comparison.rightContributors)}</ul></div>
+        </div>
+        <ul class="branch-notices">${(comparison.notices || []).map(notice => `<li>${escapeHtml(notice)}</li>`).join('')}</ul>
+      </article>
+    `;
+  }
+
+  function renderBranchInspection(inspection) {
+    if (!inspection) { return ''; }
+    const countList = items => (items || []).length > 0
+      ? items.map(item => `<li><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(String(item.count))}</strong></li>`).join('')
+      : '<li><span>No evidence in this category</span></li>';
+    return `
+      <article class="panel-card branch-review-result">
+        <div class="row-head">
+          <div><p class="section-kicker">Review details</p><h3>${escapeHtml(inspection.branchName)}</h3></div>
+          <span class="tag">${escapeHtml(String(inspection.changedFileCount))} changed files${inspection.changedFilesTruncated ? ' · partial' : ''}</span>
+        </div>
+        <p class="section-copy">${escapeHtml(inspection.ownershipSummary || '')}</p>
+        <div class="branch-evidence-grid">
+          <div><h4>Changed areas</h4><ul>${countList(inspection.changedAreas)}</ul></div>
+          <div><h4>Impact signals</h4><ul>${countList(inspection.impactCategories)}</ul></div>
+          <div><h4>Review routing</h4><ul>${(inspection.reviewRouting || []).length > 0 ? inspection.reviewRouting.map(route => `<li>${escapeHtml(route)}</li>`).join('') : '<li>No declared or historical route was available.</li>'}</ul></div>
+          <div><h4>Recent contributors</h4><ul>${(inspection.contributors || []).length > 0 ? inspection.contributors.map(person => `<li><span>${escapeHtml(person.name)}</span><strong>${escapeHtml(String(person.commits))}</strong></li>`).join('') : '<li>No contributor record in the bounded history.</li>'}</ul></div>
+        </div>
+        <ul class="branch-notices">${(inspection.notices || []).map(notice => `<li>${escapeHtml(notice)}</li>`).join('')}</ul>
+      </article>
     `;
   }
 
@@ -2673,15 +2985,32 @@
       : branch.remoteRef && branch.localRef
         ? '<span class="tag tag-warn">remote match, not tracking</span>'
         : '';
+    const insight = branch.insight || {};
+    const readiness = insight.readiness || { level: 'attention', label: 'Not assessed', summary: 'No readiness reading is available.' };
+    const readinessClass = readiness.level === 'ready' || readiness.level === 'retired' || readiness.level === 'baseline'
+      ? 'tag-good'
+      : readiness.level === 'blocked' || readiness.level === 'attention' ? 'tag-warn' : '';
+    const ci = insight.ci || { state: 'unknown', label: 'CI not loaded' };
+    const ciClass = ci.state === 'pass' ? 'tag-good' : ci.state === 'fail' || ci.state === 'pending' ? 'tag-warn' : '';
+    const traceability = insight.traceability || { state: 'not-assessed', summary: 'Traceability not assessed.' };
+    const traceClass = traceability.state === 'linked' ? 'tag-good' : traceability.state === 'missing' ? 'tag-warn' : '';
+    const pullRequest = insight.pullRequest;
+    const compareSelected = state.branchCompareIds.includes(branch.id);
+    const reasons = Array.isArray(readiness.reasons) ? readiness.reasons.slice(0, 3) : [];
 
     return `
-      <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}">
+      <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}${compareSelected ? ' is-compare-selected' : ''}">
         <div class="row-head branch-card-head">
           <div>
             <p class="section-kicker">${escapeHtml(location)}</p>
             <h3>${escapeHtml(branch.name)}</h3>
           </div>
           <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
+        </div>
+        <div class="branch-readiness-row">
+          <button type="button" class="tag ${readinessClass} branch-readiness-button" data-action="branch-inspect" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(readiness.summary || '')}">${escapeHtml(readiness.label || 'Not assessed')}</button>
+          <span class="tag ${ciClass}" title="${escapeAttr(ci.source === 'not-loaded' ? 'Refresh GitHub activity to load per-branch CI.' : 'Latest check per workflow or PR check rollup.')}">${escapeHtml(ci.label || 'CI unknown')}</span>
+          <span class="tag ${traceClass}" title="${escapeAttr(traceability.summary || '')}">${traceability.state === 'linked' ? 'Traceability linked' : traceability.state === 'inferred' ? 'Traceability inferred' : traceability.state === 'missing' ? 'Traceability gap' : 'Traceability unknown'}</span>
         </div>
         <div class="tag-row">
           ${branch.current ? '<span class="tag tag-good">● current</span>' : ''}
@@ -2690,6 +3019,8 @@
           ${branch.checkedOutElsewhere ? '<span class="tag tag-warn">another worktree</span>' : ''}
           ${branch.mergedIntoCurrent ? '<span class="tag tag-good">merged into current</span>' : ''}
           ${branch.stale ? `<span class="tag tag-warn">stale · ${escapeHtml(branch.lastCommitRelative)}</span>` : ''}
+          ${insight.isMine ? '<span class="tag">mine</span>' : ''}
+          ${insight.needsMyReview ? '<span class="tag tag-warn">needs my review</span>' : ''}
         </div>
         <p class="branch-subject">${escapeHtml(branch.subject || 'No commit subject available.')}</p>
         <div class="branch-commit-meta">
@@ -2702,6 +3033,22 @@
           ${branch.ahead ? `<span class="tag">${escapeHtml(String(branch.ahead))} ahead</span>` : ''}
           ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
         </div>
+        ${pullRequest ? `
+          <div class="branch-pr-summary">
+            <div><strong>PR #${escapeHtml(String(pullRequest.number))}</strong> · ${escapeHtml(pullRequest.state)} → ${escapeHtml(pullRequest.baseRefName || 'base')}</div>
+            <div>${escapeHtml(pullRequest.title || 'Untitled pull request')}</div>
+            <div class="tag-row">
+              <span class="tag ${pullRequest.reviewDecision === 'approved' ? 'tag-good' : pullRequest.reviewDecision === 'changes-requested' ? 'tag-warn' : ''}">${escapeHtml(String(pullRequest.reviewDecision || 'review unknown').replace('-', ' '))}</span>
+              <span class="tag ${pullRequest.mergeable === 'conflicting' ? 'tag-warn' : pullRequest.mergeable === 'mergeable' ? 'tag-good' : ''}">${escapeHtml(pullRequest.mergeable || 'mergeability unknown')}</span>
+              ${pullRequest.unresolvedReviewComments ? `<span class="tag tag-warn">${pullRequest.unresolvedReviewComments} unresolved comments</span>` : ''}
+            </div>
+          </div>
+        ` : `<p class="stat-detail">${branchesGithubState(branch)}.</p>`}
+        <p class="branch-trace-summary"><strong>Tracking:</strong> ${escapeHtml(traceability.summary || 'Not assessed.')}
+          ${(traceability.issueTitles || []).slice(0, 2).map(title => `<span class="tag">${escapeHtml(title)}</span>`).join('')}
+          ${(traceability.roadmapItems || []).slice(0, 1).map(item => `<span class="tag" title="${escapeAttr(item)}">Roadmap linked</span>`).join('')}
+        </p>
+        ${reasons.length > 0 ? `<ul class="branch-readiness-reasons">${reasons.map(reason => `<li class="reason-${escapeAttr(reason.level)}"><strong>${escapeHtml(reason.label)}</strong> — ${escapeHtml(reason.detail)}</li>`).join('')}</ul>` : ''}
         <div class="branch-card-actions">
           ${renderAtlasDiscussAction(
             'branch-discuss',
@@ -2712,10 +3059,22 @@
               title: `Ask Atlas for a deterministic summary of ${branch.name}`,
             },
           )}
+          <button type="button" class="action-link" data-action="branch-inspect" data-payload="${escapeAttr(branch.id || '')}">Review details</button>
+          <button type="button" class="action-link" data-action="branch-story" data-payload="${escapeAttr(branch.id || '')}">Open Change Story</button>
+          ${pullRequest ? `<button type="button" class="action-link" data-action="branch-open-pr" data-payload="${escapeAttr(branch.id || '')}">Open PR #${escapeHtml(String(pullRequest.number))}</button>` : ''}
+          <button type="button" class="action-link${compareSelected ? ' primary' : ''}" data-action="branch-compare-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-pressed="${compareSelected ? 'true' : 'false'}">${compareSelected ? 'Selected to compare' : 'Compare'}</button>
+          ${insight.cleanup && insight.cleanup.candidate ? `<button type="button" class="action-link danger-link" data-action="branch-cleanup" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${insight.cleanup.summary || ''} A remote-backed candidate is fetched before review.`)}">Review cleanup</button>` : ''}
           <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
         </div>
       </article>
     `;
+  }
+
+  function branchesGithubState(branch) {
+    const insight = branch.insight || {};
+    return insight.ci && insight.ci.source === 'not-loaded'
+      ? 'Pull requests have not been loaded; no “no PR” claim is made'
+      : 'No loaded pull request uses this branch as its head';
   }
 
   function renderRepo(snapshot) {

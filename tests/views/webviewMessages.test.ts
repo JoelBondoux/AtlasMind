@@ -682,6 +682,17 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'fetchBranches' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'inspectBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openBranchChangeStory', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'reviewBranchCleanup', payload: 'local:refs/heads/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openBranchPullRequest', payload: 'local:refs/heads/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'compareBranches',
+      payload: {
+        leftId: 'local:refs/heads/feat/one',
+        rightId: 'remote:refs/remotes/origin/feat/two',
+      },
+    })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'What is the sharpest missing risk or blocker that still needs a card?', sourcePage: 'ideation' } })).toBe(true);
@@ -751,6 +762,18 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'inspectBranch', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openBranchChangeStory', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'reviewBranchCleanup', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openBranchPullRequest', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({
+      type: 'compareBranches',
+      payload: { leftId: 'same', rightId: 'same' },
+    })).toBe(false);
+    expect(isProjectDashboardMessage({
+      type: 'compareBranches',
+      payload: { leftId: 'left' },
+    })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);

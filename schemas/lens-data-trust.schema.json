@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlasmind.dev/schemas/lens-data-trust.schema.json",
+  "title": "AtlasMind Lens data trust policy",
+  "description": "Explicit field classifications and declared controls used by the Lens Data Trust Map. Do not put secret values in this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "fields"],
+  "properties": {
+    "version": { "const": 1 },
+    "fields": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "contractId", "fieldPath", "classification", "controls"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "contractId": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "fieldPath": { "type": "string", "minLength": 1, "maxLength": 400 },
+          "classification": {
+            "type": "string",
+            "enum": ["public", "internal", "confidential", "restricted"]
+          },
+          "controls": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 6,
+            "items": {
+              "type": "string",
+              "enum": ["consent", "authorization", "redaction", "encryption", "retention", "residency"]
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Optional policy context. Never include secret or personal data values."
+          }
+        }
+      }
+    }
+  }
+}

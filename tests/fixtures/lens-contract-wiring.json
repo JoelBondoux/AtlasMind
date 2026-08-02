@@ -1,0 +1,46 @@
+{
+  "upstream": {
+    "version": 1,
+    "id": "api:user-payload",
+    "label": "User payload",
+    "layer": "api",
+    "sourceKind": "openapi",
+    "coverage": "complete",
+    "fields": [
+      { "id": "api:email", "path": "email", "label": "email", "dataType": "string", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "OpenAPI request schema" } },
+      { "id": "api:firstName", "path": "firstName", "label": "firstName", "dataType": "string", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "OpenAPI request schema" } },
+      { "id": "api:displayName", "path": "displayName", "label": "displayName", "dataType": "string", "presence": "optional", "nullability": "nullable", "evidence": { "kind": "declared", "source": "OpenAPI request schema" } },
+      { "id": "api:legacyCode", "path": "legacyCode", "label": "legacyCode", "dataType": "string", "presence": "optional", "nullability": "non-null", "evidence": { "kind": "declared", "source": "OpenAPI request schema" } },
+      { "id": "api:age", "path": "age", "label": "age", "dataType": "string", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "OpenAPI request schema" } },
+      { "id": "api:mystery", "path": "mystery", "label": "mystery", "dataType": "string", "presence": "unknown", "nullability": "unknown", "evidence": { "kind": "declared", "source": "Partial generated client" } }
+    ]
+  },
+  "downstream": {
+    "version": 1,
+    "id": "database:users",
+    "label": "users table",
+    "layer": "database",
+    "sourceKind": "sql",
+    "coverage": "complete",
+    "fields": [
+      { "id": "db:email", "path": "email", "label": "email", "dataType": "string", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "SQL migration" } },
+      { "id": "db:given_name", "path": "given_name", "label": "given_name", "dataType": "string", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "SQL migration" } },
+      { "id": "db:full_name", "path": "full_name", "label": "full_name", "dataType": "string", "presence": "optional", "nullability": "nullable", "evidence": { "kind": "declared", "source": "SQL migration" } },
+      { "id": "db:age", "path": "age", "label": "age", "dataType": "integer", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "SQL migration" } },
+      { "id": "db:created_at", "path": "created_at", "label": "created_at", "dataType": "timestamp", "presence": "required", "nullability": "non-null", "evidence": { "kind": "declared", "source": "SQL migration" } },
+      { "id": "db:unlinked", "path": "unlinked", "label": "unlinked", "dataType": "boolean", "presence": "unknown", "nullability": "unknown", "evidence": { "kind": "declared", "source": "Incomplete ORM metadata" } }
+    ]
+  },
+  "mappingFile": {
+    "version": 1,
+    "mappings": [
+      { "kind": "rename", "upstreamContractId": "api:user-payload", "downstreamContractId": "database:users", "from": { "contractId": "api:user-payload", "fieldPath": "firstName" }, "to": { "contractId": "database:users", "fieldPath": "given_name" }, "note": "API camelCase maps to the established SQL column" },
+      { "kind": "transform", "upstreamContractId": "api:user-payload", "downstreamContractId": "database:users", "from": { "contractId": "api:user-payload", "fieldPath": "displayName" }, "to": { "contractId": "database:users", "fieldPath": "full_name" }, "note": "Whitespace normalization occurs in the domain mapper" },
+      { "kind": "drop", "upstreamContractId": "api:user-payload", "downstreamContractId": "database:users", "from": { "contractId": "api:user-payload", "fieldPath": "legacyCode" }, "note": "Accepted for backwards compatibility but deliberately not persisted" },
+      { "kind": "introduce", "upstreamContractId": "api:user-payload", "downstreamContractId": "database:users", "to": { "contractId": "database:users", "fieldPath": "created_at" }, "note": "Database default" }
+    ],
+    "suppressions": [
+      { "field": { "contractId": "api:user-payload", "fieldPath": "mystery" }, "reason": "Legacy field is reviewed by a separate adapter" }
+    ]
+  }
+}

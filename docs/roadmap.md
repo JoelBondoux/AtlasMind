@@ -4,6 +4,12 @@ This roadmap provides a clear, user-friendly overview of upcoming features, impr
 
 ## Upcoming Features & Improvements
 
+### AtlasMind Lens — Queryable Project Visualisations
+
+AtlasMind Lens adds an evidence-backed visual layer to the VS Code sidebar and editor. Its first slice is a queryable active-file code outline: select a symbol, open its exact source, or attach it to a reviewable Atlas Chat draft. Later phases add execution journeys, schema and API contract wiring review, change impact, test/behaviour coverage, data trust, state lifecycles, effective configuration, and pull-request stories.
+
+The schema review maps fields across forms, API contracts, validators/DTOs, domain models, ORM or query code, and databases. Connections are labelled exact, transformed, dropped, introduced, incompatible, unverified, or inferred; missing evidence is never automatically reported as broken. The full delivery sequence and acceptance boundaries are in [`project_memory/roadmap/atlasmind-lens.md`](../project_memory/roadmap/atlasmind-lens.md).
+
 ### Chat & Orchestrator Refactor (Critical)
 - Universal prompt decomposition: All chat prompts (not just /project) are analyzed and, if multi-action, decomposed into subtasks for sequential/parallel execution. Planner is invoked automatically when needed.
 - Robust error recovery and feedback: All chat modes (including freeform) attempt auto-recovery on errors, retry with simplified prompts, and always surface actionable feedback bubbles. Autopilot auto-resolves non-critical stops.

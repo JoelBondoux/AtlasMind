@@ -6,6 +6,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.252.0 — Branches becomes the daily decision dashboard
+
+Project Dashboard → Branches now answers the operational questions behind the inventory. Every card combines local drift with the last explicitly loaded PR, review decision, mergeability, unresolved review comments, branch-level CI, issue linkage, and roadmap references through one deterministic rule table. The result is a visible readiness verdict with its reasons, not a model score; GitHub evidence that has not been loaded remains unknown instead of becoming a reassuring zero.
+
+PR/check context, requested-reviewer and “mine” signals, issue/roadmap traceability, and cleanup candidacy sit on the card. My branches, Needs my review, Ready, CI failing, and Cleanup are persisted views with separate scope, sorting, and grouping controls. A two-card selection compares unique commits, changed files, overlap, areas, and contributors from the shared merge base. **Review details** classifies the changed areas and applies CODEOWNERS last-match-wins while naming recent contributors separately, and **Open Change Story** sends the host-resolved selected ref to Lens without switching branches.
+
+Cleanup is deliberately narrower than its visual queue. A candidate is not permission to delete: AtlasMind refreshes its remote, rebuilds the inventory, refuses current/default/protected/other-worktree/open-PR branches, proves containment and zero unique commits, and shows the evidence. Local deletion uses Git's merged-only `-d` guard. Remote deletion adds a live head-hash match and typed exact-name confirmation. There is no force-delete route.
+
+Every new webview message contains opaque ids only. The extension host owns refs, remotes, PR URLs, Git arguments, CODEOWNERS text, and changed paths; the browser receives bounded aggregate evidence. Filename categories remain path signals, overlap remains a review-order clue rather than a conflict claim, contributors remain history rather than ownership, and branch-name issue matching is visibly labelled inference.
+
+## v0.251.0 — AtlasMind Lens joins the current develop line
+
+The complete Lens suite is now integrated with the current `develop` work: the active-file Code Explorer, source-backed possible-flow journeys, impact and test-evidence maps, contract wiring and drift review, schema-impact and relationship projections, explicit data-trust metadata, declared state lifecycles, configuration resolution, and committed-branch Change Stories. The four `.atlasmind/lens-*.json` declaration formats include editor validation, while Lens commands remain available through the Code Explorer title actions and Command Palette.
+
+The merge retains the newer ACP, dashboard, routing, testing, dependency, and Models-sidebar changes from `develop`. Lens remains bounded and host-authoritative: it does not execute repository code or SQL, connect to databases, read live secrets, fetch remotes, or invoke a model while rendering. Source and chat actions revalidate workspace-relative targets, and Ask Atlas prepares an editable draft rather than submitting automatically.
+
 ## v0.241.2 — Cross-platform ACP launch evidence
 
 The ACP launch-evidence test now asserts the real platform contract: a requested hidden desktop must be reported as `private-desktop` on Windows and as the explicit `ordinary` fallback on macOS and Linux. This keeps the diagnostic honest and restores the three-platform CI matrix without changing runtime launch behavior.

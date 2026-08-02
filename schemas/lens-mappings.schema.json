@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AtlasMind Lens explicit field mappings",
+  "description": "Reviewable declarations for intentional field equivalence, renames, transformations, drops, introductions, inferences, and finding suppressions between named contract boundaries.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "mappings"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Mapping-file format version."
+    },
+    "mappings": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/definitions/mapping" }
+    },
+    "suppressions": {
+      "type": "array",
+      "maxItems": 500,
+      "default": [],
+      "items": { "$ref": "#/definitions/suppression" }
+    }
+  },
+  "definitions": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^\\x00-\\x1F\\x7F]+$"
+    },
+    "fieldPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^[^\\x00-\\x1F\\x7F]+$"
+    },
+    "fieldRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractId", "fieldPath"],
+      "properties": {
+        "contractId": { "$ref": "#/definitions/identifier" },
+        "fieldPath": { "$ref": "#/definitions/fieldPath" }
+      }
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "upstreamContractId", "downstreamContractId"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "kind": {
+          "type": "string",
+          "enum": ["equivalent", "rename", "transform", "drop", "introduce", "inferred"]
+        },
+        "upstreamContractId": {
+          "$ref": "#/definitions/identifier",
+          "description": "The contract before this exact wiring boundary."
+        },
+        "downstreamContractId": {
+          "$ref": "#/definitions/identifier",
+          "description": "The contract after this exact wiring boundary."
+        },
+        "from": { "$ref": "#/definitions/fieldRef" },
+        "to": { "$ref": "#/definitions/fieldRef" },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-reviewable reason or transform description."
+        },
+        "intentional": {
+          "type": "boolean",
+          "default": true,
+          "description": "Explicit mappings are intentional unless set false while investigating."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "drop" } }, "required": ["kind"] },
+          "then": { "required": ["from"], "not": { "required": ["to"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "introduce" } }, "required": ["kind"] },
+          "then": { "required": ["to"], "not": { "required": ["from"] } }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "enum": ["equivalent", "rename", "transform", "inferred"] }
+            },
+            "required": ["kind"]
+          },
+          "then": { "required": ["from", "to"] }
+        }
+      ]
+    },
+    "suppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "reason"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "field": { "$ref": "#/definitions/fieldRef" },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

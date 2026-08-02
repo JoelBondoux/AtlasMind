@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.252.0] - 2026-08-02
+
+### Added
+
+- **Project Dashboard → Branches is now a review-readiness surface.** A pure declared rule table combines local drift with the last explicitly loaded pull request, review decision, mergeability, unresolved loaded review comments, per-branch CI, issue linkage, and roadmap references into `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged readings. Unknown remote evidence stays unknown; a model never grades a branch.
+- **Every branch card now carries its delivery context.** PR number/state/base, approval or change-request state, mergeability, CI pass/fail/pending, requested-reviewer and “mine” signals, deterministic blockers, closing issue links, explicit roadmap references, and clearly labelled branch-name issue inference are visible together. Host-authored Ask Atlas summaries include the same readiness evidence.
+- **Branches can be compared and inspected without checkout.** Selecting any two cards produces merge-base unique-commit counts, changed-file counts, path overlap, changed areas, and bounded contributor histories. **Review details** adds path-derived impact categories plus last-match-wins CODEOWNERS routing, while keeping recent contributors explicitly separate from declared owners.
+- **A selected branch can open Lens Change Story directly.** The dashboard re-resolves the opaque id and passes validated head/base refs to the existing bounded Lens collector, so local and cached remote refs can be reviewed without switching `HEAD`.
+- **Built-in branch views are persistent.** My branches, Needs my review, Ready, CI failing, and Cleanup keep their last selected view alongside independent local/remote/attention scopes, activity/readiness/drift/name sorting, and readiness/PR grouping.
+- **Merged, stale, and gone-upstream work now enters a guarded cleanup queue.** The action re-fetches the relevant remote, re-resolves inventory, checks default/protected/worktree/open-PR state, proves current/production containment and zero unique commits, and presents the evidence before one deletion can be chosen.
+
+### Changed
+
+- **GitHub activity now retains bounded repo-wide run heads for branch cards.** Current-branch CI failure analysis keeps its existing focused log path, while the per-branch surface uses the latest check per workflow. Pull-request parsing now also sanitizes aggregate review decision, mergeability, status-check rollup, and requested reviewers.
+- **Lens Change Story accepts host-resolved head/base refs internally.** The Command Palette flow is unchanged; the new dashboard path uses the same normalization and panel without checking out the selected branch.
+- **Branch traceability distinguishes evidence strength.** PR closing keywords and explicit `branch: <name>` roadmap notation are declared links; a matching numeric branch segment is inference; a refresh that has not run remains unassessed rather than missing.
+
+### Security
+
+- **Every new browser action sends opaque ids only.** Branch names, refs, remotes, PR URLs, paths, CODEOWNERS contents, and Git arguments are resolved in the extension host against fresh state. The browser receives aggregate changed areas and ownership results, not the changed-path list.
+- **Cleanup has no force path.** Local deletion uses `git branch -d`, never `-D`. Remote deletion additionally requires a live head hash equal to the reviewed commit and typed exact-name confirmation before `git push --delete`; a moved ref, unique commit, open PR, protected/default branch, active worktree, missing GitHub assessment, or unproven production containment refuses the action.
+- **Readiness remains evidence-honest.** A missing PR/CI refresh cannot become a green zero, filename impact is not called semantic or runtime impact, changed-file overlap is not called a conflict, and recent contributors are not presented as owners.
+
+## [0.251.0] - 2026-08-02
+
+### Added
+
+- **The complete AtlasMind Lens feature line is now integrated with the current `develop` branch.** The collapsed **Lens — Code Explorer** follows the active editor, exposes nested language-service symbols, supports role filters, opens exact source ranges, and prepares editable Ask Atlas drafts. Symbol actions add source-backed possible-flow journeys, bounded caller/callee impact maps, and conservative test-evidence maps.
+- **Lens can review explicit repository boundaries and declarations.** **Review Contract Wiring** discovers bounded TypeScript, OpenAPI, JSON Schema, and SQL declarations and combines field wiring, drift findings, proposed schema impact, declared relationships, and explicit data-trust metadata. Repository-authored `.atlasmind/lens-mappings.json`, `.atlasmind/lens-data-trust.json`, `.atlasmind/lens-state.json`, and `.atlasmind/lens-config.json` files receive bundled JSON Schema validation.
+- **Three additional review surfaces explain declared or committed state.** State Lifecycle visualizes declared transitions and reachability; Configuration Resolution shows an explicit precedence chain without reading secret values; Branch Change Story summarizes bounded merge-base-to-HEAD commit and path evidence without replacing the Git diff.
+
+### Changed
+
+- **Lens and the newer ACP, dashboard, routing, testing, and Models-sidebar work now share one source line.** The merge retains `develop`'s ACP stdio entrypoint, task-scoped skill routing, branch dashboard, patched dependency override, and presentation-only model visibility alongside all Lens commands, views, types, schemas, and tests.
+
+### Security
+
+- **Lens remains read-only until the operator chooses an existing reviewed action.** It does not execute project code or SQL, connect to a database, invoke a model while rendering, fetch remotes, switch branches, or read runtime secrets. Visual targets are bounded, workspace-relative, root-identified records; traversal, stale roots, malformed ranges, dangling graph endpoints, and invalid declaration files fail closed.
+- **Webview and chat boundaries stay host-authoritative.** Panels receive normalized snapshots after a ready handshake, render labels as text, and return bounded opaque ids that the host resolves against live state. Ask actions create editable drafts without source contents or absolute paths and never submit automatically; inferred and missing evidence remain visibly distinct from observed or source-backed facts.
+
 ## [0.241.2] - 2026-08-02
 
 ### Fixed

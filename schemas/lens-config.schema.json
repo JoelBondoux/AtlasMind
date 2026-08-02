@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlasmind.dev/schemas/lens-config.schema.json",
+  "title": "AtlasMind Lens configuration resolution declarations",
+  "description": "Explicit configuration precedence metadata. Masked settings cannot contain values; never use display policy for credentials or sensitive data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "settings"],
+  "properties": {
+    "version": { "const": 1 },
+    "settings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/setting" }
+    }
+  },
+  "$defs": {
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspacePath"],
+      "properties": {
+        "workspacePath": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["startLine", "startColumn", "endLine", "endColumn"],
+          "properties": {
+            "startLine": { "type": "integer", "minimum": 1 },
+            "startColumn": { "type": "integer", "minimum": 1 },
+            "endLine": { "type": "integer", "minimum": 1 },
+            "endColumn": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "sourceBase": {
+      "type": "object",
+      "required": ["id", "label", "kind", "precedence", "applies"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "kind": {
+          "type": "string",
+          "enum": ["default", "config-file", "environment", "workspace-setting", "user-setting", "feature-flag", "runtime-override"]
+        },
+        "precedence": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "applies": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/anchor" }
+      }
+    },
+    "displaySource": {
+      "allOf": [
+        { "$ref": "#/$defs/sourceBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "label", "kind", "precedence", "applies", "value"],
+          "properties": {
+            "id": true, "label": true, "kind": true, "precedence": true, "applies": true, "source": true,
+            "value": { "type": ["string", "number", "boolean", "null"], "maxLength": 300 }
+          }
+        }
+      ]
+    },
+    "maskedSource": {
+      "allOf": [
+        { "$ref": "#/$defs/sourceBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "label", "kind", "precedence", "applies", "present"],
+          "properties": {
+            "id": true, "label": true, "kind": true, "precedence": true, "applies": true, "source": true,
+            "present": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "setting": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "key", "valuePolicy", "sources"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "key": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "valuePolicy": { "const": "display" },
+            "sources": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/displaySource" } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "key", "valuePolicy", "sources"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "key": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "valuePolicy": { "const": "masked" },
+            "sources": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/maskedSource" } }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -383,7 +383,7 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:c1e83a0b733bb1fb -->
+<!-- atlasmind:source-digest:48eb1fe2fa685815 -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->

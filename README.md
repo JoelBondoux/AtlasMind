@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.241.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.252.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,21 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.241.2
+## What's new in 0.252.0
 
-Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Branches is now a decision dashboard, not an inventory.** Every card carries a deterministic `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged verdict derived from local drift plus the last explicitly loaded PR, review, mergeability, CI, issue, and roadmap evidence. Unknown remote state stays unknown until refresh; no model assigns the verdict.
+
+- **PR, CI, review, and traceability evidence meet on the branch card.** Open/draft/merged state, approvals or change requests, merge conflicts, unresolved loaded review comments, latest check results, requested-reviewer ownership, closing issue links, explicit roadmap references, and branch-name issue inference are distinguished instead of flattened into one green badge.
+
+- **Any two branches can be compared without switching either one.** Select two cards to see unique commits, changed files from their shared merge base, overlapping paths, changed areas, and bounded contributor history. Overlap is labelled as review-order evidence, never proof of a merge conflict.
+
+- **Branch review reaches the code and the people.** **Review details** classifies changed paths by area and impact surface, applies last-match-wins `CODEOWNERS` rules, and lists recent contributors separately from declared owners. **Open Change Story** reuses Lens for the selected local or cached remote ref without checking it out.
+
+- **Cleanup is a guarded queue.** Merged, stale, and gone-upstream cards enter a saved Cleanup view, but deletion is only offered after AtlasMind refreshes the relevant remote, re-resolves the opaque card id, proves current/production containment and zero unique commits, checks worktrees/protection/open PRs, and—remotely—matches the live head and requires the exact branch name. Local cleanup uses `git branch -d`; force deletion is not present.
+
+- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus activity, readiness, drift, and name sorting and readiness/PR grouping.
 
 - **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
 
@@ -115,6 +127,8 @@ Since the last Marketplace publication, **v0.235.0**, source builds have added t
 - **The remaining Dependabot alert is resolved.** Stryker's development-only REST client pins vulnerable `qs@6.15.1`, so npm's normal audit fix cannot move it and upgrading the parent does not help. AtlasMind now forces patched `6.15.2` across the dependency tree; every other consumer already used or accepted that version, and production dependencies were already clean.
 
 - **Personality Profile and Website Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
+
+- **Lens now tells the review story of a committed local branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with HEAD, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. It runs fixed read-only Git commands, detects but excludes uncommitted work, reads no diff content or remote PR/CI data, and never substitutes filename signals for semantic impact. The actual diff remains authoritative. The v0.249 Configuration Resolution Explorer remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -286,7 +300,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use the Atlas icon for a deterministic local-Git summary with comparison and contributor follow-up chips, **Switch here** for an existing local branch, or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, readiness, PR/review/CI state, traceability, requested reviews, and cleanup candidates are visible per card; saved views, sorting and grouping keep large repositories manageable. Use the Atlas icon for a deterministic summary, **Review details** for changed areas/CODEOWNERS/contributors, select any two cards for a merge-base comparison, or open the selected ref in Lens Change Story without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
 
 ---
 
@@ -330,6 +344,12 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
+| `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
+| `AtlasMind: Lens: Review Contract Wiring` | Compare one ordered TypeScript/OpenAPI/JSON Schema/SQL field boundary and inspect declared SQL relationships |
+| `AtlasMind: Lens: Review State Lifecycle` | Visualize a repository-declared `.atlasmind/lens-state.json` machine and its reachability |
+| `AtlasMind: Lens: Review Configuration Resolution` | Explain one declared `.atlasmind/lens-config.json` precedence chain without reading live secret values |
+| `AtlasMind: Lens: Review Branch Change Story` | Summarize bounded committed merge-base-to-HEAD Git evidence for a selected base |
 | `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
@@ -366,6 +386,8 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
+
+Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow**, a bounded **Show impact** map, and a conservative **Find tests** evidence map for symbols, plus focused Explain drafts. File-level impact/test actions remain editable drafts until file/diff adapters land. Journey, impact, and test-evidence nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
 
 ---
 
@@ -406,8 +428,22 @@ The README keeps the map short; implementation details and data flows belong in 
 | Path | Responsibility |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/core/branchDashboard.ts` | Pure branch readiness, saved-view, PR/CI/traceability, cleanup-candidate, and CODEOWNERS routing rules |
 | `src/acp/` | Agent-side ACP v1 sessions, one-turn permission brokering, and validated Buzz reply delivery |
 | `src/cli/` | Headless AtlasMind CLI and the local `atlasmind-acp` stdio entrypoint |
+| `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
+| `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
+| `src/core/lensCodeImpact.ts` | Deterministic caller/callee/reference projection for the first general Change Impact Map |
+| `src/core/lensTestMap.ts` | Conservative test-path classification over source-backed callers and references |
+| `src/core/lensDataTrust.ts` | Explicit field trust-policy normalization and connected-endpoint projection |
+| `src/core/lensStateMachine.ts` | Strict declared lifecycle normalization and reachability/dead-end projection |
+| `src/core/lensConfigResolution.ts` | Explicit configuration precedence and masked/display value-policy projection |
+| `src/core/lensChangeStory.ts` | Bounded committed-branch path/commit story and conservative category projection |
+| `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
+| `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
+| `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
+| `src/core/lensSchemaImpact.ts` | Bounded proposed field-change impact ranking across the selected contract boundary |
+| `src/core/lensContractRelations.ts` | Bounded relationship normalization and unique same-root endpoint resolution |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
@@ -416,6 +452,23 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
 | `src/views/modelSidebarVisibility.ts` | User-level, presentation-only persistence for hidden Models sidebar rows and exact-entry restoration |
+| `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and Lens action menu |
+| `src/views/lensLanguageGraph.ts` | VS Code reference and call-hierarchy adapter for static possible-flow journeys |
+| `src/views/lensJourneyPanel.ts` | Secure editor-hosted journey graph with exact source/chat actions and a text alternative |
+| `src/views/lensImpactPanel.ts` | Secure editor-hosted code-impact map with exact source/chat actions and a text alternative |
+| `src/views/lensTestPanel.ts` | Secure editor-hosted test-evidence map with exact source/chat actions and a text alternative |
+| `src/views/lensStateCommand.ts` | Workspace and declared-machine selection for lifecycle review |
+| `src/views/lensStatePanel.ts` | Secure editor-hosted lifecycle depth map and transition list |
+| `src/views/lensConfigCommand.ts` | Workspace and setting selection for declared configuration resolution |
+| `src/views/lensConfigPanel.ts` | Secure editor-hosted precedence chain and text resolution summary |
+| `src/views/lensChangeStoryCommand.ts` | Read-only Git base selection and merge-base evidence collection |
+| `src/views/lensChangeStoryPanel.ts` | Secure editor-hosted component/path/commit Change Story |
+| `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |
+| `src/views/lensContractReviewPanel.ts` | Filterable Field Wiring board with source-backed field and relation actions |
+| `schemas/lens-mappings.schema.json` | VS Code validation and completion for `.atlasmind/lens-mappings.json` |
+| `schemas/lens-data-trust.schema.json` | VS Code validation and completion for `.atlasmind/lens-data-trust.json` |
+| `schemas/lens-state.schema.json` | VS Code validation and completion for `.atlasmind/lens-state.json` |
+| `schemas/lens-config.schema.json` | VS Code validation and completion for `.atlasmind/lens-config.json` |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |
