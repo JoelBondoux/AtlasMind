@@ -674,7 +674,10 @@ export class AcpAdapter implements ProviderAdapter {
        */
       getMcpServers?: () => AcpMcpServer[];
       /**
-       * Whether the user has allowed this agent to execute its own tools.
+       * Global ceiling for whether the user has allowed this agent to execute
+       * its own tools. The individual CompletionRequest must independently
+       * carry `allowDelegatedToolExecution: true`; this setting alone never
+       * authorizes a completion turn.
        *
        * Kept separate from `getMcpServers`: delegated execution may be enabled
        * with no explicitly shared MCP server, in which case the agent still has
@@ -1134,8 +1137,9 @@ export class AcpAdapter implements ProviderAdapter {
     this.refuseAtlasMindTools(request);
 
     const resolvedForKey = this.resolveAgent(request.model);
-    const serversForKey = this.mcpServers();
-    const delegatedExecutionForKey = this.delegatedExecutionEnabled(serversForKey);
+    const configuredServersForKey = this.mcpServers();
+    const delegatedExecutionForKey = this.delegatedExecutionEnabled(request, configuredServersForKey);
+    const serversForKey = delegatedExecutionForKey ? configuredServersForKey : [];
     const executionEpoch = resolvedForKey
       ? JSON.stringify({
         agent: resolvedForKey.agent,
@@ -1228,8 +1232,9 @@ export class AcpAdapter implements ProviderAdapter {
     const { agent, effort, modelChoice } = resolved;
     this.refuseAtlasMindTools(request);
 
-    const mcpServers = this.mcpServers();
-    const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
+    const configuredMcpServers = this.mcpServers();
+    const delegatedExecution = this.delegatedExecutionEnabled(request, configuredMcpServers);
+    const mcpServers = delegatedExecution ? configuredMcpServers : [];
     const privateDesktop = this.hideConsoleWindows();
     const wanted: AcpSessionFingerprint = {
       agentId: agent.id,
@@ -1323,7 +1328,7 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.cwd,
       this.clientVersion(),
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      this.options?.permissionPolicy,
+      fingerprint.isolatedSettings ? undefined : this.options?.permissionPolicy,
       this.options?.onToolEvent,
       {
         privateDesktop,
@@ -1409,14 +1414,18 @@ export class AcpAdapter implements ProviderAdapter {
     }
   }
 
-  private delegatedExecutionEnabled(mcpServers?: AcpMcpServer[]): boolean {
+  private delegatedExecutionEnabled(request: CompletionRequest, mcpServers?: AcpMcpServer[]): boolean {
+    if (request.allowDelegatedToolExecution !== true) {
+      return false;
+    }
     try {
       const configured = this.options?.delegatedExecutionEnabled;
       if (configured !== undefined) {
         return (typeof configured === 'function' ? configured() : configured) === true;
       }
-      // Backward-compatible embedding contract: callers predating the explicit
-      // flag already expressed delegated execution by supplying MCP servers.
+      // Backward-compatible global-ceiling contract: an embedding that supplies
+      // MCP servers but no separate setting has expressed the ceiling through
+      // that allowlist. The per-request authority above is still mandatory.
       return (mcpServers ?? this.mcpServers()).length > 0;
     } catch {
       // A broken settings boundary must keep the agent completion-only.
@@ -1547,6 +1556,9 @@ export class AcpAdapter implements ProviderAdapter {
     // Orchestrator standing down and delegating, not nesting its loop inside
     // another one.
     this.refuseAtlasMindTools(request);
+    const configuredMcpServers = this.mcpServers();
+    const delegatedExecution = this.delegatedExecutionEnabled(request, configuredMcpServers);
+    const mcpServers = delegatedExecution ? configuredMcpServers : [];
 
     const session = new AcpSession(
       agent,
@@ -1554,7 +1566,7 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.cwd,
       this.clientVersion(),
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      this.options?.permissionPolicy,
+      delegatedExecution ? this.options?.permissionPolicy : undefined,
       this.options?.onToolEvent,
       {
         privateDesktop: this.hideConsoleWindows(),
@@ -1578,8 +1590,6 @@ export class AcpAdapter implements ProviderAdapter {
       // A getter that throws must not silently become "no servers" — but it also
       // must not take down a turn, so it degrades to the deny-by-default empty
       // list, which is the same thing an unconfigured install sends.
-      const mcpServers = this.mcpServers();
-      const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
       try {
         // Isolate the agent from the machine's own settings **only** while it
         // is a completion source. This must read delegated-execution authority

@@ -325,8 +325,8 @@ The operator's ceiling is `auto`. A stage asking for more than that gets the cei
 | Stage | Permitted | What that means for you |
 |---|---|---|
 | Planning & issue intake | `observe` | Report what you find. Do not create, modify or close anything. |
-| Branch creation & naming | `observe` | Report what you find. Do not create, modify or close anything. |
-| Local development | `observe` | Report what you find. Do not create, modify or close anything. |
+| Branch creation & naming | `auto` | You may complete this stage without asking, within the rules above. |
+| Local development | `auto` | You may complete this stage without asking, within the rules above. |
 | Pull requests & review | `observe` | Report what you find. Do not create, modify or close anything. |
 | CI & failure analysis | `observe` | Report what you find. Do not create, modify or close anything. |
 | Release | `observe` | Report what you find. Do not create, modify or close anything. |
@@ -362,5 +362,5 @@ Testing requirements are **not** duplicated here. They live in
 of this same file. Follow those.
 
 
-<!-- atlasmind:source-digest:22fb7e16dd0950ff -->
+<!-- atlasmind:source-digest:3c0c3d8e48c9a985 -->
 <!-- atlasmind:workflow:end -->

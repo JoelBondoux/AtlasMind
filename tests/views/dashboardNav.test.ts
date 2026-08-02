@@ -118,7 +118,7 @@ describe('dashboard nav definition', () => {
       WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)'),
       WEBVIEW_SCRIPT.indexOf('// ── Pipeline', WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)')),
     );
-    expect(pullRequests).toContain('data-action="issues-refresh"');
+    expect(pullRequests).toContain("renderRefreshAction('issues-refresh'");
     expect(pullRequests).toContain('Load GitHub activity');
     expect(pullRequests).not.toContain('Open the Issues tab and refresh');
   });

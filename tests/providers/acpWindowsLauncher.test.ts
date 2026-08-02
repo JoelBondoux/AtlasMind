@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   ACP_PRIVATE_DESKTOP_HELPER_SHA256,
   createAcpPrivateDesktopProbe,
@@ -14,6 +16,10 @@ const PROBE: AcpPrivateDesktopProbe = {
   fileExists: () => true,
   sha256: () => ACP_PRIVATE_DESKTOP_HELPER_SHA256,
 };
+const NATIVE_SOURCE = readFileSync(
+  path.join(process.cwd(), 'native', 'acp-private-desktop', 'src', 'main.rs'),
+  'utf8',
+);
 
 describe('the ACP private-desktop launch boundary', () => {
   it('does not mistake the Windows schema default for the user choosing a mode', () => {
@@ -27,6 +33,16 @@ describe('the ACP private-desktop launch boundary', () => {
     const shipped = createAcpPrivateDesktopProbe();
     expect(shipped.fileExists(shipped.helperPath), shipped.helperPath).toBe(true);
     expect(shipped.sha256(shipped.helperPath)).toBe(ACP_PRIVATE_DESKTOP_HELPER_SHA256);
+  });
+
+  it('gives non-interactive descendants the documented UI-object rights without reopening by name', () => {
+    expect(NATIVE_SOURCE).toContain('const WINSTA_NONINTERACTIVE_ACCESS');
+    expect(NATIVE_SOURCE).toContain('const DESKTOP_NONINTERACTIVE_ACCESS');
+    expect(NATIVE_SOURCE).toContain('WINSTA_ACCESSGLOBALATOMS');
+    expect(NATIVE_SOURCE).toContain('DESKTOP_READOBJECTS');
+    expect(NATIVE_SOURCE).toContain('DESKTOP_WRITEOBJECTS');
+    expect(NATIVE_SOURCE).toContain('startup.startup_info.desktop = null_mut()');
+    expect(NATIVE_SOURCE).toContain('SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX');
   });
 
   it.skipIf(process.platform !== 'win32')('runs the shipped helper and preserves redirected stdio', async () => {
@@ -59,6 +75,41 @@ describe('the ACP private-desktop launch boundary', () => {
     });
 
     expect(stdout.trim()).toBe('atlasmind-private-desktop-ok');
+  });
+
+  it.skipIf(process.platform !== 'win32')('starts PowerShell on the private station without a DLL initialization failure', async () => {
+    const powershell = (process.env['PATH'] ?? '')
+      .split(path.delimiter)
+      .map(directory => path.join(directory, 'pwsh.exe'))
+      .find(candidate => existsSync(candidate));
+    if (!powershell) {
+      return;
+    }
+    const launch = wrapAcpLaunchForPrivateDesktop(
+      powershell,
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'exit 0'],
+      true,
+      createAcpPrivateDesktopProbe(),
+    );
+    expect(launch.status).toBe('private-desktop');
+    if (launch.status !== 'private-desktop') {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        launch.command,
+        launch.args,
+        { windowsHide: true, timeout: 10_000 },
+        (error, _output, stderr) => {
+          if (error) {
+            reject(new Error(`${error.message}\n${stderr}`));
+            return;
+          }
+          resolve();
+        },
+      );
+    });
   });
 
   it('does nothing unless the user explicitly opts in', () => {

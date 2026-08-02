@@ -6,6 +6,7 @@ import {
   normalizeLensStateMachineFile,
 } from '../core/lensStateMachine.js';
 import type { LensStateMachineDeclaration } from '../core/lensStateMachine.js';
+import { showMissingLensDeclarationGuidance } from './lensDeclarationSetup.js';
 import { LensStatePanel } from './lensStatePanel.js';
 
 interface StateMachinePick extends vscode.QuickPickItem {
@@ -31,11 +32,13 @@ export async function reviewWorkspaceStateLifecycle(): Promise<void> {
   try {
     raw = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))) as unknown;
   } catch (error) {
-    void vscode.window.showInformationMessage(
-      isFileNotFound(error)
-        ? `Add ${LENS_STATE_FILE} to this workspace to declare lifecycle states and transitions.`
-        : `AtlasMind Lens refused ${LENS_STATE_FILE} because it is malformed or unreadable.`,
-    );
+    if (isFileNotFound(error)) {
+      await showMissingLensDeclarationGuidance('state', folder);
+    } else {
+      void vscode.window.showInformationMessage(
+        `AtlasMind Lens refused ${LENS_STATE_FILE} because it is malformed or unreadable.`,
+      );
+    }
     return;
   }
   const file = normalizeLensStateMachineFile(raw);

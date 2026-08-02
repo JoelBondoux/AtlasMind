@@ -62,7 +62,7 @@
       "id": "branching",
       "name": "Branch creation & naming",
       "enabled": true,
-      "automationLevel": "observe",
+      "automationLevel": "auto",
       "ownerAgentId": "github-operator",
       "requiredChecks": [],
       "requiredStatusChecks": [],
@@ -73,7 +73,7 @@
       "id": "development",
       "name": "Local development & orchestration",
       "enabled": true,
-      "automationLevel": "observe",
+      "automationLevel": "auto",
       "requiredChecks": [],
       "requiredStatusChecks": [],
       "blockers": [],
@@ -146,5 +146,5 @@
       "managed": true
     }
   ],
-  "updatedAt": "2026-07-29T14:02:48.734Z"
+  "updatedAt": "2026-08-02T02:04:48.000Z"
 }

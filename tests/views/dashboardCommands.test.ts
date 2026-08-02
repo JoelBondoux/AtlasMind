@@ -91,6 +91,45 @@ describe('opening one setting', () => {
   });
 });
 
+describe('dashboard refresh feedback', () => {
+  it('uses one in-button progress renderer for every repository refresh surface', () => {
+    expect(WEBVIEW).toContain('function renderRefreshAction(');
+    expect(WEBVIEW).toContain("renderRefreshAction('issues-refresh', 'Refresh issues'");
+    expect(WEBVIEW).toContain("renderRefreshAction('issues-refresh', 'Refresh GitHub activity'");
+    expect(WEBVIEW).toContain("renderRefreshAction('branch-review-refresh', 'Refresh PR & CI'");
+    expect(WEBVIEW).toContain("renderRefreshAction('branch-fetch', 'Fetch latest from remotes'");
+    expect(WEBVIEW).toContain("inspection ? 'Refresh review details' : 'Review details'");
+  });
+
+  it('drives busy state from host start and finish messages', () => {
+    const refresh = PANEL.slice(
+      PANEL.indexOf('private async handleRefreshIssues()'),
+      PANEL.indexOf('private classifyIssueFailure(', PANEL.indexOf('private async handleRefreshIssues()')),
+    );
+    expect(refresh).toContain("type: 'repositoryRefreshBusy', payload: true");
+    expect(refresh).toContain("type: 'repositoryRefreshBusy', payload: false");
+    const busyStart = refresh.indexOf("payload: true");
+    expect(busyStart).toBeLessThan(refresh.indexOf('await this.syncState()', busyStart));
+    expect(WEBVIEW).toContain("message.type === 'repositoryRefreshBusy'");
+    expect(WEBVIEW).toContain("aria-busy=\"${busy ? 'true' : 'false'}\"");
+  });
+
+  it('offers a panel-wide keyboard shortcut without scrolling to the top', () => {
+    expect(PANEL).toContain('aria-keyshortcuts="Control+Shift+R Meta+Shift+R"');
+    expect(PANEL).toContain('Ctrl/Cmd+Shift+R');
+    expect(WEBVIEW).toContain("event.key.toLowerCase() === 'r'");
+    expect(WEBVIEW).toContain("requestRepositoryRefresh('refresh')");
+    expect(WEBVIEW).toContain('event.preventDefault()');
+  });
+
+  it('draws progress inside the button and honours reduced motion', () => {
+    expect(PANEL).toContain('.refresh-progress-button.is-refreshing::before');
+    expect(PANEL).toContain('--vscode-progressBar-background');
+    expect(PANEL).toContain('@keyframes dashboardRefreshProgress');
+    expect(PANEL).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+});
+
 /**
  * The same class, one level down.
  *

@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.255.1] - 2026-08-02
+
+### Fixed
+
+- **Branch-title chip colours now distinguish local and remote-only refs.** Local logical branches use VS Code's theme blue and remote-only branches use theme purple instead of every chip inheriting the generic green added-resource decoration.
+- **The chip option is visible where its effect appears.** **Show SCM colours** now sits immediately above the branch-card inventory beside a live Local/Remote legend, rather than being buried in the earlier Decision views card.
+- **PowerShell can initialize inside the opt-in hidden ACP process boundary.** The Windows helper now requests the documented non-interactive window-station and desktop access sets, lets the child inherit that established connection instead of reopening generated UI objects by name, and suppresses inherited system-error dialogs. This fixes the blocking `pwsh.exe` `0xc0000142` dialog seen when an ACP agent starts PowerShell while keeping the process tree off `WinSta0`.
+
+## [0.255.0] - 2026-08-02
+
+### Added
+
+- **The Project Dashboard can be refreshed without returning to its header.** **Ctrl+Shift+R** on Windows/Linux and **⌘⇧R** on macOS run the dashboard-wide refresh whenever focus is inside the panel. The visible shortcut hint, tooltip, and `aria-keyshortcuts` metadata expose the same route.
+- **Refresh controls now carry their own progress bar.** Dashboard, Issues, Pull Requests, branch PR/CI, remote branch fetch, and branch-review controls animate VS Code's progress colour inside the button, change to an operation-specific active label, expose `aria-busy`, and disable duplicate clicks. Reduced-motion users receive a static progress fill.
+
+### Changed
+
+- **Refresh visibility follows the real host operation rather than a timer.** The extension host posts explicit start/finish state for repository activity, branch fetching, and branch inspection; optimistic webview state covers only the first message round-trip. The shared GitHub refresh marks every matching control busy together because Issues, PRs, CI, labels, milestones, and releases come from one guarded read.
+
+## [0.254.0] - 2026-08-02
+
+### Added
+
+- **Branch cards now have deliberate disclosure controls.** Every card starts as a compact readiness, CI, traceability, and latest-commit summary; clicking its summary reveals the complete branch evidence and actions. **Expand all** and **Collapse all** change the visible inventory in one step.
+- **Branch ordering now has an explicit direction.** Activity, readiness, drift, and name sorting can each be reversed, including newest-first and oldest-first chronology. Branch-family grouping keeps branches with the same prefix together while retaining the selected order inside each family.
+- **Branch names can use a Source Control-coloured chip.** A persisted dashboard checkbox toggles a Git-branch chip drawn from VS Code's `gitDecoration.addedResourceForeground` theme colour.
+
+### Changed
+
+- **Review Details now belongs to the branch that requested it.** The inspection remains invisible until the explicit action on an expanded branch card is pressed, then renders immediately below that card with its own Close action. The readiness badge no longer starts the expensive inspection.
+- **Failure signals are visually distinct from cautions.** Failing CI, blocked readiness, merge conflicts, requested changes, unresolved review comments, and structurally broken branches now use the dashboard's critical red treatment; pending and cautionary states remain amber.
+- **Long commit subjects no longer stretch branch cards.** Compact cards show a CSS ellipsis and expose the full escaped subject through the native hover tooltip.
+
+## [0.253.1] - 2026-08-02
+
+### Fixed
+
+- **Change Story “Ask Atlas” now reads the selected committed ref and makes that evidence visible to the selected model.** The host resolves the retained change id, captures a bounded patch plus small-file content directly from the exact local or cached remote Git object, and names the ref in the draft. The Orchestrator validates and fences that one-shot context as reported source data instead of leaving it in host-only metadata. Large files contribute their byte count and focused patch; a failed object read refuses the handoff instead of substituting the checked-out file.
+- **Remote Change Story questions cannot turn into an ACP workspace investigation.** These evidence-complete requests are forced to completion-only mode: AtlasMind clears workspace skills and the individual ACP delegated-execution authorization before dispatch. ACP itself now requires both the global tools setting and an explicit per-provider-request authority bit; a completion-only request shares no MCP servers and receives no permission policy even when **Let subscription agents act** is enabled.
+- **Windows ACP descendants are isolated from the interactive window station.** The native helper now creates a token-ACL-scoped, non-interactive window station and its default desktop before starting the already-resolved agent suspended. Because Windows only lets `WinSta0` display UI, a third-party descendant that chooses a new desktop can no longer reconnect itself to a visible console merely by declining desktop inheritance. Stdio-only inheritance, the kill-on-close Job Object, SHA-256 pin, opt-in disclosure, and fail-closed behavior remain.
+
+## [0.253.0] - 2026-08-02
+
+### Added
+
+- **Declaration-backed Lens views now explain and repair their own setup.** A shared status reader distinguishes missing, valid-empty, ready, invalid, and unreadable `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json` files. **AtlasMind: Lens: Set Up Repository Declarations** creates valid semantics-free starters with create-only filesystem writes, opens existing files without overwriting them, and relies on the installed JSON Schemas for completion.
+- **Lens setup is discoverable where project setup happens.** Getting Started includes a dedicated step, Settings → Project Runs shows both declaration statuses and the setup action, and Project Dashboard Overview carries a live `n/2 ready` Lens card.
+
+### Changed
+
+- **Missing State Lifecycle and Configuration Resolution files no longer lead to a dead-end notification.** The message now explains that these views do not analyze the active file and offers **Create starter** or the complete declaration setup flow.
+
+### Security
+
+- **Starter creation never invents project semantics or overwrites a declaration.** Starters contain only the version and an empty declaration collection; local and remote disk-backed extension hosts use exclusive `wx` creation, while an unsupported virtual filesystem fails visibly.
+
+## [0.252.1] - 2026-08-02
+
+### Changed
+
+- **AtlasMind may create feature branches and carry out local development for this repository.** The committed workflow now grants `auto` to branch creation and local development while issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits.
+
 ## [0.252.0] - 2026-08-02
 
 ### Added

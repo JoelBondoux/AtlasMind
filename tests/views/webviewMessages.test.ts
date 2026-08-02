@@ -113,6 +113,7 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
     expect(isSettingsMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setupLensDeclarations' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'chooseAcpConsoleMode' })).toBe(true);

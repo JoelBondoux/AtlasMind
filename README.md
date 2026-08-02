@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.252.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.255.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,29 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.252.0
+## What's new in 0.255.1
 
-Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.252.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Hidden ACP launches now support PowerShell without a modal startup failure.** The opt-in Windows helper gives non-interactive descendants the UI-object access PowerShell needs, inherits the already-established private station/desktop connection, and converts loader failures into process failures rather than focus-stealing Windows error dialogs.
+
+- **Branch chip colours now communicate local versus remote state.** The clearly labelled **Show SCM colours** checkbox and a live Local/Remote legend sit directly above the branch-card inventory. Enabled local branch titles use VS Code's theme blue, while remote-only titles use its theme purple; disabling the checkbox returns titles to plain text.
+
+- **Dashboard refreshes are visible and reachable from anywhere.** The dashboard-wide, Issues, Pull Requests, branch PR/CI, remote-branch fetch, and branch-review actions now show a VS Code-themed loading bar inside the pressed button for the real host-reported lifetime of the operation. Buttons disable while active, status changes are announced accessibly, and reduced-motion themes receive a static progress fill. Press **Ctrl+Shift+R** on Windows/Linux or **⌘⇧R** on macOS anywhere in the focused dashboard to run its full refresh without returning to the top.
+
+- **Branch cards now disclose detail instead of presenting every signal at once.** Cards open in a compact summary and expand individually, with **Expand all** / **Collapse all** controls for deliberate scanning. Review Details is loaded only from the selected expanded card and appears directly beneath it. Failing CI, blocked readiness, conflicts, change requests, and broken branch state use the critical red treatment; long commit subjects truncate with an ellipsis and expose the complete text on hover.
+
+- **Branch display order is explicit.** Activity, readiness, drift, and name sorting each offer both directions, including newest/oldest chronology, and branch-family grouping can keep feature/fix/docs families together while preserving the chosen order inside each family. An optional, persisted checkbox renders branch names as chips using VS Code’s Source Control Git-decoration colour.
+
+- **Declaration-backed Lens views now lead users from absence to a safe starter.** Getting Started, Settings → Project Runs, Project Dashboard Overview, and the State/Configuration missing-file messages share one status and setup flow for `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json`. Starters are valid, empty, create-only files—AtlasMind never invents project semantics or overwrites an existing declaration.
+
+- **Ask Atlas from a remote Change Story now receives the remote evidence.** Lens reads the exact selected ref and path through fixed Git argument arrays, attaches a bounded patch and small-file content to the one-shot Chat context, and the Orchestrator turns that validated context into a fenced model-visible message. Large files such as `package-lock.json` contribute the focused branch patch plus byte count; a failed ref read opens no misleading draft. The turn is completion-only, so neither AtlasMind workspace tools nor ACP-native tools can replace the selected revision with the checked-out file.
+
+- **ACP console suppression now leaves the interactive Windows station entirely.** The opt-in helper creates a non-interactive window station and default desktop before starting the agent, so a descendant that creates its own desktop cannot surface a terminal on `WinSta0`. The helper remains hash-pinned, stdio-only, same-user, fail-closed, and visibly disclosed rather than being treated as a sandbox.
+
+- **ACP delegated execution is authorized per request.** **Let subscription agents act** remains the global ceiling, but the adapter now also requires the Orchestrator's authority for the exact tool-backed provider call. Ordinary completions share no MCP servers and receive no permission policy, even while the global setting is on.
+
+- **Dedicated implementation branches are now permitted for AtlasMind itself.** The repository workflow grants branch creation and local development while keeping issue, PR, CI, release, maintenance, and general automation permissions unchanged.
 
 - **Branches is now a decision dashboard, not an inventory.** Every card carries a deterministic `Ready for review`, `Needs attention`, `Blocked`, baseline, or merged verdict derived from local drift plus the last explicitly loaded PR, review, mergeability, CI, issue, and roadmap evidence. Unknown remote state stays unknown until refresh; no model assigns the verdict.
 
@@ -82,7 +102,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **Cleanup is a guarded queue.** Merged, stale, and gone-upstream cards enter a saved Cleanup view, but deletion is only offered after AtlasMind refreshes the relevant remote, re-resolves the opaque card id, proves current/production containment and zero unique commits, checks worktrees/protection/open PRs, and—remotely—matches the live head and requires the exact branch name. Local cleanup uses `git branch -d`; force deletion is not present.
 
-- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus activity, readiness, drift, and name sorting and readiness/PR grouping.
+- **Branch views remember how you work.** My branches, Needs my review, Ready, CI failing, and Cleanup are persisted presentation views with independent local/remote/attention scopes plus bidirectional activity, readiness, drift, and name sorting and readiness/PR/branch-family grouping.
 
 - **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
 
@@ -128,7 +148,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **Personality Profile and Website Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
 
-- **Lens now tells the review story of a committed local branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with HEAD, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. It runs fixed read-only Git commands, detects but excludes uncommitted work, reads no diff content or remote PR/CI data, and never substitutes filename signals for semantic impact. The actual diff remains authoritative. The v0.249 Configuration Resolution Explorer remains available.
+- **Lens now tells the review story of a committed local or cached remote branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with the selected head, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. The map reads no diff content; only an explicit **Ask Atlas** captures that host-retained path's bounded patch and, when small enough, exact file content from the selected ref. Uncommitted work stays excluded, remote PR/CI data stays unread, and filename signals never become semantic impact. The actual diff remains authoritative.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -158,7 +178,7 @@ Since the last Marketplace publication, **v0.241.2**, source builds have added t
 
 - **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
 
-- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns the hidden desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
+- **Windows console pop-ups are an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox uses a bundled native launcher to put the agent and its descendants on a non-interactive window station and private desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns that station/desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
 
   While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
 
@@ -300,7 +320,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, readiness, PR/review/CI state, traceability, requested reviews, and cleanup candidates are visible per card; saved views, sorting and grouping keep large repositories manageable. Use the Atlas icon for a deterministic summary, **Review details** for changed areas/CODEOWNERS/contributors, select any two cards for a merge-base comparison, or open the selected ref in Lens Change Story without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, compact cards lead with readiness, PR/CI state, traceability, and the latest commit; click one (or use **Expand all**) to reveal its full evidence and actions. Sorting supports both chronological directions plus risk, drift, and name order, with optional branch-family grouping and Source Control-coloured branch chips. **Review details** opens changed areas/CODEOWNERS/contributors directly below the selected card, any two cards can be compared from their merge base, and **Open Change Story** reads the selected ref without switching it. **Switch here** and **Bring local** still require a clean tree and confirmation. Cleanup re-fetches, re-resolves, proves containment and zero unique commits, and never force-deletes.
 
 ---
 
@@ -346,6 +366,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
+| `AtlasMind: Lens: Set Up Repository Declarations` | Review State/Configuration declaration status, safely create missing empty starters, or open existing files |
 | `AtlasMind: Lens: Review Contract Wiring` | Compare one ordered TypeScript/OpenAPI/JSON Schema/SQL field boundary and inspect declared SQL relationships |
 | `AtlasMind: Lens: Review State Lifecycle` | Visualize a repository-declared `.atlasmind/lens-state.json` machine and its reachability |
 | `AtlasMind: Lens: Review Configuration Resolution` | Explain one declared `.atlasmind/lens-config.json` precedence chain without reading live secret values |
@@ -389,6 +410,8 @@ Settings-specific, sidebar, remote-control, and resource-action commands are lis
 
 Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow**, a bounded **Show impact** map, and a conservative **Find tests** evidence map for symbols, plus focused Explain drafts. File-level impact/test actions remain editable drafts until file/diff adapters land. Journey, impact, and test-evidence nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
 
+State Lifecycle and Configuration Resolution are repository-level Lens views, not active-file actions. Their declaration status appears in Getting Started, Settings → Project Runs, and Project Dashboard Overview. **Set Up Repository Declarations** creates only a valid empty starter and opens it with schema completion; it never guesses project states, configuration precedence, values, or secrets, and never overwrites an existing declaration.
+
 ---
 
 ## Configuration
@@ -414,8 +437,8 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
-| `acp.toolsEnabled` | `false` | **Let subscription agents act**: make ACP eligible for tool-backed work using its own tools, one approval at a time |
-| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR. Also a checkbox on Settings → Safety & Verification |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: global ceiling for ACP tool-backed work; the exact provider request must also be authorized, and ordinary completions remain isolated |
+| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a non-interactive private window station so consoles cannot pop up or steal focus; may be blocked by application control/EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
 
@@ -438,6 +461,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensDataTrust.ts` | Explicit field trust-policy normalization and connected-endpoint projection |
 | `src/core/lensStateMachine.ts` | Strict declared lifecycle normalization and reachability/dead-end projection |
 | `src/core/lensConfigResolution.ts` | Explicit configuration precedence and masked/display value-policy projection |
+| `src/core/lensDeclarations.ts` | Shared missing/empty/ready/invalid declaration status and semantics-free starter generation |
 | `src/core/lensChangeStory.ts` | Bounded committed-branch path/commit story and conservative category projection |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
@@ -446,7 +470,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensContractRelations.ts` | Bounded relationship normalization and unique same-root endpoint resolution |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
-| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows non-interactive-station launcher; the pinned release binary ships under `media/bin/` |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
@@ -461,6 +485,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensStatePanel.ts` | Secure editor-hosted lifecycle depth map and transition list |
 | `src/views/lensConfigCommand.ts` | Workspace and setting selection for declared configuration resolution |
 | `src/views/lensConfigPanel.ts` | Secure editor-hosted precedence chain and text resolution summary |
+| `src/views/lensDeclarationSetup.ts` | Shared create-only declaration setup used by onboarding, Settings, Dashboard, and missing-file guidance |
 | `src/views/lensChangeStoryCommand.ts` | Read-only Git base selection and merge-base evidence collection |
 | `src/views/lensChangeStoryPanel.ts` | Secure editor-hosted component/path/commit Change Story |
 | `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |

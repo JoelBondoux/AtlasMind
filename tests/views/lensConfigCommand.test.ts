@@ -45,4 +45,16 @@ describe('Lens configuration review command', () => {
     expect(showConfig).not.toHaveBeenCalled();
     expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('malformed or unreadable'));
   });
+
+  it('explains the declaration requirement and offers setup when the file is missing', async () => {
+    readFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'FileNotFound' }));
+
+    await reviewWorkspaceConfiguration();
+
+    expect(showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('does not analyze the active file'),
+      'Create starter',
+      'Set up Lens declarations',
+    );
+  });
 });

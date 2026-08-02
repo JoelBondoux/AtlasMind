@@ -9,6 +9,7 @@ import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { buildAgentSynthesisPrompt, validateSynthesizedAgent } from '../../src/core/agentDrafting.ts';
+import { createSourceLensTarget } from '../../src/core/lensTarget.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
 import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
@@ -1478,10 +1479,128 @@ describe('Orchestrator agentic loop', () => {
     expect(acpProvider.complete).toHaveBeenCalledTimes(1);
     const acpRequest = vi.mocked(acpProvider.complete).mock.calls[0]![0];
     expect(acpRequest.tools).toEqual([]);
+    expect(acpRequest.allowDelegatedToolExecution).toBe(true);
     expect(acpRequest.messages.map(message => message.content).join('\n')).not.toContain('Skills:\n');
     expect(acpRequest.messages.map(message => message.content).join('\n')).not.toContain('Likely tool matches');
     expect(readSkill.execute).not.toHaveBeenCalled();
     expect(progress.join('\n')).toMatch(/approval-gated native tools/i);
+  });
+
+  it('sends exact-ref Change Story evidence to the model without authorizing ACP or workspace tools', async () => {
+    const acpProvider: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn().mockResolvedValue({
+        content: 'The remote lockfile adds the AtlasMind ACP binary entry.',
+        model: 'acp/codex',
+        inputTokens: 40,
+        outputTokens: 12,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['acp/codex']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const readSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a workspace file.',
+      parameters: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+      execute: vi.fn().mockResolvedValue('wrong checked-out contents'),
+    };
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'local fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [readSkill],
+      makeSkillContext(),
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        readSetting: <T>(key: string, fallback: T) =>
+          (key === 'acp.toolsEnabled' ? true : fallback) as T,
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acpProvider,
+          models: [{
+            id: 'acp/codex',
+            name: 'Codex via ACP',
+            contextWindow: 200_000,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'reasoning'],
+            delegatedToolExecution: true,
+          }],
+        }],
+      },
+    );
+    const target = createSourceLensTarget({
+      kind: 'file',
+      label: 'package-lock.json',
+      workspace: { name: 'atlasmind', index: 0 },
+      workspacePath: 'package-lock.json',
+    });
+    const progress: string[] = [];
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-remote-change-story',
+      userMessage: 'Read and explain the selected remote package lock change.',
+      context: {
+        atlasmindLens: {
+          target,
+          changeStoryEvidence: {
+            version: 1,
+            branch: 'feat/interface-studio-redesign',
+            headRef: 'origin/feat/interface-studio-redesign',
+            mergeBase: '866e4bf5aabbccdd',
+            workspacePath: 'package-lock.json',
+            status: 'modified',
+            objectBytes: 80_000,
+            patch: 'diff --git a/package-lock.json b/package-lock.json\n+    "atlasmind-acp": "out/cli/acpAgent.js"',
+            patchTruncated: false,
+            contentOmitted: 'The selected Git object is above the content limit.',
+          },
+        },
+      },
+      constraints: {
+        budget: 'balanced',
+        speed: 'balanced',
+        preferredProvider: 'acp',
+      },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'workspace-reader',
+      name: 'Workspace Reader',
+      role: 'workspace investigator',
+      description: 'Reads workspace evidence.',
+      systemPrompt: 'Inspect the repository before answering.',
+      skills: ['file-read'],
+      allowedModels: ['acp/codex'],
+    }, undefined, message => progress.push(message));
+
+    expect(result.modelUsed).toBe('acp/codex');
+    expect(acpProvider.complete).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(acpProvider.complete).mock.calls[0]![0];
+    expect(request.tools).toEqual([]);
+    expect(request.allowDelegatedToolExecution).not.toBe(true);
+    expect(request.messages.map(message => message.content).join('\n'))
+      .toContain('Head ref: origin/feat/interface-studio-redesign');
+    expect(request.messages.map(message => message.content).join('\n'))
+      .toContain('"atlasmind-acp": "out/cli/acpAgent.js"');
+    expect(readSkill.execute).not.toHaveBeenCalled();
+    expect(progress.join('\n')).toMatch(/completion-only mode/i);
   });
 
   it('flags an explicit tools-disabled refusal for immediate executor handoff', async () => {
