@@ -21,6 +21,7 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
+import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import {
   modelSidebarHiddenEntryKey,
   readHiddenModelSidebarEntries,
@@ -329,6 +330,7 @@ type SettingsMessage =
   | { type: 'restoreModelSidebarEntry'; payload: string }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
+  | { type: 'setupLensDeclarations' }
   | { type: 'openCompareModels' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
@@ -1171,6 +1173,11 @@ export class SettingsPanel {
 
       case 'openProjectRunCenter':
         await vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+        return;
+      case 'setupLensDeclarations':
+        await vscode.commands.executeCommand('atlasmind.lens.setupDeclarations');
+        this.initialTarget = { page: 'project', section: 'lensDeclarationsCard' };
+        this.panel.webview.html = this.getHtml();
         return;
 
       case 'openCompareModels':
@@ -2057,6 +2064,12 @@ export class SettingsPanel {
 
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const lensWorkspace = vscode.workspace.workspaceFolders?.[0];
+    const lensDeclarations = inspectLensDeclarations(
+      lensWorkspace?.uri.scheme === 'file' || lensWorkspace?.uri.scheme === 'vscode-remote'
+        ? lensWorkspace.uri.fsPath
+        : undefined,
+    );
     const registeredAgents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
     const enabledAgentCount = registeredAgents.filter(agent =>
       this.atlasContext?.agentRegistry?.isEnabled(agent.id) ?? true,
@@ -2716,6 +2729,29 @@ export class SettingsPanel {
                   <input id="projectRunReportFolder" type="text" value="${projectRunReportFolder}" />
                 </div>
                 <p class="info-note">Report folders stay workspace-relative and reject absolute paths or traversal sequences.</p>
+              </article>
+
+              <article class="settings-card" id="lensDeclarationsCard">
+                <div class="card-header">
+                  <p class="card-kicker">Lens</p>
+                  <h3>Repository declarations</h3>
+                </div>
+                <p class="card-copy">State Lifecycle and Configuration Resolution use explicit repository files; they do not analyze whichever editor file happens to be active.</p>
+                <div class="stack-list">
+                  ${lensDeclarations.files.map(file => `
+                    <div class="list-row">
+                      <span>
+                        <strong>${escapeHtml(file.label)}</strong>
+                        <span class="muted-line"><code>${escapeHtml(file.workspacePath)}</code></span>
+                      </span>
+                      <span class="badge">${escapeHtml(lensDeclarationStatusLabel(file.status))}</span>
+                    </div>
+                  `).join('')}
+                </div>
+                <div class="button-stack top-gap">
+                  <button id="setupLensDeclarations" class="secondary-button">${lensDeclarations.readyCount === lensDeclarations.totalCount ? 'Review Lens declarations' : 'Set up Lens declarations'}</button>
+                </div>
+                <p class="info-note">Starter creation is create-only and contains no invented project states, configuration values, or secret data.</p>
               </article>
 
               <article class="settings-card settings-card-danger">
@@ -4516,6 +4552,7 @@ export class SettingsPanel {
           bindCommandButton('openModelProviders', 'openModelProviders');
           bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+          bindCommandButton('setupLensDeclarations', 'setupLensDeclarations');
           bindCommandButton('openCompareModels', 'openCompareModels');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
@@ -6890,6 +6927,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openModelProviders' ||
     message.type === 'openSpecialistIntegrations' ||
     message.type === 'openProjectRunCenter' ||
+    message.type === 'setupLensDeclarations' ||
     message.type === 'openCompareModels' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||

@@ -8235,6 +8235,7 @@
     'atlasmind.openCostDashboard': 'Cost Dashboard',
     'atlasmind.openAgentPanel': 'Agents',
     'atlasmind.openMcpServers': 'MCP Servers',
+    'atlasmind.lens.setupDeclarations': 'Lens declarations',
     'atlasmind.openSettingsSafety': 'Safety Settings',
     'atlasmind.openSettingsProject': 'Project Settings',
     'atlasmind.openSettingsTesting': 'Testing Settings',

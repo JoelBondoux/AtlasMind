@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.252.1",
+  "version": "0.253.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -226,6 +226,11 @@
         "command": "atlasmind.lens.filterSymbols",
         "title": "AtlasMind: Lens: Filter Symbols",
         "icon": "$(filter)"
+      },
+      {
+        "command": "atlasmind.lens.setupDeclarations",
+        "title": "AtlasMind: Lens: Set Up Repository Declarations",
+        "icon": "$(new-file)"
       },
       {
         "command": "atlasmind.lens.reviewContracts",
@@ -1144,7 +1149,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in five steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in six steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -1168,6 +1173,17 @@
             "completionEvents": [
               "onCommand:atlasmind.bootstrapProject",
               "onCommand:atlasmind.importProject"
+            ]
+          },
+          {
+            "id": "setupLensDeclarations",
+            "title": "Set up repository-backed Lens views",
+            "description": "State Lifecycle and Configuration Resolution use explicit repository declarations instead of guessing from whichever file is open. Review their status, create safe empty starters, and complete only the views your project needs.\n[Set Up Lens Declarations](command:atlasmind.lens.setupDeclarations)",
+            "media": {
+              "markdown": "media/walkthrough/lens-declarations.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.lens.setupDeclarations"
             ]
           },
           {

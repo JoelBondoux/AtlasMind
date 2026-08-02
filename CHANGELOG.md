@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.253.0] - 2026-08-02
+
+### Added
+
+- **Declaration-backed Lens views now explain and repair their own setup.** A shared status reader distinguishes missing, valid-empty, ready, invalid, and unreadable `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json` files. **AtlasMind: Lens: Set Up Repository Declarations** creates valid semantics-free starters with create-only filesystem writes, opens existing files without overwriting them, and relies on the installed JSON Schemas for completion.
+- **Lens setup is discoverable where project setup happens.** Getting Started includes a dedicated step, Settings → Project Runs shows both declaration statuses and the setup action, and Project Dashboard Overview carries a live `n/2 ready` Lens card.
+
+### Changed
+
+- **Missing State Lifecycle and Configuration Resolution files no longer lead to a dead-end notification.** The message now explains that these views do not analyze the active file and offers **Create starter** or the complete declaration setup flow.
+
+### Security
+
+- **Starter creation never invents project semantics or overwrites a declaration.** Starters contain only the version and an empty declaration collection; local and remote disk-backed extension hosts use exclusive `wx` creation, while an unsupported virtual filesystem fails visibly.
+
 ## [0.252.1] - 2026-08-02
 
 ### Changed

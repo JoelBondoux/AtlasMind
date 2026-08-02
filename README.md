@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.252.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.253.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.252.1
+## What's new in 0.253.0
 
 Since the last Marketplace publication, **v0.241.2**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Declaration-backed Lens views now lead users from absence to a safe starter.** Getting Started, Settings → Project Runs, Project Dashboard Overview, and the State/Configuration missing-file messages share one status and setup flow for `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json`. Starters are valid, empty, create-only files—AtlasMind never invents project semantics or overwrites an existing declaration.
 
 - **Dedicated implementation branches are now permitted for AtlasMind itself.** The repository workflow grants branch creation and local development while keeping issue, PR, CI, release, maintenance, and general automation permissions unchanged.
 
@@ -348,6 +350,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
+| `AtlasMind: Lens: Set Up Repository Declarations` | Review State/Configuration declaration status, safely create missing empty starters, or open existing files |
 | `AtlasMind: Lens: Review Contract Wiring` | Compare one ordered TypeScript/OpenAPI/JSON Schema/SQL field boundary and inspect declared SQL relationships |
 | `AtlasMind: Lens: Review State Lifecycle` | Visualize a repository-declared `.atlasmind/lens-state.json` machine and its reachability |
 | `AtlasMind: Lens: Review Configuration Resolution` | Explain one declared `.atlasmind/lens-config.json` precedence chain without reading live secret values |
@@ -390,6 +393,8 @@ Open the Command Palette with `Ctrl+Shift+P`.
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 
 Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow**, a bounded **Show impact** map, and a conservative **Find tests** evidence map for symbols, plus focused Explain drafts. File-level impact/test actions remain editable drafts until file/diff adapters land. Journey, impact, and test-evidence nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
+
+State Lifecycle and Configuration Resolution are repository-level Lens views, not active-file actions. Their declaration status appears in Getting Started, Settings → Project Runs, and Project Dashboard Overview. **Set Up Repository Declarations** creates only a valid empty starter and opens it with schema completion; it never guesses project states, configuration precedence, values, or secrets, and never overwrites an existing declaration.
 
 ---
 
@@ -440,6 +445,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensDataTrust.ts` | Explicit field trust-policy normalization and connected-endpoint projection |
 | `src/core/lensStateMachine.ts` | Strict declared lifecycle normalization and reachability/dead-end projection |
 | `src/core/lensConfigResolution.ts` | Explicit configuration precedence and masked/display value-policy projection |
+| `src/core/lensDeclarations.ts` | Shared missing/empty/ready/invalid declaration status and semantics-free starter generation |
 | `src/core/lensChangeStory.ts` | Bounded committed-branch path/commit story and conservative category projection |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
@@ -463,6 +469,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensStatePanel.ts` | Secure editor-hosted lifecycle depth map and transition list |
 | `src/views/lensConfigCommand.ts` | Workspace and setting selection for declared configuration resolution |
 | `src/views/lensConfigPanel.ts` | Secure editor-hosted precedence chain and text resolution summary |
+| `src/views/lensDeclarationSetup.ts` | Shared create-only declaration setup used by onboarding, Settings, Dashboard, and missing-file guidance |
 | `src/views/lensChangeStoryCommand.ts` | Read-only Git base selection and merge-base evidence collection |
 | `src/views/lensChangeStoryPanel.ts` | Secure editor-hosted component/path/commit Change Story |
 | `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |

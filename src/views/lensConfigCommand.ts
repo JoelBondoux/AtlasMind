@@ -6,6 +6,7 @@ import {
   normalizeLensConfigFile,
 } from '../core/lensConfigResolution.js';
 import type { LensConfigSettingDeclaration } from '../core/lensConfigResolution.js';
+import { showMissingLensDeclarationGuidance } from './lensDeclarationSetup.js';
 import { LensConfigPanel } from './lensConfigPanel.js';
 
 interface SettingPick extends vscode.QuickPickItem { setting: LensConfigSettingDeclaration }
@@ -25,11 +26,13 @@ export async function reviewWorkspaceConfiguration(): Promise<void> {
   try {
     raw = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri))) as unknown;
   } catch (error) {
-    void vscode.window.showInformationMessage(
-      isFileNotFound(error)
-        ? `Add ${LENS_CONFIG_FILE} to this workspace to declare configuration precedence safely.`
-        : `AtlasMind Lens refused ${LENS_CONFIG_FILE} because it is malformed or unreadable.`,
-    );
+    if (isFileNotFound(error)) {
+      await showMissingLensDeclarationGuidance('config', folder);
+    } else {
+      void vscode.window.showInformationMessage(
+        `AtlasMind Lens refused ${LENS_CONFIG_FILE} because it is malformed or unreadable.`,
+      );
+    }
     return;
   }
   const file = normalizeLensConfigFile(raw);

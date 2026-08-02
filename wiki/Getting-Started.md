@@ -16,6 +16,8 @@ If you are deciding whether to adopt it, the short answer is that AtlasMind is a
 
 If you just want the shortest onboarding path, use the VS Code Marketplace build of AtlasMind, configure one provider, then run `@atlas /bootstrap` for a new project or `@atlas /import` for an existing one. The rest of this page covers the fuller setup paths and options.
 
+The installed **Getting Started** walkthrough also includes an optional repository-backed Lens step. Run **AtlasMind: Lens: Set Up Repository Declarations** to see whether State Lifecycle and Configuration Resolution are configured. AtlasMind can create valid empty `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json` starters, then opens them with schema completion; it does not infer project states, precedence, values, or secrets from the active editor.
+
 After AtlasMind activates, new VS Code integrated terminals also expose the `atlasmind` command without requiring a manual PATH edit. That terminal shim is local to VS Code and does not change your system-wide shell configuration.
 
 ### From Source

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.253.0 — Lens declarations explain their setup
+
+State Lifecycle and Configuration Resolution no longer assume users already know about their repository-authored inputs. The Getting Started walkthrough, Settings → Project Runs, and Project Dashboard Overview now show or link to the same declaration setup flow. The dashboard reports whether each required file is missing, an empty starter, ready, invalid, or unreadable.
+
+**AtlasMind: Lens: Set Up Repository Declarations** creates a valid empty `.atlasmind/lens-state.json` or `.atlasmind/lens-config.json` starter and opens it with the installed schema/autocomplete. Creation is exclusive and never overwrites an existing declaration; the starter contains no invented project states, transitions, configuration values, or secrets. Missing-file messages explain why the active editor is not used and offer the same direct remedy.
+
 ## v0.252.1 — Dedicated implementation branches
 
 AtlasMind's committed workflow now permits branch creation and local development for this repository. Issue intake, pull requests, CI, release, maintenance, and general automation retain their existing limits, so the permission change is deliberately scoped to building work on dedicated branches.

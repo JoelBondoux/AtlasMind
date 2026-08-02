@@ -194,6 +194,7 @@ import {
 } from '../core/teamRoles.js';
 import { upsertManagedBlock } from '../utils/managedBlock.js';
 import { classifyLensChangePath } from '../core/lensChangeStory.js';
+import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
   buildCiFailureReport,
@@ -399,6 +400,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
   'atlasmind.openMcpServers',
+  'atlasmind.lens.setupDeclarations',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -3412,6 +3414,9 @@ export class ProjectDashboardPanel {
       case 'openCommand':
         if (ALLOWED_DASHBOARD_COMMANDS.has(message.payload)) {
           await vscode.commands.executeCommand(message.payload);
+          if (message.payload === 'atlasmind.lens.setupDeclarations') {
+            await this.syncState();
+          }
         } else {
           // Never silently. A dropped command produced a button that did
           // nothing and said nothing — indistinguishable, from the outside,
@@ -8665,11 +8670,17 @@ async function collectDashboardSnapshot(
   reviewComments?: Record<string, ReviewCommentRecord[]>,
   taxonomy?: { labels: LabelRecord[]; milestones: MilestoneRecord[] },
 ): Promise<DashboardSnapshot> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceRoot = workspaceFolder?.uri.fsPath;
+  const workspaceName = workspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
   const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
+  const lensDeclarations = inspectLensDeclarations(
+    workspaceFolder?.uri.scheme === 'file' || workspaceFolder?.uri.scheme === 'vscode-remote'
+      ? workspaceRoot
+      : undefined,
+  );
   const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
   const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
@@ -8875,6 +8886,20 @@ async function collectDashboardSnapshot(
       detail: `${ideationBoard.nextPrompts.length} follow-up prompt${ideationBoard.nextPrompts.length === 1 ? '' : 's'} queued, ${ideationAttachments.length} live attachment${ideationAttachments.length === 1 ? '' : 's'}.`,
       tone: ideationBoard.cards.length > 0 ? 'accent' : 'neutral',
       command: 'atlasmind.openProjectIdeation',
+    },
+    {
+      id: 'lens',
+      label: 'Lens Declarations',
+      value: `${lensDeclarations.readyCount}/${lensDeclarations.totalCount} ready`,
+      detail: lensDeclarations.files
+        .map(file => `${file.label}: ${lensDeclarationStatusLabel(file.status).toLowerCase()}`)
+        .join(' • '),
+      tone: lensDeclarations.readyCount === lensDeclarations.totalCount
+        ? 'good'
+        : lensDeclarations.files.some(file => file.status === 'invalid' || file.status === 'unreadable')
+          ? 'critical'
+          : 'warn',
+      command: 'atlasmind.lens.setupDeclarations',
     },
   ];
 
