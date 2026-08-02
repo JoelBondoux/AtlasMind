@@ -31,6 +31,7 @@ import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSourc
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
 import { buildLensRequestContextMessage, hasLensChangeStoryEvidence } from './lensTarget.js';
+import { buildWorkflowExecutionSystemGuidance } from './workflowChatGuard.js';
 import {
   MAX_TOOL_ITERATIONS,
   MAX_TOOL_CALLS_PER_TURN,
@@ -1590,8 +1591,8 @@ export class Orchestrator {
           && this.router.getModelInfo(currentModel)?.delegatedToolExecution === true;
         // ACP cannot receive AtlasMind ToolDefinition schemas. When delegated
         // execution is authorized, standing down this loop is the whole point:
-        // the ACP agent uses its native tools and every operation is approved by
-        // the adapter's permission policy. A non-ACP failover receives the
+        // the ACP agent uses its native tools and every operation is answered by
+        // the adapter's scoped permission policy. A non-ACP failover receives the
         // original tools again on its next iteration.
         const attemptTools = usesDelegatedAcpTools ? [] : tools;
         const taskProfile = escalationAttempts === 0
@@ -4111,6 +4112,14 @@ export class Orchestrator {
     const testingObligationBlock = typeof requestContext['__testingObligation'] === 'string' && requestContext['__testingObligation'].trim().length > 0
       ? `\n\n${requestContext['__testingObligation'].trim()}`
       : '';
+    // A chat surface passes a structured policy, not prose. The renderer
+    // validates the complete shape and emits fixed text, so a repository file
+    // cannot gain system-prompt authority by placing instructions in a free-form
+    // workflow field.
+    const workflowExecutionGuidance = buildWorkflowExecutionSystemGuidance(requestContext['__workflowChatPolicy']);
+    const workflowExecutionBlock = workflowExecutionGuidance
+      ? `\n\n${workflowExecutionGuidance}`
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}` +
         (hasCarryForwardImages
@@ -4168,6 +4177,7 @@ export class Orchestrator {
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +
           urlSafetyHint +
+          workflowExecutionBlock +
           testingObligationBlock +
           testingMethodologyHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +

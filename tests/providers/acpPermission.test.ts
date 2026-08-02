@@ -39,7 +39,7 @@ describe('acpToolRisk', () => {
 
   it('treats an unidentifiable kind as the worst thing it could be', () => {
     // `ToolKind::Other` is `#[serde(other)]`, so anything a newer agent invents
-    // lands there. That is exactly the case that must prompt.
+    // lands there. That is exactly the case that must be logged most severely.
     expect(acpToolRisk('other')).toEqual({ category: 'terminal-write', risk: 'high' });
   });
 
@@ -56,7 +56,7 @@ describe('acpToolRisk', () => {
     expect(acpToolRisk('fetch').category).toBe('network');
   });
 
-  it('reuses AtlasMind\'s own risk taxonomy so a bypass means the same thing', () => {
+  it('reuses AtlasMind\'s own risk taxonomy so audit records stay comparable', () => {
     expect(acpToolRisk('edit').category).toBe('workspace-write');
     expect(acpToolRisk('move').category).toBe('workspace-write');
   });

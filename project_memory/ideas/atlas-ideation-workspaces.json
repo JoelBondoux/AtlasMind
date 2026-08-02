@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "activeWorkspaceId": "feedback-the-interesting-thing-is-we-re-talking-via-atlas",
+  "workspaces": [
+    {
+      "id": "default",
+      "title": "Primary ideation",
+      "boardFile": "atlas-ideation-board.json",
+      "summaryFile": "atlas-ideation-board.md",
+      "createdAt": "2026-08-02T10:10:35.461Z",
+      "updatedAt": "2026-08-02T10:10:35.461Z"
+    },
+    {
+      "id": "feedback-the-interesting-thing-is-we-re-talking-via-atlas",
+      "title": "Feedback: The interesting thing is we're talking via Atlas",
+      "boardFile": "atlas-ideation-board.feedback-the-interesting-thing-is-we-re-talking-via-atlas.json",
+      "summaryFile": "atlas-ideation-board.feedback-the-interesting-thing-is-we-re-talking-via-atlas.md",
+      "createdAt": "2026-08-02T10:10:35.461Z",
+      "updatedAt": "2026-08-02T10:10:47.445Z"
+    }
+  ]
+}

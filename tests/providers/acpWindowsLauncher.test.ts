@@ -43,6 +43,9 @@ describe('the ACP private-desktop launch boundary', () => {
     expect(NATIVE_SOURCE).toContain('DESKTOP_WRITEOBJECTS');
     expect(NATIVE_SOURCE).toContain('startup.startup_info.desktop = null_mut()');
     expect(NATIVE_SOURCE).toContain('SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX');
+    expect(NATIVE_SOURCE).toContain('CREATE_NEW_CONSOLE');
+    expect(NATIVE_SOURCE).not.toContain('const CREATE_NO_WINDOW');
+    expect(NATIVE_SOURCE).toContain('startup.startup_info.show_window = 0');
   });
 
   it.skipIf(process.platform !== 'win32')('runs the shipped helper and preserves redirected stdio', async () => {
@@ -88,6 +91,61 @@ describe('the ACP private-desktop launch boundary', () => {
     const launch = wrapAcpLaunchForPrivateDesktop(
       powershell,
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'exit 0'],
+      true,
+      createAcpPrivateDesktopProbe(),
+    );
+    expect(launch.status).toBe('private-desktop');
+    if (launch.status !== 'private-desktop') {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        launch.command,
+        launch.args,
+        { windowsHide: true, timeout: 10_000 },
+        (error, _output, stderr) => {
+          if (error) {
+            reject(new Error(`${error.message}\n${stderr}`));
+            return;
+          }
+          resolve();
+        },
+      );
+    });
+  });
+
+  it.skipIf(process.platform !== 'win32')('keeps a nested ACP shell on one non-visible inherited console', async () => {
+    const powershell = (process.env['PATH'] ?? '')
+      .split(path.delimiter)
+      .map(directory => path.join(directory, 'pwsh.exe'))
+      .find(candidate => existsSync(candidate));
+    if (!powershell) {
+      return;
+    }
+    const typeDefinition = [
+      'using System; using System.Runtime.InteropServices;',
+      'public static class NativeConsole {',
+      '[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();',
+      '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);',
+      '}',
+    ].join(' ');
+    const inspectConsole = [
+      `Add-Type -TypeDefinition '${typeDefinition}'`,
+      '$window = [NativeConsole]::GetConsoleWindow()',
+      'if ($window -ne [IntPtr]::Zero -and [NativeConsole]::IsWindowVisible($window)) { exit 42 }',
+      'exit 0',
+    ].join('; ');
+    const nodeScript = [
+      "const { spawnSync } = require('node:child_process');",
+      'const child = spawnSync(process.argv[1],',
+      "['-NoLogo','-NoProfile','-NonInteractive','-Command',process.argv[2]],",
+      "{ stdio: 'inherit', windowsHide: false });",
+      'process.exit(child.status ?? 43);',
+    ].join('');
+    const launch = wrapAcpLaunchForPrivateDesktop(
+      process.execPath,
+      ['-e', nodeScript, powershell, inspectConsole],
       true,
       createAcpPrivateDesktopProbe(),
     );

@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.256.0] - 2026-08-02
+
+### Added
+
+- **Declared workflow following is now a standing chat policy.** `atlasmind.workflow.chatGuidance` adds `follow` and makes it the default. A single commit, push, pull-request, promotion, or publication request now continues through the enabled declared route in the same turn instead of asking the operator to type “follow the workflow” and repeat the outcome. The host passes a narrow validated policy object to the Orchestrator, which renders fixed system guidance; free-form workflow checks, blockers, and commands never gain system-prompt authority.
+
+### Changed
+
+- **Release guidance preserves the operator’s active checkout.** Following the workflow grants no new tool or external-write authority and keeps all automation ceilings, approvals, protected-ref checks, release gates, and outward-write confirmations. Pre-existing unrelated edits must not be stashed, discarded, staged, or committed merely to satisfy cleanliness; branch-changing delivery work prefers an isolated temporary Git worktree and pauses only at a real approval, irreversible-action, missing-authority, or external-state boundary.
+- **`inform` no longer asks a question while continuing anyway.** It now states the workflow expectation and continues exactly as requested. `gate` remains the explicit blocking mode, and `off` remains silent.
+
+## [0.255.3] - 2026-08-02
+
+### Fixed
+
+- **ACP tool-backed turns no longer interrupt for every operation after the user has explicitly enabled them.** The off-by-default **Let subscription agents act** setting is now the standing operation grant for an independently authorized tool-backed provider turn. AtlasMind automatically answers each readable request with the agent's one-operation option, records its risk/category/action in the output log, rechecks the setting live, and still refuses malformed requests, missing policies, or an `allow_always`-only choice.
+- **ACP model and tool launches no longer create blank, focus-stealing Windows terminals when private mode is selected.** Capability probes, routed processes, and replacements all remain under one native supervisor. That parent now creates a single `SW_HIDE` console for the whole descendant tree to inherit—rather than giving only the first process `CREATE_NO_WINDOW` and leaving later shells to allocate a visible `conhost.exe`—while its non-interactive window station and Job Object continue to contain UI and lifetime. Windows npm adapters now run under a real `node.exe` instead of VS Code's GUI `Code.exe`; AtlasMind refuses the launch with an actionable error if Node is unavailable. Native and shipped-binary regressions exercise supervisor → Node → PowerShell and verify that the nested console is not visible.
+
+## [0.255.2] - 2026-08-02
+
+### Changed
+
+- **Committed ideation feedback assets and updated chat-command references.** New Atlas ideation workspace feedback artifacts were added and chat-command documentation was aligned to the corresponding workflow flow.
+
 ## [0.255.1] - 2026-08-02
 
 ### Fixed

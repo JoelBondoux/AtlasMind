@@ -151,7 +151,7 @@ Before approval is considered, AtlasMind minimizes capability exposure. `AgentDe
 - For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
 - Repo-maintenance actions such as Dependabot merges, rebases, or dependency branch resolution are evaluated by the normal approval gate, but they are not blocked by the implementation-only red-to-green TDD requirement.
 - Atlas also uses recent session context to interpret terse deictic follow-up requests before deciding whether to stay advisory or move into tool-backed action, which reduces misclassification without weakening the approval gate itself.
-- Routed ACP tools retain two gates: the live `atlasmind.acp.toolsEnabled` setting makes a declared delegated-tool model eligible for the turn, then each native operation still requires the independent ACP permission policy. Model discovery or setting state alone cannot approve an action.
+- Routed ACP tools retain two gates before any operation request can arrive: the live, off-by-default `atlasmind.acp.toolsEnabled` setting and the Orchestrator's exact tool-backed provider-request stamp. The enabled setting is then the standing authorization: readable native operations are automatically granted once and logged. Model discovery alone cannot approve an action.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately
@@ -165,14 +165,14 @@ Before approval is considered, AtlasMind minimizes capability exposure. `AgentDe
 
 ### 6b. Routed ACP Delegated-Execution Boundary
 
-ACP subscription agents use their own tool implementations, so AtlasMind separates capability, route authority, schema delivery, and operation approval:
+ACP subscription agents use their own tool implementations, so AtlasMind separates capability, standing authorization, route authority, schema delivery, and wire resolution:
 
 - `ModelInfo.delegatedToolExecution` says only that the provider can act natively. It never grants permission and never aliases the model's capabilities to `function_calling`.
 - `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both capability and live route authority before ACP can satisfy a tool-backed task.
 - The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model and stamps only that provider request with `CompletionRequest.allowDelegatedToolExecution: true`; `AcpAdapter` independently refuses any request containing AtlasMind schemas.
 - The adapter requires both the live global setting and the per-request stamp. Omitted/false request authority is completion-only, shares no configured MCP servers, and wires no permission policy. A normal-provider failover receives the original schemas.
 - Delegated execution mode is independent of MCP count because an agent may have built-in tools with no shared server. Setting, request authority, MCP set, and isolation participate in the session/replay fingerprint, so incompatible authority cannot reuse or replay an earlier session.
-- Eligibility never authorizes an individual operation. `session/request_permission` still passes through `AcpPermission` and `ToolApprovalManager`; a missing or failing policy denies.
+- The off-by-default setting is explicit standing authorization for individual operations after the per-turn stamp is present. `session/request_permission` still passes through `AcpPermission`, which logs the action and selects only `allow_once`; a missing or failing policy denies, and disabling the setting stops later requests.
 
 ### 7. Skill Security Scanner
 
@@ -227,9 +227,13 @@ See [[Remote Control]] for the full model.
 `atlasmind.acp.hideConsoleWindows` is a Windows UX control, not a sandbox. When
 selected, a bundled native helper creates a non-interactive window station and
 its default private desktop, then starts the already-resolved ACP executable
-there. Windows only lets `WinSta0` display UI or receive input, so a descendant
-that chooses a new desktop still cannot put a console on the user's screen. The
-child runs as the same user with the same filesystem and network access.
+there with one `SW_HIDE` console for the full descendant tree to inherit. This
+prevents later native tools and shells from allocating separate visible
+`conhost.exe` windows. Windows only lets `WinSta0` display UI or receive input,
+so a descendant that chooses a new desktop still cannot put UI on the user's
+screen. Windows npm adapters are resolved to a real `node.exe`, not VS Code's
+GUI `Code.exe`. The child runs as the same user with the same filesystem and
+network access.
 
 The unusual native/UI boundary remains explicit. Hidden VNC malware uses
 private desktops for covert interactive processes, and endpoint controls may
@@ -252,8 +256,10 @@ also block a newly built unsigned helper before it starts. AtlasMind therefore:
 - creates the agent suspended, assigns it to a Job Object with
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and only then resumes it, preventing a
   child-process race before the lifetime boundary exists;
-- supplies `STARTF_USESHOWWINDOW`/`SW_HIDE` as a second defence against the root
-  process displaying a window;
+- supplies `CREATE_NEW_CONSOLE` with `STARTF_USESHOWWINDOW`/`SW_HIDE`, giving
+  every ordinary console descendant one non-visible console to inherit;
+- does not use `CREATE_NO_WINDOW`, because that flag suppresses only the direct
+  child and leaves later tools free to allocate their own console host;
 - pins the shipped PE by SHA-256 and refuses missing or changed binaries;
 - fails visibly if EDR blocks the helper, without silently falling back to a
   focus-stealing visible launch.
@@ -313,6 +319,7 @@ then uses the existing shell-free, communication-only CLI bridge.
 - Model-generated file paths are re-validated against the workspace sandbox
 - The redaction boundary ensures secrets never leak into model context
 - Freeform prompts, carried-forward chat context, attached text, and web/native-chat summaries are no longer promoted into the system prompt as trusted instructions. They are isolated as untrusted data and scanned before inclusion.
+- The default workflow-following chat mode passes only a narrow structural object (`known action`, Git-safe integration/release branch names, protected-branch boolean) across the host boundary. The Orchestrator validates it again and renders fixed system text. Free-form workflow checks, blockers, commands, and names from a hand-edited repository file never become system-prompt instructions. Following grants no tool or external-write authority and cannot bypass an approval or release gate.
 - **Structured model output is parsed defensively.** Where a feature asks a model for JSON it must not assume it receives any. The Risk page's `parseRiskFindings` and the security register's `parseSecurityFindings` locate candidate JSON (fenced block, bare array, or a `{findings:[...]}` wrapper) and return `[]` on absent, malformed, or wrongly-typed content rather than throwing, so a bad response records nothing instead of failing the run. Their sanitizers clamp strings and collections, coerce enums to **safe** defaults (including unknown status → `open`, so a finding is never silently resolved), generate collision-safe ids, and reject absolute paths, drive letters, and `..` traversal in any cited evidence path.
 
 `SecurityReviewManager` is deliberately only a durable record boundary for reviews of secrets, runtime boundaries, dependencies, and permissions. It stores no secret values, runs no vulnerability scanner, grants no tool capability, and does not block a commit, promotion, or release. The service is not yet connected to a dashboard or extension activation path.
@@ -354,7 +361,7 @@ The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded o
 | Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
-| ACP capability metadata or tools-enabled setting mistaken for action approval | Capability + live routing-authority split, no AtlasMind schemas across the ACP boundary, per-operation permission broker, deny on missing policy |
+| ACP capability metadata mistaken for action approval, or a persistent grant escaping AtlasMind | Off-by-default standing setting + exact routed-request stamp, no AtlasMind schemas across the ACP boundary, live per-operation setting check and audit log, `allow_once` only, deny on missing policy |
 | ACP prompt replay / duplicated delegated work | Stable per-tool-round identity + exact transcript-prefix reuse + in-flight single-flight + short completed-result ledger + exclusion from generic retries + outer-timeout `session/cancel` and teardown after an uncertain `session/prompt` |
 | Hidden-desktop dual use / EDR detection | Off-by-default disclosed choice + source-visible SHA-256-pinned helper + no desktop switching/control + minimal handle inheritance + visible failure, with ordinary launch available |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |

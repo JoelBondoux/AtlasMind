@@ -71,7 +71,7 @@ const SETTINGS_HELP = {
   localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
-  acpToolsEnabled: 'Lets an agent reached over the Agent Client Protocol — your Claude or ChatGPT subscription — run its own tools, with AtlasMind approving each operation. Off by default: the agent answers questions but cannot act. AtlasMind never accepts an agent\'s "always allow" option, so no permission is granted that you cannot later revoke.',
+  acpToolsEnabled: 'Lets an agent reached over the Agent Client Protocol — your Claude or ChatGPT subscription — run its own tools without a prompt for every operation. Off by default: the agent answers questions but cannot act. When enabled, AtlasMind automatically answers each request with a one-operation grant and records it; it never accepts the agent\'s persistent "always allow" option.',
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
   autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
   autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
@@ -2624,14 +2624,15 @@ export class SettingsPanel {
                     <span class="muted-line">
                       An ACP agent is a subscription you already have — Claude, or ChatGPT via Codex — driven over the Agent Client Protocol.
                       With this off it answers questions but cannot act. With it on it can edit files, run commands, search, and fetch,
-                      and <strong>AtlasMind asks you before each operation</strong>.
+                      and <strong>AtlasMind automatically allows each operation without another prompt</strong>.
                     </span>
                   </span>
                 </label>
                 <p class="muted-line top-gap">
-                  The work runs inside the agent's own process, not inside AtlasMind. AtlasMind decides whether each operation may proceed
-                  and records what ran, and it never grants a permanent permission — where an agent offers &ldquo;always allow&rdquo;, AtlasMind
-                  answers &ldquo;allow once&rdquo; instead, so no grant can end up somewhere you cannot revoke it.
+                  The work runs inside the agent's own process, not inside AtlasMind. Turning this setting on is the standing authorization
+                  for tool-backed ACP turns, and AtlasMind records every request. It never grants permission inside the agent permanently:
+                  where an agent offers &ldquo;always allow&rdquo;, AtlasMind answers &ldquo;allow once&rdquo; instead, so turning this setting
+                  off remains sufficient to stop future operations.
                 </p>
                 ${acpAgentCount === 0
                   ? '<p class="muted-line">No ACP agent is configured yet, so this setting has nothing to govern. Set one up from Model Providers — look for &ldquo;Use my Claude subscription&rdquo;.</p>'
@@ -2649,8 +2650,9 @@ export class SettingsPanel {
                   <span>
                     <strong>Hide ACP windows on a private Windows desktop</strong>
                     <span class="muted-line">
-                      An ACP agent starts its own child processes, and on Windows each one may briefly open a black terminal window that
-                      takes focus. With this on, AtlasMind starts the agent and its descendants on a dedicated, non-visible desktop instead.
+                      An ACP agent starts models and tools as child processes, and a later Windows shell can otherwise open a blank terminal
+                      that takes focus. With this on, one native parent gives the full tree a shared hidden console on a non-visible desktop.
+                      VS Code shows the live session in its status bar instead of opening another window.
                     </span>
                   </span>
                 </label>
