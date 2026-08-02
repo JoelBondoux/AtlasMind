@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.251.0 — AtlasMind Lens joins the current develop line
+
+The complete Lens suite is now integrated with the current `develop` work: the active-file Code Explorer, source-backed possible-flow journeys, impact and test-evidence maps, contract wiring and drift review, schema-impact and relationship projections, explicit data-trust metadata, declared state lifecycles, configuration resolution, and committed-branch Change Stories. The four `.atlasmind/lens-*.json` declaration formats include editor validation, while Lens commands remain available through the Code Explorer title actions and Command Palette.
+
+The merge retains the newer ACP, dashboard, routing, testing, dependency, and Models-sidebar changes from `develop`. Lens remains bounded and host-authoritative: it does not execute repository code or SQL, connect to databases, read live secrets, fetch remotes, or invoke a model while rendering. Source and chat actions revalidate workspace-relative targets, and Ask Atlas prepares an editable draft rather than submitting automatically.
+
 ## v0.241.2 — Cross-platform ACP launch evidence
 
 The ACP launch-evidence test now asserts the real platform contract: a requested hidden desktop must be reported as `private-desktop` on Windows and as the explicit `ordinary` fallback on macOS and Linux. This keeps the diagnostic honest and restores the three-platform CI matrix without changing runtime launch behavior.

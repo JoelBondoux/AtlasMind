@@ -2201,6 +2201,434 @@ export interface MemoryScanResult {
   issues: MemoryScanIssue[];
 }
 
+// ── AtlasMind Lens ─────────────────────────────────────────────
+
+/** A source range carried between Lens visualisations and AtlasMind chat. All positions are 1-based. */
+export interface LensSourceRange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+/** Identifies one root in the currently open VS Code workspace without exposing its absolute URI. */
+export interface LensWorkspaceIdentity {
+  name: string;
+  /** Zero-based position in `vscode.workspace.workspaceFolders`. */
+  index: number;
+}
+
+/**
+ * The visual objects AtlasMind Lens can make queryable.
+ *
+ * Only `file` and `symbol` are emitted by the first outline slice. The remaining
+ * kinds reserve one shared contract for the roadmap's graphs, rather than each
+ * future surface inventing an incompatible chat handoff.
+ */
+export type LensTargetKind =
+  | 'file'
+  | 'symbol'
+  | 'code-range'
+  | 'relation'
+  | 'command'
+  | 'route'
+  | 'schema'
+  | 'runtime-event';
+
+/** How AtlasMind knows that a Lens node or edge exists. Unknown is never represented as proven. */
+export type LensEvidenceKind = 'source' | 'runtime' | 'framework' | 'declared' | 'inferred';
+
+export interface LensEvidence {
+  kind: LensEvidenceKind;
+  source: string;
+  /** 0–1, used only when the producer has a meaningful confidence value. */
+  confidence?: number;
+}
+
+/**
+ * A bounded, workspace-relative reference passed from a Lens visualisation to chat.
+ * It deliberately contains no source text or absolute filesystem path.
+ */
+export interface LensVisualTarget {
+  version: 2;
+  id: string;
+  kind: LensTargetKind;
+  label: string;
+  detail?: string;
+  workspace: LensWorkspaceIdentity;
+  workspacePath: string;
+  range?: LensSourceRange;
+  symbolKind?: string;
+  evidence: LensEvidence;
+}
+
+/** Whether a Lens graph represents static possibility, observed execution, or an explicit inference. */
+export type LensGraphMode = 'possible' | 'observed' | 'inferred';
+
+export type LensGraphNodeRole = 'entrypoint' | 'caller' | 'callee' | 'reference';
+
+export type LensGraphRelation = 'calls' | 'references';
+
+export interface LensGraphNode {
+  id: string;
+  target: LensVisualTarget;
+  role: LensGraphNodeRole;
+  /** Relative column used by the first journey layout. */
+  depth: number;
+}
+
+export interface LensGraphEdge {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  relation: LensGraphRelation;
+  evidence: LensEvidence;
+}
+
+/** Bounded graph record shared by Lens language adapters and editor visualisations. */
+export interface LensGraph {
+  version: 1;
+  id: string;
+  label: string;
+  mode: LensGraphMode;
+  rootNodeId: string;
+  nodes: LensGraphNode[];
+  edges: LensGraphEdge[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensCodeImpactCategory =
+  | 'upstream-caller'
+  | 'downstream-callee'
+  | 'consumer-reference';
+
+/** One evidence-backed reason a selected symbol may be affected by, or affect, another source target. */
+export interface LensCodeImpactItem {
+  id: string;
+  category: LensCodeImpactCategory;
+  relation: LensGraphRelation;
+  /** One is directly connected to the selected symbol; larger values are farther away. */
+  proximity: number;
+  target: LensVisualTarget;
+  reason: string;
+  evidence: LensEvidence;
+}
+
+/** Bounded projection of a language-service graph into a change-review surface. */
+export interface LensCodeImpact {
+  version: 1;
+  id: string;
+  label: string;
+  root: LensVisualTarget;
+  items: LensCodeImpactItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensTestKind = 'unit' | 'integration' | 'contract' | 'end-to-end' | 'unknown';
+
+/** One source-backed test-like caller/reference associated with a selected production symbol. */
+export interface LensTestEvidenceItem {
+  id: string;
+  testKind: LensTestKind;
+  link: LensGraphRelation;
+  target: LensVisualTarget;
+  reason: string;
+  /** The conservative filename/folder signal used to classify this source as test-like. */
+  classification: string;
+  evidence: LensEvidence;
+}
+
+/** Bounded, non-executing test-evidence projection for one selected Lens target. */
+export interface LensTestMap {
+  version: 1;
+  id: string;
+  label: string;
+  root: LensVisualTarget;
+  items: LensTestEvidenceItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensContractLayer =
+  | 'ui'
+  | 'api'
+  | 'validator'
+  | 'domain'
+  | 'persistence'
+  | 'database'
+  | 'external';
+
+export type LensContractSourceKind =
+  | 'typescript'
+  | 'openapi'
+  | 'json-schema'
+  | 'graphql'
+  | 'protobuf'
+  | 'validator'
+  | 'orm'
+  | 'sql'
+  | 'manual';
+
+export type LensContractCoverage = 'complete' | 'partial' | 'unknown';
+export type LensFieldPresence = 'required' | 'optional' | 'unknown';
+export type LensFieldNullability = 'nullable' | 'non-null' | 'unknown';
+
+export interface LensContractField {
+  id: string;
+  path: string;
+  label: string;
+  dataType: string;
+  format?: string;
+  presence: LensFieldPresence;
+  nullability: LensFieldNullability;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** One normalized declaration boundary such as an OpenAPI shape, DTO, ORM model, or SQL table. */
+export interface LensContract {
+  version: 1;
+  id: string;
+  label: string;
+  layer: LensContractLayer;
+  sourceKind: LensContractSourceKind;
+  coverage: LensContractCoverage;
+  target?: LensVisualTarget;
+  fields: LensContractField[];
+}
+
+export interface LensContractFieldRef {
+  contractId: string;
+  fieldPath: string;
+}
+
+export type LensFieldMappingKind = 'equivalent' | 'rename' | 'transform' | 'drop' | 'introduce' | 'inferred';
+
+export interface LensExplicitFieldMapping {
+  id: string;
+  kind: LensFieldMappingKind;
+  upstreamContractId: string;
+  downstreamContractId: string;
+  from?: LensContractFieldRef;
+  to?: LensContractFieldRef;
+  note?: string;
+  intentional: boolean;
+}
+
+export interface LensFieldSuppression {
+  id: string;
+  field: LensContractFieldRef;
+  reason: string;
+}
+
+/** Normalized contents of `.atlasmind/lens-mappings.json`. */
+export interface LensContractMappingFile {
+  version: 1;
+  mappings: LensExplicitFieldMapping[];
+  suppressions: LensFieldSuppression[];
+}
+
+export type LensFieldWireStatus =
+  | 'exact'
+  | 'transformed'
+  | 'dropped'
+  | 'introduced'
+  | 'incompatible'
+  | 'unverified'
+  | 'inferred';
+
+export interface LensFieldWire {
+  id: string;
+  status: LensFieldWireStatus;
+  from?: LensContractFieldRef;
+  to?: LensContractFieldRef;
+  fromFieldId?: string;
+  toFieldId?: string;
+  mappingKind?: LensFieldMappingKind;
+  reason: string;
+  evidence: LensEvidence;
+  intentional: boolean;
+  suppressed: boolean;
+  suppressionReason?: string;
+}
+
+export interface LensContractReview {
+  version: 1;
+  id: string;
+  upstreamContractId: string;
+  downstreamContractId: string;
+  wires: LensFieldWire[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensContractFindingClass =
+  | 'definite-conflict'
+  | 'likely-drift'
+  | 'missing-evidence'
+  | 'intentional-transform'
+  | 'dead-wire'
+  | 'dropped-wire'
+  | 'undocumented-wire';
+
+export type LensContractFindingSeverity = 'error' | 'warning' | 'info';
+
+/** One deterministic interpretation of a contract wire; suppressed findings remain present. */
+export interface LensContractDriftFinding {
+  id: string;
+  wireId: string;
+  findingClass: LensContractFindingClass;
+  severity: LensContractFindingSeverity;
+  label: string;
+  reason: string;
+  suppressed: boolean;
+  suppressionReason?: string;
+}
+
+export interface LensContractDriftSummary {
+  total: number;
+  active: number;
+  suppressed: number;
+  errors: number;
+  warnings: number;
+  information: number;
+  byClass: Record<LensContractFindingClass, number>;
+}
+
+/** Finding-oriented projection of one Field Wiring review. */
+export interface LensContractDriftReport {
+  version: 1;
+  id: string;
+  reviewId: string;
+  findings: LensContractDriftFinding[];
+  summary: LensContractDriftSummary;
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensSchemaChangeKind =
+  | 'rename'
+  | 'remove'
+  | 'type'
+  | 'format'
+  | 'presence'
+  | 'nullability';
+
+export type LensSchemaImpactCategory =
+  | 'contract'
+  | 'relationship'
+  | 'mapping'
+  | 'validation'
+  | 'serialization'
+  | 'migration'
+  | 'deployment';
+
+export type LensSchemaImpactSeverity = 'high' | 'medium' | 'review';
+
+export interface LensSchemaImpactItem {
+  id: string;
+  label: string;
+  detail: string;
+  category: LensSchemaImpactCategory;
+  severity: LensSchemaImpactSeverity;
+  /** Zero is the selected field; larger values are farther evidence-backed implications. */
+  proximity: number;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** Bounded impact preview for one proposed field-shape change across the selected contract boundary. */
+export interface LensSchemaChangeImpact {
+  version: 1;
+  id: string;
+  seedContractId: string;
+  seedFieldId: string;
+  changeKind: LensSchemaChangeKind;
+  items: LensSchemaImpactItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export type LensContractRelationKind =
+  | 'foreign-key'
+  | 'reference'
+  | 'orm'
+  | 'resolver'
+  | 'loader'
+  | 'query';
+
+export interface LensContractRelationEndpoint {
+  contractLabel: string;
+  fieldPath: string;
+  contractId?: string;
+  fieldId?: string;
+}
+
+/** A declared relationship between fields; unresolved endpoints remain visible by label. */
+export interface LensContractRelation {
+  id: string;
+  kind: LensContractRelationKind;
+  label: string;
+  from: LensContractRelationEndpoint;
+  to: LensContractRelationEndpoint;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+export type LensDataClassification = 'public' | 'internal' | 'confidential' | 'restricted';
+
+export type LensDataControlKind =
+  | 'consent'
+  | 'authorization'
+  | 'redaction'
+  | 'encryption'
+  | 'retention'
+  | 'residency';
+
+export interface LensDataTrustFieldRule {
+  id: string;
+  contractId: string;
+  fieldPath: string;
+  classification: LensDataClassification;
+  controls: LensDataControlKind[];
+  note?: string;
+}
+
+/** Explicit repository policy from `.atlasmind/lens-data-trust.json`; contains metadata, never data values. */
+export interface LensDataTrustPolicyFile {
+  version: 1;
+  fields: LensDataTrustFieldRule[];
+}
+
+export type LensDataTrustStatus = 'declared' | 'unknown';
+
+export interface LensDataTrustItem {
+  id: string;
+  contractId: string;
+  fieldId: string;
+  label: string;
+  status: LensDataTrustStatus;
+  classification?: LensDataClassification;
+  controls: LensDataControlKind[];
+  note?: string;
+  proximity: number;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+/** Bounded trust-policy projection across one selected normalized field wire. */
+export interface LensDataTrustMap {
+  version: 1;
+  id: string;
+  seedContractId: string;
+  seedFieldId: string;
+  items: LensDataTrustItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

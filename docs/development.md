@@ -129,6 +129,19 @@ AtlasMind/
 │   ├── chat/             Chat participant
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   │   ├── lensTarget.ts Versioned, validated source/evidence target contract for Lens
+│   │   ├── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
+│   │   ├── lensCodeImpact.ts Deterministic caller/callee/reference change-impact projection
+│   │   ├── lensTestMap.ts Conservative test-path classification over source-backed links
+│   │   ├── lensDataTrust.ts Explicit field trust policy and connected-endpoint projection
+│   │   ├── lensStateMachine.ts Strict declared lifecycle model and reachability projection
+│   │   ├── lensConfigResolution.ts Explicit configuration precedence and value-policy projection
+│   │   ├── lensChangeStory.ts Bounded committed-branch path/commit story projection
+│   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
+│   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
+│   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
+│   │   ├── lensSchemaImpact.ts Bounded proposed field-change impact ranking
+│   │   └── lensContractRelations.ts Relationship trust boundary and endpoint resolution
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
@@ -136,8 +149,26 @@ AtlasMind/
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpWindowsLauncher.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`, and presentation-only Models tree preferences in `modelSidebarVisibility.ts`); the chat panel's slash handling is `chatSlashRouting.ts` (pure router) + `chatStreamCollector.ts` (replays the participant's handlers into memory)
+│   │   ├── lensTreeView.ts Active-file Code Explorer and action menu
+│   │   ├── lensLanguageGraph.ts VS Code call-hierarchy/reference adapter
+│   │   ├── lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
+│   │   ├── lensImpactPanel.ts Editor-hosted code-impact map and text alternative
+│   │   ├── lensTestPanel.ts Editor-hosted test-evidence map and text alternative
+│   │   ├── lensStateCommand.ts Workspace/machine selection for declared lifecycles
+│   │   ├── lensStatePanel.ts Editor-hosted state lifecycle map and transition list
+│   │   ├── lensConfigCommand.ts Workspace/setting selection for configuration resolution
+│   │   ├── lensConfigPanel.ts Editor-hosted configuration precedence chain
+│   │   ├── lensChangeStoryCommand.ts Read-only Git base/merge-base evidence collection
+│   │   ├── lensChangeStoryPanel.ts Editor-hosted branch Change Story
+│   │   ├── lensContractReviewCommand.ts Contract discovery, pair selection, and mapping load
+│   │   └── lensContractReviewPanel.ts Filterable Field Wiring review webview
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
+├── schemas/
+│   ├── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
+│   ├── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata
+│   ├── lens-state.schema.json VS Code guidance for declared Lens state machines
+│   └── lens-config.schema.json VS Code guidance for declared Lens configuration precedence
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
@@ -148,6 +179,32 @@ AtlasMind/
 
 - **User Environment Tracking**: On activation, AtlasMind detects and stores each user's OS, hardware, shell, and editor in a private, user-scoped location (VS Code SecretStorage). This is never shared with other users or the workspace. Multiple environments per user are supported.
 ```
+
+### AtlasMind Lens development boundary
+
+The first Lens surface is intentionally native: `LensTreeProvider` asks VS Code's document-symbol provider for the active file and renders the returned nested symbols. Keep language-specific parsing out of the view. Symbol filters operate on normalized language-service kind names, prune recursively, and retain ancestors of matching descendants. New Lens adapters should normalize their output into `LensVisualTarget`, publish evidence provenance, and remain useful when only part of a graph is known.
+
+Command and webview inputs are untrusted. Re-run `normalizeLensTarget`, bind every source target to the live workspace folder name and index, keep paths root-relative, and revalidate all three values against the selected URI before acting. Target actions must be host-declared choices rather than browser- or language-provider-supplied prompts. Never attach source contents automatically, and route questions through the preferred chat surface as a draft plus one-shot context. A view becoming visible or a filter changing must not spend model budget or execute project code.
+
+Graph adapters must finish at `normalizeLensGraph`; do not pass raw language-provider or model records to a webview. The initial possible-flow budget is 80 nodes, 160 edges, and two outgoing-call levels. Keep provider failure as an evidence notice rather than converting unknown relationships into defects. `LensJourneyPanel` receives graph data only through the host-to-webview ready handshake and renders labels with DOM text nodes. Its `openNode` and `askNode` messages contain only a node id; resolve the target from the host-held graph and revalidate workspace ownership before acting. Every visual graph needs an equivalent text/list view and keyboard-operable actions.
+
+Contract adapters must emit complete `LensContract` records and pass them through `normalizeLensContract`; never silently discard malformed fields, because doing so can manufacture a false missing wire. Use `coverage: partial` or `unknown` when the source cannot prove completeness. Compare adjacent boundaries with `reviewLensContractWiring`. Exact compatible declarations may match automatically by field path, but drops, introductions, renames, transforms, and explicit inferences belong in `.atlasmind/lens-mappings.json`. Every mapping names both contract ids even when one field endpoint is absent, so the rule cannot apply to another boundary. The manifest-contributed schema is editing guidance; `normalizeLensContractMappingFile` remains the untrusted-file boundary. Suppressions stay attached to output as reviewable annotations rather than hiding wires.
+
+Data-trust metadata belongs in `.atlasmind/lens-data-trust.json`, not in source-name heuristics or sample values. Every rule must name one normalized contract id and field path; duplicate endpoints make the file invalid. Store classifications, declared control names, and bounded policy context only—never secret or personal data values. JSON Schema is editor guidance; `normalizeLensDataTrustPolicyFile` is the runtime boundary. A declared control records policy intent and must not be described as observed implementation or runtime verification.
+
+Lifecycle topology belongs in `.atlasmind/lens-state.json`. Keep machine, state, and transition ids unique and make every transition endpoint resolve inside its machine. `normalizeLensStateMachineFile` remains the runtime trust boundary even though the manifest contributes JSON Schema guidance. Optional source anchors must be root-relative and range-backed only when the location is defensible. Never import/evaluate a project state module to improve the map, and never describe declared event, guard, effect, reachability, or dead-end results as observed execution. Runtime comparison needs a separate explicit evidence adapter.
+
+Configuration precedence metadata belongs in `.atlasmind/lens-config.json`. Every setting/source id, key, and precedence level must be unique inside its scope. Use `valuePolicy: "masked"` for credentials or sensitive values: masked sources must omit `value` entirely and may record presence only. Display policy is limited to bounded control-safe scalars and must never be used for sensitive data. The schema is editing guidance; `normalizeLensConfigFile` is the runtime boundary. Open/Ask targets may name source kind, precedence, and resolution status, but must never carry any value. Do not read the live process environment, SecretStorage, runtime memory, or remote flag services as a side effect of opening the declared view.
+
+Change Story collection must remain read-only and shell-free. Keep the Git executable fixed, pass a fixed allow-list of read operations as argument arrays, choose bases only from bounded refs returned by the repository, require the workspace folder to be the repository root, and parse filename evidence with `-z`. Feed only normalized commit/path records to `buildLensChangeStory`; never post raw Git output or diff contents to the webview. Deleted paths cannot form live source targets. Detect and name a dirty worktree but do not silently mix uncommitted changes into a committed branch story. Filename categories are review navigation—not semantic, runtime, compatibility, test, or deployment proof. Remote PR bodies, issues, reviews, CI/checks, and runtime evidence require separate adapters.
+
+The initial discovery command deliberately scans filename-signalled JSON (`schema`, `contract`, `openapi`, `swagger`), TypeScript (`dto`, `model`, `schema`, `type`, `entity`, `contract`, `interface`, `request`, `response`), plus SQL, with 200-file/200-contract and 2 MB per-source budgets. Keep JSON parsing strict and SQL/TypeScript extraction declaration-only; never execute SQL or import/evaluate project modules to improve coverage. The TypeScript syntax adapter must keep partial coverage and must not claim to resolve aliases, inheritance, mapped types, decorators, initializers, or runtime validators. New adapters must state `complete`, `partial`, or `unknown`, preserve source-kind/evidence, and attach a normalized source target only when the range is defensible. Keep base type separate from format or other constraints: one-sided evidence is unverified, while two contradictory declarations are incompatible. `LensContractReviewPanel` must receive only normalized/recomputed snapshots after its ready handshake, render untrusted text through DOM nodes, and resolve field/wire ids in the host. Do not render an Ask/Open affordance when no source anchor exists.
+
+Contract drift classification consumes only `LensContractReview`; it must not rediscover endpoints or reinterpret absence as a defect. Keep exact wires finding-free, incompatible declarations definite, stale endpoints in an explicit mapping dead, and ordinary unmatched wires informational/missing-evidence. Suppressions remain records and must be excluded only from active severity counts, never from total/class counts. When a finding is handed to chat, enrich the existing source-anchored relation target in the host; the webview still sends only the bounded wire id.
+
+Schema change-impact preview must remain a proposal, not a write path. Resolve the seed field and change kind in the extension host, re-normalize contracts, verify the selected review boundary, follow only normalized wires, cap output, and label rule-based compatibility/validation/migration/deployment implications as inferred. Keep tests, callers, traces, migration history, deployment state, and workspace-wide reachability in notices until evidence adapters exist; absence of a connected endpoint is not absence of consumers. The webview sends field/impact-item ids only, and Open/Ask reuses live workspace-target validation.
+
+Contract relations must pass `normalizeLensContractRelations` before any panel use. Resolve by declared label only when exactly one same-root contract and field match; retain unresolved labels otherwise. SQL extraction currently accepts inline references and single-column foreign-key constraints only, attaches the exact clause target, caps aggregate output, and never executes SQL. Composite/dialect-specific keys stay unknown. The Relationship Map renders text through DOM nodes and returns relation ids only; host-held targets handle Open/Ask. A declared relation can inform change impact but cannot prove runtime traversal.
 
 ### Rebuilding the Windows ACP launcher
 

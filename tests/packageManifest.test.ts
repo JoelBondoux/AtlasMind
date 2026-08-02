@@ -69,6 +69,66 @@ describe('package manifest', () => {
     expect(overrides.qs).toBe('6.15.2');
   });
 
+  it('provides validation and editor guidance for explicit Lens field mappings', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-mappings.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-mappings.json',
+      url: './schemas/lens-mappings.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens explicit field mappings',
+      additionalProperties: false,
+    }));
+  });
+
+  it('provides validation and editor guidance for Lens data trust policy', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-data-trust.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-data-trust.json',
+      url: './schemas/lens-data-trust.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens data trust policy',
+      additionalProperties: false,
+    }));
+  });
+
+  it('provides validation and editor guidance for Lens state-machine declarations', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-state.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-state.json',
+      url: './schemas/lens-state.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens state-machine declarations',
+      additionalProperties: false,
+    }));
+  });
+
+  it('provides validation and editor guidance for Lens configuration resolution declarations', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-config.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-config.json',
+      url: './schemas/lens-config.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens configuration resolution declarations',
+      additionalProperties: false,
+    }));
+  });
+
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
@@ -301,6 +361,50 @@ describe('package manifest', () => {
     ]));
   });
 
+  it('contributes Lens filtering and item actions without exposing item-only commands in the palette', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
+    const itemMenus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
+    const titleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+
+    expect(commands.map(entry => entry.command)).toEqual(expect.arrayContaining([
+      'atlasmind.lens.filterSymbols',
+      'atlasmind.lens.reviewContracts',
+      'atlasmind.lens.reviewState',
+      'atlasmind.lens.reviewConfig',
+      'atlasmind.lens.reviewChangeStory',
+      'atlasmind.lens.moreTargetActions',
+    ]));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.filterSymbols',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewContracts',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewState',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewConfig',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewChangeStory',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(itemMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.moreTargetActions',
+      when: expect.stringContaining('atlasmind.lensView'),
+    }));
+    expect(paletteMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.moreTargetActions',
+      when: 'false',
+    }));
+  });
+
   it('contributes the Sessions sidebar view', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string; visibility?: string }>;
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
@@ -314,9 +418,9 @@ describe('package manifest', () => {
   it('ships the AtlasMind sidebar tree views in the default operational order and collapsed by default', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
-    // The order reads top to bottom as a sentence: where you work, who needs
-    // you, where you stand, what has happened, what the project knows, what
-    // does the work, what it runs on, what it can reach.
+    // The order reads top to bottom as a sentence: where you work, what you
+    // are exploring, who needs you, where you stand, what has happened, what
+    // the project knows, what does the work, what it runs on, what it can reach.
     //
     // Set to the arrangement the maintainer reached by actually using it, which
     // beats a reasoned guess about a layout nobody had lived with yet. The two
@@ -325,8 +429,11 @@ describe('package manifest', () => {
     // the Director's overdue badge is somewhere you do not have to scroll to.
     expect(views.map(entry => entry.id)).toEqual([
       'atlasmind.chatView',
-      // First of the trees, because it is the one that asks something of you —
-      // and it carries the overdue badge.
+      // The compact active-file explorer belongs next to Chat because its
+      // primary action attaches a selected target to a new Chat question.
+      'atlasmind.lensView',
+      // First operational-state tree, because it is the one that asks
+      // something of you — and it carries the overdue badge.
       'atlasmind.projectDirectorView',
       // Still near the top: the view you glance at, kept above the inventory.
       'atlasmind.projectStateView',

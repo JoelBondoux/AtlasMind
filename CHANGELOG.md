@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.251.0] - 2026-08-02
+
+### Added
+
+- **The complete AtlasMind Lens feature line is now integrated with the current `develop` branch.** The collapsed **Lens — Code Explorer** follows the active editor, exposes nested language-service symbols, supports role filters, opens exact source ranges, and prepares editable Ask Atlas drafts. Symbol actions add source-backed possible-flow journeys, bounded caller/callee impact maps, and conservative test-evidence maps.
+- **Lens can review explicit repository boundaries and declarations.** **Review Contract Wiring** discovers bounded TypeScript, OpenAPI, JSON Schema, and SQL declarations and combines field wiring, drift findings, proposed schema impact, declared relationships, and explicit data-trust metadata. Repository-authored `.atlasmind/lens-mappings.json`, `.atlasmind/lens-data-trust.json`, `.atlasmind/lens-state.json`, and `.atlasmind/lens-config.json` files receive bundled JSON Schema validation.
+- **Three additional review surfaces explain declared or committed state.** State Lifecycle visualizes declared transitions and reachability; Configuration Resolution shows an explicit precedence chain without reading secret values; Branch Change Story summarizes bounded merge-base-to-HEAD commit and path evidence without replacing the Git diff.
+
+### Changed
+
+- **Lens and the newer ACP, dashboard, routing, testing, and Models-sidebar work now share one source line.** The merge retains `develop`'s ACP stdio entrypoint, task-scoped skill routing, branch dashboard, patched dependency override, and presentation-only model visibility alongside all Lens commands, views, types, schemas, and tests.
+
+### Security
+
+- **Lens remains read-only until the operator chooses an existing reviewed action.** It does not execute project code or SQL, connect to a database, invoke a model while rendering, fetch remotes, switch branches, or read runtime secrets. Visual targets are bounded, workspace-relative, root-identified records; traversal, stale roots, malformed ranges, dangling graph endpoints, and invalid declaration files fail closed.
+- **Webview and chat boundaries stay host-authoritative.** Panels receive normalized snapshots after a ready handshake, render labels as text, and return bounded opaque ids that the host resolves against live state. Ask actions create editable drafts without source contents or absolute paths and never submit automatically; inferred and missing evidence remain visibly distinct from observed or source-backed facts.
+
 ## [0.241.2] - 2026-08-02
 
 ### Fixed
