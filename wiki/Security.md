@@ -191,6 +191,29 @@ hold one.
 
 ---
 
+## Model-drafted files
+
+The Lens declaration guide is the one place AtlasMind will have a model write a file that lands in your
+repository, so the boundary is worth stating in full. A draft is a **proposal, never a write**:
+
+- **Refused whole, never repaired.** The draft goes through the same check the lens itself reads the file
+  with. If it fails, it is rejected outright — patching it up would mean AtlasMind inventing the parts the
+  model got wrong, in a shape that then looks derived from your repository.
+- **Every claimed path is verified.** Any file the draft says a declaration lives in is checked against
+  your workspace and dropped if it doesn't resolve. Traversal and absolute paths are rejected before they
+  can even become a filesystem check. A plausible-but-wrong path is worse than no path: it renders, it
+  draws, you click it, and nothing is there.
+- **Credential-shaped values are withheld from the file**, not masked in the view. These files are
+  committed, so hiding a secret on screen would still put it in your repository. A setting whose key reads
+  as a credential — or that arrives with no value policy at all — is masked by default, and the file
+  records only that a value is set.
+- **Nothing is written until you've seen it.** You get the full draft, every correction listed
+  individually rather than counted, and a confirmation naming the file and the exact counts.
+- **Your own entries always win.** Merging never replaces something you wrote — a silent overwrite would
+  be invisible in a diff full of additions.
+
+---
+
 ## Delegated agents and hidden windows
 
 Two boundaries worth knowing if you use subscription agents:

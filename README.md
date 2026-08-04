@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.257.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.258.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,28 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.257.5
+## What's new in 0.258.0
 
-Since the last Marketplace publication, **v0.256.0**, source builds have added the following. The full
+Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Lens declaration files now come with a guide instead of a blank page.** Two of the eight lenses
+  read a file you have to write yourself, and until now the help on offer was an empty
+  `{"version": 1, "machines": []}` and the advice to use schema autocomplete — which only helps if you
+  already know both what the format means and what your own project's state machines are. **AtlasMind:
+  Lens: Declaration Guide** (also `/lens`, also every "Show me how" button on the Lenses dashboard) says
+  what each file is for, shows a worked example small enough to read, and can ask Atlas to read your
+  repository and propose a first draft.
+
+  A draft is a **proposal, never a write**. It goes through the same check the lens itself reads the file
+  with and is refused whole if it fails, rather than being patched up. Every file path it claims is
+  verified against your workspace and dropped if it does not resolve, because a link that goes nowhere is
+  worse than no link. Any value that looks like a credential is left out of the file entirely — these
+  files get committed. You see the result in full, with every correction listed, before anything is
+  written, and existing entries always win over drafted ones.
+
+  Two more declaration files, `lens-mappings.json` and `lens-data-trust.json`, are now visible too — as
+  *optional* refinements that are never counted against you.
 
 - **Atlas Lenses has a front door.** **AtlasMind: Lens: Open Atlas Lenses Dashboard** opens one page for
   all eight lenses: what each one reads, the question it answers, whether it can answer it right now, and
@@ -220,7 +238,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/cost` | Current session spend |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
-| `/setup` · `/acp` · `/buzz` | Guided setup walkthroughs |
+| `/setup` · `/acp` · `/buzz` · `/lens` | Guided setup walkthroughs |
 | `/ship [routine]` | Run a saved project routine |
 | `/sync-instructions` | Keep every AI tool's instruction file in agreement |
 | `/voice` · `/vision` | Speech and image analysis panels |

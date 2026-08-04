@@ -51,7 +51,7 @@ export function registerTreeViews(
   atlas: AtlasMindContext,
 ): void {
   const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
-  registerLensTreeView(context);
+  registerLensTreeView(context, atlas);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
   const sessionsProvider = new SessionsTreeProvider(atlas);

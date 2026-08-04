@@ -8,6 +8,7 @@ import {
   normalizeLensTarget,
 } from '../core/lensTarget.js';
 import type { LensTargetActionId } from '../core/lensTarget.js';
+import type { AtlasMindContext } from '../extension.js';
 import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
 import { reviewWorkspaceChangeStory } from './lensChangeStoryCommand.js';
@@ -15,6 +16,7 @@ import { reviewWorkspaceConfiguration } from './lensConfigCommand.js';
 import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
 import { registerLensDashboard } from './lensDashboardPanel.js';
 import { registerLensDeclarationSetup } from './lensDeclarationSetup.js';
+import { registerLensDeclarationGuide } from './lensDeclarationGuidePanel.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
@@ -297,9 +299,12 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
   }
 }
 
-export function registerLensTreeView(context: vscode.ExtensionContext): void {
+export function registerLensTreeView(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
   const provider = new LensTreeProvider(context.workspaceState);
   registerLensDeclarationSetup(context);
+  // The declaration guide is the one Lens surface that calls a model, so it is
+  // also the only one that needs the orchestrator.
+  registerLensDeclarationGuide(context, atlas);
   registerLensDashboard(context);
   context.subscriptions.push(
     provider,

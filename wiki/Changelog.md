@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.258.0 — The Lens declaration files come with a guide
+
+Two of the eight lenses read a file you have to write yourself. Until now the help on offer was an empty
+`{"version": 1, "machines": []}` and the advice to use schema autocomplete — which only helps if you
+already know both what the format means and what your project's state machines are.
+
+**AtlasMind: Lens: Declaration Guide** — also `/lens`, also every **Show me how** button on the Lenses
+dashboard — says what each file is for, shows a worked example small enough to read in one go, and can ask
+Atlas to read your repository and propose a first draft.
+
+A draft is a proposal, never a write:
+
+- It goes through **the same check the lens itself uses**, and is refused whole if it fails rather than
+  patched up. A repaired draft would be AtlasMind inventing your project's topology in a way that then
+  looks derived from it.
+- **Every file path it claims is verified** against your workspace and dropped if it does not resolve. A
+  plausible-but-wrong path renders, draws, and leads nowhere, which is worse than no link at all.
+- **Any value that looks like a credential is left out of the file entirely.** These files are committed,
+  so masking it on screen would still put the secret in your repository.
+- You see the whole thing, with **every correction listed**, before anything is written — and entries you
+  wrote yourself always win over drafted ones.
+
+Two more declaration files are now visible as well: `lens-mappings.json` (Field Wiring overrides) and
+`lens-data-trust.json` (Data Trust policy). Both are **optional** and neither is ever counted against you,
+so a project that has declared its state machines and its configuration precedence reads as finished.
+
 ## v0.257.5 — Windows launcher tests now report why they failed
 
 `acpWindowsLauncher.test.ts` still launches real process trees, but the test timeout now sits above the

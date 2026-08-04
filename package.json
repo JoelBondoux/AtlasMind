@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.257.5",
+  "version": "0.258.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -133,6 +133,10 @@
             "description": "ACP agents: a step-by-step setup walkthrough for subscription-backed agent capacity"
           },
           {
+            "name": "lens",
+            "description": "Atlas Lenses: what to put in the repository declaration files, with a worked example for each"
+          },
+          {
             "name": "setup",
             "description": "Every setup guide and how far along each one is; `/setup <name>` opens one"
           },
@@ -236,6 +240,11 @@
         "command": "atlasmind.lens.setupDeclarations",
         "title": "AtlasMind: Lens: Set Up Repository Declarations",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "atlasmind.lens.openDeclarationGuide",
+        "title": "AtlasMind: Lens: Declaration Guide",
+        "icon": "$(book)"
       },
       {
         "command": "atlasmind.lens.reviewContracts",

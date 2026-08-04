@@ -125,6 +125,23 @@ The dashboard is read-only by construction — it runs no model, writes no file 
 Its webview sends only a bounded id, and the host resolves that against a catalogue it holds itself, so
 no surface can trigger a command the dashboard didn't already offer.
 
+Two of those views read a declaration file you write yourself, and the **declaration guide** is what
+tells you how. It derives its walkthrough from the four files on disk — no model, no configuration — so
+it reads the same on a fresh install, and it counts only the two files that actually gate a lens, so a
+project that has declared its state machines and its configuration precedence reads as finished rather
+than as permanently half-done. An optional file that is *broken* is still reported as broken; "optional"
+describes absence, not errors.
+
+The guide's **Ask Atlas** drafter is the one place in Lens where a model runs, and it is a proposal path
+rather than a write path. A draft is put through the same normalizer the lens itself reads the file with
+and **refused whole if it fails**, because repairing it would mean AtlasMind inventing your project's
+topology in a shape that then looks derived from it. Every file path the draft claims is **verified
+against the workspace and dropped if it doesn't resolve** — a plausible-but-wrong path renders, draws and
+leads nowhere. Any value matching a known credential shape is **withheld from the file entirely** rather
+than masked at render time, since these files get committed and masking on screen would still put the
+secret in the repository. Nothing is written until you've seen the whole draft with every correction
+listed, and entries you wrote yourself win every collision.
+
 ### The panels
 
 Chat, Settings, Project Dashboard, Project Ideation, Mission Control, Project Run Center, Cost

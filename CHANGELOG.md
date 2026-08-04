@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.258.0] - 2026-08-04
+
+### Added
+
+- **A guided procedure for the Lens declaration files, with an "Ask Atlas" drafter on each.** The Atlas
+  Lenses dashboard could report that `.atlasmind/lens-state.json` was missing and could create one; what
+  it created was a valid empty starter and the next instruction was to fill it in with schema
+  autocomplete. That is only actionable to somebody who already knows what a state-machine declaration
+  *is* and what their own project's state machines *are*, so two of the eight lenses were effectively
+  unreachable.
+
+  New **AtlasMind: Lens: Declaration Guide** panel (`atlasmind.lens.openDeclarationGuide`), reachable from
+  every "Show me how" action on the dashboard, from the declaration QuickPick, and from the new `/lens`
+  chat command. For each file it states what the file declares, its current status, and a worked example
+  — deliberately from a generic domain rather than from this repository, so it reads as a shape to copy
+  rather than an answer to accept.
+
+- **`/lens`, and Atlas Lenses in the `/setup` index.** `lensDeclarationPlan.ts` derives the walkthrough
+  from the four files on disk — no model and no configuration — so it renders identically on a fresh
+  install with nothing set up, which is when somebody is most likely to be asking.
+
+- **Two more declaration files are now visible.** `lens-mappings.json` (Field Wiring overrides) and
+  `lens-data-trust.json` (Data Trust policy) join the inspector as **optional** refinements. Only the two
+  files that actually gate a lens are counted, so a project that has declared its state machines and its
+  configuration precedence reads as finished rather than as half done forever. An optional file that is
+  *broken* is still reported as broken — optional describes absence, not errors.
+
+### Security
+
+- **The declaration drafter is a proposal path, not a write path.** `lensDeclarationDraft.ts` treats model
+  output as untrusted at every step. A draft that fails the same normalizer the lens reads the file with
+  is **refused whole rather than repaired**, because repairing it would mean AtlasMind inventing project
+  topology that then looks derived. Every `source.workspacePath` is **checked against the filesystem and
+  dropped if it does not resolve** — a plausible-but-wrong path renders, draws, and leads nowhere — with
+  traversal and absolute paths rejected before they can become a filesystem probe. Any value matching a
+  known credential shape is **withheld from the file entirely** rather than masked at render time: these
+  files are committed, so masking on screen would still put the secret in the repository. A setting whose
+  key reads as a credential, or that arrives with no value policy at all, is masked by default. Drafts are
+  capped at 12 entries so they can actually be reviewed, and the cap states itself. Merging **never
+  overwrites an entry the user wrote** — existing entries win every id collision. Every correction is
+  listed in full before the confirm, and the write is gated on a modal naming the file and the counts.
+
+### Fixed
+
+- **`createOrOpenStarter` would have written the wrong file.** It chose its path with a two-armed
+  `kind === 'state' ? … : …`, which silently routed every kind that was not `state` to the configuration
+  file the moment a third declaration kind existed. It now reads the path from the declaration table.
+
+- **Three of the four worked examples in the new guide were invalid**, caught by a test that runs each one
+  through its own normalizer: a `display` setting must give every source a value including an unset one,
+  contract field references use `fieldPath` rather than `fieldId`, mappings need explicit upstream and
+  downstream contract ids with a `kind` from the declared set, and data-trust rules are flat rather than
+  nesting a field reference.
+
+### Changed
+
+- **`isOpeningAction` now admits namespaced open verbs** (`atlasmind.<feature>.open*`, plus VS Code's own
+  folder picker). Most AtlasMind commands are namespaced, so the allowlist previously admitted only the
+  handful that are not, and every namespaced guide would have had to be special-cased by name until
+  somebody special-cased the wrong one. The verb still carries the semantics — the switch-flipping
+  commands the list exists to exclude remain excluded.
+
 ## [0.257.5] - 2026-08-04
 
 ### Changed

@@ -23,6 +23,7 @@ import {
   type SetupStep,
 } from './setupWalkthrough.js';
 import { ACP_SETUP_GUIDE } from './acpSetupPlan.js';
+import { LENS_SETUP_GUIDE } from './lensDeclarationPlan.js';
 
 /** The Buzz guide, described in the shared shape. */
 export const BUZZ_SETUP_GUIDE: SetupGuideSummary = {
@@ -37,9 +38,12 @@ export const BUZZ_SETUP_GUIDE: SetupGuideSummary = {
  * Every guide, in the order a new project would sensibly work through them.
  *
  * ACP first: it is the one that changes what AtlasMind can *do* for you rather
- * than what it can reach, and it is the cheapest to finish.
+ * than what it can reach, and it is the cheapest to finish. Lens last of the
+ * three: its own "Ask Atlas" step wants a model configured, which is what ACP
+ * sets up, so putting it first would send people to a guide whose best feature
+ * is not available yet.
  */
-export const SETUP_GUIDES: readonly SetupGuideSummary[] = [ACP_SETUP_GUIDE, BUZZ_SETUP_GUIDE];
+export const SETUP_GUIDES: readonly SetupGuideSummary[] = [ACP_SETUP_GUIDE, BUZZ_SETUP_GUIDE, LENS_SETUP_GUIDE];
 
 export function findSetupGuide(id: string): SetupGuideSummary | undefined {
   const wanted = (id ?? '').trim().toLowerCase();

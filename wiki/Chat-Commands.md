@@ -28,12 +28,18 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/setup` | Every setup guide and how far along each one is. `/setup acp` jumps straight into one |
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
 | `/buzz` | Guided setup for the Buzz messaging integration |
+| `/lens` | What to put in the Lens declaration files, with a worked example for each |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
-Both setup guides work the same way: each step is reported as done, to do, blocked or optional based on
-what's actually configured, and **neither will switch anything on for you**. `/acp` finishes by proving
-a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the same
-as receiving, and installed isn't the same as working.
+All three setup guides work the same way: each step is reported as done, to do, blocked or optional based
+on what's actually configured, and **none of them will switch anything on for you**. `/acp` finishes by
+proving a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the
+same as receiving, and installed isn't the same as working.
+
+`/lens` differs in one respect: it lists all four declaration files rather than walking you through them in
+order, because the files are independent and you may only ever want one of them. Only the two that
+actually gate a lens are counted, so a project that has declared its state machines and its configuration
+precedence reads as finished rather than as permanently half-done.
 
 ### Doing work
 
@@ -199,6 +205,7 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eight lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
 | `AtlasMind: Lens: Refresh Active Outline` | Re-read the current file's symbols |
 | `AtlasMind: Lens: Filter Symbols` | Show everything, or focus on types, callables, data or containers |
+| `AtlasMind: Lens: Declaration Guide` | **What to write, and how.** Per file: what it declares, its current status, and a worked example small enough to read. **Ask Atlas to draft it** has a model read your repository and propose a first draft — refused whole if it fails the same check the lens uses, every file path it claims verified against your workspace and dropped if it doesn't resolve, any credential-shaped value left out entirely, and nothing written until you've seen it all and confirmed. Entries you wrote yourself always win |
 | `AtlasMind: Lens: Set Up Repository Declarations` | Check what's configured, and create valid empty starters. Existing files are opened, never overwritten |
 | `AtlasMind: Lens: Review Contract Wiring` | Compare a TypeScript / OpenAPI / JSON Schema / SQL boundary, with drift and relationship views |
 | `AtlasMind: Lens: Review State Lifecycle` | Visualise a declared state machine — reachability, terminal states, dead ends, guards |

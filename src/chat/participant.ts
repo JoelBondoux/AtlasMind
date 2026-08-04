@@ -861,6 +861,7 @@ export async function runDeterministicSlashCommand(
     case 'director': await handleDirectorCommand(stream, atlas); return true;
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
+    case 'lens': await handleLensCommand(stream); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
@@ -2255,6 +2256,64 @@ async function handleAcpCommand(
 }
 
 /**
+ * Inspect the workspace's Lens declarations and derive the guide's steps.
+ *
+ * No model and no configuration — just four files on disk — so this returns the
+ * same answer on a fresh install with nothing set up, which is exactly when
+ * somebody is most likely to be asking.
+ */
+export async function collectLensSetupSteps(): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildLensDeclarationPlan }, { inspectLensDeclarations }] = await Promise.all([
+    import('../core/lensDeclarationPlan.js'),
+    import('../core/lensDeclarations.js'),
+  ]);
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const diskBacked = folder?.uri.scheme === 'file' || folder?.uri.scheme === 'vscode-remote';
+  return buildLensDeclarationPlan({
+    ...(folder ? { workspaceName: folder.name } : {}),
+    ...(folder && diskBacked ? { declarations: inspectLensDeclarations(folder.uri.fsPath) } : {}),
+  });
+}
+
+/**
+ * `/lens` — the declaration walkthrough.
+ *
+ * Renders the whole plan rather than one step at a time, which is the opposite
+ * of `/acp`, and deliberately: the ACP steps are sequential (you cannot sign in
+ * to an agent you have not installed), whereas these four files are independent
+ * and someone may well only ever want one of them. A checklist lets them pick;
+ * a wizard would march them through three files to reach the one they came for.
+ */
+async function handleLensCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  const [{ LENS_SETUP_GUIDE }, walkthrough] = await Promise.all([
+    import('../core/lensDeclarationPlan.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+  const steps = await collectLensSetupSteps();
+  const progress = walkthrough.summarizeSetupProgress(steps, LENS_SETUP_GUIDE.stepIds);
+
+  stream.markdown(walkthrough.renderSetupGuideMarkdown(LENS_SETUP_GUIDE, steps, progress));
+  stream.markdown([
+    '',
+    '---',
+    '',
+    'Each file has a guide with a worked example, and Atlas can read the repository and propose a first draft.',
+    'A draft is shown to you in full and written only if you accept it — anything it cannot anchor to a real file is dropped, and any value that looks like a credential is left out.',
+  ].join('\n'));
+
+  const next = walkthrough.nextSetupStep(steps, LENS_SETUP_GUIDE.stepIds);
+  if (next?.action && walkthrough.isOpeningAction(next.action.command)) {
+    stream.button({
+      command: next.action.command,
+      title: next.action.title,
+      ...(next.action.args ? { arguments: next.action.args } : {}),
+    });
+  }
+  stream.button({ command: 'atlasmind.lens.openDashboard', title: 'Open Atlas Lenses' });
+  void progress;
+}
+
+/**
  * `/setup` — the index of every setup guide, with how far along each one is.
  *
  * Exists because a feature that needs configuring should be discoverable before
@@ -2282,10 +2341,15 @@ async function handleSetupCommand(
     await handleBuzzCommand('', stream, atlas, token);
     return;
   }
+  if (requested?.id === 'lens') {
+    await handleLensCommand(stream);
+    return;
+  }
 
   const plans: Array<{ guideId: string; steps: import('../core/setupWalkthrough.js').SetupStep[] }> = [];
   plans.push({ guideId: 'acp', steps: await collectAcpSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'buzz', steps: await collectBuzzSetupSteps(atlas).catch(() => []) });
+  plans.push({ guideId: 'lens', steps: await collectLensSetupSteps().catch(() => []) });
 
   stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
   if (trimmed && !requested) {

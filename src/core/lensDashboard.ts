@@ -722,17 +722,17 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         ...base,
         title: `Repair the ${lens.name} declaration`,
         detail: `${lens.readinessReason} Open it and fix it against the installed schema — autocomplete knows the shape.`,
-        actionLabel: 'Open declaration',
-        command: 'atlasmind.lens.setupDeclarations',
+        actionLabel: 'Open the guide',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'declaration-missing':
       return {
         ...base,
         title: `Create the ${lens.name} declaration`,
-        detail: `${lens.readinessReason} The starter is empty by design; AtlasMind never invents your project's topology.`,
-        actionLabel: 'Create starter',
-        command: 'atlasmind.lens.setupDeclarations',
+        detail: `${lens.readinessReason} The guide shows what the file is for, a worked example, and can ask Atlas to propose a first draft from your repository.`,
+        actionLabel: 'Show me how',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'declaration-empty':
@@ -740,8 +740,8 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         ...base,
         title: `Declare your first ${lens.name.toLowerCase()} entry`,
         detail: lens.readinessReason,
-        actionLabel: 'Open declaration',
-        command: 'atlasmind.lens.setupDeclarations',
+        actionLabel: 'Show me how',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'needs-active-file':
