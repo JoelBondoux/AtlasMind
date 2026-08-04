@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.256.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.257.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.256.0
+## What's new in 0.257.0
 
 Since the last Marketplace publication, **v0.255.1**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Atlas Lenses now has a front door.** **AtlasMind: Lens: Open Atlas Lenses Dashboard** opens one page showing all eight lenses: what each one reads, the question it answers, whether it can answer it right now, and why not. A flow map draws the links between evidence, lens, and question; hovering any card follows its connections. Every lens, every evidence source, and every suggested action is clickable, and a ⓘ on each explains it in plain language — including what that lens *cannot* prove. A **Do this next** band lists only what needs a person, ranked by a published rule table, and is empty when nothing does.
+
+- **The eight Lens surfaces now share one visual language.** Possible Flow, Change Impact, Test Evidence, State Lifecycle, Configuration Resolution, Change Story, and Field Wiring were written weeks apart and looked it. They now draw from one stylesheet, one card, one header, and one flowing-link renderer. Relationships that were previously listed as text are drawn: state transitions curve between the states they connect, impact links point *into* the selected symbol from its callers and *out of* it to its callees, and a configuration chain shows which source the value actually reaches. Curves are drawn from live geometry, so they survive scrolling and resizing, and only a highlighted link animates — and only when the OS has not asked for reduced motion.
 
 - **One delivery request now stays one chat turn.** `atlasmind.workflow.chatGuidance` defaults to `follow`: ask AtlasMind to commit, push, promote, or publish once and it applies the enabled declared route without stopping for a second “follow the workflow” message. This is sequencing policy, not extra authority—tool approvals, protected-ref checks, release gates, and outward-write confirmations still apply. Pre-existing unrelated edits are left untouched; branch-changing release work prefers an isolated Git worktree instead of stashing or switching the active checkout.
 
@@ -370,6 +374,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | Open the Lens dashboard: every lens, what it reads, whether it is ready, and what to do next |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
 | `AtlasMind: Lens: Set Up Repository Declarations` | Review State/Configuration declaration status, safely create missing empty starters, or open existing files |
@@ -416,6 +421,8 @@ Settings-specific, sidebar, remote-control, and resource-action commands are lis
 
 Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow**, a bounded **Show impact** map, and a conservative **Find tests** evidence map for symbols, plus focused Explain drafts. File-level impact/test actions remain editable drafts until file/diff adapters land. Journey, impact, and test-evidence nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
 
+**Open Atlas Lenses Dashboard** is the entry point to all of this. It lists the eight lenses grouped by what they are about, states which are ready and why the others are not, draws the links between each lens's evidence and the question it answers, and offers a ⓘ on every card explaining the lens in plain language along with what it cannot prove. Opening the dashboard runs no model, writes no file, and scans nothing; evidence it did not inspect is reported as unassessed rather than as absent.
+
 State Lifecycle and Configuration Resolution are repository-level Lens views, not active-file actions. Their declaration status appears in Getting Started, Settings → Project Runs, and Project Dashboard Overview. **Set Up Repository Declarations** creates only a valid empty starter and opens it with schema completion; it never guesses project states, configuration precedence, values, or secrets, and never overwrites an existing declaration.
 
 ---
@@ -461,6 +468,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/branchDashboard.ts` | Pure branch readiness, saved-view, PR/CI/traceability, cleanup-candidate, and CODEOWNERS routing rules |
 | `src/acp/` | Agent-side ACP v1 sessions, one-turn permission brokering, and validated Buzz reply delivery |
 | `src/cli/` | Headless AtlasMind CLI and the local `atlasmind-acp` stdio entrypoint |
+| `src/core/lensDashboard.ts` | Pure Lens catalog, readiness rules, flow map, and ranked suggested actions |
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/core/lensCodeImpact.ts` | Deterministic caller/callee/reference projection for the first general Change Impact Map |
@@ -483,6 +491,8 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
 | `src/views/modelSidebarVisibility.ts` | User-level, presentation-only persistence for hidden Models sidebar rows and exact-entry restoration |
+| `src/views/lensDashboardPanel.ts` | The Atlas Lenses dashboard: catalog, flow map, readiness, and next actions |
+| `src/views/lensVisuals.ts` | Shared Lens design system: tokens, cards, flowing-link renderer, and ⓘ popovers |
 | `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and Lens action menu |
 | `src/views/lensLanguageGraph.ts` | VS Code reference and call-hierarchy adapter for static possible-flow journeys |
 | `src/views/lensJourneyPanel.ts` | Secure editor-hosted journey graph with exact source/chat actions and a text alternative |

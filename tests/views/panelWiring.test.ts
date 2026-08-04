@@ -234,8 +234,13 @@ describe('button paint ownership', () => {
   // `webviewUtils.ts` joins the shared-CSS scope because QUICK_REPLY_CSS lives
   // there: quick-reply pills render on four surfaces, so their paint is defined
   // once and interpolated into each panel's CSS rather than copied per panel.
+  // `lensVisuals.ts` is the same kind of module for the eight Lens surfaces:
+  // one definition of the card, the button, and the ⓘ, interpolated into each
+  // panel's CSS. Reading it here keeps the guard meaningful for those panels
+  // rather than making them opt out of it.
   const shared = readFileSync(path.join(VIEWS_DIR, 'dashboardTheme.ts'), 'utf8')
     + readFileSync(path.join(VIEWS_DIR, 'dashboardWidgets.ts'), 'utf8')
+    + readFileSync(path.join(VIEWS_DIR, 'lensVisuals.ts'), 'utf8')
     + readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
 
   // Fragments produced by template interpolation, not real class names.
