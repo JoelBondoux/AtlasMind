@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.257.3 — Three documentation corrections
+
+`Home.md` still claimed 21 built-in agents where the runtime registers 27 — the figure was fixed in the
+README but missed on the wiki's front page, leaving the two most-read documents disagreeing.
+
+The Remote Control page also gained the `AtlasMind: Enable Remote Control (Gateway)` command in its
+"Turning it on" table, where gateway mode was previously only mentioned in prose further down, and its
+safety table no longer contradicts its own settings table about whether `atlasmind.remote.enabled`
+starts the server. It does not; the commands do.
+
 ## v0.257.2 — Documentation written for the reader
 
 The README and all 24 wiki pages are rewritten for people evaluating and using AtlasMind rather than for

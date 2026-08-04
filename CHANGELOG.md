@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.3] - 2026-08-04
+
+### Fixed
+
+- **`wiki/Home.md` still claimed 21 built-in agents.** The stale count was corrected in the README and named in the 0.257.2 changelog entry, but the same figure on the wiki's front page was missed — so the two most-read documents disagreed about how many specialists ship, and the more prominent one was wrong. It now says 27, matching the runtime.
+- **The Remote Control page referenced gateway mode without listing the command that starts it.** `AtlasMind: Enable Remote Control (Gateway)` is now in the "Turning it on" table alongside the other four, so the cross-machine path has a visible entry point rather than only a prose mention further down.
+- **The Remote Control safety table contradicted the settings table three rows above it.** It said the server listens only once you run the enable command *and* the setting is on, immediately after that page documented `atlasmind.remote.enabled` as declared-but-not-read. The commands are the control; the sentence now says so.
+
 ## [0.257.2] - 2026-08-04
 
 ### Changed

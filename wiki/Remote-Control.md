@@ -38,6 +38,7 @@ behaves identically, and why a remote client can never do anything the local cha
 | Command | What it does |
 |---|---|
 | **AtlasMind: Enable Remote Control** | Starts the local server, asks you to trust the workspace, and shows a pairing code |
+| **AtlasMind: Enable Remote Control (Gateway)** | The cross-machine version — switches to gateway mode and starts the server behind your own sign-in gateway. See [below](#reaching-it-from-another-machine) |
 | **AtlasMind: Show Remote Pairing Code** | Shows the current code again |
 | **AtlasMind: Disable Remote Control** | Stops the server and drops every session |
 | **AtlasMind: Revoke Remote Access** | Rotates the token and disconnects everyone, immediately |
@@ -54,7 +55,7 @@ behaves identically, and why a remote client can never do anything the local cha
 
 | | |
 |---|---|
-| **Off until you say otherwise** | The server never listens until you run the enable command *and* the setting is on |
+| **Off until you say otherwise** | The server never listens until you deliberately run one of the enable commands |
 | **Never opens a port to the world** | It always binds to your own machine only |
 | **Pairing required** | A token, stored in the OS keychain on both sides. No valid token, no connection |
 | **Workspace trust** | It refuses to serve a workspace you haven't approved for remote control |

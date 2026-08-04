@@ -77,7 +77,7 @@ See [[Model Routing]].
 **It remembers your project.** Architecture, decisions, domain knowledge and lessons live as readable
 Markdown files in your repository and come back when they're relevant. See [[Memory System]].
 
-**It's a team, not an assistant.** 21 specialists with different instructions, tools and models. They
+**It's a team, not an assistant.** 27 specialists with different instructions, tools and models. They
 can hand work to each other — without handing over permissions they weren't given. See [[Agents]].
 
 **It shows its working.** Which agent, which model, which tools, what it verified, what it cost, and
