@@ -3397,7 +3397,7 @@ export interface McpServerState {
 
 // ── Agentic Resource Discovery (ARD) ─────────────────────────────
 //
-// ARD (https://agenticresourcediscovery.org/) is a discovery-only protocol:
+// ARD (https://github.com/ards-project/ard-spec) is a discovery-only protocol:
 // it locates agentic resources (MCP servers, A2A agents, Skills, APIs) BEFORE
 // invocation. AtlasMind acts as an ARD client (search + install + in-task
 // discovery) and publisher (export its own catalog). All external manifests

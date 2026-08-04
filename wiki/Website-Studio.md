@@ -1,47 +1,95 @@
 # Website Studio
 
-Website Studio is AtlasMind's project-scoped workspace for taking a client website from intake to delivery readiness. Open it from **Project Dashboard → Delivery**, from the Project Ideation board, with the **AtlasMind: Open Website Studio** command, or by choosing **Website / Marketing Site** during guided bootstrap. (Until v0.234.0 the command was the only way in — the Studio linked out to the Dashboard and the Ideation board, and neither linked back.)
+**A workspace for taking a client website from the first conversation to launch.**
 
-## Dashboards
+If you build sites for clients, the hard part usually isn't the code — it's keeping the brief, the
+sitemap, the design decisions, the hosting choice and the sign-offs in one place that everyone can see.
+Website Studio is that place.
 
-| Dashboard | Purpose |
+**Open it from:** Project Dashboard → Delivery · the Ideation board · **AtlasMind: Open Website Studio** ·
+or by choosing **Website / Marketing Site** during `/bootstrap`.
+
+---
+
+## What's in it
+
+| Dashboard | What you use it for |
 |---|---|
-| Client Brief | Capture the client, project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, launch target, and budget |
-| Sitemap | Define page title, slug, purpose, and reusable page template |
-| Wireframes & UI | Outline page sections and track wireframe, visual design, content, and SEO through draft, review, and approval |
-| UI System | Record brand direction, tone, palette, typography, spacing, corner style, accessibility target, and component notes |
-| Hosting & Platforms | Configure Develop, Staging, and Production, then compare/select Cloudflare Pages, GitHub Pages, WordPress + Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or custom hosting |
-| n8n Automations | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+| **Client Brief** | The client, the goals, the audiences, the features, where the content is coming from, brand notes, constraints, success metrics, stakeholders, launch date and budget |
+| **Sitemap** | Every page — title, slug, what it's for, and which template it uses |
+| **Wireframes & UI** | Page sections, tracked through draft → review → approved for wireframe, visual design, content and SEO |
+| **UI System** | Brand direction, tone, palette, typography, spacing, corner style, accessibility target and component notes |
+| **Hosting & Platforms** | Set up Develop, Staging and Production, and compare Cloudflare Pages, GitHub Pages, WordPress (with or without Elementor), Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or your own |
+| **n8n Automations** | Which workflow handles which event, what it should do, whether it's ready, and any data or privacy notes |
 
-## Client Intake JSON
+---
 
-The Brief dashboard accepts bounded JSON from a form, CRM export, or n8n normalization workflow. AtlasMind maps common aliases such as `companyName` → `clientName`, `objectives` → `goals`, `targetAudience` → `audiences`, and `kpis` → `successMetrics`. Fields may live at the root or under `client` / `website`; list fields may be arrays or newline-delimited strings. Imports are capped at 128,000 characters and missing imported fields do not erase an existing value.
+## Getting a brief in without retyping it
 
-## SSOT
+The Brief dashboard accepts **JSON** — from your intake form, a CRM export, or an n8n workflow that
+normalises it.
 
-- `project_memory/domain/website.json` is the structured source of truth.
-- `project_memory/domain/website.md` is regenerated as its review-friendly mirror.
+You don't have to match AtlasMind's field names exactly. It understands common aliases (`companyName`
+becomes the client name, `objectives` becomes goals, `targetAudience` becomes audiences, `kpis` become
+success metrics), accepts fields at the root or nested under `client` or `website`, and takes list
+fields as either arrays or line-separated text.
 
-Bootstrap never overwrites an existing website plan. All saved/imported data passes through the same extension-host sanitizer.
+Anything missing from the import **leaves your existing value alone** rather than blanking it.
 
-## Hosting Environments
+---
 
-Website Studio always provides the same three-stage path:
+## The three environments
 
-| Environment | Hosting and access policy | Purpose |
+Every project gets the same three-stage path, and the rules for each are fixed:
+
+| Environment | How it's hosted | What it's for |
 |---|---|---|
-| Develop | Loopback-only by default; if local hosting is unavailable, an explicit hosted fallback requires HTTPS and a password credential reference | Implementation and private team QA |
-| Staging | Hosted, HTTPS, and password-protected at `<review-label>.<production-domain>` | Client review and sign-off |
-| Production | Hosted, public, and promotion-protected | Live website |
+| **Develop** | Local only by default. If local hosting isn't possible, a hosted fallback requires HTTPS *and* a password | Building it, and private team QA |
+| **Staging** | Hosted, HTTPS, password-protected, at `<review-label>.<production-domain>` | Client review and sign-off |
+| **Production** | Hosted, public, promotion-protected | The live site |
 
-The dashboard reports each stage as `ready`, `needs-setup`, or `blocked`. The extension host reconstructs the canonical policies on every save, so a modified webview message cannot make Staging public or remove the Production guard. The SSOT stores only references such as `SecretStorage:website.staging.password` or `env:WEBSITE_STAGING_PASSWORD`, never the password.
+Each shows as `ready`, `needs-setup` or `blocked`.
 
-## Platforms and Delivery
+These policies are **rebuilt from scratch every time you save**, on the extension side. That means a
+tampered-with message from the browser panel can't make Staging public or strip the Production guard —
+the rules aren't stored where they could be edited.
 
-Platform readiness is descriptive state only (`not-planned`, `planned`, `configured`, `live`, `blocked`), with at most one primary target. Website Studio cannot deploy. Use **Project Dashboard → Delivery** for the actual preflight, backup, approval, publish, verification, and rollback path.
+Passwords are never stored. What's saved is a *reference* — `SecretStorage:website.staging.password` or
+`env:WEBSITE_STAGING_PASSWORD` — and the actual value is resolved when it's needed.
 
-## n8n Safety Boundary
+---
 
-Website Studio maps workflows but does not trigger them. Store references such as `env:N8N_CONTACT_WEBHOOK_URL`, never values. Credential references require an explicit `env:`, `SecretStorage:`, or supported secret-manager prefix. AtlasMind redacts known secret shapes and n8n webhook-shaped URLs, rejects URLs with embedded credentials/query/fragment data, bounds all inputs, enforces the three hosting policies and topology, runs both SSOT outputs through the normal memory scanner (blocking error-level prompt injection before either write), and has no webview message for deployment or workflow execution.
+## Website Studio plans; it doesn't deploy
 
-Any future n8n runner must resolve secrets in the extension host and enter the normal tool-risk, approval, and audit pipeline.
+Platform readiness here is **descriptive only** — `not-planned`, `planned`, `configured`, `live` or
+`blocked`, with at most one primary target. Choosing a platform doesn't push anything anywhere.
+
+The actual deployment path, with its preflight, backup, approval, publish, verification and rollback
+steps, is **Project Dashboard → Delivery**. See [[Delivery]].
+
+The same applies to automations: Website Studio **maps** n8n workflows but never triggers one. Store
+references like `env:N8N_CONTACT_WEBHOOK_URL`, never the value itself. Credential references must carry
+an explicit `env:`, `SecretStorage:` or supported secret-manager prefix.
+
+AtlasMind also redacts known secret shapes and webhook-shaped URLs, rejects URLs carrying embedded
+credentials, bounds every input, and runs everything it saves through the normal memory scanner — which
+blocks prompt-injection attempts before anything is written. There is no message the panel can send that
+would deploy anything or run a workflow.
+
+---
+
+## Where your plan lives
+
+Your website plan is stored in your repository, as structured data with a readable Markdown mirror
+alongside it. Both are yours to read, diff and review.
+
+Running `/bootstrap` again never overwrites an existing plan.
+
+---
+
+## Related
+
+- [[Delivery]] — the guarded path to production
+- [[GitHub Workflow]] — the wider workflow this sits inside
+- [[Memory System]] — where the plan is kept
+- [[Security]] — the boundaries described above

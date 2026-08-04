@@ -1,32 +1,31 @@
 # GitHub Workflow
 
-> AtlasMind's guided workflow: eight stages from an idea to a released version, with every step
-> explained. Built for solo developers and teams of three to ten working on GitHub.
+**Eight stages from an idea to a released version, with every step explained.**
 
-Open it from the Project Dashboard → **Workflow**.
+Open it from **Project Dashboard → Workflow**.
 
-If you have never worked to a formal development process, this page is a reasonable place to learn
-one. Every stage and every step carries a **?** that opens a plain-language explanation of *why it
-exists*, *how to do it*, and *what people usually get wrong*. Nothing is assumed.
+If you've never worked to a formal development process, this is a genuinely good place to learn one.
+Every stage and every step has a **?** that explains *why it exists*, *how to do it*, and *what people
+usually get wrong*. Nothing is assumed, and nothing is jargon for its own sake.
 
-The full normative specification is
-[`docs/guided-github-workflow.md`](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md).
-This page is the guided tour.
+If you have worked to one, it's a checklist that adapts to your project rather than lecturing you about
+someone else's.
+
+Built for solo developers and teams of roughly three to ten working on GitHub.
 
 ---
 
-## Why have one workflow at all
+## Why it's one thing, not nine documents
 
-Before this existed, AtlasMind's own repository described its GitHub process in **nine** different
-documents. They disagreed on whether pull requests target `main` or `develop`, whether reviews were
-required, and whether a release started from the Actions tab or a terminal. Two referred to CI
-workflow files that did not exist.
+Most projects describe their process in several places — a README section, a CONTRIBUTING file, a wiki
+page, someone's notes. They drift, and then they disagree about whether pull requests go to `main` or
+`develop`, whether review is required, and how a release starts.
 
-None of that was carelessness. It is what happens when the same rule is written down in nine places
-and edited at nine different times.
+So in AtlasMind the workflow is **a file in your repository**, not prose. The stages, their gates and
+their automation levels all live in one place, and everything else points at it.
 
-So the workflow is **data**, not prose. The stages, their gates, and their automation levels live in
-one committed file. Everything else points at it.
+The practical benefit: a change to how your team works arrives as a **diff with a reviewer**, rather
+than as a habit nobody wrote down.
 
 ---
 
@@ -34,160 +33,172 @@ one committed file. Everything else points at it.
 
 | # | Stage | What happens |
 |---|---|---|
-| 1 | **Planning & Issue Intake** | An intention becomes a tracked, labelled issue with acceptance criteria. |
-| 2 | **Branch Creation & Naming** | A conventional branch name is derived from that issue. |
-| 3 | **Local Development** | The work gets done, against the testing protocols you chose. |
-| 4 | **Pull Requests & Reviews** | A pull request links its issue, fills the template, and collects review. |
-| 5 | **CI/CD & Failure Analysis** | Checks run; when they fail, the cause is classified with evidence. |
-| 6 | **Release Automation** | Version bump, changelog, tag, publish. |
-| 7 | **Maintenance & Tech-Debt** | What you deferred is recorded and aged visibly. |
-| 8 | **AI-Driven Automation** | The policy layer deciding how much of the above AtlasMind may do. |
+| 1 | **Planning & issue intake** | An intention becomes a tracked, labelled issue with acceptance criteria |
+| 2 | **Branch creation & naming** | A conventional branch name derived from that issue |
+| 3 | **Local development** | The actual work, against the testing protocols you chose |
+| 4 | **Pull requests & review** | A PR that links its issue, fills the template, and collects review |
+| 5 | **CI & failure analysis** | Checks run, and when they fail the cause is identified with evidence |
+| 6 | **Release** | Version bump, changelog, tag, publish |
+| 7 | **Maintenance & tech debt** | What you deferred, recorded and visibly ageing |
+| 8 | **Automation policy** | How much of the above AtlasMind may do on its own |
 
-Stage 3 is the only one that never touches GitHub — deliberately, so you can work offline and so
-nothing there can accidentally become public.
+**Stage 3 never touches GitHub.** That's deliberate — you can work offline, and nothing there can
+accidentally become public.
 
-Stage 6 is the only one describing an action that **cannot be undone**, which is why it is checked
-before rather than fixed after. The Release page runs seven gates in root-cause order — changelog
-entry, notes have content, no secrets in the notes, version moved on, tag is free, working tree
-clean, CI passing — and a gate reporting *unknown* is never treated as a pass. Release notes are the
-changelog section for that version, copied verbatim; if they contain anything shaped like a
-credential the release is **refused rather than quietly redacted**, because publishing an edited
-version of what you reviewed without telling you what was removed is the worse failure. Nothing on
-that page publishes anything: tagging and publishing stay with you at every automation level.
+**Stage 8 isn't a step you perform.** It's the layer the other seven run inside.
 
-Stage 8 is not a step you perform. It is the layer the other seven run inside.
+### Stage 6 gets extra care, because you can't undo a release
+
+The Release page runs seven gates in root-cause order: changelog entry present, notes have content, no
+credentials in the notes, version moved on, tag is free, working tree clean, CI passing.
+
+Three things worth knowing:
+
+- **A gate that reports *unknown* is never treated as a pass.** "We didn't check" has to stay
+  distinguishable from "we checked and it was fine".
+- **Release notes are your changelog section, copied word for word.** Not summarised, not generated.
+- **If the notes contain something shaped like a credential, the release is refused — not quietly
+  cleaned up.** Silently publishing an edited version of what you reviewed, without telling you what was
+  removed, is the worse outcome.
+
+Nothing on that page publishes anything. Tagging and publishing stay with you at every automation level.
 
 ---
 
 ## Two profiles
 
-Not a beginner mode and an expert mode — two genuinely different situations.
+Not beginner mode and expert mode — two genuinely different situations. Set yours with
+`atlasmind.workflow.profile`.
 
 ### Solo
 
-One person is author, reviewer, and releaser. The workflow's job is **not** to simulate a second
-person; it is to make one person's decisions explicit and recorded, so that six months later the
-record explains itself.
+You're the author, the reviewer and the releaser. The workflow's job is **not** to pretend there's a
+second person. It's to make your decisions explicit and recorded, so that in six months the record
+explains itself.
 
-- **Zero required approvals.** Requiring your own approval is theatre, and worse, it trains you to dismiss a gate.
-- **CI is the reviewer.** Which is exactly why its checks stop being optional in this profile.
-- Routine work may go straight to the integration branch; isolated or risky work takes a branch.
-- **The debt register matters more, not less** — you have no colleague who remembers the shortcut.
+- **Zero required approvals.** Approving your own work is theatre, and worse, it teaches you to click
+  through gates without reading them.
+- **CI is your reviewer** — which is exactly why its checks stop being optional here.
+- Routine work can go straight to the integration branch; risky work takes a branch.
+- **The debt register matters more, not less.** You have no colleague who remembers the shortcut.
 
-What solo does *not* relax: the untrusted-input boundary, protected-branch enforcement including
-for you, the version-and-changelog rule, and the audit record.
+What solo does *not* relax: the untrusted-input boundary, protected branches (including for you), the
+version-and-changelog rule, and the audit record.
 
-### Small studio (3–10)
+### Small studio (3–10 people)
 
-Authorship and approval are separable, so the workflow makes the separation real.
+Authorship and approval are genuinely separable, so the workflow makes the separation real.
 
-- **At least one approver distinct from the author.** This is the one place the profiles differ in kind rather than degree — not distrust, but that the author is the person least able to see what they assumed.
-- Direct pushes to the integration branch are off; every change takes a branch.
-- Declare code owners **before** the team passes about five people, while it is still administrative rather than political.
-- Rotate reviewers, and rotate the release captain.
-
-Set yours with `atlasmind.workflow.profile`.
+- **At least one approver who isn't the author.** This is the one place the profiles differ in kind
+  rather than degree — not distrust, just that the author is the person least able to see what they
+  assumed.
+- Direct pushes to the integration branch are off. Everything takes a branch.
+- Declare code owners **before** you're about five people, while it's still administrative rather than
+  political.
+- Rotate reviewers, and rotate whoever runs the release.
 
 ---
 
-## The automation ladder
+## How much AtlasMind may do
 
-Five rungs. Everything ships at **observe**.
+Five levels. **Everything ships at `observe`.**
 
-| Rung | AtlasMind may |
+| Level | AtlasMind may |
 |---|---|
-| `off` | nothing |
-| `observe` | read, measure, display |
-| `draft` | produce an artifact and show it |
-| `propose` | act, after you confirm |
-| `auto` | act unattended, inside the stage's gates |
+| `off` | Nothing |
+| `observe` | Read, measure, display |
+| `draft` | Produce something and show it to you |
+| `propose` | Act, after you confirm |
+| `auto` | Act unattended, inside that stage's gates |
 
-The effective level for any stage is the **lowest** of four independent gates:
+The level actually in force for any stage is the **lowest** of four independent things:
 
 ```
-min( master switch, your ceiling, capability switch, the stage's declared level )
+min( master switch, your ceiling, capability switch, what the stage asked for )
 ```
 
-All four default closed. That is what makes *"full automation is possible, never default"* true by
-construction rather than by policy — the project file may request `auto`, and if any one of the four
-disagrees, `auto` does not happen. Your personal settings can only ever **lower** the level.
+All four default closed. That's what makes *"full automation is possible, never default"* true by
+construction rather than by promise — your project file may request `auto`, and if any one of the four
+disagrees, `auto` doesn't happen. **Your personal settings can only ever lower it.**
 
-The Workflow page shows all four, so you can see where you stand rather than having to work it out.
+The Workflow page shows all four, so you can see where you stand instead of working it out.
 
-### What never automates
+### Things no setting will ever automate
 
-No setting raises these:
-
-- Force-pushing — to anything, ever.
-- Deleting a tag or a release.
-- Re-running a CI job. Re-running until green turns a flake into policy.
-- Editing a CI workflow file. That file enforces the gates.
-- Merging a dependency update. That is a supply-chain event.
-- Storing a GitHub token. AtlasMind holds no credential — it uses your authenticated `gh` CLI, so your authorisation stays revocable where you granted it.
-
----
-
-## It adapts to your testing protocols
-
-The workflow reads the protocols you enabled on the Testing page and asks for evidence accordingly.
-This is deliberate: a workflow demanding behaviour-driven scenarios from a project that does not
-write them would be ignored, and an ignored workflow enforces nothing.
-
-Enabled protocols change which checks appear on a pull request, which artifacts CI is expected to
-produce, and which agent picks up a testing subtask. Protocols that are ways of working rather than
-files — `v-model`, `test-design` — are never counted as gaps.
-
-**One rule is worth internalising:** no report means **no verdict**, never "0 failing". A test suite
-that did not run is not a test suite that passed, and conflating the two is how a green dashboard
-hides a broken pipeline.
+- **Force-pushing.** To anything. Ever.
+- **Deleting a tag or a release.**
+- **Re-running a CI job.** Re-running until green turns a flaky test into policy.
+- **Editing a CI workflow file.** That file is what enforces the gates.
+- **Merging a dependency update.** That's a supply-chain decision.
+- **Storing a GitHub token.** AtlasMind holds no credential — it uses your authenticated `gh` CLI, so
+  your access stays revocable where you granted it.
 
 ---
 
-## What the numbers mean
+## It adapts to how you test
 
-The page charts delivery health. Every metric card carries a **?** explaining what it measures and
-what a bad number looks like.
+The workflow reads the testing protocols you enabled and asks for evidence accordingly.
 
-| Reading | What it usually means |
+That's deliberate: a workflow demanding behaviour-driven scenarios from a project that doesn't write
+them would just be ignored, and an ignored workflow enforces nothing.
+
+Your enabled protocols change which checks appear on a pull request, what CI is expected to produce, and
+which agent picks up a testing task. Protocols that are ways of working rather than files are never
+counted as gaps.
+
+**One rule worth internalising:** no test report means **no verdict**, never "0 failing". A suite that
+didn't run is not a suite that passed, and blurring the two is how a green dashboard hides a broken
+pipeline.
+
+---
+
+## Reading the numbers
+
+The page charts delivery health, and every card has a **?** explaining what it measures and what a bad
+number looks like.
+
+| What you see | What it usually means |
 |---|---|
-| Many stale issues | The backlog is not being triaged. An untriaged backlog is indistinguishable from no backlog. |
-| Low branch-naming conformance | Branch history is unfilterable — you cannot tell what a branch is for without reading its diff. |
-| Low commit-convention conformance | The automated version bump and changelog cannot be trusted, because both are derived from those prefixes. |
-| Long time-to-first-review | Work is queued, not slow. Usually a scheduling problem rather than a capacity one. |
-| Recurring flake-suspect failures | The most corrosive failure mode: once a red build might mean nothing, people stop reading red builds. |
+| Lots of stale issues | The backlog isn't being triaged — and an untriaged backlog is indistinguishable from no backlog |
+| Low branch-naming conformance | You can't tell what a branch is for without reading its diff |
+| Low commit-convention conformance | Automatic version bumps and changelogs can't be trusted, because both are derived from those prefixes |
+| Long time to first review | Work is queued, not slow. Usually scheduling rather than capacity |
+| Repeated flaky failures | The most corrosive one. Once a red build might mean nothing, people stop reading red builds |
 
-### The four delivery keys
+### The four delivery measures
 
 The Release page adds deployment frequency, lead time for change, change failure rate and time to
-restore. They are paired on purpose: the first two describe speed and the last two describe
-stability, so improving the half you like by wrecking the other shows up immediately. Shipping daily
-means nothing if a third of releases need a same-day fix.
+restore.
 
-Each declares the rule it used, because a delivery metric whose definition is implicit cannot be
-compared with last month's:
+They're deliberately paired: the first two are about speed, the last two about stability. Improving the
+half you like by wrecking the other shows up immediately — shipping daily means nothing if a third of
+releases need a same-day fix.
 
-- **Lead time is measured merge → release**, not first-commit → release. That is the half you can
-  act on, and the half squash-merging does not destroy. Work that merged and has not shipped is
-  *excluded* rather than counted as infinitely slow — that it is waiting is itself the finding.
-- **A change failure is a patch release within 48 hours.** Applied literally, and every release it
-  counted is named, so you can argue with the number rather than take it on trust. A minor or major
-  follow-up is a planned release, not a remediation.
-- **Drafts and pre-releases are excluded.** Neither is a deployment to anybody.
+Each one tells you the rule it used, because a metric with an unstated definition can't be compared with
+last month's:
 
-The bands are the widely cited thresholds, not a certification — the exact boundaries have moved
-between annual industry reports, and your own trend matters far more than which side of a line you
-land on.
+- **Lead time is merge → release**, not first commit → release. That's the half you can actually act on,
+  and the half squash-merging doesn't destroy. Work that merged but hasn't shipped is *excluded* rather
+  than counted as infinitely slow — the fact that it's waiting is itself the finding.
+- **A change failure is a patch release within 48 hours.** Every release it counted is named, so you can
+  argue with the number instead of taking it on trust. A minor or major follow-up is a planned release,
+  not a fix.
+- **Drafts and pre-releases don't count.** Neither is a deployment to anybody.
 
-Two honesty rules hold throughout: a component that could not be measured is **omitted from the
-health score** rather than counted as zero, and a nav badge only appears once data was actually
-loaded — so a tracker nobody opened never reads as "all clear".
+The bands are the widely cited industry thresholds, not a certification. The exact boundaries have moved
+between annual reports, and **your own trend matters far more than which side of a line you land on.**
+
+Two honesty rules hold throughout: something that couldn't be measured is **left out of the health
+score** rather than counted as zero, and a badge only appears once data was actually loaded — so a
+tracker nobody opened never reads as "all clear".
 
 ---
 
 ## Related
 
-- [[Delivery]] — the guarded promotion pipeline behind stage 6.
-- [[Project Planner]] — the orchestration behind stage 3.
-- [[Agents]] — who owns which stage.
-- [[Configuration]] — every `atlasmind.workflow.*` setting.
-- [[Security]] — the boundaries the workflow inherits.
+- [[Delivery]] — the guarded path to production behind stage 6
+- [[Project Planner]] — the orchestration behind stage 3
+- [[Ideation]] — stage 0, where ideas become issues
+- [[Agents]] — who owns which stage
+- [[Configuration]] — every `atlasmind.workflow.*` setting
+- [[Security]] — the boundaries the workflow inherits

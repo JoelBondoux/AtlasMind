@@ -173,7 +173,6 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 | `wiki/Security.md` | Security boundaries, threat model |
 | `wiki/Contributing.md` | `CONTRIBUTING.md` |
 | `wiki/FAQ.md` | Troubleshooting, common questions |
-| `wiki/Comparison.md` | Feature comparison table |
 | `wiki/Changelog.md` | `CHANGELOG.md` highlights |
 | `wiki/_Sidebar.md` | Wiki navigation sidebar |
 

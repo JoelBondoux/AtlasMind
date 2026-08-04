@@ -1,47 +1,51 @@
 # Funding and Sponsorship
 
-AtlasMind is fully open source under the MIT license. There is no paywall, no feature gating, and no commercial-only edition.
+AtlasMind is fully open source under the MIT licence. **There is no paywall, no feature gating, and no
+commercial-only edition** — and no plan to add one. Sponsorship buys the project time, not you a
+different product.
 
-If AtlasMind saves you time or helps your team, you can support ongoing development through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
+If AtlasMind saves you or your team time, you can support it through
+[GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
 
-## Why Sponsor?
+---
 
-Funding helps sustain work on:
+## What your support pays for
 
-- maintenance and bug fixes
-- new providers, skills, and agent capabilities
-- documentation, testing, and release hygiene
-- long-term roadmap work that is difficult to fund through one-off issue fixing
+- Maintenance and bug fixes
+- New providers, skills and agent capabilities
+- Documentation, testing and release hygiene
+- The longer-term work that's hard to fund by fixing one issue at a time
 
-Support remains support, not product access. Sponsorship helps keep the project healthy and moving without changing its open-source licensing model.
+Keeping up with VS Code and eight model providers is a surprising amount of the work, and it's the part
+nobody notices until it breaks.
 
-## Suggested Sponsorship Levels
+---
 
-| Tier | Suggested Amount | What They Get |
+## Levels
+
+| Tier | Suggested | What you get |
 |---|---|---|
-| Supporter | £3-£5/mo | A thank-you and an optional name listing in `CONTRIBUTORS.md` |
-| Sustainer | £10-£20/mo | Early access to roadmap discussions and voting on priorities |
-| Backer | £50+/mo | Priority consideration for integrations and feature proposals, priority issue triage, and wider public recognition including in changelogs |
-| Sponsor | £100-£500/mo | Logo on the README, listed as a sponsor, and direct async access for questions |
-| One-Off PWYW | Any amount | A one-time pay-what-it's-worth contribution with no ongoing commitment |
+| **Supporter** | £3–£5/mo | A thank-you, and an optional name listing in `CONTRIBUTORS.md` |
+| **Sustainer** | £10–£20/mo | Early access to roadmap discussions, and a vote on priorities |
+| **Backer** | £50+/mo | Priority consideration for integrations and feature proposals, priority issue triage, and public recognition including in changelogs |
+| **Sponsor** | £100–£500/mo | Logo on the README, listed as a sponsor, and direct async access for questions |
+| **One-off** | Any amount | Pay what it's worth, no ongoing commitment |
 
-## Recognition
+Recognition is entirely your choice. If you'd rather support the project privately, that's fine — say
+so and nothing gets published.
 
-If you choose public recognition, sponsor acknowledgements can be added to `CONTRIBUTORS.md`.
+---
 
-If you prefer private support, that can remain private as well.
+## If your team relies on it
 
-## For Teams
+Team sponsorship is the simplest way to fund the unglamorous parts: provider and integration
+maintenance, compatibility with new VS Code and provider APIs, onboarding documentation, and release
+hygiene you can depend on.
 
-If your team uses AtlasMind regularly, sponsorship is the simplest way to help fund:
+---
 
-- model-provider and integration maintenance
-- compatibility updates for new VS Code and provider APIs
-- documentation quality and onboarding improvements
-- higher-confidence release hygiene
+## Sponsor
 
-## Sponsor Here
+**[GitHub Sponsors: JoelBondoux](https://github.com/sponsors/JoelBondoux)**
 
-- [GitHub Sponsors: JoelBondoux](https://github.com/sponsors/JoelBondoux)
-
-Thank you for helping keep AtlasMind sustainable.
+Thank you — it genuinely helps.

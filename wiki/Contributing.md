@@ -1,17 +1,15 @@
 # Contributing
 
-Thank you for your interest in contributing to AtlasMind! This guide covers development setup, conventions, and how to add new features.
+**Thanks for wanting to help.** AtlasMind is MIT licensed, has no commercial edition, and welcomes
+contributions of any size — a typo fix counts.
 
-## Development Setup
+This page covers getting set up, the conventions, and how to add the things people most often want to add.
 
-### Prerequisites
+---
 
-- **Node.js** ≥ 18
-- **npm** ≥ 9
-- **VS Code** ≥ 1.96.0
-- **Git**
+## Getting set up
 
-### Getting Started
+You'll need **Node.js 18+**, **npm 9+**, **VS Code 1.96+** and **git**.
 
 ```bash
 git clone https://github.com/JoelBondoux/AtlasMind.git
@@ -19,91 +17,75 @@ cd AtlasMind
 npm install
 ```
 
-### Build
+Then press **F5** in VS Code to launch an Extension Development Host with AtlasMind loaded. `@atlas`
+becomes available in chat there.
+
+### The commands you'll use
 
 ```bash
-npm run compile      # One-shot build: desktop (tsc) + web type-check (tsc) + web bundle (esbuild)
-npm run watch        # Watch mode for the desktop build (recommended during development)
-npm run watch:web    # Watch mode for the browser bundle
-npm run open-in-browser  # Load the web build in Chromium via @vscode/test-web
-```
-
-The extension builds two targets: the Node desktop build (`out/extension.js`) and the browser web build (`out/web/extension.js`, bundled by `esbuild.mjs`). Web sources under `src/web/` and the Node-free shared modules they import must not use Node built-ins.
-
-### Test
-
-```bash
-npm test             # Run all Vitest tests
-npm run test:coverage # Run the CI coverage gate locally
-npm run test:mutation # Run the slower Stryker mutation suite
-npm run test:providers:local-recommendations # Focused registry override/fallback coverage
-npm run monitor:integrations # Generate the curated integration drift report
-npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
-```
-
-CI executes compile, lint, full unit tests, and a focused local-recommendation registry regression gate on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
-Dependabot checks npm dependencies daily and GitHub Actions weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move. The root manifest's `qs@6.15.2` override is a temporary security constraint: Stryker's REST client pins vulnerable `6.15.1` exactly, while every other consumer already resolves to or accepts the patched release. Keep the override until upstream removes that pin and confirm both the production and full audits before deleting it.
-
-### Lint
-
-```bash
+npm run watch        # Watch mode — what you want during development
+npm run compile      # Full build: desktop, web type-check, and web bundle
+npm test             # All tests
 npm run lint         # ESLint
 ```
 
-### Package
+And occasionally:
 
 ```bash
-npm run package:vsix # Produces a .vsix file with runtime dependencies included
+npm run watch:web            # Watch the browser bundle
+npm run open-in-browser      # Load the web build in Chromium
+npm run test:coverage        # The CI coverage gate, locally
+npm run test:mutation        # The slower mutation suite
+npm run package:vsix         # Build a .vsix
 ```
 
-AtlasMind has runtime dependencies. Do not package or publish with `--no-dependencies` unless those dependencies have been bundled into the extension output first.
-The checked-in `.gitignore` keeps `project_memory_old/` out of source control, while `.vscodeignore` keeps local and release VSIX files focused on runtime assets by excluding all workspace-memory directories matching `project_memory*` (including local archives and backups), `wiki/`, generated `.vsix` files, local Vitest JSON reports, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency docs or test trees. Treat any workspace-memory directory shown by `vsce package` as a release blocker.
+### Two build targets
 
-### Run in VS Code
+AtlasMind builds a **Node desktop build** and a **browser web build**. Anything under `src/web/`, and any
+shared module it imports, **must not use Node built-ins** — that's the most common way to break the web
+build without noticing.
 
-1. Open the project in VS Code
-2. Press `F5` to launch the Extension Development Host
-3. The `@atlas` chat participant becomes available
+### Packaging
 
----
+AtlasMind has real runtime dependencies. **Don't package or publish with `--no-dependencies`** unless
+they've been bundled into the output first.
 
-## TypeScript Conventions
-
-- **Strict mode** is enabled — no implicit `any`
-- Use `.js` extension on **all** relative imports (Node16 module resolution)
-- Prefer `type` imports for types only used in type positions:
-  ```typescript
-  import type { ModelInfo } from "../types.js";
-  ```
-- One class per file for core services
-- All shared interfaces live in `src/types.ts` — never duplicate types across files
+If `vsce package` ever shows a workspace-memory directory in the package contents, treat that as a
+release blocker — it means somebody's project notes are about to ship to every user.
 
 ---
 
-## File Organisation
+## Conventions
 
-| Directory        | Purpose                                                       |
-| ---------------- | ------------------------------------------------------------- |
-| `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
-| `src/acp/`       | Agent-side ACP sessions, permission broker, and Buzz setup/reply boundary |
-| `src/cli/`       | Headless CLI hosts, including the `atlasmind-acp` stdio agent |
-| `src/chat/`      | Chat participant and slash commands                           |
-| `src/providers/` | LLM provider adapters                                         |
-| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP non-interactive-station launcher; the release PE is SHA-256-pinned under `media/bin/` |
-| `src/skills/`    | Built-in skill implementations                                |
-| `src/memory/`    | Memory manager and scanner                                    |
-| `src/mcp/`       | MCP client and server registry                                |
-| `src/views/`     | Webview panels and tree views                                 |
-| `src/voice/`     | Voice (TTS/STT) integration                                   |
-| `src/bootstrap/` | Project bootstrap and import                                  |
-| `tests/`         | Vitest test suites (mirrors `src/` structure)                 |
-| `docs/`          | Technical documentation                                       |
+### TypeScript
 
----
+- **Strict mode.** No implicit `any`
+- **`.js` extension on every relative import** — Node16 module resolution requires it
+- **`import type`** for types used only in type positions
+- **One class per file** for core services
+- **Shared interfaces live in `src/types.ts`.** Never duplicate a type across files
 
-## Commit Conventions
+### Where things go
 
-Use **Conventional Commits**:
+| Directory | What belongs there |
+| --------- | ------------------ |
+| `src/core/` | Core services — orchestrator, agents, skills, router, planner |
+| `src/chat/` | The chat participant and slash commands |
+| `src/providers/` | Model provider adapters |
+| `src/skills/` | Built-in skill implementations |
+| `src/memory/` | The memory manager and scanner |
+| `src/mcp/` | MCP client and server registry |
+| `src/views/` | Webview panels and tree views |
+| `src/voice/` | Speech in and out |
+| `src/bootstrap/` | Project bootstrap and import |
+| `src/cli/` | The headless CLI and the agent endpoint |
+| `src/acp/` | Agent-side sessions, permissions, and the messaging boundary |
+| `tests/` | Test suites, mirroring the `src/` structure |
+| `docs/` | Technical documentation |
+
+### Commits
+
+Conventional Commits:
 
 ```
 feat: add new skill for Docker management
@@ -113,161 +95,164 @@ refactor: extract cost calculation into helper
 chore: update dependencies
 ```
 
-### Every Commit Must Include:
+**Every commit must include:**
 
-1. **Version bump** in `package.json` using [Semantic Versioning](https://semver.org/):
-   - **PATCH** (0.0.x): bug fixes, docs, refactors
-   - **MINOR** (0.x.0): new features, new commands, new UI
-   - **MAJOR** (x.0.0): breaking changes to config, agent definitions, or memory format
-2. **CHANGELOG.md entry** matching the version bump
-3. **Documentation updates** for any changed interfaces (see table below)
+1. **A version bump** in `package.json` — patch for fixes, docs and refactors; minor for new features,
+   commands or UI; major for breaking changes to config, agent definitions or memory format
+2. **A matching `CHANGELOG.md` entry**
+3. **Documentation updates in the same commit** — not a follow-up
 
----
+### Branches
 
-## Branch Strategy
+The workflow itself is described in [[GitHub Workflow]]. This repository's specific values:
 
-The workflow itself is specified in **[[GitHub Workflow]]**; the bullets below name this
-repository's values rather than restating its rules.
+- **`develop`** is the default branch and the normal push target
+- **`main`** is release-ready only, and reached through a reviewed pull request
+- Branch names are `<type>/<issue>-<slug>` where an issue exists, otherwise `feat/*`, `fix/*`, `chore/*`
+- Feature PRs target `develop`. `develop` → `main` is a **release promotion**, not a feature PR
+- AtlasMind stays branded Beta until 1.0.0
 
-- `develop` is the default branch for everyday integration work.
-- Create `feat/*`, `fix/*`, and `chore/*` branches from `develop` — or `<type>/<issue>-<slug>` where an issue exists.
-- Keep `main` release-ready and use it only when intentionally publishing a new Marketplace release.
-- Feature PRs target `develop`. `develop` → `main` is the release promotion, not a feature PR.
-- For the current solo-maintainer workflow, push routine work directly to `develop` and reserve topic branches plus PRs into `develop` for isolated or higher-risk changes.
-- `main` relies on required CI, auto-merge, and PR-only merges rather than mandatory approving reviews. That is the **solo profile**, and it is a deliberate choice: requiring self-approval trains a maintainer to dismiss a gate, so CI is the reviewer instead.
-- Keep AtlasMind branded as Beta until `1.0.0`.
-- Treat `develop` as the normal destination for development push requests.
-- Use the `Release — promote develop to main` workflow to start a release. Once the release PR merges, run `npm run tag:release`; the tag push triggers the Marketplace publish workflow, which does the publishing. `publish:release` publishes only and does not tag — the two were chained until v0.184.0, and the chain made CI publish twice. CI authenticates to the Marketplace through Microsoft Entra ID rather than a PAT, so there is no Marketplace secret in the repository; run `Marketplace — verify publishing identity` to check that credential without publishing anything.
+`main` relies on required CI and PR-only merges rather than mandatory approving reviews. That's the
+**solo profile**, and it's deliberate: requiring a maintainer to approve their own work trains them to
+dismiss the gate. CI is the reviewer instead.
 
----
+### Releasing
 
-## Documentation Maintenance Matrix
+Use the **Release — promote develop to main** workflow. Once that PR merges, run `npm run tag:release` —
+the tag push triggers the publish workflow, which does the actual publishing.
 
-When you make any of these changes, update the corresponding docs:
+`publish:release` publishes only; it does **not** tag. The two were chained until v0.184.0, and that
+chain made CI publish twice.
 
-| Change                              | Files to Update                                            |
-| ----------------------------------- | ---------------------------------------------------------- |
-| Add/remove/rename a source file     | `README.md`, `docs/architecture.md`, `docs/development.md` |
-| Add/modify a command                | `README.md`, `package.json`                                |
-| Add/modify a chat slash command     | `README.md`, `package.json`                                |
-| Add/modify a configuration setting  | `README.md`, `package.json`                                |
-| Add/modify a type in `types.ts`     | `docs/architecture.md`                                     |
-| Add/modify an agent feature         | `docs/agents-and-skills.md`                                |
-| Add/modify a skill                  | `docs/agents-and-skills.md`                                |
-| Add/modify the model router         | `docs/model-routing.md`                                    |
-| Add/modify a provider adapter       | `docs/model-routing.md`, `CONTRIBUTING.md`                 |
-| Add/modify the SSOT memory          | `docs/ssot-memory.md`                                      |
-| Add/modify webview panels           | `docs/development.md`                                      |
-| Add/modify tree views               | `README.md`, `docs/architecture.md`                        |
-| Change build config or dependencies | `docs/development.md`, `README.md`                         |
-| Ship a new version                  | `CHANGELOG.md`, `package.json`                             |
+CI authenticates to the Marketplace through Microsoft Entra ID rather than a token, so there's no
+Marketplace secret in the repository. **Marketplace — verify publishing identity** checks that credential
+without publishing anything, which matters because a published version can never be replaced.
 
 ---
 
-## Adding a Provider
+## Documentation is part of the change
 
-1. Create `src/providers/<name>.ts` implementing the `ProviderAdapter` interface from `adapter.ts`
-2. Register the adapter in `src/providers/index.ts`
-3. Add the provider ID to `ProviderId` in `src/types.ts`
-4. Add model metadata to the model catalog
+Update these in the **same commit**:
+
+| If you change | Update |
+| ------------- | ------ |
+| A source file (add, remove, rename) | `README.md`, `docs/architecture.md`, `docs/development.md` |
+| A command, slash command, or setting | `README.md`, `package.json` |
+| A type in `src/types.ts` | `docs/architecture.md` |
+| Agent or skill behaviour | `docs/agents-and-skills.md` |
+| The model router or a provider | `docs/model-routing.md`, `CONTRIBUTING.md` |
+| The memory system | `docs/ssot-memory.md` |
+| Webview panels or tree views | `docs/development.md`, `README.md`, `docs/architecture.md` |
+| Build config or dependencies | `docs/development.md`, `README.md` |
+| Anything shipped | `CHANGELOG.md`, `package.json` |
+
+The wiki mirrors the user-facing side of those and should be updated alongside.
+
+---
+
+## Adding a model provider
+
+1. Create `src/providers/<name>.ts` implementing the provider contract
+2. Register it in `src/providers/index.ts`
+3. Add the provider ID to `src/types.ts`
+4. Add model metadata to the catalogue
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
 
-If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
+**Keep it free of direct `vscode` imports** if it should also work in the CLI, and use the shared secret
+contract in `src/runtime/secrets.ts`.
 
-The same rule applies to anything imported by `src/cli/acpAgent.ts`. Run both
-`node out/cli/main.js --help` and `node out/cli/acpAgent.js --help` after
-changing shared core code; a transitive runtime `vscode` import compiles but
-fails only when the headless executable starts. The ACP transport uses the
-official ESM-only `@agentclientprotocol/sdk` behind a dynamic import so the
-extension's CommonJS desktop build remains loadable.
+The same applies to anything reachable from `src/cli/acpAgent.ts`. After changing shared core code, run
+both CLI entry points with `--help` — a transitive `vscode` import compiles fine and only fails when the
+headless executable starts.
 
-AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. `src/providers/acp.ts` is the reference for a host-neutral, subprocess-backed provider that depends on local install and the agent's own auth state instead of an AtlasMind-managed API key. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
+Useful references: `src/providers/registry.ts` for the local provider's offline fallback and configurable
+endpoint, and `src/providers/acp.ts` for a subprocess-backed provider that relies on a local install and
+the agent's own authentication rather than an AtlasMind-managed key.
 
-When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
+**Before you submit:**
 
-If an upstream API is not a routed chat backend, or it requires modality-specific workflows, keep it on the specialist integration surface instead of forcing it into the routed provider list.
+- Adapter tests in `tests/providers/`
+- Routing or orchestrator regression coverage if you touched failover, health, pricing or capability
+  selection
+- An entry in the integration monitor manifest if you've added a third-party dependency
 
-Minimum validation for provider work:
+**When changing routing heuristics**, check both low-stakes and high-stakes follow-up prompts. Free and
+local models should stay attractive for simple turns without dominating later thread-based requests where
+the task genuinely needs more reasoning.
 
-- Add or update adapter-level tests in `tests/providers/`.
-- Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
-- Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
-
-For the Windows ACP private-desktop helper, rebuild the pinned Rust source, copy
-the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
-`ACP_PRIVATE_DESKTOP_HELPER_SHA256`, and run
-`tests/providers/acpWindowsLauncher.test.ts`. Preserve the create-suspended →
-assign kill-on-close Job Object → resume ordering, the restricted inherited
-handle list, and `STARTF_USESHOWWINDOW`/`SW_HIDE`. The Windows test must execute
-the shipped PE around a real redirected-stdio child; binary hash agreement alone
-does not prove the launcher works.
-
-## Debugging Orchestration And Concurrency
-
-1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
-2. Inspect Project Run Center state, `ProjectRunHistory`, and webhook events for autonomous-run failures.
-3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
-4. For race-condition or dependency-order problems, add a focused scheduler or integration regression before changing concurrency behavior.
-5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
-
-Failover is capped at three invoked endpoints, not three model labels. ACP
-model/effort variants share an endpoint circuit, and local models on the same
-configured server do too. Use `TaskResult.modelAttempts` for diagnostics; router
-previews and abandoned stream fragments are not evidence that a model ran.
-
-AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
-
-## Adding A Runtime Plugin
-
-The shared runtime now supports `AtlasRuntimePlugin` contributions through `src/runtime/core.ts`.
-
-1. Create an `AtlasRuntimePlugin` object in your host or integration layer.
-2. Register capabilities through `registerAgent()`, `registerSkill()`, or `registerProvider()`.
-3. Optionally listen to runtime lifecycle events for diagnostics or tracing.
-4. Pass the plugin to `createAtlasRuntime({ plugins: [...] })`.
-5. Add runtime tests in `tests/runtime/` and update the architecture or development docs.
+**If an upstream API isn't a chat backend**, or needs modality-specific workflows, keep it on the
+specialist integration surface rather than forcing it into the routed provider list.
 
 ---
 
-## Adding a Skill
+## Adding a skill
 
-1. Create the skill file in `src/skills/`
-2. Export a factory function returning a `SkillDefinition`
-3. Register in `src/skills/index.ts`
+1. Create the file in `src/skills/`
+2. Export a factory returning a skill definition
+3. Register it in `src/skills/index.ts`
 4. Add tests in `tests/skills/`
 5. Update `docs/agents-and-skills.md`
 
----
+## Adding an agent
 
-## Adding an Agent
-
-Default agents are defined in `src/extension.ts` during activation. To add a new built-in agent:
-
-1. Add the `AgentDefinition` in `activate()` with `builtIn: true`
-2. Register via `agentRegistry.registerAgent()`
+1. Add the agent definition in `activate()` in `src/extension.ts`, marked as built-in
+2. Register it
 3. Update `docs/agents-and-skills.md`
 
+## Adding a runtime plugin
+
+The shared runtime accepts plugin contributions through `src/runtime/core.ts` — register agents, skills or
+providers, optionally listen to lifecycle events, and pass the plugin when the runtime is created. Add
+tests in `tests/runtime/` and update the architecture docs.
+
 ---
 
-## Quality Gates
+## Debugging orchestration
 
-Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
-Webview-heavy `src/views` code and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration tests are added.
-CI runs compile, lint, and tests on Ubuntu, Windows, and macOS, with coverage upload restricted to the Ubuntu matrix job to avoid duplicate artifact collisions.
-External integration drift is reviewed separately through `.github/dependabot.yml` and the curated manifest `.github/integration-monitor.json`. Drift is reported by `.github/scripts/check-integration-drift.mjs`, run **on demand** with `npm run monitor:integrations` — there is no scheduled workflow for it yet.
+1. **Work out where the problem actually is first** — agent selection, skill availability, provider
+   routing, or tool execution — before editing shared orchestrator code
+2. For autonomous-run failures, look at the Run Center state, run history and webhook events
+3. Capture real editor state with the diagnostics and observability tools rather than guessing from the
+   final model response
+4. For race conditions and ordering problems, **add the regression test before changing concurrency**
+5. For routing regressions, add coverage near the orchestrator tool tests before touching heuristics
 
-Before submitting:
+One thing that catches people out: **failover is capped at three invoked endpoints, not three model
+labels.** ACP model and effort variants share an endpoint, as do local models on the same server. Use the
+recorded model attempts for diagnostics — router previews and abandoned stream fragments are not evidence
+that a model actually ran.
 
-- [ ] `npm run compile` passes with 0 errors
-- [ ] `npm test` — all suites pass
+There's no formal load-test harness yet. For performance-sensitive changes, repeated local execution plus
+targeted regression tests is the current bar.
+
+---
+
+## Before you open a pull request
+
+- [ ] `npm run compile` passes with zero errors
+- [ ] `npm test` — everything passes
 - [ ] `npm run lint` — no new warnings
 - [ ] Version bumped in `package.json`
 - [ ] `CHANGELOG.md` entry added
-- [ ] Relevant docs updated
-- [ ] Commit message follows conventional format
+- [ ] Relevant docs updated **in the same commit**
+- [ ] Conventional commit message
+
+CI runs compile, lint and the full test suite on Ubuntu, Windows and macOS. Coverage thresholds are
+enforced for the service layer — `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp` and
+`src/bootstrap`. Webview code and chat wiring are excluded for now, until they have dedicated integration
+tests.
 
 ---
 
-## Code of Conduct
+## Code of conduct
 
-Be respectful, constructive, and inclusive. We follow standard open-source community guidelines.
+Be respectful, constructive and inclusive. Standard open-source community guidelines apply.
+
+---
+
+## Related
+
+- [[Architecture]] — how the system fits together
+- [[Agents]] · [[Skills]] · [[Model Routing]] — the areas people most often extend
+- [[GitHub Workflow]] — the workflow this repository follows
+- [[Funding and Sponsorship]] — the other way to help

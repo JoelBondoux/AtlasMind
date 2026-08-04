@@ -7,7 +7,7 @@
  * descriptions, capabilities, and (for MCP) a sanitized connection. It NEVER
  * includes agent system prompts, secrets, or MCP `env` values.
  *
- * @see https://agenticresourcediscovery.org/spec/
+ * @see https://github.com/ards-project/ard-spec
  */
 
 import { ARD_SPEC_VERSION } from '../constants.js';

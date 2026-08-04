@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.4] - 2026-08-04
+
+### Fixed
+
+- **Three Windows launcher tests could never report why they failed.** `acpWindowsLauncher.test.ts` launches real process trees — the shipped helper, then Node, then PowerShell, with the deepest compiling C# at runtime through `Add-Type` — and gave each child a 10-second limit. The tests themselves declared no timeout, so they inherited Vitest's 5-second default and were killed *before* the child limit they had set could ever fire. A test that grants its children twice the time it allows itself cannot surface their diagnostics, so a failure arrived as a bare `Test timed out in 5000ms` with nothing to act on.
+
+  The two limits are now named constants, with the test timeout deliberately above the child timeout so the child's own error is what surfaces. **No assertion is relaxed** — the launch-mode, redirected-stdio, and non-visible-console checks are unchanged. This is why the suite passed locally, where the deepest test takes ~750 ms, and failed on CI, where the same test needs roughly seven times longer on a cold shared runner.
+
+## [0.257.3] - 2026-08-04
+
+### Fixed
+
+- **`wiki/Home.md` still claimed 21 built-in agents.** The stale count was corrected in the README and named in the 0.257.2 changelog entry, but the same figure on the wiki's front page was missed — so the two most-read documents disagreed about how many specialists ship, and the more prominent one was wrong. It now says 27, matching the runtime.
+- **The Remote Control page referenced gateway mode without listing the command that starts it.** `AtlasMind: Enable Remote Control (Gateway)` is now in the "Turning it on" table alongside the other four, so the cross-machine path has a visible entry point rather than only a prose mention further down.
+- **The Remote Control safety table contradicted the settings table three rows above it.** It said the server listens only once you run the enable command *and* the setting is on, immediately after that page documented `atlasmind.remote.enabled` as declared-but-not-read. The commands are the control; the sentence now says so.
+
+## [0.257.2] - 2026-08-04
+
+### Changed
+
+- **The README and every wiki page are rewritten for the people evaluating and using AtlasMind, rather than for the people maintaining it.** Each page now opens by saying what the thing is, who it is for, and what it does for the reader, before any implementation detail. Release archaeology (“until v0.225.0 this could not…”), internal rationale addressed to maintainers, and version-numbered justifications are gone from the user-facing pages; the reasoning that explains a *behaviour a user will meet* is kept and stated plainly. Every technical claim, count, setting name and safety boundary is preserved.
+- **The README is 538 lines shorter in substance and scannable.** The 165-line “What's new” block of internal release notes becomes a short section covering what genuinely changed since the last publication, plus a five-item **Recently shipped** summary of user-visible highlights. The 50-row source-file table becomes a 12-row map of top-level directories, with the full service map left to `docs/architecture.md`. Corrected a stale figure: the README claimed 21 built-in agents where the runtime registers **27**.
+- **`wiki/Home.md` leads with three entry points** — Getting Started, Chat Commands, FAQ — instead of a flat 20-row navigation table, and `wiki/_Sidebar.md` is regrouped by what a reader is trying to do.
+- **`wiki/Configuration.md` opens with the six settings people actually change** and groups the remaining 108 by task. All 114 declared settings remain documented, and two are now labelled honestly as declared-but-not-read (`atlasmind.remote.enabled`, `atlasmind.buzz.autonomousReplies`) rather than described as working controls. `wiki/Remote-Control.md` and the README no longer present `atlasmind.remote.enabled` as the master switch — the enable/disable commands are.
+- **`wiki/Architecture.md` becomes a readable overview** of how the system fits together, with `docs/architecture.md` remaining the full contributor reference.
+- **Three pages had stray content above their title.** `wiki/Configuration.md` carried two unrelated headed sections, `wiki/Chat-Commands.md` a v0.51.4 composer note, and `wiki/Remote-Control.md` a duplicated project-memory notice. All removed.
+
+- **The ARD standard is now referenced by its specification repository rather than its homepage.** The homepage domain is currently classified `malicious (malware/misc)` by Gen Digital's URL reputation feed (`URL:Blacklist|UR93560563BC63D7BD-0200|urlb`). It resolves to GitHub Pages on Route 53 and looks like a miscategorisation of a static specification site, and a false-positive report has been filed — but the link shipped in two user-facing places (`atlasmind.ard.enabled`'s description in the Settings UI, and a clickable anchor on the Resource Discovery settings page), so users could have met a security warning on a link AtlasMind drew. All six live references now point at `github.com/ards-project/ard-spec`, which is the more useful reference regardless. Existing changelog entries are left as written: they record what was true at the time.
+
+### Removed
+
+- **The last pointer to the deleted competitor comparison page.** `wiki/Comparison.md` and the `Home.md` comparison matrix were removed in earlier releases for asserting facts about software this project neither ships nor watches; `.github/copilot-instructions.md` still listed the page in its documentation map. The published GitHub wiki also still serves the old “How It Compares” table and needs a wiki push to catch up — the source has been correct since v0.147.0.
+
 ## [0.257.1] - 2026-08-04
 
 ### Fixed

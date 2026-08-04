@@ -1,284 +1,248 @@
-# Memory System (SSOT)
+# Memory System
 
-AtlasMind uses a **Single Source of Truth (SSOT)** folder on disk to persist project knowledge. This is not a database — it's a structured collection of Markdown files that live alongside your code.
+**AtlasMind remembers your project so you don't have to re-explain it.**
 
-## Folder Structure
+Architecture decisions, why you rejected an approach, your naming conventions, your deployment runbook,
+what's on the roadmap — all of it lives as **plain Markdown files in your repository**. Not a database,
+not a cloud service, not a black box. Files you can read, edit, diff and review like any other.
 
-The SSOT lives at the path configured by `atlasmind.ssotPath` (default: `project_memory/`).
+When you ask a question, AtlasMind pulls in what's relevant. The more you put in, the better it gets.
+
+---
+
+## What's in it
+
+Project memory lives in `project_memory/` by default (change it with `atlasmind.ssotPath`).
 
 ```
 project_memory/
-├── project_soul.md       Project identity, mission, values
-├── architecture/          System design, dependency graphs, structure
-├── roadmap/               Goals, milestones, planned features
-├── decisions/             Architecture Decision Records (ADRs)
-├── misadventures/         Failed approaches and lessons learned
-├── ideas/                 Feature ideas, explorations, brainstorms
-├── domain/                Business logic, conventions, glossary
-├── operations/            Runbooks, deployment, CI/CD, project run reports
-├── analysis/              Gap analysis and the research register (findings, digest, history)
-├── agents/                Agent-specific knowledge
-├── skills/                Skill-specific knowledge
-├── sessions/              Internal per-session context snapshots (excluded from normal SSOT retrieval)
-└── index/                 Auto-generated search index
+├── project_soul.md    What this project is, and what it's for
+├── architecture/      How the system is built
+├── roadmap/           Goals, milestones, what's planned
+├── decisions/         Why you decided things the way you did
+├── misadventures/     What you tried that didn't work — and why
+├── ideas/             Explorations and things not committed to yet
+├── domain/            Your business logic, conventions and vocabulary
+├── operations/        Runbooks, deployment, CI, run reports
+├── analysis/          Gap analysis and the research register
+├── agents/            Knowledge specific to particular agents
+├── skills/            Knowledge specific to particular skills
+├── sessions/          Per-conversation working context
+└── index/             The search index
 ```
 
-These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
-
-`domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. See [[Chat-Commands]].
-
-`sessions/` is used by the Memory Agent to persist per-session chat state and is intentionally excluded from standard SSOT query/index operations so ephemeral runtime context stays separate from durable project memory.
-
-### Session Context (Memory Agent)
-
-Each session gets `sessions/<session-id>/context.md` — a single unified document updated after every turn:
-
-| Section | Content |
-|---|---|
-| `## Goal` | User's primary objective (1–3 sentences) |
-| `## Approach` | Current technical strategy |
-| `## Findings` | Key facts: file paths, root causes, API shapes |
-| `## Concluded` | Completed fixes, confirmed diagnoses |
-| `## Open Threads` | Unresolved questions; resolved items struck through |
-| `## SSOT Links` | Relevant main SSOT paths (max 6) |
-| `## Current State` | What just happened this turn |
-
-Cap: 4000 characters. Designed for seamless cold resumption — loading `context.md` fully orients the model without rebuilding context from scratch.
-
-The **Memory Agent** (`memory-agent` in the Agents panel) runs this maintenance fire-and-forget using cheap/local routing. Pin it to a local Ollama model via `allowedModels` to eliminate cloud costs for all background memory ops. The Memory Agent also periodically refreshes SSOT entry snippets when source files have changed (max 3 per cycle).
-
-AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
-
-When Atlas detects explicit operator frustration during chat, it also updates the saved workspace Personality Profile, raises chat carry-forward settings if the workspace was retaining too little recent context, and writes the learned preference into `operations/operator-feedback.md`. That gives Atlas both an immediate correction cue and a retrievable SSOT memory for future turns.
-
-The `operations/` folder now doubles as the durable record for these learned operator-preference adjustments. In addition to runbooks and project-run reports, Atlas may write `operations/operator-feedback.md` so future retrieval can bias toward direct corrective action after a poor advisory-only turn.
+The `misadventures/` folder is the one people underestimate. Recording what *didn't* work saves more
+time than recording what did, because the failed approach is the one somebody will try again.
 
 ---
 
-## Memory Entries
+## Filling it up
 
-Each piece of knowledge is stored as a `MemoryEntry`:
+### Just say so
 
-```typescript
-interface MemoryEntry {
-  path: string;         // Relative path within SSOT (e.g. "decisions/use-jwt.md")
-  title: string;        // Human-readable title
-  tags: string[];       // Searchable tags
-  lastModified: string; // ISO 8601 creation/update time
-  snippet: string;      // Preview slice used in retrieval and UI summaries
-  sourcePaths?: string[]; // Files or SSOT notes this entry summarizes
-  sourceFingerprint?: string;
-  bodyFingerprint?: string;
-  documentClass?: string;
-  evidenceType?: 'manual' | 'imported' | 'generated-index';
-  embedding?: number[]; // Optional vector embedding for semantic search
-}
+```
+@atlas Remember that we chose JWT for auth because session cookies don't work
+well with our microservice setup.
 ```
 
----
-
-## Writing to Memory
-
-### Manual (via Chat)
+Or explicitly:
 
 ```
 @atlas /memory write decisions/use-jwt.md "Use JWT for auth" --tags auth,security
 ```
 
-Or ask naturally:
-```
-@atlas Remember that we decided to use JWT for authentication because session cookies don't work well with our microservice architecture.
-```
+### From a new project
 
-### Programmatic (via Skills)
+`/bootstrap` creates the folder structure and helps you fill in the project's identity.
 
-The `memory-write` skill calls `context.upsertMemory()`:
-- Validates entry structure
-- Scans content with `MemoryScanner` (see Security below)
-- Persists to disk as a Markdown file
-- Updates the in-memory index
+### From an existing repository
 
-### Via Bootstrap
+`/import` does a proper first pass and can populate:
 
-`/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
+- An overview from your README, and your dependencies from your manifests
+- Your project structure and a map of the codebase
+- Runtime, model routing and agent notes from your existing docs
+- Your conventions and product capabilities
+- Development workflow, configuration reference, and security notes
+- Development guardrails, release history, and an import catalogue
 
-When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification, enables an **Update Project Memory** action in the Memory view, and pins a warning row at the top of the Memory tree until the refresh is run.
+If `project_soul.md` still has placeholder text in it, import upgrades it into something usable.
 
-While the VS Code window stays open, AtlasMind also watches workspace saves, creates, deletes, and renames outside the SSOT folder. When one of those changes makes imported memory stale, AtlasMind automatically reruns the incremental import so the Memory view catches up without waiting for a reload.
+### It keeps itself current
 
-When governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` remains on, bootstrap also seeds `operations/dependency-monitoring.md` and `decisions/dependency-policy.md` so teams have a durable place to record update-review rationale, exceptions, and ownership.
+Imported files carry metadata about where they came from and what they looked like at the time. So:
 
-### Via Import
+- **Re-importing refreshes what changed** and skips what didn't
+- **Files you edited by hand after import are preserved**
+- **AtlasMind notices when memory has gone stale** — it warns you, pins a row at the top of the Memory
+  view, and offers **Update Project Memory**
+- **While VS Code is open**, it watches your saves, creations, deletions and renames, and quietly
+  re-imports when something makes memory out of date
 
-`/import` now performs a broader first-pass project ingest. It can populate:
-- `architecture/project-overview.md` from README
-- `architecture/dependencies.md` from package manifests
-- `architecture/project-structure.md` and `architecture/codebase-map.md` from directory listings
-- `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
-- `domain/conventions.md` and `domain/product-capabilities.md`
-- `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
-- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+### Starting over
 
-If `project_soul.md` still contains bootstrap placeholders, import upgrades it into a usable identity document.
-
-Generated import files now include an AtlasMind metadata trailer with generator version, source paths, and source/body fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import. AtlasMind also loads those source pointers into memory entries so the orchestrator can jump from a summary note to the authoritative file when a prompt needs live verification. The same metadata also powers startup stale-memory detection and in-session auto-refresh, so AtlasMind only prompts for a memory refresh when imported entries are genuinely out of date. In the Memory sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets remain easy to browse by area.
-
-### Purge Memory
-
-The Project page in AtlasMind Settings includes a destructive **Purge Project Memory** action. It requires a modal confirmation and then a typed `PURGE MEMORY` confirmation before AtlasMind deletes the SSOT root, recreates the empty scaffold, and reloads memory from disk.
+**Settings → Project → Purge Project Memory** deletes everything and recreates the empty structure. It
+asks you to confirm, then asks you to type `PURGE MEMORY`. It's genuinely destructive, and it behaves
+like it.
 
 ---
 
-## Querying Memory
+## Getting things back out
 
-### Retrieval Algorithm
-
-`memoryManager.queryRelevant(query, maxResults)`:
-
-1. Tokenise the query into lowercase terms
-2. Score each entry by weighted field matches:
-   - **Path match** — query term appears in the file path
-   - **Title match** — query term appears in the title
-   - **Tag match** — query term matches a tag exactly
-   - **Snippet match** — query term appears in the content body
-  - **Source path match** — query term appears in the authoritative files behind an imported note
-  - **Document class and evidence type** — source-backed operational notes and ADRs can outrank generated indexes when the request is about current or exact state
-  - **Freshness** — newer notes get a modest boost when other relevance signals are similar
-3. Rank by total score, descending
-4. Return top N results (default: 10, max: 50)
-
-If vector embeddings are present, cosine similarity is blended with keyword scoring.
-
-### Via Chat
+### Ask
 
 ```
 @atlas /memory authentication
 @atlas /memory deployment runbooks
 ```
 
-### Via the Sidebar
+### Browse
 
-The **Memory** tree view shows the SSOT folder hierarchy. Click any entry to preview its content.
+The **Memory** sidebar shows the folder structure. Click anything to read it. Indexed notes are filed
+under their folders, so a large memory set stays browsable.
 
-### Via Skills
+### Automatically
 
-The `memory-query` skill wraps `context.queryMemory()` and is available to all agents during execution.
+You mostly won't query memory yourself — it happens on every request. AtlasMind works out whether your
+question can be answered from summaries or needs current facts:
 
----
+- **Summary questions** get the relevant memory entries directly
+- **Questions needing exactness** get the memory *plus* live excerpts from the actual source files those
+  notes were written from
 
-## Automatic Memory Context
+That second part matters. A note saying "the router prefers local models" is a summary; when you ask
+what the router does *right now*, AtlasMind goes and reads the code rather than trusting the note.
 
-During every orchestrator request:
-1. The user's message is classified as summary-safe, hybrid, or live-verify
-2. `queryRelevant()` returns the top matching entries
-3. For summary-safe asks, those entries are injected directly as project memory
-4. For hybrid or live-verify asks, AtlasMind uses `sourcePaths` from the ranked entries to read live excerpts from authoritative files and inject those alongside the memory summary
-5. The model gets both the project-memory abstraction and the evidence trail when the prompt needs exactness
+### How relevance is decided
 
-This means the more you populate your SSOT, the more contextually aware AtlasMind becomes.
+Entries are scored on where your search terms appear — path, title, tags, body, and the source files
+behind an imported note — with source-backed operational notes and decision records outranking generated
+indexes when you're asking about current state, and newer notes getting a modest edge when everything
+else is equal.
 
-During indexing, AtlasMind computes each imported entry's document class and evidence type once and reuses that metadata for both the stored memory record and the embedding source. This keeps retrieval ranking inputs and embedding context synchronized.
-
----
-
-## Background Self-Healing
-
-AtlasMind runs a background self-healing pass for memory scanner warnings and blocked entries.
-
-- Warned entries are automatically remediated where safe by removing hidden Unicode control characters, neutralizing suspicious instruction-like HTML comments, and redacting secret-like key/token/password values.
-- Blocked entries are automatically quarantined into `temp/quarantine/*.blocked.txt.bak`, and the original note is replaced with a safe placeholder so blocked content does not continue surfacing in retrieval context.
-
-After remediation, AtlasMind reloads the SSOT index and refreshes memory status automatically.
+Where vector embeddings exist, semantic similarity is blended in.
 
 ---
 
-## Memory Scanner
+## Session context
 
-The `MemoryScanner` validates content before it is written to SSOT. It has **10 built-in rules**:
+Each conversation gets its own working document, updated after every turn: the goal, the current
+approach, key findings, what's concluded, open threads, links into project memory, and what just
+happened.
 
-### Error-level (blocks the write)
+It's capped at 4,000 characters and designed so that picking a conversation up cold actually works —
+loading it orients the model without rebuilding everything from scratch.
+
+The **Memory Agent** does this maintenance in the background. Point it at a local Ollama model with
+`allowedModels` and all of this background work costs you nothing.
+
+Session context is deliberately kept **out of normal memory retrieval**, so temporary working state
+never gets confused with durable project knowledge.
+
+---
+
+## When you're frustrated, it learns
+
+If AtlasMind detects that you're visibly frustrated with how a conversation is going, it updates your
+saved Personality Profile, increases how much recent context it carries if it was retaining too little,
+and writes what it learned to `operations/operator-feedback.md`.
+
+That gives it both an immediate correction and something retrievable next time.
+
+---
+
+## What can't go into memory
+
+Project memory is **committed to your repository**. That makes "what may enter memory" a privacy and
+security decision, not just a storage one — so everything is scanned before it's written.
+
+**These block the write:**
 
 | Rule | What it catches |
 |------|----------------|
 | `no-secrets-in-memory` | API keys, tokens, passwords, connection strings |
-| `no-prompt-injection` | Attempts to override system prompts or inject instructions |
-| `no-executable-code-blocks` | Shell/script code blocks that could be auto-executed |
-| `no-base64-blobs` | Large base64-encoded payloads (potential data exfiltration) |
-| `no-url-injection` | Suspicious URLs pointing to credential-harvesting or phishing domains |
-| `max-entry-size` | Entries exceeding 50KB (prevents memory bloat) |
+| `no-prompt-injection` | Attempts to override instructions |
+| `no-executable-code-blocks` | Script blocks that could end up being run |
+| `no-base64-blobs` | Large encoded payloads |
+| `no-url-injection` | Links to credential-harvesting or phishing domains |
+| `max-entry-size` | Anything over 50 KB |
 
-### Warning-level (flagged but allowed)
+**These are flagged but allowed:**
 
-| Rule | What it catches |
-|------|----------------|
-| `no-pii-patterns` | Email addresses, phone numbers, SSNs |
-| `no-internal-urls` | Localhost and private IP references |
-| `no-excessive-tags` | Entries with more than 20 tags |
-| `markdown-structure` | Missing title heading or malformed frontmatter |
+`no-pii-patterns` (emails, phone numbers, national ID numbers), `no-internal-urls` (localhost and
+private addresses), `no-excessive-tags` (more than 20), and `markdown-structure` (missing title or
+malformed frontmatter).
+
+### It cleans up after itself
+
+A background pass fixes what it safely can: hidden Unicode control characters removed, instruction-like
+HTML comments neutralised, secret-shaped values redacted.
+
+Anything **blocked** is moved into quarantine and the note is replaced with a safe placeholder, so
+blocked content stops appearing in retrieval. The index reloads automatically afterwards.
+
+### And again on the way out
+
+Before memory reaches a model, it passes through a second, separate check for credentials — a backstop
+in case something got in anyway. It covers Anthropic and OpenAI keys, GitHub tokens, bearer tokens, PEM
+private keys, database connection strings, and generic `api_key = "..."` assignments. If it strips
+anything, it says so.
+
+One layer stops secrets being written; the other stops them being sent. Neither relies on the other.
+
+### The same rules apply to temporary context
+
+Recent conversation carried between turns, chat history summaries and text attachments go through the
+same scanner:
+
+- **Blocked** content is excluded entirely
+- **Warned** content is redacted and included clearly labelled as untrusted data
+- **Clean** content is still treated as *data, not instructions*, and kept outside the trusted part of
+  the prompt
 
 ---
 
-## SSOT Best Practices
+## Messages from other systems are summarised, never copied
 
-1. **Use descriptive paths** — `decisions/use-jwt-for-auth.md` not `decisions/doc1.md`
-2. **Tag consistently** — tags power search; use lowercase, hyphenated terms
-3. **Record decisions early** — ADRs in `decisions/` prevent re-arguing
-4. **Document failures** — `misadventures/` saves time by recording what didn't work
-5. **Keep entries focused** — one concept per file; split large documents
-6. **Use `/import` on existing projects** — auto-populates the basics so you can build from there
-7. **Review periodically** — stale memory is worse than no memory; prune outdated entries
+Because memory is committed to your repository, mirroring a colleague's chat messages into it would
+commit their words to your repo. So the rule for external chat systems is **derive, don't mirror**.
+
+An inbound message becomes **a follow-up with a link back to the original thread** and a short sanitised
+title. The message body is never stored — the record has no field that could hold one. The chat system
+stays the record of what was said; AtlasMind records only that there's something to act on and where to
+find it.
+
+Everything crossing that line is sanitised first, and a derived record never invents a link to a person
+or a run that the original message doesn't support.
 
 ---
 
-## Configuration
+## Getting the most out of it
 
-| Setting | Default | Description |
+1. **Use descriptive paths.** `decisions/use-jwt-for-auth.md`, not `decisions/doc1.md`
+2. **Tag consistently** — lowercase, hyphenated. Tags drive search
+3. **Record decisions early.** A decision record stops you re-arguing it in three months
+4. **Write down what failed.** `misadventures/` is the highest-value folder here
+5. **One idea per file.** Split anything that's grown into a document
+6. **Run `/import` on an existing project** — it does the boring 80%
+7. **Prune occasionally.** Stale memory is worse than no memory, because it's confidently wrong
+
+---
+
+## Settings
+
+| Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder. If that path is missing, AtlasMind only checks the default `project_memory/` folder before skipping startup auto-load |
+| `atlasmind.ssotPath` | `project_memory` | Where memory lives, relative to your workspace |
+
+When you open a workspace that already has project memory, AtlasMind loads it during startup and
+refreshes the Memory sidebar immediately — you don't need to run `/import` again.
 
 ---
 
-## Startup Auto-Load
+## Related
 
-When VS Code opens a workspace that already contains a MindAtlas project, AtlasMind now tries to load that SSOT automatically during activation.
-
-Startup loading prefers:
-- the configured `atlasmind.ssotPath` when it exists
-- `project_memory/` when the configured path is missing
-
-After startup detection succeeds, AtlasMind refreshes the Memory sidebar immediately so the existing project memory is visible without running `/import` again.
-
-## Scanner Reuse Outside SSOT
-
-AtlasMind now reuses the SSOT memory-scanner rules for transient freeform-chat context as well. Recent session carry-forward, native chat history summaries, and text attachments are scanned before they are passed to a model.
-
-- blocked transient context is excluded entirely
-- warned transient context is redacted and included only as explicitly labeled untrusted data
-- clean transient context is still treated as data, not instructions, and is kept out of the system-prompt trust boundary
-
-## External Conversations Are Derived, Never Mirrored
-
-Project memory is **git-tracked**, so anything written into SSOT gets committed to your repository. That makes "what may enter memory" a privacy decision as much as a storage one, and the rule for external chat systems is **derive, don't mirror**.
-
-[Buzz](https://buzz.xyz) inbound derivation is the reference implementation: a message becomes a **follow-up with a pointer back to the original thread** and a short sanitised title. The message body is never stored — the derived record has no content field at all. Buzz stays the message system-of-record; AtlasMind records only that there's something to act on and where to find it.
-
-Everything crossing that boundary is sanitised first — secret-shaped material redacted, control characters stripped, text length-clamped — and a derivation never invents a link to a stakeholder or run the source event doesn't support.
-
-The same rule applies to any future chat integration: keep the pointer and a summary, never the transcript. See [[Security]] and [[Architecture]].
-
-## Dispatch-Time Secret Redaction
-
-Before retrieved memory context and live evidence are embedded in a model prompt, AtlasMind passes both through the `SecretRedactor` utility (`src/utils/secretRedactor.ts`). This is a separate, lighter-weight layer from the `MemoryScanner` write-gate — it protects the **LLM dispatch boundary** rather than the write path.
-
-If a credential was accidentally stored in SSOT (for example, an API key pasted into a notes file), the redactor strips it from the prompt before it reaches a third-party provider API. A console warning is emitted identifying how many patterns matched and which secret types were found. The patterns cover:
-
-| Pattern | Examples |
-|---------|---------|
-| Anthropic / OpenAI API keys | `sk-ant-...`, `sk-proj-...` |
-| GitHub tokens | `ghp_...`, `gho_...`, `ghu_...` |
-| Bearer tokens | `Authorization: Bearer <token>` |
-| PEM private keys | `-----BEGIN RSA PRIVATE KEY-----` |
-| DB connection strings | `postgresql://user:pass@host/db` |
-| Generic secret assignments | `api_key = "..."`, `secret_key: ...` |
-
-The `MemoryScanner` prevents write-time ingestion of secrets; the `SecretRedactor` provides a defence-in-depth backstop at dispatch time.
+- [[Security]] — the write gate and dispatch boundary in context
+- [[Chat Commands]] — `/memory`, `/bootstrap`, `/import`
+- [[Ideation]] — the research register, which lives in memory
+- [[Agents]] — how memory reaches the model

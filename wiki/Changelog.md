@@ -1,10 +1,61 @@
 # Changelog
 
-This page highlights major releases. For the complete changelog, see [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md) in the repository.
+**What changed in each release, newest first.**
 
-**Note:** Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
+This page carries the highlights. The complete, formal changelog lives in
+[CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md).
+
+A few things worth knowing as you read:
+
+- **Version numbers follow SemVer.** Patch releases are fixes, docs and refactors; minor releases add
+  features, commands or UI; major releases change something you'd have to migrate.
+- **Every commit ships a version bump**, not just every pull request — so the version you see always
+  corresponds to an exact state of the code.
+- **The Marketplace version may trail the source version.** The badge shows what's published; the source
+  version comes from `package.json` on whichever branch you're reading.
+- AtlasMind stays branded **Beta** until 1.0.0, when the configuration and memory formats are frozen.
+
+Older entries below describe the software as it was at the time and are deliberately left as written.
 
 ---
+
+## v0.257.4 — Windows launcher tests can report why they failed
+
+The three tests that launch a real Windows process tree gave their child processes a 10-second limit
+while declaring no limit of their own, so they inherited the 5-second default and were killed before
+the child limit could fire. A failure arrived as a bare "timed out in 5000ms" with nothing behind it.
+
+Both limits are now named, with the test's above the child's so the child's own error is what you see.
+No assertion changed.
+
+## v0.257.3 — Three documentation corrections
+
+`Home.md` still claimed 21 built-in agents where the runtime registers 27 — the figure was fixed in the
+README but missed on the wiki's front page, leaving the two most-read documents disagreeing.
+
+The Remote Control page also gained the `AtlasMind: Enable Remote Control (Gateway)` command in its
+"Turning it on" table, where gateway mode was previously only mentioned in prose further down, and its
+safety table no longer contradicts its own settings table about whether `atlasmind.remote.enabled`
+starts the server. It does not; the commands do.
+
+## v0.257.2 — Documentation written for the reader
+
+The README and all 24 wiki pages are rewritten for people evaluating and using AtlasMind rather than for
+the people maintaining it. Every page now opens by saying what the thing is, who it is for, and what it
+does for you, before any implementation detail.
+
+Release archaeology and maintainer-facing rationale are gone from the user-facing pages; the reasoning
+that explains a behaviour you will actually meet is kept and stated plainly. Every technical claim,
+count, setting name and safety boundary is preserved.
+
+The README's 165-line block of internal release notes becomes a short "what's new" plus five user-visible
+highlights, and its 50-row source-file table becomes a 12-row map. A stale figure is corrected: the
+README claimed 21 built-in agents where the runtime registers 27.
+
+`Configuration` now opens with the six settings people actually change, and two settings are labelled
+honestly as declared-but-not-read rather than described as working controls. `Architecture` becomes a
+readable overview, with the full service map staying in the contributor docs. The last pointer to the
+long-removed competitor comparison page is gone.
 
 ## v0.257.1 — Atlas Lenses gets a dashboard, and one visual language
 
