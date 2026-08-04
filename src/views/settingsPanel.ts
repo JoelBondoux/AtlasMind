@@ -331,6 +331,7 @@ type SettingsMessage =
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
   | { type: 'setupLensDeclarations' }
+  | { type: 'openLensDashboard' }
   | { type: 'openCompareModels' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
@@ -1173,6 +1174,9 @@ export class SettingsPanel {
 
       case 'openProjectRunCenter':
         await vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+        return;
+      case 'openLensDashboard':
+        await vscode.commands.executeCommand('atlasmind.lens.openDashboard');
         return;
       case 'setupLensDeclarations':
         await vscode.commands.executeCommand('atlasmind.lens.setupDeclarations');
@@ -2738,7 +2742,7 @@ export class SettingsPanel {
                   <p class="card-kicker">Lens</p>
                   <h3>Repository declarations</h3>
                 </div>
-                <p class="card-copy">State Lifecycle and Configuration Resolution use explicit repository files; they do not analyze whichever editor file happens to be active.</p>
+                <p class="card-copy">State Lifecycle and Configuration Resolution use explicit repository files; they do not analyze whichever editor file happens to be active. These are two of the eight Atlas Lenses — open the dashboard to see the rest, what each one reads, and which are ready.</p>
                 <div class="stack-list">
                   ${lensDeclarations.files.map(file => `
                     <div class="list-row">
@@ -2751,6 +2755,7 @@ export class SettingsPanel {
                   `).join('')}
                 </div>
                 <div class="button-stack top-gap">
+                  <button id="openLensDashboard" class="secondary-button">Open Atlas Lenses</button>
                   <button id="setupLensDeclarations" class="secondary-button">${lensDeclarations.readyCount === lensDeclarations.totalCount ? 'Review Lens declarations' : 'Set up Lens declarations'}</button>
                 </div>
                 <p class="info-note">Starter creation is create-only and contains no invented project states, configuration values, or secret data.</p>
@@ -4554,6 +4559,7 @@ export class SettingsPanel {
           bindCommandButton('openModelProviders', 'openModelProviders');
           bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+          bindCommandButton('openLensDashboard', 'openLensDashboard');
           bindCommandButton('setupLensDeclarations', 'setupLensDeclarations');
           bindCommandButton('openCompareModels', 'openCompareModels');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
@@ -6930,6 +6936,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openSpecialistIntegrations' ||
     message.type === 'openProjectRunCenter' ||
     message.type === 'setupLensDeclarations' ||
+    message.type === 'openLensDashboard' ||
     message.type === 'openCompareModels' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.256.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.257.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,23 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.256.1
+## What's new in 0.257.2
 
 Since the last Marketplace publication, **v0.256.0**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Atlas Lenses has a front door.** **AtlasMind: Lens: Open Atlas Lenses Dashboard** opens one page for
+  all eight lenses: what each one reads, the question it answers, whether it can answer it right now, and
+  why not. A flow map draws the links between evidence, lens and question, and hovering any card follows
+  its connections. Every lens, evidence source and suggested action is clickable, and a ⓘ on each explains
+  it in plain language — including what that lens *cannot* prove. A **Do this next** band lists only what
+  needs a person, and is empty when nothing does. Opening it runs no model and writes no file.
+
+- **The eight Lens surfaces now look like one product.** Possible Flow, Change Impact, Test Evidence, State
+  Lifecycle, Configuration Resolution, Change Story and Field Wiring were written weeks apart and looked
+  it. Relationships that used to be listed as text are now drawn: state transitions curve between the
+  states they connect, impact links point *into* a symbol from its callers and *out of* it to its callees,
+  and a configuration chain shows which source the value actually reaches.
 
 - **The README and the whole wiki have been rewritten for people, not maintainers.** Every page now opens
   by saying what the feature is, who it's for, and what it does for you, before it gets into detail. The

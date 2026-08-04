@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.256.1",
+  "version": "0.257.2",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -216,6 +216,11 @@
         "command": "atlasmind.openChatPanel",
         "title": "AtlasMind: Open Chat Panel",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.lens.openDashboard",
+        "title": "AtlasMind: Lens: Open Atlas Lenses Dashboard",
+        "icon": "$(layers)"
       },
       {
         "command": "atlasmind.lens.refresh",
@@ -652,39 +657,44 @@
       ],
       "view/title": [
         {
-          "command": "atlasmind.lens.filterSymbols",
+          "command": "atlasmind.lens.openDashboard",
           "when": "view == atlasmind.lensView",
           "group": "navigation@1"
         },
         {
-          "command": "atlasmind.lens.refresh",
+          "command": "atlasmind.lens.filterSymbols",
           "when": "view == atlasmind.lensView",
           "group": "navigation@2"
         },
         {
-          "command": "atlasmind.lens.reviewContracts",
+          "command": "atlasmind.lens.refresh",
           "when": "view == atlasmind.lensView",
           "group": "navigation@3"
         },
         {
-          "command": "atlasmind.lens.reviewState",
-          "when": "view == atlasmind.lensView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "atlasmind.lens.reviewConfig",
-          "when": "view == atlasmind.lensView",
-          "group": "navigation@5"
-        },
-        {
-          "command": "atlasmind.lens.reviewChangeStory",
+          "command": "atlasmind.lens.reviewContracts",
           "when": "view == atlasmind.lensView",
           "group": "8_lens@1"
         },
         {
+          "command": "atlasmind.lens.reviewState",
+          "when": "view == atlasmind.lensView",
+          "group": "8_lens@2"
+        },
+        {
+          "command": "atlasmind.lens.reviewConfig",
+          "when": "view == atlasmind.lensView",
+          "group": "8_lens@3"
+        },
+        {
+          "command": "atlasmind.lens.reviewChangeStory",
+          "when": "view == atlasmind.lensView",
+          "group": "8_lens@4"
+        },
+        {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.lensView",
-          "group": "9_settings@1"
+          "group": "navigation@4"
         },
         {
           "command": "atlasmind.openProjectDashboard",

@@ -191,8 +191,12 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 Lens explains your codebase from what's actually declared in it. **It never runs your code, never reads
 secret values, and never invokes a model** unless you explicitly ask it to.
 
+The dashboard is the way in — it lists every lens, says which are ready and why the others aren't, and
+reports evidence it didn't inspect as *unassessed* rather than as absent.
+
 | Command | What it does |
 |---------|-------------|
+| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eight lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
 | `AtlasMind: Lens: Refresh Active Outline` | Re-read the current file's symbols |
 | `AtlasMind: Lens: Filter Symbols` | Show everything, or focus on types, callables, data or containers |
 | `AtlasMind: Lens: Set Up Repository Declarations` | Check what's configured, and create valid empty starters. Existing files are opened, never overwritten |

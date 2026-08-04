@@ -109,12 +109,28 @@ path — you don't have to retype it.
 | **Resource discovery** | Finds new servers, agents and skills |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 
+### Reading your code — Lens
+
+**Lens** is eight views that explain your codebase from what's actually declared in it: possible flow,
+change impact, test evidence, state lifecycle, configuration resolution, change story, field wiring, and
+a dashboard that ties them together.
+
+They share one model and one visual language, which matters for a reason worth stating: **absent input
+means *not assessed*, never *empty*.** A lens whose evidence was never inspected says so and raises its
+own item, rather than contributing to a page that looks clear because nobody looked. Every verdict names
+the declared rule that produced it, and the rule table is printed on the page so you can check the
+grading.
+
+The dashboard is read-only by construction — it runs no model, writes no file and scans no workspace.
+Its webview sends only a bounded id, and the host resolves that against a catalogue it holds itself, so
+no surface can trigger a command the dashboard didn't already offer.
+
 ### The panels
 
 Chat, Settings, Project Dashboard, Project Ideation, Mission Control, Project Run Center, Cost
-Dashboard, Model Providers, Agent Manager, Website Studio, Personality Profile — plus the sidebar trees
-for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents, Skills, MCP Servers and
-Resource Discovery.
+Dashboard, Model Providers, Agent Manager, Website Studio, Personality Profile, and the Lens surfaces —
+plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
+Skills, MCP Servers and Resource Discovery.
 
 ---
 

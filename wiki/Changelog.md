@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.256.1 — Documentation written for the reader
+## v0.257.2 — Documentation written for the reader
 
 The README and all 24 wiki pages are rewritten for people evaluating and using AtlasMind rather than for
 the people maintaining it. Every page now opens by saying what the thing is, who it is for, and what it
@@ -37,6 +37,12 @@ README claimed 21 built-in agents where the runtime registers 27.
 honestly as declared-but-not-read rather than described as working controls. `Architecture` becomes a
 readable overview, with the full service map staying in the contributor docs. The last pointer to the
 long-removed competitor comparison page is gone.
+
+## v0.257.1 — Atlas Lenses gets a dashboard, and one visual language
+
+Lens had eight surfaces and no front door: each was reached by knowing its command, and nothing said what the set was or why one of them refused to open. **AtlasMind: Lens: Open Atlas Lenses Dashboard** is that door — every lens with the question it answers, a plain-language explanation, the evidence it reads, whether it is ready, and the declared rule behind the verdict. A flow map draws evidence → lens → question, hovering follows the links, everything is clickable, and a **Do this next** band ranks only what needs a person, empty when nothing does. All eight surfaces now share one stylesheet, one card, one header, and one flowing-link renderer: state transitions curve between the states they connect, impact links point into the selected symbol from its callers and out of it to its callees, and configuration precedence flows to the source that wins. A ⓘ on each lens says what it cannot prove, so "no test evidence found" cannot be read as "this code is untested". Review follow-up in 0.257.1: the `no-contract-files` rule now describes the condition it actually tests — fewer than two contract sources, not none — since that rule table is published on the page precisely so a reader can check the grading.
+
+---
 
 ## v0.256.0 — One request, one declared delivery route
 
