@@ -179,9 +179,13 @@ export async function collectLensDashboardInput(): Promise<LensDashboardInput> {
     return {};
   }
   const diskBacked = folder.uri.scheme === 'file' || folder.uri.scheme === 'vscode-remote';
+  // Read once. Calling it twice in the spread let the active editor change
+  // between the test and the value, which sets `activeTarget: undefined`
+  // explicitly on an object that just claimed to have one.
+  const activeTarget = activeLensTarget();
   return {
     workspaceName: folder.name,
-    ...(activeLensTarget() ? { activeTarget: activeLensTarget() } : {}),
+    ...(activeTarget ? { activeTarget } : {}),
     ...(diskBacked ? { declarations: inspectLensDeclarations(folder.uri.fsPath) } : {}),
     ...(diskBacked ? { git: await readGitState(folder.uri.fsPath) } : {}),
   };

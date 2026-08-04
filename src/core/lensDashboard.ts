@@ -229,7 +229,10 @@ export const LENS_RULES: readonly LensRule[] = [
   },
   {
     id: 'no-contract-files',
-    description: 'No schema, SQL, or type-declaration file was found to compare.',
+    // States the condition it actually tests. The gate is "fewer than two", not
+    // "none", and this table is published on the dashboard — a rule whose text
+    // does not match its own condition defeats the point of publishing it.
+    description: 'Field Wiring compares two contracts, and fewer than two schema, SQL, or type-declaration sources were found.',
     severity: 'suggestion',
   },
   {
@@ -769,9 +772,11 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         command: 'atlasmind.lens.reviewChangeStory',
       };
     case 'no-contract-files':
+      // True for one source as well as none; "found nothing" was false in the
+      // one-source case, which is the case most likely to occur.
       return {
         ...base,
-        title: 'Field Wiring found nothing to compare',
+        title: 'Field Wiring needs two contracts to compare',
         detail: lens.readinessReason,
         actionLabel: 'Scan again',
         command: 'atlasmind.lens.reviewContracts',

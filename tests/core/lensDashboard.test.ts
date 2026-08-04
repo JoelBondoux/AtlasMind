@@ -166,6 +166,27 @@ describe('Lens dashboard model', () => {
     expect(unknownEdge?.strength).toBe('declared');
   });
 
+  it('describes the contract gate as "fewer than two", which is what it tests', () => {
+    // One source is the case most likely to occur and the one where the old
+    // wording lied. The rule table is published on the page, so a description
+    // that does not match its own condition defeats the point of publishing it.
+    const oneSource = buildLensDashboard({ workspaceName: 'web', contractCandidates: 1 });
+    const action = oneSource.actions.find(candidate => candidate.rule === 'no-contract-files');
+    const rule = oneSource.rules.find(candidate => candidate.id === 'no-contract-files');
+
+    expect(action).toBeDefined();
+    for (const text of [action!.title, action!.detail, rule!.description]) {
+      expect(text.toLowerCase()).not.toContain('nothing');
+      expect(text.toLowerCase()).not.toMatch(/\bno (schema|contract)/);
+    }
+    expect(`${action!.title} ${rule!.description}`.toLowerCase()).toContain('two');
+
+    // And the same text has to stay true when there genuinely are none.
+    const noSources = buildLensDashboard({ workspaceName: 'web', contractCandidates: 0 });
+    expect(noSources.actions.find(candidate => candidate.rule === 'no-contract-files')?.title)
+      .toBe(action!.title);
+  });
+
   it('publishes the rule behind every action so nothing is graded invisibly', () => {
     const view = buildLensDashboard({ workspaceName: 'web', declarations: declarations('missing', 'empty') });
 

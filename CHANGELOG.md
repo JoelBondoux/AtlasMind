@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.1] - 2026-08-04
+
+### Fixed
+
+- **The Lens dashboard's contract rule now describes the condition it actually tests.** `no-contract-files` fires when *fewer than two* contract sources are found, but its published description and its suggested-action title both said none had been found — false in the one-source case, which is the likelier one. Because that rule table renders on the dashboard so a reader can check the grading, a description that disagrees with its own condition defeats the reason for publishing it. Both now state the two-source requirement, and a regression test asserts the text stays true for zero sources and for one.
+- **The dashboard reads the active editor once per refresh.** `collectLensDashboardInput` called `activeLensTarget()` twice in the same object spread — once to test and once for the value — so an editor change between the two calls could set `activeTarget: undefined` on an object that had just reported having one.
+
 ## [0.257.0] - 2026-08-04
 
 ### Added
