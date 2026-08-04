@@ -21,6 +21,23 @@ const NATIVE_SOURCE = readFileSync(
   'utf8',
 );
 
+/**
+ * The three Windows tests below launch real process trees — the shipped helper,
+ * then Node, then PowerShell — and the deepest of them compiles C# at runtime
+ * through `Add-Type`. That is genuinely slow on a cold CI runner.
+ *
+ * Each child already gets `CHILD_PROCESS_TIMEOUT_MS`, but the *tests* carried no
+ * timeout, so they inherited Vitest's 5s default and were killed before the
+ * child limit they set could ever fire. The result was a bare "Test timed out in
+ * 5000ms" instead of the child's own diagnostic, on a suite that passed locally
+ * and failed on CI purely on machine speed.
+ *
+ * The test timeout must therefore stay comfortably *above* the child timeout, or
+ * the child's error can never surface. Neither value relaxes an assertion.
+ */
+const CHILD_PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_LAUNCH_TIMEOUT_MS = 30_000;
+
 describe('the ACP private-desktop launch boundary', () => {
   it('does not mistake the Windows schema default for the user choosing a mode', () => {
     expect(isAcpConsoleModeChosen('win32', [undefined, undefined, undefined])).toBe(false);
@@ -66,7 +83,7 @@ describe('the ACP private-desktop launch boundary', () => {
       execFile(
         launch.command,
         launch.args,
-        { windowsHide: true, timeout: 10_000 },
+        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
         (error, output, stderr) => {
           if (error) {
             reject(new Error(`${error.message}\n${stderr}`));
@@ -78,7 +95,7 @@ describe('the ACP private-desktop launch boundary', () => {
     });
 
     expect(stdout.trim()).toBe('atlasmind-private-desktop-ok');
-  });
+  }, PROCESS_LAUNCH_TIMEOUT_MS);
 
   it.skipIf(process.platform !== 'win32')('starts PowerShell on the private station without a DLL initialization failure', async () => {
     const powershell = (process.env['PATH'] ?? '')
@@ -103,7 +120,7 @@ describe('the ACP private-desktop launch boundary', () => {
       execFile(
         launch.command,
         launch.args,
-        { windowsHide: true, timeout: 10_000 },
+        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
         (error, _output, stderr) => {
           if (error) {
             reject(new Error(`${error.message}\n${stderr}`));
@@ -113,7 +130,7 @@ describe('the ACP private-desktop launch boundary', () => {
         },
       );
     });
-  });
+  }, PROCESS_LAUNCH_TIMEOUT_MS);
 
   it.skipIf(process.platform !== 'win32')('keeps a nested ACP shell on one non-visible inherited console', async () => {
     const powershell = (process.env['PATH'] ?? '')
@@ -158,7 +175,7 @@ describe('the ACP private-desktop launch boundary', () => {
       execFile(
         launch.command,
         launch.args,
-        { windowsHide: true, timeout: 10_000 },
+        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
         (error, _output, stderr) => {
           if (error) {
             reject(new Error(`${error.message}\n${stderr}`));
@@ -168,7 +185,7 @@ describe('the ACP private-desktop launch boundary', () => {
         },
       );
     });
-  });
+  }, PROCESS_LAUNCH_TIMEOUT_MS);
 
   it('does nothing unless the user explicitly opts in', () => {
     expect(wrapAcpLaunchForPrivateDesktop('node.exe', ['agent.js'], false, PROBE)).toEqual({

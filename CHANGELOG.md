@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.4] - 2026-08-04
+
+### Fixed
+
+- **Three Windows launcher tests could never report why they failed.** `acpWindowsLauncher.test.ts` launches real process trees — the shipped helper, then Node, then PowerShell, with the deepest compiling C# at runtime through `Add-Type` — and gave each child a 10-second limit. The tests themselves declared no timeout, so they inherited Vitest's 5-second default and were killed *before* the child limit they had set could ever fire. A test that grants its children twice the time it allows itself cannot surface their diagnostics, so a failure arrived as a bare `Test timed out in 5000ms` with nothing to act on.
+
+  The two limits are now named constants, with the test timeout deliberately above the child timeout so the child's own error is what surfaces. **No assertion is relaxed** — the launch-mode, redirected-stdio, and non-visible-console checks are unchanged. This is why the suite passed locally, where the deepest test takes ~750 ms, and failed on CI, where the same test needs roughly seven times longer on a cold shared runner.
+
 ## [0.257.3] - 2026-08-04
 
 ### Fixed

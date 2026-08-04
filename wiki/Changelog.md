@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.257.4 — Windows launcher tests can report why they failed
+
+The three tests that launch a real Windows process tree gave their child processes a 10-second limit
+while declaring no limit of their own, so they inherited the 5-second default and were killed before
+the child limit could fire. A failure arrived as a bare "timed out in 5000ms" with nothing behind it.
+
+Both limits are now named, with the test's above the child's so the child's own error is what you see.
+No assertion changed.
+
 ## v0.257.3 — Three documentation corrections
 
 `Home.md` still claimed 21 built-in agents where the runtime registers 27 — the figure was fixed in the
