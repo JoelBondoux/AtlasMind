@@ -1,459 +1,271 @@
-
-> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
-
 # Tool Execution & Safety
 
-AtlasMind provides tiered safety controls for all tool (skill) execution, from read-only operations to destructive external commands.
+**Nothing risky happens without you knowing.**
 
-Before any approval-mode or tool-risk decision is considered, AtlasMind applies an immutable legality-and-human-respect baseline: operator consent never authorizes illegal activity, legal evasion, targeted harassment, defamation, or deceptive attacks on a person.
+AtlasMind can edit your files, run your tests, commit to git and reach the network. This page is about
+how much of that it may do, when it asks first, and what it will never do regardless of what you set.
 
-## Tool Risk Classification
-
-Every skill is classified by its risk category:
-
-| Category | Risk Level | Examples |
-|----------|-----------|---------|
-| `read` | Low | `file-read`, `file-search`, `directory-list`, `text-search`, `memory-query`, `specialist-guidance`, `diagnostics`, `code-symbols`, `git-status`, `git-diff`, `git-log` |
-| `workspace-write` | Medium | `file-write`, `file-edit`, `file-delete`, `file-move`, `git-apply-patch`, `memory-write`, `memory-delete` |
-| `git-read` | Low | `git-status`, `git-diff`, `git-log`, `git-branch` (list) |
-| `git-write` | High | `git-commit`, `git-branch` (create/delete) |
-| `terminal-read` | Low | Read-only terminal commands |
-| `terminal-write` | High | Install commands, build scripts, commits |
-| `network` | Medium | `web-fetch` |
-| `audio-input` | Low | STT microphone capture |
-| `audio-output` | Low | TTS playback |
-
-### Unknown Tool Classification
-
-For dynamically registered tools whose category is not explicitly declared, AtlasMind applies **name-based heuristic classification** rather than defaulting to the highest risk level:
-
-- Tools whose names start with a read-like prefix (`get`, `list`, `read`, `search`, `find`, `query`, `fetch`, `check`, `show`, `view`, `inspect`, `describe`, `status`, `info`, `lookup`, `count`) are classified as `read/low`.
-- If the name also contains a write-like substring (`write`, `create`, `update`, `delete`, `execute`, `run`, `insert`, `remove`, `patch`, `add`, `set`, `push`, `commit`, `deploy`, `send`, `publish`, `upload`, `import`, `export`, `reset`, `clear`, `purge`, `migrate`, `install`) the read classification is overridden to `network/high`.
-- Names that match neither pattern default to `network/high` (conservative fallback).
-
-This prevents MCP-backed inspection tools from triggering approval prompts that would be required for network-risk tools.
-
-`specialist-guidance` is explicitly classified as `read/low`: it returns a bounded checklist already bundled with the extension and performs no filesystem, process, network, secret, or workspace mutation. Any live verification the checklist recommends remains a separate tool call with its own classification and approval decision.
+The short version: **reading is free, writing asks, and a handful of things are refused outright.**
 
 ---
 
-## Read-Only Agents
+## How much it asks
 
-Tool access begins with an explicit agent policy. `task-scoped` selects at most 12 relevant tools and treats an empty eligibility list as built-ins only; `allowlist` offers exactly the named enabled skills; advanced `all` deliberately admits every enabled integration. Custom/MCP tools must be named before a task-scoped agent can select them. The Test Developer keeps a focused testing/repository eligibility list and narrows it per turn, so a conceptual testing explanation remains tool-less while implementation work can still receive file, diagnostic, and test capabilities.
+One setting, `atlasmind.toolApprovalMode`, controls the whole thing:
 
-Selection is not authorization. It runs after registry eligibility and the user's turn capability envelope, so it can only remove tools. Approval classification and the execution-time envelope check still run for every call. Natural-language cues stay in the selected callable schema; the system prompt no longer carries a duplicate skills catalogue.
-
-The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the deliberate exception. They pin an explicit read-only allowlist — file/directory reads, search, git status/diff/log/blame, diff preview, diagnostics, code symbols, framework detection, memory *query*, and `web-fetch` — and therefore have no write, commit, push, terminal, container, test-run, memory-write, or arbitrary-method `http-request` capability at all. This is enforced at skill resolution, not by prompt instruction: the tools are simply never offered to the model.
-
-### A read-only turn narrows every agent
-
-The user's current instruction is also an authority boundary. A turn that explicitly says to explain, review, or inspect without writing files, running commands, or executing tests receives a deterministic `TurnCapabilityEnvelope`. AtlasMind filters the offered skill schemas before the model sees them and checks the envelope again immediately before execution, so a hallucinated or injected tool call cannot recover a capability omitted from the prompt. This is independent of the selected agent's normal allowlist.
-
-On such a turn, ACP native delegated tools are disabled as well. An external agent is not allowed to substitute its own shell or file writer for AtlasMind capabilities the user withheld. The boundary is per turn and does not persist into a later implementation request.
-
-The reasoning is separation of duties. An advisor that reviews whether something *should* ship should not also be the thing that changes it. Where an advisor's findings need to be recorded, the Project Dashboard owns that write path and sanitises the model's output at the boundary first.
-
-The separate `SecurityReviewManager` follows the same authority boundary: it can persist already-produced, sanitized findings for secrets, runtime boundaries, dependencies, and permissions, but it does not invoke an agent, grant tools, execute remediation, or gate delivery. Future UI wiring must keep review invocation inside the normal approval and tool-policy pipeline.
-
-### Branch Dashboard actions
-
-Branch readiness, PR/CI status, ownership, traceability, inspection, and two-branch comparison are computed in the extension host. They do not grant an agent a Git tool or turn **Ask Atlas** into an execution shortcut. Opening a PR uses the host-retained, HTTPS `github.com` URL; opening a Change Story passes host-resolved refs to the read-only story collector without checking out either branch. Asking about one listed file sends only the opaque change id back to the host. The host re-resolves it, reads a bounded patch and—only below the size cap—file content from the exact selected ref, then attaches it to one Chat turn. The Orchestrator validates and fences that Git output as model-visible reported source data and clears both workspace skills and ACP-native authority for the turn. A failed ref/object read opens no draft; AtlasMind never substitutes or shells out against the checked-out branch.
-
-Branch cleanup is a direct, operator-initiated dashboard workflow rather than a callable skill. The webview sends only an opaque inventory id. Before offering any deletion, the host refreshes remotes, re-resolves the id, refuses current/default/protected/other-worktree branches, proves the selected commit is contained by the current or production baseline with no unique commits, and checks loaded pull-request state. Local deletion runs only `git branch -d -- <host-resolved-ref>` after a modal evidence review; AtlasMind never substitutes `-D`. Remote deletion requires the same review plus a live `ls-remote` hash match and an exact typed branch name before the host runs the fixed `git push --porcelain <host-resolved-remote> --delete <host-resolved-branch>` shape. A missing proof is a refusal, not an approval prompt.
-
-### Workflow-following chat turns
-
-`atlasmind.workflow.chatGuidance = follow` changes how a governed outcome is sequenced, not which tools may run. A single request to commit, push, open a pull request, promote, or publish carries the enabled declared route into the same agent turn. Every selected Git, terminal, network, or outward-facing tool still reaches its ordinary risk classification, automation ceiling, protected-ref check, and approval/confirmation path.
-
-Pre-existing unrelated edits do not become part of the request. AtlasMind must not stash, discard, stage, or commit them just to make a delivery check green. When a release step needs another branch, the standing guidance prefers an isolated temporary Git worktree so the operator's active checkout and editor state remain undisturbed. A clean release worktree is not permission to ignore a dirty target ref; it only keeps unrelated local state separate from the ref being verified.
-
-## Approval Modes
-
-The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:
-
-| Mode | Behaviour |
+| Mode | What gets approved automatically |
 |------|-----------|
-| **`always-ask`** | Every tool call requires explicit approval |
-| **`ask-on-write`** | Read-only tools auto-approved; write/delete/external tools require approval *(default)* |
-| **`ask-on-external`** | Read + workspace writes auto-approved; terminal/network/git-write require approval |
-| **`allow-safe-readonly`** | Only high-risk operations require approval |
+| **`always-ask`** | Nothing. Every single tool call asks |
+| **`ask-on-write`** *(default)* | Reading. Anything that writes, deletes or reaches outside asks |
+| **`ask-on-external`** | Reading and workspace edits. Terminal, network and git writes ask |
+| **`allow-safe-readonly`** | Everything except genuinely high-risk operations |
 
-### Approval Flow
+`ask-on-write` is the right default for most people. Start there; loosen it once you've watched
+AtlasMind work for a while.
 
-1. Tool call is requested by the LLM
-2. Risk classification is computed from the skill's category
-3. Approval mode is checked against the risk level
-4. If approval is needed, AtlasMind brings the current Atlas chat surface into focus and renders an approval card in a dedicated warning stack below the transcript and above the composer with:
-   - Tool name and parameters
-   - Risk category and level
-   - Impact summary
-5. User can choose one of three execution paths:
-  - `Allow Once` — permit only the current tool call
-  - `Bypass Approvals` — skip approval prompts for the rest of the current task
-  - `Autopilot` — skip approval prompts for the rest of the current session
-6. `Deny` rejects the tool call without leaving the chat surface
+### What an approval looks like
 
-Tool parameters are previewed host-side through `toJsonPreview` before they reach an approval surface. Representable JSON is secret-redacted and length-capped. If a non-empty object collapses to `{}` during serialization—for example through custom serialization behaviour—the preview is `[unserializable arguments]` rather than a misleading empty-object claim.
+When something needs you, AtlasMind brings the chat surface forward and shows a card with the tool, its
+parameters, its risk category and a plain summary of the impact. You get four choices:
 
-Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
+- **Allow once** — just this call
+- **Bypass approvals** — for the rest of this task
+- **Autopilot** — for the rest of this session
+- **Deny** — reject it, without leaving the conversation
 
-### Mission Loop checkpoints
+Parameters are redacted for secrets and length-capped before you see them. If a parameter can't be
+displayed properly, it says **"unserializable arguments"** rather than showing a misleading empty object.
 
-The autonomous **Mission Loop** (`/loop` and Mission Control — see [[Project Planner]]) runs across multiple iterations within a closed budget. On top of the per-tool approval modes above, it adds an **iteration-level approval checkpoint**:
-
-- A checkpoint fires at configured triggers — every N iterations, the first time cumulative spend crosses a budget fraction, or before any write/commit batch (`atlasmind.loop.*`).
-- Checkpoints (and recoverable-block prompts) are **deny-by-default** and render as in-surface buttons, never an OS modal where avoidable: in the **chat panel** as a decision card at the base of the bubble (resolved via a `resolveLoopDecision` message); in **Mission Control** as a unified in-panel decision card with dynamic buttons; and in the `@atlas` chat *view* (which can't host in-line blocking buttons) as a modal fallback. If the prompt is dismissed, the hook is absent, or it throws — or the run is stopped/disposed — it resolves as **denied/stop** and the loop halts safely rather than proceeding unattended.
-- Checkpoints are *in addition to* (never a replacement for) the per-tool approval gates: a write/terminal/git tool inside an approved iteration still hits its normal approval card.
-- The loop never bypasses guarded delivery — a goal implying a staging/production deployment is surfaced as a checkpoint/`blocked` and routed through the guarded promotion pipeline (see [[Delivery]]), never executed directly. AtlasMind never force-pushes.
-- **Recoverable setting blocks are queried, not silently cancelled.** If the loop can't make verifiable progress because a relaxable setting is in the way (e.g. tests can't run because `atlasmind.allowTerminalWrite` is off), it asks before stopping: **Override for this run** (relaxes the setting for this mission only, then reverts when the run ends), **Open settings** (deep-link), or **Stop**. Deny-by-default — dismissing the prompt stops the run. After one override the loop won't re-prompt for the same setting.
-
-### Approvals over remote control
-
-When a session is driven by the AtlasMind web build (see [[Remote Control]]), the same approval cards and decision paths apply through the shared chat protocol — a remote peer can never auto-approve a `workspace-write`, `git-write`, `terminal-write`, or `network` tool without an explicit, authenticated decision. Remote approval decisions are audited. If the remote client disconnects, the bound chat surface is disposed and any in-flight execution is aborted, so **pending approvals default to denied** rather than proceeding unattended. This holds identically in `gateway` mode (`atlasmind.remote.mode: "gateway"`), where an SSO gateway fronts the server: the gateway authenticates transport only (the browser holds no token) and grants no tool authority, so every approval remains an explicit, authenticated decision on the desktop.
-
-Destructive memory-administration actions are kept outside the normal tool pipeline. The Settings-based project-memory purge flow always requires an explicit modal confirmation plus a typed `PURGE MEMORY` phrase before AtlasMind deletes the SSOT root and recreates the scaffold.
-
-Warning-level auto-generated skills now follow a separate one-time review gate before AtlasMind evaluates them in-process. If the skill scanner flags softer concerns such as direct environment access, direct filesystem access, or direct outbound fetches, AtlasMind posts a dedicated approval card into the same in-chat warning stack used for tool approvals. The operator can `Allow Once` or `Keep Blocked`; if the draft is denied, it stays paused so the request can be narrowed, discussed, or evolved into a safer alternative instead of executing silently.
-
-The CLI host runs behind a separate approval gate. In CLI mode AtlasMind allows read-only tools by default, blocks external high-risk tools, and requires an explicit `--allow-writes` flag before workspace or git writes are permitted. CLI filesystem operations also resolve canonical real paths before the workspace-boundary check, which prevents symlink escapes from bypassing the sandbox.
-
-CLI argument handling is explicit: malformed flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are rejected as CLI errors instead of silently changing prompt content.
-
-For implementation-mode work, AtlasMind now applies the same red-green discipline to risky external execution that it already applies to non-test implementation writes. Before a failing relevant test signal exists, AtlasMind blocks:
-- non-test workspace edits
-- git writes
-- `terminal-write` commands such as package installation or mutating build scripts
-- tools classified as `network` or otherwise external/high-risk
-
-This keeps an injected or over-permissive model reply from jumping straight to third-party software or external side effects before there is a concrete regression signal to anchor the change.
-
-When the gate blocks a write and the model then settles by only *describing* the fix instead of completing the red→green cycle, AtlasMind issues one targeted re-prompt to write the smallest failing test, observe the red signal, and apply the change. If the model still settles without doing so, a deterministic **"Change not applied"** caveat is appended to the reply so a described-but-blocked fix can never read as if it landed — the "reports the fix but never applies it" failure mode is surfaced honestly rather than hidden.
-
-For URL-bearing tasks, AtlasMind also injects a default safety rule into routed prompts: URLs and endpoints are treated as untrusted input, should be validated for scheme and host safety, and should be checked for live health or reachability with the bounded network tools before Atlas presents them as working.
+Autopilot can also be toggled directly with **AtlasMind: Toggle Autopilot**, and puts an indicator in
+your status bar so you always know it's on.
 
 ---
 
-## Terminal Allow-List
+## How tools are classified
 
-The `terminal-run` skill enforces a **curated allow-list** of ~40 safe commands:
+| Category | Risk | Examples |
+|----------|-----------|---------|
+| `read` | Low | Reading files, searching, listing directories, diagnostics, git status and diff |
+| `git-read` | Low | Status, diff, log, listing branches |
+| `terminal-read` | Low | Read-only commands |
+| `audio-input` / `audio-output` | Low | Microphone and speech playback |
+| `workspace-write` | Medium | Writing, editing, deleting or moving files; writing to memory |
+| `network` | Medium | Fetching a URL |
+| `git-write` | High | Committing, creating or deleting branches |
+| `terminal-write` | High | Installs, build scripts, anything that changes state |
 
-### Always Allowed (read-only)
-```
-ls, dir, cat, head, tail, wc, find, grep, which, where, whoami,
-echo, pwd, env, printenv, date, hostname, uname, file, stat,
-du, df, tree
-```
+### Tools AtlasMind hasn't seen before
 
-### Allowed After Approval (write-capable)
-When `atlasmind.allowTerminalWrite` is `true`:
-```
-npm, npx, yarn, pnpm, pip, pip3, python, python3, node, cargo,
-go, dotnet, make, cmake, mvn, gradle
-```
+MCP servers bring tools AtlasMind knows nothing about. Rather than treating everything as maximum risk
+(which would make MCP unusable) or minimum risk (which would be reckless), it reads the name:
 
-### Always Blocked
+- Names starting with `get`, `list`, `read`, `search`, `find`, `query`, `fetch`, `check`, `show`, `view`,
+  `inspect`, `describe`, `status`, `info`, `lookup` or `count` are treated as **low-risk reads**
+- **Unless** the name also contains `write`, `create`, `update`, `delete`, `execute`, `run`, `insert`,
+  `remove`, `patch`, `add`, `set`, `push`, `commit`, `deploy`, `send`, `publish`, `upload`, `import`,
+  `export`, `reset`, `clear`, `purge`, `migrate` or `install` — then it's **high risk**
+- Anything matching neither pattern is **high risk**
+
+Conservative where it's unsure, practical where it isn't.
+
+---
+
+## The terminal is not a shell
+
+`terminal-run` uses a curated allow-list, and it never invokes a shell.
+
+**Always allowed** (read-only): `ls`, `dir`, `cat`, `head`, `tail`, `wc`, `find`, `grep`, `which`,
+`where`, `whoami`, `echo`, `pwd`, `env`, `printenv`, `date`, `hostname`, `uname`, `file`, `stat`, `du`,
+`df`, `tree`.
+
+**Allowed after approval**, and only with `atlasmind.allowTerminalWrite` on: `npm`, `npx`, `yarn`,
+`pnpm`, `pip`, `python`, `node`, `cargo`, `go`, `dotnet`, `make`, `cmake`, `mvn`, `gradle`.
+
+**Always blocked, no setting changes this:**
+
 - `rm -rf`, `sudo`, `chmod`, `chown`, `mkfs`, `dd`, `kill`, `shutdown`, `reboot`
-- Shell operators: `|`, `&&`, `||`, `;`, `` ` ``, `$()` (no shell interpolation)
-- Any command not on the allow-list
+- Shell operators — `|`, `&&`, `||`, `;`, backticks, `$()`. There's no interpolation to exploit
+- Anything not on the list
 
-Commands are executed via `child_process.execFile()` (not `exec()`) to prevent shell injection.
+Commands run through direct process execution rather than a shell, so there's no shell injection surface
+at all.
 
-AtlasMind now also exposes a dedicated `docker-cli` skill for container work. It does not allow arbitrary Docker passthrough. Instead, it only permits a curated subset of `docker` and `docker compose` commands:
-
-- Read-only: `docker version`, `docker info`, `docker ps`, `docker images`, `docker inspect`, `docker logs`, `docker compose ps`, `docker compose config`, `docker compose logs`
-- Lifecycle: `docker start|stop|restart` and `docker compose up|down|build|pull|start|stop|restart`
-
-Read-only Docker inspection is classified as `terminal-read`. Container lifecycle actions are classified as `terminal-write` and follow the same approval path as other high-risk external execution.
+**Docker gets the same treatment.** Read-only inspection (`version`, `info`, `ps`, `images`, `inspect`,
+`logs`, and the Compose equivalents) plus lifecycle commands (`start`, `stop`, `restart`, `up`, `down`,
+`build`, `pull`). Inspection is low-risk; lifecycle follows the high-risk approval path.
 
 ---
 
-## MCP runtime bootstrap is confirm-before-install
+## Saying "read-only" actually means read-only
 
-Setting up an MCP server can require a local runtime (Node/`npx`, `uv`/`uvx`, …). The guided setup wizard and the recommended-install command never install one silently: `checkStarterRuntime` (`src/mcp/mcpRuntime.ts`) only *plans* the install and surfaces the exact package-manager command (e.g. `winget install --id astral-sh.uv`); `runRuntimeInstallPlan` executes it **only after an explicit modal confirmation**. Declining leaves nothing changed and shows the command to run manually. Credentials the wizard collects are stored in VS Code SecretStorage, never in settings — see [[Security]].
+If your message says to explain, review or inspect **without** writing files, running commands or
+executing tests, AtlasMind removes those tools before the model ever sees them — and checks again
+immediately before execution.
 
-## Installing an ACP agent is confirm-before-install
+A model that hallucinates a write tool, or is talked into one by injected text, gets a denial. The tool
+isn't there to call.
 
-`src/providers/acpInstaller.ts` follows the same rule as the MCP runtime bootstrap above: it **plans**, and the caller executes only after an explicit modal in which every command is listed with its purpose. The plan includes the *runtime* when it is missing, because telling someone to run `npm install -g …` is not help if they have never installed Node.
+It applies to subscription agents too: on a restricted turn, delegated tools are switched off, because an
+external agent must not be able to substitute its own file writer for a capability you withheld.
 
-Four constraints make that safe, each pinned by test:
+The boundary is **per turn**. It doesn't leak into your next request.
 
-- **Every command is a constant in AtlasMind's source.** Nothing is parsed from a documentation page, generated by a model, or assembled from a settings string. A command derived from fetched text and then executed is remote code execution with extra steps — the same line [[Security]] draws for `buzzDocsSource.ts`.
-- **No shell.** Steps run as `execFile(command, args)`. A test asserts no planned step names a shell or downloader (`sh`, `bash`, `cmd`, `powershell`, `curl`, `wget`) and that no argument carries shell metacharacters.
-- **A `curl … | sh` installer is never used**, whatever an agent's own documentation recommends. Piping a download into a shell on the user's behalf would be worse than the dead end it replaces; where AtlasMind has no non-shell route, the plan reports `manual` and shows the vendor's own instructions for the user to follow.
-- **An agent distributed only as an archive gets no install button at all.** goose, OpenCode, Cursor and Kimi ship as platform release archives, and AtlasMind does not download and unpack archives — so it names the launch command and reports `manual` rather than offering a button that cannot work. Every agent AtlasMind *does* offer to install is a single `npm install -g <package>`, and a test asserts each package against the command it actually provides: the Codex path was once planned as `cargo install codex-acp`, a crate that does not exist, which required Rust in order to install nothing.
-- **Success is re-probed, not inferred.** A package manager can exit 0 having placed the binary where this process's PATH will not find it until a reload; reporting "installed" to someone for whom nothing then works is the failure the feature exists to prevent.
+### Some agents are permanently read-only
 
-- **Elevation AtlasMind cannot obtain is declined, not attempted.** System package managers (`apt-get`, `dnf`, `pacman`) are elevated with `sudo -n` — non-interactive, *fail rather than prompt* — because an extension host has no terminal to read a password from. That succeeds for root and passwordless sudo and fails instantly otherwise, so such a step is reported as `manual` with the commands to run in a terminal rather than offered as a button. `brew` is exempt (user-owned prefix, refuses sudo) and so is `winget` (Windows elevates through a UAC dialog the user can answer).
+The ethics, legal and commercial advisors have a fixed read-only tool list: file and directory reads,
+search, git status/diff/log/blame, diff preview, diagnostics, code symbols, framework detection, memory
+*queries*, and URL fetching. No writes, no commits, no terminal, no containers, no test runs.
 
-An agent AtlasMind has no recipe for — one the user named themselves — is never given a guessed install command.
-
-## Delegated execution (ACP) uses explicit standing authorization
-
-An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). Turning it on is standing authorization for operations inside a routed tool-backed ACP turn; AtlasMind automatically answers each readable `session/request_permission` with a one-operation grant and writes the request to its output log instead of opening another dialog.
-
-The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled **and the current turn permits native tools**. If ACP is selected, it sends no `ToolDefinition` schemas—the adapter rejects them—and stamps only that provider request with delegated authority. The adapter independently requires the global setting and that request stamp before sharing MCP servers or wiring its permission policy. Omitted/false request authority is completion-only. If routing falls back to an ordinary function-calling provider, that attempt receives only the schemas permitted by the same turn envelope.
-
-- **The checkbox is the broad decision.** It authorizes edits, deletes, commands, network fetches, and unrecognised ACP operations during a routed tool-backed turn. Keep it off unless that scope is intended.
-- **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses so the audit record stays comparable. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
-- **`ToolKind::Other` is the highest audit-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there and is recorded at the most severe classification.
-- **AtlasMind never selects `allow_always`.** The protocol offers it; accepting would store the grant inside the agent's own persistent state, where AtlasMind can neither display nor revoke it. AtlasMind answers `allow_once` every time and keeps the standing choice in its own live setting. If `allow_always` is the only way to approve, the operation is declined.
-- **A missing or failing gate is a refusal.** An adapter built without a permission policy refuses every request; a policy that throws is treated as a denial. Wiring mistakes produce an agent that cannot act, never one that acts unsupervised.
-- **Unreadable requests are refused, not guessed.** Inventing an `optionId` would be inventing consent.
-- **MCP servers are shared only by explicit allowlist** (`atlasmind.acp.mcpServers`, empty by default), and two kinds are held back even when listed: servers whose credentials live in SecretStorage (forwarding would copy a key given to AtlasMind into another vendor's process) and HTTP/SSE servers, whose headers carry bearer tokens.
-- **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The setting plus routed request stamp is where authority lives.
-
-### Keeping the process alive does not create an agent-owned grant
-
-ACP sessions can now remain live for 30 idle minutes, which removes repeated
-agent boot and console churn. That changes process lifetime only:
-
-- every operation still arrives through `session/request_permission` and is logged;
-- the live setting is re-read before AtlasMind automatically selects an allow-once option;
-- AtlasMind never selects `allow_always`;
-- changing the MCP list, global setting, or per-request authority between
-  completion-only isolation and delegated execution invalidates the session
-  before the next prompt;
-- an empty MCP allowlist does not imply completion-only mode when delegated
-  execution is enabled, because the agent may still expose built-in tools;
-- a private Windows desktop hides UI only — it is not a sandbox and grants or
-  removes no filesystem, network, or command authority.
-
-The opt-in Windows ACP helper establishes a non-interactive window station and
-desktop with the published non-interactive UI-object access sets and the current
-token's default ACL. The child inherits that established connection instead of
-reopening generated names, which prevents PowerShell's USER32 initialization
-from failing while keeping descendants off `WinSta0`. The supervisor also
-creates one `SW_HIDE` console inherited by the full ACP tree; a later native CLI
-or shell therefore does not allocate a separate visible `conhost.exe`.
-Windows npm adapters use a real `node.exe`, not VS Code's GUI `Code.exe`.
-Inherited
-`SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX` error mode prevents a future
-loader failure from blocking Chat behind a modal system dialog. These controls
-change launch and error presentation only; every ACP operation still follows the
-permission rules above.
-
-Prompt delivery is at-most-once within the adapter. The orchestrator assigns a
-stable identity to each tool round; exact concurrent calls for that identity
-join one in-flight request and a short completed-result ledger absorbs its
-retry, while separate chats with identical text stay separate. ACP also bypasses
-the generic transient-provider retry loop: an error after `session/prompt` may
-have crossed stdio is never automatically resent. An outer provider timeout
-aborts the attempt, sends `session/cancel`, and discards the session so it cannot
-keep acting behind a fallback response. This is a safety rule, not just billing
-hygiene: an agent allowed to act could otherwise perform the same requested
-operation twice, each time behind a separately valid approval.
-
-Tool calls the agent announces (`tool_call`, `tool_call_update`) are surfaced rather than dropped, so what ran is visible after the fact as well as before it.
-
-## Resource discovery is pre-invocation, not execution
-
-[[Resource Discovery]] (ARD) deliberately sits *before* the tool-execution path: it only locates resources. The read-only `discover-resources` skill classifies as a network read and never installs anything. Acting on a result is a separate, explicit step — installing a discovered MCP server adds it to the MCP Servers panel **disabled**, so connecting it still passes through the normal MCP trust gate before any of its tools can run. Agent Finders ship disabled, so no outbound discovery occurs until the user opts in.
-
-## Tool Call Limits
-
-- **Max 8 tool calls per turn** — prevents runaway loops
-- **Agentic loop cap** (`maxToolIterations`, default 10) — caps tool-call rounds per turn
-- Multiple tool calls in the same turn execute concurrently via `Promise.all`
-- Each call is independently gated by the approval system
-- Task-scoped bypass decisions are keyed to the active orchestrator task ID so they do not silently leak into unrelated runs
-- Tool timeouts: default 15s, `web-fetch` 30s, `test-run` 120s
-
-### Hitting the cap
-
-When a turn reaches `maxToolIterations` (or the per-turn tool-call limit) without producing a final answer, AtlasMind **stops and asks** rather than failing silently:
-
-- **Single-turn chat and autonomous `/project` runs** render a direct question with chips to use the suggested limit for this run, save it permanently, or keep the partial result. Project subtasks carry this as a `needs-input` pause, distinct from `failed`.
-- **Temporary means temporary.** The host captures the current live limit, applies the suggested value only while the awaited retry runs, and restores the previous value in `finally`. Permanent choices alone update the workspace setting.
-- **The webview cannot invent a limit change.** Limit messages must carry a finite bounded integer, and the extension host re-resolves the assistant transcript entry, requires a live `iterationLimitHit`, and requires the submitted value to equal that entry's stored suggestion before touching runtime or workspace configuration. See [[Project-Planner]].
+This is enforced when tools are resolved, not requested in a prompt. **The tools are simply never
+offered.** The reasoning is separation of duties: something that reviews whether a change *should* ship
+shouldn't also be the thing that ships it.
 
 ---
 
-## Data Privacy: gated tool reads
+## Before anything is written
 
-When a project [Data Privacy](Security#data-privacy-confidential-data-is-gated-to-trusted-models) policy is enabled, tool results are filtered before they re-enter the model loop, keyed on the **running** model:
+**Checkpoints.** A snapshot is taken before each write, so a failed step can be rolled back to exactly
+how things were.
 
-- A `file-read` (or similar) whose target path matches a confidential `path` rule is **withheld** from an un-trusted model — the result is replaced with a notice pointing to the Project Dashboard → Privacy page.
-- Other tool output is scanned for classified terms / regulated data and redacted span-by-span (`[CONFIDENTIAL]`).
+**Verification.** With `autoVerifyAfterWrite` on (the default), your own scripts run afterwards — `test`
+by default, and you can configure which ones.
 
-Trusted models receive tool results unchanged. This closes the mid-task leak vector where a confidential file is read after routing has already chosen a model.
+**And a response can't claim success while its own verification failed.** If the answer says the work is
+done but the verification reports a failure, AtlasMind surfaces that rather than letting it read as a
+win.
 
----
+### The red-green gate
 
-## Pre-Write Checkpoints
+In implementation mode, until a relevant **failing test** has actually been observed, AtlasMind blocks:
 
-Before any write-capable tool executes:
+- Non-test workspace edits
+- Git writes
+- Installs and mutating build commands
+- Network and other external tools
 
-1. `CheckpointManager` captures snapshots of files that will be modified
-2. Snapshots are stored in memory (not on disk)
-3. If something goes wrong, `rollback-checkpoint` restores the pre-write state
-4. Checkpoints are cleared after successful verification
+This stops an over-eager or manipulated model from reaching straight for third-party software and
+external side effects before there's a concrete signal to anchor the change against.
 
----
-
-## TDD Gate Scope
-
-AtlasMind's red-to-green TDD gate is intended for implementation work that changes product behavior or code paths.
-
-- The gate still blocks non-test implementation writes until Atlas has seen a relevant failing test signal.
-- Repo-maintenance actions such as resolving Dependabot updates, merging or rebasing branches, and similar dependency-update workflows are treated separately and are not blocked by that gate.
-- Ambiguous follow-up prompts such as `resolve these` are no longer treated as implementation work unless the request itself names a concrete code or behavior target.
-- Terse follow-up prompts such as `handle that`, `take care of it`, or `can you do that for me` can still trigger tool-backed execution when recent session context clearly identifies the workspace or repo task they refer to.
-
-### Testing-strategy writers
-
-Two testing-strategy actions write to the workspace under a non-destructive contract. The **framework scaffolder** (`scaffoldTestingFramework`) creates starter config/test files only when absent, never overwrites, never mutates `package.json`, and is modal-confirmed. The **outbound protocol sync** (`syncTestingProtocols`) only replaces its own delimited managed block in instruction files that already exist, preserving surrounding content and routing every path through the shared traversal guard. Neither requires the per-tool approval gate because they cannot overwrite arbitrary content, but both are surfaced explicitly in the UI before running.
-
-That confirmed scaffold can then start one first-test authoring task, but only after the protocol sync and only when a bounded detector found an existing Vitest/Jest runner plus a small source module with a named export. The detector grants no write authority: the normal Orchestrator and tool-approval gates remain in force. The task is limited to inspecting the candidate and, only if its behaviour is stable enough to test, writing one focused test. It is told not to install dependencies, change a manifest, or edit production source; no candidate or no runner means no task, and an unsuitable candidate means no test change.
-
-The Testing Dashboard's **Fix activated testing** action is also a single, modal-confirmed agent task — not an invisible command runner. The host derives its enabled methodologies, coverage, current scripts, and failure report; the webview supplies no target or command. It may use existing relevant commands through the normal approval gate, but cannot change dependencies, manifests, runner configuration, thresholds, test enablement, skips, or assertions merely to obtain green output. A missing browser, credential, service, or other environment prerequisite remains a reported blocker, never a pass.
+If the gate blocks a write and the model responds by merely *describing* the fix, AtlasMind re-prompts
+once for the actual red-green cycle. If it still doesn't, a **"Change not applied"** note is appended to
+the reply — so a described-but-blocked fix can never read as though it landed.
 
 ---
 
-The activated-testing repair remains observable without widening its authority. The host streams bounded status updates from routing and approved tool work into the Testing panel, where an indeterminate activity control says work is in progress without fabricating a percentage. The final result remains separate from test evidence, so a returned task can never be represented as green by UI wording alone. The Chat handoff is a no-payload browser request: only the host-held, redacted result is put in a fenced, reviewable draft, and it is never submitted automatically.
+## Autonomous runs get extra checkpoints
 
-## Post-Write Verification
+On top of per-tool approvals, the Mission Loop adds **iteration-level checkpoints**: every N iterations,
+the first time spend crosses a fraction of your budget, or before any batch of writes.
 
-When `atlasmind.autoVerifyAfterWrite` is `true` (default):
+- **Deny by default.** Dismiss the prompt, lose the hook, hit an error, or stop the run, and it resolves
+  as *stop*. The loop never proceeds unattended because something went wrong with asking you
+- **In addition to, never instead of, per-tool approvals.** A git write inside an approved iteration
+  still hits its own card
+- **Deployments are never executed directly.** A goal implying a staging or production deploy is surfaced
+  as a checkpoint and routed through the guarded [[Delivery|delivery pipeline]]
+- **AtlasMind never force-pushes**
 
-1. After `file-write`, `file-edit`, or `git-apply-patch` succeeds
-2. The configured verification scripts run (default: `test`)
-3. Scripts are executed as `npm run <script>` without shell interpolation
-4. Timeout: `atlasmind.autoVerifyTimeoutMs` (default: 120s)
-5. Results are reported back to the LLM for self-correction
+### It asks before it gives up
 
-If verification fails, the LLM sees the error output and can attempt a fix in the same turn.
-
-Post-write verification is not the first line of defense. AtlasMind now tries to establish the failing signal before risky implementation actions, then uses post-write verification to confirm the green side of the loop.
-
-### Success claims are gated against verification
-
-A response cannot report success while its own verification run failed. When an answer claims the work is done/"moving forward" but the post-edit verification reports a structured failure (`FAIL:`, a non-zero `exit N`, `N failed`, `✗`), AtlasMind:
-
-1. Injects **one** reconcile reprompt asking the model to either make verification pass or state plainly that the task is **not complete**; and
-2. If the response still claims success, appends a **deterministic caveat** (not authored by the model) that cites the failing line and marks the task not complete.
-
-Detection is conservative: it keys only on structured failure markers, is overridden by `PASS:` / `0 failed` / "no failures" (so a test merely *named* "…fails when…" is not misread), and never fires when the response already acknowledges the failure.
+If the loop can't make progress because one of *your* settings is in the way — tests can't run because
+terminal writes are off, say — it asks rather than silently stopping: **override for this run** (reverted
+when the run ends), **open settings**, or **stop**. Deny-by-default, and it won't nag about the same
+setting twice.
 
 ---
 
-## Webhooks
+## Installing things
 
-When `atlasmind.toolWebhookEnabled` is `true`, tool lifecycle events are sent to an external HTTPS endpoint:
+**MCP runtimes and subscription agents are confirm-before-install.** AtlasMind shows you every command it
+intends to run and what each one is for, then waits.
 
-### Events
+Two properties hold there:
 
-| Event | When |
-|-------|------|
-| `tool.started` | Tool execution begins |
-| `tool.completed` | Tool execution succeeds |
-| `tool.failed` | Tool execution fails or times out |
-| `tool.test` | Manual test from the webhook panel |
+- **Every install command is a constant in AtlasMind's own source.** None is parsed from documentation
+  or generated by a model — that would be remote code execution with extra steps
+- **No shell.** Commands run as a program plus arguments, never as a command line
 
-### Payload
+Where elevation is needed, AtlasMind uses a non-interactive form that **fails rather than prompting** —
+an extension has no terminal to read your password from. Those steps are reported as *do this yourself*
+with the exact commands, rather than offered as a button that couldn't work.
 
-```json
-{
-  "event": "tool.completed",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "tool": {
-    "id": "file-write",
-    "name": "File Write",
-    "parameters": { "path": "src/auth.ts", "content": "..." }
-  },
-  "result": {
-    "success": true,
-    "output": "File written successfully"
-  },
-  "session": {
-    "agent": "default",
-    "model": "claude-4-sonnet-20250514"
-  }
-}
-```
-
-### Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `atlasmind.toolWebhookEnabled` | `false` | Enable webhook delivery |
-| `atlasmind.toolWebhookUrl` | `""` | HTTPS endpoint URL |
-| `atlasmind.toolWebhookTimeoutMs` | `5000` | Request timeout |
-| `atlasmind.toolWebhookEvents` | `["tool.started", "tool.completed", "tool.failed"]` | Events to emit |
-
-### Security
-
-- Only HTTPS endpoints are accepted
-- Payloads are sent via POST with `Content-Type: application/json`
-- Tool parameters in payloads are redacted for sensitive fields (API keys, secrets)
-- Webhook failures are logged but never block tool execution
-- Webhooks are the current integration path for external auditing or alerting; AtlasMind does not yet ship its own hosted monitoring backend.
+**An agent distributed only as an archive gets no install button at all.** AtlasMind doesn't download and
+unpack archives, so it names the launch command and tells you it's manual.
 
 ---
 
-## MCP Tool Execution
+## Subscription agents and their tools
 
-Tools from connected MCP servers follow the same approval and safety pipeline:
+`atlasmind.acp.toolsEnabled` — **Let subscription agents act** — is the standing, off-by-default
+authorisation for tool-backed work through a subscription agent.
 
-1. MCP tools are registered as skills with `mcp:<serverId>:<toolName>` IDs
-2. All approval modes apply
-3. All webhook events apply
-4. Timeouts are enforced
-5. MCP tools are pre-approved (skip the skill security scanner)
+With it on, AtlasMind still requires the orchestrator to have authorised that exact request. Discovering
+an installed agent grants nothing. Ticking the box grants no individual operation. Each operation the
+agent requests is answered once and **logged with its category, risk and action**.
 
-See [[Skills]] for MCP server setup.
+**AtlasMind never selects "always allow".** The protocol offers it; accepting would store the permission
+inside the other agent's own state, where AtlasMind could neither show it to you nor revoke it. If
+"always allow" is the only way to approve something, the operation is declined instead.
 
-### Project Director outbound (email / schedule / message)
+Server commands the client declares are never started, and MCP servers are shared only from a list you
+named — never one holding stored credentials.
 
-The Project Director tab can reach a contact through a connected MCP connector, but this is **opt-in and deny-by-default**. Dispatch happens only when all of the following hold: the project has `settings.outboundEnabled` on (default off), a connected connector exposes a tool that can perform the intent (`directorCommsRunner` matches tool names like `outlook_send_mail` / `create_event` / `post_message`), and the user confirms an explicit `{ modal: true }` dialog that spells out the exact action — connector, tool, recipient, subject/body, and the classified risk. Only then does AtlasMind run the tool via its `mcp:<serverId>:<toolName>` skill wrapper. Capabilities are partitioned by the contact's channel kind, so a Buzz link cannot fall through to Slack/Teams; Buzz UUIDs choose a channel post and 64-character pubkeys choose a DM. The **webview never supplies the tool or a command** — it sends a draft, which the extension re-resolves against the persisted roster, re-classifies with `classifyToolInvocation`, and maps onto the tool's declared input schema (inventing no fields). When no exact connector can perform the intent, it falls back to the contact's deep-link and never auto-sends. Connector credentials live in SecretStorage; successful sends are recorded to `project-director-history.json`.
+---
 
-### Buzz communication boundary
+## Remote sessions get no shortcuts
 
-The guided **Buzz Communications** starter launches AtlasMind's bundled stdio MCP server around official pinned `buzz-cli` source tag v0.4.26. It exposes only list channels, post message, read bounded thread, and send DM. The agent key and optional owner authorization tag live in SecretStorage. The bridge refuses to connect while `atlasmind.buzz.enabled` is off, rejects remote relays unless `allowRemoteRelay` is explicit (and TLS is used), probes the exact required command/flag contract before MCP handshake, invokes the executable without a shell, sends body text over stdin, validates identifiers, bounds I/O/time, and redacts credentials from failures. It is not `buzz-dev-mcp`: no shell/file tools or Buzz workflow/repository/admin surfaces cross this connector.
+When a session is driven from the web build, the same approval cards apply. A remote peer can never
+auto-approve a write, a git operation, a terminal command or a network call.
 
-### When an ACP client drives AtlasMind
+Remote approvals are audited. **If the connection drops, pending approvals default to denied** and any
+in-flight execution is aborted.
 
-`atlasmind-acp` applies AtlasMind's tool classification before an ACP-hosted
-turn may act. Read-only categories follow the headless default. Writes,
-subprocesses, network access, audio, and unknown categories cause
-`AcpPermissionBroker` to send `session/request_permission` to the client with a
-bounded, secret-redacted preview.
+This holds identically in gateway mode: the gateway authenticates the transport, and grants no tool
+authority whatsoever.
 
-Only **Allow once** and **Reject** are offered. A malformed response,
-`allow_always`, a request after the owning task ended, or a transport failure
-denies. The broker registers authority by AtlasMind task id for the duration of
-one prompt and removes it in `finally`; a live Buzz harness or reused ACP session
-does not retain approval.
+---
 
-Client-provided MCP server definitions are not executed. MCP process authority
-still comes only from AtlasMind's configured registry or from the narrow,
-host-owned Buzz reply publisher. The latter validates Buzz-generated
-channel/event metadata and passes the answer over stdin to the communication
-CLI; it never gives the model Buzz's shell, repository, workflow, or admin
-commands.
+## The CLI is stricter
 
-## Promotion Execution (Delivery)
+There's no panel to approve things in, so: read-only tools work, workspace and git writes need
+`--allow-writes`, and high-risk external tools stay blocked. File operations resolve real paths before
+the workspace check, so a symlink can't be used to escape the sandbox.
 
-Promoting a build between deployment stages on the Project Dashboard → **Delivery** page (`PromotionRunner`) is a high-trust action and carries its own guardrails on top of the tool pipeline:
+---
 
-1. **Inspect before run.** Clicking **Promote ▸** (or **Runbook**) opens a dialog showing the full assembled plan — *preflight gate → backup → deploy → verify → record* — with every command spelled out, so nothing runs unseen.
-2. **Preflight gate.** Checks AtlasMind can evaluate (version bump, changelog entry, clean working tree) are computed automatically. **Required CI status checks are verified live** via `gh` (the source branch's head check-runs) — a failing *or still-pending* check blocks the run; when `gh` is unavailable they fall back to manual attestation. Any other named check is manually attested. A failing automatic check blocks the run.
-   - **Resolve & run (fixable failures).** When the *only* failing auto-checks are ones AtlasMind can repair — the **version isn't bumped** or there's **no changelog entry** — the modal offers a one-click **Resolve & run**: it bumps `package.json`, adds a `CHANGELOG.md` entry, commits the two files path-scoped (`chore(release): vX.Y.Z`, **never pushed**), then runs the promotion under the same lock. The **bump level is assessed from the conventional-commit history** since the target (`feat` → minor, a `type!:`/`BREAKING CHANGE` → major, else patch). The offer is suppressed whenever a *non-fixable* check is failing (CI, separation-of-duties, working-tree-dirty), your own gates (manual attestations, approval, protected confirmation) must already be satisfied, and the **full** preflight gate is re-enforced on the rebuilt plan after the fix — before anything deploys.
-   - Every promotion **and rollback** is appended to an audit log (`project_memory/operations/delivery-history.json`) with the git actor; a stage's **Roll back** action runs its user-authored rollback command after the same authorization (protected ⇒ type the stage name).
-   - **Single-flight lock:** only one promotion or rollback runs at a time (a workspace lock, auto-clearing after 60 min).
-   - **Trigger-CD:** a stage may deploy by dispatching a CD workflow (`gh workflow run`) instead of running commands locally.
-   - **Backup verified, migrations guarded:** an optional verify-backup command must pass after the backup; a migrate command runs inside the sequence.
-   - **Separation of duties:** a stage may require the promoter to differ from the change's author (checked via git identity).
-3. **Deny-by-default backup.** A target whose backup is *required* but has no backup command cannot be promoted to at all — the run is hard-blocked until a command is added in the stage editor.
-4. **Approval & protected confirmation.** When the target requires approval, an explicit approval checkbox is mandatory; when the target is **protected**, the operator must type the target's name to confirm.
-5. **Commands are server-sourced.** Every executed command (backup, deploy/migration routine steps, rollback hint) is read from the persisted, user-authored stage config and routine files. The webview can only *trigger* and *attest* — it can never supply a command string.
-6. **Non-destructive bias.** AtlasMind never force-pushes; the deploy body is the user's own routine; the gate is re-evaluated against live git state at execution time; and each run records its outcome plus a rollback handle.
+## Underneath all of it
 
-## Website Studio Is Planning, Not Execution
+Before any approval mode or risk classification is even considered, an **immutable baseline** applies:
+your consent never authorises illegal activity, evading the law, targeted harassment, defamation, or
+deceptive attacks on a person. No setting reaches it.
 
-Website Studio deliberately stops before external mutation:
+---
 
-1. Selecting Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another target records the intended platform and readiness only.
-2. The hosting plan is fixed to Develop → Staging → Production. Develop is loopback-only unless its explicit HTTPS/password-protected fallback is selected; Staging is always an HTTPS, password-protected `<review-label>.<production-domain>`; Production is always public and promotion-protected. These invariants are rebuilt in the extension host, not trusted from the webview.
-3. A public site URL, project label, environment label, n8n instance URL, opaque workflow ID, and credential *reference* may be stored; API keys, passwords, bearer tokens, and n8n webhook values may not. Credential references require a provider prefix such as `env:` or `SecretStorage:`.
-4. Marking a hosting environment `ready`, a platform `configured`/`live`, or an automation `verified` is descriptive state and never triggers a deploy or workflow.
-5. Production publishing must use the guarded Delivery flow above. A future n8n execution feature must be implemented as a host-side tool subject to tool-risk classification, approval, bounded inputs, secret resolution from SecretStorage, and audit output; the current webview has no trigger message.
+## A few other boundaries
+
+**Destructive memory administration is outside the tool pipeline entirely.** Purging project memory needs
+a modal confirmation *and* a typed `PURGE MEMORY` phrase.
+
+**Auto-generated skills get their own review.** If the scanner flags softer concerns — environment
+access, direct filesystem use, outbound fetches — you get a dedicated card. Deny it and the draft stays
+paused so it can be narrowed or discussed, rather than running quietly.
+
+**Branch cleanup is a dashboard workflow, not a tool.** Before offering a deletion, AtlasMind refreshes
+the remote, refuses current, default, protected and checked-out-elsewhere branches, proves the commit is
+already contained with no unique commits, and checks open pull requests. Local deletion uses the safe
+delete flag — never the force one. Remote deletion additionally needs a live hash match and the exact
+branch name typed. **A missing proof is a refusal, not an approval prompt.**
+
+**URLs are untrusted.** Routed prompts carry a standing rule: validate the scheme and host, and actually
+check a link works before presenting it as working.
+
+---
+
+## Related
+
+- [[Security]] — the full security model and threat model
+- [[Skills]] — what each tool does
+- [[Agents]] — how agents are given tools
+- [[Delivery]] — the guarded path to production
+- [[Configuration]] — every safety setting
+- [[Remote Control]] — remote sessions

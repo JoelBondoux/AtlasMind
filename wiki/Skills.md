@@ -1,324 +1,311 @@
 # Skills
 
-## Turn-scoped capability narrowing
+**A skill is a tool an agent can use.** Reading a file, running your tests, checking git status,
+fetching a URL, setting a breakpoint. AtlasMind ships **43 built-in skills**, and you can add your own
+or connect MCP servers for effectively unlimited extension.
 
-An agent's assigned skills are its maximum authority, not a promise that every tool is offered on every turn. The Orchestrator recognizes explicit user constraints such as **read-only**, **do not edit**, **do not install packages**, and **do not run commands**. It removes disallowed schemas before routing and prompt construction, then repeats the classification immediately before execution. A model that calls an omitted or invented write/process tool receives a policy denial; the tool is not synthesized or run.
+You mostly won't think about these directly. They matter when you want to know *what AtlasMind is able
+to do*, or when you want to deliberately stop an agent doing something.
 
-Restricted tool-backed turns also exclude ACP delegated native-tool execution. AtlasMind can narrow its own function schemas but cannot impose that exact turn-local allowlist inside an external ACP agent, so routing stays on an eligible function-calling provider or returns an explicit limitation.
+---
 
-Agent definitions use one of three policies:
+## What's built in
 
-- `task-scoped` selects at most 12 relevant tools from the enabled eligibility pool. Empty means built-in skills only; custom/MCP skills must be named explicitly.
-- `allowlist` offers exactly the enabled skill IDs the agent names.
-- `all` deliberately offers every enabled skill, including custom/MCP capabilities installed later.
+### Working with files
 
-Legacy definitions fail narrow: a populated list remains an allowlist and an empty list becomes task-scoped. Relevance selection uses explicit tool IDs plus request and session-follow-through signals, but never widens the agent pool or turn capability envelope.
-
-AtlasMind ships with **43 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
-
-Selected skill names, descriptions, natural-language cues, and JSON Schemas are supplied once to the routed model as callable tools. They are no longer repeated as a prose catalogue in the system prompt. Schema tokens participate in context-window and memory/session budgets. ACP completion-only and delegated-native-tool calls receive no AtlasMind schemas. The shared agent operating contract governs how tools are used: execute requested actions directly, validate parameters and trust boundaries, treat results as authoritative, adapt after recoverable failures, and never claim a failed or denied call succeeded. The execution rubric then checks whether the selected tools produced enough evidence and verification to support the final answer.
-
-## Built-in Skills
-
-### File Operations
-
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `file-read` | Read file contents with optional line range (`startLine`, `endLine`) |
-| `file-write` | Write content to a file (creates or overwrites) |
-| `file-edit` | Apply targeted edits to an existing file (find/replace) |
-| `file-search` | Search for files by glob pattern |
-| `file-delete` | Delete a file (workspace-sandboxed) |
-| `file-move` | Move or rename a file (workspace-sandboxed) |
-| `directory-list` | List contents of a directory with types |
+| `file-read` | Read a file, optionally just a line range |
+| `file-write` | Create a file or overwrite one |
+| `file-edit` | Make a targeted change to an existing file |
+| `file-search` | Find files by pattern |
+| `file-delete` · `file-move` | Delete, move or rename — always inside your workspace |
+| `directory-list` | List what's in a folder |
 
-### Git Operations
+### Git
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `git-status` | Get `git status --short --branch` output |
-| `git-diff` | Get diff (optionally staged or against a ref) |
-| `git-commit` | Create a commit with a message passed directly to git — no shell quoting needed; optional `stage_tracked: true` runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |
-| `git-push` | Push a branch to a remote with a protected-branch guard (rejects force-push to main/master/production/release\*/hotfix\*); defaults to `--force-with-lease` when force is requested |
-| `git-log` | View commit history with filtering options |
-| `git-branch` | List, create, switch, or delete branches |
-| `git-apply-patch` | Apply a unified diff patch to the workspace |
-| `git-blame` | Per-line commit attribution (author, date, hash, summary) with optional line-range focus |
-| `diff-preview` | Preview changes before applying (dry run) |
-| `rollback-checkpoint` | Restore the most recent automatic pre-write snapshot |
+| `git-status` · `git-diff` · `git-log` | See where things stand |
+| `git-commit` | Commit, with the message passed straight to git (no quoting problems). Allows up to 120s for your pre-commit hooks |
+| `git-push` | Push, with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches |
+| `git-branch` | List, create, switch or delete branches |
+| `git-blame` | Who changed this line, when, and in which commit |
+| `git-apply-patch` | Apply a unified diff |
+| `diff-preview` | See what a change would do before it does it |
+| `rollback-checkpoint` | Undo back to the automatic snapshot taken before the last write |
 
-### Code Intelligence
+### Understanding your code
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `diagnostics` | Retrieve compiler errors and warnings via the VS Code diagnostics API |
-| `code-symbols` | AST-aware navigation: list symbols, find references, go to definition |
-| `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
-| `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
-| `code-format` | Format a file or directory using the project's configured formatter; auto-detects prettier, eslint (--fix), rustfmt, black, gofmt, or dotnet-format from workspace config files |
-| `framework-detect` | Detect the full tech stack from `package.json` deps and config-file fingerprints — web frameworks, mobile SDKs, game engines, desktop runtimes, databases, CI/CD, and more |
-| `debug-session` | List active VS Code debug sessions; evaluate expressions in the paused debug context |
-| `workspace-state` | One-call snapshot of workspace problems, active debug sessions, and output channel names |
+| `diagnostics` | Your compiler errors and warnings, straight from VS Code |
+| `code-symbols` | Navigate properly — list symbols, find references, go to definition |
+| `rename-symbol` | Rename across the codebase via the language server |
+| `code-action` | List and apply quick fixes and refactorings |
+| `code-format` | Format using *your* configured formatter — Prettier, ESLint, rustfmt, black, gofmt or dotnet-format, detected automatically |
+| `framework-detect` | Work out your whole stack from manifests and config fingerprints |
+| `workspace-state` | One call for problems, debug sessions, output channels and test results |
 
-### Workspace Observability
+### Searching and fetching
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `workspace-observability` | Snapshot of the current workspace state: active debug session, open terminals, and most recent test run summary |
-| `agent-handoff` | Ask a named specialist agent a question and get their answer back. **A handoff transfers the question, not the permissions** — the delegate runs with the *intersection* of your skills and its own, never the union, so a tool you do not have it does not get either. If it granted the union, any restricted agent could obtain any capability by asking a permissive one. Capped at three deep, cannot loop back to an agent already in the chain, and refuses rather than running a delegate that would end up with no tools. The answer returns labelled as another agent's opinion, not a verified result |
+| `text-search` | Grep-style search across the workspace, regex supported |
+| `memory-query` | Query project memory |
+| `web-fetch` | Fetch a URL, with protection against reaching localhost, private IPs or cloud metadata endpoints |
+| `http-request` | A full HTTP request — method, headers, body — with the same protections. Useful for testing your own APIs |
+| `exa-search` | Web search via EXA. Needs an EXA key in Specialist Integrations |
+| `discover-resources` | Read-only search for new MCP servers, agents and skills. It surfaces candidates; it never installs anything |
 
-### Search & Fetch
+### Running things
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `text-search` | Grep-style text search across workspace files (regex supported) |
-| `memory-query` | Query the SSOT memory system (max 50 results) |
-| `web-fetch` | Fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30s timeout |
-| `http-request` | Make an HTTP request with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and body; same SSRF protection as web-fetch; useful for REST API and webhook testing |
-| `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
-| `discover-resources` | Read-only [[Resource Discovery]] (ARD) search across enabled Agent Finders for MCP servers, agents, skills, and APIs; surfaces ranked candidates for the user to install and never installs anything itself (requires `atlasmind.ard.enabled`) |
+| `terminal-run` | Run a command against a tiered allow-list of around 60 safe commands. Understands Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Expo, Elixir, Terraform, Helm, kubectl, Godot, Turbo, Nx and more |
+| `terminal-read` | List your open terminals |
+| `test-run` | Detect and run your test framework — Vitest, Jest, Mocha, pytest, cargo test |
+| `npm-scripts` | List your `package.json` scripts and run one. Handles monorepo working directories |
+| `docker-cli` | A strict allow-list of Docker and Compose commands, with no shell interpolation |
 
-### Reference Guidance
+### Debugging
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `specialist-guidance` | Loads one focused checklist for technical SEO, structured data, content discoverability, platform listings, accessibility, responsive layout, interaction design, or UI implementation. It is `read/low` because it returns bundled text only; detailed guidance is disclosed only when relevant and requires current primary-source verification for time-sensitive rules. |
+| `debug-session` | List active debug sessions and evaluate expressions in a paused one |
+| `debug-launch` | Start a named configuration from your `launch.json` without leaving chat |
+| `debug-breakpoint` | List, add (with conditions or logpoints), remove or clear breakpoints |
+| `log-file-tail` | Find your log files, tail them, or search across all of them |
+| `workspace-observability` | Debug session, open terminals and the most recent test run in one snapshot |
+
+### VS Code itself
+
+| Skill | What it does |
+|-------|-------------|
+| `simple-browser` | Open a URL in VS Code's built-in browser — handy for dev servers and dashboards |
+| `vscode-extensions` | List installed extensions and forwarded ports |
 
 ### Memory
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `memory-write` | Write an entry to SSOT memory (validated, scanned, persisted to disk) |
-| `memory-delete` | Remove a memory entry by path |
+| `memory-write` | Write to project memory — validated, security-scanned, then saved |
+| `memory-delete` | Remove an entry |
 
-### Execution
+### Asking a colleague
 
-| Skill | Description |
+| Skill | What it does |
 |-------|-------------|
-| `docker-cli` | Run a strict allow-list of Docker and Docker Compose inspection or lifecycle commands without shell interpolation |
-| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~60 safe commands) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP/Composer, Flutter/Dart, Expo/React Native, Elixir/Mix, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
-| `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
-| `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
-| `npm-scripts` | List all `package.json` scripts and run any named script via `npm run`; supports custom `cwd` for monorepos |
+| `agent-handoff` | Ask a named specialist a question and get their answer back |
 
-### Observability
+**A handoff transfers the question, not the permissions.** The delegate runs with the *overlap* between
+the caller's tools and its own, never the combination — otherwise any restricted agent could obtain any
+capability just by asking a permissive one. Capped at three deep, can't loop back, and refuses rather
+than running a delegate that would end up with no tools at all. The answer comes back labelled as
+another agent's opinion, not a verified result.
 
-| Skill | Description |
+### Reference guidance
+
+| Skill | What it does |
 |-------|-------------|
-| `workspace-state` | Snapshot workspace problems, debug sessions, output channels, and test results (JUnit XML / Vitest JSON / coverage-summary) |
-| `debug-session` | Inspect active debug sessions, evaluate expressions in debug context |
-| `debug-launch` | List VS Code debug configurations from `launch.json` and start a named debug session without leaving the chat |
-| `debug-breakpoint` | List, add (with optional condition or logpoint message), remove by ID, and clear all breakpoints |
-| `log-file-tail` | Find workspace log files (`*.log`, `logs/*.txt`, etc.), tail the last N lines, or search for a pattern across all log files |
-| `vscode-extensions` | List installed extensions (with top-50 tagging), filter by name, and report forwarded ports from the VS Code Remote Ports panel |
-| `simple-browser` | Open any http/https URL in the VS Code built-in Simple Browser panel; useful for dev servers, dashboards, and HTML5 games |
+| `specialist-guidance` | Loads one focused checklist — technical SEO, structured data, discoverability, platform listings, accessibility, responsive layout, interaction design or UI implementation |
 
-## Skill Definition
-
-```typescript
-interface SkillDefinition {
-  id: string;                          // Unique identifier
-  name: string;                        // Display name
-  description: string;                 // Shown to the LLM for tool selection
-  parameters: Record<string, unknown>; // JSON Schema for parameters
-  execute: SkillHandler;               // The handler function
-  source?: string;                     // Absolute path (custom skills only)
-  builtIn?: boolean;                   // true for extension-provided skills
-  panelPath?: string[];                // Skills tree category or folder path
-  timeoutMs?: number;                  // Execution timeout (default: 15000ms)
-  routingHints?: string[];             // Natural-language aliases and intent phrases for tool selection
-}
-
-type SkillHandler = (
-  params: Record<string, unknown>,
-  context: SkillExecutionContext,
-) => Promise<string>;
-```
-
-## Skill Execution Context
-
-Every skill handler receives a `SkillExecutionContext` with workspace APIs:
-
-- **File I/O:** `readFile()`, `writeFile()`, `deleteFile()`, `moveFile()`, `findFiles()`, `listDirectory()`
-- **Text search:** `searchInFiles()` with regex support
-- **Git:** `getGitStatus()`, `getGitDiff()`, `getGitLog()`, `gitBranch()`, `applyGitPatch()`
-- **Code intelligence:** `getDiagnostics()`, `getDocumentSymbols()`, `findReferences()`, `goToDefinition()`, `renameSymbol()`, `getCodeActions()`, `applyCodeAction()`
-- **Terminal:** `runCommand()` (with allow-list enforcement)
-- **Test runner:** `testRun()` (auto-detect framework)
-- **Web fetch:** `fetchUrl()` (with SSRF protection)
-- **Memory:** `queryMemory()`, `upsertMemory()`, `deleteMemory()`
-- **Checkpoints:** `rollbackLastCheckpoint()`
-- **Debug:** `getDebugSessions()`, `evaluateDebugExpression()`, `getActiveDebugSession()`, `getDebugConfigs()`, `launchDebugSession()`, `getBreakpoints()`, `addBreakpoint()`, `removeBreakpoints()`
-- **VS Code UI:** `openSimpleBrowser()`, `getOutputChannelNames()`, `listTerminals()`, `getTerminalOutput()`
-
-All file operations are workspace-sandboxed — path traversal outside the workspace root is rejected.
-
-AtlasMind now also computes lightweight natural-language routing hints for MCP-backed skills. That lets third-party tools such as `git_commit` surface cues like “commit”, “git commit”, or “save changes” to the tool-selection prompt instead of depending only on the raw tool identifier. When multiple tools appear similarly plausible, Atlas nudges the model to ask for clarification before acting.
-
-## Operational Boundaries
-
-- `SkillsRegistry` owns skill registration, enablement, and security-scan state.
-- `Orchestrator` owns tool-loop execution, approval checks, retries, and failure recovery.
-- `ToolWebhookDispatcher` emits external audit events for tool activity without becoming part of the execution decision itself.
-
-This separation keeps skill extension work local to the skill and registry contracts instead of coupling every new tool to orchestrator internals.
-
-## Testing-Framework Scaffolding
-
-Beyond ad-hoc skills, the **Scaffold framework** action (`AtlasMind: Scaffold Testing Framework`, `src/core/testingScaffolder.ts`) constructs a language- and archetype-aware starter testing framework from the enabled methodologies in `project_memory/index/testing-config.json`. It detects the project language (Node/Python/Rust/Go/.NET/Java) and a coarse archetype, then generates idiomatic starter files (e.g. pytest/Hypothesis for Python, `cargo test`/proptest for Rust, `go test` for Go, Vitest/Jest/Playwright for Node) plus a managed `project_memory/operations/testing-strategy.md` playbook; unknown stacks degrade to playbook-only guidance. The companion **Sync to AI agents** action (`src/utils/testingProtocolSync.ts`) projects the enabled protocols outward into detected external agent instruction files so tools outside AtlasMind enact the same strategy. See [[Agents]] for the methodology matrix and [[Security]] for the non-destructive write model.
-
-## Enable / Disable Skills
-
-- Toggle any skill in the **Skills** sidebar tree view
-- Disabled skills are hidden from agents and the LLM
-- Disabled IDs persist across sessions in `atlasmind.disabledSkillIds`
-
-## Skills Sidebar Organization
-
-- Built-in skills live under **Built-in Skills** and are further grouped by category instead of appearing in one long flat list.
-- Custom skills can live at the root of the Skills sidebar or inside nested persistent folders.
-- **Create Skill Folder** adds new custom folders from the Skills title bar or from a folder row context action.
-- Imported custom skills and their folder placement are restored after reload from persisted state.
-
-## Timeouts
-
-| Skill | Timeout |
-|-------|---------|
-| Default | 15 seconds |
-| `web-fetch` | 30 seconds |
-| `test-run` | 120 seconds |
-| Custom (configurable) | Set via `timeoutMs` on `SkillDefinition` |
-
-## Tool Call Limits
-
-- **Max tool calls per turn:** 8
-- Multiple tools in one turn run concurrently with `Promise.all`
-- Each call is independently gated by the approval system
+It's classified as a low-risk read because it only returns bundled text. Time-sensitive rules in it
+still have to be re-checked against current primary sources.
 
 ---
 
-## Custom Skills
+## Agents don't get every tool, every turn
 
-### Creating a Custom Skill
+An agent's assigned skills are its **ceiling**, not a promise that all of them are offered each time.
+AtlasMind selects the tools that fit the task at hand — which keeps the context window free for your
+actual work, and reduces the chance of a model reaching for something irrelevant.
 
-1. Open Command Palette → **AtlasMind: Add Skill** → **Create from template**
-2. A template file is scaffolded in `.atlasmind/skills/`
-3. Edit the file to implement your skill logic
-4. The skill scanner runs automatically before the skill is enabled
+Each agent uses one of three policies:
 
-Use **Create Skill Folder** first if you want the new skill to appear inside a custom nested group in the Skills sidebar.
+| Policy | What it means |
+|---|---|
+| **Task-scoped** (default) | At most 12 relevant tools per turn, from the built-in set |
+| **Allowlist** | Exactly the skills the agent names, every time |
+| **All** | Every enabled skill, *including integrations installed after the agent was created* |
 
-### Importing an Existing Skill
+### Your words are enforced, not just heard
 
-1. **AtlasMind: Add Skill** → **Import existing file**
-2. Select a `.js` file
-3. The file must export `module.exports.skill` or `module.exports.default` as a valid `SkillDefinition`
+If you say **"read-only"**, **"don't edit anything"**, **"don't install packages"** or **"don't run
+commands"**, AtlasMind removes those tools *before* it even picks a model — and checks again immediately
+before execution. A model that calls an omitted or invented tool gets a policy denial. The tool is not
+run, and it is not conjured up.
 
-### LLM-Drafted Skills (Experimental)
+This is a real capability change, not wording in a prompt.
 
-When `atlasmind.experimentalSkillLearningEnabled` is `true`:
-1. Ask `@atlas` to create a skill
-2. The LLM generates a skill definition with code
-3. The draft is saved to `.atlasmind/skills/` and must pass the security scanner before use
+One consequence worth knowing: a restricted turn like that can't be delegated to a subscription agent,
+because AtlasMind can narrow its own tools but can't impose the same restriction inside somebody else's
+agent. It'll route to a provider where it *can* enforce the limit, or tell you it couldn't.
 
-### Capability discovery in the Mission Loop
+---
 
-The autonomous **Mission Loop** (`/loop` and Mission Control — see [[Project Planner]]) can "go learn what it needs" across iterations, but it does so **prefer-existing and gated**: each increment first uses already-registered skills, agents, and MCP tools, and only when `atlasmind.loop.allowDiscovery` is on may it fill a real gap by **synthesizing** a new skill/agent (the same drafting + security-scan path above) or by using [[Resource Discovery]] (ARD). New capabilities pass the existing approval gates before use — nothing is silently auto-trusted.
+## Turning skills on and off
 
-### Skill Security Scanner
+- Toggle any skill in the **Skills** sidebar
+- Disabled skills are invisible to agents and to the model
+- Your choices persist across sessions
 
-Custom skills are scanned before enablement. The scanner has **12 built-in rules**:
+Built-in skills are grouped by category rather than dumped in one long list. Custom skills can sit at
+the root or inside folders you create with **Create Skill Folder**, and the arrangement survives a
+reload.
 
-**Error-level (blocks enablement):**
+---
+
+## Limits worth knowing
+
+| | |
+|---|---|
+| **Tools per turn** | 8 maximum, run concurrently, each independently approval-gated |
+| **Default timeout** | 15 seconds |
+| **`web-fetch`** | 30 seconds |
+| **`test-run`** | 120 seconds |
+| **Custom skills** | Set your own `timeoutMs` |
+
+All file operations are sandboxed to your workspace. Paths that try to escape it are rejected.
+
+---
+
+## Writing your own skill
+
+### From a template
+
+1. Command Palette → **AtlasMind: Add Skill** → **Create from template**
+2. A starter file appears in `.atlasmind/skills/`
+3. Write your logic
+4. The security scanner runs before it can be enabled
+
+Create a folder first if you want it grouped somewhere specific in the sidebar.
+
+### From an existing file
+
+**AtlasMind: Add Skill** → **Import existing file**, then pick a `.js` file that exports
+`module.exports.skill` or `module.exports.default`.
+
+### Letting Atlas draft one (experimental)
+
+With `atlasmind.experimentalSkillLearningEnabled` on, you can ask `@atlas` to create a skill. It writes
+a draft to `.atlasmind/skills/`, and that draft still has to pass the security scanner like any other.
+
+### What your skill gets to work with
+
+Every skill handler receives a context object with workspace APIs: file I/O, regex search across files,
+git operations, code intelligence (diagnostics, symbols, references, rename, code actions), the
+allow-listed terminal, the test runner, protected URL fetching, memory read/write, checkpoint rollback,
+the debug APIs, and a few VS Code UI helpers.
+
+You can also give a skill **routing hints** — natural-language phrases like "commit", "save changes" —
+so the model finds it by intent rather than by remembering its exact ID.
+
+---
+
+## The security scanner
+
+Custom skills are scanned before they can be enabled. There are **12 rules**.
+
+**These block enablement:**
 
 | Rule | What it catches |
 |------|----------------|
-| `no-eval` | `eval()` calls |
+| `no-eval` | `eval()` |
 | `no-function-constructor` | `new Function()` |
-| `no-child-process-require` | `require('child_process')` |
-| `no-child-process-import` | `import` of `child_process` |
+| `no-child-process-require` · `no-child-process-import` | Reaching for `child_process` |
 | `no-shell-exec` | `exec()`, `spawn()`, `execSync()` |
-| `no-path-traversal` | `../` path patterns |
-| `no-hardcoded-secret` | API keys, tokens, passwords in source |
+| `no-path-traversal` | `../` patterns |
+| `no-hardcoded-secret` | Keys, tokens and passwords in source |
 
-**Warning-level (flagged but allowed):**
+**These are flagged but allowed:**
 
-| Rule | What it catches |
-|------|----------------|
-| `no-process-env` | `process.env` access |
-| `no-direct-fetch` | `fetch()`, `axios`, `got` calls |
-| `no-http-require` | Node `http`/`https` module imports |
-| `no-http-import` | ES module imports of `http`/`https` |
-| `no-fs-direct` | `require('fs')` bypassing the context API |
+`no-process-env` (reading environment variables), `no-direct-fetch` (`fetch`, `axios`, `got`),
+`no-http-require` and `no-http-import` (Node's http modules), `no-fs-direct` (using `fs` instead of the
+provided context API).
 
-Built-in skills are **pre-approved** at activation and skip the security scan.
+Built-in skills are pre-approved and skip the scan.
 
-### Managing Scanner Rules
-
-Open Command Palette → **AtlasMind: Configure Scanner Rules** to:
-- View all rules with descriptions
-- Toggle rules on/off
-- Add custom rules (regex pattern + severity)
-- Reset to defaults
+**AtlasMind: Configure Scanner Rules** lets you view every rule, toggle them, add your own regex rules,
+or reset to defaults.
 
 ---
 
-## MCP (Model Context Protocol) Skills
+## MCP servers
 
-External tools from MCP servers appear as skills with the ID pattern `mcp:<serverId>:<toolName>`.
+[Model Context Protocol](https://modelcontextprotocol.io/) servers give you tools from anywhere —
+databases, cloud consoles, issue trackers, design tools. Their tools appear as skills named
+`mcp:<server>:<tool>`.
 
-### Connecting an MCP Server (Guided Setup)
+### Connecting one, the easy way
 
-New to MCP? The panel leads with a **Guided Setup** wizard:
+1. Command Palette → **AtlasMind: Manage MCP Servers** → **Guided Setup**
+2. Pick a route:
+   - **Scan my computer** — AtlasMind lists servers it can set up from tools you already have
+   - **Browse by category** — a curated catalogue: Core, Cloud, Databases, DevOps and more
+3. It checks prerequisites. If something's missing it shows you the exact install command and installs
+   it **only after you confirm**
+4. It asks for what the server needs in labelled fields — no raw JSON. API tokens go into SecretStorage
+   and are injected as environment variables at connect time
+5. The server's tools register as skills automatically
 
-1. Open Command Palette → **AtlasMind: Manage MCP Servers** → **Guided Setup**.
-2. Choose a path:
-   - **Scan my computer** — AtlasMind lists servers it can set up from tools you already have (e.g. `npx` → Filesystem, `uvx` → Git, signed-in Azure CLI → Azure). Each is a one-click **Add & connect**.
-   - **Browse by category** — pick from the curated catalogue grouped by Core, Cloud, Databases, DevOps, and more.
-3. AtlasMind checks prerequisites. If a runtime is missing it shows the exact install command (e.g. `winget install --id astral-sh.uv`) and installs it **only after you confirm**.
-4. It collects only the inputs a server needs via labelled fields — no raw JSON. Secret fields (API tokens) are stored in VS Code **SecretStorage** and injected as env vars at connect time.
-5. Tools from the server auto-register as skills (pre-approved — no security scan required).
+Prefer full control? The **Advanced** tab keeps the raw transport, command, args and env form.
 
-Prefer full control? The **Advanced** tab keeps the raw transport/command/args/env form and also backs editing an existing server.
+### Once connected
 
-### Buzz Communications (Tier 1b)
+- Enable or disable individual MCP tools in the Skills tree
+- Connections persist across sessions
 
-### Agent-side ACP permissions
+**One nice touch:** many git and workspace MCP tools need a repository path argument. When the model
+forgets it, AtlasMind fills in your current workspace folder so the call works instead of failing with
+"repoPath is required". Only clearly path-shaped, currently-empty parameters get this — a bare `path` or
+`file` argument is left alone, and anything you supplied explicitly is never overridden.
 
-When AtlasMind is launched by an ACP client, skills still pass through
-AtlasMind's policy before execution. Safe reads follow the headless default.
-Workspace writes, subprocesses, network calls, audio, and unknown tools request
-a one-turn decision from the ACP client. The request exposes a bounded,
-secret-redacted preview and offers only **Allow once** or **Reject**;
-`allow_always` is never accepted.
+See [[Tool Execution]] for how approvals work on MCP tools.
 
-Client-declared MCP server commands in `session/new` are not started. Accepting
-an executable from the transport peer would turn session setup into a remote
-code-execution surface and would bypass the MCP registry's explicit
-configuration and approval path.
+### Buzz communications
 
-Choose **Browse by category → Collaboration → Buzz Communications** to add AtlasMind's bundled communication-only connector. It requires official `buzz-cli` v0.4.26, a dedicated agent key, and `atlasmind.buzz.enabled`. The wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in SecretStorage; the saved MCP config contains only the executable path plus non-secret, closed-template references to the Buzz relay and consent settings.
+**Browse by category → Collaboration → Buzz Communications** adds AtlasMind's bundled,
+communication-only connector. It needs `buzz-cli` v0.4.26, a dedicated agent key, and
+`atlasmind.buzz.enabled`.
 
-The connector registers four skills:
+It registers exactly four skills — list channels, post a message, read a thread, send a DM — and
+deliberately exposes no shell, file editing, repository access, administration, identity minting or
+message-history mirroring. Message bodies go through stdin rather than a command line, identifiers are
+validated, process time and output are bounded, and credentials are redacted. Remote relays require
+explicit consent and TLS.
 
-- `buzz_list_channels` — read up to 100 visible channels.
-- `buzz_post_message` — post to a validated channel UUID, with an optional thread root.
-- `buzz_read_thread` — read a bounded thread by channel/event ID.
-- `buzz_send_dm` — open/reuse a DM and send to a 64-character public key.
+---
 
-It intentionally does not connect `buzz-dev-mcp` and exposes no Buzz shell, file-edit, workflow, repository, administration, identity-minting, or message-history mirroring. Because upstream v0.4.26 has no working `--version` flag, it probes the exact required command/flag contract plus relay policy before the MCP handshake. Runtime calls use no shell, pass message bodies through stdin, bound process time/output, validate identifiers, and redact credentials. Remote relays require explicit `atlasmind.buzz.allowRemoteRelay` consent and TLS. Project Director sends retain the separate `outboundEnabled` and modal-confirmation gates.
+## When AtlasMind is the one being driven
 
-### Per-Skill Control
+If another tool launches AtlasMind over ACP, your skills still pass through AtlasMind's own policy
+first. Safe reads follow the headless default; workspace writes, subprocesses, network calls, audio and
+anything unrecognised ask the calling client for a **one-turn** decision, showing a bounded,
+secret-redacted preview. The only options offered are **Allow once** and **Reject** — a permanent grant
+is never accepted, because it would live inside the other tool where AtlasMind couldn't show or revoke
+it.
 
-- Individual MCP tools can be enabled/disabled in the Skills tree view
-- MCP server connections persist across sessions
+Server commands the client declares are **not started**. Accepting an executable from the other side of
+a transport would turn session setup into remote code execution and bypass the MCP registry's approval
+path entirely.
 
-### Workspace-path defaulting
+---
 
-Many git/workspace MCP tools require a repo or working-directory argument (for example GitKraken's `git_status` needs `repoPath`). When the model omits it, AtlasMind fills that parameter with the current workspace folder before dispatch, so the call succeeds instead of failing with "repoPath is required". Only string-typed, currently-empty parameters whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted — a bare `path`/`file` argument is left untouched, and any value you supply explicitly is never overridden.
+## Skills the Mission Loop learns on the way
 
-See [[Tool Execution]] for approval gating details.
+The autonomous Mission Loop can go and get capabilities it discovers it needs, but it prefers what's
+already there: each step first tries registered skills, agents and MCP tools. Only with
+`atlasmind.loop.allowDiscovery` on may it fill a genuine gap by drafting a new skill (through the same
+scanner path above) or searching [[Resource Discovery]]. Anything new still passes the normal approval
+gates. Nothing is silently trusted.
 
-## Extension Paths Summary
+---
 
-AtlasMind supports built-in skills, imported custom skills, MCP-backed tools, routed-provider adapters, and specialist integrations. The key distinction is that routed providers must satisfy the generic chat, pricing, capability, and health contract, while specialist integrations can stay workflow-specific.
+## Related
+
+- [[Agents]] — who uses these tools
+- [[Tool Execution]] — approvals, allow-lists and verification
+- [[Security]] — the boundaries around all of it
+- [[Resource Discovery]] — finding new servers, agents and skills
+- [[Project Planner]] — the Mission Loop

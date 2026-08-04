@@ -1,103 +1,97 @@
+# Remote Control
 
-> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
+**Use AtlasMind from a browser, with the real work still happening on your desktop.**
 
-# Remote Control (Web → Desktop)
+Open `vscode.dev`, `github.dev` or a `code-server` instance, and AtlasMind's chat panel is there —
+talking to the full AtlasMind running on your own machine. You get the same agents, models, memory and
+tools. Your API keys never leave your desktop.
 
-AtlasMind ships a **thin web client** that runs in the VS Code web extension host
-(`vscode.dev`, `github.dev`, `code-server`) and remote-controls a **full desktop
-instance** of AtlasMind over a local WebSocket connection.
+Off by default. You turn it on deliberately, and you can revoke it instantly.
 
-This mirrors [`docs/remote-control.md`](https://github.com/JoelBondoux/AtlasMind/blob/develop/docs/remote-control.md).
+---
 
-## Why a remote client instead of a web port
+## Why it works this way
 
-The web extension host runs inside a browser Web Worker with **no Node.js runtime**.
-AtlasMind depends on Node built-ins throughout — `fs`, `path`, `os`, `crypto`, and most
-critically `child_process` (`spawn`/`exec`), which powers on-device OS voice, the local
-speech-to-text transcriber, ACP agent subprocesses, stdio MCP servers, and project
-routines. A genuine browser port would have to disable all of that.
+VS Code's web version runs extensions inside a browser sandbox with **no Node.js**. AtlasMind needs Node
+for a lot of what it does — reading files, running your tests, launching subscription agents, connecting
+MCP servers, on-device speech.
 
-Instead, the desktop instance keeps doing every Node-heavy operation, and the web build
-becomes a remote UI that relays user intent and renders responses. **Secrets never leave
-the desktop.**
-
-## Architecture
+A genuine browser port would have to switch all of that off. So instead, your desktop keeps doing the
+real work and the browser becomes a remote control for it.
 
 ```
- vscode.dev (web, Web Worker)            Desktop AtlasMind (Node)
- ┌───────────────────────────┐   ws://   ┌────────────────────────────┐
- │ ChatClientPanel           │ 127.0.0.1 │ RemoteControlServer (paired)│
- │ RemoteClient  ◄───────────┼──:PORT───►│ RemoteBridge → chatPanel    │
- │  (paired bearer token)    │           │ Orchestrator / MCP / fs     │
- └───────────────────────────┘           │ SecretStorage (keys here)   │
-                                          └────────────────────────────┘
+ Browser (vscode.dev)                    Your desktop
+ ┌───────────────────────────┐          ┌────────────────────────────┐
+ │  AtlasMind chat panel     │◄────────►│  The real AtlasMind        │
+ │  (no keys, no files)      │  local   │  Agents, models, memory    │
+ └───────────────────────────┘  socket  │  Your API keys stay here   │
+                                         └────────────────────────────┘
 ```
 
-**Host-agnostic webview seam.** The chat webview's front-end script only does
-`postMessage`/`onmessage` and does not know whether its host is the local
-orchestrator-backed panel or a remote relay. On desktop the host is the chat panel; on
-web it is `RemoteClient`, which forwards the same messages over the socket. On the
-desktop, `RemoteBridge` fans outbound messages out to local + remote clients, and
-validates every inbound remote frame with the existing `isChatPanelMessage()` guard
-before dispatch. Remote clients can only do what the local chat UI can already do.
+The chat panel itself doesn't know or care which one it's talking to — which is why the remote version
+behaves identically, and why a remote client can never do anything the local chat couldn't already do.
 
-## Wire protocol
+---
 
-Each frame is a JSON envelope `{ v, kind, id?, channel, payload }`:
+## Turning it on
 
-- `kind: 'auth'` — first client frame carrying the bearer token; mismatched tokens are
-  refused.
-- `kind: 'msg'`, `channel: 'chat'` — a `ChatPanelMessage` (the same discriminated union
-  the local webview uses), re-validated server-side.
-- `kind: 'rpc'`, `channel: 'cost' | 'runs'` — read-only request; answered with an `ack`
-  sharing the same `id`.
-- `kind: 'error'` — validation/auth failure; the frame is dropped and audited.
-
-## Security model
-
-| Control | Behaviour |
+| Command | What it does |
 |---|---|
-| Off by default | Server never listens until `AtlasMind: Enable Remote Control` is run and `atlasmind.remote.enabled` is on. |
-| Localhost bind | Always binds to `127.0.0.1`. Cross-machine reach is via your own SSO gateway + tunnel over TLS (`remote.mode: gateway`), never by exposing the port. |
-| Pairing + bearer token (localhost) | Token stored in `SecretStorage` on both sides; no valid token → refused. |
-| Gateway origin secret (gateway) | The SSO gateway authenticates each WebSocket via an `x-atlas-origin-secret` header (timing-safe vs the pairing-token slot); the browser holds no token — the login is its identity. |
-| Workspace-trust gate | Refuses to serve until the workspace is approved for remote control. |
-| Redaction boundary | API keys/secrets are never serialized across the bridge. |
-| No silent approvals | Remote tool approvals require an authenticated session, are audited, and **default to deny** on disconnect. |
-| Inbound validation | Every chat frame passes `isChatPanelMessage()` before dispatch. |
-| Audit + revoke | Connections/commands logged; `AtlasMind: Revoke Remote Access` rotates the token and drops sessions. |
+| **AtlasMind: Enable Remote Control** | Starts the local server, asks you to trust the workspace, and shows a pairing code |
+| **AtlasMind: Show Remote Pairing Code** | Shows the current code again |
+| **AtlasMind: Disable Remote Control** | Stops the server and drops every session |
+| **AtlasMind: Revoke Remote Access** | Rotates the token and disconnects everyone, immediately |
 
-See [[Security]] and [[Tool Execution]] for how this fits the broader safety model.
+| Setting | Default | What it does |
+|---|---:|---|
+| `atlasmind.remote.mode` | `localhost` | `localhost` for same-machine, `gateway` for cross-machine |
+| `atlasmind.remote.port` | `0` | `0` picks a free port. Pin it if you're using gateway mode |
+| `atlasmind.remote.enabled` | `false` | ⚠️ Declared but not currently read — the commands above are what start and stop the server |
 
-## Commands & settings
+---
 
-| Command | Purpose |
+## How it's kept safe
+
+| | |
 |---|---|
-| `AtlasMind: Enable Remote Control` | Start the localhost server (trust prompt + pairing code). |
-| `AtlasMind: Enable Remote Control (Gateway)` | Switch to `gateway` mode + start; show the origin secret and local tunnel target. |
-| `AtlasMind: Disable Remote Control` | Stop the server and drop sessions. |
-| `AtlasMind: Show Remote Pairing Code` | Re-display the current pairing code. |
-| `AtlasMind: Revoke Remote Access` | Rotate the token and disconnect all clients. |
+| **Off until you say otherwise** | The server never listens until you run the enable command *and* the setting is on |
+| **Never opens a port to the world** | It always binds to your own machine only |
+| **Pairing required** | A token, stored in the OS keychain on both sides. No valid token, no connection |
+| **Workspace trust** | It refuses to serve a workspace you haven't approved for remote control |
+| **Keys stay put** | Secrets are never serialised across the connection |
+| **No silent approvals** | Remote tool approvals need an authenticated session, are logged, and **default to deny** the moment the connection drops |
+| **Everything is checked** | Every incoming message is validated before it's acted on |
+| **Full audit, instant revoke** | Connections and commands are logged, and one command rotates the token and drops all sessions |
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `atlasmind.remote.enabled` | `false` | Master switch for the desktop server. |
-| `atlasmind.remote.mode` | `localhost` | `localhost` (same-machine token pairing) or `gateway` (front with your own SSO gateway + tunnel). |
-| `atlasmind.remote.port` | `0` (auto) | Localhost port to bind (`0` = free port; pin in `gateway` mode). |
+See [[Security]] and [[Tool Execution]] for how this sits in the wider model.
 
-## Gateway mode (cross-machine)
+---
 
-`remote.mode: gateway` fronts the localhost server with **your own** SSO-gated reverse proxy
-(e.g. a Cloudflare Worker) plus a tunnel (e.g. `cloudflared`) back to `127.0.0.1:<port>`, so a
-browser signed into your login can reach it — **no inbound port** is opened. The browser holds no
-token: your gateway authorizes the session and injects an `x-atlas-origin-secret` header the
-desktop verifies (timing-safe, same slot as the pairing token; **Revoke Remote Access** rotates
-it). An optional `x-atlas-user-id` header is recorded for audit. All desktop gates still apply.
-Run **AtlasMind: Enable Remote Control (Gateway)**; pin `atlasmind.remote.port` first.
+## Reaching it from another machine
 
-## Limitations
+AtlasMind hosts no relay service, and it will not open a port for you. If you want browser access from
+elsewhere, **gateway mode** lets you put your own infrastructure in front:
 
-- Cross-machine access requires your own SSO gateway + tunnel (`gateway` mode); AtlasMind hosts
-  no relay. A same-machine client needs no gateway.
-- Web client exposes chat plus **read-only** cost and project-run dashboards; mutating
-  panels remain desktop-only.
+Your own sign-in-protected reverse proxy (a Cloudflare Worker, for example) plus a tunnel back to your
+machine. No inbound port is opened. The browser holds no token at all — your gateway authenticates the
+person and passes a secret header that your desktop verifies. An optional user-ID header gets recorded
+for the audit log.
+
+Every desktop gate still applies on top.
+
+Pin `atlasmind.remote.port` first, then run **AtlasMind: Enable Remote Control (Gateway)**.
+
+---
+
+## What you don't get in the browser
+
+- **Chat, plus read-only cost and project-run dashboards.** Panels that change things stay on the desktop.
+- **Cross-machine access needs your own gateway and tunnel.** Same-machine needs neither.
+
+---
+
+## Related
+
+- [[Security]] — the wider security model
+- [[Tool Execution]] — how approvals work
+- [[Configuration]] — the `atlasmind.remote.*` settings

@@ -1,355 +1,303 @@
-# Project Memory Rule (main branch)
-
-**Important:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`, so do not expect `project_memory/` inside an installed extension.
-
-If you need to reference SSOT memory or session context, use the `atlasmind.ssotPath` setting, which defaults to `project_memory`. For more details, see the [Memory System](Memory-System.md) documentation.
-
-
-> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
-
-# User Environment Tracking
-
-AtlasMind detects and stores each user's development environment (OS, hardware, shell, editor) in a private, user-scoped location. This data is never shared with other users or the workspace. AtlasMind uses this to tailor commands and suggestions to your environment. Multiple environments per user are supported.
 # Configuration
 
-All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind searchable page-based Settings workspace (**AtlasMind: Open Settings Panel**).
+**Every AtlasMind setting, what it does, and what to set it to.**
 
-Every AtlasMind setting also includes a detailed hover tooltip inside the VS Code Settings UI. Those hovers expand on the short descriptions below with practical guidance and example values for individual workspaces, team defaults, and more scaled automation flows.
+Two ways in:
 
-The default agentic execution cap is `10` tool iterations per turn through `atlasmind.maxToolIterations`.
+- **AtlasMind's own settings workspace** — **AtlasMind: Open Settings Panel**. Searchable, organised
+  into pages, and the place most of these are easier to change.
+- **VS Code settings** (`Ctrl+,`) — search `atlasmind.`. Every setting has a hover tooltip with
+  practical guidance and example values.
 
-Example `settings.json` presets:
+There are 114 settings. **You will probably change about six of them.**
+
+---
+
+## The ones that actually matter
+
+Start here. If you change nothing else, change these.
+
+| Setting | Default | What to do with it |
+|---------|---------|-------------|
+| `atlasmind.budgetMode` | `balanced` | `cheap` prefers local models and subscriptions. `auto` lets task difficulty decide. `expensive` always reaches for the best model available |
+| `atlasmind.speedMode` | `balanced` | `fast` for quick answers, `considered` when you'd rather it thought properly |
+| `atlasmind.dailyCostLimitUsd` | `0` | Set a number you're comfortable with. AtlasMind warns you at 80% and stops at 100%. `0` means no limit |
+| `atlasmind.toolApprovalMode` | `ask-on-write` | How often you get asked. `always-ask` to watch everything; loosen it as trust builds |
+| `atlasmind.autoVerifyAfterWrite` | `true` | Leave this on. It runs your own checks after every change |
+| `atlasmind.ssotPath` | `project_memory` | Where project memory lives. Change it only if that folder name clashes with something |
+
+A reasonable starting `settings.json`:
 
 ```json
 {
-	"atlasmind.budgetMode": "balanced",
-	"atlasmind.speedMode": "balanced",
-	"atlasmind.toolApprovalMode": "ask-on-write",
-	"atlasmind.autoVerifyAfterWrite": true,
-	"atlasmind.autoVerifyScripts": ["lint", "test", "compile"]
-}
-```
-
-```json
-{
-	"atlasmind.budgetMode": "auto",
-	"atlasmind.speedMode": "auto",
-	"atlasmind.toolApprovalMode": "always-ask",
-	"atlasmind.projectApprovalFileThreshold": 8,
-	"atlasmind.projectEstimatedFilesPerSubtask": 3,
-	"atlasmind.projectDependencyMonitoringProviders": ["dependabot", "renovate", "snyk"],
-	"atlasmind.projectDependencyMonitoringSchedule": "weekly",
-	"atlasmind.projectRunReportFolder": "ops/atlasmind/run-reports"
+  "atlasmind.budgetMode": "balanced",
+  "atlasmind.speedMode": "balanced",
+  "atlasmind.toolApprovalMode": "ask-on-write",
+  "atlasmind.autoVerifyAfterWrite": true,
+  "atlasmind.autoVerifyScripts": ["lint", "test", "compile"],
+  "atlasmind.dailyCostLimitUsd": 5
 }
 ```
 
 ---
 
-## Model Routing
+## Choosing models
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.budgetMode` | enum | `balanced` | Budget preference for model selection. Options: `cheap`, `balanced`, `expensive`, `auto` |
-| `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
-| `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias (also scales the outcome-driven bias). Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
-| `atlasmind.planningModelId` | string | `""` | Optional model ID pinned for the planning phase (the planner "brain"). When set to a known model the planner uses it directly while execution routes normally; empty routes planning normally. |
-| `atlasmind.synthesisModelId` | string | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions). Symmetric to `planningModelId`; empty routes synthesis normally. |
-| `atlasmind.draftModelId` | string | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model); struggle-gated escalation upgrades if needed. Empty routes normally. |
-| `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
-| `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |
-| `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
-| `atlasmind.azureOpenAiDeployments` | string[] | `[]` | Azure OpenAI deployment names AtlasMind should surface as routed models |
-| `atlasmind.bedrock.region` | string | `""` | AWS region used for Amazon Bedrock routing |
-| `atlasmind.bedrock.modelIds` | string[] | `[]` | Amazon Bedrock model IDs AtlasMind should surface as routed models |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.budgetMode` | `balanced` | `cheap`, `balanced`, `expensive` or `auto` |
+| `atlasmind.speedMode` | `balanced` | `fast`, `balanced`, `considered` or `auto` |
+| `atlasmind.feedbackRoutingWeight` | `1` | How much your thumbs up/down affect future routing. `0` turns it off; up to `2` for stronger influence |
+| `atlasmind.planningModelId` | `""` | Pin a specific model for planning. Empty routes normally |
+| `atlasmind.synthesisModelId` | `""` | Pin a model for summarising results |
+| `atlasmind.draftModelId` | `""` | Pin a fast, cheap model for mechanical work. It escalates automatically if the model struggles |
+| `atlasmind.providerTimeoutMs` | `30000` | How long to wait for a provider before giving up |
 
-See [[Model Routing]] for details on how these settings affect model selection.
+### Connecting providers
 
-Specialist-provider preferences are derived from refreshed model metadata, including domain tags such as research or visual analysis. **There is no override setting.** `atlasmind.specialistRoutingOverrides` shipped once and was removed from both the manifest and the code in April 2026; this page went on describing it for three months afterwards. Pin a provider through the Model Providers panel instead.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.localOpenAiEndpoints` | `[]` | Your local endpoints — Ollama, LM Studio, anything OpenAI-compatible. Each gets a label |
+| `atlasmind.localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | A single local endpoint, for the simple case |
+| `atlasmind.azureOpenAiEndpoint` | `""` | Your Azure OpenAI resource URL |
+| `atlasmind.azureOpenAiDeployments` | `[]` | Which Azure deployments to expose as models |
+| `atlasmind.bedrock.region` | `""` | Your AWS region, e.g. `us-east-1` |
+| `atlasmind.bedrock.modelIds` | `[]` | Which Bedrock models to expose |
 
-`atlasmind.localOpenAiEndpoints` is now the preferred local-model setting. Each entry includes a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model back in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once.
+**API keys are not settings.** They live in the OS keychain, set from **AtlasMind: Manage Model
+Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
+`atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey` and optionally
+`atlasmind.provider.bedrock.sessionToken`. Search, voice and image services use
+`atlasmind.integration.<provider>.apiKey`, set from **AtlasMind: Specialist Integrations**.
 
----
+### Using a subscription instead
 
-## Tool Approval & Safety
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.toolApprovalMode` | enum | `ask-on-write` | When to request user approval before running tools. Options: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
-| `atlasmind.allowTerminalWrite` | boolean | `false` | Allow write-capable terminal commands (installs, builds) after explicit approval |
-
-See [[Tool Execution]] for the full approval and safety model.
-
----
-
-## Post-Write Verification
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.autoVerifyAfterWrite` | boolean | `true` | Run verification scripts after successful write operations |
-| `atlasmind.autoVerifyScripts` | string[] | `["test"]` | Package scripts to run (e.g. `["test", "lint"]`). Names are sanitised. |
-| `atlasmind.testingPolicyOverride` | string | `""` | Optional label shown in the Project Dashboard Testing policy card. Leave empty to keep the default Red-Green TDD wording. |
-| `atlasmind.autoVerifyTimeoutMs` | number | `120000` | Max time (ms) for each verification script. Minimum: 5000 |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.acp.agents` | `[]` | Which subscription agents AtlasMind may use. **Empty by default — nothing runs until you name it** |
+| `atlasmind.acp.toolsEnabled` | `false` | **Let subscription agents act.** Makes them eligible for tool-backed work and automatically allows their own operations, with each one logged. Off means completions only |
+| `atlasmind.acp.mcpServers` | `[]` | Which MCP servers a subscription agent may reach. Empty means none |
+| `atlasmind.acp.modelStanding` | `{}` | Tell AtlasMind how a subscription's models rank against each other, where it can't work that out itself |
+| `atlasmind.acp.hideConsoleWindows` | `false` | Windows only — keep the agent's processes from popping up console windows. See the note in [[FAQ]] about endpoint security |
 
 ---
 
-## Chat Session
+## What AtlasMind may do without asking
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.chatSessionTurnLimit` | number | `6` | How many recent turns are carried forward as context. Minimum: 1 |
-| `atlasmind.chatSessionContextChars` | number | `2500` | Max characters for compacted session context. Minimum: 400 |
-| `atlasmind.contextCompressionEnabled` | boolean | `true` | Compact the prompt context to cut token volume and estimated spend on long conversations. |
-| `atlasmind.instructions.verifyOnCommit` | boolean | `true` | Refuse a commit when a managed block in an AI instruction file no longer matches the file it was generated from. **Verify only — never edits anything**, so the commit you staged is the one that lands; it refuses and names the fix, like the version-bump check. Checks only the file-generated blocks (testing matrix, workflow) — the debt-marker block comes from a setting a hook cannot read. Skip with `ATLASMIND_SKIP_INSTRUCTION_CHECK=1`. Stored in **workspace** scope, because a git hook cannot see a User value. |
-| `atlasmind.maxToolCallsPerTurn` | number | `8` | Most parallel tool calls the model may issue in one turn. |
-| `atlasmind.toolExecutionTimeoutMs` | number | `15000` | Per-tool execution timeout, in milliseconds. |
-| `atlasmind.providerTimeoutMs` | number | `30000` | Longest AtlasMind waits for a model provider to respond, in milliseconds. |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.toolApprovalMode` | `ask-on-write` | When approval is required |
+| `atlasmind.allowTerminalWrite` | `false` | Whether approved terminal commands may change things (installs, commits) |
+| `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
+| `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
+| `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |
+| `atlasmind.toolExecutionTimeoutMs` | `15000` | Per-tool timeout |
 
----
+### Checking the work
 
-## Memory (SSOT)
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.ssotPath` | string | `project_memory` | Relative path to the SSOT memory folder |
-
----
-
-## Agent Auto-Update
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.agentAutoUpdateCadence` | `string` | `"never"` | How often AtlasMind uses AI to automatically refresh user-defined agent system prompts and descriptions. One of `never`, `every-use`, `daily`, `weekly`, `monthly`. Built-in agents are never updated; individual agents can opt out via the Agent Manager. |
-
-See [[Agents]] for full details on the update criteria and per-agent exclusion.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.autoVerifyAfterWrite` | `true` | Run your checks after a change |
+| `atlasmind.autoVerifyScripts` | `["test"]` | Which package scripts to run. Names are sanitised and run without a shell |
+| `atlasmind.autoVerifyTimeoutMs` | `120000` | How long each check may take |
 
 ---
 
-## Sidebar UI
+## Conversation
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.showImportProjectAction` | boolean | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
-| `atlasmind.autoRefreshStaleMemory` | boolean | `false` | Automatically re-import stale imported SSOT entries on startup/file changes (expensive LLM re-summarization). Off by default; staleness is still flagged for on-demand Update Memory. |
-
-See [[Memory System]] for folder structure and retrieval details.
-
----
-
-## Project Planner
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.autoStartProposedProjectRuns` | boolean | `true` | Permit proposed runs to auto-start only while Autopilot is on. Interactive chat shows **Start run**, **Save for later**, and **Cancel**; saving creates a reviewed preview in Project Run Center. Set `false` to require the decision card even under Autopilot. The file-count safety gate still applies |
-| `atlasmind.projectApprovalFileThreshold` | number | `12` | Estimated changed-file count that triggers approval gating. Minimum: 1 |
-| `atlasmind.projectEstimatedFilesPerSubtask` | number | `2` | Heuristic multiplier for file impact estimation. Minimum: 1 |
-| `atlasmind.projectChangedFileReferenceLimit` | number | `5` | Max clickable file references shown after `/project` runs. Minimum: 1 |
-| `atlasmind.projectRunReportFolder` | string | `project_memory/operations` | Folder for persisted run summary JSON reports |
-
-## Project Ideation
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.ideation.crossProjectPaths` | string[] | `[]` | Paths to other project memory stores AtlasMind should surface as cross-project pattern context during ideation runs. Accepts workspace-relative or absolute paths. AtlasMind reads `project_soul.md` and the ideation board summary from each path and folds them into every context packet. |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.chatSessionTurnLimit` | `6` | How many recent turns come with you into the next request |
+| `atlasmind.chatSessionContextChars` | `2500` | How much room that carried context gets |
+| `atlasmind.contextCompressionEnabled` | `true` | Compact prompts to cut tokens and spend. Leave on |
 
 ---
 
-## Project Governance Bootstrap
+## Project memory
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.projectDependencyMonitoringEnabled` | boolean | `true` | Let AtlasMind scaffold dependency-monitoring defaults when bootstrap creates governance files. |
-| `atlasmind.projectDependencyMonitoringProviders` | string[] | `["dependabot"]` | Dependency automation providers AtlasMind can scaffold today. Supported values: `dependabot`, `renovate`, `snyk`, `azure-devops`. |
-| `atlasmind.projectDependencyMonitoringSchedule` | enum | `weekly` | Update cadence written into generated monitoring config. Options: `daily`, `weekly`, `monthly`. |
-| `atlasmind.projectDependencyMonitoringIssueTemplate` | boolean | `true` | Add a dependency review issue template alongside the generated governance baseline. |
-
-These settings affect AtlasMind's project bootstrap and governance scaffolding, not the repository-monitor workflow used by the AtlasMind extension itself.
-
-See [[Project Planner]] for the full planning and execution flow.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.ssotPath` | `project_memory` | Where memory lives, relative to your workspace |
+| `atlasmind.autoRefreshStaleMemory` | `false` | Re-import stale entries automatically on startup and file changes. Off by default — a refresh costs a model call |
+| `atlasmind.showImportProjectAction` | `true` | Show the Import button in the Memory view |
 
 ---
 
-## Tool Webhooks
+## Running project work
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.toolWebhookEnabled` | boolean | `false` | Enable outbound webhook delivery for tool events |
-| `atlasmind.toolWebhookUrl` | string | `""` | HTTPS endpoint for webhook payloads |
-| `atlasmind.toolWebhookTimeoutMs` | number | `5000` | Webhook request timeout (ms). Minimum: 1000 |
-| `atlasmind.toolWebhookEvents` | string[] | `["tool.started", "tool.completed", "tool.failed"]` | Events to emit. Options: `tool.started`, `tool.completed`, `tool.failed`, `tool.test` |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.projectApprovalFileThreshold` | `12` | Estimated file count that requires your approval |
+| `atlasmind.projectEstimatedFilesPerSubtask` | `2` | How many files each step is assumed to touch |
+| `atlasmind.projectChangedFileReferenceLimit` | `5` | Clickable file links in the summary |
+| `atlasmind.projectRunReportFolder` | `project_memory/operations` | Where run reports go |
+| `atlasmind.autoStartProposedProjectRuns` | `true` | Let a proposed run start on its own — **only while Autopilot is on**. Otherwise you always get the decision card |
 
----
+### The autonomous loop
 
-## Resource Discovery (ARD)
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.loop.enabled` | `true` | Whether `/loop` and Mission Control work at all |
+| `atlasmind.loop.defaultMaxIterations` | `8` | Hard cap on iterations |
+| `atlasmind.loop.defaultMaxCostUsd` | `5` | Hard cap on spend |
+| `atlasmind.loop.defaultMaxTokens` | `2000000` | Hard cap on tokens |
+| `atlasmind.loop.defaultMaxDurationMinutes` | `30` | Hard cap on wall-clock time |
+| `atlasmind.loop.maxConsecutiveNoProgress` | `2` | Stop after this many iterations that got nowhere |
+| `atlasmind.loop.checkpointEveryNIterations` | `3` | Pause for approval this often. `0` disables |
+| `atlasmind.loop.checkpointAtBudgetFraction` | `0.75` | Pause the first time spend crosses this fraction of the budget |
+| `atlasmind.loop.requireApprovalBeforeWriteBatches` | `false` | Always pause before an iteration that may write files |
+| `atlasmind.loop.allowDiscovery` | `true` | Let it create new skills or find new resources to fill a genuine gap |
+| `atlasmind.loop.goalAchievedConfidenceThreshold` | `0.7` | How confident the evaluator must be to declare success and stop |
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.ard.enabled` | boolean | `true` | Enable [[Resource Discovery]]: the panel, `/discover`, and the read-only `discover-resources` skill |
-| `atlasmind.ard.federationMode` | string | `referrals` | Federation across registries: `auto`, `referrals`, or `none` |
-| `atlasmind.ard.maxResults` | number | `10` | Maximum results per discovery search (1–100) |
-| `atlasmind.ard.requestTimeoutMs` | number | `15000` | Per-request timeout for ARD calls (ms, 1000–60000) |
-| `atlasmind.ard.allowInsecureEndpoints` | boolean | `false` | Allow `http://`/localhost Agent Finders (e.g. the conformance demo); otherwise HTTPS is required and private hosts rejected |
+### Governance scaffolding
 
-Agent Finders ship **disabled** and are managed from the Resource Discovery tab in Settings (or its sidebar tree); they are stored in globalState, not settings.
-
----
-
-## MCP Servers
-
-**Settings → MCP Servers** shows each registered server's transport, live status, tool count, and error, with Enable / Connect / Disconnect. Disabling disconnects rather than just relabelling. Adding and editing servers stays in the dedicated MCP manager, linked from the page.
-
----
-
-## Chat Attention
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.chat.revealOnApprovalRequest` | boolean | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification naming the action is shown either way, so turning this off stops the interruption without leaving you unaware. Nothing is announced while the panel is already on screen. |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.projectDependencyMonitoringEnabled` | `true` | Set up dependency monitoring when scaffolding governance files |
+| `atlasmind.projectDependencyMonitoringProviders` | `["dependabot"]` | Which providers to scaffold for |
+| `atlasmind.projectDependencyMonitoringSchedule` | `weekly` | How often |
+| `atlasmind.projectDependencyMonitoringIssueTemplate` | `true` | Add a dependency-review issue template |
 
 ---
 
-## Buzz (agentic comms)
+## The GitHub workflow
 
-Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. Deny-by-default; nothing connects until you opt in. See [[Architecture]] and the `project_memory/roadmap/buzz-integration.md` roadmap.
+All off by default. See [[GitHub Workflow]].
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.buzz.enabled` | boolean | `false` | Enable Buzz integration: record Buzz identities/channels and allow the bundled Buzz Communications MCP bridge to connect. Live Director sends additionally require the guided connector, a pinned official CLI, and the per-project `outboundEnabled` gate. |
-| `atlasmind.buzz.relayUrl` | string | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`); defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
-| `atlasmind.buzz.relayMode` | string | `undecided` | `undecided`, `local`, or `hosted` — which way you run Buzz, so `/buzz` shows only the path that applies. Set by answering the guide; it changes guidance only and connects nothing. |
-| `atlasmind.buzz.inboundEnabled` | boolean | `false` | Hold a **read-only** Buzz subscription and derive work items. Also requires `atlasmind.buzz.enabled`; can never publish to Buzz. |
-| `atlasmind.buzz.inboundChannels` | string[] | `[]` | Buzz channel ids (UUIDs) to watch. Empty = every channel the agent key can read. |
-| `atlasmind.buzz.autoCreateFollowUps` | boolean | `false` | Record inbound activity as follow-ups. Off by default — `project_memory/` is git-tracked, so this is opt-in. |
-| `atlasmind.acp.agents` | array | `[]` | ACP agents to use as subscription- or license-backed capacity: `[{"id": "claude", "command": "claude-agent-acp"}, {"id": "gemini", "command": "gemini", "args": ["--acp"]}]`. Empty by default; you name a command you already have installed. **Gemini requires an assigned Gemini Code Assist Standard or Enterprise license**; personal Google AI tiers no longer work with Gemini CLI. **`args` matters:** `gemini`, `copilot` and `qwen` are interactive CLIs until the ACP flag is passed, so an entry without it starts a prompt that never answers. By default a completion source only — no MCP pass-through, permission requests refused. See [[Model-Routing]] → ACP agents. |
-| `atlasmind.acp.modelStanding` | object | `{}` | Where each ACP model sits when AtlasMind cannot tell. The model *list* is always detected from the agent; what cannot be detected is a model's standing, since the wire format carries no capability field. A model matching no built-in naming convention is offered as **unknown** — routable and selectable, never preferred on capability, because a guessed ranking misroutes silently. Declare it keyed on display name or wire value: `{"Luna": "light", "Terra": "balanced", "Sol": "deep"}`. Values: `light`, `balanced`, `deep`, `unknown`; anything else is ignored. Beats the built-in table, so you can correct one. See [[Model-Routing]] → ACP agents. |
-| `atlasmind.workflow.enabled` | boolean | `false` | Master switch for [[GitHub Workflow\|the guided GitHub workflow]]. Off by default: the Workflow page still teaches and measures, it simply never acts. Turning it on does not by itself permit anything — the effective level for a stage is the *minimum* of this, your ceiling, the matching capability switch, and the stage's own declared level. All four default closed. |
-| `atlasmind.workflow.profile` | string | `solo` | `solo`, `studio`, or `custom`. Solo requires **zero** approvals and makes CI the reviewer, because requiring self-approval trains you to dismiss a gate. Studio requires at least one approver distinct from the author. A profile *seeds* a configuration; it does not govern one. |
-| `atlasmind.workflow.maxAutomationLevel` | string | `observe` | Your personal ceiling: `off`, `observe`, `draft`, `propose`, `auto`. Can only ever **lower** the project's declared level, never raise it. |
-| `atlasmind.workflow.chatGuidance` | string | `follow` | What AtlasMind does when a chat request would commit, push, branch, open a PR, promote, or release. `follow` applies the enabled declared route in the same turn without requiring a second “follow the workflow” message. It changes sequencing, not authority: tool approvals, automation ceilings, protected-ref checks, release gates, and outward-write confirmations remain. Unrelated working-tree edits are left untouched and branch-changing delivery work prefers an isolated temporary Git worktree. `inform` states the expectation and continues as asked; `gate` refuses until you say go ahead; `off` is silent. The host sends only a narrow validated policy object to the Orchestrator, never free-form workflow text. Silent when no workflow is declared or the owning stage is disabled. |
-| `atlasmind.workflow.archetype` | string | `""` | What kind of project this is: `game`, `website`, `web-app`, `api`, `cli`, `library`, `desktop`, `mobile`, `generic`. Changes CI steps, release model, testing recommendations, expected documentation and refactor advice. Empty means **undeclared** — AtlasMind detects a suggestion but never treats it as a decision you made. |
-| `atlasmind.workflow.traits` | string[] | `[]` | Facts cutting across the project's shape: `ships-binaries`, `has-native-build`, `is-published-package`, `has-ui`, `has-server`, `platform-hosted`, `handles-personal-data`. Each **adds** expectations on top of the archetype rather than replacing them. |
-| `atlasmind.debt.markers` | array | `[]` | Extra comment markers the tech-debt scan looks for, beyond `TODO`, `FIXME`, `HACK` and `XXX`. Written as `NAME` or `NAME:severity` — an unqualified marker is **medium**, because somebody who declared a marker is asserting something is wrong. Each becomes a *declared rule*, named on every entry it grades and published in the rule table, which is what keeps grades comparable. The built-in four cannot be redefined (a project grading its own `TODO` as high would make two registers incomparable), and a marker mentioning a credential is graded high whatever you called it. |
-| `atlasmind.workflow.allowIssueWrites` | boolean | `false` | Permit issue create / comment / edit / close / reopen. Every write still confirms first, naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task. |
-| `atlasmind.workflow.allowPullRequestWrites` | boolean | `false` | Permit PR creation, review and merge. Incoming review comments are treated as untrusted input regardless of this setting: anyone who can comment can write text designed to read as an instruction, so review bodies are always sanitized and fenced before an agent sees them. |
-| `atlasmind.workflow.allowReleaseWrites` | boolean | `false` | Permit version bump and changelog entry. Tagging and publishing stay human-triggered even with this on, and release notes are the changelog section **verbatim** — never model-generated. |
-| `atlasmind.workflow.allowProtectedRefWrites` | boolean | `false` | A hard ceiling rather than an ordinary preference. With it off, unattended automation is *unreachable* for any stage whose base is protected. AtlasMind never force-pushes regardless. |
-| `atlasmind.acp.toolsEnabled` | boolean | `false` | **Let subscription agents act** — standing authorization for configured ACP agents on routed tool-backed turns. The exact provider request must also carry Orchestrator authority; ordinary completions remain settings-isolated, receive no configured MCP servers, and have no permission policy even while this is on. AtlasMind automatically answers readable operation requests with `allow_once` and records them instead of showing repeated dialogs; turning the setting off stops later requests from a live session. An empty MCP allowlist does not disable built-in tools. |
-| `atlasmind.acp.mcpServers` | array | `[]` | MCP servers an ACP agent may use, by name. Empty by default. Servers holding SecretStorage credentials and HTTP/SSE servers are never forwarded. |
-| `atlasmind.acp.hideConsoleWindows` | boolean | `false` | Windows only. Put ACP agents and descendants behind one native supervisor on a token-ACL-scoped, non-interactive window station/private desktop. The parent creates one `SW_HIDE` console inherited by Node, native CLIs, and later shells, preventing separate visible `conhost.exe` windows and focus theft; npm adapters use a real `node.exe`, not VS Code's GUI `Code.exe`. Setup asks before the first ACP probe and records the guided choice in User settings rather than dirtying the repository; workspaces can still override it explicitly. Off/ordinary is the compatibility-first default; the opt-in helper is SHA-256-pinned, uses no shell, passes only stdio, and fails visibly rather than falling back. It is a same-user window-placement boundary, not a filesystem/network sandbox. The unsigned helper or unusual UI isolation may be blocked by application control/EDR; the hash pin is an integrity check, not a Windows reputation signal. The same value is reachable from the guided picker, Settings → Safety & Verification, and VS Code's settings editor. |
-| `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`, or several with `{"npub1…": ["api-designer", "ux-reviewer"]}`. The first owns the work; the rest are recorded as also-relevant. Unbound identities stay unassigned. |
-| `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
-
-| `atlasmind.buzz.autonomousReplies` | boolean | `false` | Let AtlasMind agents reply to **bound** Buzz agents without a dialog per message. Only applies to identities in `agentBindings`; anyone unbound is treated as a person and still confirms. |
-| `atlasmind.buzz.autonomousReplyLimitPerHour` | number | `10` | Cap on autonomous replies per recipient per hour. At the cap the next message falls back to a dialog rather than being dropped. |
-
-**Where to set these.** All of the above live on the **Settings → Buzz** page (Connection · Inbound · Persistence · Routing). The gates are nested, so a control whose parent is off is dimmed and disabled while still showing its stored value.
-
-**Picking a handle.** With inbound on, the person form offers the Buzz identities AtlasMind has seen, by the name each published for itself, plus your own identity derived from the stored agent key. Nothing is guessed from a person's name.
-
-**Binding agents to a person.** On **Project Dashboard → Director**, add or edit a person, give them a `buzz` channel (alongside any others they have — a person can hold several), pick their identity from the observed list or paste their `npub…` key, and tick the AtlasMind agents that should own their work. That writes `atlasmind.buzz.agentBindings`, which stays the single source of truth — the roster is a convenience editor for it, not a second store. A mistyped `npub` is refused rather than bound to a different identity, an `nsec` is refused by name, and a binding to an agent that does not exist is rejected. Bound people show a `buzz → <agent>` badge on their card.
-
-Set up live sends from **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications**. The bundled bridge wraps official `buzz-cli` v0.4.26, keeps the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DMs. It converts the WS/WSS setting to the CLI's HTTP/HTTPS base; remote relays require both `allowRemoteRelay:true` and TLS.
-
-Only `https` Buzz workspace links are launchable from AtlasMind. An npub / @handle / #channel stays display-only unless it is represented by a bridge-valid channel UUID or 64-character public key. Channels and deep links are sanitised at the webview boundary like every other Director channel.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.workflow.enabled` | `false` | The master switch. Off, the dashboard still teaches and measures — it just doesn't act |
+| `atlasmind.workflow.profile` | `solo` | `solo` (one person is author, reviewer and releaser) or the small-team profile |
+| `atlasmind.workflow.archetype` | `""` | What kind of project this is. Changes CI steps, release model and expected documentation |
+| `atlasmind.workflow.traits` | `[]` | Facts that cut across shape — ships binaries, publishes a package, handles personal data |
+| `atlasmind.workflow.maxAutomationLevel` | `observe` | **Your personal ceiling.** It can only ever lower what the project declared, never raise it |
+| `atlasmind.workflow.chatGuidance` | `follow` | What happens when you ask AtlasMind to commit, push, open a PR or publish. `follow`, `inform`, `gate` or `off` |
+| `atlasmind.workflow.allowIssueWrites` | `false` | May create, comment on, close or reopen issues. Every write still confirms |
+| `atlasmind.workflow.allowPullRequestWrites` | `false` | May create PRs, post reviews and merge. Every write still confirms |
+| `atlasmind.workflow.allowReleaseWrites` | `false` | May prepare a release — version, changelog, tag |
+| `atlasmind.workflow.allowProtectedRefWrites` | `false` | May write to a protected branch. **Rarely the right answer** — a protected branch is protected for a reason |
+| `atlasmind.instructions.verifyOnCommit` | `true` | Refuse a commit when an AI instruction file has a stale AtlasMind block. Verify only — it never edits your files |
+| `atlasmind.debt.markers` | `[]` | Extra comment markers the tech-debt scan looks for, alongside the built-in `TODO`, `FIXME`, `HACK` and `XXX` |
+| `atlasmind.testingPolicyOverride` | `""` | Which testing methodology the dashboard reports as your policy. Empty means red-green TDD |
 
 ---
 
-## Presence & Power (keep-awake)
+## Ideation and research
 
-Keep this computer awake so an activity that must stay online — a long Mission Loop run, a Remote Control gateway session, or a connected Buzz presence — isn't killed by system sleep. Backed by the `PresenceManager` core service, which spawns an OS-native wake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) since a VS Code extension can't use Electron's `powerSaveBlocker`. Deny-by-default.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.ideation.crossProjectPaths` | `[]` | Other AtlasMind projects whose ideation boards may be read for context. At most three, and nothing is ever written to them |
+| `atlasmind.research.enabled` | `false` | Master switch for research scans. Off by default — a scan reaches the network and spends money |
+| `atlasmind.research.automationLevel` | `observe` | The ceiling every scan is capped by. `observe` tells you one is due, `propose` drafts it, `auto` runs it |
+| `atlasmind.research.scans` | `{}` | Per-scan settings, keyed by scan id. Each takes `enabled`, `cadenceDays` and `automationLevel` |
+| `atlasmind.research.searchSource` | `auto` | Where scans look: `auto`, `exa`, `mcp`, `web-fetch` or `none`. With nothing usable, AtlasMind says it couldn't look rather than guessing |
+| `atlasmind.research.monthlySpendCapUsd` | `0` | The most automatic runs may spend per month. **`0` means nothing runs on its own**, whatever its level. Scans you start yourself aren't capped here |
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.presence.keepAwake` | boolean | `false` | Keep the computer awake while an activity needs the agent online (Mission Loop / Remote Control gateway / Buzz presence). Lock acquired only while needed and released when the activity ends. |
-| `atlasmind.presence.keepDisplayAwake` | boolean | `false` | Also keep the display on when keep-awake is active. Default lets the screen sleep (lower power). No effect unless `keepAwake` is `true`. |
-| `atlasmind.presence.acPowerOnly` | boolean | `true` | Only keep awake on AC (mains) power; auto-suspended on battery so an unplugged laptop is never drained, and resumed when power returns. |
-| `atlasmind.presence.maxAwakeMinutes` | number | `240` | Safety backstop that auto-releases the wake lock after N minutes even if the activity is still running (0 = until it ends; range 0–1440). |
+---
 
-A status-bar indicator shows when the machine is held awake (and when it's paused on battery); click it, or run **AtlasMind: Toggle Keep Computer Awake** (`atlasmind.togglePresence`), to stop. No untrusted input is ever passed to the spawned OS helper.
+## Finding new capabilities
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.ard.enabled` | `true` | Whether Resource Discovery is available. The individual finders still ship switched off |
+| `atlasmind.ard.federationMode` | `referrals` | How far a search follows references between catalogues |
+| `atlasmind.ard.maxResults` | `10` | Results per search |
+| `atlasmind.ard.requestTimeoutMs` | `15000` | Per-request timeout |
+| `atlasmind.ard.allowInsecureEndpoints` | `false` | Allow finders using plain HTTP or localhost |
+
+---
+
+## Cost
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.dailyCostLimitUsd` | `0` | Daily ceiling. Warns at 80%, stops at 100%. `0` disables |
+| `atlasmind.displayCurrency` | `USD` | Show costs in your own currency, converted at live rates |
+
+---
+
+## Agents
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.agentAutoUpdateCadence` | `never` | How often your **custom** agents' prompts get refreshed. Built-ins are never touched |
+| `atlasmind.experimentalSkillLearningEnabled` | `false` | Let Atlas draft new skills. Costs extra model calls, and drafts still pass the security scanner |
 
 ---
 
 ## Voice
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.voice.ttsEnabled` | boolean | `false` | Auto-speak freeform responses via TTS |
-| `atlasmind.voice.sttEnabled` | boolean | `false` | Enable speech input controls in the Voice Panel (requires microphone) |
-| `atlasmind.voice.hostSpeechEnabled` | boolean | `false` | Speak via the OS host engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`) instead of the in-panel Web Speech engine. On-device, no API key, works with the panel closed. ElevenLabs still takes priority when keyed; `espeak-ng` must be installed on Linux. |
-| `atlasmind.voice.sttEngine` | string (`auto`\|`webspeech`\|`local`) | `auto` | Speech-to-text engine. `local` = on-device Whisper (audio stays local); `webspeech` = in-webview Web Speech API; `auto` prefers Whisper where provisionable, else Web Speech. |
-| `atlasmind.voice.whisperCliPath` | string | `""` | Path to an installed whisper.cpp `whisper-cli` for on-device STT. Required on macOS/Linux (e.g. `brew install whisper-cpp`); Windows x64 auto-downloads a verified build when empty. |
-| `atlasmind.voice.rate` | number | `1.0` | Speech rate (0.5–2.0) |
-| `atlasmind.voice.pitch` | number | `1.0` | Speech pitch (0–2.0) |
-| `atlasmind.voice.volume` | number | `1.0` | Speech volume (0–1.0) |
-| `atlasmind.voice.language` | string | `""` | BCP 47 language tag (e.g. `en-US`, `fr-FR`). Empty = OS default |
-| `atlasmind.voice.inputDeviceId` | string | `""` | Preferred microphone device id. Current webview STT stores and preflights this preference, but Web Speech may still use the default input device. |
-| `atlasmind.voice.outputDeviceId` | string | `""` | Preferred speaker device id. AtlasMind can apply it to ElevenLabs playback when the runtime supports `setSinkId`; Web Speech may still use the default output. |
-| `atlasmind.voice.elevenLabsVoiceId` | string | `""` | ElevenLabs voice id for server-side TTS. Empty uses the default demo voice (`Rachel`). Requires an ElevenLabs API key in Specialist Integrations. |
-
-AtlasMind does not yet ship an OS-native host speech backend. The current voice stack is Web Speech API in the panel plus optional ElevenLabs server-side TTS, so final device routing still depends on browser or Electron support.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.voice.ttsEnabled` | `false` | Read responses aloud |
+| `atlasmind.voice.sttEnabled` | `false` | Show the voice input button (needs microphone access) |
+| `atlasmind.voice.hostSpeechEnabled` | `false` | Use your operating system's speech engine instead of the browser one |
+| `atlasmind.voice.sttEngine` | `auto` | On-device Whisper, or the browser's speech recognition |
+| `atlasmind.voice.whisperCliPath` | `""` | Path to `whisper-cli` for on-device speech-to-text |
+| `atlasmind.voice.rate` | `1` | Speaking speed |
+| `atlasmind.voice.pitch` | `1` | Pitch |
+| `atlasmind.voice.volume` | `1` | Volume |
+| `atlasmind.voice.language` | `""` | A language tag like `en-US`. Empty follows your system |
+| `atlasmind.voice.inputDeviceId` | `""` | Preferred microphone |
+| `atlasmind.voice.outputDeviceId` | `""` | Preferred speaker |
+| `atlasmind.voice.elevenLabsVoiceId` | `""` | Which ElevenLabs voice to use |
 
 ---
 
-## Remote Control
+## Remote control
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.remote.enabled` | boolean | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [[Remote Control]]. |
-| `atlasmind.remote.mode` | string | `localhost` | Transport/auth mode: `localhost` pairs a same-machine web client with the token; `gateway` fronts the server with your own SSO-gated Cloudflare Worker + tunnel so a browser signed into your login can reach it, authenticating each connection by the `x-atlas-origin-secret` header instead of an in-band token. Enable via **AtlasMind: Enable Remote Control (Gateway)**. See [[Remote Control]]. |
-| `atlasmind.remote.port` | number | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable (recommended in `gateway` mode so the tunnel target stays fixed). |
-
-## Mission Loop
-
-The autonomous goal-seeking loop (`/loop` and [[Project Planner|Mission Control]]). Every budget value is a **hard stop**, checked before each iteration. Safety-first: deny-by-default checkpoints, validated evaluator output, gated discovery. These defaults are also editable from a dedicated **Mission Loop** page in the AtlasMind Settings dashboard.
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.loop.enabled` | boolean | `true` | Enable the Mission Loop. When off, `/loop` and Mission Control will not start a run. |
-| `atlasmind.loop.defaultMaxIterations` | number | `8` | Default hard cap on loop iterations (1–50). |
-| `atlasmind.loop.defaultMaxCostUsd` | number | `5` | Default hard ceiling on cumulative USD cost for a run; enforced on top of `dailyCostLimitUsd`. |
-| `atlasmind.loop.defaultMaxTokens` | number | `2000000` | Default hard ceiling on cumulative (input + output) tokens for a run. |
-| `atlasmind.loop.defaultMaxDurationMinutes` | number | `30` | Default hard wall-clock cap (minutes) for a run. |
-| `atlasmind.loop.maxConsecutiveNoProgress` | number | `2` | Stop after this many consecutive no-progress iterations (1–10). |
-| `atlasmind.loop.checkpointEveryNIterations` | number | `3` | Pause for a deny-by-default approval checkpoint every N iterations (`0` disables). |
-| `atlasmind.loop.checkpointAtBudgetFraction` | number | `0.75` | Pause the first time spend crosses this fraction (0.01–1) of the cost budget. |
-| `atlasmind.loop.requireApprovalBeforeWriteBatches` | boolean | `false` | Require an approval checkpoint before any iteration that may write/commit. |
-| `atlasmind.loop.allowDiscovery` | boolean | `true` | Allow synthesizing/discovering capabilities (gated by existing approval gates; prefers registered ones first). |
-| `atlasmind.loop.goalAchievedConfidenceThreshold` | number | `0.7` | Min evaluator confidence (0–1) to accept an `achieved` verdict and stop successfully. |
-
-## Budget
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.dailyCostLimitUsd` | number | `0` | Maximum daily spend in USD. Set to `0` for unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
-| `atlasmind.displayCurrency` | string | `"USD"` | Currency used for **all** cost displays app-wide (dashboards, chat, Mission Loop). Defaults to `USD`; pick a specific currency and it applies everywhere, or use `"auto"` to detect from OS locale. Supported: `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. Underlying costs are stored in USD; exchange rates are fetched from open.er-api.com on activation (24h cache). |
-
-## Experimental
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `atlasmind.experimentalSkillLearningEnabled` | boolean | `false` | Let AtlasMind draft custom skills via the LLM. Generated code requires manual safety review. |
-
-> **Warning:** Enabling experimental features sends additional model requests and may incur extra costs. Generated skill code should always be reviewed before use.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.remote.mode` | `localhost` | `localhost` for same-machine pairing, `gateway` for cross-machine behind your own sign-in |
+| `atlasmind.remote.port` | `0` | `0` picks a free port. Pin it for gateway mode |
+| `atlasmind.remote.enabled` | `false` | ⚠️ **Declared but not read** — changing it has no effect today. Remote control is started and stopped by the **Enable / Disable Remote Control** commands |
 
 ---
 
-## Credentials
+## Keeping the machine awake
 
-Routed provider credentials live in VS Code SecretStorage and are configured from **AtlasMind: Manage Model Providers**.
+For long runs, a live connection, or a gateway session.
 
-- Azure OpenAI uses `atlasmind.provider.azure.apiKey` plus the endpoint/deployment settings above.
-- Amazon Bedrock uses `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, and optional `atlasmind.provider.bedrock.sessionToken`.
-- Specialist integrations such as EXA, ElevenLabs, Stability AI, and Runway use `atlasmind.integration.<provider>.apiKey` from **AtlasMind: Specialist Integrations**.
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.presence.keepAwake` | `false` | Stop the system sleeping while something needs to stay online |
+| `atlasmind.presence.keepDisplayAwake` | `false` | Also keep the screen on. Off by default — the system stays up, the display can sleep |
+| `atlasmind.presence.acPowerOnly` | `true` | Only while on mains power. Leave this on |
+| `atlasmind.presence.maxAwakeMinutes` | `240` | Release the lock after this long regardless. A backstop, not a target |
 
-## Settings that were live but undeclared
+---
 
-Both have been read by real code for months while being absent from the manifest — so they worked if you hand-edited `settings.json` and were invisible in the Settings UI. Declared in 0.205.0.
+## Buzz messaging
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `atlasmind.testingPolicyOverride` | string | `""` | Testing methodology the Settings dashboard reports as this project's policy. Empty means Red-Green TDD, the default. **Read since 0.46 and never declared**, so it could not be found in Settings until 0.205.0. |
-| `atlasmind.ideation.crossProjectPaths` | array | `[]` | Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project. **Read since 0.86 and never declared**, so it could not be found in Settings until 0.205.0. |
-| `atlasmind.research.enabled` | boolean | `false` | Master switch for research scans — the questions AtlasMind asks about the world *outside* this repository (competition, customers, technology, feature gaps, market, funding, regulation). Off by default: a scan reaches the network and spends on a model. A claim with no retrievable source is stored as a *question*, never as evidence. |
-| `atlasmind.research.automationLevel` | string | `observe` | The ceiling every scan's own level is capped by. `observe` tells you a scan is due; `propose` drafts the brief; `auto` runs a due scan on activation inside the spend cap. A scan requesting more is reduced to this, and the reduction is stated. Findings always land open and need triage. |
-| `atlasmind.research.scans` | object | `{}` | Per-scan overrides keyed by scan id (`competition`, `customer`, `technology`, `feature`, `market`, `funding`, `regulatory`), each accepting `enabled`, `cadenceDays` and `automationLevel`. A scan is off until switched on here. Unknown ids are ignored. |
-| `atlasmind.research.searchSource` | string | `auto` | Where scans look: `auto`, `exa`, `mcp`, `web-fetch`, or `none`. With no usable source AtlasMind records that it could not look — it never falls back to what a model already believed. `web-fetch` can read a page you name but cannot find one, so discovery-shaped scans report the half they could not assess. |
-| `atlasmind.research.monthlySpendCapUsd` | number | `0` | The most automatic runs may spend per month. `0` means nothing may run on its own whatever its automation level — switching research on and letting it run unattended are deliberately two decisions. Scans you start yourself are not capped here. |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.buzz.enabled` | `false` | Master switch |
+| `atlasmind.buzz.relayMode` | `undecided` | Which way you run Buzz, so the setup guide only shows the relevant path |
+| `atlasmind.buzz.relayUrl` | `ws://localhost:3000` | Your relay. Defaults to a local one |
+| `atlasmind.buzz.allowRemoteRelay` | `false` | Permit a non-local relay. Off keeps project data on your machine |
+| `atlasmind.buzz.inboundEnabled` | `false` | Subscribe to activity and turn it into work items |
+| `atlasmind.buzz.inboundChannels` | `[]` | Which channels. Empty means every channel your key can read |
+| `atlasmind.buzz.autoCreateFollowUps` | `false` | Record inbound activity as follow-ups. Off by default — project memory is committed to your repository |
+| `atlasmind.buzz.agentBindings` | `{}` | Route a particular person's messages to a particular AtlasMind agent |
+| `atlasmind.buzz.autonomousReplies` | `false` | ⚠️ **Declared but not active** — nothing reads it yet |
+| `atlasmind.buzz.autonomousReplyLimitPerHour` | `10` | ⚠️ **Declared but not active** — nothing reads it yet |
+
+---
+
+## Webhooks
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.toolWebhookEnabled` | `false` | Send tool events to an external endpoint |
+| `atlasmind.toolWebhookUrl` | `""` | The HTTPS endpoint |
+| `atlasmind.toolWebhookTimeoutMs` | `5000` | Request timeout |
+| `atlasmind.toolWebhookEvents` | `["tool.started","tool.completed","tool.failed"]` | Which events to send |
+
+---
+
+## Related
+
+- [[Getting Started]] — the settings you'll want on day one
+- [[Model Routing]] — what the budget and speed settings actually do
+- [[Tool Execution]] — the approval settings in context
+- [[Security]] — where credentials live and why

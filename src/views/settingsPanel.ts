@@ -652,7 +652,7 @@ export class SettingsPanel {
       <div class="page-header">
         <p class="page-kicker">Resource Discovery</p>
         <h2>Discover agentic resources <span class="badge">ARD</span></h2>
-        <p>Find external MCP servers, agents, skills, and APIs via <a href="https://agenticresourcediscovery.org/">Agentic Resource Discovery</a>. Discovery happens before invocation; nothing is installed without your action. ${enabledCount} of ${finders.length} finder(s) enabled.</p>
+        <p>Find external MCP servers, agents, skills, and APIs via <a href="https://github.com/ards-project/ard-spec">Agentic Resource Discovery</a>. Discovery happens before invocation; nothing is installed without your action. ${enabledCount} of ${finders.length} finder(s) enabled.</p>
       </div>
 
       ${status}

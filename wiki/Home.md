@@ -1,72 +1,148 @@
-# AtlasMind (Beta) Wiki
-
-AtlasMind is a VS Code extension for developers who want AI help with more control: model choice, persistent project memory, approvals, cost visibility, and extensibility through custom skills or MCP servers.
-
-It is built for teams that want autonomy without hand-waving. AtlasMind keeps safety and security controls visible, prefers evidence over blind execution, and ships a configurable 23-methodology testing strategy system — covering TDD, BDD, E2E, security, performance, and more — so delivery is evidence-backed rather than implementation-first guesswork.
-
-This wiki is the reference layer behind the shorter repository README. Use it for setup details, command reference, architecture notes, and configuration depth.
-
-Current repository workflow: `develop` is the integration branch for routine work, and `main` is the default branch, reserved for release-ready Marketplace promotions from `develop`.
-
-AtlasMind remains branded as Beta until `1.0.0`, even though Marketplace publication now uses the standard release channel.
-
-Published Marketplace version numbers appear in the Marketplace badge and changelog highlights. The source version for the branch you are currently viewing always comes from that branch's `package.json`.
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/main/media/icon.svg" width="100" alt="AtlasMind logo" />
 </p>
 
----
+# AtlasMind
 
-## What is AtlasMind?
+**Your AI delivery team, inside VS Code.**
 
-AtlasMind turns VS Code into an agentic development environment. Instead of a single chat surface, it gives you an **orchestrator** that selects the right agent, the right model, and the right tools for each task, then keeps project context and execution state visible.
+Most AI coding tools give you one assistant in one chat box. AtlasMind gives you a team — and keeps
+everything the team learns attached to your project.
 
-**Key highlights:**
+Ask for what you want in plain English. AtlasMind picks the right specialist, picks a model that suits
+the task and your budget, reads what it needs from your code, does the work, checks it, and shows you
+what changed and what it cost. Your decisions, architecture notes and lessons learned stay in the
+project, not in a chat window you'll close and never find again.
 
-- **Multi-agent** — define specialised agents (architect, tester, security reviewer, etc.) and let the orchestrator route automatically
-- **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
-- **43 built-in skills** — file I/O, git operations, diagnostics, code navigation, debugging, container tooling, test running, web fetch, VS Code surfaces, and more
-- **Shared runtime plugin API** — register agents, skills, providers, and lifecycle listeners without patching core bootstrap code
-- **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
-- **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results
-- **Website Studio** — carry client websites from intake through sitemap, wireframes, UI system, hosting/CMS readiness, and n8n workflow mapping
-- **Safety-first execution** — approval gates, memory scanning, verification hooks, and explicit operator controls are built in from the start
-- **Red/green development bias** — AtlasMind is designed to support tests-first autonomous execution instead of opaque one-shot code generation
-- **Real-time cost tracking** — per-session spend with budget guardrails
-- **Operator surfaces** — dedicated Model Providers, Agents, Settings, Project Dashboard, Project Ideation, Sessions, Project Run Center, and a Personality Profile that supports global defaults plus project overrides for configuration, approvals, diagnostics, and failure review
+**Nothing risky happens without your say-so.** Every automatic step is one you switched on, and you
+can switch it off again.
 
-For headless workflows, the CLI now rejects malformed flags instead of treating them as prompt text and exposes first-class `--help` and `--version` flows.
+> AtlasMind is in **Beta** until version 1.0.0. It's stable enough to use daily — we're keeping the
+> label until the configuration and memory formats are frozen.
 
 ---
 
-## Quick Navigation
+## New here? Start with these three
 
-| Page | Description |
-|------|-------------|
-| [[Getting Started]] | Install, configure, and run your first command |
-| [[CLI]] | Use AtlasMind from the terminal with the shared runtime and safety model |
-| [[Architecture]] | System design, core services, data flow |
-| [[Chat Commands]] | Slash commands, Command Palette surfaces, and view-local sidebar actions |
-| [[Ideation]] | Stage 0: starter frames, board readiness, and the research scans that ask what is happening outside your repository |
-| [[Agents]] | Built-in and custom agent definitions |
-| [[Skills]] | 43 built-in skills, custom skill import, and MCP tools |
-| [[Resource Discovery]] | Find and install external MCP servers, agents, and skills via Agentic Resource Discovery (ARD) |
-| [[Model Routing]] | Provider setup, budget/speed modes, routing algorithm |
-| [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
-| [[Remote Control]] | Drive a desktop instance from the web build (vscode.dev) |
-| [[Project Planner]] | Autonomous task decomposition and parallel execution |
-| [[Website Studio]] | Client intake, sitemap, wireframes/UI, platform readiness, and n8n workflow planning |
-| [[Tool Execution]] | Approval gating, terminal allow-list, checkpoints, webhooks |
-| [[Configuration]] | All extension settings with defaults and recommended starting points |
-| [[Funding and Sponsorship]] | How to support ongoing AtlasMind development |
-| [[Security]] | Security model, boundaries, vulnerability reporting |
-| [[Contributing]] | Dev setup, coding conventions, PR checklist |
+| | |
+|---|---|
+| **[[Getting Started]]** | Install it, connect a model, and get your first useful answer. About five minutes. |
+| **[[Chat Commands]]** | Everything you can type, and what each one actually does. |
+| **[[FAQ]]** | The questions people ask in week one, and what to do when something misbehaves. |
+
+---
+
+## What you can do with it
+
+**Fix or build something.** Ask in chat like you'd ask a colleague. AtlasMind reads your code, picks a
+specialist, makes the change, verifies it, and reports back. See [[Agents]] and [[Skills]].
+
+**Run a whole piece of work.** `/project Add Stripe checkout` produces a reviewable plan — the steps,
+what depends on what, what it will touch, where it will pause — before anything happens.
+See [[Project Planner]].
+
+**Chase a goal on its own.** `/loop` and Mission Control keep going towards an outcome inside limits
+you set: spend, time, attempts, and where it must stop and ask. See [[Project Planner]].
+
+**Think before you build.** Lay out problems, requirements, risks and evidence on a visual board, then
+turn the cards that survived into real roadmap items. See [[Ideation]].
+
+**Ship properly.** A guided eight-stage workflow takes you from an idea to a released version, with an
+explanation at every step. See [[GitHub Workflow]] and [[Delivery]].
+
+**Deliver a client website.** From the client brief through sitemap, wireframes, design system and
+hosting to a protected production path. See [[Website Studio]].
+
+**Work from the terminal.** The same orchestrator, agents and safety rules without opening the editor.
+See [[CLI]].
+
+---
+
+## Bring the models you already pay for
+
+AtlasMind doesn't sell you tokens. Connect what you already have:
+
+- **Cloud providers** — Anthropic, OpenAI, Google Gemini, Azure OpenAI, Amazon Bedrock, DeepSeek, Mistral, z.ai
+- **Subscriptions you already own** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code
+  Assist licence, used as capacity with **no per-token cost**
+- **Local models** — Ollama, LM Studio, or anything speaking the OpenAI API. No key, no bill.
+
+AtlasMind then chooses between them per task. Set a daily cap and it will respect it.
+See [[Model Routing]].
+
+---
+
+## What makes it different
+
+**It remembers your project.** Architecture, decisions, domain knowledge and lessons live as readable
+Markdown files in your repository and come back when they're relevant. See [[Memory System]].
+
+**It's a team, not an assistant.** 21 specialists with different instructions, tools and models. They
+can hand work to each other — without handing over permissions they weren't given. See [[Agents]].
+
+**It shows its working.** Which agent, which model, which tools, what it verified, what it cost, and
+what it couldn't finish. See [[Tool Execution]].
+
+**Safety is the default, not a setting you find later.** Deny-by-default gates, secrets in the OS
+keychain, protected production, and untrusted input treated as untrusted everywhere. See [[Security]].
+
+**Testing is taken seriously.** 23 configurable methodologies that actually reach the agent writing the
+code, get checked against your repository, and report honestly when nobody has looked yet.
+
+---
+
+## All the pages
+
+### Getting going
+| Page | What's on it |
+|------|--------------|
+| [[Getting Started]] | Install, connect a provider, first commands |
+| [[Chat Commands]] | Every slash command and Command Palette action |
+| [[Configuration]] | Every setting, what it does, and what to set it to |
 | [[FAQ]] | Common questions and troubleshooting |
-| [[Changelog]] | Version history and release notes |
+| [[CLI]] | Running AtlasMind from the terminal |
+
+### Doing the work
+| Page | What's on it |
+|------|--------------|
+| [[Agents]] | The built-in specialists and how to make your own |
+| [[Skills]] | The 43 built-in tools, custom skills, and MCP servers |
+| [[Model Routing]] | Providers, subscriptions, local models, and how one gets chosen |
+| [[Memory System]] | What AtlasMind remembers about your project, and how |
+| [[Project Planner]] | Multi-step runs, Mission Control, approvals and checkpoints |
+| [[Ideation]] | The thinking board and the research scans behind it |
+| [[GitHub Workflow]] | The guided eight-stage workflow from idea to release |
+| [[Delivery]] | Moving work safely towards production |
+| [[Website Studio]] | Client sites from brief to launch |
+| [[Resource Discovery]] | Finding and adding new MCP servers, agents and skills |
+| [[Remote Control]] | Driving a desktop instance from a browser |
+
+### Trust
+| Page | What's on it |
+|------|--------------|
+| [[Security]] | The security model, boundaries, and how to report a problem |
+| [[Tool Execution]] | Approvals, allow-lists, checkpoints and verification |
+
+### The project
+| Page | What's on it |
+|------|--------------|
+| [[Contributing]] | Dev setup, conventions, and how to add things |
+| [[Funding and Sponsorship]] | Supporting ongoing development |
+| [[Architecture]] | How the system is put together |
+| [[Changelog]] | What changed in each release |
 
 ---
 
-## License
+## About versions
 
-AtlasMind is open-source under the [MIT License](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).
+The Marketplace badge shows the published version. The **source** version for whatever branch you're
+reading comes from that branch's `package.json`, and may be ahead of it.
+
+Day to day, `develop` is where work lands and `main` is reserved for release-ready promotions.
+
+---
+
+## Licence
+
+AtlasMind is open source under the [MIT Licence](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).
+There's no paid tier and no plan to add one.

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.256.1] - 2026-08-04
+
+### Changed
+
+- **The README and every wiki page are rewritten for the people evaluating and using AtlasMind, rather than for the people maintaining it.** Each page now opens by saying what the thing is, who it is for, and what it does for the reader, before any implementation detail. Release archaeology (“until v0.225.0 this could not…”), internal rationale addressed to maintainers, and version-numbered justifications are gone from the user-facing pages; the reasoning that explains a *behaviour a user will meet* is kept and stated plainly. Every technical claim, count, setting name and safety boundary is preserved.
+- **The README is 538 lines shorter in substance and scannable.** The 165-line “What's new” block of internal release notes becomes a short section covering what genuinely changed since the last publication, plus a five-item **Recently shipped** summary of user-visible highlights. The 50-row source-file table becomes a 12-row map of top-level directories, with the full service map left to `docs/architecture.md`. Corrected a stale figure: the README claimed 21 built-in agents where the runtime registers **27**.
+- **`wiki/Home.md` leads with three entry points** — Getting Started, Chat Commands, FAQ — instead of a flat 20-row navigation table, and `wiki/_Sidebar.md` is regrouped by what a reader is trying to do.
+- **`wiki/Configuration.md` opens with the six settings people actually change** and groups the remaining 108 by task. All 114 declared settings remain documented, and two are now labelled honestly as declared-but-not-read (`atlasmind.remote.enabled`, `atlasmind.buzz.autonomousReplies`) rather than described as working controls. `wiki/Remote-Control.md` and the README no longer present `atlasmind.remote.enabled` as the master switch — the enable/disable commands are.
+- **`wiki/Architecture.md` becomes a readable overview** of how the system fits together, with `docs/architecture.md` remaining the full contributor reference.
+- **Three pages had stray content above their title.** `wiki/Configuration.md` carried two unrelated headed sections, `wiki/Chat-Commands.md` a v0.51.4 composer note, and `wiki/Remote-Control.md` a duplicated project-memory notice. All removed.
+
+- **The ARD standard is now referenced by its specification repository rather than its homepage.** `agenticresourcediscovery.org` is currently classified `malicious (malware/misc)` by Gen Digital's URL reputation feed (`URL:Blacklist|UR93560563BC63D7BD-0200|urlb`). The domain resolves to GitHub Pages on Route 53 and looks like a miscategorisation of a static specification site, and a false-positive report has been filed — but the link shipped in two user-facing places (`atlasmind.ard.enabled`'s description in the Settings UI, and a clickable anchor on the Resource Discovery settings page), so users could have met a security warning on a link AtlasMind drew. All six live references now point at `github.com/ards-project/ard-spec`, which is the more useful reference regardless. Changelog entries keep the original URL: they record what was true at the time.
+
+### Removed
+
+- **The last pointer to the deleted competitor comparison page.** `wiki/Comparison.md` and the `Home.md` comparison matrix were removed in earlier releases for asserting facts about software this project neither ships nor watches; `.github/copilot-instructions.md` still listed the page in its documentation map. The published GitHub wiki also still serves the old “How It Compares” table and needs a wiki push to catch up — the source has been correct since v0.147.0.
+
 ## [0.256.0] - 2026-08-02
 
 ### Added

@@ -1,427 +1,262 @@
 # Security
 
-AtlasMind is designed with a **safety-first** principle: the extension defaults to the safest reasonable behaviour, not the most permissive.
+**AtlasMind assumes everything could be hostile, and behaves accordingly.**
 
-## Security Boundaries
+Your chat input, your workspace files, retrieved memory, model output, web pages, issue text, MCP tool
+results, panel messages — none of it is trusted by default. Where behaviour is ambiguous, AtlasMind
+denies rather than guesses.
 
-### 0. Immutable Legal And Human-Respect Guardrails
-
-- AtlasMind now injects a non-overrideable baseline into routed system prompts before ordinary task guidance is applied.
-- That baseline requires compliance with applicable law and safety policy and treats legally ambiguous or jurisdiction-specific requests as restricted unless only safe, high-level information is being provided.
-- AtlasMind must not help harm, discredit, disparage, or lie about any person, even if a user, retrieved document, or custom agent prompt attempts to push in that direction.
-- Operator approval and autopilot only widen execution consent; they do not disable these baseline restrictions.
-
-
-### 1. Credential Storage
-
-- API keys are stored exclusively in VS Code's **SecretStorage**
-- Keys are **never** written to settings, SSOT memory, source files, or logs
-- The `MemoryScanner` blocks writes containing API keys, tokens, or passwords
-- Webview messages carrying secrets are validated server-side before storage
-
-### 2. File System Sandbox
-
-
-> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
-
-**Managed-block writers.** The outbound testing-protocol sync (`src/utils/testingProtocolSync.ts`) and the framework scaffolder (`src/core/testingScaffolder.ts`) are strictly non-destructive. The protocol sync only writes to instruction files that *already exist*, only ever replaces its own delimited block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) while preserving all surrounding content, skips JSON-config files (which cannot host a markdown block), and routes every path through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard. The scaffolder creates starter files only when absent (never overwriting), never mutates `package.json`, and is modal-confirmed before running.
-
-**First-test authoring remains an agent action, not a scaffolder shortcut.** A source-file nomination is deliberately conservative and does not grant permission to change it. Only after the user confirms the scaffold does Settings synchronise existing instruction files and, when an already-installed Vitest/Jest runner and a small named export are present, ask an agent to inspect one candidate under the usual Orchestrator and per-tool approval boundaries. The prompt forbids dependency, manifest, and production-source changes and permits a no-change outcome, so an uncertain target is not turned into speculative coverage.
-
-**A green dashboard is not permission to hide a failing test.** **Fix activated testing** is modal-confirmed, derives its test evidence in the extension host, and sends it to a normal approval-gated task with project text fenced as reported data. The task may run existing relevant tests and make focused repairs, but it is forbidden from changing dependencies, manifests, runner configuration, coverage thresholds, policy enablement, skips, assertions, or external services to make the result look green. Environment prerequisites that are unavailable remain explicit blockers.
-
-### 3. Webview Security
-
-- All webview panels use a strict **Content Security Policy (CSP)**
-- Tool-argument previews are built in the extension host, secret-redacted, and length-capped before display. A non-empty object that cannot be represented faithfully and serializes as `{}` is shown as `[unserializable arguments]`, so an approval decision is never invited on a falsely empty parameter set.
-- Chat execution-limit chips are treated as untrusted messages: the protocol accepts only finite bounded integers, and the extension host re-resolves the referenced assistant entry, verifies that recovery is still pending, and requires the submitted value to match the server-stored suggestion before changing either the live Orchestrator or workspace configuration. One-run changes are restored after the retry.
-- Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
-- Branch Dashboard messages never carry a raw Git ref, command, or PR URL. The host accepts bounded opaque branch ids, re-resolves them against a fresh inventory, and sources refs and external links from sanitized host state. CODEOWNERS inspection returns aggregate owners/areas/categories rather than sending changed paths back into the webview. Readiness and traceability keep missing GitHub/CI evidence as `unknown`/`not assessed`, never as a silent pass.
-- Branch cleanup refreshes remotes before its decision and is fail-closed: current/default/protected/other-worktree branches, unproven containment, unique commits, open PRs, unloaded GitHub evidence for remote-backed branches, and remote hash drift all refuse deletion. Local deletion uses merged-only `git branch -d`; remote deletion also requires a modal evidence review and an exact typed branch-name confirmation. No force-delete or force-push path exists.
-- Delivery **stage edits** are posted whole and re-sanitised server-side (`sanitizeDeliveryConfig`) before they touch disk: string lengths are clamped, types coerced (booleans strict `=== true`), ids de-duplicated, and dangling/self promotion edges dropped. No secret values are ever stored — only config-source *locations*
-- Website Studio messages are allow-listed by type, fixed SSOT path, and fixed navigation command. Brief, sitemap, design, hosting, platform, and n8n payloads are re-sanitised server-side: counts/lengths are capped, ids/status/platforms/colors/URLs are normalized or allow-listed, only one primary platform survives, the canonical Develop/Staging/Production access policies are reconstructed, shared secret patterns are redacted, n8n webhook-shaped URLs are removed, and both outputs pass the SSOT memory scanner before file writes begin
-- **Project Director** edits (the dashboard's Director tab) are posted whole and re-sanitised server-side (`sanitizeProjectDirectorConfig`) before they touch disk: string lengths are clamped, every enum is whitelisted to a safe fallback, ids are regenerated, role records referencing a non-existent contact are dropped, dangling optional references cleared, and contact deep-links whose scheme is not allowlisted (`mailto:`/`tel:`/`sms:`/`slack:`/`msteams:`/`zoommtg:`/`https:`) stripped. Communication `handle`s are non-secret identifiers — no tokens/passwords are stored. Opening a contact deep-link resolves the link from the persisted config and re-checks the scheme server-side before `openExternal`; "Copy contact" builds the text host-side; the webview never supplies a raw URL or command. **Guarded outbound (Phase 3):** the Director can email/schedule/message a contact through a connected MCP connector only when the project enabled it (`outboundEnabled`, default off), a connector can perform the intent, and the user confirms an explicit modal showing the exact action — the tool comes from the connected server (run via its `mcp:` skill), the webview only supplies a draft, and there is a deep-link fallback (see [[Tool-Execution]])
-
-**Website hosting/n8n credential boundary.** `WebsiteWorkspaceConfig` contains workflow IDs and credential *references* but no credential-value, bearer-token, password, or webhook-value field. References require an explicit provider prefix such as `env:` or `SecretStorage:`; a raw password-like string is discarded. Platform/n8n URLs must be HTTP(S) and cannot carry username/password, query, or fragment data. Hosting readiness additionally restricts local Develop to loopback, requires HTTPS and password references for hosted Develop/Staging, requires Staging to use `<review-label>.<production-domain>`, and keeps Production public and promotion-protected. Free-text imports still pass through the shared secret redactor. The resulting `project_memory/domain/website.json` is planning state, not an authorization record: a `ready` environment or `configured` platform/workflow status cannot publish or trigger anything.
-
-### 3a. Promotion Execution Boundary
-
-Executing a promotion ("push") on the Delivery page runs real shell commands, so it is held to a stricter boundary than ordinary tool use (see [[Tool-Execution]]):
-
-- **Commands are server-sourced.** The webview sends only a path id, manual-check attestations, and a confirmation string. Every command actually executed (backup, deploy/migration routine steps) is read server-side from the persisted, user-authored stage config and routine files — a webview message can never inject a command.
-- **Authorization gate.** `evaluatePromotionGate` is the single chokepoint and is re-run against live git state at execution time: it refuses on any hard blocker, any failing automatic preflight check, an un-attested manual check, a missing approval, or — for a **protected** target — a confirmation string that does not match the target name.
-- **Deny-by-default backups.** A data-bearing target with a required-but-undefined backup command cannot be promoted to.
-- **Non-destructive bias.** AtlasMind never force-pushes; each run records its outcome and a rollback handle.
-- **Verified CI, not honor-system.** Required CI status checks are verified live via `gh` (a failing or pending run blocks the gate), with graceful fallback to manual attestation only when `gh` is unavailable.
-- **Audit trail.** Every promotion and rollback is appended to `project_memory/operations/delivery-history.json` with the git actor, timestamp, and outcome. Rollback execution runs only the stage's user-authored command and re-applies the protected-stage type-to-confirm authorization.
-- **Single-flight lock.** A workspace lock makes promotions/rollbacks mutually exclusive (auto-clears after 60 min), preventing racing deploys.
-- **Separation of duties.** A stage can require the promoter (git actor) to differ from the change's author, enforced automatically.
-- **Deploy in CD, not on a laptop.** A stage can promote by dispatching a CD workflow (`gh workflow run`) so production deploys carry CI/CD identity and logs.
-
-### 3b. Buzz Inbound Boundary
-
-Reading from a Buzz relay means accepting data from a networked party AtlasMind does not control, so inbound sync is treated as an untrusted-input surface:
-
-- **Frames are parsed defensively.** `parseRelayFrame` never throws: oversized (capped), non-JSON, non-array, and structurally invalid frames degrade to a typed `unknown` frame. `validateNostrEvent` checks hex lengths, kind range, and tag structure and returns undefined rather than coercing a malformed event into a half-trusted one.
-- **Structural validity is not authenticity.** Signature verification is explicitly *not* performed client-side — it is the relay's job under NIP-42 — and the code says so, so a validated event is never mistaken for an authenticated one.
-- **Derive, don't mirror.** Inbound messages become follow-up work items with a **pointer back to the Buzz thread**, never the message body. SSOT is git-tracked, so mirroring a channel would commit colleagues' conversations into the repository. Text that does cross is secret-redacted, control-character-stripped, and length-clamped.
-- **Links stay on the allowlist.** A thread link is built only from an `https` base, with the channel id percent-encoded, so a crafted pointer can neither yield a launchable non-https URI nor traverse the path.
-- **A refused key is not retried.** A NIP-42 `restricted:` refusal stops reconnection rather than looping — the client already authenticated and was still rejected, so retrying would only hammer the relay.
-- **Read-only by construction.** The inbound client sends only `REQ`, `CLOSE`, `AUTH`, and keep-alive pings — never an `EVENT`. A subscription therefore *cannot* publish to Buzz, and a test asserts it, so the read path can never become a write path by accident.
-- **A hosted relay must be encrypted.** A Buzz workspace need not be local. An unencrypted socket to a **remote** relay is refused outright — plaintext would expose colleagues' message content and the NIP-42 challenge/response in transit. Loopback is exempt because it never leaves the machine. The rule sits at the transport, so no future wiring can reintroduce it, and it matches what the outbound bridge enforces.
-- **The agent key is checksum-validated before it is ever used.** An `nsec` is decoded with its bech32 checksum verified, so a mistyped key fails loudly rather than silently authenticating as a different identity; an `npub` (a public key) is rejected by name. Validation happens when the signer is created, not mid-handshake, and secret material never reaches a log, an error message, or a serialised value. Each signature is verified against the derived public key before the event leaves the signer.
-- **Deny-by-default.** Constructing a client connects nothing; `start()` is explicit. Read-only subscription first, and any auto-creation of work items sits behind an explicit toggle.
-- **A relay that demands auth without a key stops, explained.** Schnorr signing fills the signer seam, but no agent key is configured until you set one, so an authenticating relay produces a typed stop naming the reason — never a silent failure and never a reconnect loop.
-- **Binding an agent by clicking is validated exactly like a hand-edited setting.** The Settings → Buzz page and the Director's person form both write through one pure helper, so no surface can invent looser rules: a key that fails its bech32 checksum is refused **with a reason** rather than coerced onto a different real identity, an `nsec` pasted where a public key belongs is refused by name, and a binding naming an agent that does not exist is rejected instead of silently pointing at nothing. Editing one binding leaves every other untouched.
-- **A Buzz handle is never derived from a person.** The identity picker offers only keys that arrived on the wire, named only by profiles their owners published; an unnamed identity shows a key prefix rather than an invented label. Fabricating a key from a name would produce a plausible one belonging to a different real person. Published names are untrusted remote text — secret-redacted, control-character-stripped, and length-clamped on entry — and the observed-identity roster is held in memory only, never written into git-tracked project memory.
-- **The setting is the single source of truth.** `atlasmind.buzz.agentBindings` is not mirrored into the Director roster — the roster edits the setting — so a binding made by clicking and one typed into `settings.json` cannot disagree. It is stored in settings rather than project memory because it is a local routing preference and `project_memory/` is git-tracked.
-- **No generic command runner crosses the webview boundary.** The Settings page's two action buttons post named messages mapped to fixed command ids; a message carrying an arbitrary command id would let untrusted webview input choose what the extension executes.
-
-### 4. Memory Scanner
-
-The `MemoryScanner` validates content before writes to SSOT. It blocks:
-
-| Threat | Detection |
-|--------|-----------|
-| **Credential leakage** | Regex patterns for API keys, tokens, passwords, connection strings |
-| **Prompt injection** | Attempts to override system prompts or inject hidden instructions |
-| **Code injection** | Executable code blocks (shell scripts, PowerShell) |
-| **Data exfiltration** | Large base64 blobs and suspicious URL patterns |
-
-See [[Memory System]] for the full scanner rule list.
-
-The same scanner patterns are now reused for transient freeform-chat context before it reaches the model. Recent session carry-forward, native chat history summaries, and text attachments are treated as untrusted. If those sources contain blocked prompt-injection patterns, AtlasMind excludes them from model context entirely. If they only trigger warning-level patterns, AtlasMind includes a redacted excerpt and marks it as untrusted data.
-
-### 4a. Dispatch-Time Secret Redaction
-
-As a second defence-in-depth layer beyond the write-gate scanner, AtlasMind applies the `SecretRedactor` (`src/utils/secretRedactor.ts`) to **retrieved memory context and live evidence** immediately before they are embedded in a model prompt. This covers credentials that were accidentally stored in SSOT despite the write-gate, and protects the dispatch boundary even when the scanner was bypassed.
-
-Patterns covered: Anthropic/OpenAI API keys, GitHub tokens, bearer tokens, PEM private keys, database connection strings (MySQL, PostgreSQL, MongoDB, Redis, AMQP), and generic key/secret variable assignments.
-
-When redaction fires, a console warning names the count and pattern types matched. The redacted text is forwarded to the provider; the original is never sent.
-
-### Data Privacy: confidential data is gated to trusted models
-
-Beyond credential redaction, AtlasMind enforces a project **Data Privacy** policy (`project_memory/operations/data-privacy.json`, managed from the Project Dashboard → **Privacy** page). You mark language/terms, files, and folders as proprietary, confidential, or secret — and optionally enable built-in compliance packs (GDPR, HIPAA, PCI-DSS, CCPA/CPRA, Financial) that add curated detectors for regulated data points such as emails, payment-card numbers, and health terms.
-
-Classified content may only ever be sent to the **trusted models you select**. Enforcement is layered:
-
-- **Routing gate** — when the assembled context contains a `secret`-tier match (PCI cardholder data, HIPAA PHI), model selection is restricted to the trusted allow-list (`RoutingConstraints.requireTrustedModel`).
-- **Redaction fail-safe** — if an un-trusted model is selected anyway (a pinned model, a parallel slot, an advisory-tier match, or no trusted model available), classified spans are replaced with `[CONFIDENTIAL]` before dispatch, keyed on the actually-selected model.
-- **Tool-read gate** — a `file-read` of a classified path by an un-trusted model is withheld.
-
-**The gate scans your context, not your request.** It classifies the memory, file evidence, and conversation history assembled for a task, so a hit means "something in the retrieved haystack looked regulated" — not "this task is about personal data". Because of that, the response is tiered:
-
-| Tier | Packs / rules | Response |
-|---|---|---|
-| `secret` | PCI-DSS, HIPAA, custom rules marked secret | Hard gate — routing restricted to trusted models |
-| `confidential` / `proprietary` | GDPR, CCPA, custom rules at those levels | Advisory — routing unchanged, matched spans redacted |
-
-Nothing leaks under either tier; the difference is whether a task is re-routed or simply has the matched spans removed. Advisory matches deliberately do *not* change your model, so one heuristic detector firing somewhere in a large context bundle can't silently downgrade an unrelated task. Progress notices name the detector **and** the context slice it fired in, so you can tell a real catch from a false positive.
-
-**Precision is part of the safety model.** A detector that fires on ordinary source is not a conservative default — it trains you to switch the policy off, and then nothing is protected. The built-in detectors are anchored on cues ordinary code does not contain (an explicit `phone:`/`SWIFT:` label, a `+` country code, a clinical construction) and reject the structurally impossible: reserved IP ranges (loopback, private, CGNAT, TEST-NET, multicast) and four-part version strings are not IP addresses; role mailboxes (`noreply@`, `support@`, CI senders) and `example.com`-style reserved domains are not personal data. For project-specific data, a targeted custom rule beats a broad pattern every time.
-
-**Deny-by-default**: an empty trusted list trusts nothing — enabling the policy with no trusted model redacts classified content for every model until you select one. When regulated content is detected but no trusted model is available, the content is redacted and the user is notified with a shortcut to the Privacy page. The compliance detectors are heuristic aids, **not** a certification of GDPR/HIPAA/PCI-DSS compliance.
-
-**Project Director PII consent gate.** The Director tab prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google) over storing raw personal data locally. The first time a save would persist raw PII (a name plus an email/phone), a modal explains the GDPR implications and requires an explicit acknowledgement (workspace-scoped, `atlasmind.projectDirector.piiStorageAcknowledged`); declining aborts the write. On acknowledgement AtlasMind enables the built-in `gdpr-pii` compliance pack so stored personal data is classified confidential and gated by the layers above.
-
-Because that acknowledgement is narrow ("store these contact details") but enabling the policy is workspace-wide, the modal states the consequence up front — from then on every task's assembled context is scanned — and if the master switch actually had to be turned on you are told afterwards and offered the Privacy page to review it. A scope change you can't see is one you can't undo. The git-tracked `project-director.md` mirror describes channels by kind/label only, so raw addresses never enter a diff.
-
-### 5. Terminal Allow-List
-
-- Only ~40 pre-approved commands are allowed via `terminal-run`
-- Commands execute via `child_process.execFile()` — **no shell interpolation**
-- Shell operators (`|`, `&&`, `||`, `;`, `` ` ``, `$()`) are blocked
-- Write-capable commands (npm install, etc.) require explicit opt-in via `allowTerminalWrite`
-- Container workflows use a separate `docker-cli` skill with its own strict Docker and Docker Compose subcommand allow-list, rather than inheriting arbitrary terminal execution.
-
-### 6. Tool Approval Gate
-
-Before approval is considered, AtlasMind minimizes capability exposure. `AgentDefinition.skillPolicy` separates task-scoped selection, exact allowlists, and a deliberate all-enabled override. An empty legacy list becomes task-scoped built-ins—not every newly installed custom or MCP integration—and synthesized agents are constrained to that safe mode. At most 12 task-relevant schemas survive to a model call. This is a narrowing layer only: it cannot widen the agent pool, user capability envelope, risk classification, or approval policy.
-
-- **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
-- Four configurable approval modes from strictest to most permissive
-- Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, render in a dedicated warning stack below the transcript and above the composer, and prefer reusing the current chat surface instead of opening a second detached panel when AtlasMind needs attention, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
-- Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
-- Autopilot state notifications isolate listener failures so one faulty subscriber cannot suppress updates to the rest of the UI.
-- The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.
-- CLI workspace-boundary enforcement canonicalizes real filesystem paths before access is granted, so symlinked paths cannot escape the workspace sandbox.
-- The dedicated Docker skill keeps read-only inspection (`docker ps`, `docker logs`, `docker compose logs`) separate from mutating container lifecycle actions (`docker compose up`, `docker stop`) so approvals stay aligned with the actual operational risk.
-- `specialist-guidance` is an explicitly low-risk read because it only returns a bounded bundled checklist; it cannot access files, processes, secrets, or the network. Recommended live checks remain independently classified tool calls.
-- For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
-- Repo-maintenance actions such as Dependabot merges, rebases, or dependency branch resolution are evaluated by the normal approval gate, but they are not blocked by the implementation-only red-to-green TDD requirement.
-- Atlas also uses recent session context to interpret terse deictic follow-up requests before deciding whether to stay advisory or move into tool-backed action, which reduces misclassification without weakening the approval gate itself.
-- Routed ACP tools retain two gates before any operation request can arrive: the live, off-by-default `atlasmind.acp.toolsEnabled` setting and the Orchestrator's exact tool-backed provider-request stamp. The enabled setting is then the standing authorization: readable native operations are automatically granted once and logged. Model discovery alone cannot approve an action.
-- Max **8 tool calls per turn** prevents runaway execution
-- **Pre-write checkpoints** allow rollback if something goes wrong
-- **Post-write verification** (tests/lint) catches regressions immediately
-- Destructive SSOT reset actions are kept behind a separate double-confirmation workflow even though they are initiated from the Settings webview
-
-### 6a. Auditability And Review
-
-- `ProjectRunHistory` persists preview, running, completed, and failed autonomous-run records so operators can review what happened after reload.
-- `ToolWebhookDispatcher` is the current hook for centralized auditing or alerting; AtlasMind itself does not yet ship a hosted alerting backend.
-- Tool parameters in webhook payloads are redacted for sensitive fields before they leave the extension host.
-
-### 6b. Routed ACP Delegated-Execution Boundary
-
-ACP subscription agents use their own tool implementations, so AtlasMind separates capability, standing authorization, route authority, schema delivery, and wire resolution:
-
-- `ModelInfo.delegatedToolExecution` says only that the provider can act natively. It never grants permission and never aliases the model's capabilities to `function_calling`.
-- `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both capability and live route authority before ACP can satisfy a tool-backed task.
-- The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model and stamps only that provider request with `CompletionRequest.allowDelegatedToolExecution: true`; `AcpAdapter` independently refuses any request containing AtlasMind schemas.
-- The adapter requires both the live global setting and the per-request stamp. Omitted/false request authority is completion-only, shares no configured MCP servers, and wires no permission policy. A normal-provider failover receives the original schemas.
-- Delegated execution mode is independent of MCP count because an agent may have built-in tools with no shared server. Setting, request authority, MCP set, and isolation participate in the session/replay fingerprint, so incompatible authority cannot reuse or replay an earlier session.
-- The off-by-default setting is explicit standing authorization for individual operations after the per-turn stamp is present. `session/request_permission` still passes through `AcpPermission`, which logs the action and selects only `allow_once`; a missing or failing policy denies, and disabling the setting stops later requests.
-
-### 7. Skill Security Scanner
-
-Custom skills are statically scanned before enablement:
-
-- **7 error-level rules** (block enablement): `eval()`, `new Function()`, `child_process`, `exec/spawn`, path traversal, hardcoded secrets
-- **5 warning-level rules** (flagged): `process.env`, direct `fetch`, `http`/`https` modules, direct `fs` usage
-- Warning-level findings on auto-generated skills no longer run silently: AtlasMind now pauses and raises an in-chat approval card so the operator can `Allow Once` or keep the draft blocked before any in-process evaluation happens
-- Built-in skills are **pre-approved** and skip scanning
-- MCP tools are **pre-approved** (trust is delegated to the MCP server)
-
-**MCP guided setup (`src/views/mcpPanel.ts`):**
-- **Credentials in SecretStorage, not settings.** Secret inputs the wizard collects (API tokens, etc.) are stored in VS Code SecretStorage under `atlasmind.mcp.<serverId>.<KEY>` via `McpServerConfig.secretEnvKeys`, merged into the process env only at connect time, and deleted when the server is removed. The persisted config (in `globalState`) holds only the key names — secret values never touch settings or the git-tracked tree, and are never echoed back to the webview.
-- **Confirm before install.** A missing runtime (Node, uv, …) is surfaced with the exact package-manager command and installed **only after explicit user confirmation** (`checkStarterRuntime` plans; `runRuntimeInstallPlan` runs only post-confirmation) — replacing the previous silent auto-install.
-- **Trustworthy scan.** `detectAvailableServers()` surfaces only servers whose launch runtime is actually present, so the wizard never offers a broken option.
-
-### 7a. On-Device Voice Asset Provisioning
-
-- Local speech-to-text (`LocalTranscriber`) downloads its Whisper model and, on Windows x64, the `whisper-cli` binary. Both are fetched over **HTTPS** from pinned URLs and **SHA-256-verified** against hardcoded checksums before use; a mismatch deletes the partial file and aborts rather than running unverified code.
-- On macOS/Linux no binary is auto-downloaded — the operator must point `atlasmind.voice.whisperCliPath` at an installed `whisper-cli`, so binary trust stays with the system package manager.
-- Captured **audio never leaves the machine**: transcription runs locally via a shell-less `spawn` with the temp WAV path passed as an argv element (never interpolated into a command line); the temp WAV is deleted after transcription.
-- Host text-to-speech (`HostSpeechSynthesizer`) likewise passes spoken text only over stdin, never on a command line.
-
-### 7b. Remote Control (Web → Desktop)
-
-The web build can remote-control a desktop instance over a WebSocket. Because that exposes a surface able to run tools and hold secrets, it is **default-deny**:
-
-- **Off by default.** The server never listens until the operator runs `AtlasMind: Enable Remote Control` and `atlasmind.remote.enabled` is on.
-- **Localhost bind.** The server always binds to `127.0.0.1`. Cross-machine reach (`atlasmind.remote.mode: "gateway"`) is achieved by fronting it with your own SSO gateway + tunnel over TLS, never by exposing the port directly.
-- **Gateway origin secret.** In `gateway` mode the SSO gateway authenticates each WebSocket via an `x-atlas-origin-secret` header the desktop verifies constant-time against the pairing-token slot; the browser never holds a credential (the login is its identity), and an optional `x-atlas-user-id` is recorded for audit.
-- **Pairing + bearer token.** A token is generated and stored in **SecretStorage** on both sides; connections without a matching token are refused (constant-time comparison). Unauthenticated connections are dropped after a short timeout and audited.
-- **Workspace-trust gate.** The server refuses to serve until the workspace is explicitly approved for remote control (mirrors the webhook trust gate).
-- **Redaction boundary holds.** API keys and secrets are never serialized across the bridge — the desktop executes; the client only receives already-redacted results. Cost/run RPCs are **read-only**.
-- **Inbound validation.** Every inbound chat frame passes the same `isChatPanelMessage` guard as the local UI before dispatch; invalid frames are dropped and logged. Remote clients can do nothing the local chat UI cannot.
-- **No silent approvals.** Remote tool-approval decisions require an authenticated session and are audited; on disconnect, the bound ChatPanel is disposed and pending approvals default to **denied**.
-- **Audit + revoke.** Connections and commands are logged to the AtlasMind Remote output channel; `AtlasMind: Revoke Remote Access` rotates the token and drops all sessions.
-
-See [[Remote Control]] for the full model.
-
-### 8. Network Safety
-
-- `web-fetch` blocks **SSRF**: localhost, private IPs (10.x, 172.16-31.x, 192.168.x), link-local, and cloud metadata endpoints (169.254.169.254)
-- AtlasMind now treats URLs surfaced in project work or Atlas chat as untrusted by default and tries to validate scheme, host, and reachability before presenting them as working links
-- Webhook URLs must use **HTTPS** only
-- Sensitive fields in webhook payloads are **redacted**
-- All network operations have configurable timeouts
-- **Agentic Resource Discovery (ARD)** treats every fetched manifest and `/search` response as untrusted: strict schema validation (`urn:ai:` identifiers, the spec's value-or-reference exclusivity, byte/entry caps). Discovered and referral URLs must be **HTTPS** and are screened against private/loopback/link-local hosts (same SSRF guard as `web-fetch`); `http`/localhost is only permitted for finders the user explicitly marked insecure with `atlasmind.ard.allowInsecureEndpoints`. Federation and nested-catalog expansion are **depth-bounded** to prevent referral loops. Agent Finders ship **disabled** (no outbound discovery until opt-in). The relevance score is surfaced as informational only and **must not** be read as a trust or safety rating; `trustManifest` metadata is shown read-only and is not cryptographically verified. Nothing auto-installs — discovered MCP servers land disabled behind the existing MCP trust gate, and the `discover-resources` skill is read-only. Catalog export redacts system prompts, secrets, and MCP `env`. See [[Resource Discovery]].
-- **Buzz live communications** are doubly gated: the global `buzz.enabled` setting, remote-relay consent/TLS policy, the connected MCP server, the Project Director's per-project `outboundEnabled`, and a per-send modal confirmation. The bundled bridge accepts only a CLI whose required command/flag surface matches the pinned v0.4.26 contract, invokes it directly without a shell, passes message bodies over stdin, validates UUID/event/pubkey inputs, caps duration/output, and redacts the private key/NIP-OA grant. Buzz developer shell/file tools are deliberately outside the connector.
-
-### 8a. ACP non-interactive UI boundary
-
-`atlasmind.acp.hideConsoleWindows` is a Windows UX control, not a sandbox. When
-selected, a bundled native helper creates a non-interactive window station and
-its default private desktop, then starts the already-resolved ACP executable
-there with one `SW_HIDE` console for the full descendant tree to inherit. This
-prevents later native tools and shells from allocating separate visible
-`conhost.exe` windows. Windows only lets `WinSta0` display UI or receive input,
-so a descendant that chooses a new desktop still cannot put UI on the user's
-screen. Windows npm adapters are resolved to a real `node.exe`, not VS Code's
-GUI `Code.exe`. The child runs as the same user with the same filesystem and
-network access.
-
-The unusual native/UI boundary remains explicit. Hidden VNC malware uses
-private desktops for covert interactive processes, and endpoint controls may
-also block a newly built unsigned helper before it starts. AtlasMind therefore:
-
-- leaves the feature off until the user selects it, and asks before the first
-  ACP probe;
-- never switches to, captures, or remotely controls the created station;
-- keeps the helper dependency-free and source-visible under
-  `native/acp-private-desktop/`;
-- requests Windows' documented non-interactive station/desktop access sets
-  instead of generic all-access rights, and applies the creator token's default
-  ACL instead of `CreateWindowStationW`'s all-users null-attributes default;
-- establishes the helper's station/desktop connection first and lets the child
-  inherit it, avoiding a second name-based UI-object open and DACL check;
-- sets inherited `SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX` error mode so a
-  descendant loader failure cannot block Chat behind a modal Windows dialog;
-- passes an already-resolved executable and argv with no shell;
-- uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
-- creates the agent suspended, assigns it to a Job Object with
-  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and only then resumes it, preventing a
-  child-process race before the lifetime boundary exists;
-- supplies `CREATE_NEW_CONSOLE` with `STARTF_USESHOWWINDOW`/`SW_HIDE`, giving
-  every ordinary console descendant one non-visible console to inherit;
-- does not use `CREATE_NO_WINDOW`, because that flag suppresses only the direct
-  child and leaves later tools free to allocate their own console host;
-- pins the shipped PE by SHA-256 and refuses missing or changed binaries;
-- fails visibly if EDR blocks the helper, without silently falling back to a
-  focus-stealing visible launch.
-
-AtlasMind also records a minimal local launch-boundary event—configured agent id,
-whether private mode was requested, and whether the effective launch was
-private or ordinary—in the ACP output channel. It does not log argv, paths,
-prompts, PIDs, or credentials. This makes a future focus regression diagnosable
-without expanding the disclosure boundary.
-
-These controls make the intent auditable; they cannot guarantee an enterprise
-heuristic will accept the technique. The SHA-256 pin is an AtlasMind integrity
-check, not an Authenticode signature or a reputation signal; the v0.230.0 helper
-PE is not Authenticode-signed. Managed environments should leave the checkbox
-off unless their security team approves it, and may require an organisation
-signature or a hash/publisher allow-rule before deployment.
-
-### 8b. AtlasMind agent-side ACP boundary
-
-The reciprocal `atlasmind-acp` host is deliberately narrower than a general
-remote agent server:
-
-- **Local stdio only.** It opens no TCP, HTTP, WebSocket, or named-pipe listener.
-  Starting the child is the opt-in and the OS process boundary is the local
-  transport boundary. A network transport would require a separate
-  authenticated design and is not accepted by this endpoint.
-- **Workspace constrained.** The launch command fixes one workspace root.
-  Session cwd and additional directory declarations must remain inside it;
-  workspace tools retain their canonical-path/symlink checks at access time.
-- **No executable delegation during session setup.** `session/new` may describe
-  MCP servers under ACP, but AtlasMind never spawns those client-provided
-  commands. Doing so would turn the transport peer into a code-execution
-  authority.
-- **Bounded input and memory.** Prompt text is capped at 1,000,000 characters
-  and retained transcript context at 80,000. Image/audio prompts are not
-  advertised. One orchestrator loop runs at a time; concurrent sessions are
-  refused rather than racing shared execution state.
-- **One-turn risky-tool grants.** The client sees a bounded, secret-redacted
-  preview and can allow once or reject. `allow_always` is not offered or
-  accepted, and any missing/failed permission context denies.
-- **Secrets do not cross during setup.** The Buzz recipe names provider
-  environment variables but contains no value. VS Code SecretStorage is never
-  exported. A separate child therefore has only the credential the operator
-  explicitly supplies to Buzz.
-
-Buzz automatic reply delivery has an additional destination check. The parser
-reads only `buzz-acp`'s generated `[Context]` section, requires one channel UUID
-and one reply event id, and requires that id to reappear in generated
-event/thread metadata. Message text appears in another section and cannot
-select a destination by pasting a fake `Channel:` or `--reply-to` line. Delivery
-then uses the existing shell-free, communication-only CLI bridge.
-
-### 9. Model Output Validation
-
-- LLM responses are treated as **untrusted input**
-- Tool call parameters are validated against JSON Schema before execution
-- Model-generated file paths are re-validated against the workspace sandbox
-- The redaction boundary ensures secrets never leak into model context
-- Freeform prompts, carried-forward chat context, attached text, and web/native-chat summaries are no longer promoted into the system prompt as trusted instructions. They are isolated as untrusted data and scanned before inclusion.
-- The default workflow-following chat mode passes only a narrow structural object (`known action`, Git-safe integration/release branch names, protected-branch boolean) across the host boundary. The Orchestrator validates it again and renders fixed system text. Free-form workflow checks, blockers, commands, and names from a hand-edited repository file never become system-prompt instructions. Following grants no tool or external-write authority and cannot bypass an approval or release gate.
-- **Structured model output is parsed defensively.** Where a feature asks a model for JSON it must not assume it receives any. The Risk page's `parseRiskFindings` and the security register's `parseSecurityFindings` locate candidate JSON (fenced block, bare array, or a `{findings:[...]}` wrapper) and return `[]` on absent, malformed, or wrongly-typed content rather than throwing, so a bad response records nothing instead of failing the run. Their sanitizers clamp strings and collections, coerce enums to **safe** defaults (including unknown status → `open`, so a finding is never silently resolved), generate collision-safe ids, and reject absolute paths, drive letters, and `..` traversal in any cited evidence path.
-
-`SecurityReviewManager` is deliberately only a durable record boundary for reviews of secrets, runtime boundaries, dependencies, and permissions. It stores no secret values, runs no vulnerability scanner, grants no tool capability, and does not block a commit, promotion, or release. The service is not yet connected to a dashboard or extension activation path.
-
-### 9a. Read-Only Oversight Advisors
-
-The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the built-in agents whose `allowlist` policies are **strictly read-only**. Test Developer has a focused explicit eligibility list but uses task-scoped selection because its implementation role still requires write and test capabilities on relevant turns. Other empty built-in lists are task-scoped, never “all”; the advisors additionally hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
-
-An advisor inspects and reports; it is never also the thing that edits. Where findings must be recorded, the Project Dashboard owns that single write path and sanitises the model's output before it reaches disk. The advisors also set `autoUpdateExcluded: true`, so the agent auto-updater cannot paraphrase their "advisory, not authoritative" framing away on its cadence. Because `getSkillsForAgent` silently drops unrecognised ids, `tests/runtime/core.test.ts` asserts that every pinned id resolves and that no mutating skill is granted.
-
-An explicit read-only user instruction narrows any agent further for that turn. The Orchestrator derives a deterministic capability envelope, removes disallowed schemas before the model call, rechecks it immediately before tool execution, and disables ACP native delegated tools. This prevents prompt injection or model error from turning an explanation-only request into a command, edit, or test run.
-
-None of the advisors gates anything: an open finding never blocks a commit, a promotion, or a release. Their output is a prompt for human judgement, and each prompt names the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, or finance/commercial sign-off. They are explicitly **not a substitute for professional advice**.
-
-### 10. Context-Window Overflow Guard
-
-Each iteration of the agentic loop computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. Estimated input includes both message text and serialized callable tool definitions. The same schema reservation reduces session, memory, and supplemental-context budgets before message construction. Selected skills are described only through those schemas, not duplicated in system prose; ACP calls that receive no AtlasMind schemas reserve no AtlasMind schema budget. This prevents silent truncation or provider errors while avoiding the previous double cost of a skill catalogue plus definitions.
-
-### 11. Autonomous Mission Loop Containment
-
-The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded on every axis:
-
-- **Closed parameter envelope.** Every run is capped by hard stops — max iterations, cumulative cost (USD), cumulative tokens, wall-clock time, and a consecutive-no-progress limit — checked **before each iteration**, on top of the project-wide daily budget gate. The loop cannot run away with budget or time.
-- **Deny-by-default checkpoints.** Hybrid autonomy means the loop pauses for human approval at configured triggers; an unanswered, dismissed, or throwing checkpoint resolves as **denied** and stops the run.
-- **Untrusted evaluator output.** The goal evaluator's verdict is parsed and validated field-by-field (safe fallback to `stalled`/zero-confidence); a confidence threshold plus a verification guard mean a malformed or over-eager evaluator can never falsely declare success, and unverified behaviour changes are never accepted as "done".
-- **Guardrail injection.** The mission's guardrails (rules + protected paths) are folded into every increment's planning/execution prompt as high-priority constraints that compose with — never override — the immutable guardrails.
-- **Gated discovery, no deployment bypass.** New agents/skills/resources pass the existing approval gates before use; deployments route through the guarded promotion pipeline, never run directly.
-- **Auditable.** Each run is persisted to `project_memory/operations/missions.json` + a `missions.md` mirror, with no secret values and bounded text.
+This page explains what's protected, how, and what to do if you find a hole.
 
 ---
 
-## Threat Model
+## Reporting a vulnerability
 
-| Threat | Mitigation |
-|--------|-----------|
-| Malicious model output | Tool approval gate + parameter validation + sandbox |
-| Prompt injection via memory | MemoryScanner blocks inject patterns |
-| Prompt injection via chat history or text attachments | Transient-context scanning + untrusted-context isolation + system-priority guardrails |
-| Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
-| Path traversal | Workspace-root sandboxing on all file ops |
-| Shell injection | execFile (no shell) + allow-list + operator blocking |
-| ACP capability metadata mistaken for action approval, or a persistent grant escaping AtlasMind | Off-by-default standing setting + exact routed-request stamp, no AtlasMind schemas across the ACP boundary, live per-operation setting check and audit log, `allow_once` only, deny on missing policy |
-| ACP prompt replay / duplicated delegated work | Stable per-tool-round identity + exact transcript-prefix reuse + in-flight single-flight + short completed-result ledger + exclusion from generic retries + outer-timeout `session/cancel` and teardown after an uncertain `session/prompt` |
-| Hidden-desktop dual use / EDR detection | Off-by-default disclosed choice + source-visible SHA-256-pinned helper + no desktop switching/control + minimal handle inheritance + visible failure, with ordinary launch available |
-| SSRF via web-fetch | IP range blocking + metadata endpoint blocking |
-| SSRF / malicious manifests via ARD discovery | HTTPS enforcement + private-host screening + schema validation + depth-bounded federation + opt-in finders + disabled-by-default installs |
-| XSS in webviews | CSP + nonces + escapeHtml |
-| Runaway tool execution | 8 calls/turn limit + timeouts + cost limits |
-| Runaway autonomous loop | Mission Loop closed parameter envelope (iterations/cost/tokens/time/no-progress) + daily budget gate + deny-by-default checkpoints |
-| False "goal achieved" on unverified work | Validated evaluator output + confidence threshold + verification guard (TDD/verification status) |
-| Supply chain (custom skills) | Security scanner + manual review gate |
+**Please don't open a public issue.**
+
+1. Use GitHub's private vulnerability reporting, or email the maintainer
+2. Include what you found, how to reproduce it, and what you think the impact is
+3. You'll get a response within 72 hours
+
+The full policy is in [SECURITY.md](https://github.com/JoelBondoux/AtlasMind/blob/main/SECURITY.md).
+
+**In scope:** the extension itself, custom skill scanning and execution, the memory system, and the
+webview panels.
+
+**Out of scope:** VS Code itself, third-party provider APIs, and MCP servers you installed.
+
+**Safe harbour:** researchers acting in good faith are protected. Responsible disclosure will never
+result in legal action from this project.
 
 ---
 
-## Vulnerability Reporting
+## Your credentials
 
-If you discover a security vulnerability:
+API keys go into **VS Code SecretStorage** — the operating system's own keychain. Never a settings file,
+never your repository, never project memory.
 
-1. **Do NOT open a public issue**
-2. Email the maintainer or use GitHub's private vulnerability reporting
-3. Include: description, reproduction steps, impact assessment
-4. You will receive a response within 72 hours
+They're redacted before anything is sent to a model, and there are **two independent layers** doing it:
 
-See [SECURITY.md](https://github.com/JoelBondoux/AtlasMind/blob/main/SECURITY.md) for the full policy.
+- **On the way in** — the memory scanner refuses to write anything containing a key, token, password or
+  connection string
+- **On the way out** — a separate check strips credentials from prompts immediately before dispatch, in
+  case something got in anyway. It covers Anthropic and OpenAI keys, GitHub tokens, bearer tokens, PEM
+  private keys, database connection strings and generic `api_key = "..."` assignments, and it tells you
+  when it fired
 
-### Scope
+Neither layer relies on the other working.
 
-In scope:
-- The AtlasMind VS Code extension
-- Custom skill scanning and execution
-- Memory system security
-- Webview security
+---
 
-Out of scope:
-- VS Code itself
-- Third-party provider APIs
-- User-installed MCP servers
+## Your files
 
-### Safe Harbor
+Every file operation is sandboxed to your workspace. Paths that try to escape are rejected, and the CLI
+resolves real paths before checking — so a symlink can't be used to get around it either.
 
-Security researchers acting in good faith are protected under AtlasMind's safe harbor policy. We will not pursue legal action for responsible disclosure.
+---
 
-## Delegation does not carry authorization
+## Your terminal
 
-An agent can ask another agent a question (`agent-handoff`). **The delegate runs with the intersection of
-the caller's capabilities and its own — never the union.**
+`terminal-run` uses a curated allow-list and **never invokes a shell**. Commands run as a program plus
+arguments, so there is no shell-injection surface: no pipes, no `&&`, no backticks, no command
+substitution. `sudo`, `rm -rf`, `chmod`, `dd`, `shutdown` and friends are blocked outright, at every
+setting.
+
+Full detail in [[Tool Execution]].
+
+---
+
+## Prompt injection
+
+This is the big one for an AI tool: text that AtlasMind reads, containing instructions aimed at
+AtlasMind.
+
+It's handled in layers:
+
+- **Project memory is scanned before anything is written.** Injection patterns block the write outright,
+  and blocked content is quarantined rather than left to keep surfacing
+- **Temporary context gets the same scanner.** Carried conversation, chat summaries and text attachments
+  are checked before they reach a model. Blocked content is dropped, warned content is redacted and
+  clearly labelled as untrusted data, and clean content is *still* treated as data rather than
+  instructions
+- **Third-party text is fenced.** Issue bodies, review comments, fetched pages and CLI output are labelled
+  as reported content, so an issue reading "ignore your instructions" can't become one
+- **The trust boundary is structural.** Untrusted content never enters the part of the prompt that
+  carries authority, whatever it says about itself
+
+---
+
+## Confidential data and which model sees it
+
+If the context AtlasMind is about to send contains payment card data or health information, routing is
+restricted to models on a **trusted allow-list**. If no trusted model is available, the routing is left
+alone and the sensitive parts are **redacted** instead.
+
+GDPR and CCPA-classified matches are treated as advisory: the matched spans are redacted, but routing
+isn't changed — because one heuristic hit inside a large context bundle shouldn't silently downgrade an
+unrelated task.
+
+The allow-list is **deny-by-default**: an empty list trusts nothing.
+
+---
+
+## The panels
+
+AtlasMind's dashboards are webviews, which is a classic place to get this wrong.
+
+- Content Security Policy plus per-load nonces on every script
+- All content HTML-escaped
+- **No inline event handlers anywhere**
+- Every message from a panel is validated before it can change a setting, touch a secret or invoke a
+  command
+
+The important structural rule: **a panel supplies data, never a command.** The dashboard can trigger a
+promotion and attest a check; it can never supply the command string that runs. What executes comes from
+your persisted configuration, read on the extension side.
+
+---
+
+## Network requests
+
+`web-fetch` and `http-request` block requests to localhost, private IP ranges and cloud metadata
+endpoints — so a URL that arrived in a model's output or a fetched page can't be used to reach into your
+network.
+
+Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
+federation, opt-in finders, and installs that arrive disabled.
+
+---
+
+## Custom skills
+
+Anything you write or import is scanned before it can be enabled. `eval`, `new Function`, `child_process`,
+shell execution, path traversal and hardcoded secrets **block enablement**. Environment access, direct
+fetching, raw Node http and direct filesystem use are flagged and allowed.
+
+Built-in skills are pre-approved and skip the scan.
+
+Auto-generated skill drafts get an extra one-time review gate on top.
+
+---
+
+## Delegation doesn't carry authorisation
+
+An agent can ask another agent a question. **The delegate runs with the *overlap* between the caller's
+capabilities and its own — never the combination.**
 
 This is the security property, not a limitation. Handing off to a specialist *feels* like it should give
-you the specialist's tools; that is what makes them a specialist. But if it did, any restricted agent could
-obtain any capability by asking a permissive one for it, and every restriction described on this page would
-become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step
-always looks reasonable in isolation.
+you the specialist's tools — that's what makes them a specialist. But if it did, any restricted agent
+could obtain any capability just by asking a permissive one, and **every restriction in the system would
+become a suggestion.**
 
-Four supporting boundaries:
+An empty overlap **refuses** rather than running a tool-less delegate, because a model that can't check
+anything still produces confident prose. Chains are capped at three deep, cycles are refused, and the
+answer comes back fenced as another agent's opinion rather than a verified result.
 
-- **The caller cannot name itself.** Identity comes from what the orchestrator knows it is running, never
-  from tool arguments — a model able to name its own caller could name a more privileged one.
-- **The delegate is a narrowed copy** of the target agent, so a run's ceiling cannot leak into later uses.
-- **A disabled agent cannot be reached** through delegation. Somebody switched it off.
-- **Every tool the delegate uses is approved on its own account.** Allowing a handoff approves the spend,
-  not whatever the delegate goes on to do.
+---
 
-Delegation is capped at three deep and cannot loop back to an agent already in the chain. A delegate that
-would end up with no tools at all is refused rather than run: a model that cannot check anything produces
-confident prose, and confident prose arriving as an answer is worse than a refusal naming what is missing.
+## Autonomous runs are contained
+
+The Mission Loop runs inside a closed envelope: iterations, cost, tokens, wall-clock time, and
+consecutive no-progress rounds. Your daily budget applies on top.
+
+Approval checkpoints are **deny-by-default** — a dismissed prompt, a missing hook, an error, or a stopped
+run all resolve as *stop*.
+
+And a goal can't be declared achieved on unverified work: the evaluator's verdict is validated, has to
+clear a confidence threshold, and behaviour-changing work needs passing verification.
+
+---
+
+## Production is protected
+
+- **AtlasMind never force-pushes.** Where a force is genuinely unavoidable it uses a lease; to a protected
+  branch it refuses outright
+- **Promotion is deny-by-default** where required backup or approval evidence is missing
+- **The backup command ships empty** on a production stage with a database, and that emptiness is the
+  gate — AtlasMind can't invent a backup that would actually restore your data
+- **The promotion history is append-only**
+
+See [[Delivery]].
+
+---
+
+## Messages from other systems
+
+Project memory is committed to your repository, which makes "what may enter memory" a privacy decision.
+
+The rule is **derive, don't mirror**: an inbound message becomes a follow-up with a pointer back to the
+original thread and a sanitised title. **The body is never stored** — the record has no field that could
+hold one.
+
+---
+
+## Delegated agents and hidden windows
+
+Two boundaries worth knowing if you use subscription agents:
+
+**Tool permission never becomes permanent.** AtlasMind answers each operation individually and **never
+selects "always allow"** — that grant would live inside the other agent's state, where AtlasMind could
+neither display nor revoke it. If it's the only way to approve, the operation is declined.
+
+**The Windows console-hiding option is disclosed, not sold as a sandbox.** Microsoft Defender flags
+processes on hidden desktops because certain malware uses the same Windows feature. AtlasMind pins its
+helper by checksum, passes only standard input and output, doesn't switch to or control that desktop, and
+keeps the feature off until you choose it. Your endpoint security may still object — and if it blocks it,
+AtlasMind fails **visibly** rather than quietly falling back.
+
+---
+
+## Remote sessions
+
+Off by default. Binds only to your own machine. Requires pairing, requires workspace trust, never carries
+secrets across the connection, audits everything, and **defaults pending approvals to denied** the moment
+a connection drops.
+
+See [[Remote Control]].
+
+---
+
+## The baseline nothing can override
+
+Underneath every setting, every approval mode and every agent instruction sits an immutable rule:
+
+**Your consent does not authorise illegal activity, evading the law, targeted harassment, defamation, or
+deceptive attacks on a person.**
+
+It can't be overridden by your prompt, by project memory, by a custom agent, or by anything AtlasMind
+reads. You can read the exact text on the **Settings → Agents** page — it's shown straight from the
+source rather than as a summary of it.
+
+---
+
+## Threat model, briefly
+
+| Threat | What stops it |
+|--------|-----------|
+| Malicious model output | Approval gate, parameter validation, sandbox |
+| Prompt injection via memory | Scanner blocks the write |
+| Prompt injection via chat history or attachments | Transient-context scanning, untrusted-context isolation, priority guardrails |
+| Credential exposure | OS keychain, write gate, dispatch-time redaction |
+| Path traversal | Workspace sandboxing on every file operation |
+| Shell injection | No shell, allow-list, operator blocking |
+| Server-side request forgery | IP range and metadata endpoint blocking |
+| Malicious discovery manifests | HTTPS, private-host screening, schema validation, bounded federation, opt-in finders, disabled installs |
+| Cross-site scripting in panels | CSP, nonces, escaping |
+| A permanent grant escaping AtlasMind | One-operation approvals only, never "always allow", denial on missing policy |
+| Duplicated delegated work | Stable request identity, single-flight, a short result ledger, exclusion from generic retries |
+| Runaway tool execution | 8 calls per turn, timeouts, cost limits |
+| Runaway autonomous loop | Closed envelope, daily budget gate, deny-by-default checkpoints |
+| False "goal achieved" | Validated evaluator, confidence threshold, verification guard |
+| Supply chain via custom skills | Security scanner plus a manual review gate |
+| Hidden-desktop dual use | Off by default, disclosed, checksum-pinned, visible failure |
+
+---
+
+## Related
+
+- [[Tool Execution]] — approvals, allow-lists and gates in detail
+- [[Memory System]] — the write gate and redaction boundary
+- [[Delivery]] — production protection
+- [[Remote Control]] — the remote security model
+- [[Agents]] — the read-only advisors and the immutable baseline
