@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.257.5 — Windows launcher tests now report why they failed
+
+`acpWindowsLauncher.test.ts` still launches real process trees, but the test timeout now sits above the
+child timeout so the child process's own error appears instead of Vitest killing the test first.
+
+The release also corrected reader-facing docs so the wiki matches the runtime: `wiki/Home.md` now says 27
+built-in agents, and `wiki/Remote-Control.md` now names the gateway enable command and no longer
+contradicts its own settings table.
+
+---
+
 ## v0.257.4 — Windows launcher tests can report why they failed
 
 The three tests that launch a real Windows process tree gave their child processes a 10-second limit

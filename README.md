@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.257.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.257.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,7 +121,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.257.4
+## What's new in 0.257.5
 
 Since the last Marketplace publication, **v0.256.0**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
@@ -143,6 +143,10 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   by saying what the feature is, who it's for, and what it does for you, before it gets into detail. The
   stale competitor comparison table is gone for good — it made claims about other people's software that
   nobody was keeping true.
+
+- **The reader-facing docs now agree with the runtime.** `wiki/Home.md` says 27 built-in agents, the
+  Remote Control page names the gateway enable command, and its safety copy no longer contradicts the
+  settings table.
 
 ## Recently shipped
 

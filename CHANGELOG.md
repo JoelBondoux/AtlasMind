@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.5] - 2026-08-04
+
+### Changed
+- **The Windows launcher tests now surface their own failure reason.** `acpWindowsLauncher.test.ts`
+  still launches real process trees, but the test timeout now sits above the child timeout so the child
+  process's error appears instead of Vitest killing the test first.
+
+- **The reader-facing docs were corrected alongside the release bump.** `wiki/Home.md` now matches the
+  runtime's 27 built-in agents, and `wiki/Remote-Control.md` now names the gateway enable command and no
+  longer contradicts its own settings table.
+
 ## [0.257.4] - 2026-08-04
 
 ### Fixed
