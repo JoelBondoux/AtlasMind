@@ -1,34 +1,35 @@
-## AtlasMind (Beta) Wiki
+## AtlasMind
 
 **[Home](Home)**
 
-### Getting Started
+### Start here
 - [[Getting Started]]
-- [[CLI]]
+- [[Chat Commands]]
 - [[Configuration]]
-- [[Funding and Sponsorship]]
 - [[FAQ]]
 
-### Architecture
-- [[Architecture]]
+### Doing the work
+- [[Agents]]
+- [[Skills]]
 - [[Model Routing]]
 - [[Memory System]]
-- [[Remote Control]]
-
-### Usage
-- [[Chat Commands]]
+- [[Project Planner]]
 - [[Ideation]]
 - [[GitHub Workflow]]
 - [[Delivery]]
-- [[Agents]]
-- [[Skills]]
-- [[Resource Discovery]]
-- [[Project Planner]]
 - [[Website Studio]]
-- [[Tool Execution]]
-	- [Composer Input & Search Toggle](Chat-Commands.md#composer-input--search-toggle-v0514)
+- [[Resource Discovery]]
 
-### Reference
+### Other ways in
+- [[CLI]]
+- [[Remote Control]]
+
+### Trust
 - [[Security]]
+- [[Tool Execution]]
+
+### The project
+- [[Architecture]]
 - [[Contributing]]
+- [[Funding and Sponsorship]]
 - [[Changelog]]

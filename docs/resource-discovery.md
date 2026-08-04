@@ -1,6 +1,6 @@
 # Agentic Resource Discovery (ARD)
 
-AtlasMind integrates [Agentic Resource Discovery](https://agenticresourcediscovery.org/) ([spec](https://github.com/ards-project/ard-spec)), an open, federated protocol for discovering agentic resources — MCP servers, A2A agents, Skills, and APIs — **before** invocation. ARD answers *"what is available for this task?"*; the resource is then invoked through its own native mechanism (MCP, A2A, etc.). AtlasMind is both an ARD **client** (discover, install, in-task discovery, federation) and a **publisher** (export its own catalog).
+AtlasMind integrates [Agentic Resource Discovery](https://github.com/ards-project/ard-spec) (ARD), an open, federated protocol for discovering agentic resources — MCP servers, A2A agents, Skills, and APIs — **before** invocation. ARD answers *"what is available for this task?"*; the resource is then invoked through its own native mechanism (MCP, A2A, etc.). AtlasMind is both an ARD **client** (discover, install, in-task discovery, federation) and a **publisher** (export its own catalog).
 
 ## How discovery works
 

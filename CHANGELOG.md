@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.5] - 2026-08-04
+
+### Changed
+- **The Windows launcher tests now surface their own failure reason.** `acpWindowsLauncher.test.ts`
+  still launches real process trees, but the test timeout now sits above the child timeout so the child
+  process's error appears instead of Vitest killing the test first.
+
+- **The reader-facing docs were corrected alongside the release bump.** `wiki/Home.md` now matches the
+  runtime's 27 built-in agents, and `wiki/Remote-Control.md` now names the gateway enable command and no
+  longer contradicts its own settings table.
+
+## [0.257.4] - 2026-08-04
+
+### Fixed
+
+- **Three Windows launcher tests could never report why they failed.** `acpWindowsLauncher.test.ts` launches real process trees — the shipped helper, then Node, then PowerShell, with the deepest compiling C# at runtime through `Add-Type` — and gave each child a 10-second limit. The tests themselves declared no timeout, so they inherited Vitest's 5-second default and were killed *before* the child limit they had set could ever fire. A test that grants its children twice the time it allows itself cannot surface their diagnostics, so a failure arrived as a bare `Test timed out in 5000ms` with nothing to act on.
+
+  The two limits are now named constants, with the test timeout deliberately above the child timeout so the child's own error is what surfaces. **No assertion is relaxed** — the launch-mode, redirected-stdio, and non-visible-console checks are unchanged. This is why the suite passed locally, where the deepest test takes ~750 ms, and failed on CI, where the same test needs roughly seven times longer on a cold shared runner.
+
+## [0.257.3] - 2026-08-04
+
+### Fixed
+
+- **`wiki/Home.md` still claimed 21 built-in agents.** The stale count was corrected in the README and named in the 0.257.2 changelog entry, but the same figure on the wiki's front page was missed — so the two most-read documents disagreed about how many specialists ship, and the more prominent one was wrong. It now says 27, matching the runtime.
+- **The Remote Control page referenced gateway mode without listing the command that starts it.** `AtlasMind: Enable Remote Control (Gateway)` is now in the "Turning it on" table alongside the other four, so the cross-machine path has a visible entry point rather than only a prose mention further down.
+- **The Remote Control safety table contradicted the settings table three rows above it.** It said the server listens only once you run the enable command *and* the setting is on, immediately after that page documented `atlasmind.remote.enabled` as declared-but-not-read. The commands are the control; the sentence now says so.
+
+## [0.257.2] - 2026-08-04
+
+### Changed
+
+- **The README and every wiki page are rewritten for the people evaluating and using AtlasMind, rather than for the people maintaining it.** Each page now opens by saying what the thing is, who it is for, and what it does for the reader, before any implementation detail. Release archaeology (“until v0.225.0 this could not…”), internal rationale addressed to maintainers, and version-numbered justifications are gone from the user-facing pages; the reasoning that explains a *behaviour a user will meet* is kept and stated plainly. Every technical claim, count, setting name and safety boundary is preserved.
+- **The README is 538 lines shorter in substance and scannable.** The 165-line “What's new” block of internal release notes becomes a short section covering what genuinely changed since the last publication, plus a five-item **Recently shipped** summary of user-visible highlights. The 50-row source-file table becomes a 12-row map of top-level directories, with the full service map left to `docs/architecture.md`. Corrected a stale figure: the README claimed 21 built-in agents where the runtime registers **27**.
+- **`wiki/Home.md` leads with three entry points** — Getting Started, Chat Commands, FAQ — instead of a flat 20-row navigation table, and `wiki/_Sidebar.md` is regrouped by what a reader is trying to do.
+- **`wiki/Configuration.md` opens with the six settings people actually change** and groups the remaining 108 by task. All 114 declared settings remain documented, and two are now labelled honestly as declared-but-not-read (`atlasmind.remote.enabled`, `atlasmind.buzz.autonomousReplies`) rather than described as working controls. `wiki/Remote-Control.md` and the README no longer present `atlasmind.remote.enabled` as the master switch — the enable/disable commands are.
+- **`wiki/Architecture.md` becomes a readable overview** of how the system fits together, with `docs/architecture.md` remaining the full contributor reference.
+- **Three pages had stray content above their title.** `wiki/Configuration.md` carried two unrelated headed sections, `wiki/Chat-Commands.md` a v0.51.4 composer note, and `wiki/Remote-Control.md` a duplicated project-memory notice. All removed.
+
+- **The ARD standard is now referenced by its specification repository rather than its homepage.** The homepage domain is currently classified `malicious (malware/misc)` by Gen Digital's URL reputation feed (`URL:Blacklist|UR93560563BC63D7BD-0200|urlb`). It resolves to GitHub Pages on Route 53 and looks like a miscategorisation of a static specification site, and a false-positive report has been filed — but the link shipped in two user-facing places (`atlasmind.ard.enabled`'s description in the Settings UI, and a clickable anchor on the Resource Discovery settings page), so users could have met a security warning on a link AtlasMind drew. All six live references now point at `github.com/ards-project/ard-spec`, which is the more useful reference regardless. Existing changelog entries are left as written: they record what was true at the time.
+
+### Removed
+
+- **The last pointer to the deleted competitor comparison page.** `wiki/Comparison.md` and the `Home.md` comparison matrix were removed in earlier releases for asserting facts about software this project neither ships nor watches; `.github/copilot-instructions.md` still listed the page in its documentation map. The published GitHub wiki also still serves the old “How It Compares” table and needs a wiki push to catch up — the source has been correct since v0.147.0.
+
+## [0.257.1] - 2026-08-04
+
+### Fixed
+
+- **The Lens dashboard's contract rule now describes the condition it actually tests.** `no-contract-files` fires when *fewer than two* contract sources are found, but its published description and its suggested-action title both said none had been found — false in the one-source case, which is the likelier one. Because that rule table renders on the dashboard so a reader can check the grading, a description that disagrees with its own condition defeats the reason for publishing it. Both now state the two-source requirement, and a regression test asserts the text stays true for zero sources and for one.
+- **The dashboard reads the active editor once per refresh.** `collectLensDashboardInput` called `activeLensTarget()` twice in the same object spread — once to test and once for the value — so an editor change between the two calls could set `activeTarget: undefined` on an object that had just reported having one.
+
+## [0.257.0] - 2026-08-04
+
+### Added
+
+- **Atlas Lenses has a dashboard.** `AtlasMind: Lens: Open Atlas Lenses Dashboard` opens one page for all eight lenses. Each is listed with the question it answers, a plain-language explanation, the evidence it reads, whether it can answer right now, and — when it cannot — the declared rule that says so. A flow map draws evidence → lens → question, and hovering or focusing any node follows its links while dimming the rest. A **Do this next** band ranks only what needs a person, by consequence rather than by count, capped with the remainder stated, and is empty when nothing does. Every lens, node, and action is clickable; the webview posts a bounded id and the host resolves the command from a catalog it holds itself, so no surface can execute a command the dashboard did not already offer. Opening it runs no model, writes no file, and scans no workspace: contract discovery stays deliberately unassessed rather than being reported as absent.
+- **Every Lens surface explains itself to a first-time reader.** A ⓘ affordance on each lens, section, and column gives the plain-language version and — separately — what that lens cannot prove, so "no test evidence found" cannot be read as "this code is untested". It is a real button: keyboard-reachable, `aria-expanded`-labelled, Escape-dismissable, and it also carries a hover title, because a popover alone is a tooltip half the users never receive.
+
+### Changed
+
+- **The eight Lens surfaces now share one visual language.** `src/views/lensVisuals.ts` owns the tokens, header, cards, badges, notices, empty states, buttons, flowing-link renderer, and ⓘ popover that Possible Flow, Change Impact, Test Evidence, State Lifecycle, Configuration Resolution, Change Story, Field Wiring, and the new dashboard all draw from. A test reads all eight sources and fails if one stops using it.
+- **Relationships are drawn, not listed.** Declared state transitions curve between the two state cards they name; impact links point *into* the selected symbol from its callers and *out of* it to its callees, because drawing them all one way would misstate the direction of the dependency; test links reach each discovered test file; and the configuration chain shows precedence flowing to the source that actually wins. Curves are computed from live element geometry, so they survive wrapping, scrolling, and a resized panel, and only a highlighted link animates — and only when the OS has not asked for reduced motion.
+- **The Lens titlebar shows the three things that act on the tree, plus a way to everything else.** Contract Wiring, State Lifecycle, and Configuration Resolution move to the overflow now that the dashboard reaches them as clickable cards, which frees a slot for the Settings route the five-slot ceiling had pushed out of sight. The tree's named empty states — no editor, file outside the workspace, no symbols — are now routes to the dashboard rather than explanations with nowhere to go.
+- **Settings → Project Runs offers the dashboard beside the declaration setup**, so the two declaration-backed lenses are no longer the only ones a reader can discover from there.
+
+### Fixed
+
+- **Column labels in Possible Flow no longer assume the vocabulary.** "Incoming", "Selected", and "Depth 2" now carry a sentence each saying what they mean.
+
 ## [0.256.0] - 2026-08-02
 
 ### Added

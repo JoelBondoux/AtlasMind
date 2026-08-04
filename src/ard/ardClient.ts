@@ -1,7 +1,7 @@
 /**
  * ArdClient – Agentic Resource Discovery protocol client.
  *
- * ARD (https://agenticresourcediscovery.org/) is a *discovery-only* protocol:
+ * ARD (https://github.com/ards-project/ard-spec) is a *discovery-only* protocol:
  * it locates agentic resources (MCP servers, A2A agents, Skills, APIs) before
  * invocation. This client implements the two discovery mechanisms:
  *

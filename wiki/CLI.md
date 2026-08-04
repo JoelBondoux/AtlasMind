@@ -1,114 +1,34 @@
 # CLI
 
-AtlasMind includes a Node-hosted CLI that reuses the same orchestrator, model router, skills, and SSOT memory loading as the VS Code extension.
+**AtlasMind from a terminal.** Same orchestrator, same agents, same model routing, same project memory,
+same safety rules — without opening the editor.
 
-The entrypoint is [src/cli/main.ts](../src/cli/main.ts).
+Useful when you want to run something against a repository from the command line, check what providers
+are configured without launching VS Code, or use AtlasMind in a script or CI-style workflow.
 
-## When To Use It
+---
 
-- Run AtlasMind against a workspace from the terminal.
-- Inspect configured providers without opening VS Code UI.
-- Query project memory or run a project task in CI-like or headless workflows.
-- Reuse AtlasMind's routing and safety model outside the extension host.
+## Getting it
 
-## Build And Run
+Once AtlasMind is installed as a VS Code extension, `atlasmind` is available in **new VS Code integrated
+terminals** automatically. AtlasMind adds it to the terminal's own PATH.
 
-From the repository root:
+It does **not** change your system PATH or affect terminals outside VS Code. That's deliberate — an
+extension quietly editing your shell configuration is not a good neighbour.
+
+Working from source instead:
 
 ```bash
 npm install
 npm run compile
-```
-
-Use the packaged script during development:
-
-```bash
 npm run cli -- providers list
-npm run cli -- memory list
-npm run cli -- chat "Summarise the current project memory"
 ```
 
-When AtlasMind is installed as a VS Code extension, activation now exposes `atlasmind` in new VS Code integrated terminals by prepending an extension-managed shim directory to the terminal PATH.
+---
 
-Important boundary:
+## The commands
 
-- This affects new terminals opened inside VS Code after AtlasMind activates.
-- It does not modify the user's system-wide PATH or external terminals.
-- Source-development workflows can still use `npm run cli -- ...` directly.
-
-## ACP Agent Mode
-
-`atlasmind-acp` exposes AtlasMind itself as an ACP v1 agent over local stdio:
-
-```bash
-atlasmind-acp --workspace /absolute/path/to/project
-```
-
-It uses the same headless orchestrator, built-in agents, model router, SSOT
-loader, provider adapters, and workspace skills as the CLI. It does not open a
-port. The official `@agentclientprotocol/sdk` handles newline-delimited JSON-RPC
-framing; AtlasMind handles sessions, streaming, cancellation, bounded history,
-and one-turn tool permissions.
-
-Options:
-
-```text
---workspace <absolute-path>
---ssot <relative-path>
---daily-limit-usd <n>
---buzz-auto-reply
---help
---version
-```
-
-### Buzz managed-agent setup
-
-Run **AtlasMind: Copy Buzz ACP Agent Setup** from VS Code's Command Palette.
-The copied JSON contains no credentials and gives the exact values for the open
-workspace:
-
-| Buzz field | Value |
-|---|---|
-| Provider | **Custom command** |
-| Agent command | The copied VS Code/Electron runtime executable |
-| Agent arguments | Paste `agentArgumentsField` (the stable AtlasMind runner plus workspace flags, comma-separated) |
-| LLM provider | Leave blank |
-| Model | Leave blank |
-
-Buzz continues to run its bundled `buzz-acp` harness; the Custom command is the
-ACP-speaking agent that harness starts. Set Buzz's managed-agent parallelism to
-**1**, matching AtlasMind's single orchestrator loop.
-
-On Windows the recipe deliberately does not use `atlasmind-acp.cmd`. Buzz
-launches ACP agents directly and cannot use a batch shim as the child
-executable. It starts VS Code's Electron executable in Node mode with the
-stable JavaScript runner as the first argument, avoiding an intermediate
-`cmd.exe` and its console window.
-
-Under the Buzz agent's **Environment variables**, supply one intended model
-route and the launcher mode:
-
-```text
-ELECTRON_RUN_AS_NODE=1
-ATLASMIND_PROVIDER_OPENAI_APIKEY
-ATLASMIND_PROVIDER_ANTHROPIC_APIKEY
-ATLASMIND_LOCAL_OPENAI_BASE_URL
-```
-
-For an off-machine relay, also set
-`ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY=true` only after reviewing its WSS/HTTPS URL.
-Buzz supplies `BUZZ_PRIVATE_KEY`, `BUZZ_RELAY_URL`, and the generated
-channel/event context to the child. AtlasMind does not export credentials from
-VS Code SecretStorage.
-
-The Director's **Person** and **AtlasMind agent for their Buzz messages** fields
-are a different mechanism: they attribute inbound work to an AtlasMind
-specialist. They do not create a Buzz managed agent, start this command, or
-reply. Create the executable agent under **Buzz Settings → Agents**.
-
-## Commands
-
-### Chat
+### Ask it something
 
 ```bash
 atlasmind chat "Explain the architecture"
@@ -116,71 +36,68 @@ atlasmind chat "Review recent changes" --provider openai
 atlasmind chat "Refactor the parser" --model anthropic/claude-sonnet-4
 ```
 
-Runs a single task through the default AtlasMind agent and streams the response when the provider supports streaming.
+Runs one task through the default agent, streaming the response where the provider supports it.
 
-### Project
+### Run a whole piece of work
 
 ```bash
 atlasmind project "Add retry handling to the provider registry"
 ```
 
-Runs the autonomous project workflow, including planning, batched subtasks, and final synthesis.
+The full autonomous workflow — planning, batched steps, and a final summary.
 
-### Memory
+### Look at project memory
 
 ```bash
 atlasmind memory list
 atlasmind memory query "routing budget gates"
 ```
 
-Lists loaded SSOT entries or queries them for relevant snippets.
-
-### Providers
+### Check your providers
 
 ```bash
 atlasmind providers list
 ```
 
-Shows routed providers, whether each one is configured in the current CLI environment, and how many models are currently available.
+Shows which providers are configured in *this* environment and how many models each currently offers.
 
-## Common Options
+---
+
+## Options
 
 ```text
---workspace <path>
---ssot <relative-path>
---provider <id>
---model <provider/model>
---allow-writes
+--workspace <path>              Which repository to work in
+--ssot <relative-path>          Where project memory lives, relative to the workspace
+--provider <id>                 Restrict routing to one provider
+--model <provider/model>        Pin one specific model
+--allow-writes                  Permit changes (see Safety below)
 --budget <cheap|balanced|expensive|auto>
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
---json
+--json                          Machine-readable output
 --help
 --version
 ```
 
-Notes:
+**Bad input is an error, not a prompt.** An unknown flag, a missing value, an invalid provider ID, or a
+malformed budget figure fails clearly rather than being quietly swept into your prompt text — which is
+how you end up paying for a request that asked the model about your typo.
 
-- `--workspace` changes the workspace root used for file and memory operations.
-- `--ssot` overrides the SSOT folder location relative to the workspace root.
-- `--provider` constrains routing to one provider.
-- `--model` narrows execution to one specific routed model.
-- `--json` emits machine-readable output for supported commands.
-- Unknown flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are treated as CLI errors instead of being silently folded into prompt text.
+---
 
-## SSOT Loading
+## Safety in the CLI is tighter than in the editor
 
-The CLI resolves SSOT memory in this order:
+There's no panel to click "approve" in, so the defaults are stricter:
 
-1. Use `--ssot` when provided and the path exists.
-2. Otherwise use the default `project_memory/` folder when it exists.
-3. If neither exists, AtlasMind still resolves the target path but starts with no loaded memory content.
+- **Read-only tools work by default**
+- **Workspace writes, git writes and terminal writes are blocked** unless you pass `--allow-writes`
+- **External and higher-risk tools stay blocked** regardless
 
-## Provider Configuration
+---
 
-The CLI reads credentials from environment variables derived from the same secret keys used by the extension.
+## Connecting providers
 
-Examples:
+The CLI reads credentials from environment variables:
 
 ```text
 ATLASMIND_PROVIDER_OPENAI_APIKEY
@@ -193,37 +110,81 @@ ATLASMIND_AZURE_OPENAI_DEPLOYMENTS
 ATLASMIND_LOCAL_OPENAI_BASE_URL
 ```
 
-Current CLI support follows the host-neutral provider layer:
+| Provider | In the CLI? |
+|---|---|
+| Local (Ollama, LM Studio) | Yes |
+| Anthropic | Yes |
+| OpenAI-compatible providers | Yes |
+| Azure OpenAI | Yes, with endpoint and deployments configured |
+| GitHub Copilot | **No** — it depends on a VS Code API that only exists in the editor |
+| Amazon Bedrock | Not yet — extension only for now |
 
-- Supported in CLI: local, Anthropic, OpenAI-compatible providers, Azure OpenAI when endpoint and deployments are configured.
-- Not available in CLI: GitHub Copilot, because it depends on the VS Code Language Model API.
-- Not currently wired in CLI: Amazon Bedrock, which remains on the extension-host configuration path.
+### Where project memory comes from
 
-## Safety Model
+1. `--ssot`, if you passed it and the path exists
+2. Otherwise `project_memory/`, if it exists
+3. Otherwise it runs with no loaded memory — it still knows where memory *would* go
 
-CLI safety is stricter than the extension host.
+---
 
-- Read-only tools are allowed by default.
-- Workspace writes, git writes, and terminal writes are blocked unless you pass `--allow-writes`.
-- External and higher-risk tools remain blocked in CLI mode.
+## Letting other tools drive AtlasMind
 
-This is enforced by the CLI runtime approval gate in [src/cli/main.ts](../src/cli/main.ts).
+`atlasmind-acp` presents AtlasMind itself as an ACP agent over local stdio, so another tool can use
+AtlasMind's orchestrator, agents, routing, memory and workspace tools as its backend.
 
-## Limitations
+```bash
+atlasmind-acp --workspace /absolute/path/to/project
+```
 
-- The CLI uses the default built-in agent unless you constrain routing with `--provider` or `--model`.
-- Provider availability depends entirely on the current process environment.
-- Copilot-backed execution remains extension-only.
-- Agent-side ACP uses environment-backed headless providers; it cannot inherit
-  VS Code-only Copilot capacity or SecretStorage credentials.
-- Only one ACP prompt turn executes at a time. Buzz managed-agent parallelism
-  should remain 1.
-- The CLI is designed for shared orchestration and workspace automation, not for replicating every UI surface from the extension.
+It opens no network port. Options are `--workspace`, `--ssot`, `--daily-limit-usd`, `--buzz-auto-reply`,
+`--help` and `--version`.
 
-## Related Pages
+### Setting it up with Buzz
+
+Run **AtlasMind: Copy Buzz ACP Agent Setup** from the Command Palette. What gets copied contains **no
+credentials** — just the exact values for your open workspace.
+
+In Buzz, create a managed agent:
+
+| Buzz field | What to put |
+|---|---|
+| Provider | **Custom command** |
+| Agent command | The copied runtime executable |
+| Agent arguments | Paste the copied arguments |
+| LLM provider | Leave blank |
+| Model | Leave blank |
+
+Set Buzz's parallelism to **1** — AtlasMind runs one orchestrator loop at a time.
+
+Then give the agent one model route through its environment variables (`ELECTRON_RUN_AS_NODE=1` plus one
+of the `ATLASMIND_PROVIDER_*` keys or `ATLASMIND_LOCAL_OPENAI_BASE_URL`). AtlasMind never exports
+credentials out of VS Code's secret storage — the child process gets what you give it and nothing more.
+
+> **On Windows**, the setup deliberately avoids a `.cmd` shim. Buzz launches agents directly and can't
+> use a batch file as the child executable, so the recipe starts the runtime in Node mode instead —
+> which also avoids an intermediate console window.
+
+> **A Director "Person" is not this.** Attaching a Buzz identity to a Person routes inbound work to an
+> AtlasMind specialist. It doesn't create a Buzz agent, start a process, or send replies. Those are
+> separate things in a separate application.
+
+---
+
+## What it can't do
+
+- It uses the default built-in agent unless you narrow routing with `--provider` or `--model`
+- Provider availability depends entirely on the environment variables present
+- Copilot-backed work stays in the editor
+- ACP agent mode can't inherit Copilot capacity or your VS Code stored credentials
+- One ACP turn runs at a time
+- It's built for orchestration and automation, not for reproducing every panel in the extension
+
+---
+
+## Related
 
 - [[Getting Started]]
-- [[Architecture]]
 - [[Model Routing]]
 - [[Tool Execution]]
+- [[Architecture]]
 - [[Contributing]]

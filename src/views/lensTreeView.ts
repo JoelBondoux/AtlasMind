@@ -13,6 +13,7 @@ import { revealPreferredChatSurface } from './chatPanel.js';
 import { reviewWorkspaceChangeStory } from './lensChangeStoryCommand.js';
 import { reviewWorkspaceConfiguration } from './lensConfigCommand.js';
 import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
+import { registerLensDashboard } from './lensDashboardPanel.js';
 import { registerLensDeclarationSetup } from './lensDeclarationSetup.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
@@ -79,12 +80,25 @@ export class LensTreeItem extends vscode.TreeItem {
   }
 }
 
+/**
+ * A named empty state.
+ *
+ * Every one of these is also a route to the Lens dashboard. An empty tree that
+ * only explains itself leaves a first-time reader with an explanation and
+ * nowhere to go, and this view's empty states are exactly when somebody most
+ * needs to be told what the other seven lenses are.
+ */
 class LensMessageTreeItem extends vscode.TreeItem {
   constructor(label: string, description: string, icon = 'info') {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(icon);
     this.contextValue = 'lens-message';
+    this.tooltip = new vscode.MarkdownString(`${description}\n\nOpen **Atlas Lenses** to see every lens, what it reads, and what it can tell you.`);
+    this.command = {
+      command: 'atlasmind.lens.openDashboard',
+      title: 'Open Atlas Lenses',
+    };
   }
 }
 
@@ -286,6 +300,7 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
 export function registerLensTreeView(context: vscode.ExtensionContext): void {
   const provider = new LensTreeProvider(context.workspaceState);
   registerLensDeclarationSetup(context);
+  registerLensDashboard(context);
   context.subscriptions.push(
     provider,
     vscode.window.registerTreeDataProvider(LENS_VIEW_ID, provider),

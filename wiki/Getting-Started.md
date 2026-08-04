@@ -1,26 +1,39 @@
 # Getting Started
 
-If you only need the shortest path: install AtlasMind, configure one model provider, then run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one.
+**The short version:** install AtlasMind, connect one model provider, then run `@atlas /bootstrap`
+if the project is new or `@atlas /import` if it already exists. That's enough to start asking for
+real work. Everything below is the longer explanation.
 
-If you are deciding whether to adopt it, the short answer is that AtlasMind is aimed at developers who want autonomous help without losing reviewability. The core workflow is safety-first, approval-aware, and backed by a configurable 23-methodology testing strategy system — from TDD and BDD through E2E, security, performance, and more — so you get evidence-backed delivery rather than unchecked implementation-first edits.
+---
 
-## Prerequisites
+## Before you start
 
-| Requirement | Minimum |
+| You need | Version |
 |-------------|---------|
-| VS Code | ≥ 1.96.0 |
-| Node.js | ≥ 18 |
-| npm | ≥ 9 |
+| VS Code | 1.96.0 or newer |
+| Node.js | 18 or newer |
+| npm | 9 or newer |
 
-## Installation
+And **one way to reach a model** — see [step 1](#1-connect-a-model) below. If you already pay for
+Claude, ChatGPT, Copilot or Qwen, you can use that instead of buying API credit.
 
-If you just want the shortest onboarding path, use the VS Code Marketplace build of AtlasMind, configure one provider, then run `@atlas /bootstrap` for a new project or `@atlas /import` for an existing one. The rest of this page covers the fuller setup paths and options.
+---
 
-The installed **Getting Started** walkthrough also includes an optional repository-backed Lens step. Run **AtlasMind: Lens: Set Up Repository Declarations** to see whether State Lifecycle and Configuration Resolution are configured. AtlasMind can create valid empty `.atlasmind/lens-state.json` and `.atlasmind/lens-config.json` starters, then opens them with schema completion; it does not infer project states, precedence, values, or secrets from the active editor.
+## Install it
 
-After AtlasMind activates, new VS Code integrated terminals also expose the `atlasmind` command without requiring a manual PATH edit. That terminal shim is local to VS Code and does not change your system-wide shell configuration.
+### From the Marketplace (recommended)
 
-### From Source
+[Install AtlasMind](https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind), or
+search for "AtlasMind" in the VS Code Extensions panel.
+
+### From a VSIX
+
+```bash
+npm run package          # produces atlasmind-<version>.vsix
+code --install-extension atlasmind-<version>.vsix
+```
+
+### From source
 
 ```bash
 git clone https://github.com/JoelBondoux/AtlasMind.git
@@ -29,65 +42,90 @@ npm install
 npm run compile
 ```
 
-Press **F5** in VS Code to launch the Extension Development Host with AtlasMind loaded.
+Press **F5** to launch a VS Code window with AtlasMind loaded.
 
-If you plan to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
+---
 
-### From VSIX
-
-```bash
-npm run package          # produces atlasmind-<version>.vsix
-code --install-extension atlasmind-<version>.vsix
-```
-
-## First Steps
-
-### 1. Configure a Model Provider
+## 1. Connect a model
 
 Open the Command Palette (`Ctrl+Shift+P`) → **AtlasMind: Manage Model Providers**.
 
-Add an API key for at least one provider:
+You have three kinds of option, and you can mix them freely.
+
+### Use a subscription you already pay for
+
+The cheapest way in, because it costs nothing extra. If you already have one of these installed and
+signed in, AtlasMind can route work through it:
+
+| You have | What to do |
+|---|---|
+| A Claude plan | Click **Use my Claude subscription** on the Anthropic card |
+| A ChatGPT plan | Click **Use my ChatGPT subscription** on the OpenAI card |
+| GitHub Copilot | Install GitHub Copilot Chat and sign in — nothing else needed |
+| A Qwen plan | Configure it as an ACP agent |
+| Gemini Code Assist Standard or Enterprise | Click **Use my Code Assist licence** on the Google card |
+
+Not installed yet? AtlasMind offers the `/acp` walkthrough, which names the agent, installs it, helps
+you sign in, and then **proves a real answer comes back** before calling it done.
+
+### Use an API key
 
 | Provider | Where to get a key |
 |----------|-------------------|
 | Anthropic | [console.anthropic.com](https://console.anthropic.com/) |
 | OpenAI | [platform.openai.com](https://platform.openai.com/) |
-| Azure OpenAI | Azure portal or Azure AI Foundry; also configure your resource endpoint and deployment names |
 | Google Gemini | [aistudio.google.com](https://aistudio.google.com/) |
-| Amazon Bedrock | AWS console; also configure your AWS region and Bedrock model IDs |
+| Azure OpenAI | Azure portal or Azure AI Foundry — you'll also need your endpoint and deployment names |
+| Amazon Bedrock | AWS console — you'll also need your region and Bedrock model IDs |
 | DeepSeek | [platform.deepseek.com](https://platform.deepseek.com/) |
 | Mistral | [console.mistral.ai](https://console.mistral.ai/) |
 | z.ai | [z.ai](https://z.ai/) |
-| GitHub Copilot | Install GitHub Copilot Chat and sign in — no API key needed |
-| Local (Ollama, LM Studio) | No key required; configure endpoint in settings |
 
-API keys are stored securely in VS Code's **SecretStorage** — never on disk or in settings files.
+Keys go into VS Code's **SecretStorage** — the OS keychain. Never a settings file, never your repository,
+and redacted before anything reaches a model.
 
-Search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway are configured from **AtlasMind: Specialist Integrations** instead of the routed model-provider list.
+### Use a local model
 
-### 2. Bootstrap a New Project
+Run Ollama or LM Studio, then point the **Local** provider at its endpoint (typically
+`http://localhost:11434/v1`). No key, no bill, nothing leaves your machine. Models appear in the Models
+sidebar once connected.
 
-For a **new** project:
+> Search, voice, image and video services — EXA, ElevenLabs, Stability AI, Runway — are configured
+> separately under **AtlasMind: Specialist Integrations**, not in the model provider list.
+
+---
+
+## 2. Tell AtlasMind about your project
+
+AtlasMind works far better when it knows what your project *is*. This step takes a minute and pays for
+itself immediately.
+
+**For a new project:**
 
 ```
 @atlas /bootstrap
 ```
 
-This creates the SSOT memory folder structure and optionally scaffolds CI/CD and governance files.
+Creates the project memory structure and, optionally, starter CI/CD and governance files.
 
-### 3. Import an Existing Project
-
-For an **existing** codebase:
+**For an existing codebase:**
 
 ```
 @atlas /import
 ```
 
-This scans your workspace for manifests, README files, key docs, security and governance guidance, plus focused codebase structure, then auto-populates a much richer SSOT baseline instead of only the bare minimum metadata.
+Reads your manifests, README, key docs, and code structure, and writes a genuinely useful starting
+picture of the project rather than bare metadata.
 
-### 4. Start Chatting
+Either way you end up with a `project_memory/` folder of plain Markdown you can read and edit yourself.
+See [[Memory System]].
 
-Type `@atlas` in the VS Code chat panel and ask anything:
+---
+
+## 3. Ask for something
+
+Type `@atlas` in the VS Code chat panel, or open the bigger dedicated panel with
+**AtlasMind: Open Chat Panel** (`Ctrl+Alt+I`, or `Cmd+Alt+I` on macOS).
 
 ```
 @atlas How is this project structured?
@@ -95,43 +133,72 @@ Type `@atlas` in the VS Code chat panel and ask anything:
 @atlas /project Refactor the API layer to use dependency injection
 ```
 
-The orchestrator automatically selects the best agent and model for each request. If you want the dedicated AtlasMind chat surface, use `AtlasMind: Open Chat Panel` or press `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
+AtlasMind picks the specialist and the model for you. You'll see which it chose, what it did, and what
+it cost.
 
-### 4.5 Shape Ideas Before Execution
+---
 
-If you want to pressure-test a concept before running `/project`, open `AtlasMind: Open Project Ideation`. That command opens the dedicated ideation dashboard so you can add cards, drag or paste media into the board, speak prompts, and iterate with Atlas before committing to an autonomous execution goal.
+## 4. Set your spending and speed preferences
 
-### 5. Adjust Budget and Speed
+Open **AtlasMind: Open Settings Panel** and set two things:
 
-Open **AtlasMind: Open Settings Panel** from the Command Palette to configure:
+- **Budget mode** — `cheap`, `balanced`, `expensive`, or `auto`. `cheap` prefers local models and
+  subscriptions; `auto` lets the difficulty of the task decide.
+- **Speed mode** — `fast`, `balanced`, `considered`, or `auto`.
 
-- **Budget Mode** — `cheap`, `balanced`, `expensive`, or `auto`
-- **Speed Mode** — `fast`, `balanced`, `considered`, or `auto`
+While you're there, set `dailyCostLimitUsd` if you want a hard ceiling. See [[Model Routing]] for how
+the choice is actually made, and [[Configuration]] for everything else.
 
-These preferences steer model selection across all providers. See [[Model Routing]] for details.
+---
 
-For teams with stricter delivery standards, pair these settings with approval modes and verification hooks so AtlasMind can operate as a visible red/green loop rather than a silent code generator.
+## 5. Decide how much you want to approve
 
-## Sidebar Views
+By default AtlasMind asks before it writes anything. That's `toolApprovalMode: ask-on-write`.
 
-After activation, the **AtlasMind** sidebar appears with these main surfaces:
+As you get comfortable, you can loosen it — or tighten it to `always-ask` if you'd rather see every
+step. Pair it with `autoVerifyAfterWrite` so your own lint and test commands run after each change.
+See [[Tool Execution]].
 
-| View | Purpose |
+---
+
+## What's in the sidebar
+
+The **AtlasMind** icon in the activity bar opens these:
+
+| View | What it's for |
 |------|---------|
-| **Chat** | Embedded AtlasMind chat workspace |
-| **Project Runs** | Review recent autonomous run history |
-| **Sessions** | Browse, file, archive, and restore chat sessions |
-| **Memory** | Browse and query the SSOT index |
-| **Agents** | List, enable/disable, create, and edit agents |
-| **Skills** | Browse 43 built-in skills plus custom or MCP-backed skills |
+| **Chat** | Where you talk to Atlas |
+| **Lens** | The symbols in the file you're looking at, and actions on them |
+| **Director** | People, responsibilities and follow-ups — carries an overdue badge |
+| **Project State** | A glance at where the project stands |
+| **Sessions** | Past conversations, filed and searchable |
+| **Project Runs** | History of autonomous runs |
+| **Memory** | Browse and query project memory |
+| **Models** | What's available from each provider |
+| **Agents** | Enable, disable, create and edit agents |
+| **Skills** | The 43 built-in tools plus your own and any MCP tools |
 | **MCP Servers** | Connect external tool servers |
-| **Models** | View available models per provider |
+| **Resource Discovery** | Find new agents, skills and servers |
 
-## What's Next?
+---
 
-- [[CLI]] — run AtlasMind from the terminal against the current workspace
-- [[Chat Commands]] — learn all slash commands
-- [[Agents]] — create custom agents for your workflow
-- [[Skills]] — explore the 31 built-in tools
-- [[Memory System]] — understand long-term project memory
-- [[Project Planner]] — run autonomous multi-step tasks
+## Optional: set up Lens declarations
+
+Lens can explain your project's state machines and configuration precedence — but only if you tell it
+what they are, because guessing would be worse than not answering.
+
+Run **AtlasMind: Lens: Set Up Repository Declarations**. It shows you what's configured, and can create
+valid *empty* starter files (`.atlasmind/lens-state.json`, `.atlasmind/lens-config.json`) with schema
+completion turned on. It never invents your project's states, precedence, values or secrets, and never
+overwrites a file you already have.
+
+---
+
+## Where to go next
+
+- **[[Chat Commands]]** — everything you can type
+- **[[Agents]]** — the specialists, and building your own
+- **[[Project Planner]]** — running multi-step work
+- **[[GitHub Workflow]]** — the guided path from idea to release
+- **[[FAQ]]** — when something doesn't behave
+- **[[CLI]]** — the same thing from a terminal

@@ -8,6 +8,7 @@ import {
 } from '../core/lensTarget.js';
 import type { LensCodeImpact, LensGraph, LensVisualTarget } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { LENS_PANEL_CSS, LENS_PANEL_SCRIPT, renderLensHeader } from './lensVisuals.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type LensImpactMessage =
@@ -182,75 +183,77 @@ function buildImpactHtml(cspSource: string): string {
     title: 'AtlasMind Lens — Change Impact',
     cspSource,
     bodyContent: `
-      <main class="impact-shell">
-        <header class="impact-header">
-          <div>
-            <p class="eyebrow">AtlasMind Lens</p>
-            <h1 id="impact-title">Change impact</h1>
-            <p id="impact-summary">Loading source-backed impact evidence…</p>
-          </div>
-          <span class="mode-badge">Static evidence</span>
-        </header>
-        <ul id="impact-notices" class="notices" aria-label="Evidence notices"></ul>
-        <section class="impact-map" aria-labelledby="impact-title">
-          <div class="impact-column" data-category="upstream-caller">
-            <h2>Upstream callers</h2>
-            <div id="impact-upstream" class="impact-items"></div>
-          </div>
-          <div class="impact-column selected-column">
-            <h2>Selected symbol</h2>
-            <div id="impact-selected" class="impact-items"></div>
-          </div>
-          <div class="impact-column" data-category="downstream-callee">
-            <h2>Downstream callees</h2>
-            <div id="impact-downstream" class="impact-items"></div>
-          </div>
-          <div class="impact-column consumer-column" data-category="consumer-reference">
-            <h2>Other source consumers</h2>
-            <div id="impact-consumers" class="impact-items"></div>
+      <main class="lens-shell" data-accent="orange">
+        ${renderLensHeader({
+          eyebrow: 'Atlas Lens',
+          title: 'Change impact',
+          titleId: 'impact-title',
+          subtitle: 'Loading source-backed impact evidence…',
+          subtitleId: 'impact-summary',
+          mode: 'Static evidence',
+          info: {
+            title: 'Change impact',
+            body: 'Who would feel it if you changed this symbol: the code that calls it, the code it calls, and everywhere else it is referenced. Ranked by how close each one is.',
+            note: 'Code only. Contracts, configuration, docs, and runtime paths are not searched, so an empty column is missing evidence — never a promise that nothing breaks.',
+          },
+        })}
+        <ul id="impact-notices" class="lens-notices" aria-label="Evidence notices"></ul>
+        <section class="lens-stage" aria-labelledby="impact-title">
+          <svg id="impact-edges" class="lens-flow-layer" aria-hidden="true"></svg>
+          <div class="lens-flow-content impact-map">
+            <div class="impact-column" data-category="upstream-caller">
+              <h2>Upstream callers</h2>
+              <p class="column-hint">Code that calls this. A change to the signature reaches them first.</p>
+              <div id="impact-upstream" class="impact-items"></div>
+            </div>
+            <div class="impact-column selected-column">
+              <h2>Selected symbol</h2>
+              <p class="column-hint">Nothing has been changed. This is the starting point.</p>
+              <div id="impact-selected" class="impact-items"></div>
+            </div>
+            <div class="impact-column" data-category="downstream-callee">
+              <h2>Downstream callees</h2>
+              <p class="column-hint">Code this calls. A change in behaviour reaches them.</p>
+              <div id="impact-downstream" class="impact-items"></div>
+            </div>
+            <div class="impact-column consumer-column" data-category="consumer-reference">
+              <h2>Other source consumers</h2>
+              <p class="column-hint">Everywhere else the symbol is named, without a call relationship.</p>
+              <div id="impact-consumers" class="impact-items"></div>
+            </div>
           </div>
         </section>
-        <details class="text-view">
+        <details class="lens-text-view">
           <summary>Text view</summary>
           <p>A keyboard- and screen-reader-friendly list of the same impact evidence.</p>
           <ul id="impact-text-items"></ul>
         </details>
       </main>
     `,
-    extraCss: `
-      .impact-shell { max-width: 1440px; margin: 0 auto; }
-      .impact-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-      .impact-header h1 { margin: 0; }
-      .impact-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
-      .eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-      .mode-badge { flex: none; border: 1px solid var(--vscode-widget-border); border-radius: 999px; padding: 4px 9px; color: var(--vscode-descriptionForeground); }
-      .notices { padding-left: 20px; color: var(--vscode-descriptionForeground); }
-      .impact-map { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 14px; align-items: start; }
-      .impact-column { min-height: 150px; padding: 12px; border: 1px solid var(--vscode-widget-border); border-radius: 8px; background: var(--vscode-editor-background); }
-      .impact-column h2 { margin: 0 0 10px; font-size: 0.85rem; color: var(--vscode-descriptionForeground); text-transform: uppercase; letter-spacing: 0.06em; }
-      .selected-column { border-color: var(--vscode-focusBorder); }
+    extraCss: `${LENS_PANEL_CSS}
+      .impact-map { display: grid; grid-template-columns: repeat(3, minmax(230px, 1fr)); gap: 18px; align-items: start; }
+      .impact-column {
+        min-height: 150px; padding: 14px; border: 1px solid var(--lens-border);
+        border-radius: var(--lens-radius); background: var(--lens-surface);
+      }
+      .impact-column h2 {
+        margin: 0 0 4px; font-size: .74rem; color: var(--lens-muted); font-weight: 700;
+        text-transform: uppercase; letter-spacing: .09em;
+      }
+      .column-hint { margin: 0 0 11px; font-size: .74rem; color: var(--lens-muted); }
+      .selected-column { border-color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 55%, var(--lens-border)); }
       .consumer-column { grid-column: 1 / -1; min-height: 0; }
-      .consumer-column .impact-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; }
-      .impact-items { display: grid; gap: 9px; }
-      .impact-card { padding: 10px; border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-charts-blue, #75beff); border-radius: 6px; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); }
-      .impact-card[data-category="downstream-callee"] { border-left-color: var(--vscode-charts-green, #89d185); }
-      .impact-card[data-category="consumer-reference"] { border-left-color: var(--vscode-charts-purple, #b180d7); }
-      .impact-card[data-category="selected"] { border-left-color: var(--vscode-focusBorder); }
-      .impact-label { margin: 0; font-size: 0.92rem; }
-      .impact-location, .impact-reason, .impact-evidence { margin: 4px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.78rem; }
-      .impact-location { font-family: var(--vscode-editor-font-family, monospace); }
-      .impact-actions { display: flex; gap: 6px; margin-top: 9px; }
-      .impact-action { border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-      .impact-action:hover { background: var(--vscode-button-secondaryHoverBackground); }
-      .impact-action:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-      .text-view { margin-top: 16px; border-top: 1px solid var(--vscode-widget-border); padding-top: 10px; }
-      .text-view summary { cursor: pointer; font-weight: 600; }
-      .text-view p, .text-view li { color: var(--vscode-descriptionForeground); }
-      @media (max-width: 820px) { .impact-map { grid-template-columns: 1fr; } .consumer-column { grid-column: auto; } .impact-header { flex-direction: column; } }
+      .consumer-column .impact-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+      .impact-items { display: grid; gap: 10px; }
+      .impact-card[data-category="upstream-caller"] { --lens-accent: var(--vscode-charts-blue, #75beff); }
+      .impact-card[data-category="downstream-callee"] { --lens-accent: var(--vscode-charts-green, #89d185); }
+      .impact-card[data-category="consumer-reference"] { --lens-accent: var(--vscode-charts-purple, #b180d7); }
+      .impact-card[data-category="selected"] { --lens-accent: var(--vscode-charts-orange, #d18616); }
+      @media (max-width: 860px) { .impact-map { grid-template-columns: 1fr; } .consumer-column { grid-column: auto; } #impact-edges { display: none; } }
     `,
     scriptContent: `
       const vscode = acquireVsCodeApi();
+      ${LENS_PANEL_SCRIPT}
       const title = document.getElementById('impact-title');
       const summary = document.getElementById('impact-summary');
       const notices = document.getElementById('impact-notices');
@@ -259,6 +262,13 @@ function buildImpactHtml(cspSource: string): string {
       const downstream = document.getElementById('impact-downstream');
       const consumers = document.getElementById('impact-consumers');
       const textItems = document.getElementById('impact-text-items');
+      const flow = createLensFlow(document.querySelector('.lens-stage'), document.getElementById('impact-edges'));
+      const CATEGORY_ACCENT = {
+        'upstream-caller': 'blue', 'downstream-callee': 'green',
+        'consumer-reference': 'purple', selected: 'orange'
+      };
+      const cardElements = new Map();
+      let rootElement;
 
       function textElement(parent, tag, className, value) {
         const element = document.createElement(tag);
@@ -269,31 +279,54 @@ function buildImpactHtml(cspSource: string): string {
       }
 
       function action(parent, label, message) {
-        const button = textElement(parent, 'button', 'impact-action', label);
+        const button = textElement(parent, 'button', 'lens-button', label);
         button.type = 'button';
         button.addEventListener('click', () => vscode.postMessage(message));
       }
 
+      let rootId;
+
+      function setHighlight(targetId) {
+        flow.highlight(targetId);
+        for (const [id, card] of cardElements) {
+          if (!targetId) { card.classList.remove('is-dimmed', 'is-highlighted'); continue; }
+          // Every edge touches the selected symbol, so hovering it lights the
+          // whole map rather than isolating a card with no relationships drawn.
+          const related = targetId === rootId || id === targetId || id === rootId;
+          card.classList.toggle('is-highlighted', related);
+          card.classList.toggle('is-dimmed', !related);
+        }
+      }
+
       function card(parent, targetId, target, category, reason, evidence, proximity) {
         const item = document.createElement('article');
-        item.className = 'impact-card';
+        item.className = 'lens-card impact-card';
         item.dataset.category = category;
-        textElement(item, 'h3', 'impact-label', target.label);
+        item.dataset.accent = CATEGORY_ACCENT[category] || 'orange';
+        item.tabIndex = 0;
+        textElement(item, 'p', 'lens-card-kicker', category.replace(/-/g, ' '));
+        textElement(item, 'h3', 'lens-card-title', target.label);
         const suffix = target.range ? ':' + target.range.startLine : '';
-        textElement(item, 'p', 'impact-location', target.workspace.name + ' :: ' + target.workspacePath + suffix);
-        if (reason) { textElement(item, 'p', 'impact-reason', reason); }
+        textElement(item, 'p', 'lens-card-path', target.workspace.name + ' :: ' + target.workspacePath + suffix);
+        if (reason) { textElement(item, 'p', 'lens-card-body', reason); }
         if (evidence) {
-          textElement(item, 'p', 'impact-evidence', evidence.kind + ' — ' + evidence.source + (proximity ? ' · proximity ' + proximity : ''));
+          textElement(item, 'p', 'lens-card-meta', evidence.kind + ' — ' + evidence.source + (proximity ? ' · proximity ' + proximity : ''));
         }
         const actions = document.createElement('div');
-        actions.className = 'impact-actions';
+        actions.className = 'lens-card-actions';
         action(actions, 'Open', { type: 'openTarget', targetId });
         action(actions, 'Ask Atlas', { type: 'askTarget', targetId });
         item.appendChild(actions);
+        item.addEventListener('pointerenter', () => setHighlight(targetId));
+        item.addEventListener('pointerleave', () => setHighlight(null));
+        item.addEventListener('focusin', () => setHighlight(targetId));
+        item.addEventListener('focusout', () => setHighlight(null));
+        cardElements.set(targetId, item);
         parent.appendChild(item);
+        return item;
       }
 
-      function empty(parent, label) { textElement(parent, 'p', 'empty', label); }
+      function empty(parent, label) { textElement(parent, 'p', 'lens-empty', label); }
 
       function renderImpact(impact) {
         title.textContent = impact.label;
@@ -305,23 +338,41 @@ function buildImpactHtml(cspSource: string): string {
         downstream.replaceChildren();
         consumers.replaceChildren();
         textItems.replaceChildren();
-        card(selected, impact.root.id, impact.root, 'selected', 'Selected source symbol; no change has been applied.', impact.root.evidence, 0);
+        cardElements.clear();
+        rootId = impact.root.id;
+        rootElement = card(selected, impact.root.id, impact.root, 'selected', 'Selected source symbol; no change has been applied.', impact.root.evidence, 0);
         const buckets = {
           'upstream-caller': upstream,
           'downstream-callee': downstream,
           'consumer-reference': consumers,
         };
         const counts = { 'upstream-caller': 0, 'downstream-callee': 0, 'consumer-reference': 0 };
+        const edges = [];
         for (const item of impact.items) {
           const parent = buckets[item.category];
           if (!parent) { continue; }
           counts[item.category] += 1;
           card(parent, item.id, item.target, item.category, item.reason, item.evidence, item.proximity);
           textElement(textItems, 'li', '', item.category + ': ' + item.reason + ' — ' + item.evidence.source);
+          // Callers point *into* the selected symbol; everything else points out
+          // of it. Drawing them all one way would misstate the direction of the
+          // dependency, which is the fact the reader came here for.
+          const inbound = item.category === 'upstream-caller';
+          edges.push({
+            id: item.id,
+            fromId: inbound ? item.id : impact.root.id,
+            toId: inbound ? impact.root.id : item.id,
+            from: inbound ? cardElements.get(item.id) : rootElement,
+            to: inbound ? rootElement : cardElements.get(item.id),
+            accent: CATEGORY_ACCENT[item.category] || 'orange',
+            strength: 'live',
+            direction: item.category === 'consumer-reference' ? 'vertical' : 'horizontal'
+          });
         }
         if (!counts['upstream-caller']) { empty(upstream, 'No upstream caller evidence returned.'); }
         if (!counts['downstream-callee']) { empty(downstream, 'No downstream callee evidence returned.'); }
         if (!counts['consumer-reference']) { empty(consumers, 'No other source-reference evidence returned.'); }
+        flow.render(edges);
       }
 
       window.addEventListener('message', event => {
