@@ -8,6 +8,7 @@ import {
 } from '../core/lensTarget.js';
 import type { LensGraph, LensTestMap, LensVisualTarget } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { LENS_PANEL_CSS, LENS_PANEL_SCRIPT, renderLensHeader } from './lensVisuals.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type LensTestMessage =
@@ -182,70 +183,68 @@ function buildTestMapHtml(cspSource: string): string {
     title: 'AtlasMind Lens — Test & Behaviour',
     cspSource,
     bodyContent: `
-      <main class="test-shell">
-        <header class="test-header">
-          <div>
-            <p class="eyebrow">AtlasMind Lens</p>
-            <h1 id="test-title">Test &amp; behaviour evidence</h1>
-            <p id="test-summary">Loading source-backed test links…</p>
-          </div>
-          <span class="mode-badge">Discovered evidence</span>
-        </header>
-        <ul id="test-notices" class="notices" aria-label="Evidence notices"></ul>
-        <section class="test-map" aria-labelledby="test-title">
-          <div class="selected-column">
-            <h2>Selected symbol</h2>
-            <div id="test-selected"></div>
-          </div>
-          <div class="evidence-column">
-            <h2>Linked test-like sources</h2>
-            <div id="test-counts" class="test-counts" aria-label="Test-kind summary"></div>
-            <div id="test-items" class="test-items"></div>
+      <main class="lens-shell" data-accent="green">
+        ${renderLensHeader({
+          eyebrow: 'Atlas Lens',
+          title: 'Test & behaviour evidence',
+          titleId: 'test-title',
+          subtitle: 'Loading source-backed test links…',
+          subtitleId: 'test-summary',
+          mode: 'Discovered evidence',
+          info: {
+            title: 'Test evidence',
+            body: 'The test-like files that already reference this symbol, classified only where the path itself names the kind of test.',
+            note: 'Nothing is executed and no assertion is read. An empty map means no linked test file was found — it is missing evidence, not a verdict that the code is untested.',
+          },
+        })}
+        <ul id="test-notices" class="lens-notices" aria-label="Evidence notices"></ul>
+        <section class="lens-stage" aria-labelledby="test-title">
+          <svg id="test-edges" class="lens-flow-layer" aria-hidden="true"></svg>
+          <div class="lens-flow-content test-map">
+            <div class="selected-column">
+              <h2>Selected symbol</h2>
+              <div id="test-selected"></div>
+            </div>
+            <div class="evidence-column">
+              <h2>Linked test-like sources</h2>
+              <div id="test-counts" class="test-counts" aria-label="Test-kind summary"></div>
+              <div id="test-items" class="test-items"></div>
+            </div>
           </div>
         </section>
-        <details class="text-view">
+        <details class="lens-text-view">
           <summary>Text view</summary>
           <p>A keyboard- and screen-reader-friendly list of the same test evidence.</p>
           <ul id="test-text-items"></ul>
         </details>
       </main>
     `,
-    extraCss: `
-      .test-shell { max-width: 1320px; margin: 0 auto; }
-      .test-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-      .test-header h1 { margin: 0; }
-      .test-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
-      .eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-      .mode-badge { flex: none; border: 1px solid var(--vscode-widget-border); border-radius: 999px; padding: 4px 9px; color: var(--vscode-descriptionForeground); }
-      .notices { padding-left: 20px; color: var(--vscode-descriptionForeground); }
-      .test-map { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 2fr); gap: 14px; align-items: start; }
-      .selected-column, .evidence-column { padding: 12px; border: 1px solid var(--vscode-widget-border); border-radius: 8px; }
-      .selected-column { border-color: var(--vscode-focusBorder); }
-      .test-map h2 { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; }
-      .test-counts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-      .count-badge, .kind-badge { border: 1px solid var(--vscode-widget-border); border-radius: 999px; padding: 2px 7px; color: var(--vscode-descriptionForeground); font-size: 0.74rem; }
-      .test-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 9px; }
-      .test-card { padding: 10px; border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-charts-purple, #b180d7); border-radius: 6px; background: var(--vscode-editor-background); }
-      .test-card[data-kind="unit"] { border-left-color: var(--vscode-charts-green, #89d185); }
-      .test-card[data-kind="integration"] { border-left-color: var(--vscode-charts-blue, #75beff); }
-      .test-card[data-kind="contract"] { border-left-color: var(--vscode-charts-orange, #d18616); }
-      .test-card[data-kind="end-to-end"] { border-left-color: var(--vscode-charts-purple, #b180d7); }
-      .test-card[data-kind="selected"] { border-left-color: var(--vscode-focusBorder); }
-      .test-label { margin: 0; font-size: 0.92rem; }
-      .test-location, .test-reason, .test-evidence { margin: 4px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.78rem; }
-      .test-location { font-family: var(--vscode-editor-font-family, monospace); }
-      .test-actions { display: flex; gap: 6px; margin-top: 9px; }
-      .test-action { border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-      .test-action:hover { background: var(--vscode-button-secondaryHoverBackground); }
-      .test-action:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-      .text-view { margin-top: 16px; border-top: 1px solid var(--vscode-widget-border); padding-top: 10px; }
-      .text-view summary { cursor: pointer; font-weight: 600; }
-      .text-view p, .text-view li { color: var(--vscode-descriptionForeground); }
-      @media (max-width: 760px) { .test-map { grid-template-columns: 1fr; } .test-header { flex-direction: column; } }
+    extraCss: `${LENS_PANEL_CSS}
+      .test-map { display: grid; grid-template-columns: minmax(230px, .8fr) minmax(360px, 2fr); gap: 24px; align-items: start; }
+      .selected-column, .evidence-column {
+        padding: 14px; border: 1px solid var(--lens-border);
+        border-radius: var(--lens-radius); background: var(--lens-surface);
+      }
+      .selected-column { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 50%, var(--lens-border)); }
+      .test-map h2 {
+        margin: 0 0 11px; color: var(--lens-muted); font-size: .74rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .09em;
+      }
+      .test-counts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+      .count-badge { border: 1px solid var(--lens-border); border-radius: 999px; padding: 3px 9px; color: var(--lens-muted); font-size: .72rem; }
+      .count-badge[data-empty="false"] { color: var(--vscode-foreground); border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 50%, var(--lens-border)); }
+      .test-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 10px; }
+      .test-card[data-kind="unit"] { --lens-accent: var(--vscode-charts-green, #89d185); }
+      .test-card[data-kind="integration"] { --lens-accent: var(--vscode-charts-blue, #75beff); }
+      .test-card[data-kind="contract"] { --lens-accent: var(--vscode-charts-orange, #d18616); }
+      .test-card[data-kind="end-to-end"] { --lens-accent: var(--vscode-charts-purple, #b180d7); }
+      .test-card[data-kind="unknown"] { --lens-accent: var(--lens-muted); }
+      .test-card[data-kind="selected"] { --lens-accent: var(--vscode-charts-green, #89d185); }
+      @media (max-width: 800px) { .test-map { grid-template-columns: 1fr; } #test-edges { display: none; } }
     `,
     scriptContent: `
       const vscode = acquireVsCodeApi();
+      ${LENS_PANEL_SCRIPT}
       const title = document.getElementById('test-title');
       const summary = document.getElementById('test-summary');
       const notices = document.getElementById('test-notices');
@@ -253,6 +252,14 @@ function buildTestMapHtml(cspSource: string): string {
       const counts = document.getElementById('test-counts');
       const items = document.getElementById('test-items');
       const textItems = document.getElementById('test-text-items');
+      const flow = createLensFlow(document.querySelector('.lens-stage'), document.getElementById('test-edges'));
+      const KIND_ACCENT = {
+        unit: 'green', integration: 'blue', contract: 'orange',
+        'end-to-end': 'purple', unknown: 'blue', selected: 'green'
+      };
+      const cardElements = new Map();
+      let rootId;
+      let rootElement;
 
       function textElement(parent, tag, className, value) {
         const element = document.createElement(tag);
@@ -262,27 +269,45 @@ function buildTestMapHtml(cspSource: string): string {
         return element;
       }
 
+      function setHighlight(targetId) {
+        flow.highlight(targetId);
+        for (const [id, card] of cardElements) {
+          if (!targetId) { card.classList.remove('is-dimmed', 'is-highlighted'); continue; }
+          const related = targetId === rootId || id === targetId || id === rootId;
+          card.classList.toggle('is-highlighted', related);
+          card.classList.toggle('is-dimmed', !related);
+        }
+      }
+
       function card(parent, targetId, target, kind, reason, evidence, classification) {
         const item = document.createElement('article');
-        item.className = 'test-card';
+        item.className = 'lens-card test-card';
         item.dataset.kind = kind;
-        textElement(item, 'span', 'kind-badge', kind);
-        textElement(item, 'h3', 'test-label', target.label);
+        item.dataset.accent = KIND_ACCENT[kind] || 'green';
+        item.tabIndex = 0;
+        textElement(item, 'p', 'lens-card-kicker', kind);
+        textElement(item, 'h3', 'lens-card-title', target.label);
         const suffix = target.range ? ':' + target.range.startLine : '';
-        textElement(item, 'p', 'test-location', target.workspace.name + ' :: ' + target.workspacePath + suffix);
-        if (reason) { textElement(item, 'p', 'test-reason', reason); }
-        if (classification) { textElement(item, 'p', 'test-evidence', 'Classification — ' + classification); }
-        if (evidence) { textElement(item, 'p', 'test-evidence', evidence.kind + ' link — ' + evidence.source); }
+        textElement(item, 'p', 'lens-card-path', target.workspace.name + ' :: ' + target.workspacePath + suffix);
+        if (reason) { textElement(item, 'p', 'lens-card-body', reason); }
+        if (classification) { textElement(item, 'p', 'lens-card-meta', 'Classification — ' + classification); }
+        if (evidence) { textElement(item, 'p', 'lens-card-meta', evidence.kind + ' link — ' + evidence.source); }
         const actions = document.createElement('div');
-        actions.className = 'test-actions';
-        const open = textElement(actions, 'button', 'test-action', 'Open');
+        actions.className = 'lens-card-actions';
+        const open = textElement(actions, 'button', 'lens-button', 'Open');
         open.type = 'button';
         open.addEventListener('click', () => vscode.postMessage({ type: 'openTarget', targetId }));
-        const ask = textElement(actions, 'button', 'test-action', 'Ask Atlas');
+        const ask = textElement(actions, 'button', 'lens-button', 'Ask Atlas');
         ask.type = 'button';
         ask.addEventListener('click', () => vscode.postMessage({ type: 'askTarget', targetId }));
         item.appendChild(actions);
+        item.addEventListener('pointerenter', () => setHighlight(targetId));
+        item.addEventListener('pointerleave', () => setHighlight(null));
+        item.addEventListener('focusin', () => setHighlight(targetId));
+        item.addEventListener('focusout', () => setHighlight(null));
+        cardElements.set(targetId, item);
         parent.appendChild(item);
+        return item;
       }
 
       function renderTestMap(testMap) {
@@ -294,17 +319,31 @@ function buildTestMapHtml(cspSource: string): string {
         counts.replaceChildren();
         items.replaceChildren();
         textItems.replaceChildren();
-        card(selected, testMap.root.id, testMap.root, 'selected', 'Selected source symbol; behaviour assertions remain unknown.', testMap.root.evidence, 'source target');
+        cardElements.clear();
+        rootId = testMap.root.id;
+        rootElement = card(selected, testMap.root.id, testMap.root, 'selected', 'Selected source symbol; behaviour assertions remain unknown.', testMap.root.evidence, 'source target');
         const byKind = new Map();
         for (const item of testMap.items) { byKind.set(item.testKind, (byKind.get(item.testKind) || 0) + 1); }
         for (const kind of ['unit', 'integration', 'contract', 'end-to-end', 'unknown']) {
-          textElement(counts, 'span', 'count-badge', kind + ' ' + (byKind.get(kind) || 0));
+          const badge = textElement(counts, 'span', 'count-badge', kind + ' ' + (byKind.get(kind) || 0));
+          badge.dataset.empty = String(!byKind.get(kind));
         }
+        const edges = [];
         for (const item of testMap.items) {
           card(items, item.id, item.target, item.testKind, item.reason, item.evidence, item.classification);
           textElement(textItems, 'li', '', item.testKind + ' · ' + item.link + ': ' + item.reason + ' — ' + item.evidence.source);
+          edges.push({
+            id: item.id,
+            fromId: testMap.root.id,
+            toId: item.id,
+            from: rootElement,
+            to: cardElements.get(item.id),
+            accent: KIND_ACCENT[item.testKind] || 'green',
+            strength: item.testKind === 'unknown' ? 'declared' : 'live'
+          });
         }
-        if (!testMap.items.length) { textElement(items, 'p', 'empty', 'No test-like caller or reference was returned. This is missing evidence, not a coverage verdict.'); }
+        if (!testMap.items.length) { textElement(items, 'p', 'lens-empty', 'No test-like caller or reference was returned. This is missing evidence, not a coverage verdict.'); }
+        flow.render(edges);
       }
 
       window.addEventListener('message', event => {

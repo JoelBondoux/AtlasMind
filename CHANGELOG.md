@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.257.1] - 2026-08-04
+
+### Fixed
+
+- **The Lens dashboard's contract rule now describes the condition it actually tests.** `no-contract-files` fires when *fewer than two* contract sources are found, but its published description and its suggested-action title both said none had been found — false in the one-source case, which is the likelier one. Because that rule table renders on the dashboard so a reader can check the grading, a description that disagrees with its own condition defeats the reason for publishing it. Both now state the two-source requirement, and a regression test asserts the text stays true for zero sources and for one.
+- **The dashboard reads the active editor once per refresh.** `collectLensDashboardInput` called `activeLensTarget()` twice in the same object spread — once to test and once for the value — so an editor change between the two calls could set `activeTarget: undefined` on an object that had just reported having one.
+
+## [0.257.0] - 2026-08-04
+
+### Added
+
+- **Atlas Lenses has a dashboard.** `AtlasMind: Lens: Open Atlas Lenses Dashboard` opens one page for all eight lenses. Each is listed with the question it answers, a plain-language explanation, the evidence it reads, whether it can answer right now, and — when it cannot — the declared rule that says so. A flow map draws evidence → lens → question, and hovering or focusing any node follows its links while dimming the rest. A **Do this next** band ranks only what needs a person, by consequence rather than by count, capped with the remainder stated, and is empty when nothing does. Every lens, node, and action is clickable; the webview posts a bounded id and the host resolves the command from a catalog it holds itself, so no surface can execute a command the dashboard did not already offer. Opening it runs no model, writes no file, and scans no workspace: contract discovery stays deliberately unassessed rather than being reported as absent.
+- **Every Lens surface explains itself to a first-time reader.** A ⓘ affordance on each lens, section, and column gives the plain-language version and — separately — what that lens cannot prove, so "no test evidence found" cannot be read as "this code is untested". It is a real button: keyboard-reachable, `aria-expanded`-labelled, Escape-dismissable, and it also carries a hover title, because a popover alone is a tooltip half the users never receive.
+
+### Changed
+
+- **The eight Lens surfaces now share one visual language.** `src/views/lensVisuals.ts` owns the tokens, header, cards, badges, notices, empty states, buttons, flowing-link renderer, and ⓘ popover that Possible Flow, Change Impact, Test Evidence, State Lifecycle, Configuration Resolution, Change Story, Field Wiring, and the new dashboard all draw from. A test reads all eight sources and fails if one stops using it.
+- **Relationships are drawn, not listed.** Declared state transitions curve between the two state cards they name; impact links point *into* the selected symbol from its callers and *out of* it to its callees, because drawing them all one way would misstate the direction of the dependency; test links reach each discovered test file; and the configuration chain shows precedence flowing to the source that actually wins. Curves are computed from live element geometry, so they survive wrapping, scrolling, and a resized panel, and only a highlighted link animates — and only when the OS has not asked for reduced motion.
+- **The Lens titlebar shows the three things that act on the tree, plus a way to everything else.** Contract Wiring, State Lifecycle, and Configuration Resolution move to the overflow now that the dashboard reaches them as clickable cards, which frees a slot for the Settings route the five-slot ceiling had pushed out of sight. The tree's named empty states — no editor, file outside the workspace, no symbols — are now routes to the dashboard rather than explanations with nowhere to go.
+- **Settings → Project Runs offers the dashboard beside the declaration setup**, so the two declaration-backed lenses are no longer the only ones a reader can discover from there.
+
+### Fixed
+
+- **Column labels in Possible Flow no longer assume the vocabulary.** "Incoming", "Selected", and "Depth 2" now carry a sentence each saying what they mean.
+
 ## [0.256.0] - 2026-08-02
 
 ### Added

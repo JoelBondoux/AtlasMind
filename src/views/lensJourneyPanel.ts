@@ -8,6 +8,7 @@ import {
 } from '../core/lensTarget.js';
 import type { LensGraph, LensVisualTarget } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { LENS_PANEL_CSS, LENS_PANEL_SCRIPT, renderLensHeader } from './lensVisuals.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type LensJourneyMessage =
@@ -184,67 +185,62 @@ function buildJourneyHtml(cspSource: string): string {
     title: 'AtlasMind Lens — Possible Flow',
     cspSource,
     bodyContent: `
-      <main class="journey-shell">
-        <header class="journey-header">
-          <div>
-            <p class="eyebrow">AtlasMind Lens</p>
-            <h1 id="journey-title">Possible flow</h1>
-            <p id="journey-summary">Loading source-backed relationships…</p>
-          </div>
-          <span class="mode-badge">Static evidence</span>
-        </header>
-        <section aria-labelledby="journey-title">
-          <ul id="journey-notices" class="notices" aria-label="Evidence notices"></ul>
-          <div id="journey-graph" class="graph-stage" aria-label="Possible code-flow graph">
-            <svg id="journey-edges" class="edge-layer" aria-hidden="true"></svg>
-            <div id="journey-columns" class="graph-columns"></div>
+      <main class="lens-shell" data-accent="purple">
+        ${renderLensHeader({
+          eyebrow: 'Atlas Lens',
+          title: 'Possible flow',
+          titleId: 'journey-title',
+          subtitle: 'Loading source-backed relationships…',
+          subtitleId: 'journey-summary',
+          mode: 'Static evidence',
+          info: {
+            title: 'Possible flow',
+            body: 'Everything your language extension says can reach this symbol, and everything this symbol can reach. Read it before you change something to see who is standing behind you.',
+            note: 'A path being possible does not prove it ever runs. This is what the compiler can see, not what your program did.',
+          },
+        })}
+        <ul id="journey-notices" class="lens-notices" aria-label="Evidence notices"></ul>
+        <section class="lens-section" aria-labelledby="journey-title">
+          <div class="lens-panel lens-stage" id="journey-graph" aria-label="Possible code-flow graph">
+            <svg id="journey-edges" class="lens-flow-layer" aria-hidden="true"></svg>
+            <div id="journey-columns" class="lens-flow-content graph-columns"></div>
           </div>
         </section>
-        <details class="text-view">
+        <details class="lens-text-view">
           <summary>Text view</summary>
           <p>A keyboard- and screen-reader-friendly list of the same relationships.</p>
           <ul id="journey-text-edges"></ul>
         </details>
       </main>
     `,
-    extraCss: `
-      .journey-shell { max-width: 1440px; margin: 0 auto; }
-      .journey-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-      .journey-header h1 { margin: 0; }
-      .journey-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
-      .eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-      .mode-badge { flex: none; border: 1px solid var(--vscode-widget-border); border-radius: 999px; padding: 4px 9px; color: var(--vscode-descriptionForeground); }
-      .notices { padding-left: 20px; color: var(--vscode-descriptionForeground); }
-      .graph-stage { position: relative; overflow-x: auto; border: 1px solid var(--vscode-widget-border); border-radius: 8px; padding: 20px; min-height: 240px; background: var(--vscode-editor-background); }
-      .graph-columns { position: relative; z-index: 1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(190px, 240px); gap: 44px; width: max-content; min-width: 100%; }
-      .graph-column { display: flex; flex-direction: column; gap: 12px; }
-      .column-label { margin: 0 0 2px; color: var(--vscode-descriptionForeground); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
-      .journey-node { border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-focusBorder); border-radius: 6px; padding: 10px; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); box-shadow: 0 2px 8px color-mix(in srgb, black 18%, transparent); }
-      .journey-node[data-role="reference"] { border-left-color: var(--vscode-charts-purple, #b180d7); }
-      .journey-node[data-role="caller"] { border-left-color: var(--vscode-charts-blue, #75beff); }
-      .journey-node[data-role="callee"] { border-left-color: var(--vscode-charts-green, #89d185); }
-      .node-role { margin: 0 0 3px; color: var(--vscode-descriptionForeground); font-size: 0.72rem; text-transform: uppercase; }
-      .node-label { margin: 0; font-size: 0.92rem; }
-      .node-location { margin: 4px 0 9px; color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.75rem; }
-      .node-actions { display: flex; gap: 6px; }
-      .node-action { border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-      .node-action:hover { background: var(--vscode-button-secondaryHoverBackground); }
-      .node-action:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .edge-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-      .edge-line { stroke: var(--vscode-descriptionForeground); stroke-width: 1.5; opacity: 0.72; fill: none; }
-      .text-view { margin-top: 16px; border-top: 1px solid var(--vscode-widget-border); padding-top: 10px; }
-      .text-view summary { cursor: pointer; font-weight: 600; }
-      .text-view p, .text-view li { color: var(--vscode-descriptionForeground); }
-      @media (max-width: 600px) { .journey-header { flex-direction: column; } .graph-columns { gap: 28px; } }
+    extraCss: `${LENS_PANEL_CSS}
+      .graph-columns {
+        display: grid; grid-auto-flow: column; grid-auto-columns: minmax(200px, 250px);
+        gap: 56px; width: max-content; min-width: 100%;
+      }
+      #journey-graph { overflow-x: auto; min-height: 260px; }
+      .graph-column { display: flex; flex-direction: column; gap: 11px; }
+      .column-label {
+        margin: 0; color: var(--lens-muted); font-size: .68rem;
+        text-transform: uppercase; letter-spacing: .1em; font-weight: 700;
+      }
+      .column-hint { margin: 0 0 4px; font-size: .74rem; color: var(--lens-muted); }
+      .journey-node[data-role="reference"] { --lens-accent: var(--vscode-charts-purple, #b180d7); }
+      .journey-node[data-role="caller"] { --lens-accent: var(--vscode-charts-blue, #75beff); }
+      .journey-node[data-role="callee"] { --lens-accent: var(--vscode-charts-green, #89d185); }
+      @media (max-width: 640px) { .graph-columns { gap: 30px; } }
     `,
     scriptContent: `
       const vscode = acquireVsCodeApi();
+      ${LENS_PANEL_SCRIPT}
       const title = document.getElementById('journey-title');
       const summary = document.getElementById('journey-summary');
       const notices = document.getElementById('journey-notices');
       const columns = document.getElementById('journey-columns');
-      const edgesLayer = document.getElementById('journey-edges');
       const textEdges = document.getElementById('journey-text-edges');
+      const flow = createLensFlow(document.getElementById('journey-graph'), document.getElementById('journey-edges'));
+      const ROLE_ACCENT = { reference: 'purple', caller: 'blue', callee: 'green', root: 'orange' };
+      const nodeElements = new Map();
       let activeGraph;
 
       function appendTextElement(parent, tag, className, value) {
@@ -255,8 +251,26 @@ function buildJourneyHtml(cspSource: string): string {
         return element;
       }
 
+      function setHighlight(nodeId) {
+        flow.highlight(nodeId);
+        if (!nodeId || !activeGraph) {
+          for (const card of nodeElements.values()) { card.classList.remove('is-dimmed', 'is-highlighted'); }
+          return;
+        }
+        const related = new Set([nodeId]);
+        for (const edge of activeGraph.edges) {
+          if (edge.fromNodeId === nodeId) { related.add(edge.toNodeId); }
+          if (edge.toNodeId === nodeId) { related.add(edge.fromNodeId); }
+        }
+        for (const [id, card] of nodeElements) {
+          card.classList.toggle('is-highlighted', related.has(id));
+          card.classList.toggle('is-dimmed', !related.has(id));
+        }
+      }
+
       function renderGraph(graph) {
         activeGraph = graph;
+        nodeElements.clear();
         title.textContent = graph.label;
         summary.textContent = graph.nodes.length + ' nodes · ' + graph.edges.length + ' relationships' + (graph.truncated ? ' · bounded view' : '');
         notices.replaceChildren();
@@ -276,24 +290,36 @@ function buildJourneyHtml(cspSource: string): string {
           column.className = 'graph-column';
           column.dataset.depth = String(depth);
           appendTextElement(column, 'p', 'column-label', depth === 0 ? 'Incoming' : depth === 1 ? 'Selected' : 'Depth ' + (depth - 1));
+          appendTextElement(column, 'p', 'column-hint', depth === 0
+            ? 'Code that reaches the symbol you picked.'
+            : depth === 1
+              ? 'What you started from.'
+              : 'Reached in ' + (depth - 1) + (depth - 1 === 1 ? ' step' : ' steps') + ' from it.');
           for (const node of byDepth.get(depth)) {
             const card = document.createElement('article');
-            card.className = 'journey-node';
+            card.className = 'lens-card journey-node';
             card.dataset.nodeId = node.id;
             card.dataset.role = node.role;
-            appendTextElement(card, 'p', 'node-role', node.role);
-            appendTextElement(card, 'h2', 'node-label', node.target.label);
+            card.dataset.accent = ROLE_ACCENT[node.role] || 'purple';
+            card.tabIndex = 0;
+            appendTextElement(card, 'p', 'lens-card-kicker', node.role);
+            appendTextElement(card, 'h2', 'lens-card-title', node.target.label);
             const suffix = node.target.range ? ':' + node.target.range.startLine : '';
-            appendTextElement(card, 'p', 'node-location', node.target.workspace.name + ' :: ' + node.target.workspacePath + suffix);
+            appendTextElement(card, 'p', 'lens-card-path', node.target.workspace.name + ' :: ' + node.target.workspacePath + suffix);
             const actions = document.createElement('div');
-            actions.className = 'node-actions';
-            const open = appendTextElement(actions, 'button', 'node-action', 'Open');
+            actions.className = 'lens-card-actions';
+            const open = appendTextElement(actions, 'button', 'lens-button', 'Open');
             open.type = 'button';
             open.addEventListener('click', () => vscode.postMessage({ type: 'openNode', nodeId: node.id }));
-            const ask = appendTextElement(actions, 'button', 'node-action', 'Ask Atlas');
+            const ask = appendTextElement(actions, 'button', 'lens-button', 'Ask Atlas');
             ask.type = 'button';
             ask.addEventListener('click', () => vscode.postMessage({ type: 'askNode', nodeId: node.id }));
             card.appendChild(actions);
+            card.addEventListener('pointerenter', () => setHighlight(node.id));
+            card.addEventListener('pointerleave', () => setHighlight(null));
+            card.addEventListener('focusin', () => setHighlight(node.id));
+            card.addEventListener('focusout', () => setHighlight(null));
+            nodeElements.set(node.id, card);
             column.appendChild(card);
           }
           columns.appendChild(column);
@@ -306,37 +332,21 @@ function buildJourneyHtml(cspSource: string): string {
           if (!from || !to) { continue; }
           appendTextElement(textEdges, 'li', '', from.target.label + ' ' + edge.relation + ' ' + to.target.label + ' — ' + edge.evidence.source);
         }
-        requestAnimationFrame(drawEdges);
-      }
-
-      function drawEdges() {
-        edgesLayer.replaceChildren();
-        if (!activeGraph) { return; }
-        const stageRect = edgesLayer.parentElement.getBoundingClientRect();
-        edgesLayer.setAttribute('viewBox', '0 0 ' + stageRect.width + ' ' + stageRect.height);
-        for (const edge of activeGraph.edges) {
-          const from = columns.querySelector('[data-node-id="' + CSS.escape(edge.fromNodeId) + '"]');
-          const to = columns.querySelector('[data-node-id="' + CSS.escape(edge.toNodeId) + '"]');
-          if (!from || !to) { continue; }
-          const fromRect = from.getBoundingClientRect();
-          const toRect = to.getBoundingClientRect();
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          const startX = fromRect.right - stageRect.left;
-          const startY = fromRect.top + fromRect.height / 2 - stageRect.top;
-          const endX = toRect.left - stageRect.left;
-          const endY = toRect.top + toRect.height / 2 - stageRect.top;
-          const curve = Math.max(24, Math.abs(endX - startX) * 0.42);
-          path.setAttribute('d', 'M ' + startX + ' ' + startY + ' C ' + (startX + curve) + ' ' + startY + ', ' + (endX - curve) + ' ' + endY + ', ' + endX + ' ' + endY);
-          path.setAttribute('class', 'edge-line');
-          edgesLayer.appendChild(path);
-        }
+        flow.render(graph.edges.map(edge => ({
+          id: edge.fromNodeId + '->' + edge.toNodeId,
+          fromId: edge.fromNodeId,
+          toId: edge.toNodeId,
+          from: nodeElements.get(edge.fromNodeId),
+          to: nodeElements.get(edge.toNodeId),
+          accent: ROLE_ACCENT[byId.get(edge.toNodeId)?.role] || 'purple',
+          strength: 'live'
+        })));
       }
 
       window.addEventListener('message', event => {
         const message = event.data;
         if (message && message.type === 'graph' && message.graph) { renderGraph(message.graph); }
       });
-      window.addEventListener('resize', () => requestAnimationFrame(drawEdges));
       vscode.postMessage({ type: 'ready' });
     `,
   });

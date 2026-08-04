@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.257.1 — Atlas Lenses gets a dashboard, and one visual language
+
+Lens had eight surfaces and no front door: each was reached by knowing its command, and nothing said what the set was or why one of them refused to open. **AtlasMind: Lens: Open Atlas Lenses Dashboard** is that door — every lens with the question it answers, a plain-language explanation, the evidence it reads, whether it is ready, and the declared rule behind the verdict. A flow map draws evidence → lens → question, hovering follows the links, everything is clickable, and a **Do this next** band ranks only what needs a person, empty when nothing does. All eight surfaces now share one stylesheet, one card, one header, and one flowing-link renderer: state transitions curve between the states they connect, impact links point into the selected symbol from its callers and out of it to its callees, and configuration precedence flows to the source that wins. A ⓘ on each lens says what it cannot prove, so "no test evidence found" cannot be read as "this code is untested". Review follow-up in 0.257.1: the `no-contract-files` rule now describes the condition it actually tests — fewer than two contract sources, not none — since that rule table is published on the page precisely so a reader can check the grading.
+
+---
+
 ## v0.256.0 — One request, one declared delivery route
 
 Commit, push, pull-request, promotion, and publication requests can now follow the project’s enabled declared workflow in the same chat turn. `atlasmind.workflow.chatGuidance` defaults to `follow`, so AtlasMind no longer asks for a second “follow the workflow” message after the operator already named the desired outcome. `inform` remains available for a visible non-blocking note, `gate` remains the explicit stop, and `off` remains silent.

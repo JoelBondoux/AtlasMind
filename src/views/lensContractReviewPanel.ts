@@ -33,6 +33,7 @@ import type {
   LensVisualTarget,
 } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { LENS_INFO_SCRIPT, LENS_PANEL_CSS, renderLensHeader, renderLensInfo } from './lensVisuals.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 export interface LensContractReviewPanelInput {
@@ -493,13 +494,20 @@ function buildContractReviewHtml(cspSource: string): string {
     title: 'AtlasMind Lens — Field Wiring',
     cspSource,
     bodyContent: `
-      <main class="wiring-shell">
-        <header class="wiring-header">
-          <div>
-            <p class="eyebrow">AtlasMind Lens</p>
-            <h1>Field wiring</h1>
-            <p id="wiring-summary">Loading normalized contract evidence…</p>
-          </div>
+      <main class="lens-shell wiring-shell" data-accent="yellow">
+        ${renderLensHeader({
+          eyebrow: 'Atlas Lens',
+          title: 'Field wiring',
+          subtitle: 'Loading normalized contract evidence…',
+          subtitleId: 'wiring-summary',
+          mode: 'Declared contracts',
+          info: {
+            title: 'Field wiring',
+            body: 'Two contracts side by side — an API and a table, say — showing which field connects to which, and which ones do not connect at all.',
+            note: 'Read from declarations only. AtlasMind never connects to a live database and never edits your contracts. A wire it cannot verify stays "unverified" rather than being called broken.',
+          },
+        })}
+        <div class="wiring-controls">
           <div class="filters" aria-label="Wiring filters">
             <label for="status-filter">Status</label>
             <select id="status-filter">
@@ -525,12 +533,20 @@ function buildContractReviewHtml(cspSource: string): string {
               <option value="undocumented-wire">Undocumented wire</option>
             </select>
             <label class="suppression-toggle"><input id="show-suppressed" type="checkbox" checked /> Show suppressed</label>
+            ${renderLensInfo({
+              title: 'Suppressions',
+              body: 'A suppressed wire is one your mapping file says is expected. It stays visible and annotated rather than being erased, so a rule nobody remembers writing cannot hide a real problem.',
+            })}
           </div>
-        </header>
+        </div>
         <section class="drift-review" aria-labelledby="drift-heading">
           <div>
             <p class="eyebrow">Evidence-based triage</p>
-            <h2 id="drift-heading">Contract drift review</h2>
+            <h2 id="drift-heading">Contract drift review${renderLensInfo({
+              title: 'Contract drift',
+              body: 'A count of what the comparison found: definite conflicts where the two sides disagree about shape, likely drift where something changed without being declared, and missing evidence where there is simply nothing to check against.',
+              note: 'Missing evidence is deliberately its own number. Folding it into the conflicts would overstate what is known; folding it into the passes would overstate what is safe.',
+            })}</h2>
           </div>
           <dl class="drift-summary" aria-label="Contract finding summary">
             <div><dt>Active</dt><dd id="drift-active">0</dd></div>
@@ -543,7 +559,11 @@ function buildContractReviewHtml(cspSource: string): string {
         <section id="relationship-map" class="relationship-map" aria-labelledby="relationship-heading" hidden>
           <div>
             <p class="eyebrow">Declared traversal evidence</p>
-            <h2 id="relationship-heading">Relationship map</h2>
+            <h2 id="relationship-heading">Relationship map${renderLensInfo({
+              title: 'Relationship map',
+              body: 'Foreign keys and other declared links between the two contracts, read from the declarations themselves.',
+              note: 'Declared topology, not proof that your application code ever traverses the relation at runtime.',
+            })}</h2>
             <p id="relationship-summary"></p>
           </div>
           <div id="relationship-items" class="relationship-items" role="list" aria-label="Declared contract relationships"></div>
@@ -553,7 +573,11 @@ function buildContractReviewHtml(cspSource: string): string {
           <div class="impact-header">
             <div>
               <p class="eyebrow">Proposed change — no edits made</p>
-              <h2 id="impact-heading">Schema change impact</h2>
+              <h2 id="impact-heading">Schema change impact${renderLensInfo({
+              title: 'Schema change impact',
+              body: 'What a rename, removal, or type change to the selected field would reach: the other endpoint, the mapping, serialization, validation, migration, and rollout.',
+              note: 'Nothing is changed by previewing this. The scope is the two contracts you selected — callers, tests, runtime traces, and deployment state stay unknown.',
+            })}</h2>
               <p id="impact-summary"></p>
             </div>
             <button id="close-impact" type="button" class="small-action">Close preview</button>
@@ -565,7 +589,11 @@ function buildContractReviewHtml(cspSource: string): string {
           <div class="impact-header">
             <div>
               <p class="eyebrow">Declared policy metadata — no data values</p>
-              <h2 id="trust-heading">Data trust map</h2>
+              <h2 id="trust-heading">Data trust map${renderLensInfo({
+              title: 'Data trust map',
+              body: 'How sensitive this field is declared to be, and which controls — consent, authorization, redaction, encryption, retention, residency — your policy file says apply to it.',
+              note: 'Repository policy evidence, not runtime verification. No data values, secrets, database contents, or traffic are read.',
+            })}</h2>
               <p id="trust-summary"></p>
             </div>
             <button id="close-trust" type="button" class="small-action">Close map</button>
@@ -581,32 +609,43 @@ function buildContractReviewHtml(cspSource: string): string {
         </div>
       </main>
     `,
-    extraCss: `
-      .wiring-shell { max-width: 1500px; margin: 0 auto; }
-      .wiring-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
-      .wiring-header h1 { margin: 0; }
-      .wiring-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
-      .eyebrow { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-      .filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-      .filters select { border: 1px solid var(--vscode-dropdown-border); padding: 4px 7px; }
-      .suppression-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
-      .notices { padding-left: 20px; color: var(--vscode-descriptionForeground); }
-      .drift-review { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 18px 0 8px; padding: 13px; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
+    extraCss: `${LENS_PANEL_CSS}
+      .wiring-controls { display: flex; justify-content: flex-end; margin: -6px 0 16px; }
+      .filters {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px;
+        border: 1px solid var(--lens-border); border-radius: 999px; background: var(--lens-surface);
+        font-size: .8rem;
+      }
+      .filters label { color: var(--lens-muted); }
+      .filters select { border: 1px solid var(--vscode-dropdown-border); border-radius: 6px; padding: 4px 7px; }
+      .suppression-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--lens-muted); }
+      /* The panel predates the shared notice styling and refers to '.notices'
+         throughout its script; aliasing keeps one look without renaming a
+         selector the renderer depends on. */
+      .notices { list-style: none; display: grid; gap: 6px; margin: 0 0 16px; padding: 0; }
+      .notices:empty { display: none; }
+      .notices li {
+        padding: 8px 12px; border-radius: 8px; border: 1px solid var(--lens-border);
+        background: color-mix(in srgb, var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #75beff)) 7%, transparent);
+        color: var(--lens-muted); font-size: .82rem;
+      }
+      h2 { display: flex; align-items: center; gap: 8px; }
+      .drift-review { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 18px 0 12px; padding: 15px; border: 1px solid var(--lens-border); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .drift-review h2 { margin: 0; font-size: 1rem; }
       .drift-summary { display: flex; flex-wrap: wrap; gap: 9px; margin: 0; }
-      .drift-summary div { min-width: 82px; padding: 7px 9px; border-radius: 5px; background: var(--vscode-editorWidget-background); }
+      .drift-summary div { min-width: 86px; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--lens-border); background: var(--lens-surface-raised); }
       .drift-summary dt { color: var(--vscode-descriptionForeground); font-size: 0.72rem; }
       .drift-summary dd { margin: 2px 0 0; font-size: 1.05rem; font-weight: 700; }
-      .relationship-map { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
+      .relationship-map { margin: 14px 0; padding: 15px; border: 1px solid var(--lens-border); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .relationship-map[hidden] { display: none; }
       .relationship-map h2 { margin: 0; font-size: 1rem; }
       .relationship-map p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
       .relationship-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
-      .relationship-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 5px; background: var(--vscode-editorWidget-background); }
+      .relationship-item { padding: 11px; border: 1px solid var(--lens-border); border-radius: 8px; background: var(--lens-surface-raised); }
       .relationship-path { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-weight: 700; }
       .relationship-arrow { color: var(--vscode-charts-blue, #75beff); }
       .relationship-meta, .relationship-evidence { display: block; margin-top: 5px; color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
-      .impact-preview { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-focusBorder); border-radius: 7px; background: var(--vscode-editorWidget-background); }
+      .impact-preview { margin: 14px 0; padding: 15px; border: 1px solid color-mix(in srgb, var(--vscode-charts-orange, #d18616) 55%, var(--lens-border)); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .impact-preview[hidden] { display: none; }
       .impact-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
       .impact-header h2 { margin: 0; }
@@ -620,22 +659,34 @@ function buildContractReviewHtml(cspSource: string): string {
       .impact-severity-high { color: var(--vscode-testing-iconFailed, #f14c4c); }
       .impact-severity-medium { color: var(--vscode-editorWarning-foreground, #cca700); }
       .impact-severity-review { color: var(--vscode-descriptionForeground); }
-      .trust-preview { margin: 14px 0; padding: 13px; border: 1px solid var(--vscode-charts-purple, var(--vscode-focusBorder)); border-radius: 7px; background: var(--vscode-editorWidget-background); }
+      .trust-preview { margin: 14px 0; padding: 15px; border: 1px solid color-mix(in srgb, var(--vscode-charts-purple, #b180d7) 55%, var(--lens-border)); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .trust-preview[hidden] { display: none; }
       .trust-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
       .trust-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-charts-purple, #b180d7); border-radius: 5px; background: var(--vscode-editor-background); }
       .trust-item[data-status="unknown"] { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
       .trust-label { font-weight: 700; }
       .trust-meta, .trust-controls, .trust-note, .trust-evidence { display: block; margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
-      .table-scroll { overflow: auto; border: 1px solid var(--vscode-widget-border); border-radius: 7px; }
+      .table-scroll { overflow: auto; border: 1px solid var(--lens-border); border-radius: var(--lens-radius); background: var(--lens-surface); }
       table { min-width: 840px; margin: 0; }
       th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); }
       td { vertical-align: top; }
       .field-name { display: block; font-weight: 650; }
       .field-shape, .wire-reason, .wire-evidence, .suppression { display: block; margin-top: 3px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
       .field-actions, .wire-actions { display: flex; gap: 5px; margin-top: 7px; }
-      .small-action { border: 1px solid var(--vscode-button-border, var(--vscode-widget-border)); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-      .small-action:hover { background: var(--vscode-button-secondaryHoverBackground); }
+      /* Matches .lens-button, which the other seven surfaces use. Kept under its
+         own name because this panel's script names it in a dozen places. */
+      .small-action {
+        appearance: none; display: inline-flex; align-items: center; gap: 6px;
+        border-radius: 999px; padding: 4px 12px; font: inherit; font-size: .76rem;
+        font-weight: 600; cursor: pointer; line-height: 1.4;
+        border: 1px solid var(--lens-border);
+        background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent);
+        color: var(--vscode-foreground);
+      }
+      .small-action:hover {
+        background: color-mix(in srgb, var(--lens-accent) 16%, transparent);
+        border-color: color-mix(in srgb, var(--lens-accent) 60%, var(--lens-border));
+      }
       .small-action:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 650; border: 1px solid var(--vscode-widget-border); }
       .status-exact { color: var(--vscode-testing-iconPassed, #73c991); }
@@ -649,10 +700,11 @@ function buildContractReviewHtml(cspSource: string): string {
       .finding-info { color: var(--vscode-descriptionForeground); }
       tr.is-suppressed { opacity: 0.72; }
       .empty-cell { color: var(--vscode-descriptionForeground); }
-      @media (max-width: 700px) { .wiring-header { flex-direction: column; } }
+      @media (max-width: 700px) { .wiring-controls { justify-content: stretch; } .filters { border-radius: var(--lens-radius); } }
     `,
     scriptContent: `
       const vscode = acquireVsCodeApi();
+      ${LENS_INFO_SCRIPT}
       const summary = document.getElementById('wiring-summary');
       const notices = document.getElementById('wiring-notices');
       const rows = document.getElementById('wiring-rows');
