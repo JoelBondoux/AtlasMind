@@ -328,6 +328,40 @@ Specialist integration credentials are also stored in SecretStorage using the `a
 |---|---|---|---|
 | `atlasmind.debt.markers` | array | `[]` | Extra comment markers the tech-debt scan looks for, on top of `TODO`, `FIXME`, `HACK` and `XXX`. Written as `NAME` or `NAME:severity`, e.g. `["DEBT", "REVISIT:high"]`. An unqualified marker is graded **medium**. Each becomes a declared rule, named on every entry it grades and published in `tech-debt.md`. The built-in four cannot be redefined, and a marker mentioning a credential is still graded high whatever you called it. |
 
+## Atlas Lenses — live services
+
+The three live lenses (Live Contract Drift, Service Reachability, Live Data Trust) are the only
+part of AtlasMind that reaches a system somebody else operates. They compare the schema your
+repository declares against the one a running API or database actually serves.
+
+**They read shape and nothing else.** An API probe fetches the OpenAPI document the service
+publishes, or sends a fixed GraphQL introspection query. A database probe asks a connected MCP
+server's schema-reading tool what tables and columns exist. AtlasMind never issues a query that
+returns rows, never composes SQL, never sends a write verb, and never follows a redirect away from
+the destination you declared.
+
+Which services may be reached is declared in `.atlasmind/lens-endpoints.json`, a committed file —
+not a setting, and never a model, because a hostname nobody typed is a request to a stranger made
+in your name. That file *names* a secret via `secretRef`; a document that actually contains a
+token, password, or connection string is refused whole rather than quietly cleaned up.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.lens.live.enabled` | boolean | `false` | Master switch for the live lenses. Off by default: a probe leaves this machine. Nothing is probed until you pick an endpoint — there is no automatic or background probing at any setting. |
+| `atlasmind.lens.live.allowedStages` | array | `["local", "development", "staging"]` | Which declared environments a probe may reach. **`production` is deliberately absent from the default**, and an endpoint that does not state its stage counts as `unknown`, which is treated *as production*. Adding either does not skip the gate: those endpoints still require you to type the endpoint's label before each probe, mirroring the promotion runner's protected gate. An empty list means no stage is allowed, and is honoured as written. |
+
+Two facts worth knowing before you turn this on:
+
+- **AtlasMind bundles no database driver and stores no database credential.** A `database`
+  endpoint is reached through an MCP server you have already connected and approved, and only if
+  that server exposes a tool whose *name* says it reads schema (`list_tables`, `get_schema`,
+  `describe_table`, …). A server offering only a generic `query` tool is not used — AtlasMind will
+  not compose SQL — and the lens says so rather than trying anyway.
+- **An unassessed endpoint is never reported as healthy.** A probe that was refused, timed out, or
+  was never run reads as *not assessed*, separately from *unreachable*, and a drift report for an
+  endpoint nobody probed carries no findings and says explicitly that this is not a finding of
+  "no drift".
+
 ## Settings that were live but undeclared
 
 Both of these have been read by real code for months and were absent from the manifest, so they worked if you typed them into `settings.json` by hand and were invisible in the Settings UI. Documented, functioning, and undiscoverable is the worst of the three states — declared in 0.205.0.

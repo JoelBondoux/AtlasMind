@@ -19,6 +19,46 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.260.0 — The lenses can look at your live services
+
+Every lens read the repository, which meant the question people actually have — *does the running system
+still agree with what the code believes?* — was one AtlasMind could not answer. Field Wiring could compare
+two declarations and said so in its own limit line. Nothing could compare a declaration against reality.
+
+Three new lenses close that. **Live Contract Drift** compares the schema your repository declares against
+the one a live API or database serves, and names every field that has gone missing, changed type, or
+turned up without being declared. A field the code declares and the service doesn't serve is a dead end
+and a schema failure at once — kept deliberately separate from a field the service serves that nobody
+declared, because those need opposite fixes and one combined "mismatch" would hide which you're looking
+at. **Service Reachability** asks the prior question: which declared services answered at all, which
+didn't, and which nobody has looked at. **Live Data Trust** lists the fields a service actually serves
+that no classification covers — unknown sensitivity on real data currently crossing the wire, which the
+static view can't see because the field was never in a file.
+
+**It reads shape and nothing else.** An API probe fetches the OpenAPI document the service publishes or
+sends one fixed introspection query; a database probe asks a connected MCP server what tables and columns
+exist. There is no function anywhere in that path that accepts a query, so `SELECT * FROM users` isn't
+something any caller can reach — and value-bearing keys like OpenAPI `example` and `default` are dropped
+*by name*, because they're where a real customer record ends up when somebody pastes one in while
+debugging.
+
+Which services may be reached is a **committed file**, so a change to what AtlasMind can touch arrives as
+a diff with a reviewer. It names a stored secret rather than holding one — a file containing an actual
+token is refused whole rather than quietly cleaned up — and it's the one declaration kind Atlas refuses
+to draft, because a hostname nobody typed is a request sent to a stranger in your name.
+
+Probing is off by default. Production isn't in the default allowed environments, and **an endpoint that
+doesn't say which environment it is gets treated as production**, asking you to type its name before every
+probe. Redirects aren't followed. Databases go through an MCP server you already approved, and only via a
+tool whose name says it reads schema — AtlasMind bundles no database driver and won't compose SQL for a
+generic query tool.
+
+And an unassessed service is never reported as healthy: refused, timed out and never-probed stay distinct
+from unreachable, and a drift report for an endpoint nobody probed says outright that this is not a
+finding of "no drift".
+
+---
+
 ## v0.259.0 — "Promote to staging" means what your project says it means
 
 AtlasMind records your delivery pipeline — the stages, what each one is called, which branch represents

@@ -184,14 +184,42 @@ describe('buildLensDeclarationPlan — guidance', () => {
 
 describe('every worked example is valid against its own normalizer', () => {
   it('parses and passes, so the guide never shows a shape the lens would refuse', async () => {
-    const { reviewLensDeclarationDraft } = await import('../../src/core/lensDeclarationDraft.js');
-    for (const [kind, example] of Object.entries(LENS_DECLARATION_EXAMPLES)) {
+    const { isLensDeclarationDraftable, reviewLensDeclarationDraft } =
+      await import('../../src/core/lensDeclarationDraft.js');
+    const { normalizeLensEndpointFile } = await import('../../src/core/lensEndpoints.js');
+
+    for (const [rawKind, example] of Object.entries(LENS_DECLARATION_EXAMPLES)) {
+      const kind = rawKind as LensDeclarationKind;
+      if (!isLensDeclarationDraftable(kind)) {
+        // An undraftable kind has no drafter path to validate through, so the
+        // example is checked against the gate the lens itself reads it with.
+        // Skipping it entirely would let the guide show a shape the lens refuses.
+        const normalized = normalizeLensEndpointFile(JSON.parse(example.json));
+        expect(normalized, `${kind} example should normalize`).toBeDefined();
+        expect(normalized?.rejected, `${kind} example should reject nothing`).toEqual([]);
+        expect(normalized?.file.endpoints.length).toBeGreaterThan(0);
+        continue;
+      }
       const review = reviewLensDeclarationDraft(
-        kind as LensDeclarationKind,
+        kind,
         `\`\`\`json\n${example.json}\n\`\`\``,
         { anchorExists: () => true },
       );
       expect(review.outcome, `${kind} example should be valid`).toBe('accepted');
     }
+  });
+
+  it('refuses to let a model draft the endpoints file at all', async () => {
+    const { reviewLensDeclarationDraft } = await import('../../src/core/lensDeclarationDraft.js');
+    // Refused before the reply is parsed, so a convincing draft cannot pass.
+    const review = reviewLensDeclarationDraft(
+      'endpoints',
+      '```json\n{"version":1,"endpoints":[{"id":"x","label":"X","kind":"http-openapi",'
+      + '"stage":"staging","url":"https://evil.test/openapi.json","expectedContractIds":[]}]}\n```',
+      { anchorExists: () => true },
+    );
+    expect(review.outcome).toBe('refused');
+    expect(review.document).toBeUndefined();
+    expect(review.refusal).toContain('request to a stranger');
   });
 });

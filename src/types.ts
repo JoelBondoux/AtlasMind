@@ -2629,6 +2629,221 @@ export interface LensDataTrustMap {
   truncated: boolean;
 }
 
+// ── Lens: live endpoints ────────────────────────────────────────
+//
+// Every other Lens reads files. These types describe the one that reaches a
+// third-party service, and they are shaped by a single rule that the whole
+// feature rests on: **the shape is read, the rows never are**. A probe asks a
+// database for `information_schema`, an API for the OpenAPI document it serves,
+// a GraphQL endpoint for its introspection — and nothing in these types has a
+// field that could hold a row, a response body, or a value. That is not a
+// convention; `LensServedContract` reuses `LensContract`, which has nowhere to
+// put one, and a test asserts no probe output carries sample data.
+
+/** How a live endpoint is reached. Decides the probe, the source, and the gate. */
+export type LensEndpointKind = 'http-openapi' | 'graphql' | 'database';
+
+/**
+ * How sensitive an endpoint's environment is.
+ *
+ * Mirrors `DeploymentStage.isProtected` rather than inventing a second word for
+ * the same idea: `production` is the one that costs a type-to-confirm, and an
+ * endpoint that does not say gets `unknown`, which is treated **as production**.
+ * Guessing downward here would silently move the gate off the one environment it
+ * exists for.
+ */
+export type LensEndpointStage = 'local' | 'development' | 'staging' | 'production' | 'unknown';
+
+/**
+ * A declared third-party service, from `.atlasmind/lens-endpoints.json`.
+ *
+ * Two absences are deliberate. There is **no credential field** — `secretRef`
+ * names a SecretStorage key and the normalizer refuses a document that looks
+ * like it carries a value — because this file is committed, and a schema that
+ * accepts a password will eventually be given one. And there is **no method or
+ * query field**: what a probe sends is chosen by AtlasMind from a fixed
+ * allowlist, never by the file, or the safety rule would be editable by the
+ * thing it constrains.
+ */
+export interface LensEndpointDeclaration {
+  id: string;
+  label: string;
+  kind: LensEndpointKind;
+  stage: LensEndpointStage;
+  /** Absolute `https` URL for `http-openapi`/`graphql`. Absent for `database`. */
+  url?: string;
+  /**
+   * For `database`: the connected MCP server id whose schema tool should be
+   * asked. AtlasMind bundles no database driver and holds no database
+   * credential — the already-approved MCP connection is the whole transport.
+   */
+  mcpServerId?: string;
+  /** SecretStorage key holding a bearer token or API key. Never the value. */
+  secretRef?: string;
+  /** Repository contract ids this endpoint is expected to match, if known. */
+  expectedContractIds: string[];
+  note?: string;
+}
+
+/** The committed declaration file listing every service a lens may reach. */
+export interface LensEndpointFile {
+  version: 1;
+  endpoints: LensEndpointDeclaration[];
+}
+
+/**
+ * Whether a probe reached the endpoint, and what that means.
+ *
+ * `unassessed` is the load-bearing member and is never merged into
+ * `unreachable`: "nobody looked" and "we looked and it was not there" are
+ * different facts, and a reachability lens that reported the first as the second
+ * would raise a dead end for every endpoint on a machine that is simply offline.
+ */
+export type LensProbeOutcome = 'reached' | 'unreachable' | 'refused' | 'unauthorized' | 'unassessed';
+
+/** One endpoint's probe result. Carries evidence about shape, never content. */
+export interface LensProbeResult {
+  version: 1;
+  endpointId: string;
+  outcome: LensProbeOutcome;
+  /** Why, in one sentence, phrased for somebody who did not run it. */
+  reason: string;
+  /** The declared rule that decided a `refused` or `unauthorized` outcome. */
+  rule?: string;
+  /** Round-trip milliseconds, when a call was actually made. */
+  latencyMs?: number;
+  /** HTTP status, when the transport was HTTP. Never a body. */
+  status?: number;
+  /** How many shape declarations came back. Never what they contained. */
+  contractCount?: number;
+  observedAt: string;
+}
+
+/**
+ * What a live service served, derived into the same shape the repository
+ * extractors produce.
+ *
+ * `contracts` is a list — one per served schema or table, with bare field paths
+ * — deliberately mirroring `extractJsonContractSources` and
+ * `extractSqlContractSources` rather than flattening everything into one
+ * contract with dotted paths. The two sides of a drift comparison have to be
+ * built the same way or every field mismatches on its name alone, and the
+ * comparison would report a total schema failure for a service that is working
+ * perfectly.
+ */
+export interface LensServedContract {
+  version: 1;
+  endpointId: string;
+  contracts: LensContract[];
+  observedAt: string;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * How a declared contract and a served contract differ.
+ *
+ * The first three are what The User asked to see. `absent-remotely` is a schema
+ * failure and a dead end at once — the code declares a field or table the live
+ * service does not serve — and it is separated from `undeclared-remotely`
+ * because the two need opposite fixes and collapsing them into "mismatch" would
+ * hide which.
+ */
+export type LensLiveDriftKind =
+  | 'absent-remotely'
+  | 'undeclared-remotely'
+  | 'type-changed'
+  | 'nullability-changed'
+  | 'presence-changed'
+  | 'matched';
+
+export interface LensLiveDriftFinding {
+  id: string;
+  kind: LensLiveDriftKind;
+  severity: LensContractFindingSeverity;
+  label: string;
+  reason: string;
+  fieldPath: string;
+  /** What the repository declares, and what the service served. Shapes only. */
+  declared?: string;
+  served?: string;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+export interface LensLiveDriftReport {
+  version: 1;
+  id: string;
+  endpointId: string;
+  declaredContractId: string;
+  outcome: LensProbeOutcome;
+  findings: LensLiveDriftFinding[];
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * One endpoint on the reachability map.
+ *
+ * `expectedContractIds` that resolved to nothing are carried as `danglingContractIds`
+ * rather than dropped — an endpoint pointing at a contract that no longer exists
+ * is exactly the dead end this lens is for.
+ */
+export interface LensReachabilityItem {
+  id: string;
+  endpointId: string;
+  label: string;
+  kind: LensEndpointKind;
+  stage: LensEndpointStage;
+  outcome: LensProbeOutcome;
+  reason: string;
+  latencyMs?: number;
+  danglingContractIds: string[];
+  evidence: LensEvidence;
+}
+
+export interface LensReachabilityMap {
+  version: 1;
+  id: string;
+  items: LensReachabilityItem[];
+  reachedCount: number;
+  unreachableCount: number;
+  unassessedCount: number;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * Whether the trust policy still describes what the service actually serves.
+ *
+ * `served-undeclared` is the finding worth having: a field the live service
+ * returns that no rule in `.atlasmind/lens-data-trust.json` classifies. It is
+ * unknown sensitivity on real, live data — which the static Data Trust lens
+ * cannot see, because the field was never in a repository file.
+ */
+export type LensLiveTrustStatus = 'confirmed' | 'served-undeclared' | 'declared-absent' | 'unassessed';
+
+export interface LensLiveTrustItem {
+  id: string;
+  endpointId: string;
+  fieldPath: string;
+  status: LensLiveTrustStatus;
+  classification?: LensDataClassification;
+  controls: LensDataControlKind[];
+  reason: string;
+  evidence: LensEvidence;
+}
+
+export interface LensLiveTrustMap {
+  version: 1;
+  id: string;
+  endpointId: string;
+  items: LensLiveTrustItem[];
+  undeclaredCount: number;
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

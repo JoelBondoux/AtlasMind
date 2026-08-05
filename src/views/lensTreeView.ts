@@ -20,6 +20,7 @@ import { registerLensDeclarationGuide } from './lensDeclarationGuidePanel.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
+import { openLiveSettings, probeLiveEndpoints, type LensLiveCommandContext } from './lensLiveCommand.js';
 import { reviewWorkspaceStateLifecycle } from './lensStateCommand.js';
 import { LensTestPanel } from './lensTestPanel.js';
 
@@ -318,7 +319,37 @@ export function registerLensTreeView(context: vscode.ExtensionContext, atlas: At
     vscode.commands.registerCommand('atlasmind.lens.openTarget', (item?: unknown) => provider.openTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.askTarget', (item?: unknown) => provider.askAboutTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.moreTargetActions', (item?: unknown) => provider.runTargetAction(item)),
+    vscode.commands.registerCommand('atlasmind.lens.probeLiveEndpoints', () =>
+      probeLiveEndpoints(buildLiveCommandContext(context, atlas))),
+    vscode.commands.registerCommand('atlasmind.lens.openLiveSettings', () => openLiveSettings()),
   );
+}
+
+/**
+ * The seams the live lenses need, resolved from the extension context.
+ *
+ * Built here rather than imported inside `lensLiveCommand` so that file holds no
+ * secret store and no registry of its own — the one place a probe can obtain a
+ * credential is this closure, and it is called only after the policy has
+ * authorized the probe.
+ */
+function buildLiveCommandContext(
+  context: vscode.ExtensionContext,
+  atlas: AtlasMindContext,
+): LensLiveCommandContext {
+  return {
+    resolveSecret: async key => context.secrets.get(key),
+    listMcpToolIds: () => atlas.skillsRegistry.listSkills()
+      .filter(skill => skill.id.startsWith('mcp:') && atlas.skillsRegistry.isEnabled(skill.id))
+      .map(skill => skill.id),
+    invokeMcpTool: async (skillId, args) => {
+      const skill = atlas.skillsRegistry.get(skillId);
+      if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
+        throw new Error(`The MCP tool "${skillId}" is not connected. Reconnect the server from MCP Servers.`);
+      }
+      return skill.execute(args, atlas.skillContext);
+    },
+  };
 }
 
 function filterLensTreeItems(items: LensTreeItem[], filter: LensSymbolFilter): LensTreeItem[] {

@@ -81,7 +81,31 @@ export type LensDraftRuleId =
   /** A setting's key implies a secret, so its value policy was forced to masked. */
   | 'policy-forced-masked'
   /** The draft proposed more entries than one review can carry. */
-  | 'entries-capped';
+  | 'entries-capped'
+  /**
+   * The kind is one no model may draft.
+   *
+   * `endpoints` names the hosts AtlasMind will send requests to, with the
+   * user's bearer token attached. A hallucinated hostname there is a request to
+   * a stranger made in the user's name — so the drafter refuses the kind
+   * outright rather than proposing something a reviewer would have to catch.
+   * Refusing by kind, before the model is ever asked, is the version that
+   * cannot be defeated by a convincing draft.
+   */
+  | 'not-draftable';
+
+/**
+ * Declaration kinds no model may propose.
+ *
+ * Held as data so the refusal and the guide's "Ask Atlas" affordance read the
+ * same list, and a kind added to one cannot silently miss the other.
+ */
+export const LENS_UNDRAFTABLE_KINDS: readonly LensDeclarationKind[] = ['endpoints'];
+
+/** Whether Atlas may be asked to draft this declaration at all. */
+export function isLensDeclarationDraftable(kind: LensDeclarationKind): boolean {
+  return !LENS_UNDRAFTABLE_KINDS.includes(kind);
+}
 
 export interface LensDraftCorrection {
   rule: LensDraftRuleId;
@@ -127,6 +151,21 @@ export function reviewLensDeclarationDraft(
   options: LensDraftReviewOptions,
 ): LensDeclarationDraftReview {
   const corrections: LensDraftCorrection[] = [];
+
+  // Checked before the reply is even parsed. A refusal that depended on
+  // inspecting the draft would be one a sufficiently plausible draft could pass.
+  if (!isLensDeclarationDraftable(kind)) {
+    const descriptor = findLensDeclarationDescriptor(kind);
+    return refuse(
+      kind,
+      'not-draftable',
+      `${descriptor.workspacePath} names the services AtlasMind will send requests to, so no model may `
+      + 'propose it. A hostname nobody typed is a request to a stranger made in your name. Write this '
+      + 'file by hand.',
+      corrections,
+    );
+  }
+
   const parsed = extractJsonDocument(replyText);
   if (!parsed) {
     return refuse(kind, 'no-document', 'Atlas did not return a JSON document, so there is nothing to review.', corrections);
@@ -407,6 +446,7 @@ const DRAFT_LIST_KEYS: Record<LensDeclarationKind, string> = {
   config: 'settings',
   mappings: 'mappings',
   trust: 'fields',
+  endpoints: 'endpoints',
 };
 
 function normalizeDraft(
@@ -433,6 +473,12 @@ function normalizeDraft(
       const normalized = normalizeLensDataTrustPolicyFile(document);
       return normalized && { document: normalized as unknown as Record<string, unknown>, count: normalized.fields.length };
     }
+    case 'endpoints':
+      // Unreachable: `reviewLensDeclarationDraft` refuses this kind before it
+      // parses anything. Present so the switch stays exhaustive, and returning
+      // `undefined` means that even if a future caller reached here, the answer
+      // is still a refusal rather than an accidental acceptance.
+      return undefined;
   }
 }
 

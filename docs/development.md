@@ -130,7 +130,7 @@ AtlasMind/
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensDashboard.ts Pure Lens catalog, readiness rules, flow map, and ranked actions
-│   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the four declaration files
+│   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the five declaration files
 │   │   ├── lensDeclarationDraft.ts Untrusted-model boundary for a proposed declaration: refuse, anchor-check, withhold, merge
 │   │   ├── lensTarget.ts Versioned, validated source/evidence target contract for Lens
 │   │   ├── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
@@ -143,6 +143,13 @@ AtlasMind/
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
+│   │   ├── lensEndpoints.ts Committed live-service declarations; names a secret, never holds one
+│   │   ├── lensProbePolicy.ts What a probe may send and where — read-only by construction
+│   │   ├── lensServedContract.ts Untrusted served-schema derivation; shape only, values discarded by name
+│   │   ├── lensLiveDrift.ts Declared vs. served comparison: absent, undeclared, type, nullability
+│   │   ├── lensReachability.ts Which declared services answered, and which are dead ends
+│   │   ├── lensLiveTrust.ts Served fields against declared classification policy
+│   │   ├── lensProbeRunner.ts One probe end to end, every dependency injected
 │   │   ├── lensSchemaImpact.ts Bounded proposed field-change impact ranking
 │   │   └── lensContractRelations.ts Relationship trust boundary and endpoint resolution
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
@@ -167,14 +174,18 @@ AtlasMind/
 │   │   ├── lensChangeStoryCommand.ts Read-only Git base/merge-base evidence collection
 │   │   ├── lensChangeStoryPanel.ts Editor-hosted branch Change Story
 │   │   ├── lensContractReviewCommand.ts Contract discovery, pair selection, and mapping load
-│   │   └── lensContractReviewPanel.ts Filterable Field Wiring review webview
+│   │   ├── lensContractReviewPanel.ts Filterable Field Wiring review webview
+│   │   ├── lensLiveCommand.ts Endpoint selection, the type-to-confirm gate, and session results
+│   │   ├── lensLiveTransport.ts HTTP and MCP probe execution; no redirects, capped while reading
+│   │   └── lensLivePanel.ts Editor-hosted drift, reachability, and live trust results
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── schemas/
 │   ├── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
 │   ├── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata
 │   ├── lens-state.schema.json VS Code guidance for declared Lens state machines
-│   └── lens-config.schema.json VS Code guidance for declared Lens configuration precedence
+│   ├── lens-config.schema.json VS Code guidance for declared Lens configuration precedence
+│   └── lens-endpoints.schema.json VS Code guidance for declared live services (never a credential value)
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests

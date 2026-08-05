@@ -36,7 +36,7 @@ on what's actually configured, and **none of them will switch anything on for yo
 proving a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the
 same as receiving, and installed isn't the same as working.
 
-`/lens` differs in one respect: it lists all four declaration files rather than walking you through them in
+`/lens` differs in one respect: it lists all five declaration files rather than walking you through them in
 order, because the files are independent and you may only ever want one of them. Only the two that
 actually gate a lens are counted, so a project that has declared its state machines and its configuration
 precedence reads as finished rather than as permanently half-done.
@@ -202,7 +202,7 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 
 | Command | What it does |
 |---------|-------------|
-| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eight lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
+| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eleven lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
 | `AtlasMind: Lens: Refresh Active Outline` | Re-read the current file's symbols |
 | `AtlasMind: Lens: Filter Symbols` | Show everything, or focus on types, callables, data or containers |
 | `AtlasMind: Lens: Declaration Guide` | **What to write, and how.** Per file: what it declares, its current status, and a worked example small enough to read. **Ask Atlas to draft it** has a model read your repository and propose a first draft — refused whole if it fails the same check the lens uses, every file path it claims verified against your workspace and dropped if it doesn't resolve, any credential-shaped value left out entirely, and nothing written until you've seen it all and confirmed. Entries you wrote yourself always win |
@@ -211,6 +211,8 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | `AtlasMind: Lens: Review State Lifecycle` | Visualise a declared state machine — reachability, terminal states, dead ends, guards |
 | `AtlasMind: Lens: Review Configuration Resolution` | Show a setting's precedence chain, what wins and what's shadowed — without reading live values |
 | `AtlasMind: Lens: Review Branch Change Story` | Turn a branch's committed history into a readable story of what changed and where |
+| `AtlasMind: Probe Live Services` | **Does the running system still agree with the code?** Pick a service you've declared and AtlasMind reads the schema it actually serves, then reports every field that has gone missing, changed type, or turned up undeclared — plus which services answered at all, and which served fields no classification covers. Reads shape only: never a row, never a value, never a write. Off by default; a production endpoint asks you to type its name first |
+| `AtlasMind: Live Service Settings` | Open the two settings that gate the live lenses: whether they may run at all, and which environments they may reach |
 
 ### Remote and system
 

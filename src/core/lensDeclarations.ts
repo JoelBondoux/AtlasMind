@@ -4,9 +4,10 @@ import * as path from 'node:path';
 import { LENS_CONFIG_FILE, normalizeLensConfigFile } from './lensConfigResolution.js';
 import { LENS_CONTRACT_MAPPING_FILE, normalizeLensContractMappingFile } from './lensContract.js';
 import { LENS_DATA_TRUST_FILE, normalizeLensDataTrustPolicyFile } from './lensDataTrust.js';
+import { LENS_ENDPOINT_FILE, normalizeLensEndpointFile } from './lensEndpoints.js';
 import { LENS_STATE_FILE, normalizeLensStateMachineFile } from './lensStateMachine.js';
 
-export type LensDeclarationKind = 'state' | 'config' | 'mappings' | 'trust';
+export type LensDeclarationKind = 'state' | 'config' | 'mappings' | 'trust' | 'endpoints';
 export type LensDeclarationFileStatus = 'missing' | 'empty' | 'ready' | 'invalid' | 'unreadable' | 'unavailable';
 
 export interface LensDeclarationStatus {
@@ -92,6 +93,17 @@ const DECLARATIONS: readonly LensDeclarationDescriptor[] = [
     required: false,
     purpose: 'How sensitive each contract field is and what controls it. AtlasMind never guesses this from field names or sample values.',
   },
+  {
+    // Optional, and deliberately so. The live lenses are the only ones that
+    // reach outside the repository, and a project that never writes this file
+    // gets every other lens working exactly as before — being marked incomplete
+    // for declining to point AtlasMind at production would be backwards.
+    kind: 'endpoints',
+    label: 'Live service endpoints',
+    workspacePath: LENS_ENDPOINT_FILE,
+    required: false,
+    purpose: 'The databases and APIs this project talks to, so a lens can compare the schema you declare against the one that is actually served. Names a stored secret; never holds one.',
+  },
 ];
 
 /**
@@ -138,11 +150,13 @@ export function emptyDeclarationDocument(kind: LensDeclarationKind): Record<stri
     case 'config': return { version: 1, settings: [] };
     case 'mappings': return { version: 1, mappings: [], suppressions: [] };
     case 'trust': return { version: 1, fields: [] };
+    case 'endpoints': return { version: 1, endpoints: [] };
   }
 }
 
 export function isLensDeclarationKind(value: unknown): value is LensDeclarationKind {
-  return value === 'state' || value === 'config' || value === 'mappings' || value === 'trust';
+  return value === 'state' || value === 'config' || value === 'mappings'
+    || value === 'trust' || value === 'endpoints';
 }
 
 export function lensDeclarationStatusLabel(status: LensDeclarationFileStatus): string {
@@ -211,6 +225,12 @@ function countDeclarations(kind: LensDeclarationKind, parsed: unknown): number |
     }
     case 'trust':
       return normalizeLensDataTrustPolicyFile(parsed)?.fields.length;
+    case 'endpoints':
+      // A file whose every endpoint was rejected normalizes to zero declared
+      // endpoints, which reads as `empty` rather than `invalid`. That is the
+      // honest status: the document itself was well-formed, and the per-endpoint
+      // reasons are surfaced where somebody can act on them.
+      return normalizeLensEndpointFile(parsed)?.file.endpoints.length;
   }
 }
 

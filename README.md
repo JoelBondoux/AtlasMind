@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.259.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.260.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,25 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.259.0
+## What's new in 0.260.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The lenses can now look at the services your project actually talks to.** Every lens read the
+  repository, so the question people really have — *does the running system still agree with what the
+  code believes?* — was one AtlasMind could not answer. Three new lenses close that. **Live Contract
+  Drift** compares the schema you declare against the one a live API or database serves, and names
+  every field that has gone missing, changed type, or turned up without being declared. **Service
+  Reachability** reports which declared services answered, which did not, and which nobody has looked
+  at. **Live Data Trust** lists the fields a service actually serves that no classification covers.
+
+  It reads **shape only** — the schema a service publishes, or a listing of tables and columns. Never
+  a row, never a field value, never a write. Which services may be reached is declared in a committed
+  file that *names* a stored secret rather than holding one, and Atlas will not draft that file:
+  a hostname nobody typed is a request to a stranger made in your name. Probing is off by default,
+  production is not in the default allowed stages, and an endpoint that does not say which environment
+  it is gets treated as production and asks you to type its name before every probe.
 
 - **"Promote to staging" now means what your project says it means.** AtlasMind records your delivery
   pipeline — the stages, what each one is called, which branch represents it — and until now the chat
@@ -227,6 +242,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
 | **Website Studio** | Client intake through to a protected Develop → Staging → Production path. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
+| **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |
 
 ---
@@ -284,8 +300,9 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
+| `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 
-All 114 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 116 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlasmind.dev/schemas/lens-endpoints.schema.json",
+  "title": "AtlasMind Lens live service endpoints",
+  "description": "The databases and APIs a lens may reach to compare a declared schema against the one actually served. This file is committed: it names a stored secret with `secretRef` and must never contain a token, password, or connection string. AtlasMind reads shape only — never a row, never a value — and never writes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "endpoints"],
+  "properties": {
+    "version": { "const": 1 },
+    "endpoints": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "kind"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Shown on every surface, and the exact text you must type to confirm a probe of a production endpoint."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["http-openapi", "graphql", "database"],
+            "description": "`http-openapi`: the URL points at the schema document, not the API root. `graphql`: the introspection endpoint. `database`: reached through a connected MCP server — AtlasMind bundles no database driver and stores no database credential."
+          },
+          "stage": {
+            "type": "string",
+            "enum": ["local", "development", "staging", "production", "unknown"],
+            "description": "An endpoint that does not state its stage is treated as production, and asks you to type its label before every probe."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Absolute https URL. Plaintext http is accepted only on the loopback address, because a probe may carry a bearer token. Credentials embedded in the URL are refused. Omit for a `database` endpoint.",
+            "pattern": "^https?://"
+          },
+          "mcpServerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required for `database`. The connected MCP server whose schema-reading tool should be asked. A server exposing only a generic query tool is not used: AtlasMind will not compose SQL."
+          },
+          "secretRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The name of a key in VS Code SecretStorage holding a bearer token or API key. This is a name, never a value — a document containing an actual credential is refused whole."
+          },
+          "expectedContractIds": {
+            "type": "array",
+            "maxItems": 40,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "description": "Repository contract ids this endpoint is expected to serve. An id that no longer resolves is reported as a dead end rather than dropped."
+          },
+          "note": { "type": "string", "maxLength": 500 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "database" } }, "required": ["kind"] },
+            "then": { "required": ["mcpServerId"], "not": { "required": ["url"] } }
+          },
+          {
+            "if": {
+              "properties": { "kind": { "enum": ["http-openapi", "graphql"] } },
+              "required": ["kind"]
+            },
+            "then": { "required": ["url"] }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -6,6 +6,103 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.260.0] - 2026-08-05
+
+### Added
+
+- **Three lenses that reach the services your project actually talks to**
+  (`src/core/lensEndpoints.ts`, `src/core/lensProbePolicy.ts`, `src/core/lensServedContract.ts`,
+  `src/core/lensLiveDrift.ts`, `src/core/lensReachability.ts`, `src/core/lensLiveTrust.ts`,
+  `src/core/lensProbeRunner.ts`). Every lens until now read the repository, which meant the
+  question people actually have — *does the running system still agree with what the code
+  believes?* — was one AtlasMind could not answer. Field Wiring could compare two declarations and
+  told you so in its own limit line; nothing could compare a declaration against reality.
+
+  **Live Contract Drift** compares the schema your repository declares against the one a service
+  serves. `absent-remotely` is the finding worth having: the code declares a field or table the
+  running service does not serve, which is a dead end and a schema failure at once. It is kept
+  separate from `undeclared-remotely` — a service serving something nobody wrote down — because the
+  two need opposite fixes and one combined "mismatch" class would hide which you are looking at.
+  **Service Reachability** asks the prior question, which endpoints answered at all, and carries an
+  endpoint whose `expectedContractIds` name a contract the repository no longer has as a dead end
+  pointing the other way. **Live Data Trust** checks the fields a service actually serves against
+  `.atlasmind/lens-data-trust.json` and lists the ones no rule covers — unknown sensitivity on real,
+  live data, which the static Data Trust lens cannot see because the field was never in a file.
+
+  The whole feature rests on one rule: **the shape is read, the rows never are.** An API probe
+  fetches the OpenAPI document the service publishes or sends a fixed GraphQL introspection query;
+  a database probe asks a connected MCP server's schema-reading tool what exists. `buildProbeRequest`
+  composes every request from constants — there is no function anywhere that accepts a query, so
+  `SELECT * FROM users` is not something a caller can reach, and a test asserts no request the
+  module can produce carries a write verb. OpenAPI `example`, `default` and `enum` are read and
+  *discarded by name* rather than merely ignored, because they are the keys most likely to hold a
+  real customer record and a derivation that swept unknown keys along would eventually carry one.
+
+  Everything else follows from that request leaving the machine. Deny by default at two gates
+  (`atlasmind.lens.live.enabled` is off; a probe additionally needs the per-run confirmation),
+  because switching the feature on and pointing it at production are two decisions. **An endpoint
+  that does not state its stage is treated as production** — guessing downward would move the gate
+  off the one environment it exists for, and the endpoint most likely to omit its stage is the one
+  somebody added in a hurry. A protected stage costs a type-to-confirm on the endpoint's own label,
+  mirroring `promotionRunner`. Redirects are not followed: a redirect is the server nominating a
+  destination nobody reviewed, with the bearer token still attached. The response is capped *while*
+  it is read, since a cap checked after `await response.text()` has already admitted the body it
+  exists to refuse. And a probe that is not authorized never reaches the transport at all — the
+  runner takes it as an injected seam precisely so a test can hand it a transport that fails the run
+  if it is called, which is what makes the gate a property rather than a convention.
+
+  Three refusals are as load-bearing as the features. **A partial reading reports nothing as
+  absent** — if the probe hit a budget, "declared but not served" is indistinguishable from
+  "declared and past the cap", so a truncated reading downgrades every absence claim rather than
+  publishing schema failures a budget invented. **Unassessed is never healthy**: a probe that was
+  refused, timed out, or was never run yields a report with no findings that says so explicitly,
+  and `refused`/`unauthorized` stay distinct from `unreachable` because reporting a production
+  endpoint you declined to confirm as unreachable would be a lie about somebody else's
+  infrastructure. **A classification is never inferred from a field name** — a fabricated
+  sensitivity rating closes the gap without closing it, and in a git-tracked file a later reader
+  cannot tell it from a decision somebody made.
+
+- **`.atlasmind/lens-endpoints.json`**, the fifth Lens declaration file, with an installed JSON
+  schema. It is a committed file rather than a setting, so a change to what AtlasMind may reach
+  arrives as a diff with a reviewer. It **names** a secret via `secretRef` and never holds one — a
+  document carrying a credential-shaped key is refused *whole* rather than quietly cleaned up,
+  because a silently-scrubbed file would leave the secret on disk while reporting that all was
+  well. It says *where*, never *what to send*: there is no method, query or body field, so the
+  safety rule is not editable by the thing it constrains. Plaintext `http` is accepted only on the
+  loopback, since a probe may carry a token; private-range `https` is allowed, because a staging
+  API on the office network is the ordinary case and the destination came from a reviewed file.
+
+- **Atlas refuses to draft the endpoints file** (`LENS_UNDRAFTABLE_KINDS` in
+  `src/core/lensDeclarationDraft.ts`). The other four declaration kinds can be proposed by a model
+  and reviewed; this one cannot, and the refusal happens *before* the reply is parsed so a
+  sufficiently plausible draft cannot pass it. A hallucinated hostname is a request sent to a
+  stranger in the user's name with their bearer token attached. The setup guide states the refusal
+  where the other files offer the button, rather than silently omitting it.
+
+- **`atlasmind.lens.probeLiveEndpoints` and `atlasmind.lens.openLiveSettings`**, plus the
+  `Lens — Live Services` panel (`src/views/lensLivePanel.ts`, `src/views/lensLiveCommand.ts`,
+  `src/views/lensLiveTransport.ts`). Probe results are held **in memory for the session only**:
+  `project_memory/` is git-tracked, and "the staging database answered at 14:02" is one developer's
+  environment, not the repository's. An unassessed outcome *replaces* the findings list rather than
+  sitting above an empty one, because an empty table reads as "nothing wrong" whatever the caption
+  says.
+
+### Changed
+
+- The Lens dashboard now carries **eleven** lenses across five groups, with `live-service` as a
+  distinct evidence source rather than a flag on contract files — a lens that can reach production
+  should never sit one row down from one that reads a file, unlabelled. Three new rules
+  (`live-probing-disabled`, `no-endpoints-declared`, `live-not-probed`) are published in the rule
+  table like every other, ranked root-cause first so nobody is told to type a production endpoint's
+  name while the feature is switched off.
+- Field Wiring's limit line now points at Live Contract Drift instead of only promising that it
+  never connects to a live database. The promise is still true of that lens; it stopped being the
+  whole story for the suite.
+- `settingsIntegrity`'s scoped-read check now tries every section prefix rather than only the first
+  segment. `atlasmind.lens.live.*` is read via `getConfiguration('atlasmind.lens.live')`, which the
+  old single-level check reported as dead — and a guard that reports live settings as dead is one
+  people allowlist their way past.
+
 ## [0.259.0] - 2026-08-05
 
 ### Added

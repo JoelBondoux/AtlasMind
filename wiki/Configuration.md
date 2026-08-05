@@ -182,6 +182,29 @@ All off by default. See [[GitHub Workflow]].
 
 ---
 
+## Atlas Lenses — live services
+
+The three live lenses compare what your repository declares against what a running API or
+database actually serves. They are the only part of AtlasMind that reaches a system somebody else
+operates, and they read **shape only** — the schema a service publishes, or an `information_schema`
+listing. Never a row, never a field value, never a write.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.lens.live.enabled` | `false` | Master switch for Live Contract Drift, Service Reachability and Live Data Trust. Off by default — a probe leaves your machine. Nothing is ever probed automatically |
+| `atlasmind.lens.live.allowedStages` | `["local", "development", "staging"]` | Which declared environments a probe may reach. **`production` is deliberately absent**, and an endpoint that doesn't state its stage counts as `unknown`, which is treated *as production*. Adding either still requires you to type the endpoint's label before each probe |
+
+Which services may be reached is declared in `.atlasmind/lens-endpoints.json` — a committed file,
+reviewed like any other change. Atlas will **not** draft it: a hostname nobody typed is a request
+to a stranger made in your name. The file *names* a secret with `secretRef`; one that actually
+contains a token or connection string is refused whole.
+
+Databases go through an MCP server you have already connected, and only via a tool whose name says
+it reads schema. AtlasMind bundles no database driver, stores no database credential, and will not
+compose SQL for a generic query tool.
+
+---
+
 ## Ideation and research
 
 | Setting | Default | What it does |

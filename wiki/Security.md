@@ -191,10 +191,56 @@ hold one.
 
 ---
 
+## Lenses that reach a live service
+
+Three lenses — Live Contract Drift, Service Reachability, Live Data Trust — compare what your
+repository declares against what a running API or database actually serves. They are the only part of
+AtlasMind that reaches a system somebody else operates, and everything about them follows from that.
+
+- **The shape is read, the rows never are.** An API probe fetches the OpenAPI document the service
+  publishes, or sends one fixed GraphQL introspection query. A database probe asks a connected MCP
+  server's schema-reading tool what tables and columns exist. There is no function anywhere in the
+  probe path that accepts a query, so `SELECT * FROM users` is not something any caller — a panel, a
+  setting, a model — can reach, and a test asserts that no request AtlasMind can compose carries a
+  write verb.
+- **Value-bearing keys are dropped by name.** OpenAPI `example`, `examples`, `default`, `enum` and
+  `const` are read and discarded rather than merely ignored. They're the keys most likely to hold a
+  real customer record, and code that simply skipped unknown keys would eventually carry one along.
+- **Deny by default, at two gates.** `atlasmind.lens.live.enabled` is off, and a probe still needs
+  the per-run confirmation. Turning the feature on and pointing it at production are two decisions.
+  Nothing is ever probed automatically or in the background, at any setting.
+- **An endpoint that doesn't say which environment it is counts as production.** It gets the same
+  type-to-confirm gate — you type the endpoint's own label before each probe, exactly as promotion to
+  a protected stage works. Guessing downward would move the gate off the one environment it exists for.
+- **Which services may be reached is a committed file, never a setting and never a model.**
+  `.atlasmind/lens-endpoints.json` is reviewed like any other change. Atlas refuses to draft it —
+  refused before the reply is even parsed, so a convincing draft can't pass — because a hostname
+  nobody typed is a request sent to a stranger in your name with your token attached.
+- **The file names a secret; it never holds one.** `secretRef` points at VS Code SecretStorage. A
+  document carrying an actual token, password or connection string is refused *whole* rather than
+  quietly cleaned up: a silently-scrubbed file would leave the credential on disk while reporting
+  that everything was fine. Credentials embedded in a URL are rejected for the same reason.
+- **Redirects are not followed.** A redirect is the server nominating a destination nobody reviewed,
+  with the bearer token still attached. It's reported as an outcome you can see instead.
+- **Plaintext `http` only on the loopback.** A probe may carry a token, so anything off your machine
+  must be `https`. Private-range `https` is allowed — a staging API on the office network is the
+  ordinary case, and unlike a fetched URL this destination came from a file somebody reviewed.
+- **AtlasMind bundles no database driver and stores no database credential.** Databases go through an
+  MCP server you already connected and approved, and only via a tool whose *name* says it reads
+  schema. A server offering only a generic `query` tool is not used, and the lens says so — AtlasMind
+  will not compose SQL for it.
+- **An unassessed service is never reported as healthy.** Refused, timed out and never-probed are
+  distinct from unreachable, and a drift report for an endpoint nobody probed says explicitly that
+  this is not a finding of "no drift". Probe results are held in memory for the session only; nothing
+  about your environment is written into the git-tracked project memory.
+
+---
+
 ## Model-drafted files
 
 The Lens declaration guide is the one place AtlasMind will have a model write a file that lands in your
-repository, so the boundary is worth stating in full. A draft is a **proposal, never a write**:
+repository, so the boundary is worth stating in full. A draft is a **proposal, never a write** — and
+one declaration kind, `lens-endpoints.json`, is refused outright rather than drafted at all:
 
 - **Refused whole, never repaired.** The draft goes through the same check the lens itself reads the file
   with. If it fails, it is rejected outright — patching it up would mean AtlasMind inventing the parts the

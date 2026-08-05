@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.259.0",
+  "version": "0.260.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -62,6 +62,10 @@
       {
         "fileMatch": "**/.atlasmind/lens-config.json",
         "url": "./schemas/lens-config.schema.json"
+      },
+      {
+        "fileMatch": "**/.atlasmind/lens-endpoints.json",
+        "url": "./schemas/lens-endpoints.schema.json"
       }
     ],
     "chatParticipants": [
@@ -280,6 +284,17 @@
         "command": "atlasmind.lens.moreTargetActions",
         "title": "AtlasMind Lens: More Target Actions…",
         "icon": "$(kebab-horizontal)"
+      },
+      {
+        "command": "atlasmind.lens.probeLiveEndpoints",
+        "title": "AtlasMind: Probe Live Services",
+        "category": "AtlasMind",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.lens.openLiveSettings",
+        "title": "AtlasMind: Live Service Settings",
+        "category": "AtlasMind"
       },
       {
         "command": "atlasmind.openSetupGuide",
@@ -2331,6 +2346,31 @@
           },
           "default": [],
           "description": "Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project."
+        },
+        "atlasmind.lens.live.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the live lenses (Live Contract Drift, Service Reachability, Live Data Trust), which compare what your repository declares against what a running service actually serves. Off by default: a probe leaves this machine and reaches a system somebody else operates. AtlasMind reads shape only — the schema a service publishes, an information_schema listing — never a row, never a record, never a field value, and it never writes. Services are declared in .atlasmind/lens-endpoints.json; nothing is probed until you ask."
+        },
+        "atlasmind.lens.live.allowedStages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "local",
+              "development",
+              "staging",
+              "production",
+              "unknown"
+            ]
+          },
+          "uniqueItems": true,
+          "default": [
+            "local",
+            "development",
+            "staging"
+          ],
+          "markdownDescription": "Which declared environments a probe may reach. Production is deliberately absent from the default, and an endpoint that does not state its stage counts as `unknown`, which is treated as production. Adding `production` or `unknown` does not skip the confirmation: those endpoints still require you to type the endpoint's label before each probe. An empty list means no stage is allowed, and is honoured as written."
         },
         "atlasmind.research.enabled": {
           "type": "boolean",

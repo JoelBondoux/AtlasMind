@@ -112,9 +112,9 @@ path — you don't have to retype it.
 
 ### Reading your code — Lens
 
-**Lens** is eight views that explain your codebase from what's actually declared in it: possible flow,
-change impact, test evidence, state lifecycle, configuration resolution, change story, field wiring, and
-a dashboard that ties them together.
+**Lens** is eleven views that explain your codebase from what's actually declared in it: possible flow,
+change impact, test evidence, state lifecycle, configuration resolution, change story, field wiring,
+three live-service lenses, and a dashboard that ties them together.
 
 They share one model and one visual language, which matters for a reason worth stating: **absent input
 means *not assessed*, never *empty*.** A lens whose evidence was never inspected says so and raises its
@@ -126,8 +126,24 @@ The dashboard is read-only by construction — it runs no model, writes no file 
 Its webview sends only a bounded id, and the host resolves that against a catalogue it holds itself, so
 no surface can trigger a command the dashboard didn't already offer.
 
-Two of those views read a declaration file you write yourself, and the **declaration guide** is what
-tells you how. It derives its walkthrough from the four files on disk — no model, no configuration — so
+Ten of those eleven read only what's already on your machine. **Three do not**, and they are separated
+from the rest by evidence source for exactly that reason — a lens that can reach production should never
+sit one row down from one that reads a file, unlabelled. **Live Contract Drift** compares the schema your
+repository declares against the one a running API or database actually serves; a field the code declares
+and the service doesn't serve is a dead end and a schema failure at once, and it's kept distinct from a
+field the service serves that nobody declared, because those need opposite fixes. **Service Reachability**
+asks which declared services answered at all. **Live Data Trust** lists the fields a service actually
+serves that no classification covers — unknown sensitivity on real data, which the static Data Trust view
+can't see because the field was never in a file.
+
+They read **shape only** and never a row, they're off by default, production is excluded from the default
+allowed stages, and an endpoint that doesn't state its environment is treated as production. Which
+services may be reached is a committed file that names a stored secret rather than holding one, and it's
+the one declaration kind Atlas refuses to draft. The full boundary is in
+[Security](Security.md#lenses-that-reach-a-live-service).
+
+Several of those views read a declaration file you write yourself, and the **declaration guide** is what
+tells you how. It derives its walkthrough from the five files on disk — no model, no configuration — so
 it reads the same on a fresh install, and it counts only the two files that actually gate a lens, so a
 project that has declared its state machines and its configuration precedence reads as finished rather
 than as permanently half-done. An optional file that is *broken* is still reported as broken; "optional"
