@@ -19,6 +19,48 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.259.0 — "Promote to staging" means what your project says it means
+
+AtlasMind records your delivery pipeline — the stages, what each one is called, which branch represents
+it. The chat side never read it. Ask it to promote to staging and it would go looking for a branch called
+`staging`, fail to find one, and ask you which branch you meant — while the answer sat in a file AtlasMind
+had written itself.
+
+It now reads that file before answering, and **a stage's kind counts as a name**, so "staging" finds your
+staging stage whatever you called it. (In this repository that stage is called `Integration`, which is
+exactly why matching only display names wasn't good enough.) It will not invent a stage you never
+declared: a wrong stage name aims a promotion at the wrong branch, and that isn't a mistake you can fix by
+editing a file afterwards.
+
+**A request to merge now arrives with the tools to merge.** Tool selection worked word by word, so "merge
+to main then publish" — which contains neither *commit* nor *push* — was given the three tools that
+describe a repository and none of the tools that change one. A model handed that set doesn't stop; it
+writes a confident report about a merge it never made, which is worse than failing outright because the
+report reads like work. Merging, rebasing, cherry-picking and promoting now get the write tools together.
+Asking a question *about* a commit still doesn't hand over the ability to publish one, and every tool
+stays behind its normal approval prompt.
+
+**A failing provider costs you less.** Three things changed when a subscription agent crashes mid-turn:
+
+- AtlasMind no longer walks back into the same broken process under a different model name. It already
+  avoided that when recovering from a failure; it now also avoids it when *upgrading* to a stronger model,
+  which was a way back into the endpoint the turn had just watched fail.
+- Recovery has its own budget. An optional quality upgrade used to spend the attempts that a real outage
+  would need, so a turn that escalated once had one attempt left to survive a provider going down.
+- The next message doesn't start with the endpoint that just failed twice. It's set aside for ten
+  minutes — unless it's the only thing that can do the job, in which case AtlasMind tries it rather than
+  refusing you.
+
+And when it does give up, it names the limit it actually hit instead of reporting a ceiling it never
+reached.
+
+**Large tool sets no longer flood the context.** An agent set to use every skill was sending every tool
+description on every query, including every connected integration, however small the question. There's now
+a ceiling of 24 for all agents. If your list already fits, nothing changes; when it trims something, it
+says so — a silent cut reads as "this is everything I have".
+
+---
+
 ## v0.258.0 — The Lens declaration files come with a guide
 
 Two of the eight lenses read a file you have to write yourself. Until now the help on offer was an empty

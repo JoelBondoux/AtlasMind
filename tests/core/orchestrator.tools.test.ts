@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldOpenEndpointCircuit, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -1182,7 +1182,7 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).not.toContain('Abandoned ACP preamble');
   });
 
-  it('never invokes more than three model endpoints for one chat turn', async () => {
+  it('stops when no other provider can serve the request, and says so rather than blaming the ceiling', async () => {
     const failing = (providerId: string, model: string): ProviderAdapter => ({
       providerId,
       complete: vi.fn().mockRejectedValue(new Error(`${providerId} fatal provider failure`)),
@@ -1225,7 +1225,109 @@ describe('Orchestrator agentic loop', () => {
       .reduce((sum, provider) => sum + (provider.complete as ReturnType<typeof vi.fn>).mock.calls.length, 0);
     expect(calls).toBe(3);
     expect(result.modelAttempts).toHaveLength(3);
-    expect(result.response).toContain('safety ceiling is 3');
+    // The turn ran out of providers, not out of budget. Reporting a ceiling here
+    // sent the reader to raise a limit that was never reached.
+    expect(result.response).toContain('no other configured provider could serve this request');
+    expect(result.response).not.toContain('safety ceiling');
+  });
+
+  it('gives an outage its own failover budget instead of rationing it against escalation', async () => {
+    const failing = (providerId: string, model: string): ProviderAdapter => ({
+      providerId,
+      complete: vi.fn().mockRejectedValue(new Error(`${providerId} fatal provider failure`)),
+      listModels: vi.fn().mockResolvedValue([model]),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    });
+    const local = failing('local', 'local/echo-1');
+    const extras = ['google', 'anthropic', 'mistral', 'openai', 'groq']
+      .map((providerId, index) => ({
+        providerId,
+        adapter: failing(providerId, `${providerId}/m`),
+        models: [{
+          id: `${providerId}/m`,
+          name: providerId,
+          contextWindow: 32_000,
+          inputPricePer1k: 0.001 * (index + 1),
+          outputPricePer1k: 0.001 * (index + 1),
+          capabilities: ['chat', 'code'] as ModelCapability[],
+        }],
+      }));
+    const orchestrator = makeOrchestrator(
+      local, [], makeSkillContext(), undefined, [], [], undefined, undefined, undefined, undefined,
+      { extraProviders: extras },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'failover-budget',
+      userMessage: 'Review the repository.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'google/m' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const calls = [local, ...extras.map(entry => entry.adapter)]
+      .reduce((sum, provider) => sum + (provider.complete as ReturnType<typeof vi.fn>).mock.calls.length, 0);
+    // One initial attempt plus three failovers — the budget, not the old shared
+    // ceiling of three total attempts.
+    expect(calls).toBe(4);
+    expect(result.modelAttempts).toHaveLength(4);
+    expect(result.response).toContain('failover budget of 3 is spent');
+  });
+
+  it('stops opening a turn with an endpoint that failed hard in earlier turns', async () => {
+    // Turn-local circuit state is discarded when the turn ends, so a crashed
+    // subprocess used to be first pick on every subsequent message and the user
+    // paid an attempt per turn to rediscover it was still down.
+    const sick = {
+      providerId: 'acp',
+      complete: vi.fn().mockRejectedValue(new Error('The ACP agent returned an error (-32603): Internal error')),
+      listModels: vi.fn().mockResolvedValue(['acp/codex@a']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    } satisfies ProviderAdapter;
+    const healthy = {
+      providerId: 'mistral',
+      complete: vi.fn().mockResolvedValue({
+        content: 'done', model: 'mistral/m', inputTokens: 10, outputTokens: 5, finishReason: 'stop',
+      } satisfies CompletionResponse),
+      listModels: vi.fn().mockResolvedValue(['mistral/m']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    } satisfies ProviderAdapter;
+    const local: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockRejectedValue(new Error('local unavailable')),
+      listModels: vi.fn().mockResolvedValue([]),
+      healthCheck: vi.fn().mockResolvedValue(false),
+    };
+    const model = (id: string, provider: string) => ({
+      id, name: id, contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001,
+      capabilities: ['chat', 'code'] as ModelCapability[], provider,
+    });
+    const orchestrator = makeOrchestrator(
+      local, [], makeSkillContext(), undefined, [], [], undefined, undefined, undefined, undefined,
+      {
+        extraProviders: [
+          { providerId: 'acp', adapter: sick, models: [model('acp/codex@a', 'acp')] },
+          { providerId: 'mistral', adapter: healthy, models: [model('mistral/m', 'mistral')] },
+        ],
+      },
+    );
+
+    const ask = async (id: string) => orchestrator.processTask({
+      id,
+      userMessage: 'Review the repository.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'acp/codex@a' },
+      timestamp: new Date().toISOString(),
+    });
+
+    await ask('turn-1');
+    await ask('turn-2');
+    const callsAfterQuarantine = sick.complete.mock.calls.length;
+    await ask('turn-3');
+
+    // Two hard failures quarantine the endpoint; the third turn never touches it.
+    expect(sick.complete.mock.calls.length).toBe(callsAfterQuarantine);
+    expect(healthy.complete.mock.calls.length).toBeGreaterThan(0);
   });
 
   it('does not fall through to local echo when failover candidates cannot satisfy required capabilities', async () => {
@@ -4670,6 +4772,30 @@ describe('bounded reply sanitation and turn capabilities', () => {
     expect(getProviderTimeoutMs('acp', 30_000)).toBe(180_000);
     expect(getProviderTimeoutMs('mistral', 30_000)).toBe(30_000);
   });
+
+  it('treats a JSON-RPC error from a stdio agent as an endpoint fault', () => {
+    // `-32603 Internal error` names none of the transport words, so text
+    // matching alone left a sibling model on the same subprocess eligible and
+    // the next attempt re-entered the process that had just failed.
+    const acpFailure = 'The ACP agent returned an error (-32603): Internal error';
+
+    expect(shouldOpenEndpointCircuit(acpFailure, 'acp')).toBe(true);
+    expect(shouldOpenEndpointCircuit('The ACP agent returned an error (-32000): busy', 'acp')).toBe(true);
+  });
+
+  it('does not widen a JSON-RPC code into an HTTP provider outage', () => {
+    // For an HTTP provider one 500 is one endpoint of many behind a load
+    // balancer; quarantining the whole provider on it would be far too broad.
+    expect(shouldOpenEndpointCircuit('Provider returned (-32603): Internal error', 'anthropic')).toBe(false);
+    expect(shouldOpenEndpointCircuit('Provider returned (-32603): Internal error')).toBe(false);
+  });
+
+  it('still recognises transport failures for every provider', () => {
+    expect(shouldOpenEndpointCircuit('request timed out', 'anthropic')).toBe(true);
+    expect(shouldOpenEndpointCircuit('fetch failed', 'mistral')).toBe(true);
+    expect(shouldOpenEndpointCircuit('upstream outage', 'acp')).toBe(true);
+    expect(shouldOpenEndpointCircuit('the model refused the request', 'acp')).toBe(false);
+  });
 });
 
 describe('task-scoped skill context', () => {
@@ -4795,6 +4921,137 @@ describe('task-scoped skill context', () => {
       [],
       'Send an email with the approved project update.',
     )).toEqual([]);
+  });
+
+  const GIT_AND_DELIVERY_SKILLS = [
+    'git-status', 'git-diff', 'git-log', 'git-commit', 'git-push', 'git-branch',
+    'file-read', 'terminal-run', 'npm-scripts', 'web-fetch',
+  ];
+
+  const ATLASMIND_VOCABULARY = {
+    stages: [
+      { name: 'Local', kind: 'local' as const, rank: 0 },
+      { name: 'Integration', kind: 'staging' as const, rank: 1, branchRef: 'develop' },
+      { name: 'Production', kind: 'production' as const, rank: 2, branchRef: 'main', isProtected: true },
+    ],
+  };
+
+  it('selects git write and delivery tools for a promotion naming a declared stage', () => {
+    // The turn that started this: "promote to staging" matched none of the
+    // hand-maintained intent patterns, so it selected nothing at all — while
+    // delivery.json had already recorded a stage of kind `staging` on `develop`.
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+      'promote to staging',
+      {},
+      { vocabulary: ATLASMIND_VOCABULARY },
+    ).map(item => item.id);
+
+    expect(selected).toEqual(expect.arrayContaining([
+      'git-status', 'git-diff', 'git-log', 'git-commit', 'git-branch', 'git-push', 'terminal-run',
+    ]));
+    expect(selected).not.toContain('web-fetch');
+  });
+
+  it('requires both a promotion verb and a declared stage before treating a turn as delivery', () => {
+    const select = (message: string, vocabulary?: typeof ATLASMIND_VOCABULARY): string[] =>
+      selectTaskScopedSkills(
+        { skills: [], skillPolicy: 'task-scoped' },
+        GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+        message,
+        {},
+        vocabulary === undefined ? {} : { vocabulary },
+      ).map(item => item.id);
+
+    // A verb with no stage is not a promotion, and a stage with no verb is a
+    // question about it: in both cases the declared vocabulary changes nothing.
+    expect(select('publish the documentation site', ATLASMIND_VOCABULARY))
+      .toEqual(select('publish the documentation site'));
+    expect(select('why is Production slow?', ATLASMIND_VOCABULARY))
+      .toEqual(select('why is Production slow?'));
+    // No declared vocabulary means the previous keyword-only behaviour, never a
+    // guessed pipeline.
+    expect(select('promote to staging')).toEqual([]);
+  });
+
+  it('gives a git write request the tools to write, not only the tools to look', () => {
+    // "merge to main then publish" previously selected git-status, git-diff and
+    // git-log — three read-only tools for a request that cannot be satisfied
+    // without writing. A model handed that set reports on a merge it never made.
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+      'ok, merge to main then publish',
+    ).map(item => item.id);
+
+    expect(selected).toEqual(expect.arrayContaining(['git-commit', 'git-branch', 'git-push']));
+  });
+
+  it('bundles the write tools for an integration flow without widening a plain commit', () => {
+    // The bundle is deliberately narrower than "any word implying a write":
+    // asking about a commit is not asking for the ability to publish one.
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+      'what changed in the last commit?',
+    ).map(item => item.id);
+
+    expect(selected).toContain('git-commit');
+    expect(selected).not.toContain('git-push');
+  });
+
+  it('caps an oversized allowlist or all-skills pool without reordering one that fits', () => {
+    const wide = Array.from({ length: 40 }, (_unused, index) => skill(`tool-${String(index).padStart(2, '0')}`));
+    const narrow = wide.slice(0, 10);
+
+    // A pool that fits is returned untouched — same objects, same order.
+    expect(selectTaskScopedSkills({ skills: [], skillPolicy: 'all' }, narrow, 'anything at all')).toEqual(narrow);
+    expect(selectTaskScopedSkills(
+      { skills: narrow.map(item => item.id), skillPolicy: 'allowlist' }, narrow, 'anything at all',
+    )).toEqual(narrow);
+
+    // A pool that does not fit is capped, and unscored skills keep the order the
+    // user declared rather than being sorted by id.
+    const capped = selectTaskScopedSkills({ skills: [], skillPolicy: 'all' }, wide, 'anything at all');
+    expect(capped).toHaveLength(24);
+    expect(capped.map(item => item.id)).toEqual(wide.slice(0, 24).map(item => item.id));
+  });
+
+  it('ranks a relevant skill into an oversized pool ahead of declaration order', () => {
+    const wide = Array.from({ length: 40 }, (_unused, index) => skill(`tool-${String(index).padStart(2, '0')}`));
+    const buried = {
+      ...skill('mcp:mail:send_email', 'Send an email message.'),
+      routingHints: ['send email', 'email message'],
+    };
+
+    const capped = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'all' },
+      [...wide, buried],
+      'Send an email with the approved project update.',
+    ).map(item => item.id);
+
+    expect(capped).toHaveLength(24);
+    expect(capped[0]).toBe('mcp:mail:send_email');
+  });
+
+  it('raises the ceiling for a widened second pass', () => {
+    const eligible = [
+      'file-search', 'text-search', 'file-read', 'directory-list', 'code-symbols',
+      'framework-detect', 'diagnostics', 'test-run', 'file-edit', 'file-write',
+      'diff-preview', 'terminal-run', 'npm-scripts', 'git-status', 'git-diff',
+      'git-log', 'git-commit', 'git-branch', 'git-push',
+    ].map(id => skill(id));
+    const message = 'Fix the failing tests in the workspace, run them, then commit the change.';
+
+    const first = selectTaskScopedSkills({ skills: [], skillPolicy: 'task-scoped' }, eligible, message);
+    const widened = selectTaskScopedSkills({ skills: [], skillPolicy: 'task-scoped' }, eligible, message, {}, { widened: true });
+
+    expect(first).toHaveLength(12);
+    expect(widened.length).toBeGreaterThan(first.length);
+    expect(widened.length).toBeLessThanOrEqual(18);
+    // Widening only ever adds: everything the first pass chose is still there.
+    expect(widened.map(item => item.id)).toEqual(expect.arrayContaining(first.map(item => item.id)));
   });
 
   it('includes tool schemas in context estimates', () => {

@@ -97,12 +97,32 @@ else. `cheap` weights price heavily; `expensive` barely weights it at all.
 
 ### If it goes wrong
 
-Failover stays within models that still meet the task's requirements and **stops after three endpoints** —
-one request can't become a tour of your whole provider list.
+Failover stays within models that still meet the task's requirements and gets **three attempts of its
+own**, under a hard limit of five model calls for the whole turn — one request can't become a tour of your
+whole provider list.
+
+Those three are reserved. AtlasMind can also *escalate* — move up to a stronger model when an answer
+wasn't good enough — and that used to come out of the same allowance, so a turn that escalated once had a
+single attempt left to survive a provider going down. The optional upgrade no longer spends the budget
+recovery needs.
+
+**When a provider breaks, AtlasMind stops walking back into it.** If a subscription agent crashes
+mid-turn, every model it hosts is set aside for the rest of the turn — picking a different model name on
+the same broken process just reproduces the failure. That now includes escalation, which previously could
+route straight back into an endpoint the turn had already watched fail. The judgement is kept narrow: for
+an agent AtlasMind launched as a process, a protocol-level error means *that process*; for a cloud
+provider reached over the web, one error is one server among many and the provider stays in play.
+
+**And it remembers between messages.** An endpoint that fails hard twice is set aside for ten minutes, so
+a crashed agent isn't the first thing tried on your next message — but if it's the only thing that can do
+the job, AtlasMind tries it anyway rather than refusing your request. One successful call clears the
+record.
 
 A model that fails is marked failed for the session and dropped from future selection, with a warning in
 the Models sidebar. If a task genuinely needs tools and no capable model is left, **AtlasMind says so**
-rather than quietly falling back to a model that can only write text.
+rather than quietly falling back to a model that can only write text. When it does give up, it tells you
+which limit it actually hit — the failover budget, the overall ceiling, or simply that no other provider
+you've configured could serve the request.
 
 ---
 

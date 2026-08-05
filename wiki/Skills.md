@@ -129,6 +129,29 @@ Each agent uses one of three policies:
 | **Allowlist** | Exactly the skills the agent names, every time |
 | **All** | Every enabled skill, *including integrations installed after the agent was created* |
 
+Whichever policy you pick, **at most 24 tool descriptions are sent in one turn**. The policy decides what
+an agent is *allowed* to use; it shouldn't also decide how much of your context window every question
+costs. An agent set to *All* with several integrations connected was sending every tool it had on every
+message, however small the question. If your list already fits under the ceiling nothing changes at all —
+and when the ceiling does trim something, AtlasMind says so in the activity line, because a silent cut
+reads as "this is everything I have".
+
+### It reads your delivery pipeline before acting on it
+
+If you've set up delivery stages on the Project Dashboard, AtlasMind uses **your** names for them. Ask it
+to "promote to staging" and it looks up the stage you declared — including by *kind*, so it finds your
+staging stage even if you called it something else entirely, like `Integration`. It will not invent a
+stage you never declared, and a promotion needs both a verb and a real stage: "publish the docs" isn't a
+deployment, and "why is production slow?" is a question about one.
+
+### A request to merge arrives with the tools to merge
+
+Tool selection used to work word by word, so "merge to main then publish" was handed the tools that
+*describe* a repository and none of the tools that change one — and a model given that set writes a
+confident report rather than stopping. Merging, rebasing, cherry-picking and promoting now get the write
+tools together, as one job. Asking a question *about* a commit still doesn't hand over the ability to
+publish one, and every one of these tools stays behind its normal approval prompt.
+
 ### Your words are enforced, not just heard
 
 If you say **"read-only"**, **"don't edit anything"**, **"don't install packages"** or **"don't run

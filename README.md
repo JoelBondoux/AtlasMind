@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.258.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.259.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,33 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.258.0
+## What's new in 0.259.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **"Promote to staging" now means what your project says it means.** AtlasMind records your delivery
+  pipeline — the stages, what each one is called, which branch represents it — and until now the chat
+  side never read it. Ask to promote to staging and it would go looking for a branch called `staging`,
+  fail to find one, and ask you which branch you meant, while the answer sat in a file it wrote itself.
+  It now reads that file first, and a stage's *kind* counts as a name, so "staging" finds the stage
+  whose kind is staging whatever you happened to call it. It will not invent a stage you never declared.
+
+- **A request to merge now arrives with the tools to merge.** Tool selection worked word by word, so
+  "merge to main then publish" was given the three tools that *describe* a repository and none of the
+  tools that change one — and a model handed that set writes a confident report instead of stopping.
+  Merging, rebasing, cherry-picking and promoting now get the write tools as a set. Asking a question
+  about a commit still does not hand over the ability to publish one.
+
+- **A failing model provider costs you less.** When a subscription agent crashes mid-turn, AtlasMind no
+  longer walks back into the same broken process with a different model name, no longer spends the
+  budget it needs for recovery on an optional quality upgrade, and no longer opens the *next* message
+  with the endpoint that just failed twice. When it does give up, it tells you which limit it hit rather
+  than blaming a ceiling it never reached.
+
+- **Large tool sets no longer flood the context.** Agents set to use every skill were sending every tool
+  schema on every query, including every connected MCP tool. There is now a per-turn ceiling for all
+  agents, and when it trims something it says so — a silent cut reads as "this is everything I have".
 
 - **The Lens declaration files now come with a guide instead of a blank page.** Two of the eight lenses
   read a file you have to write yourself, and until now the help on offer was an empty

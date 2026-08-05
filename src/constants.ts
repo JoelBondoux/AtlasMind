@@ -1739,9 +1739,40 @@ export const MAX_PROVIDER_RETRIES = 2;
 
 /**
  * Hard per-turn ceiling across initial selection, capability re-routing,
- * escalation, and provider failover.
+ * escalation, and provider failover. A spend backstop, not a policy: the
+ * budgets below are what normally stops a turn.
  */
-export const MAX_TASK_MODEL_ATTEMPTS = 3;
+export const MAX_TASK_MODEL_ATTEMPTS = 5;
+
+/**
+ * Provider-failover attempts allowed in one turn, counted separately from
+ * escalation.
+ *
+ * One shared counter made an outage compete with a quality upgrade for the same
+ * budget, and the escalation is the discretionary half: a turn that escalated
+ * once had a single attempt left to survive a provider failure. Failover is
+ * what keeps a turn alive when an endpoint dies, so it gets its own budget.
+ */
+export const MAX_TASK_FAILOVER_ATTEMPTS = 3;
+
+/**
+ * Consecutive hard failures before an execution endpoint is quarantined for
+ * later turns as well as the current one.
+ *
+ * Turn-local circuit state is discarded when the turn ends, so an agent that
+ * has just failed twice is still first pick on the next message. Two failures
+ * rather than one: a single blip should not cost the user their preferred
+ * endpoint for ten minutes.
+ */
+export const ENDPOINT_QUARANTINE_THRESHOLD = 2;
+
+/**
+ * How long a quarantined endpoint stays excluded from routing. Longer than
+ * `MODEL_FAILURE_TTL_MS` because the subject is a process rather than a model:
+ * a crashed ACP agent or a stopped local server is not usually well again in
+ * five minutes, and a quarantine that lifts too early re-enters the failure.
+ */
+export const ENDPOINT_QUARANTINE_TTL_MS = 10 * 60 * 1000;
 
 /** Exponential backoff base for provider retries in milliseconds. */
 export const PROVIDER_RETRY_BASE_DELAY_MS = 400;

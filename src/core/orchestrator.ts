@@ -41,6 +41,9 @@ import {
   ACP_PROVIDER_TIMEOUT_MS,
   MAX_PROVIDER_RETRIES,
   MAX_TASK_MODEL_ATTEMPTS,
+  MAX_TASK_FAILOVER_ATTEMPTS,
+  ENDPOINT_QUARANTINE_THRESHOLD,
+  ENDPOINT_QUARANTINE_TTL_MS,
   PROVIDER_RETRY_BASE_DELAY_MS,
   DEFAULT_CHAT_MAX_TOKENS,
   MAX_COMPLETION_CONTINUATIONS,
@@ -48,6 +51,14 @@ import {
   CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
+import { readDeliveryConfig } from './deliveryManager.js';
+import { readWorkflowConfig } from './workflowConfig.js';
+import {
+  describeDeliveryPipeline,
+  hasPromotionIntent,
+  matchDeliveryIntent,
+  type ProjectVocabularySource,
+} from './projectVocabulary.js';
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
 
@@ -67,6 +78,30 @@ const RELEASE_HYGIENE_ACTION_PATTERN = /\b(?:changelog|release\s+notes|version\s
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
 const MAX_TASK_SCOPED_SKILLS = 12;
+
+/**
+ * Ceiling on tool schemas sent in one turn, for **every** skill policy.
+ *
+ * `MAX_TASK_SCOPED_SKILLS` only ever applied to `task-scoped` agents, so an
+ * `allowlist` agent sent its whole list and an `all` agent sent every enabled
+ * skill including every connected MCP tool — on every query, whatever was asked.
+ * That conflated two different questions: `skillPolicy` says which skills an
+ * agent *may* use (authorization), and it was also deciding which schemas are
+ * worth a turn's context (selection).
+ *
+ * Higher than the task-scoped cap because choosing `allowlist` or `all` is a
+ * deliberate act and the pool is meant to be wide. This is an overflow guard,
+ * not a selection policy: a pool at or under the cap passes through untouched,
+ * so the common case of a hand-written allowlist is byte-identical to before.
+ */
+const MAX_TURN_TOOL_SCHEMAS = 24;
+
+/**
+ * A second, wider selection pass for a turn whose first answer was judged
+ * insufficient. One cause of a thin answer is a model that was never given the
+ * tool it needed, and re-routing to a stronger model does not fix that.
+ */
+const MAX_WIDENED_TASK_SCOPED_SKILLS = 18;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
@@ -487,6 +522,17 @@ export class Orchestrator {
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
+  /**
+   * Execution endpoints that have failed hard, and how many times in a row.
+   *
+   * Turn-local circuit state answers "stop re-entering this within this turn";
+   * this answers "stop opening every turn with it". Without it a crashed ACP
+   * agent stays first pick on the next message, and the user pays two attempts
+   * per turn to rediscover that it is still down. In-memory by design — a dead
+   * subprocess is a fact about this editor session, not about the project, and
+   * persisting it would outlive the restart that fixes it.
+   */
+  private readonly endpointFailures = new Map<string, { failures: number; lastFailedAt: number }>();
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
@@ -1212,7 +1258,20 @@ export class Orchestrator {
     const eligibleAgentSkills = this.skills.getSkillsForAgent(agent).filter(skill =>
       isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
     );
-    let activeAgentSkills = selectTaskScopedSkills(agent, eligibleAgentSkills, request.userMessage, request.context);
+    const projectVocabulary = this.readProjectVocabulary();
+    let activeAgentSkills = selectTaskScopedSkills(
+      agent, eligibleAgentSkills, request.userMessage, request.context, { vocabulary: projectVocabulary },
+    );
+    // The pipeline the project declared, put in front of the model rather than
+    // left on disk. Without it "promote to staging" becomes generic Git
+    // archaeology that rediscovers — or fails to rediscover — a fact AtlasMind
+    // already recorded, and asks the user a question it could have answered.
+    const deliveryBriefing = projectVocabulary === undefined
+      ? undefined
+      : describeDeliveryPipeline(projectVocabulary);
+    if (deliveryBriefing !== undefined) {
+      request.context['deliveryPipeline'] = deliveryBriefing;
+    }
     const isCommittedChangeStoryDiscussion = hasLensChangeStoryEvidence(request.context['atlasmindLens']);
     if (isCommittedChangeStoryDiscussion) {
       // A Change Story file is read from an exact committed ref by the trusted
@@ -1254,11 +1313,19 @@ export class Orchestrator {
       && this.readSetting<boolean>('acp.toolsEnabled', false);
 
     const skillPolicy = resolveAgentSkillPolicy(agent);
+    // A cap that bites says so. A silent truncation reads as "this is everything
+    // the agent has", which is exactly the wrong thing to believe when a tool
+    // the model needed was the one dropped.
+    const schemasCapped = tools.length < eligibleAgentSkills.length;
     const skillSelectionDetail = skillPolicy === 'task-scoped'
       ? `selected ${tools.length} of ${eligibleAgentSkills.length} eligible`
       : skillPolicy === 'allowlist'
-        ? `prepared ${tools.length} allowlisted`
-        : `prepared all ${tools.length} enabled`;
+        ? schemasCapped
+          ? `prepared the ${tools.length} most relevant of ${eligibleAgentSkills.length} allowlisted (per-turn schema cap)`
+          : `prepared ${tools.length} allowlisted`
+        : schemasCapped
+          ? `prepared the ${tools.length} most relevant of ${eligibleAgentSkills.length} enabled (per-turn schema cap)`
+          : `prepared all ${tools.length} enabled`;
     onProgress?.(`Selected agent ${agent.name} and ${skillSelectionDetail} tool(s).`);
     if (turnCapabilities.reason) {
       onProgress?.(`Applied the user's turn-scoped capability limit: ${turnCapabilities.reason}`);
@@ -1548,7 +1615,9 @@ export class Orchestrator {
     let aggregateCachedInputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
     const modelAttempts: TaskModelAttempt[] = [];
-    const blockedEndpointScopes = new Set<string>();
+    // Seeded from earlier turns: an endpoint that has failed hard twice should
+    // not be rediscovered from scratch on every message.
+    const blockedEndpointScopes = this.quarantinedEndpointScopes();
     const reportedModelDiagnostics = new Set<string>();
 
     if (dailyBudget?.blocked) {
@@ -1580,7 +1649,35 @@ export class Orchestrator {
     } else {
       let currentModel = initialModel;
       let escalationAttempts = 0;
+      let failoverAttempts = 0;
+      let skillsWidened = false;
       const attemptedModels = new Set<string>();
+      // Escalation and failover no longer share one counter. Escalation is
+      // discretionary — the answer was merely not good enough — while failover
+      // is what keeps a turn alive when an endpoint dies, so an escalation must
+      // not be able to spend the budget an outage will need.
+      const failoverBudgetAvailable = (): boolean =>
+        failoverAttempts < MAX_TASK_FAILOVER_ATTEMPTS && modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS;
+
+      // The router does not know about this session's dead endpoints, so the
+      // model it picked may already be quarantined. Move off it before spending
+      // an attempt — but never leave the turn with nothing: if the quarantined
+      // endpoint is the only one that can serve this task, lift the block and
+      // try it, because a stale quarantine must not be able to refuse a turn
+      // that would otherwise have run.
+      if (blockedEndpointScopes.has(executionEndpointScope(currentModel, resolveProviderIdForModel(currentModel, this.router, 'local')))) {
+        const healthyModel = this.selectProviderFailoverModel(
+          currentModel, routingConstraints, agent.allowedModels, baseTaskProfile, attemptedModels, blockedEndpointScopes,
+        );
+        if (healthyModel) {
+          onProgress?.(`Skipping "${currentModel}" — its endpoint failed repeatedly in recent turns. Using "${healthyModel}" instead.`);
+          currentModel = healthyModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
+        } else {
+          blockedEndpointScopes.delete(executionEndpointScope(currentModel, resolveProviderIdForModel(currentModel, this.router, 'local')));
+          onProgress?.(`"${currentModel}" failed repeatedly in recent turns, but no alternative is available — retrying it.`);
+        }
+      }
 
       for (;;) {
         const selectedProvider = resolveProviderIdForModel(currentModel, this.router, 'local');
@@ -1613,7 +1710,7 @@ export class Orchestrator {
             outputTokens: 0,
             reason: failureMessage,
           });
-          const failoverModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+          const failoverModel = failoverBudgetAvailable()
             ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
             : undefined;
           if (!failoverModel) {
@@ -1633,6 +1730,7 @@ export class Orchestrator {
             break;
           }
 
+          failoverAttempts += 1;
           currentModel = failoverModel;
           (onModelSelected ?? this.onModelSelected)?.(currentModel);
           continue;
@@ -1651,6 +1749,8 @@ export class Orchestrator {
               agent.allowedModels,
               taskProfile,
               activeAgentSkills.length > 0,
+              attemptedModels,
+              blockedEndpointScopes,
             )
           : undefined;
 
@@ -1744,11 +1844,12 @@ export class Orchestrator {
                 'function_calling',
               ],
             };
-            const toolCapableModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+            const toolCapableModel = failoverBudgetAvailable()
               ? this.selectProviderFailoverModel(currentModel, toolCapableConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
               : undefined;
             if (toolCapableModel) {
               onProgress?.(`Switching from "${currentModel}" to tool-capable model "${toolCapableModel}" to continue the task.`);
+              failoverAttempts += 1;
               currentModel = toolCapableModel;
               (onModelSelected ?? this.onModelSelected)?.(currentModel);
               continue;
@@ -1764,11 +1865,12 @@ export class Orchestrator {
               speed: 'considered',
               requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
             };
-            const textFallbackModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+            const textFallbackModel = failoverBudgetAvailable()
               ? this.selectProviderFailoverModel(currentModel, textFallbackConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
               : undefined;
             if (textFallbackModel) {
               onProgress?.(`No tool-capable model available; switching to "${textFallbackModel}" for a best-effort text response (tools unavailable).`);
+              failoverAttempts += 1;
               tools = [];
               activeAgentSkills = [];
               currentModel = textFallbackModel;
@@ -1781,6 +1883,9 @@ export class Orchestrator {
           }
 
           this.router.clearModelFailure(currentModel);
+          // The endpoint just served an attempt, which retires any quarantine it
+          // had accumulated in earlier turns.
+          this.clearEndpointFailure(endpointScope);
           // Clean turn: partially recover (halve) any struggle penalty for this
           // model on this task signature, so sustained struggles fade gradually
           // rather than being wiped by a single good turn.
@@ -1794,6 +1899,28 @@ export class Orchestrator {
           if (modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS) {
             onProgress?.(`Stopped after the safety ceiling of ${MAX_TASK_MODEL_ATTEMPTS} model attempts.`);
             break;
+          }
+
+          // A thin answer is not always a thin model — it is often a model that
+          // was never given the tool it needed, and re-routing to a stronger one
+          // does not fix that. Widen the selection once alongside the
+          // escalation, within the same authorization ceiling, so the better
+          // model is not sent back with the same gap.
+          if (!skillsWidened && tools.length > 0 && activeAgentSkills.length < eligibleAgentSkills.length) {
+            skillsWidened = true;
+            const widenedSkills = selectTaskScopedSkills(
+              agent, eligibleAgentSkills, request.userMessage, request.context,
+              { ...(projectVocabulary === undefined ? {} : { vocabulary: projectVocabulary }), widened: true },
+            );
+            if (widenedSkills.length > activeAgentSkills.length) {
+              onProgress?.(`Widening the tool set from ${activeAgentSkills.length} to ${widenedSkills.length} for the escalated attempt.`);
+              activeAgentSkills = widenedSkills;
+              tools = buildToolDefinitions(activeAgentSkills);
+              // Keep the recorded execution honest: a handoff reads its ceiling
+              // from here, and a stale narrower list would misreport what is
+              // actually running.
+              this.currentExecution = { agentId: agent.id, taskId: request.id, skillIds: activeAgentSkills.map(skill => skill.id) };
+            }
           }
 
           currentModel = escalatedModel;
@@ -1813,8 +1940,9 @@ export class Orchestrator {
             outputTokens: 0,
             reason: boundedAttemptReason(failureMessage),
           });
-          if (shouldOpenEndpointCircuit(failureMessage)) {
+          if (shouldOpenEndpointCircuit(failureMessage, selectedProvider)) {
             blockedEndpointScopes.add(endpointScope);
+            this.recordEndpointFailure(endpointScope);
             onProgress?.(`Paused endpoint "${endpointScope}" for this turn after a transport failure.`);
           }
           const modelWasRetired = isModelDeprecatedError(error);
@@ -1845,7 +1973,7 @@ export class Orchestrator {
             onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
           }
 
-          let failoverModel = modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS
+          let failoverModel = failoverBudgetAvailable()
             ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels, blockedEndpointScopes)
             : undefined;
 
@@ -1853,7 +1981,7 @@ export class Orchestrator {
           // models are on the failed provider), try again without the
           // function_calling requirement so a text-capable model can at least
           // answer the user rather than hard-stopping.
-          if (!failoverModel && tools.length > 0 && modelAttempts.length < MAX_TASK_MODEL_ATTEMPTS) {
+          if (!failoverModel && tools.length > 0 && failoverBudgetAvailable()) {
             const relaxedFailoverConstraints: RoutingConstraints = {
               ...routingConstraints,
               requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
@@ -1867,10 +1995,18 @@ export class Orchestrator {
           }
 
           if (!failoverModel) {
-            const limitReached = modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS;
+            // Name the limit that actually stopped the turn. "The safety ceiling
+            // is 3" was reported even when the real cause was that no other
+            // provider could serve the task, which sends the reader to the wrong
+            // fix.
+            const budgetSpent = failoverAttempts >= MAX_TASK_FAILOVER_ATTEMPTS
+              ? ` (the failover budget of ${MAX_TASK_FAILOVER_ATTEMPTS} is spent)`
+              : modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS
+                ? ` (the safety ceiling is ${MAX_TASK_MODEL_ATTEMPTS} attempts)`
+                : ' (no other configured provider could serve this request)';
             const noFallbackContent = autoDisabledProvider
               ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-              : `AtlasMind stopped after ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'}${limitReached ? ` (the safety ceiling is ${MAX_TASK_MODEL_ATTEMPTS})` : ''}. Provider "${selectedProvider}" failed: ${failureMessage}.\n\nNo additional recovery model was invoked. Retry after checking provider availability or enable a different provider in **AtlasMind: Model Providers**.`;
+              : `AtlasMind stopped after ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'}${budgetSpent}. Provider "${selectedProvider}" failed: ${failureMessage}.\n\nNo additional recovery model was invoked. Retry after checking provider availability or enable a different provider in **AtlasMind: Model Providers**.`;
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -1889,6 +2025,7 @@ export class Orchestrator {
           if (autoDisabledProvider && !autoDisabledProvider.failoverModelUsed) {
             autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
           }
+          failoverAttempts += 1;
           currentModel = failoverModel;
           (onModelSelected ?? this.onModelSelected)?.(currentModel);
         }
@@ -3387,12 +3524,99 @@ export class Orchestrator {
     };
   }
 
+  /**
+   * The delivery stages and branches this project declared, or `undefined` when
+   * it has declared none.
+   *
+   * `undefined` means *not declared*, never *no pipeline*: a project that has
+   * not filled in `delivery.json` gets the previous keyword-only behaviour
+   * rather than an invented pipeline. Read per turn, like the testing config, so
+   * an edit to the file takes effect on the next message instead of at the next
+   * window reload. Every failure path returns `undefined` — a corrupt or absent
+   * operations file must never be able to take a chat turn down.
+   */
+  private readProjectVocabulary(): ProjectVocabularySource | undefined {
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+
+    let stages: ProjectVocabularySource['stages'];
+    let branches: ProjectVocabularySource['branches'];
+    try {
+      stages = readDeliveryConfig(workspaceRoot)?.stages;
+    } catch { /* An unreadable delivery file declares nothing. */ }
+    try {
+      branches = readWorkflowConfig(workspaceRoot)?.branches;
+    } catch { /* Likewise for the workflow file. */ }
+
+    if ((stages === undefined || stages.length === 0) && branches === undefined) {
+      return undefined;
+    }
+    return {
+      ...(stages === undefined ? {} : { stages }),
+      ...(branches === undefined ? {} : { branches }),
+    };
+  }
+
+  /**
+   * Endpoints that failed hard often enough in recent turns to stop opening a
+   * turn with them. Expired records are swept here rather than on a timer, so
+   * an editor left idle overnight starts clean without one running.
+   */
+  private quarantinedEndpointScopes(): Set<string> {
+    const now = Date.now();
+    const quarantined = new Set<string>();
+    for (const [scope, record] of this.endpointFailures) {
+      if (now - record.lastFailedAt > ENDPOINT_QUARANTINE_TTL_MS) {
+        this.endpointFailures.delete(scope);
+        continue;
+      }
+      if (record.failures >= ENDPOINT_QUARANTINE_THRESHOLD) {
+        quarantined.add(scope);
+      }
+    }
+    return quarantined;
+  }
+
+  private recordEndpointFailure(scope: string): void {
+    const now = Date.now();
+    const existing = this.endpointFailures.get(scope);
+    const expired = existing !== undefined && now - existing.lastFailedAt > ENDPOINT_QUARANTINE_TTL_MS;
+    this.endpointFailures.set(scope, {
+      failures: existing === undefined || expired ? 1 : existing.failures + 1,
+      lastFailedAt: now,
+    });
+  }
+
+  /**
+   * A completed attempt clears the record outright rather than decrementing it:
+   * the endpoint just served a turn, which is the only evidence that matters,
+   * and a half-cleared count would quarantine it again on the next single blip.
+   */
+  private clearEndpointFailure(scope: string): void {
+    this.endpointFailures.delete(scope);
+  }
+
+  /**
+   * A more capable model for a turn whose answer was not good enough.
+   *
+   * `attemptedModels` and `blockedEndpointScopes` are the same turn-local
+   * knowledge the failover path uses, and escalation has to honour both for the
+   * same reason: an escalation that re-enters an endpoint the turn has already
+   * watched fail spends an attempt to reproduce a known failure. Before they
+   * were threaded through here a timeout could open the circuit on an endpoint
+   * and the very next escalation would route straight back into it, because
+   * escalation asked the router a question that had no memory of this turn.
+   */
   private selectEscalatedModel(
     currentModel: string,
     constraints: RoutingConstraints,
     allowedModels: string[] | undefined,
     taskProfile: TaskProfile,
     requiresTools: boolean,
+    attemptedModels: ReadonlySet<string> = new Set(),
+    blockedEndpointScopes: ReadonlySet<string> = new Set(),
   ): string | undefined {
     const escalatedConstraints: RoutingConstraints = {
       ...constraints,
@@ -3410,7 +3634,13 @@ export class Orchestrator {
 
     const candidateIds = this.router
       .listCandidateModelIds(escalatedConstraints, allowedModels, buildEscalatedTaskProfile(taskProfile, requiresTools))
-      .filter(modelId => modelId !== currentModel);
+      .filter(modelId => {
+        if (modelId === currentModel || attemptedModels.has(modelId)) {
+          return false;
+        }
+        const providerId = resolveProviderIdForModel(modelId, this.router, 'local');
+        return !blockedEndpointScopes.has(executionEndpointScope(modelId, providerId));
+      });
 
     if (candidateIds.length === 0) {
       return undefined;
@@ -4144,6 +4374,17 @@ export class Orchestrator {
     const turnCapabilityBlock = turnCapabilityEnvelope?.reason
       ? `\n\nTurn-scoped capability boundary:\n- ${turnCapabilityEnvelope.reason}\n- This is an enforced tool boundary, not a preference. Do not ask for, invent, or claim any action outside it.`
       : '';
+    // Host-derived from the project's own `delivery.json` (names and branch refs
+    // are validated and clamped by `projectVocabulary`), so it is stated as fact
+    // rather than fenced as reported content. Without it a request naming a
+    // stage sends the model to rediscover the pipeline from `git branch`, which
+    // finds branches and not stages.
+    const deliveryPipeline = typeof requestContext['deliveryPipeline'] === 'string'
+      ? requestContext['deliveryPipeline'].trim()
+      : '';
+    const deliveryPipelineBlock = deliveryPipeline
+      ? `\n\nDelivery pipeline (declared by this project — authoritative; do not infer stages from branch names):\n${deliveryPipeline}`
+      : '';
     const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice, ...blockedContextNotices].filter(Boolean).join('\n');
     const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
     // Compose shared policy at execution time, then put the specialist prompt
@@ -4178,6 +4419,7 @@ export class Orchestrator {
           securityAnalysisHint +
           urlSafetyHint +
           workflowExecutionBlock +
+          deliveryPipelineBlock +
           testingObligationBlock +
           testingMethodologyHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
@@ -5132,6 +5374,22 @@ const TASK_SCOPED_TOOL_ACTION_PATTERN = /\b(?:send|schedule|publish|deploy|query
 const TASK_SCOPED_COMMAND_PATTERN = /\b(?:run|execute|install|build|compile|lint|format|terminal|shell|command|npm|pnpm|yarn|cargo|docker)\w*\b/i;
 const TASK_SCOPED_TEST_PATTERN = /\b(?:test|testing|atdd|tdd|bdd|acceptance|spec|coverage|vitest|jest|mocha|pytest|playwright|regression)\w*\b/i;
 const TASK_SCOPED_GIT_PATTERN = /\b(?:git|branch|commit|diff|merge|rebase|cherry[- ]?pick|pull request|\bpr\b|push|blame|stash)\b/i;
+/**
+ * Git flows that *integrate* one line of work into another.
+ *
+ * These select the write tools as a **set**, which per-word selection could not
+ * do: "merge to main then publish" contains neither `commit` nor `push`, so it
+ * matched only the read half of the Git group and the turn was handed
+ * `git-status`, `git-diff` and `git-log` for a request that cannot be satisfied
+ * without writing. A model given that set does not stop — it reports on the
+ * merge it had no way to perform, which is worse than failing outright because
+ * the report reads like work.
+ *
+ * Deliberately narrower than "any word implying a write": `commit` and `push`
+ * keep their own per-word rules below, so "what changed in the last commit?"
+ * still selects `git-commit` and not the ability to push.
+ */
+const TASK_SCOPED_GIT_INTEGRATION_PATTERN = /\b(?:merge|merging|merged|rebase|rebasing|cherry[- ]?pick(?:ing|ed)?)\b/i;
 const TASK_SCOPED_MEMORY_PATTERN = /\b(?:memory|ssot|decision|project knowledge|remember|recall)\b/i;
 const TASK_SCOPED_WEB_PATTERN = /\b(?:https?:\/\/|website|web page|url|external research|browse|fetch)\b/i;
 const TASK_SCOPED_EXPLANATION_PATTERN = /^\s*(?:please\s+)?(?:help\s+me\s+understand|explain|what\s+(?:is|are|does)|how\s+does|why\s+does|describe|compare)\b/i;
@@ -5149,27 +5407,64 @@ const TASK_SCOPED_MUTATING_SKILL_IDS = new Set([
   'rollback-checkpoint',
 ]);
 
+export interface TaskScopedSkillOptions {
+  /**
+   * The project's own declared delivery nouns. Absent means "not declared",
+   * never "no pipeline": without it delivery intent simply does not fire, which
+   * is the pre-existing behaviour rather than a guess.
+   */
+  vocabulary?: ProjectVocabularySource;
+  /** Second pass after an unsatisfactory answer — allow a wider set. */
+  widened?: boolean;
+}
+
 /**
- * Narrow a task-scoped agent's eligible capability pool to a deterministic,
- * bounded subset for this turn. This is context selection, not authorization:
- * the agent allowlist, turn envelope, tool policy, and approvals still apply.
+ * Bound a pool the user chose deliberately, without reordering it when it fits.
+ *
+ * Only reached when an `allowlist` or `all` pool exceeds the ceiling. Ranking is
+ * by intent, and skills that score nothing keep their declared order rather than
+ * being sorted — for an allowlist that order is the order the user wrote them
+ * in, so an overflow keeps the ones they named first instead of the ones whose
+ * ids happen to sort early.
+ */
+function capTurnToolSchemas(eligibleSkills: SkillDefinition[], userMessage: string): SkillDefinition[] {
+  if (eligibleSkills.length <= MAX_TURN_TOOL_SCHEMAS) {
+    return eligibleSkills;
+  }
+
+  const scored = eligibleSkills
+    .map((skill, order) => ({ skill, order, score: scoreSkillIntentMatch(userMessage, inferSkillRoutingHints(skill)) }))
+    .sort((left, right) => right.score - left.score || left.order - right.order);
+
+  return scored.slice(0, MAX_TURN_TOOL_SCHEMAS).map(entry => entry.skill);
+}
+
+/**
+ * Narrow an agent's eligible capability pool to a deterministic, bounded subset
+ * for this turn. This is context selection, not authorization: the agent
+ * allowlist, turn envelope, tool policy, and approvals still apply, and nothing
+ * here can grant a skill the agent does not already hold.
  */
 export function selectTaskScopedSkills(
   agent: Pick<AgentDefinition, 'skills' | 'skillPolicy'>,
   eligibleSkills: SkillDefinition[],
   userMessage: string,
   requestContext: Record<string, unknown> = {},
+  options: TaskScopedSkillOptions = {},
 ): SkillDefinition[] {
   if (resolveAgentSkillPolicy(agent) !== 'task-scoped') {
-    return eligibleSkills;
+    // `allowlist` and `all` still answer *which* skills are permitted; they no
+    // longer also mean "send every one of them, every turn".
+    return capTurnToolSchemas(eligibleSkills, userMessage);
   }
 
+  const skillCap = options.widened ? MAX_WIDENED_TASK_SCOPED_SKILLS : MAX_TASK_SCOPED_SKILLS;
   const byId = new Map(eligibleSkills.map(skill => [skill.id, skill]));
   const selected: SkillDefinition[] = [];
   const selectedIds = new Set<string>();
   const add = (...ids: string[]): void => {
     for (const id of ids) {
-      if (selected.length >= MAX_TASK_SCOPED_SKILLS) {
+      if (selected.length >= skillCap) {
         return;
       }
       const skill = byId.get(id);
@@ -5204,7 +5499,21 @@ export function selectTaskScopedSkills(
   const action = mutation
     || TASK_SCOPED_TOOL_ACTION_PATTERN.test(userMessage)
     || contextualAction;
-  const git = TASK_SCOPED_GIT_PATTERN.test(userMessage);
+  // Delivery intent comes from what the project declared, not from a keyword
+  // table maintained here. "promote to staging" named a real stage in
+  // `delivery.json` and matched none of the patterns above, so the turn that
+  // most needed tools received none.
+  const promotionVerb = hasPromotionIntent(userMessage);
+  const deliveryStage = options.vocabulary === undefined
+    ? undefined
+    : matchDeliveryIntent(userMessage, options.vocabulary);
+  // A verb alone is not delivery ("publish the docs"); a stage alone is not
+  // either ("why is production slow?"). Both together is a promotion, and a
+  // protected stage still only means the tools are offered — the approval gate
+  // is what decides whether anything runs.
+  const delivery = promotionVerb && deliveryStage !== undefined;
+  const git = TASK_SCOPED_GIT_PATTERN.test(userMessage) || delivery;
+  const gitIntegration = git && (TASK_SCOPED_GIT_INTEGRATION_PATTERN.test(userMessage) || delivery);
   const memory = TASK_SCOPED_MEMORY_PATTERN.test(userMessage);
   const web = TASK_SCOPED_WEB_PATTERN.test(userMessage);
   const conceptualExplanation = TASK_SCOPED_EXPLANATION_PATTERN.test(userMessage)
@@ -5215,11 +5524,21 @@ export function selectTaskScopedSkills(
 
   if (git) {
     add('git-status', 'git-diff', 'git-log');
+    // An integration flow gets the write half as a set: it is one task that ends
+    // in a published change, and selecting half of it produces a model that
+    // narrates the other half.
+    if (gitIntegration) { add('git-branch', 'git-commit', 'git-push'); }
     if (/\bcommit\b/i.test(userMessage)) { add('git-commit'); }
     if (/\bpush\b/i.test(userMessage)) { add('git-push'); }
     if (/\bbranch|checkout\b/i.test(userMessage)) { add('git-branch'); }
     if (/\bblame\b/i.test(userMessage)) { add('git-blame'); }
     if (/\bapply(?:\s+a)?\s+patch|patch\b/i.test(userMessage)) { add('git-apply-patch'); }
+  }
+
+  if (delivery) {
+    // A promotion is a sequence of shell steps this project declared, so the
+    // turn needs to be able to inspect and run them as well as touch git.
+    add('file-read', 'terminal-run', 'npm-scripts');
   }
 
   if (workspace) {
@@ -5248,7 +5567,7 @@ export function selectTaskScopedSkills(
     if (/\bapi|request|post|put|patch|delete\b/i.test(userMessage)) { add('http-request'); }
   }
 
-  const shouldRankByIntent = selected.length > 0 || workspace || action || command || git || memory || web;
+  const shouldRankByIntent = selected.length > 0 || workspace || action || command || git || memory || web || delivery;
   const ranked = (shouldRankByIntent ? eligibleSkills : [])
     .filter(skill =>
       !selectedIds.has(skill.id)
@@ -5332,8 +5651,43 @@ export function executionEndpointScope(modelId: string, providerId: string): str
   return `provider:${providerId}`;
 }
 
-function shouldOpenEndpointCircuit(errorMessage: string): boolean {
-  return /\b(?:timed?\s*out|timeout|temporarily unavailable|socket|transport|network|connection|econn\w*|fetch failed|upstream outage)\b/i.test(errorMessage);
+const TRANSPORT_FAILURE_PATTERN = /\b(?:timed?\s*out|timeout|temporarily unavailable|socket|transport|network|connection|econn\w*|fetch failed|upstream outage)\b/i;
+
+/**
+ * A JSON-RPC error code as it reaches us in an adapter's message text, e.g.
+ * `The ACP agent returned an error (-32603): Internal error`.
+ */
+const JSON_RPC_ERROR_CODE_PATTERN = /\(-3[0-2]\d{3}\)/;
+
+/**
+ * Providers AtlasMind reaches through a process it launched rather than a URL.
+ * For these the transport *is* the process, which is what makes a protocol-level
+ * error an endpoint fact rather than a model one.
+ */
+const STDIO_ENDPOINT_PROVIDERS = new Set(['acp']);
+
+/**
+ * Whether a failure says something about the *endpoint* rather than the model.
+ *
+ * Text matching alone was too narrow for a stdio agent: `-32603 Internal error`
+ * names none of the transport words, so a sibling model on the same subprocess
+ * stayed eligible and the next attempt re-entered the process that had just
+ * failed. For an agent on the other end of a pipe, a JSON-RPC error is that
+ * process reporting it cannot serve this turn — routing `@gpt-5.5` into the
+ * pipe that just failed `@gpt-5.4-mini` reproduces the failure and spends an
+ * attempt doing it.
+ *
+ * Deliberately not extended to HTTP providers: there a 500 is one endpoint of
+ * many behind a load balancer, and quarantining the provider on a single upstream
+ * error would be far too broad.
+ */
+export function shouldOpenEndpointCircuit(errorMessage: string, providerId?: string): boolean {
+  if (TRANSPORT_FAILURE_PATTERN.test(errorMessage)) {
+    return true;
+  }
+  return providerId !== undefined
+    && STDIO_ENDPOINT_PROVIDERS.has(providerId)
+    && JSON_RPC_ERROR_CODE_PATTERN.test(errorMessage);
 }
 
 function boundedAttemptReason(reason: string | undefined): string | undefined {

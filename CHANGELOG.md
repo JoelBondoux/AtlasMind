@@ -6,7 +6,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.258.0] - 2026-08-04
+## [0.259.0] - 2026-08-05
+
+### Added
+
+- **AtlasMind now reads its own delivery pipeline before answering questions about it**
+  (`src/core/projectVocabulary.ts`). A request to "promote to staging" was matched against a
+  hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so
+  the turn selected **no tools and no context** — while `project_memory/operations/delivery.json` had
+  already recorded the exact answer: a stage of kind `staging`, named `Integration`, carrying
+  `branchRef: develop`. The product knew, and the part of the product that had to act did not, so the
+  model fell back to `git branch`, found nothing called `staging`, and asked the user a question
+  AtlasMind could have answered.
+
+  The new module is the single reader of those declared nouns, and three rules hold the gap closed.
+  **Declared only** — a term is a stage's name, its kind, or its branch ref, read from the file the
+  project maintains; nothing here invents a stage, because a wrong stage name aims a promotion at the
+  wrong branch. **A kind counts as a name** — the stage is *called* `Integration` and is *of kind*
+  `staging`, so matching only display names would reproduce the original bug for every project whose
+  stages are not named the generic way. **A match is a fact, never a verdict** — the module reports what
+  the message named, and whether that becomes a tool, a prompt block or nothing at all belongs to the
+  caller, which is what lets one vocabulary serve both skill selection and chat context without either
+  learning the other's rules. Pure, `fs`-free and unit-tested.
+
+  The pipeline is now also stated to the model as an authoritative block, so a turn naming a stage no
+  longer starts by rediscovering the pipeline from branch names. `undefined` is returned rather than an
+  empty heading when a project declares nothing: an empty "Delivery pipeline:" teaches a model the
+  project has no pipeline, which is a stronger and more wrong claim than silence.
+
+### Changed
+
+- **Escalation now honours the turn's circuit breaker.** `selectEscalatedModel` took neither
+  `attemptedModels` nor `blockedEndpointScopes`, so a timeout could open the circuit on an endpoint and
+  the very next escalation would route straight back into it — spending an attempt to reproduce a known
+  failure. Escalation asked the router a question that had no memory of the turn it was in; it now
+  applies the same two filters the failover path already did.
+
+- **An outage no longer competes with a quality upgrade for the same budget.** `MAX_TASK_MODEL_ATTEMPTS`
+  was one counter shared by escalation and provider failover, so a turn that escalated once had a single
+  attempt left to survive a provider failure. Failover now has its own budget
+  (`MAX_TASK_FAILOVER_ATTEMPTS`, 3) and `MAX_TASK_MODEL_ATTEMPTS` (raised to 5) is what it always should
+  have been: a spend backstop rather than the policy. Escalation stays capped at one.
+
+- **A JSON-RPC error from a stdio agent is an endpoint fault, not a model one.** `-32603 Internal error`
+  names none of the words the circuit breaker matched on (`timeout`, `socket`, `transport`, …), so a
+  sibling model on the same subprocess stayed eligible and the next attempt re-entered the process that
+  had just failed. For an agent on the other end of a pipe the transport *is* the process. Deliberately
+  not extended to HTTP providers, where one 500 is one endpoint of many behind a load balancer and
+  quarantining the provider would be far too broad.
+
+- **Endpoint health now survives the turn.** Circuit state was turn-local, so an ACP agent that had just
+  failed twice was still first pick on the next message and the user paid an attempt per turn to
+  rediscover it was down. Two hard failures quarantine an endpoint for ten minutes
+  (`ENDPOINT_QUARANTINE_THRESHOLD`, `ENDPOINT_QUARANTINE_TTL_MS`); a single completed attempt clears the
+  record outright. A quarantine can never refuse a turn: if the quarantined endpoint is the only one that
+  can serve the task, the block is lifted and the attempt is made.
+
+- **The stop message names the limit that actually stopped the turn.** "The safety ceiling is 3" was
+  reported even when the real cause was that no other configured provider could serve the request, which
+  sends the reader to raise a limit that was never reached.
+
+- **The per-turn tool-schema cap now applies to every skill policy.** `MAX_TASK_SCOPED_SKILLS` only ever
+  bounded `task-scoped` agents, so an `allowlist` agent sent its entire list and an `all` agent sent every
+  enabled skill — including every connected MCP tool — on every query, whatever was asked. That conflated
+  two different questions: `skillPolicy` says which skills an agent *may* use, and it was also deciding
+  which schemas are worth a turn's context. A new ceiling (`MAX_TURN_TOOL_SCHEMAS`, 24) is an **overflow
+  guard, not a selection policy**: a pool at or under it passes through untouched, so a hand-written
+  allowlist is unchanged. Above it, skills are ranked by intent and unscored ones keep the order the user
+  declared rather than being sorted by id. A cap that bites now says so in the progress line, because a
+  silent truncation reads as "this is everything the agent has" — exactly the wrong thing to believe when
+  the dropped tool was the one the model needed.
+
+- **A Git integration request gets the tools to write, not only the tools to look.** "merge to main then
+  publish" contains neither `commit` nor `push`, so per-word selection matched only the read half of the
+  Git group and handed the turn `git-status`, `git-diff` and `git-log` for a request that cannot be
+  satisfied without writing. A model given that set does not stop — it reports on the merge it had no way
+  to perform, which is worse than failing outright because the report reads like work. Merging, rebasing,
+  cherry-picking and promoting now select the write tools as a set. Deliberately narrower than "any word
+  implying a write": `commit` and `push` keep their own per-word rules, so "what changed in the last
+  commit?" still selects `git-commit` and not the ability to publish one.
+
+- **A promotion needs both a verb and a declared stage.** A verb alone is not delivery ("publish the
+  docs") and a stage alone is not either ("why is production slow?"). Selection is still only selection —
+  the agent allowlist, turn envelope, tool policy and approval gates are unchanged, and nothing here can
+  grant a skill an agent does not already hold.
+
+- **An escalating turn widens its tool set once.** A thin answer is often a model that was never given
+  the tool it needed, and re-routing to a stronger model does not fix that. The escalated attempt now
+  re-selects within the same authorization ceiling, up to a wider cap.
 
 ### Added
 

@@ -86,6 +86,7 @@ path — you don't have to retype it.
 | **Skills Registry** | What tools exist and which an agent may use |
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |
 | **Task Profiler** | Works out how hard a task really is |
+| **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
 | **Cost Tracker** | What everything cost, per session and per model |
