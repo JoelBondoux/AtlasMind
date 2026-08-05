@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.261.1 — Security: all six open advisories cleared
+
+Four high, two moderate. `npm audit` and Dependabot agreed on the set, and every one was a transitive
+dependency pinned by its parent — which is why `npm audit fix` changed nothing at all while still
+reporting that a fix was available. The real fix was version overrides, and one of the overrides
+already in the project turned out to be what was holding `undici` inside the vulnerable range.
+
+Patched: `undici`, `ip-address`, `fast-uri`, `brace-expansion`, `hono` and `postcss`. Three of them
+ship inside the extension; the other three are build-time only. Each override was checked against
+what its parent actually requires before being applied, and two are deliberately held *below* the
+latest version because the next major would break the package that depends on them.
+
+One thing worth knowing if you hit this yourself: `npm install` reported *"up to date … found 0
+vulnerabilities"* while the vulnerable versions were still sitting in `node_modules`. The audit was
+reading the lockfile's intent rather than the installed tree. `npm ci` was needed to make it real,
+and the fix was confirmed by reading versions off disk rather than trusting the summary line.
+
+---
+
 ## v0.261.0 — Connect a database directly, and measure it
 
 The live lenses shipped reaching a database only through a connected MCP server. Most people with a

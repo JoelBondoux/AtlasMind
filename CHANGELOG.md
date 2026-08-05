@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.261.1] - 2026-08-05
+
+### Security
+
+- **Cleared all six open advisories — four high, two moderate.** `npm audit` and Dependabot agreed on
+  the set; every one was a transitive pinned by its parent, which is why `npm audit fix` was a
+  **no-op** (0 added, 0 removed, 0 changed) while still printing "fix available". The real fix was
+  `overrides`, and the existing `undici: ^7.28.0` override turned out to be what was *holding* undici
+  inside the vulnerable range in the first place.
+
+  | Package | Was | Now | Advisory |
+  |---|---|---|---|
+  | `undici` (via `cheerio`) | 7.28.0 | 7.29.0 | GHSA-8xcm-r25x-g524 + 4 more — response desync, cross-user disclosure, CRLF injection |
+  | `ip-address` (via `express-rate-limit`) | 10.2.0 | 10.4.0 | GHSA-mwp4-54f8-5fhr + 2 more — SSRF and trust-boundary bypass |
+  | `fast-uri` (via `ajv`) | 3.1.4 | 3.1.5 | GHSA-7p8r-x3mc-p8w7 — host confusion via backslash authority |
+  | `brace-expansion` (via `minimatch`) | 5.0.8 | 5.0.9 | GHSA-rgw5-rvv9-x895 — DoS via unbounded intermediate arrays |
+  | `hono` (via `@modelcontextprotocol/sdk`) | 4.12.32 | 4.13.0 | GHSA-8j4g-w8fx-2239 — ReDoS in CORS middleware |
+  | `postcss` (via `vite`) | 8.5.22 | 8.5.25 | GHSA-fxqj-rqcc-2cmp — arbitrary `.map` read via sourceMappingURL |
+
+  Every override was checked against its parent's **declared range** before being applied, and two are
+  deliberately pinned *below* latest for that reason: `fast-uri` to 3.1.x because `ajv` requires
+  `^3.0.1` and 4.x would break it, and `undici` to 7.x because `cheerio` requires `^7.19.0` and 8.x
+  would break it. Each package has exactly one consumer in the tree, so no override is reaching past
+  the dependency it was written for.
+
+  Three of the six (`hono`, `fast-uri`, `ip-address`) are **runtime** dependencies that ship in the
+  VSIX, reached through `@modelcontextprotocol/sdk` — which is already at its latest published
+  version, so there was no upstream release to wait for. The other three are build-time only.
+
+  Worth recording, because it will happen again: `npm install` reported *"up to date … found 0
+  vulnerabilities"* while the vulnerable versions were still on disk. The audit was reading the
+  lockfile's intent rather than the installed tree. `npm ci` was needed to actually reify it, and the
+  fix is only verified by reading versions out of `node_modules` — which is now what was done, rather
+  than trusting the summary line.
+
 ## [0.261.0] - 2026-08-05
 
 ### Added
