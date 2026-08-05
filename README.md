@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.261.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.262.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,23 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.261.1
+## What's new in 0.262.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Pipeline page can read CI itself, and says when it couldn't.** CI was only ever fetched as a
+  side effect of the Issues refresh, so the one page whose whole subject is *did the build pass* had
+  no way to go and find out — its empty state sent you to a different tab. It now has its own
+  **Refresh CI**, two `gh` calls rather than five. And an empty run list no longer reads as a quiet
+  green: "this branch has never been built" and "we could not ask" are now told apart, with the
+  reason and the command that fixes it.
+
+  The CI pass rate on the Workflow page also stopped abstaining. It was wired to an empty array left
+  over from an earlier phase, so it reported *not measured* however many runs were sitting in memory.
+  It now derives from the checks on the head commit — deliberately just that commit, since a
+  fortnight of branch history would have made a clean commit read red for failures somebody already
+  fixed.
 
 - **Connect a database directly — Neon, Supabase, RDS, Railway, self-hosted, MySQL.** The live lenses
   originally reached a database only through an MCP server, which meant most people were told to

@@ -579,8 +579,24 @@ function checkState(status: string, conclusion: string): BranchCiState {
   return 'pending';
 }
 
-function latestWorkflowRuns(runs: readonly BranchDashboardCiRun[]): BranchDashboardCiRun[] {
-  const byWorkflow = new Map<string, BranchDashboardCiRun>();
+/**
+ * One run per workflow — the newest.
+ *
+ * A workflow that ran three times is not three checks; it is one check with a
+ * history. Counting every attempt separately would let a re-run that passed sit
+ * beside the original failure, so a commit somebody fixed still reads as failing
+ * (and, worse, a commit that only went green on the third attempt reads as
+ * two-thirds healthy).
+ *
+ * Exported and generic because the Pipeline page needs exactly this rule over
+ * its own run shape. Two copies of "which run represents this workflow" would
+ * eventually disagree, and the branch cards and the pipeline page would report
+ * different states for the same commit.
+ */
+export function latestWorkflowRuns<T extends { workflowName: string; updatedAt: string }>(
+  runs: readonly T[],
+): T[] {
+  const byWorkflow = new Map<string, T>();
   for (const run of runs) {
     const key = run.workflowName || '(unnamed workflow)';
     const previous = byWorkflow.get(key);

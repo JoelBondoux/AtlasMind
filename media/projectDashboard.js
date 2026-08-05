@@ -333,7 +333,9 @@
     if (state.repositoryRefreshBusy) { return; }
     state.repositoryRefreshBusy = true;
     setDashboardRefreshBusy(true);
-    announce(type === 'refresh' ? 'Refreshing the dashboard…' : 'Refreshing GitHub activity…');
+    announce(type === 'refresh' ? 'Refreshing the dashboard…'
+      : type === 'refreshCi' ? 'Reading CI for this branch…'
+        : 'Refreshing GitHub activity…');
     if (state.snapshot) {
       render();
     }
@@ -974,6 +976,14 @@
     // extension-side, because it lands on a tracker other people can see.
     if (action === 'issues-refresh') {
       requestRepositoryRefresh('refreshIssues');
+      return;
+    }
+    // ── Pipeline ──────────────────────────────────────────────────
+    // Its own read rather than `refreshIssues`, so watching a build costs two
+    // `gh` calls instead of five. Shares the repository busy flag: the host
+    // permits one repository read at a time.
+    if (action === 'pipeline-refresh') {
+      requestRepositoryRefresh('refreshCi');
       return;
     }
     if (action === 'issues-filter') {
@@ -5209,6 +5219,11 @@
     const intel = wf.ciIntelligence;
     const runs = (intel && intel.runs) || [];
     const report = intel && intel.report;
+    const refreshBusy = state.repositoryRefreshBusy || Boolean((snapshot.issues || {}).busy);
+    // A read that failed is not a read that found nothing. When the run list
+    // itself could not be fetched, every count below would be a zero nobody
+    // measured, so the failure replaces them rather than sitting above them.
+    const fetchFailure = intel && intel.fetchFailure;
 
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
@@ -5223,7 +5238,8 @@
       kicker: 'Stage 5',
       title: 'Pipeline and failure analysis',
       summary: intel
-        ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.`
+        ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}`
         : 'CI has not been read yet. Fetching runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
@@ -5234,7 +5250,20 @@
         <div class="dashboard-empty"><div>
           <strong>CI has not been read</strong>
           <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
-          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+          ${renderRefreshAction('pipeline-refresh', 'Read CI for this branch', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
+        </div></div>
+      </section>`;
+    }
+
+    if (fetchFailure) {
+      return `${pageSectionOpen('pipeline')}
+        ${intro}
+        <div class="dashboard-empty"><div>
+          <strong>The run list could not be read</strong>
+          <div class="stat-detail">${escapeHtml(fetchFailure)}</div>
+          ${intel.fetchFixCommand ? `<div class="policy-report-line"><code>${escapeHtml(intel.fetchFixCommand)}</code></div>` : ''}
+          <p class="section-copy">No runs are shown because none were read — not because none exist. Nothing on this page should be taken as a verdict on the build until this succeeds.</p>
+          ${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
         </div></div>
       </section>`;
     }
@@ -5251,6 +5280,12 @@
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
+      <div class="tag-row">
+        ${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, {
+          busyLabel: 'Reading CI…',
+          title: 'Re-read this branch’s runs, and the log of the latest failure',
+        })}
+      </div>
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Outcome</p>

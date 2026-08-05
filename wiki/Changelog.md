@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.262.0 — The Pipeline page can read CI itself
+
+CI was only ever fetched as a side effect of the Issues refresh. The one page whose entire subject is
+*did the build pass* therefore had no way to go and find out — its empty state told you to open a
+different tab. It now has its own **Refresh CI**, costing two `gh` calls instead of that refresh's
+five, so watching a build no longer means re-reading a hundred issues.
+
+An empty run list also stopped meaning two opposite things at once. "This branch has never been
+built" and "we could not ask" rendered identically, and only one of them is good news; the page now
+reports the failure, its reason, and the command that fixes it, and does not show stale runs
+underneath a fresh timestamp.
+
+Separately, the **CI pass rate** on the Workflow page had been hardcoded to *not measured* — wired to
+an empty array left over from a phase that had no check-run fetch, so it abstained however many runs
+were already in memory. It now derives from the checks on the head commit. Just that commit is the
+point: the metric answers questions about one commit, and a fortnight of branch history would have
+kept its labels while changing their meaning, reporting a clean commit as 60% green because of
+failures somebody already fixed. A re-run counts as another attempt at one check rather than a second
+check, and a build still running contributes no duration — its last-updated time is not a completion,
+and treating it as one would report a slow build as fast exactly while you were watching it.
+
+---
+
 ## v0.261.1 — Security: all six open advisories cleared
 
 Four high, two moderate. `npm audit` and Dependabot agreed on the set, and every one was a transitive

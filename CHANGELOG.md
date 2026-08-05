@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.262.0] - 2026-08-06
+
+### Added
+
+- **The Pipeline page can now read CI itself.** CI was only ever fetched as a side effect of the
+  Issues refresh, so the one page whose entire subject is *did the build pass* had no way to go and
+  find out — its empty state told you to open a different tab. It now has its own **Refresh CI**,
+  costing two `gh` calls instead of the issues refresh's five, so watching a build no longer means
+  re-reading a hundred issues. It shares the single in-flight repository read with that refresh, so
+  clicking both is a no-op rather than two bursts of API quota.
+
+- **A run list that could not be read now says so.** An empty list previously carried two
+  incompatible meanings — "this branch has never been built" and "we could not ask" — and the page
+  rendered the second as the first, which is the exact class of lie the rest of the dashboard is
+  built to avoid. `fetchFailure` is now carried separately from `logFailure`, because the two send
+  you to different places: one is a `gh` or network problem, the other is a permissions or retention
+  problem on a single run's log. Previously-read runs are replaced by the failure rather than left
+  beside it — old runs under a fresh timestamp would report a stale build as the current one.
+
+### Fixed
+
+- **The CI pass rate on the Workflow page was hardcoded to "not measured".** `deriveCiMetrics` was
+  called with an empty array left over from a phase that had no check-run fetch, so the CI component
+  of workflow health permanently abstained even with a hundred runs already in memory. It now derives
+  from the runs on the head commit.
+
+  Narrowing to *one commit* is the point: `deriveCiMetrics` answers questions about a single commit,
+  and handing it a fortnight of branch history would have kept its labels while silently changing
+  what they mean — a clean commit reporting 60% because of failures somebody already fixed. Two
+  further rules follow. A re-run is another attempt at one check, not a second check, so the newest
+  run per workflow wins, using the same rule the branch cards already apply rather than a second copy
+  that could disagree with it. And an in-flight run contributes **no duration**: its `updatedAt` is
+  the last thing that happened, not a completion, and entering it as one would report a slow build as
+  fast precisely while it is still running.
+
 ## [0.261.1] - 2026-08-05
 
 ### Security
