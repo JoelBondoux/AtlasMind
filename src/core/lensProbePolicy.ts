@@ -46,7 +46,12 @@
  * caller supplies the settings it read and performs the request it is handed.
  */
 
-import type { LensEndpointDeclaration, LensEndpointKind } from '../types.js';
+import type {
+  LensEndpointDeclaration,
+  LensEndpointKind,
+  LensSqlDialect,
+  LensSqlHttpVendor,
+} from '../types.js';
 import { isProtectedLensEndpoint } from './lensEndpoints.js';
 
 /** The declared rule that allowed or refused a probe. Published beside the verdict. */
@@ -171,6 +176,14 @@ export interface LensProbeSettings {
   readonly fetchAvailable: boolean;
   /** Skill ids of connected MCP tools, in `mcp:<server>:<tool>` form. */
   readonly mcpToolIds: readonly string[];
+  /**
+   * Whether this host can open a raw database socket.
+   *
+   * True on the desktop extension host, false in the web one. A property of
+   * where AtlasMind is running rather than of anything the user configured,
+   * which is why it surfaces as a transport fact and not as a setting.
+   */
+  readonly directDriversAvailable: boolean;
 }
 
 export interface LensProbeAuthorizationInput {
@@ -216,6 +229,11 @@ export function authorizeLensProbe(input: LensProbeAuthorizationInput): LensProb
   if (endpoint.kind === 'database') {
     if (!endpoint.mcpServerId) {
       return deny('endpoint-invalid', 'This database endpoint names no MCP server, so nothing can read its schema.');
+    }
+  } else if (isDirectSqlKind(endpoint.kind)) {
+    if (!endpoint.secretRef) {
+      return deny('endpoint-invalid',
+        'This endpoint names no stored connection string, so there is nothing to connect with.');
     }
   } else if (!endpoint.url) {
     return deny('endpoint-invalid', 'This endpoint has no URL, so there is nowhere to send a request.');
@@ -295,6 +313,22 @@ export function resolveProbeTransport(
   endpoint: LensEndpointDeclaration,
   settings: LensProbeSettings,
 ): LensProbeTransport {
+  if (isDirectSqlKind(endpoint.kind)) {
+    // The driver is a bundled dependency, loaded lazily on first use — so
+    // availability is a property of the host, not of the user's configuration.
+    // Reported through the same path anyway, because a web extension host has
+    // no sockets and must say so rather than failing at connect time.
+    return settings.directDriversAvailable
+      ? {
+        available: true,
+        reason: `Reachable with the bundled ${endpoint.kind} driver, using the stored connection string.`,
+      }
+      : {
+        available: false,
+        reason: 'Direct database connections need the desktop extension host. This window cannot open a '
+          + 'database socket.',
+      };
+  }
   if (endpoint.kind === 'database') {
     const matched = findMcpSchemaTool(settings.mcpToolIds, endpoint.mcpServerId);
     return matched
@@ -358,8 +392,32 @@ export interface LensProbeRequest {
   /** Database only: the MCP tool to invoke and its schema-reading arguments. */
   readonly mcpToolId?: string;
   readonly mcpArguments?: Readonly<Record<string, unknown>>;
+  /**
+   * Direct SQL only: the resolved connection string.
+   *
+   * Present exactly as long as the request object lives, which is the duration
+   * of one probe. Nothing serialises a `LensProbeRequest` — `lensProbeRunner`
+   * hands it straight to a transport and lets it fall out of scope — and a test
+   * asserts no probe *result* contains it.
+   */
+  readonly connectionString?: string;
+  readonly dialect?: LensSqlDialect;
+  /** `sql-http` only: which vendor's request format to build. */
+  readonly vendor?: LensSqlHttpVendor;
   readonly timeoutMs: number;
   readonly maxResponseBytes: number;
+}
+
+/** Kinds reached by opening a connection rather than by sending an HTTP request. */
+export function isDirectSqlKind(kind: LensEndpointKind): boolean {
+  return kind === 'postgres' || kind === 'mysql';
+}
+
+/** The catalog vocabulary an endpoint's kind implies. */
+export function dialectOfKind(kind: LensEndpointKind): LensSqlDialect | undefined {
+  if (kind === 'postgres') return 'postgres';
+  if (kind === 'mysql') return 'mysql';
+  return undefined;
 }
 
 /**
@@ -393,6 +451,45 @@ export function buildProbeRequest(
       mcpToolId: authorization.mcpToolId,
       // No table name, no filter, no query. The tool is being asked what exists.
       mcpArguments: {},
+      timeoutMs: LENS_PROBE_TIMEOUT_MS,
+      maxResponseBytes: LENS_PROBE_MAX_RESPONSE_BYTES,
+    };
+  }
+
+  if (isDirectSqlKind(endpoint.kind)) {
+    const dialect = dialectOfKind(endpoint.kind);
+    if (!dialect || !secret) {
+      // No connection string means no probe. Composing a request without one
+      // would produce something that looks sendable and connects to nothing —
+      // and the failure would surface as "unreachable", blaming the database.
+      throw new Error('AtlasMind Lens refused to compose a direct database probe with no connection string.');
+    }
+    // The statements are not carried on the request: they are constants in
+    // `lensDatabaseDialect`, which the transport reads directly. Passing them
+    // through here would create a field somebody could later set.
+    return {
+      kind: endpoint.kind,
+      connectionString: secret,
+      dialect,
+      timeoutMs: LENS_PROBE_TIMEOUT_MS,
+      maxResponseBytes: LENS_PROBE_MAX_RESPONSE_BYTES,
+    };
+  }
+
+  if (endpoint.kind === 'sql-http') {
+    if (!endpoint.vendor || !secret) {
+      throw new Error('AtlasMind Lens refused to compose an sql-http probe with no vendor or credential.');
+    }
+    return {
+      kind: 'sql-http',
+      method: 'POST',
+      url: endpoint.url,
+      vendor: endpoint.vendor,
+      // Neon takes the connection string in a header; D1 and Turso take a
+      // bearer token. Both are the resolved secret, and the transport picks
+      // the framing from `vendor` rather than from anything in the file.
+      connectionString: secret,
+      dialect: endpoint.vendor === 'neon' ? 'postgres' : undefined,
       timeoutMs: LENS_PROBE_TIMEOUT_MS,
       maxResponseBytes: LENS_PROBE_MAX_RESPONSE_BYTES,
     };

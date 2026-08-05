@@ -150,6 +150,9 @@ AtlasMind/
 │   │   ├── lensReachability.ts Which declared services answered, and which are dead ends
 │   │   ├── lensLiveTrust.ts Served fields against declared classification policy
 │   │   ├── lensProbeRunner.ts One probe end to end, every dependency injected
+│   │   ├── lensDatabaseDialect.ts Every SQL statement AtlasMind can send, as constants
+│   │   ├── lensCredentials.ts Connection-string parsing that cannot carry a password out
+│   │   ├── lensDatabaseReading.ts Catalog rows into contracts, metrics, latency and plans
 │   │   ├── lensSchemaImpact.ts Bounded proposed field-change impact ranking
 │   │   └── lensContractRelations.ts Relationship trust boundary and endpoint resolution
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
@@ -177,6 +180,8 @@ AtlasMind/
 │   │   ├── lensContractReviewPanel.ts Filterable Field Wiring review webview
 │   │   ├── lensLiveCommand.ts Endpoint selection, the type-to-confirm gate, and session results
 │   │   ├── lensLiveTransport.ts HTTP and MCP probe execution; no redirects, capped while reading
+│   │   ├── lensDatabaseTransport.ts Postgres/MySQL/vendor-HTTP probes; drivers lazily loaded
+│   │   ├── lensCredentialCommand.ts Store and clear a connection string in SecretStorage
 │   │   └── lensLivePanel.ts Editor-hosted drift, reachability, and live trust results
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper

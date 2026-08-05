@@ -225,10 +225,29 @@ AtlasMind that reaches a system somebody else operates, and everything about the
 - **Plaintext `http` only on the loopback.** A probe may carry a token, so anything off your machine
   must be `https`. Private-range `https` is allowed — a staging API on the office network is the
   ordinary case, and unlike a fetched URL this destination came from a file somebody reviewed.
-- **AtlasMind bundles no database driver and stores no database credential.** Databases go through an
-  MCP server you already connected and approved, and only via a tool whose *name* says it reads
-  schema. A server offering only a generic `query` tool is not used, and the lens says so — AtlasMind
-  will not compose SQL for it.
+- **AtlasMind never *composes* SQL — it sends a *constant*.** Direct database connections
+  (`postgres`, `mysql`, `sql-http`) send statements that are module-level constants with no
+  interpolation, no parameters, and no code path that accepts a fragment from anywhere. A test walks
+  every statement the code can emit and fails on a write verb, a placeholder, or a second statement.
+  Everything runs inside `BEGIN READ ONLY` with a timeout, opened first and not optional — a server
+  too old to support it fails the probe rather than getting one that runs unguarded.
+- **Row counts never scan a table.** They are planner estimates the database already maintains, so
+  "AtlasMind never reads a row" is literally true rather than nearly true. A table nobody has
+  analyzed reports *unknown*, never zero.
+- **The connection string lives in the OS keychain and nowhere else.** The committed file names the
+  key; a file containing an actual credential is refused whole. The name is namespaced before it
+  reaches SecretStorage, so a declaration file cannot name — and therefore cannot read — a key
+  belonging to a model provider or anything else AtlasMind stores. Driver errors are scrubbed of
+  anything URL- or `user:password@host`-shaped before they can reach a dialog or an output channel.
+- **A credential is validated by parsing, never by connecting.** A mistyped connection string fails
+  where you can still see what you pasted, rather than opening a socket to whatever host the typo
+  produced. AtlasMind cannot verify what a credential is permitted to do, so it recommends a
+  read-only role at the moment you store one — least privilege is the control that doesn't depend on
+  AtlasMind being correct.
+- **Going through MCP instead is still supported, and still refuses a generic query tool.** With
+  somebody else's tool AtlasMind cannot guarantee what happens to the string it hands over, and
+  guessing which argument means "the query" is guesswork — so that path takes only tools whose
+  *name* says they read schema.
 - **An unassessed service is never reported as healthy.** Refused, timed out and never-probed are
   distinct from unreachable, and a drift report for an endpoint nobody probed says explicitly that
   this is not a finding of "no drift". Probe results are held in memory for the session only; nothing

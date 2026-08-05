@@ -38,6 +38,7 @@
  */
 
 import type {
+  LensDatabaseHealth,
   LensDataTrustPolicyFile,
   LensEndpointDeclaration,
   LensLiveDriftReport,
@@ -71,6 +72,18 @@ export interface LensProbeTransportResult {
   /** Why the call failed, when it did. Never carries a header or a token. */
   readonly error?: string;
   readonly truncated?: boolean;
+  /**
+   * A served contract the transport derived itself.
+   *
+   * The direct database transports read several catalog queries over one
+   * connection and shape them there, because reconnecting per query would
+   * multiply the cost on a pooled or serverless database. When present, the
+   * runner uses it instead of deriving from `payload` — the derivation has
+   * already happened, at the same boundary and under the same rules.
+   */
+  readonly served?: LensServedContract;
+  /** Metrics, latency and plan, when the transport measured them. */
+  readonly health?: LensDatabaseHealth;
 }
 
 export type LensProbeTransport = (request: LensProbeRequest) => Promise<LensProbeTransportResult>;
@@ -91,6 +104,8 @@ export interface LensProbeRun {
   readonly authorization: LensProbeAuthorization;
   /** Absent whenever the probe did not complete or the response was unreadable. */
   readonly served?: LensServedContract;
+  /** Metrics, latency and plan. Only the direct database transports measure these. */
+  readonly health?: LensDatabaseHealth;
 }
 
 /**
@@ -190,7 +205,11 @@ export async function runLensProbe(input: LensProbeRunInput): Promise<LensProbeR
     };
   }
 
-  const served = deriveServed(endpoint, transportResult.payload, observedAt);
+  // A transport that already derived its contracts is trusted to have done so —
+  // it ran the same readers, at the same boundary. Re-deriving from `payload`
+  // would mean the direct-database path needed a second, parallel derivation
+  // that could disagree with the first.
+  const served = transportResult.served ?? deriveServed(endpoint, transportResult.payload, observedAt);
   if (!served) {
     return {
       authorization,
@@ -210,6 +229,7 @@ export async function runLensProbe(input: LensProbeRunInput): Promise<LensProbeR
   return {
     authorization,
     served,
+    ...(transportResult.health ? { health: transportResult.health } : {}),
     result: {
       version: 1,
       endpointId: endpoint.id,
@@ -235,6 +255,14 @@ function deriveServed(
       return deriveServedContractFromMcpSchema(endpoint.id, payload, observedAt);
     case 'http-openapi':
       return deriveServedContractFromOpenApi(endpoint.id, payload, observedAt);
+    case 'postgres':
+    case 'mysql':
+    case 'sql-http':
+      // These transports derive their own contracts over a single connection and
+      // return them on the transport result. Reaching here means one answered
+      // `ok` without deriving anything, which is a bug in that transport rather
+      // than a schema AtlasMind should try to reconstruct from a raw payload.
+      return undefined;
   }
 }
 

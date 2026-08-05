@@ -213,6 +213,8 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | `AtlasMind: Lens: Review Branch Change Story` | Turn a branch's committed history into a readable story of what changed and where |
 | `AtlasMind: Probe Live Services` | **Does the running system still agree with the code?** Pick a service you've declared and AtlasMind reads the schema it actually serves, then reports every field that has gone missing, changed type, or turned up undeclared — plus which services answered at all, and which served fields no classification covers. Reads shape only: never a row, never a value, never a write. Off by default; a production endpoint asks you to type its name first |
 | `AtlasMind: Live Service Settings` | Open the two settings that gate the live lenses: whether they may run at all, and which environments they may reach |
+| `AtlasMind: Store a Live Service Credential` | Put a connection string or token in the OS keychain for one declared endpoint. Never echoed, never logged, never written to your repository. Validated by parsing, not by connecting, so a typo fails while you can still see what you pasted — and the parsed host, database, user and TLS mode are shown back, which is what catches a production string pasted into a staging endpoint |
+| `AtlasMind: Clear a Live Service Credential` | Remove a stored credential. The endpoint stays declared, and its next probe reports that nothing is stored |
 
 ### Remote and system
 

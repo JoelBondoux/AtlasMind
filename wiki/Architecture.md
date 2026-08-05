@@ -136,7 +136,7 @@ asks which declared services answered at all. **Live Data Trust** lists the fiel
 serves that no classification covers — unknown sensitivity on real data, which the static Data Trust view
 can't see because the field was never in a file.
 
-They read **shape only** and never a row, they're off by default, production is excluded from the default
+They connect to Postgres and MySQL directly (Neon, Supabase, RDS, Railway, self-hosted), to vendors that expose SQL over HTTPS, or through an MCP server you already approved. The connection string lives in the OS keychain; the committed file only names the key. They read **shape only** and never a row — row counts are planner estimates the database already maintains, not a `COUNT(*)` — they're off by default, production is excluded from the default
 allowed stages, and an endpoint that doesn't state its environment is treated as production. Which
 services may be reached is a committed file that names a stored secret rather than holding one, and it's
 the one declaration kind Atlas refuses to draft. The full boundary is in

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atlasmind.dev/schemas/lens-endpoints.schema.json",
   "title": "AtlasMind Lens live service endpoints",
-  "description": "The databases and APIs a lens may reach to compare a declared schema against the one actually served. This file is committed: it names a stored secret with `secretRef` and must never contain a token, password, or connection string. AtlasMind reads shape only — never a row, never a value — and never writes.",
+  "description": "The databases and APIs a lens may reach to compare a declared schema against the one actually served. This file is committed: it names a stored secret with `secretRef` and must never contain a token, password, or connection string. AtlasMind reads shape only — the catalog, never a row — and never writes.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "endpoints"],
@@ -25,8 +25,8 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["http-openapi", "graphql", "database"],
-            "description": "`http-openapi`: the URL points at the schema document, not the API root. `graphql`: the introspection endpoint. `database`: reached through a connected MCP server — AtlasMind bundles no database driver and stores no database credential."
+            "enum": ["http-openapi", "graphql", "database", "postgres", "mysql", "sql-http"],
+            "description": "`http-openapi`: the URL points at the schema document, not the API root. `graphql`: the introspection endpoint. `postgres`/`mysql`: a direct connection using the connection string stored under `secretRef`. `sql-http`: a vendor SQL-over-HTTPS API (`vendor` required). `database`: reached through a connected MCP server instead of directly."
           },
           "stage": {
             "type": "string",
@@ -36,20 +36,25 @@
           "url": {
             "type": "string",
             "maxLength": 2000,
-            "description": "Absolute https URL. Plaintext http is accepted only on the loopback address, because a probe may carry a bearer token. Credentials embedded in the URL are refused. Omit for a `database` endpoint.",
+            "description": "Absolute https URL, for `http-openapi`, `graphql` and `sql-http`. Plaintext http is accepted only on the loopback, because a probe may carry a bearer token. Credentials embedded in the URL are refused. Omit entirely for `postgres`, `mysql` and `database` — the host lives in the stored connection string, not in this file.",
             "pattern": "^https?://"
+          },
+          "vendor": {
+            "type": "string",
+            "enum": ["neon", "cloudflare-d1", "turso"],
+            "description": "Required for `sql-http`. Each vendor's HTTP SQL API uses a different envelope, so AtlasMind will not guess which one a URL speaks."
           },
           "mcpServerId": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "Required for `database`. The connected MCP server whose schema-reading tool should be asked. A server exposing only a generic query tool is not used: AtlasMind will not compose SQL."
+            "description": "Required for `database`. The connected MCP server whose schema-reading tool should be asked. A server exposing only a generic query tool is not used: AtlasMind will not hand SQL to a third-party tool."
           },
           "secretRef": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "The name of a key in VS Code SecretStorage holding a bearer token or API key. This is a name, never a value — a document containing an actual credential is refused whole."
+            "description": "The name of a key in VS Code SecretStorage — never a value. Holds a bearer token for an HTTP endpoint, or the whole connection string for `postgres`/`mysql`/`sql-http`, where it is required. Store it with `AtlasMind: Store a Live Service Credential`. The name is namespaced before it reaches SecretStorage, so it cannot read a key belonging to anything else. A document containing an actual credential is refused whole."
           },
           "expectedContractIds": {
             "type": "array",
@@ -64,6 +69,17 @@
           {
             "if": { "properties": { "kind": { "const": "database" } }, "required": ["kind"] },
             "then": { "required": ["mcpServerId"], "not": { "required": ["url"] } }
+          },
+          {
+            "if": {
+              "properties": { "kind": { "enum": ["postgres", "mysql"] } },
+              "required": ["kind"]
+            },
+            "then": { "required": ["secretRef"], "not": { "required": ["url"] } }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "sql-http" } }, "required": ["kind"] },
+            "then": { "required": ["url", "vendor", "secretRef"] }
           },
           {
             "if": {

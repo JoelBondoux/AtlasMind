@@ -20,6 +20,11 @@ import { registerLensDeclarationGuide } from './lensDeclarationGuidePanel.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
+import {
+  clearLensCredential,
+  resolveLensEndpointSecret,
+  storeLensCredential,
+} from './lensCredentialCommand.js';
 import { openLiveSettings, probeLiveEndpoints, type LensLiveCommandContext } from './lensLiveCommand.js';
 import { reviewWorkspaceStateLifecycle } from './lensStateCommand.js';
 import { LensTestPanel } from './lensTestPanel.js';
@@ -322,6 +327,8 @@ export function registerLensTreeView(context: vscode.ExtensionContext, atlas: At
     vscode.commands.registerCommand('atlasmind.lens.probeLiveEndpoints', () =>
       probeLiveEndpoints(buildLiveCommandContext(context, atlas))),
     vscode.commands.registerCommand('atlasmind.lens.openLiveSettings', () => openLiveSettings()),
+    vscode.commands.registerCommand('atlasmind.lens.storeCredential', () => storeLensCredential(context)),
+    vscode.commands.registerCommand('atlasmind.lens.clearCredential', () => clearLensCredential(context)),
   );
 }
 
@@ -338,7 +345,10 @@ function buildLiveCommandContext(
   atlas: AtlasMindContext,
 ): LensLiveCommandContext {
   return {
-    resolveSecret: async key => context.secrets.get(key),
+    // Namespaced, so a committed declaration file naming
+    // `atlasmind.anthropic.apiKey` cannot make AtlasMind put a provider key in
+    // an Authorization header pointed at a host that same file chose.
+    resolveSecret: secretRef => resolveLensEndpointSecret(context, secretRef),
     listMcpToolIds: () => atlas.skillsRegistry.listSkills()
       .filter(skill => skill.id.startsWith('mcp:') && atlas.skillsRegistry.isEnabled(skill.id))
       .map(skill => skill.id),

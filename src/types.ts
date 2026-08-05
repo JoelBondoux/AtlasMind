@@ -2640,8 +2640,29 @@ export interface LensDataTrustMap {
 // convention; `LensServedContract` reuses `LensContract`, which has nowhere to
 // put one, and a test asserts no probe output carries sample data.
 
-/** How a live endpoint is reached. Decides the probe, the source, and the gate. */
-export type LensEndpointKind = 'http-openapi' | 'graphql' | 'database';
+/**
+ * How a live endpoint is reached. Decides the probe, the source, and the gate.
+ *
+ * `database` is the MCP path — a connected server's schema tool. The three
+ * direct kinds exist because most managed databases have no MCP server, and
+ * telling somebody with a Neon or RDS instance to go and install one is not an
+ * answer. `sql-http` is separate from `postgres` rather than a flag on it
+ * because Cloudflare D1 and Turso have no wire protocol at all: a driver cannot
+ * reach them, and collapsing the two would make the transport undecidable.
+ */
+export type LensEndpointKind =
+  | 'http-openapi'
+  | 'graphql'
+  | 'database'
+  | 'postgres'
+  | 'mysql'
+  | 'sql-http';
+
+/** Which catalog vocabulary a SQL endpoint speaks. */
+export type LensSqlDialect = 'postgres' | 'mysql';
+
+/** The vendor whose HTTP SQL API an `sql-http` endpoint speaks. */
+export type LensSqlHttpVendor = 'neon' | 'cloudflare-d1' | 'turso';
 
 /**
  * How sensitive an endpoint's environment is.
@@ -2678,8 +2699,13 @@ export interface LensEndpointDeclaration {
    * credential — the already-approved MCP connection is the whole transport.
    */
   mcpServerId?: string;
-  /** SecretStorage key holding a bearer token or API key. Never the value. */
+  /**
+   * SecretStorage key holding a bearer token, API key, or connection string.
+   * Never the value — the normalizer refuses a document that carries one.
+   */
   secretRef?: string;
+  /** For `sql-http`: which vendor's HTTP SQL API this endpoint speaks. */
+  vendor?: LensSqlHttpVendor;
   /** Repository contract ids this endpoint is expected to match, if known. */
   expectedContractIds: string[];
   note?: string;
@@ -2809,6 +2835,92 @@ export interface LensReachabilityMap {
   reachedCount: number;
   unreachableCount: number;
   unassessedCount: number;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * Per-table health, read entirely from catalog statistics.
+ *
+ * Every number here is an estimate the database already maintains — nothing is
+ * produced by scanning a table, so "AtlasMind never reads a row" stays literally
+ * true rather than nearly true. `rowEstimate` is therefore **optional**: a
+ * relation Postgres has never analyzed reports `reltuples = -1`, and MySQL
+ * leaves `TABLE_ROWS` null for several engines. Both mean *unknown*, and
+ * defaulting either to `0` would say "this table is empty" about a table nobody
+ * has ever measured.
+ */
+export interface LensTableMetrics {
+  table: string;
+  /** Planner estimate. Absent when the table has never been analyzed. */
+  rowEstimate?: number;
+  totalBytes?: number;
+  indexBytes?: number;
+  indexCount?: number;
+  /** When the estimate was last refreshed. Absent means never, not recently. */
+  lastAnalyzedAt?: string;
+  lastVacuumedAt?: string;
+}
+
+/** One declared constraint, so a drift report can name a key that has gone. */
+export interface LensTableConstraint {
+  table: string;
+  name: string;
+  /** `PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`, `CHECK` — as the catalog spells it. */
+  constraintType: string;
+  column?: string;
+}
+
+/**
+ * Round-trip timing across several samples of the cheapest possible statement.
+ *
+ * `first` is kept separate from `p50` on purpose: on a serverless database the
+ * first connection of the day pays a cold start measured in seconds, and folding
+ * it into an average produces a number that describes neither the cold path nor
+ * the warm one. Reported as two facts because they are two facts.
+ */
+export interface LensLatencyProfile {
+  samples: number;
+  firstMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  minMs: number;
+  maxMs: number;
+  /** True when the first sample dominates the rest — a cold start, not slowness. */
+  coldStartSuspected: boolean;
+}
+
+/**
+ * What the planner intends to do with the catalog query.
+ *
+ * From `EXPLAIN` **without** `ANALYZE`: the plan is computed and the statement
+ * is not run. A probe that executed whatever it explained would be a shape
+ * nobody should build, however harmless this particular statement is.
+ * Every field is optional — a plan is a nice-to-have, and a schema reading that
+ * succeeded is never discarded because the plan did not.
+ */
+export interface LensQueryPlanProfile {
+  available: boolean;
+  /** Why no plan was read, when there is none. */
+  unavailableReason?: string;
+  planningMs?: number;
+  estimatedCost?: number;
+  estimatedRows?: number;
+  /** Top-level node type, e.g. `Nested Loop`, `Hash Join`. Never the full tree. */
+  rootNode?: string;
+}
+
+/** Everything a direct database probe measured, beyond the schema itself. */
+export interface LensDatabaseHealth {
+  version: 1;
+  endpointId: string;
+  dialect: LensSqlDialect;
+  tables: LensTableMetrics[];
+  constraints: LensTableConstraint[];
+  latency?: LensLatencyProfile;
+  plan?: LensQueryPlanProfile;
+  /** Server version string, when the driver reports one. Never a connection string. */
+  serverVersion?: string;
   notices: string[];
   truncated: boolean;
 }

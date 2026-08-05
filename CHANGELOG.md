@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.261.0] - 2026-08-05
+
+### Added
+
+- **Direct database connections, with the credential in the OS keychain**
+  (`src/core/lensDatabaseDialect.ts`, `src/core/lensCredentials.ts`,
+  `src/core/lensDatabaseReading.ts`, `src/views/lensDatabaseTransport.ts`,
+  `src/views/lensCredentialCommand.ts`). The live lenses shipped reaching a database only through a
+  connected MCP server, which meant anybody with a Neon, RDS, Railway or self-hosted instance — most
+  people — was told to go and install one first. Three new endpoint kinds close that: `postgres` and
+  `mysql` connect directly with bundled drivers, and `sql-http` reaches vendors that expose SQL over
+  HTTPS with no wire protocol at all.
+
+  This changes a boundary v0.260.0 stated, so the honest version of the rule replaces it:
+  **AtlasMind never *composes* SQL — it sends a *constant*.** Every statement lives in
+  `lensDatabaseDialect.ts` as a module-level `const` with no interpolation, no parameters, and no
+  code path that accepts a fragment from a caller, a setting, a webview, or a model. A test walks
+  every exported statement and fails on a write verb, a placeholder, or a second statement. It is
+  the same guarantee `GRAPHQL_INTROSPECTION_QUERY` already carried. The MCP refusal still stands on
+  its own reasoning — with somebody else's tool AtlasMind cannot guarantee what it does with the
+  string it is handed, and guessing which of its arguments means "the query" is guesswork.
+
+  Everything sent runs inside `BEGIN READ ONLY` with a statement timeout, opened before anything
+  else and **not optional**: a server too old to support it fails the probe rather than getting one
+  that runs without the guard, which is the exact case where the guard would have mattered. The
+  connection is closed in a `finally` on every path — a probe that leaves a connection open against
+  a production pooler is a worse bug than anything it was looking for, and Neon bills connection
+  time.
+
+- **Measurement, all of it from the catalog** — row estimates, table and index sizes, index and
+  constraint counts, last-analyze age, latency percentiles, and the query plan. **Row counts are
+  planner estimates the database already maintains, never a `COUNT(*)`**: a count returns only a
+  number but reads every row to produce it, and "AtlasMind never reads a row" should be literally
+  true rather than nearly true. A test asserts that every aggregate in the file reads a *catalog*
+  relation, rather than banning the word and forcing whoever hits it to weaken the check.
+
+  **A never-analyzed table reports unknown, not zero.** Postgres writes `reltuples = -1` and MySQL
+  leaves `TABLE_ROWS` null; both mean nobody has measured this table, and `0` would put "this table
+  is empty" in front of somebody checking whether a migration ran — the single most expensive wrong
+  answer here. `rowEstimate` is optional rather than defaulted, the panel prints *unknown (never
+  analyzed)*, and each estimate carries when it was last refreshed, because a row count from a table
+  last analyzed in March is a fact about March. The first latency sample is kept apart from the rest
+  and never smoothed away: on a serverless database it is a cold start measured in seconds, and an
+  average including it describes neither the cold path nor the warm one. `EXPLAIN` is sent
+  **without** `ANALYZE` — a probe that executes whatever it explains is a shape nobody should build,
+  however harmless this particular statement is — and a missing plan never discards a schema reading
+  that worked, since MySQL before 5.7 has no `FORMAT=JSON`.
+
+- **`AtlasMind: Store a Live Service Credential`** and its clearing counterpart. The connection
+  string goes to VS Code SecretStorage through a password-style box: never echoed, never logged, and
+  **validated by parsing rather than by connecting**, so a mistyped string fails where somebody can
+  still see what they pasted instead of opening a socket to whatever host the typo produced. The
+  parsed summary — host, database, user, TLS mode — is shown back, because that is the check that
+  catches a production string pasted into the staging endpoint, and it is the same summary the probe
+  confirmation shows later so the two cannot disagree. A read-only role is recommended at the moment
+  of decision rather than only in the docs, since AtlasMind cannot verify what a credential may do
+  and least privilege is the control that does not depend on AtlasMind being correct.
+
+  `secretRef` is **namespaced** before it reaches SecretStorage (`atlasmind.lens.endpoint.*`) and
+  refused if it is not a plain identifier. Without that, a committed file naming
+  `atlasmind.anthropic.apiKey` would make AtlasMind put a provider key in an `Authorization` header
+  aimed at a host that same file chose. Driver errors are scrubbed of anything URL- or
+  `user:password@host`-shaped before display, because `pg` interpolates the connection target into
+  several of its messages and output channels get pasted into issues.
+
+- `pg` and `mysql2` as dependencies, **lazily imported on first probe** — the same pattern
+  `buzzSigner` uses for `@noble/secp256k1`. A user who never probes a database pays nothing at
+  activation, and the web extension bundle is unchanged at 107.7 kB. Availability is reported as a
+  transport fact rather than a setting: the web host cannot open a socket and says so, instead of
+  failing at connect time.
+
+### Changed
+
+- `.atlasmind/lens-endpoints.json` accepts `postgres`, `mysql` and `sql-http`. `secretRef` is
+  **required** for all three — there is no such thing as a direct database probe with nothing
+  stored — and `url` is refused on `postgres`/`mysql`, because putting one there commits the host,
+  and usually the credential, to the repository. `sql-http` requires an explicit `vendor`: each
+  vendor's HTTP SQL API uses a different envelope, and guessing would post a Neon-shaped body to a
+  Cloudflare D1 endpoint and report the resulting error as "unreachable".
+- The `database` (MCP) kind's rejection message now points at the direct kinds, so somebody holding
+  a connection string is sent somewhere useful rather than told to install an MCP server.
+- The probe confirmation for a direct database names the parsed destination — host, database, user,
+  TLS mode — read from the stored string at confirmation time. A dialog that cannot name the host is
+  one where a production string in a staging endpoint is invisible exactly when it matters.
+
 ## [0.260.0] - 2026-08-05
 
 ### Added

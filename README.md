@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.260.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.261.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -121,10 +121,23 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.260.0
+## What's new in 0.261.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Connect a database directly — Neon, Supabase, RDS, Railway, self-hosted, MySQL.** The live lenses
+  originally reached a database only through an MCP server, which meant most people were told to
+  install one before they could use the feature. Now you point AtlasMind at a `postgres`, `mysql` or
+  `sql-http` endpoint, store the connection string in the OS keychain with **AtlasMind: Store a Live
+  Service Credential**, and it reads the catalog directly. The string never touches your repository —
+  the committed file names the key, and a file containing an actual credential is refused outright.
+
+  It also **measures**: row counts, table and index sizes, constraints, how stale the statistics are,
+  connection latency with cold starts called out separately, and the query plan. Every number comes
+  from the catalog the database already maintains — no `COUNT(*)`, no table scan, no row of your data
+  read to produce any of it. A table nobody has analyzed reports **unknown**, never zero, because
+  "this table is empty" is the most expensive thing it could get wrong.
 
 - **The lenses can now look at the services your project actually talks to.** Every lens read the
   repository, so the question people really have — *does the running system still agree with what the

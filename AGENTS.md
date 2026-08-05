@@ -190,6 +190,9 @@ the identity has authenticated once, which is what the verify workflow is for.
 | `LensReachability` | `src/core/lensReachability.ts` | Which declared services answered, and which are dead ends. `unassessed` is **never** `unreachable` — merging them lights up every endpoint as a dead end on an offline laptop, training people to ignore the one that is real. `refused`/`unauthorized` stay distinct from `unreachable` too (reporting a production endpoint you declined to confirm as unreachable would be a lie about somebody else's infrastructure) and both count as unassessed, since nothing was learned. An endpoint whose `expectedContractIds` name a contract the repository no longer has carries `danglingContractIds` — a dead end pointing the other way. Ranked by consequence, ties on declaration order; an empty map names the file to write rather than showing a clean green nothing. Pure + unit-tested |
 | `LensLiveTrust` | `src/core/lensLiveTrust.ts` | Served fields vs. `.atlasmind/lens-data-trust.json`. `served-undeclared` is the finding it exists for: unknown sensitivity on real, live data, which `lensDataTrust` cannot see because the field was never in a repository file. **A classification is never inferred from a field name** — a fabricated rating closes the gap without closing it, and in a git-tracked file a later reader cannot tell it from a decision somebody made. Unknown is never public. As in the drift lens, a partial reading produces no `declared-absent`. Pure + unit-tested |
 | `LensProbeRunner` | `src/core/lensProbeRunner.ts` | One probe end to end, every dependency injected so the property that matters is *checkable*: **an unauthorized probe never reaches the network** — authorization runs first and returns before the transport is in scope, and a test hands it a transport that fails the run if called. Without that test the gate is a convention, and conventions do not survive a refactor by somebody who has not read the file. The secret resolver is invoked only after authorization passes, its result goes straight into an `Authorization` header, and no field on `LensProbeResult` could hold it. A non-2xx is classified **before** the body is looked at — deriving from a 500 page yields an empty schema and, through the drift lens, a report that every declared field is missing. A failed call is recorded, not swallowed, and `hasBeenProbed` counts only a `reached` run: the attempt stays visible while the endpoint still reads as never assessed. Pure + unit-tested |
+| `LensDatabaseDialect` | `src/core/lensDatabaseDialect.ts` | Every SQL statement AtlasMind can send, as constants, in one file — the honest replacement for the MCP path's "will not compose SQL" refusal: **AtlasMind never *composes* SQL, it sends a *constant*.** Each statement is a module-level `const` with no interpolation, no parameters, and no function anywhere that accepts a fragment from a caller, a setting, a webview or a model; the same guarantee `GRAPHQL_INTROSPECTION_QUERY` carried. A test walks `ALL_STATEMENTS` and fails on a write verb (**word-boundary** matched, since a bare substring flags `last_analyze` and teaches whoever hits it to weaken the check), a placeholder, or a second statement. The MCP refusal is unaffected and stands on its own reasoning — with somebody else's tool we cannot guarantee what it does with the string, and guessing which argument is "the query" is guesswork. `READ_ONLY_PREAMBLE` opens `BEGIN READ ONLY` with a statement timeout **before** anything else and is not optional: a server too old to support it fails the probe rather than getting one that runs unguarded, which is the exact case the guard exists for. **Row estimates come from the catalog, never `COUNT(*)`** over a user table — a count returns only a number but reads every row to produce it, and a test asserts every aggregate in the file targets a *catalog* relation. `EXPLAIN` without `ANALYZE`, because a probe that executes whatever it explains is a shape nobody should build. Pure + unit-tested |
+| `LensCredentials` | `src/core/lensCredentials.ts` | Why a confirmation dialog can name a database host without that being a leak. Parses a stored connection string into `LensConnectionSummary` — host, port, database, user, TLS — a type with **no field that could hold the password**, which is the enforcement rather than the comment; a test asserts a summary of a DSN with a password shares no substring with it. The **username is carried** because a role name makes "is this the read-only user?" answerable at the gate and a username is not a credential. A parse failure yields *no detail*, since the only detail available is the string itself, and error messages reach output channels which get pasted into issues. `lensSecretKey` namespaces every `secretRef` under `atlasmind.lens.endpoint.` and refuses anything not a plain identifier — without it a committed file naming `atlasmind.anthropic.apiKey` would put a provider key in an `Authorization` header aimed at a host that same file chose. TLS is **reported as found, never silently upgraded**; absent or unrecognised is `unstated`, because guessing in the reassuring direction is the one guess worth refusing. A read-only role cannot be detected (asking would mean attempting a write), so it is recommended at the moment of decision instead. Pure + unit-tested |
+| `LensDatabaseReading` | `src/core/lensDatabaseReading.ts` | Catalog rows into contracts, metrics, latency and plans, keeping `lensServedContract`'s boundary exactly — untrusted input, never throws, bounded, control-stripped, output types with nowhere to put a row. One contract per table with bare column paths, mirroring `extractSqlContractSources`. **A never-analyzed table reports unknown, not zero**: Postgres `reltuples = -1` and a null MySQL `TABLE_ROWS` both become `undefined`, `rowEstimate` is optional rather than defaulted, because `0` would say "this table is empty" to somebody checking whether a migration ran — the most expensive wrong answer available here. Each estimate carries `lastAnalyzedAt`, since a count from a table last analyzed in March is a fact about March, and the `to_timestamp(0)` sentinel is read as *never* rather than as 1970. A NOT NULL column **with a default** is `optional`, because presence describes the declaration rather than the constraint. `summarizeLatency` keeps the first sample apart and never smooths it away — on a serverless database it is a cold start measured in seconds — and suspects one only when ≥2 later samples disagree, since one cannot distinguish a cold start from a transient stall. Pure + unit-tested |
 | `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
 | `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
 | `McpEnvironmentScanner` | `src/mcp/mcpEnvironmentScanner.ts` | Discovers MCP setup signals for the Add-Server flow: imports server defs from other tools' config files (Claude Desktop/Cursor/VS Code/Windsurf/repo `.mcp.json`), probes PATH launchers, reads `.env*`/`wrangler.toml` var *names*; cached in `project_memory/operations/mcp-environment.json` (+ `.md` mirror), Rescan + workspace-config watcher; `fs`-only + unit-tested; redaction-safe (names only cached/shown — secret values re-read live on import → SecretStorage) |
@@ -297,7 +300,7 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 > Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
 > changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
 
-This project enforces **13** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+This project enforces **7** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
 
 ### TDD
 
@@ -313,25 +316,11 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Cucumber, SpecFlow, Behave, Gherkin, Codecept, Playwright BDD plugin
 - **Primary owner:** Test Developer
 
-### ATDD
-
-- **What:** Acceptance Test-Driven Development — customer-facing criteria first
-- **When to apply:** When the delivery team works directly from customer acceptance criteria. Bridges the gap between BDD storytelling and executable acceptance tests.
-- **Key tools:** Robot Framework, FitNesse, Cucumber, SpecFlow, Gauge
-- **Primary owner:** Test Developer
-
 ### Unit Testing
 
 - **What:** Isolated function and class-level tests
 - **When to apply:** All projects. Start here. Fast, cheap, and gives precise regression signals. Should be the largest layer of your test pyramid.
 - **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
-- **Primary owner:** Test Developer
-
-### Mutation Testing
-
-- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
-- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
-- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
 - **Primary owner:** Test Developer
 
 ### Property-Based
@@ -348,34 +337,6 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
 - **Primary owner:** Test Developer
 
-### White-Box
-
-- **What:** Structure-aware testing — code paths, branches, and conditions guided by internal knowledge
-- **When to apply:** Security-sensitive modules, complex algorithms, and codebases where path or branch coverage is a compliance requirement (DO-178C, IEC 61508). Augments unit tests with precise coverage metrics to identify dead code and untested logic.
-- **Key tools:** Istanbul / nyc (JS/TS), coverage.py, JaCoCo (Java/Kotlin), gcov / lcov (C/C++), LLVM coverage, SonarQube, Codecov, Coveralls
-- **Primary owner:** Test Developer
-
-### End-to-End
-
-- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
-- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
-- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
-- **Primary owner:** Test Developer
-
-### Contract
-
-- **What:** Consumer-driven API contract verification (Pact)
-- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
-- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
-- **Primary owner:** Test Developer
-
-### Model-Based (MBT)
-
-- **What:** Derive test cases from formal system models — state machines, UML diagrams, decision tables
-- **When to apply:** Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.
-- **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
-- **Primary owner:** Test Developer
-
 ### Security
 
 - **What:** SAST / DAST and dependency vulnerability scanning
@@ -390,7 +351,7 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:48eb1fe2fa685815 -->
+<!-- atlasmind:source-digest:21a574f088b98221 -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->

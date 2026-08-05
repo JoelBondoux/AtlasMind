@@ -19,6 +19,49 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.261.0 — Connect a database directly, and measure it
+
+The live lenses shipped reaching a database only through a connected MCP server. Most people with a
+Neon, Supabase, RDS, Railway or self-hosted instance don't have one, so the practical answer to "can I
+point this at my database?" was "install something else first". Now there are three direct kinds:
+`postgres` and `mysql` connect with bundled drivers, and `sql-http` reaches vendors that expose SQL
+over HTTPS and have no wire protocol at all.
+
+That changes a boundary the previous release stated, so here is the honest version that replaces it:
+**AtlasMind never *composes* SQL — it sends a *constant*.** Every statement lives in one file as a
+module-level constant with no interpolation, no parameters, and no code path that accepts a fragment
+from a caller, a setting, a webview or a model. A test walks every statement the code can emit and
+fails on a write verb, a placeholder, or a second statement. It's the same guarantee the GraphQL
+introspection query already carried. Going through MCP still refuses a generic query tool, for its own
+reason: with somebody else's tool AtlasMind can't guarantee what happens to the string it hands over.
+
+Everything runs inside `BEGIN READ ONLY` with a timeout, opened first and **not optional** — a server
+too old to support it fails the probe rather than getting one that runs unguarded. The connection is
+closed on every path, including failures; one left open against a production pooler is a worse bug
+than anything it was looking for.
+
+**It also measures.** Row counts, table and index sizes, constraints, how stale the statistics are,
+latency percentiles with cold starts called out separately, and the query plan. Every number comes
+from the catalog the database already maintains — no `COUNT(*)`, no table scan, no row of your data
+read to produce any of it. And **a table nobody has analyzed reports unknown, never zero**, because
+"this table is empty" is the most expensive thing this could get wrong in front of somebody checking
+whether a migration ran. Each estimate carries when it was last refreshed, since a row count from a
+table last analyzed in March is a fact about March. `EXPLAIN` is sent without `ANALYZE` — a probe that
+executes whatever it explains is a shape nobody should build.
+
+**The connection string goes in the OS keychain and nowhere else.** `AtlasMind: Store a Live Service
+Credential` takes it through a password box: never echoed, never logged, and validated by *parsing*
+rather than by connecting, so a typo fails while you can still see what you pasted instead of opening
+a socket to whatever host it produced. The parsed host, database, user and TLS mode are shown back —
+that's what catches a production string pasted into the staging endpoint. The committed file only ever
+names the key, that name is namespaced so it can't reach a model provider's credential, and driver
+errors are scrubbed of anything connection-shaped before they can reach a dialog.
+
+AtlasMind can't verify what a credential is permitted to do, so it recommends a read-only role at the
+moment you store one. Least privilege is the control that doesn't depend on AtlasMind being correct.
+
+---
+
 ## v0.260.0 — The lenses can look at your live services
 
 Every lens read the repository, which meant the question people actually have — *does the running system

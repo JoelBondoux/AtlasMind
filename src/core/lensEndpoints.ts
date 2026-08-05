@@ -47,14 +47,21 @@ import type {
   LensEndpointFile,
   LensEndpointKind,
   LensEndpointStage,
+  LensSqlHttpVendor,
 } from '../types.js';
 
 export const LENS_ENDPOINT_FILE = '.atlasmind/lens-endpoints.json';
 export const LENS_ENDPOINT_MAX_ENDPOINTS = 60;
 export const LENS_ENDPOINT_MAX_EXPECTED_CONTRACTS = 40;
 
-const KINDS = new Set<LensEndpointKind>(['http-openapi', 'graphql', 'database']);
+const KINDS = new Set<LensEndpointKind>([
+  'http-openapi', 'graphql', 'database', 'postgres', 'mysql', 'sql-http',
+]);
 const STAGES = new Set<LensEndpointStage>(['local', 'development', 'staging', 'production', 'unknown']);
+const SQL_HTTP_VENDORS = new Set<LensSqlHttpVendor>(['neon', 'cloudflare-d1', 'turso']);
+
+/** Kinds reached by connecting directly with a stored connection string. */
+const DIRECT_SQL_KINDS = new Set<LensEndpointKind>(['postgres', 'mysql']);
 
 const MAX_ID = 200;
 const MAX_LABEL = 200;
@@ -207,16 +214,53 @@ function normalizeEndpoint(value: unknown): LensEndpointDeclaration | string {
     const mcpServerId = boundedExactText(value.mcpServerId, MAX_ID);
     if (!mcpServerId) {
       return 'A `database` endpoint must name the connected `mcpServerId` that can read its schema. '
-        + 'AtlasMind bundles no database driver and stores no database credential.';
+        + 'For a direct connection instead, use `postgres`, `mysql`, or `sql-http`.';
     }
     if (value.url !== undefined) {
-      // A URL on a database endpoint is almost always a connection string
+      // A URL on an MCP-backed endpoint is almost always a connection string
       // somebody expected to work. Refusing it names the mistake rather than
-      // ignoring a field and leaving them to wonder why nothing connected.
-      return 'A `database` endpoint is reached through its MCP server, not a URL. '
-        + 'Remove `url` and set `mcpServerId`.';
+      // ignoring the field and leaving them to wonder why nothing connected.
+      return 'A `database` endpoint is reached through its MCP server, not a URL. Remove `url` and set '
+        + '`mcpServerId`, or change `kind` to `postgres`/`mysql` and put the connection string in '
+        + 'SecretStorage under `secretRef`.';
     }
     return { ...base, mcpServerId };
+  }
+
+  if (DIRECT_SQL_KINDS.has(kind)) {
+    // The connection string is the whole credential — host, user, password and
+    // database in one value — so `secretRef` is mandatory here rather than
+    // optional as it is for an HTTP endpoint. There is no such thing as a
+    // direct database probe with nothing stored.
+    if (!secretRef) {
+      return `A \`${kind}\` endpoint needs \`secretRef\` naming the SecretStorage key that holds its `
+        + 'connection string. The connection string itself must never appear in this file.';
+    }
+    if (value.url !== undefined) {
+      return `A \`${kind}\` endpoint is reached with the stored connection string, not a \`url\`. `
+        + 'Putting one here would commit the host — and usually the credential — to the repository.';
+    }
+    return base;
+  }
+
+  if (kind === 'sql-http') {
+    const vendor = enumValue(value.vendor, SQL_HTTP_VENDORS);
+    if (!vendor) {
+      return 'An `sql-http` endpoint must name a supported `vendor`: `neon`, `cloudflare-d1`, or `turso`. '
+        + 'Each speaks a different wire format, so AtlasMind will not guess which one a URL is.';
+    }
+    if (!secretRef) {
+      return 'An `sql-http` endpoint needs `secretRef` naming the SecretStorage key that holds its token '
+        + 'or connection string.';
+    }
+    const url = normalizeEndpointUrl(value.url);
+    if (typeof url === 'string' && url.startsWith('!')) {
+      return url.slice(1);
+    }
+    if (typeof url !== 'string') {
+      return 'An `sql-http` endpoint needs a usable `url` for its vendor SQL API.';
+    }
+    return { ...base, url, vendor };
   }
 
   const url = normalizeEndpointUrl(value.url);

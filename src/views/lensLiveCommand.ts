@@ -42,7 +42,8 @@ import {
   LENS_ENDPOINT_FILE,
   normalizeLensEndpointFile,
 } from '../core/lensEndpoints.js';
-import type { LensProbeSettings } from '../core/lensProbePolicy.js';
+import { describeConnection, summarizeConnectionString } from '../core/lensCredentials.js';
+import { dialectOfKind, isDirectSqlKind, type LensProbeSettings } from '../core/lensProbePolicy.js';
 import { analyzeLensProbeRun, runLensProbe, type LensProbeRun } from '../core/lensProbeRunner.js';
 import { analyzeLensReachability } from '../core/lensReachability.js';
 import type {
@@ -52,6 +53,7 @@ import type {
   LensEndpointFile,
   LensProbeResult,
 } from '../types.js';
+import { performDirectSqlProbe, performSqlHttpProbe } from './lensDatabaseTransport.js';
 import { showMissingLensDeclarationGuidance } from './lensDeclarationSetup.js';
 import { LensLivePanel } from './lensLivePanel.js';
 import { performHttpProbe, performMcpProbe } from './lensLiveTransport.js';
@@ -93,6 +95,11 @@ export function readLensProbeSettings(context: LensLiveCommandContext): LensProb
     allowedStages: config.get<string[]>('allowedStages', ['local', 'development', 'staging']),
     fetchAvailable: typeof fetch === 'function',
     mcpToolIds: context.listMcpToolIds(),
+    // The desktop extension host runs under Node and can open a socket; the web
+    // one cannot. `process.versions.node` is the honest test — checking for the
+    // driver module would load it at settings-read time, which is exactly the
+    // activation cost lazy loading exists to avoid.
+    directDriversAvailable: typeof process !== 'undefined' && Boolean(process.versions?.node),
   };
 }
 
@@ -179,11 +186,14 @@ export async function probeLiveEndpoints(context: LensLiveCommandContext): Promi
   // independently — this is the operator-facing half, not the enforcement.
   let typedConfirmation: string | undefined;
   if (isProtectedLensEndpoint(endpoint)) {
+    const destination = isDirectSqlKind(endpoint.kind) || endpoint.kind === 'sql-http'
+      ? await describeDatabaseDestination(endpoint, context)
+      : describeDestination(endpoint);
     const typed = await vscode.window.showInputBox({
       title: `Probe ${endpoint.label}?`,
       prompt: endpoint.stage === 'unknown'
-        ? `This endpoint does not state its stage, so it is treated as production. It points at ${describeDestination(endpoint)}. Type the endpoint's label exactly to confirm.`
-        : `This is a production endpoint at ${describeDestination(endpoint)}. Type the endpoint's label exactly to confirm.`,
+        ? `This endpoint does not state its stage, so it is treated as production. It points at ${destination}. Type the endpoint's label exactly to confirm.`
+        : `This is a production endpoint at ${destination}. Type the endpoint's label exactly to confirm.`,
       placeHolder: endpoint.label,
       ignoreFocusOut: true,
       validateInput: value => value === endpoint.label
@@ -206,9 +216,18 @@ export async function probeLiveEndpoints(context: LensLiveCommandContext): Promi
     async () => runLensProbe({
       endpoint,
       settings,
-      transport: request => request.kind === 'database'
-        ? performMcpProbe(request, context.invokeMcpTool)
-        : performHttpProbe(request),
+      transport: request => {
+        const observedAt = new Date().toISOString();
+        if (request.kind === 'postgres' || request.kind === 'mysql') {
+          return performDirectSqlProbe(request, endpoint.id, observedAt);
+        }
+        if (request.kind === 'sql-http') {
+          return performSqlHttpProbe(request, endpoint.id, observedAt);
+        }
+        return request.kind === 'database'
+          ? performMcpProbe(request, context.invokeMcpTool)
+          : performHttpProbe(request);
+      },
       resolveSecret: context.resolveSecret,
       ...(typedConfirmation !== undefined ? { typedConfirmation } : {}),
       probedThisRun: 0,
@@ -261,6 +280,7 @@ async function openLiveResult(
     analysis,
     reachability,
     trustPolicyPresent: trustPolicy !== undefined,
+    ...(run.health ? { health: run.health } : {}),
   });
 }
 
@@ -375,6 +395,31 @@ function describeDestination(endpoint: LensEndpointDeclaration): string {
   } catch {
     return endpoint.url;
   }
+}
+
+/**
+ * Describe where a direct database probe would connect.
+ *
+ * Async because the host is inside the stored connection string, which means
+ * reading SecretStorage — and it is worth the round trip: a confirmation that
+ * cannot name the host is one where a production string pasted into a staging
+ * endpoint is invisible at exactly the moment it matters. Only ever the parsed
+ * summary; the string itself never reaches a dialog.
+ */
+async function describeDatabaseDestination(
+  endpoint: LensEndpointDeclaration,
+  context: LensLiveCommandContext,
+): Promise<string> {
+  const dialect = dialectOfKind(endpoint.kind);
+  if (!dialect || !endpoint.secretRef) {
+    return endpoint.vendor ? `the ${endpoint.vendor} SQL endpoint` : 'a stored connection';
+  }
+  const stored = await context.resolveSecret(endpoint.secretRef);
+  if (stored === undefined) {
+    return `\`${endpoint.secretRef}\` (nothing stored yet)`;
+  }
+  const summary = summarizeConnectionString(stored, dialect);
+  return summary ? describeConnection(summary) : 'a stored connection string that could not be parsed';
 }
 
 function isFileNotFound(error: unknown): boolean {

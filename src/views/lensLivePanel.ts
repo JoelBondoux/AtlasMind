@@ -23,6 +23,7 @@ import * as vscode from 'vscode';
 import type { LensLiveAnalysis } from '../core/lensProbeRunner.js';
 import { buildLensContextPatch, buildLensDraftPrompt, normalizeLensTarget } from '../core/lensTarget.js';
 import type {
+  LensDatabaseHealth,
   LensEndpointDeclaration,
   LensProbeResult,
   LensReachabilityMap,
@@ -40,6 +41,8 @@ export interface LensLivePanelInput {
   analysis: LensLiveAnalysis;
   reachability: LensReachabilityMap;
   trustPolicyPresent: boolean;
+  /** Metrics, latency and plan. Only a direct database probe produces these. */
+  health?: LensDatabaseHealth;
 }
 
 type LensLiveMessage =
@@ -172,7 +175,45 @@ export class LensLivePanel {
         unassessedCount: reachability.unassessedCount,
         notices: reachability.notices,
       },
+      health: this.buildHealthView(),
       notices,
+    };
+  }
+
+  /**
+   * The measured half.
+   *
+   * `rowEstimate` is passed as `null` when unknown rather than `0`, and the
+   * renderer prints "unknown". A table nobody has analyzed must never read as an
+   * empty one — that is the single most expensive wrong answer this panel could
+   * give somebody checking whether a migration ran.
+   */
+  private buildHealthView(): Record<string, unknown> | null {
+    const health = this.input.health;
+    if (!health) {
+      return null;
+    }
+    const constraintsByTable = new Map<string, number>();
+    for (const constraint of health.constraints) {
+      constraintsByTable.set(constraint.table, (constraintsByTable.get(constraint.table) ?? 0) + 1);
+    }
+    return {
+      dialect: health.dialect,
+      serverVersion: health.serverVersion ?? '',
+      latency: health.latency ?? null,
+      plan: health.plan ?? null,
+      notices: health.notices,
+      tables: health.tables.slice(0, 200).map(table => ({
+        table: table.table,
+        rowEstimate: table.rowEstimate ?? null,
+        totalBytes: table.totalBytes ?? null,
+        indexCount: table.indexCount ?? null,
+        constraints: constraintsByTable.get(table.table) ?? 0,
+        lastAnalyzedAt: table.lastAnalyzedAt ?? '',
+        // The staleness question is the one that decides whether the estimate
+        // is worth anything, so it is answered here rather than left to the eye.
+        neverAnalyzed: table.rowEstimate === undefined,
+      })),
     };
   }
 
@@ -294,6 +335,12 @@ function buildLiveHtml(cspSource: string): string {
           <p id="trust-summary" class="lens-card-meta"></p>
           <div id="trust-list" class="card-grid"></div>
         </section>
+        <section class="lens-section" id="health-section" aria-labelledby="health-heading" hidden>
+          <h2 id="health-heading" class="section-heading">Measured</h2>
+          <p id="health-summary" class="lens-card-meta"></p>
+          <ul id="health-notices" class="lens-notices" aria-label="Measurement notices"></ul>
+          <div id="health-tables" class="card-grid"></div>
+        </section>
       </main>
     `,
     extraCss: `${LENS_PANEL_CSS}
@@ -335,6 +382,10 @@ function buildLiveHtml(cspSource: string): string {
       const reachSummary = document.getElementById('reach-summary');
       const trustList = document.getElementById('trust-list');
       const trustSummary = document.getElementById('trust-summary');
+      const healthSection = document.getElementById('health-section');
+      const healthSummary = document.getElementById('health-summary');
+      const healthNotices = document.getElementById('health-notices');
+      const healthTables = document.getElementById('health-tables');
 
       document.addEventListener('click', event => {
         const button = event.target.closest('button[data-action][data-finding-id]');
@@ -372,6 +423,61 @@ function buildLiveHtml(cspSource: string): string {
           ? view.undeclaredCount + ' served field(s) have no classification'
           : 'Not assessed — nothing was read from this service.';
         trustList.replaceChildren(...view.trust.slice(0, 200).map(renderTrust));
+
+        // Hidden entirely rather than shown empty: only a direct database probe
+        // measures anything, and an empty "Measured" heading on an API probe
+        // would read as a measurement that came back with nothing.
+        if (!view.health) {
+          healthSection.hidden = true;
+          return;
+        }
+        healthSection.hidden = false;
+        renderHealth(view.health);
+      }
+
+      function renderHealth(health) {
+        const parts = [health.dialect];
+        if (health.serverVersion) parts.push(health.serverVersion);
+        if (health.latency) {
+          parts.push('first ' + health.latency.firstMs + 'ms · p50 ' + health.latency.p50Ms
+            + 'ms · p95 ' + health.latency.p95Ms + 'ms');
+          if (health.latency.coldStartSuspected) parts.push('cold start suspected');
+        }
+        if (health.plan && health.plan.available) {
+          if (health.plan.planningMs !== undefined) parts.push('plan ' + health.plan.planningMs + 'ms');
+          if (health.plan.rootNode) parts.push(health.plan.rootNode);
+        }
+        healthSummary.textContent = parts.join(' · ');
+        healthNotices.replaceChildren(...health.notices.map(notice => element('li', notice)));
+        healthTables.replaceChildren(...health.tables.map(renderHealthTable));
+      }
+
+      function renderHealthTable(table) {
+        const card = element('article', '', 'lens-card finding');
+        card.dataset.status = table.neverAnalyzed ? 'declared-absent' : 'confirmed';
+        card.append(element('h3', table.table, 'lens-card-title'));
+        const shapes = element('div', '', 'shape-row');
+        // Unknown is printed as unknown. A table nobody has analyzed must never
+        // read as an empty one.
+        shapes.append(element('span', 'rows: ' + (table.rowEstimate === null
+          ? 'unknown (never analyzed)'
+          : '~' + table.rowEstimate.toLocaleString())));
+        if (table.totalBytes !== null) shapes.append(element('span', 'size: ' + formatBytes(table.totalBytes)));
+        if (table.indexCount !== null) shapes.append(element('span', 'indexes: ' + table.indexCount));
+        shapes.append(element('span', 'constraints: ' + table.constraints));
+        card.append(shapes);
+        card.append(element('p', table.lastAnalyzedAt
+          ? 'Estimate last refreshed ' + table.lastAnalyzedAt
+          : 'This table has never been analyzed, so its row count is unknown — not zero.',
+          'lens-card-meta'));
+        return card;
+      }
+
+      function formatBytes(bytes) {
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes, unit = 0;
+        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+        return (unit === 0 ? value : value.toFixed(1)) + ' ' + units[unit];
       }
 
       function renderFinding(finding) {
