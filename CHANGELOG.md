@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.2] - 2026-08-06
+
+### Changed
+
+- **The shared panel theme is actually applied now.** 0.263.0 described every panel moving onto the
+  Project Dashboard's design language, and 0.266.1 committed the provider — but the adoption itself
+  had never been committed. Twenty-six panels now pass `dashboardSkin: true` and drop the private
+  `:root` palette each had accumulated: Settings, MCP, Model Providers, Agent Manager, Mission
+  Control, Run Center, Cost Dashboard, Model Comparison, Ideation, Vision, Voice, Specialists, Tool
+  Webhooks, Skill Scanner, Chat and the ten Lens surfaces.
+
+  Net −38 lines: five prefixes (`--atlas-*`, `--lens-*`, `--run-*`, `--studio-*`, `--atlas-panel-*`)
+  collapse to one definition. Colour that carries meaning is left alone — the Ideation board's tinted
+  notes, the chat transcript, warnings, and each Lens's own accent. The Personality Profile keeps its
+  warm palette by deliberate exemption.
+
 ## [0.266.1] - 2026-08-06
 
 ### Fixed

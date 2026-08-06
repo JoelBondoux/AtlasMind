@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.266.2 — The shared panel theme, actually applied
+
+v0.263.0 said every panel had moved onto the Project Dashboard's design language. The code for that
+had been written but never committed — it had been sitting in a working tree the whole time, which is
+why v0.266.1 had to ship the half of it the Website Studio depended on.
+
+This is the rest: twenty-six panels opting into the shared skin and deleting the private palette each
+had grown. Five different prefixes collapse into one definition, and the release note from v0.263.0
+is now true.
+
+Colour that means something is untouched — the Ideation board's tinted notes, the chat transcript,
+warnings, each Lens accent. The Personality Profile keeps its warm palette on purpose.
+
+---
+
 ## v0.266.1 — A build fix
 
 Website Studio was using a piece of the shared panel theme that had not been committed yet: the

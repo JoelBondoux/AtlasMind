@@ -166,6 +166,14 @@ Dashboard, Model Providers, Agent Manager, Website Studio, Personality Profile, 
 plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
 Skills, MCP Servers and Resource Discovery.
 
+**They share one design language.** Each webview is an isolated document, so a panel cannot inherit
+another's stylesheet — which is how nineteen panels ended up with nineteen palettes, four of them drifted
+copies of the Project Dashboard's. `src/views/dashboardTheme.ts` is now the single definition, and the
+shared shell wraps every panel in it: tokens and the page frame *before* the panel's own CSS, and the
+surfaces — card, header, nav, button, input, table — *after*. The ordering is the design. A panel keeps
+its layout, which it legitimately owns, and loses its private palette, which it never decided on. The
+Personality Profile is the one deliberate exception; its warm palette is a choice, not drift.
+
 ---
 
 ## Some structural rules

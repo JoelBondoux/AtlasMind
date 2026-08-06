@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
-import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { MissionRunner } from '../core/missionRunner.js';
@@ -695,12 +694,11 @@ export class MissionControlPanel {
     `;
 
     const extraCss = `
-      /* Tokens, reduced-motion baseline and shared primitives come from the
-         one source of truth. This block used to be a byte-identical copy of the
-         Project Dashboard s :root, and had already drifted out of date. */
-      ${DASHBOARD_THEME_CSS}
-
-      body { padding: 0; background: var(--dash-bg); font-family: var(--dash-body); }
+      /* Tokens, page frame and surfaces come from the one source of truth,
+         injected around this block by \`dashboardSkin\`. This file used to hold
+         a byte-identical copy of the Project Dashboard's :root, and it had
+         already drifted out of date. */
+      body { padding: 0; }
       .mc-shell { min-height: 100vh; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
       h1, h2 { font-family: var(--dash-heading); letter-spacing: -0.02em; }
 
@@ -763,6 +761,7 @@ export class MissionControlPanel {
     `;
 
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind – Mission Control',
       bodyContent: body,
       cspSource: this.panel.webview.cspSource,

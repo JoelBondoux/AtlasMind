@@ -2194,6 +2194,7 @@ export class SettingsPanel {
     const extensionVersion = escapeHtml(this.extensionVersion);
 
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind Settings',
       cspSource: this.panel.webview.cspSource,
       bodyContent:
@@ -3194,18 +3195,7 @@ export class SettingsPanel {
       `,
       extraCss:
       `
-        :root {
-          --atlas-panel-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
-          --atlas-panel-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
-          --atlas-panel-surface: color-mix(in srgb, var(--vscode-editor-background) 78%, var(--vscode-sideBar-background) 22%);
-          --atlas-panel-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 60%, var(--vscode-sideBar-background) 40%);
-          --atlas-panel-accent: var(--vscode-textLink-foreground);
-          --atlas-panel-accent-soft: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
-          --atlas-panel-warning: var(--vscode-inputValidation-warningBorder, #cca700);
-        }
-        body {
-          padding: 20px;
-        }
+        /* Palette, page frame and hero come from the shared dashboard theme. */
         code {
           font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
         }

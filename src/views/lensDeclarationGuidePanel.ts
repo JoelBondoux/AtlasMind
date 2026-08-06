@@ -490,6 +490,7 @@ function normalizeGuideMessage(value: unknown): GuideMessage | undefined {
 
 function buildGuideHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     cspSource,
     title: 'Lens — Declaration guide',
     extraCss: `${LENS_PANEL_CSS}

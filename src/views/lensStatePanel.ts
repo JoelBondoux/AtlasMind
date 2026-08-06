@@ -147,6 +147,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildStateHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — State Lifecycle',
     cspSource,
     bodyContent: `

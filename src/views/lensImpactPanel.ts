@@ -180,6 +180,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildImpactHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Change Impact',
     cspSource,
     bodyContent: `

@@ -1155,6 +1155,7 @@ export class ProjectRunCenterPanel {
 
   private getHtml(): string {
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind Project Run Center',
       cspSource: this.panel.webview.cspSource,
       bodyContent: `
@@ -1449,21 +1450,7 @@ export class ProjectRunCenterPanel {
         </div>
       `,
       extraCss: `
-        :root {
-          --run-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 88%, black 12%), var(--vscode-editor-background));
-          --run-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
-          --run-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
-          --run-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
-          --run-accent: var(--vscode-button-background);
-          --run-good: var(--vscode-testing-iconPassed, #4bb878);
-          --run-warn: var(--vscode-testing-iconQueued, #d7a34b);
-          --run-critical: var(--vscode-testing-iconFailed, #d05f5f);
-          --run-muted: var(--vscode-descriptionForeground);
-          --run-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
-          --run-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
-          --run-radius: 22px;
-          --run-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
-        }
+        /* Palette, page frame and hero come from the shared dashboard theme. */
 
         body {
           padding: 0;

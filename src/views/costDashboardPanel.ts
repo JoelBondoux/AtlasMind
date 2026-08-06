@@ -569,12 +569,13 @@ export class CostDashboardPanel {
     `;
 
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'Cost Dashboard',
       cspSource,
       bodyContent,
       scriptContent,
       extraCss: `
-        body { background: radial-gradient(circle at top, color-mix(in srgb, var(--vscode-focusBorder, #0e639c) 12%, transparent) 0%, transparent 38%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%) 0%, var(--vscode-editor-background) 100%); }
+        body { padding: 0; }
         .cost-shell { display: flex; flex-direction: column; gap: 18px; padding: 10px 8px 24px; }
         .dashboard-topbar { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
         .dashboard-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--vscode-descriptionForeground); }

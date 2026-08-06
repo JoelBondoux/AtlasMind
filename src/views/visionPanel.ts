@@ -266,6 +266,7 @@ export class VisionPanel {
 
   private getHtml(): string {
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind Vision',
       cspSource: this.panel.webview.cspSource,
       bodyContent: `
@@ -381,14 +382,7 @@ export class VisionPanel {
       `,
       extraCss: `${QUICK_REPLY_CSS}
         #quickReplies { margin-top: 10px; }
-        :root {
-          --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
-          --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
-          --atlas-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
-          --atlas-accent: var(--vscode-textLink-foreground);
-          --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
-        }
-        body { padding: 20px; }
+        /* Palette, page frame and hero come from the shared dashboard theme. */
         .panel-hero { display: flex; justify-content: space-between; gap: 20px; padding: 20px 22px; margin-bottom: 18px; border: 1px solid var(--atlas-border); border-radius: 18px; background: radial-gradient(circle at top right, color-mix(in srgb, var(--atlas-accent) 14%, transparent), transparent 40%), linear-gradient(160deg, var(--atlas-surface), var(--vscode-editor-background)); }
         .eyebrow, .page-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; color: var(--atlas-muted); }
         .panel-hero h1, .page-header h2 { margin: 0; }
