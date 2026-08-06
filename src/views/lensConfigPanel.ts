@@ -131,6 +131,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildConfigHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Configuration Resolution',
     cspSource,
     bodyContent: `

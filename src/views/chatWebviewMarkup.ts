@@ -8,6 +8,7 @@ import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
  */
 export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: string }): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Chat',
     cspSource: opts.cspSource,
     bodyContent: `

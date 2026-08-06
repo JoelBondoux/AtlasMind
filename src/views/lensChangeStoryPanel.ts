@@ -175,6 +175,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildChangeStoryHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Change Story',
     cspSource,
     bodyContent: `

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.266.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.266.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,7 +123,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.266.1
+## What's new in 0.266.3
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).

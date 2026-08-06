@@ -1598,6 +1598,7 @@ export class ProjectIdeationPanel {
   private getHtml(): string {
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectIdeation.js'));
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind Project Ideation',
       cspSource: this.panel.webview.cspSource,
       scriptUri: scriptUri.toString(),
@@ -4608,11 +4609,11 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   :root {
     color-scheme: light dark;
   }
+  /* Page background and type come from the shared dashboard theme; only the
+     zeroed padding is local, because .ideation-shell-page supplies its own. */
   body {
     margin: 0;
-    font-family: var(--vscode-font-family);
-    color: var(--vscode-foreground);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, #10263a 8%), var(--vscode-editor-background));
+    padding: 0;
   }
   .ideation-shell-page {
     min-height: 100vh;

@@ -301,6 +301,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildLiveHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Live Services',
     cspSource,
     bodyContent: `

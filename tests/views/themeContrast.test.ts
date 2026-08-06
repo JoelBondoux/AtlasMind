@@ -215,7 +215,13 @@ function analyse(): Row[] {
   const rows: Row[] = [];
   for (const file of readdirSync(VIEWS).filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts') && !skip.has(f))) {
     const own = readFileSync(path.join(VIEWS, file), 'utf8');
-    const scope = shell + (own.includes('DASHBOARD_THEME_CSS') ? theme + widgets : '') + own;
+    // A panel resolves colours against the shared theme when it either injects
+    // the theme itself (the Project Dashboard) or opts into the skin the shell
+    // wraps around it (everything else but the Personality Profile). Without
+    // the second case every `var(--dash-*)` in a skinned panel resolves to
+    // nothing, the rule is skipped, and the suite passes over an empty set.
+    const usesSharedTheme = own.includes('DASHBOARD_THEME_CSS') || own.includes('dashboardSkin: true');
+    const scope = shell + (usesSharedTheme ? theme + widgets : '') + own;
     const darkScope = scope.replace(/body\.vscode-light\s*\{[^{}]*\}/g, '');
 
     const vars = new Map(Object.entries(THEME));

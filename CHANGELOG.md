@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.3] - 2026-08-06
+
+### Security
+
+- **js-yaml pinned to ^4.3.1** (GHSA-5p4m-2wfm-xmqj, high): quadratic CPU consumption resolving
+  `!!omap`, affecting `>=4.0.0 <4.3.1`. It reaches the tree only through `@vscode/vsce` →
+  `@secretlint/node`, so it is a **build-time dependency and never ships in the extension** —
+  `npm ls js-yaml --omit=dev` is empty. Pinned inside the 4.x line rather than moved to 5.x, because
+  a major bump of a transitive dependency to clear a dev-only advisory risks more than it fixes.
+  `npm audit` now reports zero vulnerabilities, and `vsce` still runs.
+
+### Note on the Dependabot alerts
+
+- The 11 alerts GitHub reports (3 high, 8 moderate — `fast-uri`, `ip-address` ×3, `undici` ×5,
+  `hono`, `postcss`) are **already fixed on `develop`** and were resolved by the checked overrides in
+  0.257.6. Dependabot scans the default branch, which is `main`, and `main` is still at 0.257.5 with
+  the older override block. They will clear on the next promotion to `main`; nothing further is
+  needed on `develop`.
+
+## [0.266.2] - 2026-08-06
+
+### Changed
+
+- **The shared panel theme is actually applied now.** 0.263.0 described every panel moving onto the
+  Project Dashboard's design language, and 0.266.1 committed the provider — but the adoption itself
+  had never been committed. Twenty-six panels now pass `dashboardSkin: true` and drop the private
+  `:root` palette each had accumulated: Settings, MCP, Model Providers, Agent Manager, Mission
+  Control, Run Center, Cost Dashboard, Model Comparison, Ideation, Vision, Voice, Specialists, Tool
+  Webhooks, Skill Scanner, Chat and the ten Lens surfaces.
+
+  Net −38 lines: five prefixes (`--atlas-*`, `--lens-*`, `--run-*`, `--studio-*`, `--atlas-panel-*`)
+  collapse to one definition. Colour that carries meaning is left alone — the Ideation board's tinted
+  notes, the chat transcript, warnings, and each Lens's own accent. The Personality Profile keeps its
+  warm palette by deliberate exemption.
+
 ## [0.266.1] - 2026-08-06
 
 ### Fixed

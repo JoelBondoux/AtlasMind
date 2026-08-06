@@ -280,6 +280,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function buildDashboardHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'Atlas Lenses',
     cspSource,
     bodyContent: `

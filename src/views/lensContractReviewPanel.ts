@@ -491,6 +491,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildContractReviewHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Field Wiring',
     cspSource,
     bodyContent: `
