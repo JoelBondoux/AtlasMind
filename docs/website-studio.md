@@ -10,7 +10,7 @@ Website Studio is AtlasMind's project-scoped workspace for taking a client websi
 | Sitemap | Page title, slug, purpose, template, and the auto-drawn hierarchy map with each page's outbound links and inbound count |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
 | UI System | Record brand direction, tone, palette, typography, spacing, corner style, accessibility target, and component notes |
-| Hosting & Platforms | Configure Develop, Staging, and Production, then compare/select Cloudflare Pages, GitHub Pages, WordPress + Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or custom hosting |
+| Stack & hosting | Pick the framework and the platform (one decision — the pairing sets the build command, output directory and deploy config), configure Develop/Staging/Production, run automatic setup, and cross-check against the Delivery pipeline |
 | n8n Automations | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
 
 ## The wireframe canvas
@@ -120,6 +120,99 @@ you close it or close the Studio.
 
 Both switches are off by default and are two switches on purpose: writing model-authored files and
 opening a local port are different decisions.
+
+## Framework, platform and automatic setup
+
+The framework and the hosting platform are **one decision**. "Astro on Cloudflare Pages" has a known
+build command, a known output directory and a known deploy config; splitting the choice across two
+pages made the compatible pairing something the user had to already know.
+
+Ten frameworks are declared in `websiteFrameworks.ts`, each carrying the three facts everything
+downstream needs — the scaffold command, the build command, and the output directory.
+`describeStackCompatibility` grades every pairing `ideal` / `workable` / `unsupported` **with a
+reason**, and an unsupported pairing stays in the list: removing Hugo when Shopify is selected would
+leave somebody wondering where it went, while "Shopify serves Liquid templates from its own theme
+system, so a separate build has nowhere to go" answers the question they had.
+
+`custom`, `static` and `wordpress-theme` carry **no scaffold command**. An improvised command that
+usually works is worse than an honest gap, because the failure lands in somebody's repository — the
+same treatment `acpInstaller` gives Rust's `curl | sh` installer.
+
+### What Set up this stack does
+
+Planning performs nothing; a separate call executes after a modal listing every command with its
+purpose and every file with its full contents.
+
+| Step | What it does |
+|---|---|
+| `runtime` | Reports a missing Node or Hugo as a blocker before anything else is attempted |
+| `scaffold` | The framework's own create command, skipped when a `package.json` already exists |
+| `config-file` | `wrangler.toml` / `netlify.toml` / `vercel.json` / `staticwebapp.config.json` |
+| `scripts` | `dev` and `build` in `package.json`, only where the key is absent |
+| `env-example` | Per-environment variable **names**, never a value |
+| `branches` | `git branch` for the stage branches that do not exist |
+| `ci` | The GitHub Actions workflow, gated by its own setting |
+| `manual` | Anything touching a remote account — quoted, not run |
+
+Five properties hold, each pinned by a test:
+
+1. **No step runs a shell.** Every executable step is `execFile(command, args)` and every command is a
+   module constant. A test walks *every* producible plan and fails on a shell metacharacter, or on a
+   command naming a shell or a downloader.
+2. **No step writes outside the workspace.** Validated at plan time, re-resolved against the root
+   before each write, with the writer injected so a test fails the run on an escaping path.
+3. **Everything that could destroy work is create-only.** Existing files, scripts, branches and
+   workflows are reported untouched. Re-running is safe, which is the case it exists for.
+4. **Branch creation is `git branch` only** — never checkout, never push, never force.
+5. **Success is re-probed from the filesystem**, never inferred from an exit code.
+
+### The generated CI workflow
+
+Off by default and gated separately from the rest of setup, because it is the one generated artefact
+that **acts on its own**: it runs on GitHub's infrastructure, with the repository's secrets, on a push
+nobody reviewed it for.
+
+- The YAML is a declared template with only validated values substituted — branch names, output
+  directory, node version, build command, each charset-checked first. A rendered file still containing
+  a placeholder refuses rather than being written.
+- `.github/workflows/` is **create-only**. Replacing somebody's deploy pipeline is not recoverable
+  from an editor.
+- Production declares `environment: production`, so the approval gate exists on GitHub's side too.
+  AtlasMind's confirmation protects the moment the file is written; the environment protects every run
+  after that.
+- Secrets are **named, never written**, and the plan lists which to add and where.
+- Explicit `permissions:`, pinned action majors, and per-environment `concurrency` with
+  `cancel-in-progress: false` — a half-finished deploy is worse than a queued one.
+- A platform with no verified deploy action is **refused**, not guessed at.
+
+### Remote project creation
+
+`wrangler pages project create`, `netlify sites:create` and `vercel link` are planned as `manual`
+steps unless `atlasmind.website.setup.allowRemoteProjectCreation` is explicitly on. They authenticate
+as the user and create billable resources, and a run that fails halfway leaves them orphaned with no
+teardown.
+
+## Website Studio and the Delivery pipeline
+
+Both model dev → staging → production. `DeploymentStage` is the executable one, with the backup,
+approval, rollback and protection policy that `promotionRunner` acts on; Website Studio's
+`WebsiteHostingEnvironment` is a planning model carrying website-specific policy Delivery has no
+concept of (loopback develop, password-protected staging subdomain).
+
+Keeping both was a deliberate choice, and its cost is drift. `compareWebsiteToDelivery` is therefore a
+**comparison, not a verdict** — shaped after `findTaxonomyDrift`, it reports per stage which fields
+disagree and what each side says, and writes nothing. When nobody has compared them, the page says so
+rather than showing a reassuring blank.
+
+Syncing is one-directional and confirmed, and two rules protect the operational side:
+
+- **An empty planning field never clears a real one.** A blank box in the Studio must not erase a
+  working `healthCheckUrl` from a page that never claimed to own it. Absent means "no opinion".
+- **Protection only tightens.** Sync can mark a stage protected; it can never unprotect one.
+
+Sync also **never creates a Delivery stage** — that would mean inventing a backup and rollback policy
+from a page that models neither, and `promotionRunner` would then act on defaults nobody chose. An
+unmapped environment is reported instead.
 
 ## Client Intake JSON
 

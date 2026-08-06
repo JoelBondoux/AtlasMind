@@ -323,6 +323,61 @@ instruction must not become one.
 
 ---
 
+## Scaffolding a website stack, and the workflow it can write
+
+**Set up this stack** is the only place AtlasMind runs commands on your behalf to build a project, and
+the generated CI workflow is the only thing it produces that later runs *without* it. Three separate
+switches, all off by default, because scaffolding, generating CI, and touching your hosting account
+are three genuinely different decisions.
+
+**Every command is a constant in AtlasMind's source.** Not composed from a setting, not read out of a
+webview message, not parsed from documentation, and never written by a model. A command from any of
+those is remote code execution with extra steps. Adding a framework means adding a literal, and a test
+walks *every* producible plan — every framework, platform, package manager and gate combination — and
+fails on a shell metacharacter in any argument, or on a command that names a shell or a downloader.
+
+**Nothing runs through a shell.** Steps are `execFile(command, args)` with an argument array, so an
+argument cannot become a second command.
+
+**Nothing writes outside your workspace.** Paths are checked when the plan is built and resolved
+against the workspace root again immediately before each write.
+
+**Nothing is overwritten.** Config files, `package.json` scripts, branches and workflow files are all
+create-only: what already exists is reported untouched. Branch steps use `git branch` and nothing
+else — never checkout, never push, never force.
+
+**You see it before it happens.** The confirmation lists every command with its purpose and every file
+with its complete contents, and offers to open them as real documents first. Afterwards AtlasMind
+**re-checks the filesystem** rather than trusting exit codes, because a create command can exit
+successfully having done nothing.
+
+### The generated workflow specifically
+
+A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a
+push nobody reviewed it for. It can deploy, and it can spend money. So:
+
+- The YAML is a **declared template** with only validated values substituted. No model writes any part
+  of it. A rendered file still containing a placeholder is refused rather than written.
+- **An existing workflow is never replaced.** Losing a working deploy pipeline to a scaffolder is not
+  something you recover from in an editor.
+- **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
+  confirmation protects the moment the file is written; the environment protects every run after that.
+- **Secrets are named, never written.** You are told which to add and where; no value goes near the
+  file, which is committed.
+- Permissions are explicit rather than inherited, actions are pinned to a major version, and deploys
+  to the same branch queue rather than racing.
+- A platform AtlasMind has no verified deploy action for gets **no workflow** — a pipeline that
+  half-works still runs.
+
+### Your hosting account
+
+`wrangler pages project create`, `netlify sites:create` and `vercel link` authenticate as you and
+create billable resources, and a run that fails halfway leaves them orphaned with no teardown. They
+are shown as commands with their purpose and **not run** unless you explicitly turn on
+`atlasmind.website.setup.allowRemoteProjectCreation`.
+
+---
+
 ## Delegated agents and hidden windows
 
 Two boundaries worth knowing if you use subscription agents:

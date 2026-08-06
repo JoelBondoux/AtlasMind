@@ -19,7 +19,7 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Sitemap** | Every page — title, slug, what it's for, which template it uses, where it links to, and a hierarchy map that draws itself |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
 | **UI System** | Brand direction, tone, palette, typography, spacing, corner style, accessibility target and component notes |
-| **Hosting & Platforms** | Set up Develop, Staging and Production, and compare Cloudflare Pages, GitHub Pages, WordPress (with or without Elementor), Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or your own |
+| **Stack & hosting** | What the site is built with and where it ships — and a button that actually sets it up. Plus Develop, Staging and Production, and a cross-check against the Delivery pipeline |
 | **n8n Automations** | Which workflow handles which event, what it should do, whether it's ready, and any data or privacy notes |
 
 ---
@@ -105,6 +105,68 @@ unfinished work. It stops when you close the window.
 
 Both switches — generating files, and opening the preview port — are **off until you turn them on**,
 and they're two switches rather than one because they're genuinely two different decisions.
+
+---
+
+## Choosing a stack, and having it set up for you
+
+The framework and the host are one choice, not two. "Astro on Cloudflare Pages" decides your build
+command, your output directory and your deploy config together — so picking them on separate pages
+just meant you had to already know which combinations work.
+
+Ten frameworks, each graded against the platform you've chosen, each with the reason on the card.
+Incompatible ones stay visible: pick Shopify and Hugo is still there, marked unsupported, explaining
+that Shopify serves Liquid templates from its own theme system so a separate build has nowhere to go.
+Hiding it would just leave you wondering.
+
+Some frameworks — plain HTML, WordPress themes, anything you'd call "something else" — get **no**
+automatic setup, and say so. An improvised command that usually works is worse than an honest gap when
+the failure lands in your repository.
+
+**Set up this stack** runs the framework's own create command, writes the deploy config for your host,
+adds the dev and build scripts, writes a `.env.example` with the variable names and no values, and
+creates your develop, staging and production branches. Switch on CI generation and it writes a GitHub
+Actions workflow deploying each branch to its own environment.
+
+You see everything first — every command with what it's for, every file with its complete contents,
+including the whole workflow. There's a **Show files first** button if you'd rather read them as real
+documents before deciding.
+
+What it will and won't do:
+
+- **Never overwrites anything.** An existing config file, script, branch or workflow is left alone and
+  reported. Run setup as many times as you like.
+- **Never uses a shell.** Commands are constants in AtlasMind's source, run directly with an argument
+  list.
+- **Only ever creates branches** — never checks out, pushes, or forces.
+- **Checks afterwards.** A create command can exit successfully having done nothing; the report comes
+  from looking at your files.
+- **Won't touch your hosting account** unless you explicitly allow it. `wrangler pages project
+  create` and friends authenticate as you and create things you'll be billed for, so by default you
+  get the command and run it yourself.
+
+### The generated workflow
+
+This one has its own switch, off by default, because it's the only thing AtlasMind generates that
+**runs on its own** — on GitHub, with your secrets, on a push nobody reviewed it for.
+
+It's built from a fixed template with only checked values filled in, never by a model. Production
+deploys declare a GitHub Environment, so you can require reviewers there and not rely solely on
+AtlasMind's confirmation. Secrets are named, never written — you're told which to add and where.
+Permissions are explicit rather than inherited, and two pushes to the same branch queue rather than
+racing. If AtlasMind has no verified deploy action for your platform, it refuses to write a workflow
+rather than guessing at one.
+
+### Cross-checking against Delivery
+
+Website Studio's three environments and the Delivery page's stages are two separate records of the
+same thing, which means they can drift apart. Rather than pretend otherwise, the Stack page compares
+them and tells you exactly which fields disagree and what each side says. Before you've compared them,
+it says that too — an unchecked pipeline shouldn't look like a clean one.
+
+Syncing is deliberately cautious. An empty box in the Studio never wipes a real value in Delivery, and
+sync can add promotion protection but never remove it — a planning page shouldn't be able to take away
+a guard the promotion runner depends on.
 
 ---
 

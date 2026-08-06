@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 2,
+  website: 3,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -144,10 +144,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       };
     },
   },
+  {
+    kind: 'website',
+    from: 2,
+    to: 3,
+    summary: 'A project can now record the framework and hosting platform it is built with.',
+    // Only the version changes. `stack` is left absent rather than inferred from
+    // a package.json or a config file on disk: absent means "nobody has chosen",
+    // and a wrong guess here is the field that decides what gets scaffolded.
+    migrate: document => ({ ...document, version: 3 }),
+  },
 ];
 
 /**
  * The `sections` → wireframe transcription used by the website 1 → 2 step.
+ *
+ * (The 2 → 3 step is registered above and adds only the version: `stack` stays
+ * absent, because a migration inferring a framework from the files on disk would
+ * be guessing at the one field that decides what gets scaffolded.)
  *
  * Inlined here rather than imported from `websiteWireframe.ts` on purpose: a
  * migration must keep producing the same output forever, and importing a module

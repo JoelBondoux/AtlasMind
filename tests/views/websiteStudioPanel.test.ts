@@ -6,6 +6,7 @@ import {
   getWebsiteStudioHtml,
   isWebsiteStudioPage,
   isWebsiteStudioMessage,
+  resolveWebsiteStudioPage,
 } from '../../src/views/websiteStudioPanel.ts';
 
 describe('Website Studio webview boundary', () => {
@@ -27,6 +28,61 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'openCommand', payload: 'workbench.action.terminal.sendSequence' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'saveConfig', payload: 'erase everything' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'deploy', payload: 'production' })).toBe(false);
+  });
+
+  it('keeps the old platforms page id working as a deep link', () => {
+    // The id is a public deep-link target: the Project Dashboard and the
+    // Ideation board both link in, and a renamed id would silently drop them on
+    // the Brief page with no indication why.
+    expect(resolveWebsiteStudioPage('platforms')).toBe('stack');
+    expect(resolveWebsiteStudioPage('stack')).toBe('stack');
+    expect(resolveWebsiteStudioPage('nonsense')).toBe('brief');
+    expect(resolveWebsiteStudioPage(undefined)).toBe('brief');
+  });
+
+  it('validates the framework choice against the catalog, not merely as a string', () => {
+    // This id chooses which constant command the setup planner will run.
+    expect(isWebsiteStudioMessage({ type: 'selectFramework', payload: { frameworkId: 'astro' } })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'selectFramework', payload: { frameworkId: 'jekyll' } })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'selectFramework', payload: { frameworkId: 'npm install evil' } })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'selectFramework', payload: {} })).toBe(false);
+  });
+
+  it('offers no setup affordance until the setting is on, and says which', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    const off = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+    });
+    expect(off).toContain('Automatic setup is off');
+    expect(off).toContain('atlasmind.website.setup.enabled');
+    expect(off).not.toContain('id="planStackSetup"');
+
+    const on = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+      canSetUpStack: true,
+    });
+    expect(on).toContain('id="planStackSetup"');
+  });
+
+  it('states that Delivery has not been compared rather than showing a reassuring blank', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+    });
+    expect(html).toContain('Not compared yet');
+    expect(html).toContain('drift apart between syncs');
+  });
+
+  it('shows an incompatible framework with its reason rather than hiding it', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.platforms = config.platforms.map(platform => ({ ...platform, primary: platform.id === 'shopify' }));
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+    });
+    // Removing the option would leave somebody wondering where Hugo went.
+    expect(html).toContain('Hugo');
+    expect(html).toContain('compat-unsupported');
+    expect(html).toContain('Liquid');
   });
 
   it('renders client content escaped with nonce-protected scripts and no inline handlers', () => {

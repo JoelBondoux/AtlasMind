@@ -1449,6 +1449,23 @@ export function registerCommands(
       const { generateWebsiteFromPlan } = await import('./views/websitePreviewHost.js');
       await generateWebsiteFromPlan(atlas, request);
     }),
+
+    vscode.commands.registerCommand('atlasmind.setUpWebsiteStack', async (request?: unknown) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      // The config comes from the Studio, which is the only surface that holds
+      // an unsaved stack choice; falling back to disk keeps the command usable
+      // from the palette.
+      const { WebsiteWorkspaceManager } = await import('./core/websiteWorkspaceManager.js');
+      const { setUpWebsiteStack } = await import('./views/websiteStackSetupHost.js');
+      const supplied = (typeof request === 'object' && request !== null && !Array.isArray(request))
+        ? (request as { config?: unknown }).config
+        : undefined;
+      const config = supplied && typeof supplied === 'object'
+        ? supplied as import('./types.js').WebsiteWorkspaceConfig
+        : new WebsiteWorkspaceManager(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath).load();
+      await setUpWebsiteStack(config);
+    }),
   );
 }
 

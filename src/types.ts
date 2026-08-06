@@ -1382,6 +1382,28 @@ export interface WebsiteAutomation {
 }
 
 /**
+ * The framework and platform a site is built and shipped with.
+ *
+ * One choice rather than two fields on separate pages: "Astro on Cloudflare
+ * Pages" determines the build command, the output directory and the deploy
+ * config together, and splitting the decision makes the compatible pairing
+ * something the user is expected to already know.
+ *
+ * Absent means *not chosen*. It is never defaulted, and the v2 → v3 migration
+ * deliberately does not guess one from the files on disk — a wrong guess here
+ * scaffolds the wrong project.
+ */
+export interface WebsiteStackChoice {
+  /** A `WebsiteFrameworkId` from `websiteFrameworks.ts`. */
+  frameworkId: string;
+  platformId: WebsitePlatformId;
+  /** A `WebsitePackageManager`. Defaults to npm at the point of use, not here. */
+  packageManager: string;
+  /** ISO 8601. When the choice was made, so a stale pairing can be spotted. */
+  decidedAt: string;
+}
+
+/**
  * Website Studio SSOT. Persisted to `project_memory/domain/website.json` with
  * a human-readable `website.md` mirror for review and version control.
  *
@@ -1389,9 +1411,13 @@ export interface WebsiteAutomation {
  * natural-language design prompts. The 1 → 2 step lives in `schemaMigration.ts`
  * and builds a stacked wireframe from the old `sections` array, so a project
  * written by an earlier build never opens onto an empty canvas.
+ *
+ * Version 3 added `stack`. The 2 → 3 step adds nothing but the version number:
+ * an absent stack means nobody has chosen one, and a migration has no standing
+ * to infer it.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 2;
+  version: 3;
   updatedAt: string;
   intake: ClientWebsiteIntake;
   /**
@@ -1404,6 +1430,8 @@ export interface WebsiteWorkspaceConfig {
   platforms: WebsitePlatformTarget[];
   hostingEnvironments: WebsiteHostingEnvironment[];
   automations: WebsiteAutomation[];
+  /** The framework/platform pairing. Absent until somebody picks one. */
+  stack?: WebsiteStackChoice;
 }
 
 // ── Delivery / Deployment Stages ─────────────────────────────────

@@ -148,6 +148,7 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 | `AtlasMind: Open Website Preview` | Serve the generated site from `127.0.0.1` and show it beside the Studio. Asks before turning the preview on for the first time |
 | `AtlasMind: Stop Website Preview` | Stop the local preview server. Also happens automatically when you close the preview or the Studio |
 | `AtlasMind: Generate Website From Plan` | Runs an already-confirmed generation plan. Normally reached from a **Generate** button in Website Studio, which is what builds the plan and shows you the file list |
+| `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |
 | `AtlasMind: Open Voice Panel` · `Open Vision Panel` | Speech and image analysis |
 | `AtlasMind: Open a Setup Guide` | Starts a walkthrough **in a fresh chat session**, so it never lands mid-conversation and inherits unrelated context |

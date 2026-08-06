@@ -229,6 +229,36 @@ open the preview and stops when you close it, or when you close Website Studio.
 
 ---
 
+## Website Studio — setting the project up
+
+Picking a framework does nothing by itself. **Set up this stack** is the part that runs commands and
+writes files, and it has three switches rather than one because they're three different decisions.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.setup.enabled` | `false` | Lets setup run the framework's create command, write the deploy config, add dev/build scripts and create the stage branches. You see every command and every file in full first |
+| `atlasmind.website.setup.generateCi` | `false` | Also writes a GitHub Actions deploy workflow. Separate because it's the one thing AtlasMind generates that **runs on its own** — with your secrets, and it can spend money |
+| `atlasmind.website.setup.allowRemoteProjectCreation` | `false` | Lets AtlasMind run `wrangler pages project create` and friends for real. Off by default: they authenticate as you and create billable resources. With it off you still get the command to run yourself |
+| `atlasmind.website.setup.packageManager` | `npm` | `npm`, `pnpm`, `yarn` or `bun` for the commands it plans and the scripts it writes |
+
+However you set these, a few things hold:
+
+- **Nothing runs through a shell**, and every command is a constant in AtlasMind's source rather than
+  something composed, fetched, or written by a model.
+- **Nothing is overwritten.** An existing config file, script, branch or workflow is left exactly as
+  it is and reported — so running setup twice is safe.
+- **Branches are only ever created**, never checked out, pushed or forced.
+- **Success is checked afterwards**, not assumed from an exit code.
+- A framework or platform AtlasMind has no verified command for gets **no command**, and says so,
+  rather than an improvised one.
+
+The Stack page also compares Website Studio's three environments with the Delivery page's stages and
+shows you which fields disagree. They're two separate copies, so they can drift; syncing never clears
+a real Delivery value with an empty one from the Studio, and can only ever *add* promotion protection,
+never remove it.
+
+---
+
 ## Ideation and research
 
 | Setting | Default | What it does |

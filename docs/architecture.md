@@ -306,6 +306,17 @@ Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
+### Website Studio stack setup
+
+Four more modules cover the framework half, all pure and unit-tested except the host:
+
+- **`websiteFrameworks.ts`** — the framework catalog. Ten entries, each carrying the scaffold command, the dev/build commands and the output directory. **Every command is a module constant** — never composed, never parsed from documentation, never model-generated, for the reason `acpInstaller.ts` states: that is RCE with extra steps. `custom`, `static` and `wordpress-theme` carry no scaffold command by design. `describeStackCompatibility` grades every framework/platform pairing with a reason, and an `unsupported` pairing stays visible rather than being filtered out of the picker.
+- **`websiteCiTemplate.ts`** — the GitHub Actions workflow. Declared templates with only validated values substituted; branch names, output dirs and node versions are charset-checked before interpolation, and a rendered file still containing a placeholder refuses rather than being written. Explicit `permissions:`, per-environment `concurrency` with `cancel-in-progress: false`, `environment: production` on the production path, and secrets referenced by name only. A platform with no verified deploy action is refused, not guessed at.
+- **`websiteStackSetup.ts`** — `planWebsiteStackSetup` (performs nothing) and `executeWebsiteStackSetup` (takes injected `exec`, `writeFileIfAbsent` and `mergePackageScripts`). Every file and branch step is create-only; every step is re-validated immediately before it acts; execution stops at the first failure and reports what had already succeeded, as `promotionRunner` does.
+- **`websiteDeliverySync.ts`** — `compareWebsiteToDelivery` is a comparison, not a verdict, shaped after `findTaxonomyDrift`: Website Studio keeps its own environments, so the two models can drift, and this makes the drift visible rather than reconciling it silently. `buildDeliverySyncPlan` never clears a populated Delivery field from an empty Studio one, only tightens protection, and never creates a stage — that would mean inventing a backup and rollback policy the Studio does not model.
+
+`src/views/websiteStackSetupHost.ts` is the impure half: probe the machine and workspace, show the modal (every command with its purpose, every file with its full contents, openable as documents before confirming), execute with a real `execFile` — argument array, no shell, `cwd` set to the workspace — then **re-probe the filesystem** rather than trusting exit codes.
+
 `websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
 
 ### DeliveryManager (`src/core/deliveryManager.ts`)
@@ -1223,7 +1234,11 @@ extension.ts
   │     │     ├── core/websiteSitemap.ts
   │     │     ├── core/websiteLinkGraph.ts
   │     │     ├── core/websiteDesignPrompt.ts
-  │     │     └── core/websiteGeneration.ts
+  │     │     ├── core/websiteGeneration.ts
+  │     │     ├── core/websiteFrameworks.ts
+  │     │     ├── core/websiteStackSetup.ts (→ core/websiteCiTemplate.ts)
+  │     │     └── core/websiteDeliverySync.ts
+  │     ├── views/websiteStackSetupHost.ts
   │     ├── views/websitePreviewHost.ts
   │     │     ├── views/websitePreviewPanel.ts
   │     │     ├── core/websitePreviewServer.ts
@@ -1284,6 +1299,10 @@ tests/core/
   ├── websiteGeneration.test.ts
   ├── websiteGenerationRunner.test.ts
   ├── websitePreviewServer.test.ts
+  ├── websiteFrameworks.test.ts
+  ├── websiteCiTemplate.test.ts
+  ├── websiteStackSetup.test.ts
+  ├── websiteDeliverySync.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/

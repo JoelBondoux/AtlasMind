@@ -19,6 +19,67 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.265.0 — Website Studio can start the project, not just design it
+
+v0.264.0 let you design a site. It still couldn't *start* one — you'd plan a whole Cloudflare Pages
+site and then be left to `npm create` it yourself, guess the build command, and hand-write the deploy
+config. Because nothing in AtlasMind knew what a framework was. It knew your project was a "website";
+it had never heard of Astro.
+
+**The Platforms page is now a Stack page**, and it covers both halves — because they're one decision.
+"Astro on Cloudflare Pages" has a known build command, a known output directory and a known deploy
+config; splitting the choice across two pages just meant you had to already know which pairings work.
+
+Ten frameworks, each graded against your chosen platform, each with the reason written on the card.
+Including the ones that don't fit: pick Shopify and Hugo still appears, marked unsupported, saying
+"Shopify serves Liquid templates from its own theme system, so a separate build has nowhere to go."
+Removing it would have left you wondering where it went.
+
+**Then press "Set up this stack".** AtlasMind runs the framework's own create command, writes the
+deploy config for your host, adds the dev and build scripts, writes a `.env.example` with the variable
+*names* and no values, and creates your develop, staging and production branches. Turn on CI
+generation and it writes a GitHub Actions workflow that deploys each branch to its own environment.
+
+You see all of it first — every command with what it's for, every file with its full contents,
+including the whole workflow YAML. Nothing is summarised, because a confirmation nobody can read only
+launders responsibility.
+
+Some things about how it behaves are deliberate:
+
+- **Every command is a constant in AtlasMind's source.** Never composed from a setting, never parsed
+  out of documentation, never written by a model — any of those would be remote code execution with
+  extra steps. And nothing runs through a shell.
+- **Everything is create-only.** A config file, a script, a branch, a workflow: if it's already there,
+  it's reported untouched. Re-running a setup is safe, which matters because coming back to a
+  half-configured project is exactly when you need it.
+- **Frameworks we don't have a verified command for don't get one.** Custom stacks, plain HTML and
+  WordPress themes are honest about the gap rather than improvising something that usually works.
+- **Success is checked, not assumed.** A scaffold command can exit zero having done nothing; the
+  report comes from looking at the filesystem afterwards.
+
+Three separate switches, all off by default: scaffolding, generating CI, and letting AtlasMind run
+your hosting provider's CLI. They're separate because they're genuinely different decisions — the last
+one authenticates as you and creates billable resources on your account, and a run that fails halfway
+leaves them orphaned. With it off you still get the exact command; you just run it.
+
+The generated workflow gets the same care as everything else. It's built from a declared template with
+only checked values substituted, never by a model. Production deploys declare a GitHub Environment, so
+you can require reviewers on GitHub's side and not just trust ours. Secrets are named, never written.
+An existing workflow is never replaced — losing somebody's deploy pipeline to a scaffolder isn't
+something you recover from in an editor.
+
+**And the Stack page now cross-checks itself against Delivery.** Website Studio keeps its own three
+environments, which means the two copies can drift apart. Rather than pretend otherwise, the page
+tells you exactly which fields disagree and what each side says — and when nobody has compared them
+yet, it says that too, instead of showing a reassuring blank.
+
+There's also a strategy document in the repo now, at
+`project_memory/ideas/website-studio-strategy.md`: an honest read of where Webflow, Framer, v0 and
+WordPress each genuinely beat us, the five gaps worth closing in order, and what we should
+deliberately *not* build. Worth arguing with.
+
+---
+
 ## v0.264.0 — Website Studio: draw the site, point at it, and watch it build
 
 Website Studio could describe a website. It could not show you one.

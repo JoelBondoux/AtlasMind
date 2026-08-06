@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.264.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.265.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,33 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.264.0
+## What's new in 0.265.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Website Studio can now set the project up for you.** The Platforms page became a **Stack** page,
+  because the framework and the host are one decision: "Astro on Cloudflare Pages" has a known build
+  command, a known output directory and a known deploy config, and splitting them made the compatible
+  pairing something you had to already know. Pick from ten frameworks, each graded against your chosen
+  platform with the reason shown — including the bad pairings, because removing Hugo when Shopify is
+  selected just leaves you wondering where it went.
+
+  **Set up this stack** then runs the framework's own create command, writes the deploy config, adds
+  the `dev`/`build` scripts, creates a `.env.example` with variable names and no values, makes the
+  develop/staging/production branches, and — if you turn it on — writes a GitHub Actions workflow that
+  deploys each branch to its environment. Everything is shown first: every command with its purpose,
+  every file with its full contents. Commands are constants in AtlasMind's source, run with no shell,
+  and every file and branch step is **create-only**, so re-running is safe and nothing you wrote is
+  overwritten.
+
+  Three switches, all off by default and separate on purpose — scaffolding, generating CI, and letting
+  AtlasMind run the hosting provider's CLI are three different decisions, and the last one spends
+  money on your account.
+
+  The Stack page also **compares itself with the Delivery pipeline**. Website Studio keeps its own
+  three environments, so the two can drift; rather than hide that, the page shows exactly which fields
+  disagree, and says plainly when nobody has looked yet.
 
 - **Website Studio: draw the site, point at it, and press Generate.** The old wireframe was the first
   eight strings from a page's section list rendered as coloured blocks — no position, no size, no

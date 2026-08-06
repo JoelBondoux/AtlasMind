@@ -24,9 +24,11 @@ import type {
   WebsitePlatformId,
   WebsitePlatformStatus,
   WebsitePlatformTarget,
+  WebsiteStackChoice,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
 } from '../types.js';
+import { isWebsiteFrameworkId, isWebsitePackageManager } from './websiteFrameworks.js';
 import { scanMemoryEntry } from '../memory/memoryScanner.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { deriveSectionLabels, sanitizeWireframe } from './websiteWireframe.js';
@@ -44,7 +46,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 2;
+const WEBSITE_SCHEMA_VERSION = 3;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -145,6 +147,8 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const hostingEnvironments = sanitizeHostingEnvironments(source['hostingEnvironments']);
   const automations = sanitizeAutomations(source['automations']);
 
+  const stack = sanitizeStackChoice(source['stack'], platforms.length > 0 ? platforms : fallback.platforms);
+
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
@@ -155,7 +159,54 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
     platforms: platforms.length > 0 ? platforms : fallback.platforms,
     hostingEnvironments,
     automations,
+    ...(stack ? { stack } : {}),
   };
+}
+
+/**
+ * The framework/platform choice.
+ *
+ * Returns `undefined` for anything unrecognised rather than defaulting to a
+ * framework. A defaulted stack would read as a decision somebody made, and the
+ * setup planner would scaffold from it — so an unknown value has to mean "not
+ * chosen", not "probably Astro".
+ */
+function sanitizeStackChoice(
+  input: unknown,
+  platforms: readonly WebsitePlatformTarget[],
+): WebsiteStackChoice | undefined {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return undefined;
+  }
+  const source = input as Record<string, unknown>;
+  if (!isWebsiteFrameworkId(source['frameworkId'])) {
+    return undefined;
+  }
+  const platformId = PLATFORM_IDS.has(source['platformId'] as WebsitePlatformId)
+    ? source['platformId'] as WebsitePlatformId
+    // Falling back to the primary platform rather than dropping the whole
+    // choice: the framework half is still a real decision worth keeping.
+    : platforms.find(platform => platform.primary)?.id;
+  if (!platformId) {
+    return undefined;
+  }
+  return {
+    frameworkId: source['frameworkId'],
+    platformId,
+    packageManager: isWebsitePackageManager(source['packageManager']) ? source['packageManager'] : 'npm',
+    decidedAt: cleanIsoDate(source['decidedAt']),
+  };
+}
+
+/** An ISO timestamp, or now. A malformed date is not worth refusing a choice over. */
+function cleanIsoDate(value: unknown): string {
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date().toISOString();
 }
 
 /**

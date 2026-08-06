@@ -397,6 +397,47 @@ model's reply is read, and again immediately before each write. A model that ret
 did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
 page that can execute is a different security question from one that cannot.
 
+## Website Studio — stack setup
+
+Choosing a framework and a platform does nothing on its own. **Set up this stack** is what runs
+commands and writes files, and it is gated by three separate switches because they are three
+genuinely different decisions.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.setup.enabled` | boolean | `false` | Allow setup to run the framework's own create command, write the platform deploy config, add `dev`/`build` scripts, write a names-only `.env.example`, and create the stage branches. Every run shows a modal listing **each command with its purpose and each file with its full contents** first. |
+| `atlasmind.website.setup.generateCi` | boolean | `false` | Also write a GitHub Actions deploy workflow. Gated separately because it is the one generated artefact that **acts on its own** — everything else sits inert until you look at it, but a workflow runs on GitHub's infrastructure with your secrets, and can deploy and spend money. |
+| `atlasmind.website.setup.allowRemoteProjectCreation` | boolean | `false` | Allow AtlasMind to actually run `wrangler pages project create` / `netlify sites:create` / `vercel link`. Off by default: these authenticate as you and create billable resources, and a run that fails halfway leaves them orphaned with no teardown. With it off you still get the exact command to run yourself. |
+| `atlasmind.website.setup.packageManager` | string | `npm` | `npm`, `pnpm`, `yarn` or `bun`. Only the leading executable and the `run`/`exec` verbs are translated; flags pass through untouched. Deliberately narrow — a general translation layer would have to model each manager's flag differences, and getting that subtly wrong produces a command that runs and does something other than what you read. |
+
+Five properties hold regardless of the settings, and each is pinned by a test:
+
+- **No step can run a shell.** Every executable step is `execFile(command, args)`, and every command
+  is a constant in AtlasMind's source — never composed from a setting, never parsed from
+  documentation, never model-generated. A test walks *every* producible plan (framework × platform ×
+  package manager × gate combination) and fails on a shell metacharacter or a command naming a shell
+  or a downloader.
+- **No step can write outside the workspace.** Paths are validated when the plan is built and
+  re-resolved against the root immediately before each write.
+- **Everything is create-only.** An existing config file, `package.json` script, branch or workflow is
+  reported untouched, never merged and never replaced. Re-running a setup is safe.
+- **Branch creation is `git branch` only** — never checkout, never push, never force.
+- **Success is re-probed, not inferred from exit codes.** A scaffold command can exit zero having done
+  nothing useful; the report comes from looking at the filesystem afterwards.
+
+A framework AtlasMind has no verified command for (`custom`, plain `static`, `wordpress-theme`) gets
+**no** scaffold command and says so. A platform with no verified deploy action refuses to generate a
+workflow rather than guessing one — a workflow that half-works still runs.
+
+### Website Studio and the Delivery pipeline
+
+Website Studio keeps its own three environments; the Delivery page has its own `DeploymentStage`s with
+the backup, approval and rollback policy that promotions actually use. The two can drift, so the Stack
+page **compares them and shows which fields disagree**, with both values. Comparing writes nothing.
+Syncing is one-directional, confirmed, **never clears a populated Delivery field from an empty Studio
+one**, and can only ever tighten promotion protection — a planning surface must not be able to remove
+a guard the promotion runner relies on.
+
 ## Settings that were live but undeclared
 
 Both of these have been read by real code for months and were absent from the manifest, so they worked if you typed them into `settings.json` by hand and were invisible in the Settings UI. Documented, functioning, and undiscoverable is the worst of the three states — declared in 0.205.0.

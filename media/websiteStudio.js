@@ -650,6 +650,31 @@
       return;
     }
 
+    const frameworkCard = event.target.closest('[data-framework]');
+    if (frameworkCard) {
+      // Data only: the id names a catalog entry, and the panel decides what that
+      // entry means. The webview never names a command to run.
+      vscode.postMessage({ type: 'selectFramework', payload: { frameworkId: frameworkCard.dataset.framework } });
+      qsa('[data-framework]').forEach(card => {
+        const selected = card === frameworkCard;
+        card.classList.toggle('selected', selected);
+        card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      return;
+    }
+
+    if (event.target.id === 'planStackSetup') {
+      vscode.postMessage({ type: 'planStackSetup' });
+      notice('Working out what setting this stack up would involve…');
+      return;
+    }
+
+    if (event.target.id === 'syncToDelivery') {
+      vscode.postMessage({ type: 'compareDelivery' });
+      notice('Comparing with the Delivery pipeline…');
+      return;
+    }
+
     const sitemapNode = event.target.closest('[data-sitemap-page]');
     if (sitemapNode) {
       activePageId = sitemapNode.dataset.sitemapPage;

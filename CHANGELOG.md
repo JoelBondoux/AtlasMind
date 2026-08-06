@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.265.0] - 2026-08-06
+
+### Added
+
+- **A framework model** (`src/core/websiteFrameworks.ts`). Nothing in AtlasMind knew what a website was
+  built with: `projectArchetype` knew a project was a "website" and `archetypePacks` knew a website's CI
+  shape in the abstract, but neither knew Astro from Next from Hugo. Ten frameworks, each carrying the
+  three facts everything downstream needs — the scaffold command, the build command, and the output
+  directory. **Every command is a module constant**: never composed, never parsed from documentation,
+  never model-generated, because a command from any of those sources is remote code execution with extra
+  steps. `custom`, `static` and `wordpress-theme` deliberately carry **no** scaffold command — an
+  improvised command that usually works is worse than an honest gap, since the failure lands in somebody's
+  repository.
+- **The Platforms page is now the Stack page** (`websiteStudioPanel.ts`). Framework and platform are one
+  decision — "Astro on Cloudflare Pages" determines the build command, the output directory and the deploy
+  config together — so splitting them across two pages made the compatible pairing something the user was
+  expected to already know. `describeStackCompatibility` grades every pairing `ideal`/`workable`/
+  `unsupported` **with a reason**, and an unsupported pairing stays visible: removing Hugo from the list
+  when Shopify is selected would leave somebody wondering where it went, where "Shopify serves Liquid
+  templates from its own theme system" answers the question they actually had. The old `platforms` page id
+  still resolves, because it is a public deep-link target.
+- **Stack autosetup** (`src/core/websiteStackSetup.ts`, `src/views/websiteStackSetupHost.ts`). Planning
+  performs nothing; a separate call executes, after a modal listing **every command with its purpose and
+  every file with its full contents**. Runs the framework's create command, writes the platform deploy
+  config, adds `dev`/`build` scripts, writes a `.env.example` of variable *names*, and creates the
+  develop/staging/production branches. Every file and branch step is **create-only** — an existing file is
+  reported untouched, never merged — so re-running a setup is safe, which is the case it exists for.
+  Success is **re-probed from the filesystem**, not inferred from exit codes.
+- **CI/CD generation** (`src/core/websiteCiTemplate.ts`), off by default and gated separately. The YAML
+  comes from a declared template with only validated values substituted, never from a model. Production
+  deploys declare `environment: production` so the approval gate lives on GitHub's side as well as ours;
+  an explicit `permissions:` block replaces the repository default; `concurrency` is per environment with
+  `cancel-in-progress: false`, because a half-finished deploy is worse than a queued one. **Secrets are
+  named, never written.** An existing workflow file is never overwritten. A platform with no verified
+  deploy action is **refused rather than guessed at** — a workflow that half-works still runs.
+- **Delivery drift comparison** (`src/core/websiteDeliverySync.ts`). Website Studio keeps its own three
+  environments rather than being folded into `DeploymentStage`, so the two can disagree. Rather than hide
+  that, `compareWebsiteToDelivery` reports it per stage with both values — a comparison, not a verdict,
+  shaped after `findTaxonomyDrift`. Sync is one-directional and confirmed, **never clears a populated
+  Delivery field from an empty Studio one**, and can only ever *tighten* promotion protection.
+- **New command** `AtlasMind: Set Up Website Stack`, and four settings, all off or conservative by
+  default: `atlasmind.website.setup.enabled`, `atlasmind.website.setup.generateCi`,
+  `atlasmind.website.setup.allowRemoteProjectCreation`, `atlasmind.website.setup.packageManager`.
+- **A strategy document** at `project_memory/ideas/website-studio-strategy.md` — an honest competitive
+  read, the five capability gaps in dependency order, what we should deliberately not build, and the
+  signals that would show it worked. Every competitive claim is marked *observed* or *assumed*, and it
+  cites no price or market figure, because an invented number in a committed file is indistinguishable
+  from research six months later.
+
+### Changed
+
+- **Website Studio's SSOT is format v3**, with a registered 2 → 3 step that adds the version and nothing
+  else. `stack` is left absent rather than inferred from the files on disk: absent means nobody has
+  chosen, and a wrong guess here decides what gets scaffolded.
+
+### Security
+
+- **Remote project creation is manual by default.** `wrangler pages project create` and its equivalents
+  authenticate as the user and create billable resources that a half-finished run would orphan, so they
+  are quoted with their purpose and not run until `allowRemoteProjectCreation` is explicitly turned on.
+- **No setup step can run a shell.** Every executable step is `execFile(command, args)`. A test walks
+  *every* producible plan — every framework × platform × package manager × gate combination — and fails on
+  a shell metacharacter in any command or argument, or on a command that names a shell or a downloader.
+- **No setup step can write outside the workspace.** Paths are validated when the plan is built and
+  re-resolved against the root immediately before each write, with the writer injected so a test fails the
+  run if it is ever handed an escaping path.
+- Branch creation is `git branch` only — never checkout, never push, never force — asserted by test.
+
 ## [0.264.0] - 2026-08-06
 
 ### Added

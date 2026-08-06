@@ -23,6 +23,8 @@ import {
   type SitemapLayout,
 } from '../core/websiteSitemap.js';
 import { buildLinkGraph } from '../core/websiteLinkGraph.js';
+import { readDeliveryConfig } from '../core/deliveryManager.js';
+import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
 import { WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
   buildScopedDesignPrompt,
@@ -35,6 +37,15 @@ import {
   type WebsiteGenerationPlan,
   type WebsiteGenerationStage,
 } from '../core/websiteGeneration.js';
+import {
+  buildCommandFor,
+  describeStackCompatibility,
+  devCommandFor,
+  isWebsiteFrameworkId,
+  renderCommandLine,
+  WEBSITE_FRAMEWORK_CATALOG,
+  websiteFrameworkSpec,
+} from '../core/websiteFrameworks.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
 
@@ -43,7 +54,7 @@ export type WebsiteStudioPage =
   | 'sitemap'
   | 'wireframes'
   | 'ui-system'
-  | 'platforms'
+  | 'stack'
   | 'automations';
 
 const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
@@ -51,12 +62,32 @@ const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
   'sitemap',
   'wireframes',
   'ui-system',
-  'platforms',
+  'stack',
   'automations',
 ]);
 
+/**
+ * `platforms` was this page's id before it grew the framework half.
+ *
+ * Kept as an alias rather than removed: the id is a public deep-link target
+ * (`atlasmind.openWebsiteStudio` takes one, and the Project Dashboard and
+ * Ideation board both link in), and a renamed id would silently drop those
+ * callers onto the Brief page with no indication why.
+ */
+const RENAMED_PAGES: Readonly<Record<string, WebsiteStudioPage>> = {
+  platforms: 'stack',
+};
+
 export function isWebsiteStudioPage(value: unknown): value is WebsiteStudioPage {
   return typeof value === 'string' && WEBSITE_STUDIO_PAGES.has(value as WebsiteStudioPage);
+}
+
+/** Resolve a page id, following the rename alias. Unknown ids fall back to the brief. */
+export function resolveWebsiteStudioPage(value: unknown): WebsiteStudioPage {
+  if (isWebsiteStudioPage(value)) {
+    return value;
+  }
+  return (typeof value === 'string' && RENAMED_PAGES[value]) || 'brief';
 }
 
 /** The scope a typed instruction applies to. Mirrors `DesignPromptScope`. */
@@ -76,7 +107,10 @@ export type WebsiteStudioMessage =
   | { type: 'promptForTarget'; payload: { scope: DesignPromptScope; pageId?: string; elementId?: string; instruction: string } }
   | { type: 'generate'; payload: { stage: WebsiteGenerationStage; pageId?: string; elementId?: string } }
   | { type: 'openPreview' }
-  | { type: 'stopPreview' };
+  | { type: 'stopPreview' }
+  | { type: 'selectFramework'; payload: { frameworkId: string } }
+  | { type: 'planStackSetup' }
+  | { type: 'compareDelivery' };
 
 /**
  * Validate everything arriving from the webview.
@@ -95,7 +129,15 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'ready':
     case 'openPreview':
     case 'stopPreview':
+    case 'planStackSetup':
+    case 'compareDelivery':
       return true;
+    case 'selectFramework': {
+      const payload = asPayload(message['payload']);
+      // Checked against the catalog here, not merely for being a string: this
+      // id chooses which constant command the setup planner will run.
+      return payload !== undefined && isWebsiteFrameworkId(payload['frameworkId']);
+    }
     case 'saveConfig':
       return typeof message['payload'] === 'object'
         && message['payload'] !== null
@@ -155,7 +197,7 @@ export class WebsiteStudioPanel {
     context: vscode.ExtensionContext,
     targetPage: WebsiteStudioPage = 'brief',
   ): void {
-    const safeTargetPage = isWebsiteStudioPage(targetPage) ? targetPage : 'brief';
+    const safeTargetPage = resolveWebsiteStudioPage(targetPage);
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     if (WebsiteStudioPanel.currentPanel) {
       WebsiteStudioPanel.currentPanel.panel.reveal(column);
@@ -181,6 +223,8 @@ export class WebsiteStudioPanel {
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
+  /** Result of the last Delivery comparison. Absent means *not compared*, which the page says. */
+  private deliveryDriftSummary: string | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -225,6 +269,8 @@ export class WebsiteStudioPanel {
       {
         readOnly: this.readOnly,
         canGenerate: isGenerationEnabled(),
+        canSetUpStack: isStackSetupEnabled(),
+        ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         scriptContent: this.readScript(),
       },
     );
@@ -313,6 +359,15 @@ export class WebsiteStudioPanel {
           return;
         case 'stopPreview':
           await vscode.commands.executeCommand('atlasmind.stopWebsitePreview');
+          return;
+        case 'selectFramework':
+          await this.handleSelectFramework(input.payload.frameworkId);
+          return;
+        case 'planStackSetup':
+          await vscode.commands.executeCommand('atlasmind.setUpWebsiteStack', { config: this.config });
+          return;
+        case 'compareDelivery':
+          await this.handleCompareDelivery();
           return;
       }
     } catch (error) {
@@ -410,6 +465,74 @@ export class WebsiteStudioPanel {
       config: this.config,
     });
   }
+
+  private async handleSelectFramework(frameworkId: string): Promise<void> {
+    if (this.readOnly) {
+      await this.panel.webview.postMessage({
+        type: 'notice',
+        tone: 'error',
+        message: 'This project\'s website.json was written by a newer AtlasMind, so it is read-only.',
+      });
+      return;
+    }
+    this.config = await persistFrameworkChoice(this.manager, this.config, frameworkId);
+    this.render('stack');
+    const spec = websiteFrameworkSpec(frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
+    await this.panel.webview.postMessage({
+      type: 'notice',
+      tone: 'success',
+      message: `${spec.label} recorded. Nothing has been installed — use "Set up this stack" when you are ready.`,
+    });
+  }
+
+  /**
+   * Compare with the Delivery pipeline.
+   *
+   * Comparing only. Website Studio and Delivery each hold their own copy of the
+   * three stages, and this is the surface that makes the disagreement visible;
+   * changing Delivery is a separate, confirmed action from its own page.
+   */
+  private async handleCompareDelivery(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const delivery = workspaceRoot ? readDeliveryConfig(workspaceRoot) : undefined;
+    const report = compareWebsiteToDelivery(this.config.hostingEnvironments, delivery, this.config.platforms);
+
+    this.deliveryDriftSummary = delivery
+      ? report.summary
+      : 'No Delivery pipeline is configured for this project yet, so there is nothing to compare against.';
+    this.render('stack');
+
+    await this.panel.webview.postMessage({
+      type: 'notice',
+      tone: report.inStep ? 'success' : '',
+      message: this.deliveryDriftSummary,
+    });
+  }
+}
+
+/**
+ * Record the framework choice.
+ *
+ * Saved immediately rather than held until the next Save: the choice drives what
+ * the setup planner would do, and a plan built from an unsaved selection would
+ * describe a stack the file does not record.
+ */
+async function persistFrameworkChoice(
+  manager: WebsiteWorkspaceManager,
+  config: WebsiteWorkspaceConfig,
+  frameworkId: string,
+): Promise<WebsiteWorkspaceConfig> {
+  const primaryPlatform = config.platforms.find(platform => platform.primary);
+  return manager.save({
+    ...config,
+    stack: {
+      frameworkId,
+      platformId: config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages',
+      packageManager: config.stack?.packageManager
+        ?? vscode.workspace.getConfiguration('atlasmind').get<string>('website.setup.packageManager', 'npm'),
+      decidedAt: new Date().toISOString(),
+    },
+  });
 }
 
 /**
@@ -442,6 +565,11 @@ export function isGenerationEnabled(): boolean {
   return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.generation.enabled', false);
 }
 
+/** Separate again from generation: scaffolding runs commands, which generation never does. */
+export function isStackSetupEnabled(): boolean {
+  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.setup.enabled', false);
+}
+
 function generationFileLimit(): number {
   const configured = vscode.workspace
     .getConfiguration('atlasmind')
@@ -454,6 +582,14 @@ export interface WebsiteStudioHtmlOptions {
   readOnly?: boolean;
   /** `atlasmind.website.generation.enabled`. Controls whether Generate is offered at all. */
   canGenerate?: boolean;
+  /** `atlasmind.website.setup.enabled`. Controls whether stack setup is offered. */
+  canSetUpStack?: boolean;
+  /**
+   * Last drift comparison against the Delivery pipeline, if one has been run.
+   * Absent means *not compared*, which the page states rather than showing a
+   * reassuring blank — the two models can disagree and nobody has looked.
+   */
+  deliveryDriftSummary?: string;
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
@@ -531,7 +667,7 @@ export function getWebsiteStudioHtml(
                 the pages that apply it. */ ''}
           ${navButton('ui-system', '3', 'UI system', activePage)}
           ${navButton('wireframes', '4', 'Wireframes & UI', activePage)}
-          ${navButton('platforms', '5', 'Platforms', activePage)}
+          ${navButton('stack', '5', 'Stack & hosting', activePage)}
           ${navButton('automations', '6', 'n8n automations', activePage)}
           <div class="nav-footer">
             <button type="button" class="secondary full" data-open-ssot="json">Open website.json</button>
@@ -544,7 +680,7 @@ export function getWebsiteStudioHtml(
           ${renderSitemapPage(config, activePage, options)}
           ${renderWireframesPage(config, activePage, options)}
           ${renderUiSystemPage(config, activePage)}
-          ${renderPlatformsPage(config, activePage)}
+          ${renderStackPage(config, activePage, options)}
           ${renderAutomationsPage(config, activePage)}
         </main>
       </div>
@@ -852,11 +988,107 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
   `;
 }
 
-function renderPlatformsPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+/**
+ * Framework choice, with the compatibility verdict against the chosen platform.
+ *
+ * Incompatible pairings stay in the list and carry their reason. Hiding them
+ * would leave somebody looking for Hugo and wondering where it went; saying
+ * "Shopify serves Liquid templates from its own theme system" answers the
+ * question they actually had.
+ */
+function renderFrameworkCard(
+  config: WebsiteWorkspaceConfig,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const primaryPlatform = config.platforms.find(platform => platform.primary);
+  const platformId = config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages';
+  const chosenFramework = config.stack?.frameworkId;
+
+  const cards = WEBSITE_FRAMEWORK_CATALOG.map(spec => {
+    const verdict = describeStackCompatibility(spec.id, platformId);
+    const selected = spec.id === chosenFramework;
+    return `
+      <button type="button"
+        class="framework-card${selected ? ' selected' : ''} compat-${escapeHtml(verdict.compatibility)}"
+        data-framework="${escapeHtml(spec.id)}"
+        aria-pressed="${selected ? 'true' : 'false'}"
+        ${options.readOnly ? 'disabled' : ''}>
+        <span class="framework-name">${escapeHtml(spec.label)}</span>
+        <span class="framework-badge">${escapeHtml(verdict.compatibility)}</span>
+        <span class="framework-desc">${escapeHtml(spec.description)}</span>
+        <span class="framework-reason">${escapeHtml(verdict.reason)}</span>
+        <span class="framework-meta">
+          ${spec.scaffold ? 'Scaffolds automatically' : 'No automatic setup'} ·
+          builds to <code>${escapeHtml(spec.outputDir)}</code>
+        </span>
+      </button>`;
+  }).join('');
+
+  const setupAvailable = options.canSetUpStack === true;
+
+  return `
+    <article class="panel-card">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Built with</p>
+          <h2>Framework</h2>
+          <p>Graded against ${escapeHtml(primaryPlatform?.label ?? 'the selected platform')}. Choosing one does nothing on its own — setup is a separate, confirmed step.</p>
+        </div>
+        ${setupAvailable
+          ? `<button type="button" id="planStackSetup"${chosenFramework ? '' : ' disabled'}>Set up this stack</button>`
+          : `<span class="generate-off" title="atlasmind.website.setup.enabled">Automatic setup is off</span>`}
+      </div>
+      <div class="framework-grid">${cards}</div>
+      ${chosenFramework ? renderStackSummary(config) : ''}
+    </article>
+    <article class="panel-card">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Cross-check</p>
+          <h2>Delivery pipeline</h2>
+          <p>These three environments are Website Studio's own. The Delivery page has its own stages with the backup, approval and rollback policy that promotions actually use.</p>
+        </div>
+        <button type="button" id="syncToDelivery"${options.readOnly ? ' disabled' : ''}>Compare with Delivery</button>
+      </div>
+      <div id="deliveryDrift" class="drift-readout" role="status" aria-live="polite">
+        ${options.deliveryDriftSummary
+          ? `<p>${escapeHtml(options.deliveryDriftSummary)}</p>`
+          : '<p class="drift-unknown">Not compared yet. Website Studio and Delivery each hold their own copy of these stages, so they can drift apart between syncs.</p>'}
+      </div>
+    </article>
+  `;
+}
+
+/** What the chosen stack implies, so the consequences are visible before setup runs. */
+function renderStackSummary(config: WebsiteWorkspaceConfig): string {
+  if (!config.stack) {
+    return '';
+  }
+  const spec = websiteFrameworkSpec(config.stack.frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
+  const manager = (config.stack.packageManager || 'npm') as Parameters<typeof buildCommandFor>[1];
+  const dev = devCommandFor(spec, manager);
+  const build = buildCommandFor(spec, manager);
+  return `
+    <div class="stack-summary">
+      <p class="eyebrow">What this means</p>
+      <dl>
+        <dt>Dev server</dt><dd>${dev ? `<code>${escapeHtml(renderCommandLine(dev.command, dev.args))}</code>` : 'No dev server — the files are served as they are.'}</dd>
+        <dt>Build</dt><dd>${build ? `<code>${escapeHtml(renderCommandLine(build.command, build.args))}</code>` : 'No build step.'}</dd>
+        <dt>Output</dt><dd><code>${escapeHtml(spec.outputDir)}</code></dd>
+      </dl>
+    </div>`;
+}
+
+function renderStackPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
   const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
   return `
-    <section class="studio-page${activePage === 'platforms' ? ' active' : ''}" data-page="platforms">
-      ${pageIntro('Hosting & platform dashboard', 'Configure the fixed Develop → Staging → Production path, then compare code-first hosting, managed CMS, visual builders, and commerce platforms. Publishing remains guarded by Delivery.')}
+    <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
+      ${pageIntro('Stack, hosting and setup', 'Pick what the site is built with and where it ships, then let AtlasMind scaffold it. Framework and platform are one decision — the pairing determines the build command, the output directory and the deploy config.')}
+      ${renderFrameworkCard(config, options)}
       <div class="hosting-heading">
         <div>
           <p class="eyebrow">Environment pipeline</p>

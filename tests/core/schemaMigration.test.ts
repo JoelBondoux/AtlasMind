@@ -140,9 +140,41 @@ describe('migrateDocument', () => {
       expect(outcome.status).toBe('refused');
     });
 
-    it('does not re-run on a file already at v2', () => {
-      const already = { ...v1(), version: 2, designPrompt: 'Editorial and calm.' };
-      const outcome = migrateDocument('website', already);
+    it('climbs a v1 file all the way to the current version in one pass', () => {
+      const outcome = migrateDocument('website', v1());
+      expect(outcome.status).toBe('migrated');
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(3);
+    });
+  });
+
+  describe('website v2 → v3', () => {
+    const v2 = () => ({
+      version: 2,
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      designPrompt: 'Editorial and calm.',
+      intake: { clientName: 'Northstar' },
+      pages: [{ id: 'page-home', title: 'Home', slug: '/', sections: [], order: 0, designPrompt: '', links: [] }],
+    });
+
+    it('adds the version and nothing else', () => {
+      const outcome = migrateDocument('website', v2());
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value['version']).toBe(3);
+      // No stack is invented. Absent means nobody has chosen one, and a wrong
+      // guess here decides what gets scaffolded.
+      expect(value).not.toHaveProperty('stack');
+    });
+
+    it('preserves everything v2 already held', () => {
+      const outcome = migrateDocument('website', v2());
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value['designPrompt']).toBe('Editorial and calm.');
+      expect((value['pages'] as unknown[])).toHaveLength(1);
+    });
+
+    it('does not re-run on a file already at v3', () => {
+      const outcome = migrateDocument('website', { ...v2(), version: 3 });
       expect(outcome.status).toBe('current');
     });
   });

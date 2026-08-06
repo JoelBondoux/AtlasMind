@@ -249,6 +249,56 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .inspector-hint { margin:10px 0 0; font-size:.72rem; color:var(--studio-muted); }
   .page-prompt-block h3 { margin:2px 0 8px; font-size:1rem; }
 
+  /* ── Stack page: framework picker ───────────────────────────── */
+  .framework-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; margin-top:12px; }
+  .framework-card {
+    display:flex; flex-direction:column; align-items:flex-start; gap:4px;
+    text-align:left; padding:12px 14px; border-radius:9px; cursor:pointer;
+    border:1px solid var(--studio-border); background:var(--studio-card); color:var(--vscode-foreground);
+  }
+  .framework-card:hover { background:var(--vscode-list-hoverBackground); }
+  .framework-card:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
+  .framework-card.selected { border-color:var(--studio-accent); border-width:2px; padding:11px 13px; }
+  .framework-card[disabled] { opacity:.6; cursor:default; }
+  .framework-name { font-weight:700; font-size:.92rem; }
+  .framework-desc { font-size:.78rem; color:var(--studio-muted); }
+  /* The verdict is the reason somebody reads the card, so it is the loudest
+     thing on it after the name — and an unsupported pairing stays visible
+     rather than being removed from the list. */
+  .framework-badge {
+    align-self:flex-start; padding:1px 8px; border-radius:999px;
+    font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em;
+    border:1px solid var(--studio-border);
+  }
+  .compat-ideal .framework-badge {
+    color:var(--vscode-testing-iconPassed, #3fb950);
+    border-color:color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 55%, transparent);
+    background:color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 12%, transparent);
+  }
+  .compat-workable .framework-badge {
+    color:var(--vscode-editorWarning-foreground, #d29922);
+    border-color:color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) 55%, transparent);
+    background:color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) 12%, transparent);
+  }
+  .compat-unsupported { opacity:.72; }
+  .compat-unsupported .framework-badge {
+    color:var(--vscode-errorForeground, #f85149);
+    border-color:color-mix(in srgb, var(--vscode-errorForeground, #f85149) 55%, transparent);
+    background:transparent;
+  }
+  .framework-reason { font-size:.75rem; color:var(--studio-muted); line-height:1.4; }
+  .framework-meta { font-size:.7rem; color:var(--studio-muted); }
+  .framework-meta code { font-size:.68rem; }
+
+  .stack-summary { margin-top:14px; padding-top:12px; border-top:1px solid var(--studio-border); }
+  .stack-summary dl { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:8px 0 0; font-size:.82rem; }
+  .stack-summary dt { color:var(--studio-muted); font-weight:600; }
+  .stack-summary dd { margin:0; }
+
+  .drift-readout { margin-top:10px; font-size:.85rem; }
+  .drift-readout p { margin:0; }
+  .drift-unknown { color:var(--studio-muted); font-style:italic; }
+
   .element-count { margin:0 0 8px; font-size:.78rem; color:var(--studio-muted); }
   .structure-list { margin:0 0 12px; padding-left:18px; font-size:.84rem; }
   .structure-list small { color:var(--studio-muted); text-transform:uppercase; font-size:.66rem; letter-spacing:.07em; }
