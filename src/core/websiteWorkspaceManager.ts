@@ -19,6 +19,7 @@ import type {
   WebsiteDesignSystem,
   WebsiteHostingEnvironment,
   WebsiteHostingEnvironmentId,
+  WebsitePageLink,
   WebsitePagePlan,
   WebsitePlatformId,
   WebsitePlatformStatus,
@@ -28,6 +29,10 @@ import type {
 } from '../types.js';
 import { scanMemoryEntry } from '../memory/memoryScanner.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
+import { deriveSectionLabels, sanitizeWireframe } from './websiteWireframe.js';
+import { buildSitemapTree, flattenSitemap, normalizeSlug } from './websiteSitemap.js';
+import { buildLinkGraph } from './websiteLinkGraph.js';
+import { interpretVersionedDocument } from './schemaMigration.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
 export const WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH = 'project_memory/domain/website.md';
@@ -36,6 +41,10 @@ const MAX_IMPORTED_JSON_LENGTH = 128_000;
 const MAX_PAGES = 80;
 const MAX_AUTOMATIONS = 80;
 const MAX_LIST_ITEMS = 40;
+const MAX_PAGE_LINKS = 40;
+
+/** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
+const WEBSITE_SCHEMA_VERSION = 2;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -89,8 +98,9 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
   const now = new Date().toISOString();
   const primaryPlatform = inferPlatformId(seed.platformHint);
   return {
-    version: 1,
+    version: WEBSITE_SCHEMA_VERSION,
     updatedAt: now,
+    designPrompt: '',
     intake: {
       clientName: cleanText(seed.clientName, 160),
       projectName: cleanText(seed.projectName, 160),
@@ -107,10 +117,10 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
       stakeholders: [],
     },
     pages: [
-      defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action']),
-      defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action']),
-      defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action']),
-      defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note']),
+      defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action'], 0),
+      defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action'], 1),
+      defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action'], 2),
+      defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
     ],
     designSystem: defaultDesignSystem(seed.brandNotes),
     platforms: WEBSITE_PLATFORM_CATALOG.map(platform => ({
@@ -136,8 +146,9 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const automations = sanitizeAutomations(source['automations']);
 
   return {
-    version: 1,
+    version: WEBSITE_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
+    designPrompt: cleanText(source['designPrompt'], 4_000),
     intake,
     pages: pages.length > 0 ? pages : fallback.pages,
     designSystem,
@@ -308,10 +319,16 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '',
     '## Sitemap & Production Workflow',
     '',
-    '| Page | Slug | Wireframe | UI design | Content | SEO |',
-    '|---|---|---:|---:|---:|---:|',
-    ...config.pages.map(page =>
-      `| ${escapeMarkdownCell(page.title)} | \`${escapeMarkdownCell(page.slug)}\` | ${page.wireframeStatus} | ${page.designStatus} | ${page.contentStatus} | ${page.seoStatus} |`),
+    ...renderSitemapOutline(config),
+    '',
+    '| Page | Slug | Links to | Wireframe | UI design | Content | SEO |',
+    '|---|---|---|---:|---:|---:|---:|',
+    ...renderPageRows(config),
+    '',
+    ...renderLinkFindings(config),
+    '## Page Design Prompts',
+    '',
+    ...renderDesignPrompts(config),
     '',
     '## UI System',
     '',
@@ -366,6 +383,19 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
   return lines.join('\n');
 }
 
+/** What `load()` found, for callers that need to know rather than just read. */
+export interface WebsiteWorkspaceRead {
+  config: WebsiteWorkspaceConfig;
+  /**
+   * True when a real file exists that this build must not write over — it was
+   * written by a newer AtlasMind. The panel renders read-only and refuses to
+   * save rather than replacing a format it does not understand.
+   */
+  preserveExisting: boolean;
+  /** A sentence for the user about the file itself: migrated, or refused. */
+  notice?: string;
+}
+
 export class WebsiteWorkspaceManager {
   public constructor(private readonly workspaceRoot?: string) {}
 
@@ -374,20 +404,65 @@ export class WebsiteWorkspaceManager {
   }
 
   public load(): WebsiteWorkspaceConfig {
+    return this.read().config;
+  }
+
+  /**
+   * Read the file and say what happened to it.
+   *
+   * Routed through `interpretVersionedDocument` rather than the old
+   * `try { parse } catch { default }`, which collapsed two very different
+   * situations into one: a corrupt file (safe to replace) and a file written by
+   * a *newer* AtlasMind (never safe to replace). The old path would hand back a
+   * default, and the first save would then overwrite a colleague's newer format
+   * with this build's idea of the schema — silently, and in a git-tracked file.
+   */
+  public read(): WebsiteWorkspaceRead {
     if (!this.workspaceRoot) {
-      return createDefaultWebsiteWorkspace();
+      return { config: createDefaultWebsiteWorkspace(), preserveExisting: false };
     }
+    let parsed: unknown;
     try {
       const raw = readFileSync(path.join(this.workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
-      return sanitizeWebsiteWorkspace(JSON.parse(raw) as unknown);
+      parsed = JSON.parse(raw) as unknown;
     } catch {
-      return createDefaultWebsiteWorkspace();
+      // Absent or unparseable. Both are safe to replace; neither is a refusal.
+      return { config: createDefaultWebsiteWorkspace(), preserveExisting: false };
     }
+
+    const outcome = interpretVersionedDocument<Record<string, unknown>>(
+      'website',
+      parsed,
+      isRecordCandidate,
+    );
+
+    if (outcome.preserveExisting) {
+      return {
+        config: createDefaultWebsiteWorkspace(),
+        preserveExisting: true,
+        ...(outcome.notice ? { notice: outcome.notice } : {}),
+      };
+    }
+
+    return {
+      config: sanitizeWebsiteWorkspace(outcome.config ?? parsed),
+      preserveExisting: false,
+      ...(outcome.notice ? { notice: outcome.notice } : {}),
+    };
   }
 
   public async save(input: unknown): Promise<WebsiteWorkspaceConfig> {
     if (!this.workspaceRoot) {
       throw new Error('Open a workspace folder before saving Website Studio.');
+    }
+    // The refusal is re-checked here rather than trusted from a previous read:
+    // the file can be replaced between opening the panel and pressing save, and
+    // this is the last point before a write.
+    if (this.read().preserveExisting) {
+      throw new Error(
+        'This project\'s website.json was written by a newer version of AtlasMind. '
+        + 'Update AtlasMind to edit it — saving now would overwrite settings this build cannot read.',
+      );
     }
     const config = sanitizeWebsiteWorkspace(input);
     const jsonPath = path.join(this.workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH);
@@ -409,6 +484,98 @@ export class WebsiteWorkspaceManager {
   }
 }
 
+/**
+ * The hierarchy as an indented outline.
+ *
+ * The mirror is the artefact a client or a colleague actually reads in a pull
+ * request, and a flat table cannot show that Pricing sits under Services. The
+ * outline is generated from the same `buildSitemapTree` the panel draws, so the
+ * committed document and the screen cannot disagree about the shape of the site.
+ */
+function renderSitemapOutline(config: WebsiteWorkspaceConfig): string[] {
+  const tree = buildSitemapTree(config.pages);
+  const nodes = flattenSitemap(tree);
+  if (nodes.length === 0) {
+    return ['_No pages planned yet._'];
+  }
+  const lines = nodes.map(node => {
+    const indent = '  '.repeat(node.depth);
+    // A derived edge is marked, so nobody reads an inferred hierarchy as a
+    // stated one.
+    const marker = node.parentSource === 'slug' ? ' _(from slug)_' : node.parentSource === 'orphaned' ? ' _(no parent found)_' : '';
+    return `${indent}- **${escapeMarkdownCell(node.page.title)}** \`${escapeMarkdownCell(normalizeSlug(node.page.slug))}\`${marker}`;
+  });
+  const findings = tree.findings.map(finding => `- ⚠️ ${escapeMarkdownCell(finding.message)}`);
+  return findings.length > 0 ? [...lines, '', ...findings] : lines;
+}
+
+function renderPageRows(config: WebsiteWorkspaceConfig): string[] {
+  const graph = buildLinkGraph(config.pages);
+  const titles = new Map(config.pages.map(page => [page.id, page.title]));
+  return config.pages.map(page => {
+    const summary = graph.byPageId.get(page.id);
+    const destinations = (summary?.outbound ?? []).map(resolved => {
+      if (resolved.dangling) {
+        return '⚠️ missing page';
+      }
+      return resolved.targetPageId
+        ? titles.get(resolved.targetPageId) ?? resolved.targetPageId
+        : resolved.externalUrl ?? '';
+    }).filter(value => value.length > 0);
+    const linkCell = destinations.length > 0 ? destinations.join(', ') : '—';
+    return `| ${escapeMarkdownCell(page.title)} | \`${escapeMarkdownCell(page.slug)}\` | ${escapeMarkdownCell(linkCell)} | ${page.wireframeStatus} | ${page.designStatus} | ${page.contentStatus} | ${page.seoStatus} |`;
+  });
+}
+
+/**
+ * Orphan pages and broken links, in the mirror rather than only on screen.
+ *
+ * These are the findings a reviewer wants in the diff — "nothing links to the
+ * new Pricing page" is a review comment, and it belongs in the file that gets
+ * reviewed.
+ */
+function renderLinkFindings(config: WebsiteWorkspaceConfig): string[] {
+  const graph = buildLinkGraph(config.pages);
+  if (graph.findings.length === 0) {
+    return [];
+  }
+  return [
+    '### Navigation findings',
+    '',
+    ...graph.findings.map(finding => `- ${escapeMarkdownCell(finding.message)}`),
+    '',
+  ];
+}
+
+function renderDesignPrompts(config: WebsiteWorkspaceConfig): string[] {
+  const lines: string[] = [];
+  if (config.designPrompt.trim().length > 0) {
+    lines.push(`**Whole site:** ${escapeMarkdownCell(config.designPrompt)}`, '');
+  }
+  const written = config.pages.filter(page => page.designPrompt.trim().length > 0);
+  if (written.length === 0) {
+    lines.push('_No page design prompts written yet. A page with a prompt can be generated from the sitemap without being drawn._');
+    return lines;
+  }
+  for (const page of written) {
+    lines.push(`- **${escapeMarkdownCell(page.title)}:** ${escapeMarkdownCell(page.designPrompt)}`);
+  }
+  return lines;
+}
+
+/**
+ * The shape check `interpretVersionedDocument` needs.
+ *
+ * Deliberately shallow. The full validation is `sanitizeWebsiteWorkspace`, which
+ * coerces rather than rejects — a file missing one field is repairable, and
+ * treating it as corrupt would discard the rest of somebody's work. This guard
+ * only answers "is this a JSON object at all?", which is the question that
+ * separates a usable file from a truncated one.
+ */
+function isRecordCandidate(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Seed Website Studio during project bootstrap without overwriting an existing client plan. */
 export async function seedWebsiteWorkspace(
   workspaceRoot: string,
@@ -422,7 +589,14 @@ export async function seedWebsiteWorkspace(
   return true;
 }
 
-function defaultPage(id: string, title: string, slug: string, purpose: string, sections: string[]): WebsitePagePlan {
+function defaultPage(
+  id: string,
+  title: string,
+  slug: string,
+  purpose: string,
+  sections: string[],
+  order: number,
+): WebsitePagePlan {
   return {
     id,
     title,
@@ -436,6 +610,12 @@ function defaultPage(id: string, title: string, slug: string, purpose: string, s
     designStatus: 'not-started',
     contentStatus: 'not-started',
     seoStatus: 'not-started',
+    order,
+    // Left empty on purpose. A seeded design prompt would be a design decision
+    // AtlasMind made on the author's behalf, and it would then be generated from
+    // as though somebody had written it.
+    designPrompt: '',
+    links: [],
   };
 }
 
@@ -513,25 +693,107 @@ function sanitizePages(input: unknown): WebsitePagePlan[] {
     return [];
   }
   const usedIds = new Set<string>();
-  return input.slice(0, MAX_PAGES).map((item, index) => {
+  const pages = input.slice(0, MAX_PAGES).map((item, index): WebsitePagePlan => {
     const source = asRecord(item);
     const title = cleanText(source['title'], 160) || `Page ${index + 1}`;
     const id = uniqueId(cleanIdentifier(source['id']) || `page-${slugify(title) || index + 1}`, usedIds);
+    const wireframe = sanitizeWireframe(source['wireframe']);
+    const parentId = cleanIdentifier(source['parentId']);
     return {
       id,
       title,
       slug: cleanSlug(source['slug'], title),
       purpose: cleanText(source['purpose'], 2_000),
       template: cleanText(source['template'], 160) || 'Standard page',
-      sections: valueToStringList(source['sections']),
+      // Derived from the canvas where there is one, so the drawing is the single
+      // source of truth and the two lists cannot disagree. A page with no
+      // wireframe keeps whatever `sections` it already had.
+      sections: wireframe && wireframe.elements.length > 0
+        ? deriveSectionLabels(wireframe)
+        : valueToStringList(source['sections']),
       wireframeNotes: cleanText(source['wireframeNotes'], 4_000),
       designNotes: cleanText(source['designNotes'], 4_000),
       wireframeStatus: cleanStatus(source['wireframeStatus'], WORK_STATUSES, 'not-started'),
       designStatus: cleanStatus(source['designStatus'], WORK_STATUSES, 'not-started'),
       contentStatus: cleanStatus(source['contentStatus'], WORK_STATUSES, 'not-started'),
       seoStatus: cleanStatus(source['seoStatus'], WORK_STATUSES, 'not-started'),
+      // A self-parent is dropped rather than refused: it is always a UI slip,
+      // never an intent, and the page is still perfectly usable at the top level.
+      ...(parentId && parentId !== id ? { parentId } : {}),
+      order: cleanOrder(source['order'], index),
+      designPrompt: cleanText(source['designPrompt'], 2_000),
+      links: sanitizePageLinks(source['links']),
+      ...(wireframe ? { wireframe } : {}),
     };
   });
+
+  // Parent ids are resolved only once every page id is known — a page may name a
+  // parent that appears later in the array, and dropping it on a first pass
+  // would flatten hierarchies purely on file ordering.
+  const knownIds = new Set(pages.map(page => page.id));
+  return pages.map(page => (page.parentId && !knownIds.has(page.parentId))
+    ? stripPageParent(page)
+    : page);
+}
+
+function stripPageParent(page: WebsitePagePlan): WebsitePagePlan {
+  const { parentId: _dropped, ...rest } = page;
+  return rest;
+}
+
+/**
+ * Links are bounded, deduplicated, and https-only for external destinations.
+ *
+ * `http` is refused rather than upgraded. These URLs are rendered as clickable
+ * links in a webview and written into generated pages; silently rewriting the
+ * scheme would change where somebody's link points without telling them.
+ */
+function sanitizePageLinks(input: unknown): WebsitePageLink[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const usedIds = new Set<string>();
+  const links: WebsitePageLink[] = [];
+  for (const item of input.slice(0, MAX_PAGE_LINKS)) {
+    const source = asRecord(item);
+    const targetPageId = cleanIdentifier(source['targetPageId']);
+    const externalUrl = cleanHttpsUrl(source['externalUrl']);
+    // A link pointing at nothing is not a link. Keeping it would put an empty
+    // row in the inventory that no action can resolve.
+    if (!targetPageId && !externalUrl) {
+      continue;
+    }
+    links.push({
+      id: uniqueId(cleanIdentifier(source['id']) || `link-${links.length + 1}`, usedIds),
+      label: cleanText(source['label'], 160),
+      ...(targetPageId ? { targetPageId } : {}),
+      ...(!targetPageId && externalUrl ? { externalUrl } : {}),
+      origin: source['origin'] === 'derived' ? 'derived' : 'declared',
+    });
+  }
+  return links;
+}
+
+function cleanHttpsUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 2_000) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanOrder(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : fallback;
 }
 
 function sanitizeDesignSystem(input: unknown): WebsiteDesignSystem {

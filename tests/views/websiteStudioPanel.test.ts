@@ -31,7 +31,12 @@ describe('Website Studio webview boundary', () => {
 
   it('renders client content escaped with nonce-protected scripts and no inline handlers', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: '<img src=x onerror=alert(1)>' });
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config);
+    // The canvas script now lives in `media/websiteStudio.js` and is read off
+    // disk by the panel, so the caller supplies it. Passed here as a stub
+    // because this test is about the shell's escaping and nonce, not the script.
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'brief', {
+      scriptContent: '/* canvas */',
+    });
 
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('value="<img src=x onerror=alert(1)>"');

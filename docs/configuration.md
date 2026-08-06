@@ -362,6 +362,41 @@ Two facts worth knowing before you turn this on:
   endpoint nobody probed carries no findings and says explicitly that this is not a finding of
   "no drift".
 
+## Website Studio — generation and preview
+
+Website Studio models a client website: brief, sitemap, wireframe canvas, UI system, hosting and
+automation plans. All of that is inert. Two things in it are not, and each has its own switch.
+
+**They are two switches on purpose.** Writing model-authored files to disk and opening a local
+network port are different decisions with different consequences, and a single control carrying
+both would make the second one happen without anybody agreeing to it.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.generation.enabled` | boolean | `false` | Allow the **Generate** buttons to call a model and write static HTML and CSS. Every generation shows a modal listing **each file it will write** first, and the plan is deterministic — the same sitemap and stage always produce the same list, which is what makes that dialog worth reading. Files land only in `.atlasmind/website-preview/`; your source tree is never written to. |
+| `atlasmind.website.generation.maxFiles` | number | `40` | Most files one generation may write. A plan over the limit is **refused with the count**, never truncated — a half-generated site whose missing pages look like broken links is harder to diagnose than one that did not run. Hard ceiling of 120 regardless. |
+| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the preview to serve the generated site so it can be rendered beside the Studio. |
+| `atlasmind.website.preview.port` | number | `0` | Port for the preview server on `127.0.0.1`. `0` picks a free one, which is almost always right. Values below 1024 are ignored and fall back to automatic. |
+
+Four facts about the preview server, since it is the only part of Website Studio that opens a port:
+
+- **It binds `127.0.0.1`, never `0.0.0.0`.** The address is a constant in the source and there is no
+  setting to change it. The usual wildcard default would publish a client's unfinished site to
+  whatever network the machine is on.
+- **It serves one directory and re-checks every request against it**, comparing resolved paths with
+  `path.relative` rather than a string prefix — a prefix test says `preview-evil/` is inside
+  `preview/`, and on Windows it also fails on case. No directory listing, and an extension outside a
+  small allowlist returns 404 rather than being offered as a download.
+- **Its URL carries a random per-session token.** Any process on the machine can reach a localhost
+  port, and a client's design work is not something to hand to whatever else is running.
+- **It starts on demand and stops with the window.** Closing the preview, or Website Studio, stops
+  the server. A port outliving the thing that could show it is a port nobody remembers is open.
+
+Generated files are constrained the same way at three points — when the plan is built, when the
+model's reply is read, and again immediately before each write. A model that returns a file the user
+did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
+page that can execute is a different security question from one that cannot.
+
 ## Settings that were live but undeclared
 
 Both of these have been read by real code for months and were absent from the manifest, so they worked if you typed them into `settings.json` by hand and were invisible in the Settings UI. Documented, functioning, and undiscoverable is the worst of the three states — declared in 0.205.0.

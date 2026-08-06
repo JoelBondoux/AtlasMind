@@ -279,6 +279,50 @@ one declaration kind, `lens-endpoints.json`, is refused outright rather than dra
 
 ---
 
+## Generated websites and the preview port
+
+Website Studio's **Generate** is the second place AtlasMind has a model write files, and the *only*
+place it opens a network port. Both are off until you turn them on, and they are two switches rather
+than one — writing model-authored files and listening on a port are different decisions, and a single
+control carrying both would make the second happen without being agreed to.
+
+**Where the files go.** Only `.atlasmind/website-preview/`. Your source tree is never written to;
+moving an approved design out of the preview folder is a separate, deliberate step you take yourself.
+
+**Which files, decided before any model runs.** The plan is worked out from your sitemap, not by a
+model, so the confirmation dialog can name every single file — and the same sitemap always produces the
+same list, which is what makes "yes" mean something you can learn. The model writes file *contents*; it
+never chooses file *paths*. A path that doesn't validate refuses the whole plan with the reason, rather
+than being quietly cleaned up.
+
+**A file you didn't approve is reported, not written.** If the model returns `admin/index.html` when
+the plan said `index.html`, the defence isn't that the path looks wrong — it's that you didn't agree to
+it. Paths are checked when the plan is built, again when the reply is read, and again immediately before
+each write. Nothing executable can be generated at all: `.js` is not in the allowlist.
+
+**The preview server.** It binds `127.0.0.1` and nothing else — the address is a constant in the source
+and there is no setting for it. The common wildcard default would publish a client's unfinished site to
+whatever network you're on. It serves one directory, re-checks every request against it by resolving the
+path rather than comparing string prefixes (a prefix test says `preview-evil/` is inside `preview/`),
+has no directory listing, and returns 404 for anything outside a small extension allowlist rather than
+offering it as a download. Its URL carries a **random per-session token**, because any process on your
+machine can reach a localhost port and your client's work isn't something to hand to whatever else is
+running. It starts when you open the preview and stops when you close it or close the Studio.
+
+**The preview window has its own policy.** It builds its own HTML document rather than reusing the
+shared panel shell, so allowing it to frame a local port doesn't give that ability to every other panel
+in AtlasMind. The frame runs without scripts, sends no referrer, and the served pages carry a strict
+policy of their own that permits no network requests at all. A test pins the shared shell's policy so
+this can't be undone by accident.
+
+**What the Studio sends is data, never a command.** Selecting an element and asking about it sends a
+scope and some ids; pressing Generate sends a stage and some ids. Neither can name a command, a path or
+a file. Text already stored in the project file — labels, page purposes, saved design prompts — is
+passed to the model as quoted material, because a model wrote some of it and a block named like an
+instruction must not become one.
+
+---
+
 ## Delegated agents and hidden windows
 
 Two boundaries worth knowing if you use subscription agents:

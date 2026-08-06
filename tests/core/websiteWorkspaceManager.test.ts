@@ -214,7 +214,7 @@ describe('WebsiteWorkspaceManager', () => {
 
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
-    expect(JSON.parse(json)).toMatchObject({ version: 1, intake: { projectName: 'Client Site' } });
+    expect(JSON.parse(json)).toMatchObject({ version: 2, intake: { projectName: 'Client Site' } });
     expect(markdown).toContain('# Website Studio');
     expect(markdown).toContain('## Hosting Environments');
     expect(markdown).toContain('| Develop | local | local-only |');

@@ -82,6 +82,70 @@ describe('migrateDocument', () => {
     // has no standing to make on the user's behalf.
     expect((value['methodologies'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty('blocking');
   });
+
+  describe('website v1 → v2', () => {
+    const v1 = () => ({
+      version: 1,
+      updatedAt: '2026-06-09T00:00:00.000Z',
+      intake: { clientName: 'Northstar' },
+      pages: [
+        { id: 'page-home', title: 'Home', slug: '/', sections: ['Hero', 'Proof', 'Contact'] },
+        { id: 'page-about', title: 'About', slug: '/about', sections: [] },
+      ],
+    });
+
+    it('transcribes the old sections into a drawn wireframe', () => {
+      // An empty canvas would read as "your layout work is gone" to somebody who
+      // had filled in eight sections.
+      const outcome = migrateDocument('website', v1());
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      const pages = value['pages'] as Array<Record<string, unknown>>;
+      const wireframe = pages[0]!['wireframe'] as { elements: Array<Record<string, unknown>> };
+
+      expect(wireframe.elements.map(element => element['label'])).toEqual(['Hero', 'Proof', 'Contact']);
+      // Stacked, in the order the list was in — the only thing the list said.
+      const tops = wireframe.elements.map(element => (element['rect'] as { y: number }).y);
+      expect(tops).toEqual([...tops].sort((a, b) => a - b));
+      expect(new Set(tops).size).toBe(tops.length);
+    });
+
+    it('leaves a page with no sections without a wireframe rather than inventing one', () => {
+      const outcome = migrateDocument('website', v1());
+      const pages = (outcome as { value: Record<string, unknown> }).value['pages'] as Array<Record<string, unknown>>;
+      expect(pages[1]).not.toHaveProperty('wireframe');
+    });
+
+    it('seeds order from array position — the only ordering a v1 file recorded', () => {
+      const outcome = migrateDocument('website', v1());
+      const pages = (outcome as { value: Record<string, unknown> }).value['pages'] as Array<Record<string, unknown>>;
+      expect(pages.map(page => page['order'])).toEqual([0, 1]);
+    });
+
+    it('seeds design prompts and links empty rather than guessing at them', () => {
+      // A migration has no standing to write a design intent on the author's
+      // behalf, and a guessed link is indistinguishable from one they set.
+      const outcome = migrateDocument('website', v1());
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value['designPrompt']).toBe('');
+      const pages = value['pages'] as Array<Record<string, unknown>>;
+      for (const page of pages) {
+        expect(page['designPrompt']).toBe('');
+        expect(page['links']).toEqual([]);
+      }
+    });
+
+    it('refuses a website file written by a newer AtlasMind', () => {
+      const outcome = migrateDocument('website', { ...v1(), version: 99 });
+      expect(outcome.status).toBe('refused');
+    });
+
+    it('does not re-run on a file already at v2', () => {
+      const already = { ...v1(), version: 2, designPrompt: 'Editorial and calm.' };
+      const outcome = migrateDocument('website', already);
+      expect(outcome.status).toBe('current');
+    });
+  });
 });
 
 /**

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readFileSync } from 'node:fs';
 import {
   assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
@@ -10,11 +11,32 @@ import {
 import type {
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
+  WebsitePagePlan,
   WebsitePlatformStatus,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
 } from '../types.js';
+import {
+  buildSitemapTree,
+  layoutSitemap,
+  normalizeSlug,
+  type SitemapLayout,
+} from '../core/websiteSitemap.js';
+import { buildLinkGraph } from '../core/websiteLinkGraph.js';
+import { WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
+import {
+  buildScopedDesignPrompt,
+  type DesignPromptScope,
+} from '../core/websiteDesignPrompt.js';
+import {
+  MAX_GENERATED_FILES,
+  planWebsiteGeneration,
+  WEBSITE_PREVIEW_ROOT,
+  type WebsiteGenerationPlan,
+  type WebsiteGenerationStage,
+} from '../core/websiteGeneration.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
 
 export type WebsiteStudioPage =
   | 'brief'
@@ -37,13 +59,33 @@ export function isWebsiteStudioPage(value: unknown): value is WebsiteStudioPage 
   return typeof value === 'string' && WEBSITE_STUDIO_PAGES.has(value as WebsiteStudioPage);
 }
 
+/** The scope a typed instruction applies to. Mirrors `DesignPromptScope`. */
+const PROMPT_SCOPES = new Set(['site', 'page', 'element']);
+
+/** Stages Generate can be pressed from. Mirrors `WebsiteGenerationStage`. */
+const GENERATION_STAGES = new Set(['brief', 'sitemap', 'wireframe', 'element']);
+
+const MAX_INSTRUCTION_LENGTH = 4_000;
+
 export type WebsiteStudioMessage =
   | { type: 'ready' }
   | { type: 'saveConfig'; payload: unknown }
   | { type: 'importIntake'; payload: string }
   | { type: 'openSsot'; payload: 'json' | 'markdown' }
-  | { type: 'openCommand'; payload: 'atlasmind.openProjectDashboard' | 'atlasmind.openProjectIdeation' | 'atlasmind.openChatPanel' };
+  | { type: 'openCommand'; payload: 'atlasmind.openProjectDashboard' | 'atlasmind.openProjectIdeation' | 'atlasmind.openChatPanel' }
+  | { type: 'promptForTarget'; payload: { scope: DesignPromptScope; pageId?: string; elementId?: string; instruction: string } }
+  | { type: 'generate'; payload: { stage: WebsiteGenerationStage; pageId?: string; elementId?: string } }
+  | { type: 'openPreview' }
+  | { type: 'stopPreview' };
 
+/**
+ * Validate everything arriving from the webview.
+ *
+ * The two new message types are the ones that matter: `promptForTarget` reaches
+ * a model and `generate` writes files. Both carry only *data* — a scope, some
+ * ids, and the user's own sentence. Neither can name a command, a path, or a
+ * file, so no webview message can widen what the panel is willing to do.
+ */
 export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMessage {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return false;
@@ -51,6 +93,8 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
   const message = input as Record<string, unknown>;
   switch (message['type']) {
     case 'ready':
+    case 'openPreview':
+    case 'stopPreview':
       return true;
     case 'saveConfig':
       return typeof message['payload'] === 'object'
@@ -64,9 +108,43 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
       return message['payload'] === 'atlasmind.openProjectDashboard'
         || message['payload'] === 'atlasmind.openProjectIdeation'
         || message['payload'] === 'atlasmind.openChatPanel';
+    case 'promptForTarget': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && typeof payload['scope'] === 'string'
+        && PROMPT_SCOPES.has(payload['scope'])
+        && typeof payload['instruction'] === 'string'
+        && payload['instruction'].trim().length > 0
+        && payload['instruction'].length <= MAX_INSTRUCTION_LENGTH
+        && isOptionalId(payload['pageId'])
+        && isOptionalId(payload['elementId']);
+    }
+    case 'generate': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && typeof payload['stage'] === 'string'
+        && GENERATION_STAGES.has(payload['stage'])
+        && isOptionalId(payload['pageId'])
+        && isOptionalId(payload['elementId']);
+    }
     default:
       return false;
   }
+}
+
+function asPayload(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+/**
+ * Ids are matched against the workspace before use, so this only has to reject
+ * the shapes that could cause trouble on the way there — anything non-string, or
+ * long enough to be a payload rather than an identifier.
+ */
+function isOptionalId(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 64);
 }
 
 export class WebsiteStudioPanel {
@@ -95,25 +173,43 @@ export class WebsiteStudioPanel {
         localResourceRoots: [context.extensionUri],
       },
     );
-    WebsiteStudioPanel.currentPanel = new WebsiteStudioPanel(panel, safeTargetPage);
+    WebsiteStudioPanel.currentPanel = new WebsiteStudioPanel(panel, safeTargetPage, context);
   }
 
   private readonly manager: WebsiteWorkspaceManager;
   private config: WebsiteWorkspaceConfig;
   private activePage: WebsiteStudioPage;
+  /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
+  private readOnly = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     targetPage: WebsiteStudioPage,
+    private readonly context: vscode.ExtensionContext,
   ) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     this.manager = new WebsiteWorkspaceManager(workspaceRoot);
-    this.config = this.manager.load();
+    const read = this.manager.read();
+    this.config = read.config;
+    this.readOnly = read.preserveExisting;
     this.activePage = targetPage;
     this.render(targetPage);
 
+    if (read.notice) {
+      // Surfaced rather than logged. A migrated file and a refused one are both
+      // things the user needs to know before they start editing.
+      void this.panel.webview.postMessage({
+        type: 'notice',
+        tone: read.preserveExisting ? 'error' : 'success',
+        message: read.notice,
+      });
+    }
+
     this.panel.onDidDispose(() => {
       WebsiteStudioPanel.currentPanel = undefined;
+      // The preview server is owned by the preview panel, but a Studio that is
+      // gone should not leave one running on its behalf.
+      void vscode.commands.executeCommand('atlasmind.stopWebsitePreview');
     });
     this.panel.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
@@ -122,7 +218,34 @@ export class WebsiteStudioPanel {
 
   private render(targetPage: WebsiteStudioPage = this.activePage): void {
     this.activePage = targetPage;
-    this.panel.webview.html = getWebsiteStudioHtml(this.panel.webview, this.config, targetPage);
+    this.panel.webview.html = getWebsiteStudioHtml(
+      this.panel.webview,
+      this.config,
+      targetPage,
+      {
+        readOnly: this.readOnly,
+        canGenerate: isGenerationEnabled(),
+        scriptContent: this.readScript(),
+      },
+    );
+  }
+
+  /**
+   * Read the canvas script off disk, matching `projectDashboardPanel`.
+   *
+   * Inlining avoids the webview resource bootstrap being unavailable in some
+   * hosts; the `scriptUri` fallback in `getWebsiteStudioHtml` covers the case
+   * where the read fails.
+   */
+  private readScript(): string | undefined {
+    try {
+      return readFileSync(
+        vscode.Uri.joinPath(this.context.extensionUri, 'media', 'websiteStudio.js').fsPath,
+        'utf8',
+      );
+    } catch {
+      return undefined;
+    }
   }
 
   private async handleMessage(input: unknown): Promise<void> {
@@ -179,6 +302,18 @@ export class WebsiteStudioPanel {
             await vscode.commands.executeCommand(input.payload);
           }
           return;
+        case 'promptForTarget':
+          await this.handlePromptForTarget(input.payload);
+          return;
+        case 'generate':
+          await this.handleGenerate(input.payload);
+          return;
+        case 'openPreview':
+          await vscode.commands.executeCommand('atlasmind.openWebsitePreview');
+          return;
+        case 'stopPreview':
+          await vscode.commands.executeCommand('atlasmind.stopWebsitePreview');
+          return;
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -186,12 +321,150 @@ export class WebsiteStudioPanel {
       void vscode.window.showErrorMessage(`Website Studio: ${detail}`);
     }
   }
+
+  /**
+   * Hand a selection-scoped instruction to the chat.
+   *
+   * The prompt is composed by `buildScopedDesignPrompt`, which owns the fencing,
+   * and then handed over through the same `openChatPanel` bridge every other
+   * panel uses. Nothing is written here — this is a question, and the prompt
+   * itself says the answer is a proposal.
+   */
+  private async handlePromptForTarget(
+    payload: { scope: DesignPromptScope; pageId?: string; elementId?: string; instruction: string },
+  ): Promise<void> {
+    const composed = buildScopedDesignPrompt({
+      scope: payload.scope,
+      config: this.config,
+      ...(payload.pageId ? { pageId: payload.pageId } : {}),
+      ...(payload.elementId ? { elementId: payload.elementId } : {}),
+      instruction: payload.instruction,
+    });
+
+    if (!composed) {
+      // Almost always a stale selection: the element was deleted, or the page
+      // was removed in another window. Saying so beats sending a prompt about
+      // nothing and getting a confident answer back.
+      await this.panel.webview.postMessage({
+        type: 'notice',
+        tone: 'error',
+        message: 'That selection is no longer on the canvas. Select it again and retry.',
+      });
+      return;
+    }
+
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: composed.prompt,
+      sendMode: 'new-session',
+    });
+    await this.panel.webview.postMessage({
+      type: 'notice',
+      tone: 'success',
+      message: `Asked Atlas about ${composed.targetLabel}.`,
+    });
+  }
+
+  /**
+   * Plan a generation, confirm it, and hand it to the generate command.
+   *
+   * The confirmation is the point of the whole design: it names every file that
+   * will be written and the folder they go to, and it can do that because
+   * `planWebsiteGeneration` is deterministic. A plan a model had composed would
+   * differ on every press and the dialog would be unreadable.
+   */
+  private async handleGenerate(
+    payload: { stage: WebsiteGenerationStage; pageId?: string; elementId?: string },
+  ): Promise<void> {
+    if (!isGenerationEnabled()) {
+      await this.panel.webview.postMessage({
+        type: 'notice',
+        tone: 'error',
+        message: 'Website generation is off. Turn on atlasmind.website.generation.enabled to use Generate.',
+      });
+      return;
+    }
+
+    const planned = planWebsiteGeneration({
+      config: this.config,
+      stage: payload.stage,
+      ...(payload.pageId ? { pageId: payload.pageId } : {}),
+      ...(payload.elementId ? { elementId: payload.elementId } : {}),
+      maxFiles: generationFileLimit(),
+    });
+
+    if (!planned.ok) {
+      await this.panel.webview.postMessage({ type: 'notice', tone: 'error', message: planned.reason });
+      return;
+    }
+
+    const confirmed = await confirmGeneration(planned.plan);
+    if (!confirmed) {
+      await this.panel.webview.postMessage({ type: 'notice', tone: '', message: 'Generation cancelled. Nothing was written.' });
+      return;
+    }
+
+    // Execution lives in the command so the same path serves the palette, and
+    // so the panel is not the thing running a model and writing files.
+    await vscode.commands.executeCommand('atlasmind.generateWebsite', {
+      plan: planned.plan,
+      config: this.config,
+    });
+  }
+}
+
+/**
+ * The modal.
+ *
+ * `{modal:true}` because this writes files. It lists every path rather than a
+ * count — "write 7 files" is not something anybody can meaningfully agree to —
+ * and it repeats what the stage could not account for, so the omissions are read
+ * before the work rather than discovered after it.
+ */
+async function confirmGeneration(plan: WebsiteGenerationPlan): Promise<boolean> {
+  const fileList = plan.files.map(file => `  ${WEBSITE_PREVIEW_ROOT}/${file.relativePath} — ${file.purpose}`).join('\n');
+  const omissions = plan.omitted.length > 0
+    ? `\n\nWorth knowing:\n${plan.omitted.map(item => `  • ${item}`).join('\n')}`
+    : '';
+  const answer = await vscode.window.showWarningMessage(
+    `Generate ${plan.targetLabel}?`,
+    {
+      modal: true,
+      detail: `Atlas will write ${plan.files.length} file${plan.files.length === 1 ? '' : 's'} into ${WEBSITE_PREVIEW_ROOT}/.\n\n`
+        + `${fileList}\n\nExisting files at these paths are replaced. Nothing outside ${WEBSITE_PREVIEW_ROOT}/ is touched.${omissions}`,
+    },
+    'Generate',
+  );
+  return answer === 'Generate';
+}
+
+/** Deny by default: generating files and opening a port are separate decisions from using the Studio. */
+export function isGenerationEnabled(): boolean {
+  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.generation.enabled', false);
+}
+
+function generationFileLimit(): number {
+  const configured = vscode.workspace
+    .getConfiguration('atlasmind')
+    .get<number>('website.generation.maxFiles', 40);
+  return Math.min(MAX_GENERATED_FILES, Math.max(1, Math.floor(configured)));
+}
+
+export interface WebsiteStudioHtmlOptions {
+  /** The file on disk was written by a newer AtlasMind; editing is disabled. */
+  readOnly?: boolean;
+  /** `atlasmind.website.generation.enabled`. Controls whether Generate is offered at all. */
+  canGenerate?: boolean;
+  /** The canvas script, read from `media/websiteStudio.js`. */
+  scriptContent?: string;
+  /** Fallback when the script could not be read inline. */
+  scriptUri?: string;
 }
 
 export function getWebsiteStudioHtml(
   webview: Pick<vscode.Webview, 'cspSource'>,
   config: WebsiteWorkspaceConfig,
   activePage: WebsiteStudioPage = 'brief',
+  options: WebsiteStudioHtmlOptions = {},
 ): string {
   const approvedPages = config.pages.filter(page =>
     page.wireframeStatus === 'approved' && page.designStatus === 'approved').length;
@@ -200,10 +473,23 @@ export function getWebsiteStudioHtml(
   const hostingReadiness = assessWebsiteHostingEnvironments(config);
   const readyHostingEnvironments = hostingReadiness.filter(readiness => readiness.status === 'ready').length;
 
+  // The canvas needs the geometry model client-side, and the pages need to be
+  // readable by the script without re-parsing the DOM. Passed as an escaped
+  // data attribute rather than a <script> block so nothing executable is
+  // introduced and the CSP stays as it is.
+  const canvasState = JSON.stringify({
+    pages: config.pages,
+    kinds: WIREFRAME_KIND_CATALOG,
+    canGenerate: options.canGenerate === true,
+    readOnly: options.readOnly === true,
+  });
+
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Website Studio',
     cspSource: webview.cspSource,
     bodyContent: `
+      <div id="websiteStudioState" hidden data-state="${escapeHtml(canvasState)}"></div>
       <header class="studio-hero">
         <div>
           <p class="eyebrow">AtlasMind · Website delivery workspace</p>
@@ -216,6 +502,12 @@ export function getWebsiteStudioHtml(
           <button type="button" data-command="atlasmind.openChatPanel">Plan next milestone with Atlas</button>
         </div>
       </header>
+      ${options.readOnly ? `
+      <div class="callout warning" role="alert">
+        <strong>Read-only.</strong>
+        This project's <code>${escapeHtml(WEBSITE_WORKSPACE_SSOT_PATH)}</code> was written by a newer version of AtlasMind.
+        You can read it, but saving is disabled — writing now would overwrite settings this build cannot understand.
+      </div>` : ''}
 
       <div class="metric-strip" aria-label="Website readiness summary">
         ${metricCard('Pages', String(config.pages.length), 'in the sitemap')}
@@ -248,9 +540,9 @@ export function getWebsiteStudioHtml(
         </nav>
 
         <main>
-          ${renderBriefPage(config, activePage)}
-          ${renderSitemapPage(config, activePage)}
-          ${renderWireframesPage(config, activePage)}
+          ${renderBriefPage(config, activePage, options)}
+          ${renderSitemapPage(config, activePage, options)}
+          ${renderWireframesPage(config, activePage, options)}
           ${renderUiSystemPage(config, activePage)}
           ${renderPlatformsPage(config, activePage)}
           ${renderAutomationsPage(config, activePage)}
@@ -262,19 +554,43 @@ export function getWebsiteStudioHtml(
           <strong>Reviewable SSOT</strong>
           <span>Changes are sanitized and mirrored to JSON + Markdown. Credentials and n8n webhook values are never stored here.</span>
         </div>
-        <button type="button" id="saveWebsiteStudio">Save Website Studio</button>
+        <span id="unsavedBadge" class="unsaved-badge" hidden>Unsaved changes</span>
+        <button type="button" class="secondary" id="openPreview">Open preview</button>
+        <button type="button" id="saveWebsiteStudio"${options.readOnly ? ' disabled' : ''}>Save Website Studio</button>
       </footer>
     `,
     extraCss: WEBSITE_STUDIO_CSS,
-    scriptContent: WEBSITE_STUDIO_SCRIPT,
+    ...(options.scriptContent
+      ? { scriptContent: options.scriptContent }
+      : options.scriptUri
+        ? { scriptUri: options.scriptUri }
+        : {}),
   });
 }
 
-function renderBriefPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+function renderBriefPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
   const intake = config.intake;
   return `
     <section class="studio-page${activePage === 'brief' ? ' active' : ''}" data-page="brief">
       ${pageIntro('Client brief', 'Normalize the raw client request before design or platform decisions start. Blank fields remain explicit gaps.')}
+      <article class="panel-card prompt-card">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Describe it in words</p>
+            <h2>Whole-site design prompt</h2>
+            <p>One sentence about how the site should look and feel. Every page prompt is read against this.</p>
+          </div>
+          ${generateButton('brief', 'Generate a concept', options)}
+        </div>
+        <textarea id="siteDesignPrompt" rows="3" placeholder="Calm, editorial, lots of white space. Photography-led, no stock illustration.">${escapeHtml(config.designPrompt)}</textarea>
+        <div class="inspector-actions">
+          <button type="button" id="askAboutSite">Ask Atlas about the whole site</button>
+        </div>
+      </article>
       <div class="two-column">
         <article class="panel-card">
           <h2>Client and outcome</h2>
@@ -311,20 +627,53 @@ function renderBriefPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStud
   `;
 }
 
-function renderSitemapPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+function renderSitemapPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const tree = buildSitemapTree(config.pages);
+  const layout = layoutSitemap(tree);
+  const graph = buildLinkGraph(config.pages);
+  const titles = new Map(config.pages.map(page => [page.id, page.title]));
+  const findings = [...tree.findings.map(finding => finding.message), ...graph.findings.map(finding => finding.message)];
+
   return `
     <section class="studio-page${activePage === 'sitemap' ? ' active' : ''}" data-page="sitemap">
-      ${pageIntro('Sitemap dashboard', 'Define the information architecture before detailed layout work. Every page has an explicit purpose and reusable template.')}
+      ${pageIntro('Sitemap dashboard', 'The hierarchy draws itself from the slugs as pages are added. Give a page a design prompt and it can be generated without ever being drawn.')}
+
+      <article class="panel-card">
+        <div class="card-heading">
+          <div>
+            <h2>Hierarchy map</h2>
+            <p>Built from each page's slug. Set a parent explicitly to override it. Click a page to open it on the canvas.</p>
+          </div>
+          ${generateButton('sitemap', 'Generate all pages', options)}
+        </div>
+        ${renderSitemapSvg(layout)}
+        <p class="map-legend">
+          <span class="legend-swatch solid"></span> parent set explicitly
+          <span class="legend-swatch dashed"></span> derived from the slug
+          <span class="legend-swatch orphan"></span> no parent found
+        </p>
+      </article>
+
+      ${findings.length > 0 ? `
+      <article class="panel-card findings-card">
+        <h2>Navigation findings</h2>
+        <ul>${findings.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul>
+      </article>` : ''}
+
       <article class="panel-card">
         <div class="card-heading">
           <div><h2>Page inventory</h2><p>${config.pages.length} planned page${config.pages.length === 1 ? '' : 's'}</p></div>
-          <button type="button" id="addWebsitePage">Add page</button>
+          <button type="button" id="addWebsitePage"${options.readOnly ? ' disabled' : ''}>Add page</button>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Page</th><th>Slug</th><th>Purpose</th><th>Template</th><th></th></tr></thead>
+            <thead><tr><th>Page</th><th>Slug</th><th>Purpose</th><th>Template</th><th>Links to</th><th></th></tr></thead>
             <tbody id="sitemapRows">
-              ${config.pages.map(renderSitemapRow).join('')}
+              ${config.pages.map(page => renderSitemapRow(page, graph, titles)).join('')}
             </tbody>
           </table>
         </div>
@@ -333,15 +682,138 @@ function renderSitemapPage(config: WebsiteWorkspaceConfig, activePage: WebsiteSt
   `;
 }
 
-function renderWireframesPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+/**
+ * The hierarchy as an SVG.
+ *
+ * Coordinates come from `layoutSitemap`, so the same pages always draw the same
+ * map. Every node is a real `<a>`-like button element rather than an SVG shape
+ * with a click handler, so the map is reachable by keyboard and readable by a
+ * screen reader — an image of a site structure that only a mouse can use would
+ * be a step backwards from the table it replaces.
+ */
+function renderSitemapSvg(layout: SitemapLayout): string {
+  if (layout.nodes.length === 0) {
+    return '<p class="map-empty">No pages yet. Add one below and the map will draw itself.</p>';
+  }
+
+  const positions = new Map(layout.nodes.map(node => [node.pageId, node]));
+  const edges = layout.edges.map(edge => {
+    const from = positions.get(edge.fromPageId);
+    const to = positions.get(edge.toPageId);
+    if (!from || !to) {
+      return '';
+    }
+    const x1 = from.x + from.width / 2;
+    const y1 = from.y + from.height;
+    const x2 = to.x + to.width / 2;
+    const y2 = to.y;
+    const midY = (y1 + y2) / 2;
+    // An elbow rather than a straight line: with several children the straight
+    // lines cross each other and the shape stops being readable.
+    const path = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+    return `<path d="${path}" class="map-edge${edge.source === 'slug' ? ' derived' : ''}" />`;
+  }).join('');
+
+  const nodes = layout.nodes.map(node => `
+    <foreignObject x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}">
+      <button type="button" xmlns="http://www.w3.org/1999/xhtml"
+        class="map-node${node.parentSource === 'orphaned' ? ' orphan' : ''}"
+        data-sitemap-page="${escapeHtml(node.pageId)}"
+        aria-label="${escapeHtml(`${node.title}, ${node.slug}, level ${node.depth + 1}`)}">
+        <span class="map-node-title">${escapeHtml(node.title)}</span>
+        <span class="map-node-slug">${escapeHtml(node.slug)}</span>
+      </button>
+    </foreignObject>`).join('');
+
+  return `
+    <div class="map-scroll">
+      <svg viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}"
+        role="group" aria-label="Site hierarchy">
+        <g>${edges}</g>
+        ${nodes}
+      </svg>
+    </div>`;
+}
+
+function renderWireframesPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const first = config.pages[0];
   return `
     <section class="studio-page${activePage === 'wireframes' ? ' active' : ''}" data-page="wireframes">
-      ${pageIntro('Wireframes & client design', 'Progress each page from low-fidelity structure to reviewed visual design, content, and SEO readiness.')}
+      ${pageIntro('Wireframe canvas', 'Draw the page. Pick a block, drag on the grid, drop one inside another to nest it. Select anything and describe it in your own words.')}
+
+      ${config.pages.length === 0 ? '<article class="panel-card"><p>Add a page on the Sitemap tab first.</p></article>' : `
+      <div class="canvas-toolbar">
+        <label class="field inline">
+          <span>Page</span>
+          <select id="wireframePageSelect">
+            ${config.pages.map(page => `<option value="${escapeHtml(page.id)}">${escapeHtml(page.title)}</option>`).join('')}
+          </select>
+        </label>
+        <p id="canvasSummary" class="canvas-summary" role="status" aria-live="polite"></p>
+        ${generateButton('wireframe', 'Generate this page', options)}
+      </div>
+
+      <div class="canvas-layout">
+        <aside class="canvas-palette" aria-label="Wireframe blocks">
+          <p class="eyebrow">Blocks</p>
+          ${WIREFRAME_KIND_CATALOG.map(spec => `
+            <button type="button" class="palette-button${spec.kind === 'section' ? ' armed' : ''}"
+              data-kind="${escapeHtml(spec.kind)}" title="${escapeHtml(spec.description)}">
+              ${escapeHtml(spec.label)}
+            </button>`).join('')}
+        </aside>
+
+        <div class="canvas-frame">
+          <div id="wireframeCanvas" class="wf-canvas" tabindex="0"
+            role="application"
+            aria-label="Wireframe canvas. Drag to draw a block. Arrow keys move the selected block.">
+          </div>
+        </div>
+
+        <aside class="canvas-inspector">
+          <div id="wireframeInspector"></div>
+          <div class="page-prompt-block">
+            <p class="eyebrow">Whole page</p>
+            <h3 id="wireframePageTitle">${escapeHtml(first?.title ?? '')}</h3>
+            <label class="field">
+              <span>Page design prompt</span>
+              <textarea id="pageDesignPrompt" rows="4"
+                placeholder="A services page that leads with outcomes, three service cards, then a short enquiry form."></textarea>
+            </label>
+            <div class="inspector-actions">
+              <button type="button" id="askAboutPage">Ask Atlas about this page</button>
+            </div>
+          </div>
+        </aside>
+      </div>`}
+
       <div id="wireframeCards" class="wireframe-grid">
         ${config.pages.map(renderWireframeCard).join('')}
       </div>
     </section>
   `;
+}
+
+/**
+ * A Generate button, or an explanation of why there is not one.
+ *
+ * The setting is off by default, and a button that silently does nothing is
+ * worse than an absent one — so when generation is disabled the affordance is
+ * replaced by the reason, naming the setting to change.
+ */
+function generateButton(
+  stage: WebsiteGenerationStage,
+  label: string,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  if (!options.canGenerate) {
+    return `<span class="generate-off" title="atlasmind.website.generation.enabled">Generation is off</span>`;
+  }
+  return `<button type="button" class="generate-button" data-generate-stage="${escapeHtml(stage)}">${escapeHtml(label)}</button>`;
 }
 
 function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
@@ -515,32 +987,67 @@ function renderAutomationsPage(config: WebsiteWorkspaceConfig, activePage: Websi
   `;
 }
 
-function renderSitemapRow(page: WebsiteWorkspaceConfig['pages'][number]): string {
+function renderSitemapRow(
+  page: WebsitePagePlan,
+  graph: ReturnType<typeof buildLinkGraph>,
+  titles: ReadonlyMap<string, string>,
+): string {
+  const summary = graph.byPageId.get(page.id);
+  const destinations = (summary?.outbound ?? []).map(resolved => {
+    if (resolved.dangling) {
+      // Kept, and marked. A link whose target was deleted is the evidence that
+      // a nav is broken; hiding it would hide the finding.
+      return '<span class="link-chip broken" title="This page no longer exists">missing page</span>';
+    }
+    const label = resolved.targetPageId
+      ? titles.get(resolved.targetPageId) ?? resolved.targetPageId
+      : resolved.externalUrl ?? '';
+    return `<span class="link-chip${resolved.externalUrl ? ' external' : ''}">${escapeHtml(label)}</span>`;
+  }).join('');
+
+  const inbound = summary?.inboundPageIds.length ?? 0;
+
   return `
     <tr data-page-id="${escapeHtml(page.id)}">
-      <td><input class="page-title" aria-label="Page title" value="${escapeHtml(page.title)}" /></td>
+      <td>
+        <input class="page-title" aria-label="Page title" value="${escapeHtml(page.title)}" />
+        <input type="hidden" class="page-order" value="${page.order}" />
+        <small class="inbound-count">${inbound === 0 ? 'nothing links here' : `${inbound} inbound`}</small>
+      </td>
       <td><input class="page-slug" aria-label="Page slug" value="${escapeHtml(page.slug)}" /></td>
       <td><textarea class="page-purpose" aria-label="Page purpose" rows="2">${escapeHtml(page.purpose)}</textarea></td>
       <td><input class="page-template" aria-label="Page template" value="${escapeHtml(page.template)}" /></td>
+      <td class="links-cell">${destinations || '—'}</td>
       <td><button type="button" class="danger subtle remove-page" data-remove-id="${escapeHtml(page.id)}">Remove</button></td>
     </tr>
   `;
 }
 
-function renderWireframeCard(page: WebsiteWorkspaceConfig['pages'][number]): string {
-  const sections = page.sections.length > 0 ? page.sections : ['Section not mapped'];
+/**
+ * The per-page review card that sits below the canvas.
+ *
+ * The old fake wireframe — the first eight `sections` strings on a three-class
+ * CSS grid — is gone rather than kept alongside the canvas. Two pictures of the
+ * same page that disagree is worse than one, and the derived structure list
+ * below states what the canvas holds without pretending to draw it.
+ */
+function renderWireframeCard(page: WebsitePagePlan): string {
+  const elements = page.wireframe?.elements ?? [];
+  const structure = elements.length > 0
+    ? `<ul class="structure-list">${elements
+        .filter(element => !element.parentId)
+        .map(element => `<li>${escapeHtml(element.label)} <small>${escapeHtml(element.kind)}</small></li>`)
+        .join('')}</ul>`
+    : '<p class="structure-empty">Not drawn yet. Select this page above and drag on the canvas.</p>';
+
   return `
-    <article class="wireframe-card" data-page-id="${escapeHtml(page.id)}">
+    <article class="wireframe-card" data-page-id="${escapeHtml(page.id)}" data-wireframe-card="${escapeHtml(page.id)}">
       <div class="wireframe-topline">
-        <div><p class="eyebrow">${escapeHtml(page.slug)}</p><h2>${escapeHtml(page.title)}</h2></div>
+        <div><p class="eyebrow">${escapeHtml(normalizeSlug(page.slug))}</p><h2>${escapeHtml(page.title)}</h2></div>
         <span class="status-pill">${escapeHtml(page.designStatus)}</span>
       </div>
-      <div class="wireframe-sheet" aria-label="${escapeHtml(page.title)} low-fidelity section outline">
-        ${sections.slice(0, 8).map((section, index) => `
-          <div class="wireframe-block block-${(index % 3) + 1}"><span>${escapeHtml(section)}</span></div>
-        `).join('')}
-      </div>
-      ${listTextarea('Page sections', '', page.sections, 'One section per line', 'page-sections')}
+      <p class="element-count">${elements.length} element${elements.length === 1 ? '' : 's'} drawn</p>
+      ${structure}
       ${textarea('Wireframe notes', '', page.wireframeNotes, 'Hierarchy, responsive behavior, interactions, and review feedback.', 'page-wireframeNotes')}
       ${textarea('Visual design notes', '', page.designNotes, 'Client feedback, imagery, component variants, and high-fidelity decisions.', 'page-designNotes')}
       <div class="status-grid">
@@ -662,364 +1169,3 @@ function selectField<T extends string>(
   return `<label class="field"><span>${escapeHtml(label)}</span><select class="${escapeHtml(className)}">${options.map(([option, optionLabel]) =>
     `<option value="${escapeHtml(option)}"${option === value ? ' selected' : ''}>${escapeHtml(optionLabel)}</option>`).join('')}</select></label>`;
 }
-
-const WEBSITE_STUDIO_CSS = `
-  :root {
-    --studio-accent: var(--vscode-button-background, #2563eb);
-    --studio-border: var(--vscode-widget-border, rgba(127,127,127,.28));
-    --studio-muted: var(--vscode-descriptionForeground, #8b949e);
-    --studio-card: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%);
-  }
-  body { padding: 0 22px 92px; }
-  .studio-hero { display:flex; justify-content:space-between; gap:24px; align-items:flex-end; padding:28px 0 20px; border-bottom:1px solid var(--studio-border); }
-  .studio-hero h1 { margin:2px 0 6px; font-size:2rem; letter-spacing:-.03em; }
-  .hero-copy { max-width:760px; color:var(--studio-muted); margin:0; }
-  .hero-actions, .card-heading, .platform-topline { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-  .eyebrow { margin:0; color:var(--studio-muted); text-transform:uppercase; letter-spacing:.11em; font-size:.72rem; font-weight:700; }
-  button { min-height:34px; border-radius:7px; font-weight:600; }
-  button.secondary { background:transparent; color:var(--vscode-foreground); border:1px solid var(--studio-border); }
-  button.secondary:hover { background:var(--vscode-list-hoverBackground); }
-  button.full { width:100%; }
-  button.danger { color:var(--vscode-errorForeground, #f85149); }
-  button.subtle { background:transparent; border:1px solid var(--studio-border); }
-  .metric-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; padding:16px 0; }
-  .metric-card, .panel-card, .platform-card, .automation-card, .wireframe-card { border:1px solid var(--studio-border); background:var(--studio-card); border-radius:12px; }
-  .metric-card { padding:14px; display:grid; gap:3px; }
-  .metric-card span, .metric-card small { color:var(--studio-muted); }
-  .metric-card strong { font-size:1.12rem; }
-  .notice { display:none; margin:0 0 14px; padding:10px 13px; border:1px solid var(--studio-border); border-radius:8px; }
-  .notice.visible { display:block; }
-  .notice.success { border-color:var(--vscode-testing-iconPassed, #3fb950); }
-  .notice.error { border-color:var(--vscode-errorForeground, #f85149); }
-  .studio-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
-  .studio-nav { position:sticky; top:12px; display:grid; gap:7px; }
-  .nav-button { display:flex; align-items:center; gap:10px; text-align:left; background:transparent; color:var(--vscode-foreground); border:1px solid transparent; }
-  .nav-button span { width:24px; height:24px; display:grid; place-items:center; border-radius:50%; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
-  .nav-button:hover { background:var(--vscode-list-hoverBackground); }
-  .nav-button.active { border-color:var(--studio-accent); background:color-mix(in srgb, var(--studio-accent) 12%, transparent); }
-  .nav-footer { margin-top:12px; padding-top:12px; border-top:1px solid var(--studio-border); display:grid; gap:7px; }
-  .studio-page { display:none; }
-  .studio-page.active { display:block; }
-  .page-intro { padding:18px 20px; margin-bottom:14px; border-left:4px solid var(--studio-accent); background:color-mix(in srgb, var(--studio-accent) 7%, transparent); border-radius:0 10px 10px 0; }
-  .page-intro h2 { margin:4px 0; font-size:1.35rem; }
-  .page-intro p:last-child { margin:0; color:var(--studio-muted); max-width:860px; }
-  .two-column { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
-  .panel-card, .platform-card, .automation-card, .wireframe-card { padding:18px; }
-  .panel-card h2, .platform-card h2, .automation-card h2, .wireframe-card h2 { margin:0 0 12px; }
-  .field { display:grid; gap:5px; margin:0 0 12px; }
-  .field > span { font-weight:600; font-size:.84rem; }
-  input, textarea, select { width:100%; border:1px solid var(--vscode-input-border, var(--studio-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:6px; padding:8px 9px; font:inherit; }
-  textarea { resize:vertical; }
-  input:focus, textarea:focus, select:focus, button:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:1px; }
-  .field-pair, .status-grid, .color-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-  .status-grid, .color-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
-  .color-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
-  .color-field > div { display:flex; gap:6px; }
-  .color-field input[type=color] { width:42px; padding:2px; flex:0 0 42px; }
-  .import-card { margin-top:14px; display:grid; grid-template-columns:minmax(220px,.75fr) minmax(320px,1.25fr) auto; gap:16px; align-items:end; }
-  .table-wrap { overflow:auto; }
-  table { min-width:860px; }
-  th { color:var(--studio-muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; }
-  td { vertical-align:top; }
-  .wireframe-grid, .platform-grid, .automation-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
-  .hosting-heading { display:flex; justify-content:space-between; gap:16px; align-items:end; margin:18px 0 12px; }
-  .hosting-heading h2 { margin:3px 0; }
-  .hosting-heading p:last-child { margin:0; color:var(--studio-muted); max-width:820px; }
-  .platform-heading { margin-top:24px; padding-top:20px; border-top:1px solid var(--studio-border); }
-  .environment-flow { display:grid; grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr) 34px minmax(0,1fr); gap:8px; align-items:stretch; margin-bottom:14px; }
-  .environment-card { min-width:0; padding:17px; border:1px solid var(--studio-border); border-top:4px solid var(--studio-accent); background:var(--studio-card); border-radius:12px; }
-  .environment-staging { border-top-color:var(--vscode-inputValidation-warningBorder, #cca700); }
-  .environment-production { border-top-color:var(--vscode-testing-iconPassed, #3fb950); }
-  .environment-arrow { display:grid; place-items:center; color:var(--studio-muted); font-size:1.45rem; }
-  .environment-topline { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
-  .environment-topline h3 { margin:4px 0 0; font-size:1.2rem; }
-  .environment-purpose { min-height:52px; color:var(--studio-muted); }
-  .locked-field { display:grid; gap:5px; margin:0 0 12px; }
-  .locked-field span { font-weight:600; font-size:.84rem; }
-  .locked-field strong { min-height:18px; padding:8px 9px; border:1px dashed var(--studio-border); border-radius:6px; color:var(--studio-muted); text-transform:capitalize; }
-  .readiness-pill, .guard-badge { border:1px solid var(--studio-border); border-radius:999px; padding:4px 8px; font-size:.74rem; font-weight:700; white-space:nowrap; }
-  .readiness-pill.ready { border-color:var(--vscode-testing-iconPassed, #3fb950); color:var(--vscode-testing-iconPassed, #3fb950); }
-  .readiness-pill.needs-setup { border-color:var(--vscode-inputValidation-warningBorder, #cca700); color:var(--vscode-inputValidation-warningForeground, #cca700); }
-  .readiness-pill.blocked { border-color:var(--vscode-errorForeground, #f85149); color:var(--vscode-errorForeground, #f85149); }
-  .guard-badge { display:inline-block; margin:0 0 10px; border-color:var(--vscode-testing-iconPassed, #3fb950); }
-  .readiness-issues { margin:4px 0 0; padding-left:20px; color:var(--studio-muted); }
-  .readiness-issues li { margin:4px 0; }
-  .readiness-clear { margin:4px 0 0; color:var(--vscode-testing-iconPassed, #3fb950); font-size:.84rem; }
-  .wireframe-topline { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-  .status-pill { border:1px solid var(--studio-border); border-radius:999px; padding:3px 8px; color:var(--studio-muted); font-size:.78rem; }
-  .wireframe-sheet { min-height:210px; background:var(--vscode-editor-background); border:1px dashed var(--studio-border); border-radius:8px; padding:12px; margin:10px 0 14px; display:grid; gap:8px; grid-template-columns:repeat(6,1fr); }
-  .wireframe-block { min-height:36px; border:1px solid var(--studio-border); background:color-mix(in srgb, var(--vscode-foreground) 5%, transparent); display:grid; place-items:center; padding:6px; color:var(--studio-muted); font-size:.75rem; text-align:center; }
-  .block-1 { grid-column:1/-1; }
-  .block-2 { grid-column:span 3; }
-  .block-3 { grid-column:span 2; }
-  .primary-choice { display:flex; gap:7px; align-items:center; font-weight:650; }
-  .primary-choice input { width:auto; }
-  .callout { border:1px solid var(--studio-border); border-left:4px solid var(--vscode-testing-iconPassed, #3fb950); padding:12px 14px; border-radius:0 8px 8px 0; margin:0 0 14px; color:var(--studio-muted); }
-  .callout strong { color:var(--vscode-foreground); }
-  .callout.warning { border-left-color:var(--vscode-inputValidation-warningBorder, #cca700); }
-  code { background:var(--vscode-textCodeBlock-background); padding:2px 5px; border-radius:4px; }
-  .token-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
-  .token-preview span { width:28px; height:28px; border-radius:50%; border:1px solid var(--studio-border); }
-  .empty-state { grid-column:1/-1; min-height:180px; display:grid; place-content:center; text-align:center; gap:5px; border:1px dashed var(--studio-border); border-radius:12px; color:var(--studio-muted); }
-  .save-bar { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; justify-content:space-between; align-items:center; gap:20px; padding:12px 22px; background:color-mix(in srgb, var(--vscode-editor-background) 94%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--studio-border); }
-  .save-bar div { display:grid; }
-  .save-bar span { color:var(--studio-muted); font-size:.82rem; }
-  @media (max-width:1050px) {
-    .metric-strip { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    .studio-layout { grid-template-columns:1fr; }
-    .studio-nav { position:static; display:flex; overflow:auto; padding-bottom:5px; }
-    .nav-button { white-space:nowrap; }
-    .nav-footer { display:none; }
-    .import-card { grid-template-columns:1fr; }
-    .environment-flow { grid-template-columns:1fr; }
-    .environment-arrow { transform:rotate(90deg); min-height:28px; }
-  }
-  @media (max-width:760px) {
-    body { padding-left:14px; padding-right:14px; }
-    .studio-hero, .save-bar { align-items:flex-start; flex-direction:column; }
-    .metric-strip, .two-column, .wireframe-grid, .platform-grid, .automation-grid { grid-template-columns:1fr; }
-    .status-grid, .color-grid, .field-pair { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .save-bar button { width:100%; }
-  }
-`;
-
-const WEBSITE_STUDIO_SCRIPT = `
-  const vscode = acquireVsCodeApi();
-  const qs = (selector, root = document) => root.querySelector(selector);
-  const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-  const value = (selector, root = document) => qs(selector, root)?.value?.trim() ?? '';
-  const lines = input => input.split(/\\r?\\n/).map(item => item.trim()).filter(Boolean);
-  const makeId = prefix => prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
-
-  function showPage(pageId) {
-    qsa('.studio-page').forEach(page => page.classList.toggle('active', page.dataset.page === pageId));
-    qsa('.nav-button').forEach(button => button.classList.toggle('active', button.dataset.pageTarget === pageId));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  function notice(message, tone = '') {
-    const element = qs('#studioNotice');
-    element.textContent = message;
-    element.className = 'notice visible ' + tone;
-  }
-
-  function statusOptions(selected = 'not-started') {
-    return [['not-started','Not started'],['draft','Draft'],['review','In review'],['approved','Approved'],['blocked','Blocked']]
-      .map(([id,label]) => '<option value="' + id + '"' + (id === selected ? ' selected' : '') + '>' + label + '</option>').join('');
-  }
-
-  function sitemapRow(id) {
-    return '<tr data-page-id="' + id + '">' +
-      '<td><input class="page-title" aria-label="Page title" value="New page" /></td>' +
-      '<td><input class="page-slug" aria-label="Page slug" value="/new-page" /></td>' +
-      '<td><textarea class="page-purpose" aria-label="Page purpose" rows="2"></textarea></td>' +
-      '<td><input class="page-template" aria-label="Page template" value="Standard page" /></td>' +
-      '<td><button type="button" class="danger subtle remove-page" data-remove-id="' + id + '">Remove</button></td></tr>';
-  }
-
-  function wireframeCard(id) {
-    return '<article class="wireframe-card" data-page-id="' + id + '">' +
-      '<div class="wireframe-topline"><div><p class="eyebrow">/new-page</p><h2>New page</h2></div><span class="status-pill">not-started</span></div>' +
-      '<div class="wireframe-sheet"><div class="wireframe-block block-1"><span>Section not mapped</span></div></div>' +
-      '<label class="field"><span>Page sections</span><textarea class="page-sections" rows="4" placeholder="One section per line"></textarea></label>' +
-      '<label class="field"><span>Wireframe notes</span><textarea class="page-wireframeNotes" rows="4"></textarea></label>' +
-      '<label class="field"><span>Visual design notes</span><textarea class="page-designNotes" rows="4"></textarea></label>' +
-      '<div class="status-grid">' +
-      ['page-wireframeStatus','page-designStatus','page-contentStatus','page-seoStatus'].map((className, index) =>
-        '<label class="field"><span>' + ['Wireframe','UI design','Content','SEO'][index] + '</span><select class="' + className + '">' + statusOptions() + '</select></label>').join('') +
-      '</div></article>';
-  }
-
-  function automationCard(id) {
-    return '<article class="automation-card" data-automation-id="' + id + '">' +
-      '<div class="card-heading"><p class="eyebrow">n8n workflow</p><button type="button" class="danger subtle remove-automation" data-remove-automation="' + id + '">Remove</button></div>' +
-      '<label class="field"><span>Workflow name</span><input class="automation-name" value="New automation" /></label>' +
-      '<label class="field"><span>Event / trigger</span><input class="automation-event" /></label>' +
-      '<label class="field"><span>Expected outcome</span><textarea class="automation-outcome" rows="4"></textarea></label>' +
-      '<label class="field"><span>Status</span><select class="automation-status"><option value="idea">Idea</option><option value="mapped">Mapped</option><option value="configured">Configured</option><option value="verified">Verified</option><option value="paused">Paused</option></select></label>' +
-      '<div class="field-pair"><label class="field"><span>n8n workflow ID</span><input class="automation-workflowId" /></label><label class="field"><span>n8n instance URL</span><input class="automation-instanceUrl" placeholder="https://n8n.example.com/" /></label></div>' +
-      '<label class="field"><span>Credential reference</span><input class="automation-credentialReference" placeholder="env:N8N_WORKFLOW_URL" /></label>' +
-      '<label class="field"><span>Data and privacy notes</span><textarea class="automation-dataNotes" rows="4"></textarea></label></article>';
-  }
-
-  function collectConfig() {
-    const pageBasics = new Map(qsa('#sitemapRows tr[data-page-id]').map(row => [row.dataset.pageId, {
-      id: row.dataset.pageId,
-      title: value('.page-title', row),
-      slug: value('.page-slug', row),
-      purpose: value('.page-purpose', row),
-      template: value('.page-template', row),
-    }]));
-    const pages = qsa('#wireframeCards [data-page-id]').map(card => ({
-      ...(pageBasics.get(card.dataset.pageId) ?? { id: card.dataset.pageId, title: 'Page', slug: '/page', purpose: '', template: 'Standard page' }),
-      sections: lines(value('.page-sections', card)),
-      wireframeNotes: value('.page-wireframeNotes', card),
-      designNotes: value('.page-designNotes', card),
-      wireframeStatus: value('.page-wireframeStatus', card),
-      designStatus: value('.page-designStatus', card),
-      contentStatus: value('.page-contentStatus', card),
-      seoStatus: value('.page-seoStatus', card),
-    }));
-    const platforms = qsa('[data-platform-id]').map(card => ({
-      id: card.dataset.platformId,
-      label: qs('h2', card)?.textContent ?? card.dataset.platformId,
-      primary: qs('input[name="primaryPlatform"]', card)?.checked === true,
-      status: value('.platform-status', card),
-      siteUrl: value('.platform-siteUrl', card),
-      projectReference: value('.platform-projectReference', card),
-      environmentReference: value('.platform-environmentReference', card),
-      notes: value('.platform-notes', card),
-    }));
-    const hostingEnvironments = qsa('[data-environment-id]').map(card => ({
-      id: card.dataset.environmentId,
-      hostingMode: value('.environment-hostingMode', card) || card.dataset.hostingMode,
-      url: value('.environment-url', card),
-      branchReference: value('.environment-branchReference', card),
-      credentialReference: value('.environment-credentialReference', card),
-      subdomainLabel: value('.environment-subdomainLabel', card),
-      notes: value('.environment-notes', card),
-    }));
-    const automations = qsa('[data-automation-id]').map(card => ({
-      id: card.dataset.automationId,
-      name: value('.automation-name', card),
-      event: value('.automation-event', card),
-      outcome: value('.automation-outcome', card),
-      status: value('.automation-status', card),
-      n8nWorkflowId: value('.automation-workflowId', card),
-      instanceUrl: value('.automation-instanceUrl', card),
-      credentialReference: value('.automation-credentialReference', card),
-      dataNotes: value('.automation-dataNotes', card),
-    }));
-    return {
-      version: 1,
-      intake: {
-        clientName: value('#intake-clientName'),
-        projectName: value('#intake-projectName'),
-        summary: value('#intake-summary'),
-        goals: lines(value('#intake-goals')),
-        audiences: lines(value('#intake-audiences')),
-        requiredFeatures: lines(value('#intake-requiredFeatures')),
-        contentSources: lines(value('#intake-contentSources')),
-        brandNotes: value('#intake-brandNotes'),
-        constraints: lines(value('#intake-constraints')),
-        successMetrics: lines(value('#intake-successMetrics')),
-        targetLaunch: value('#intake-targetLaunch'),
-        budget: value('#intake-budget'),
-        stakeholders: lines(value('#intake-stakeholders')),
-      },
-      pages,
-      designSystem: {
-        brandDirection: value('#design-brandDirection'),
-        tone: value('#design-tone'),
-        primaryColor: value('#design-primaryColor'),
-        secondaryColor: value('#design-secondaryColor'),
-        accentColor: value('#design-accentColor'),
-        headingFont: value('#design-headingFont'),
-        bodyFont: value('#design-bodyFont'),
-        spacingScale: value('#design-spacingScale'),
-        cornerStyle: value('#design-cornerStyle'),
-        accessibilityTarget: value('#design-accessibilityTarget'),
-        componentNotes: lines(value('#design-componentNotes')),
-      },
-      platforms,
-      hostingEnvironments,
-      automations,
-    };
-  }
-
-  qsa('[data-page-target]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.pageTarget)));
-  qsa('[data-command]').forEach(button => button.addEventListener('click', () => vscode.postMessage({ type: 'openCommand', payload: button.dataset.command })));
-  qsa('[data-open-ssot]').forEach(button => button.addEventListener('click', () => vscode.postMessage({ type: 'openSsot', payload: button.dataset.openSsot })));
-  qsa('.environment-hostingMode').forEach(select => select.addEventListener('change', () => {
-    const card = select.closest('[data-environment-id]');
-    if (!card) return;
-    card.dataset.hostingMode = select.value;
-    const access = qs('.environment-accessPolicy strong', card);
-    if (access) access.textContent = select.value === 'hosted' ? 'password-protected' : 'local-only';
-    notice(select.value === 'hosted'
-      ? 'Hosted Develop requires HTTPS and a password credential reference.'
-      : 'Develop restored to loopback-only local hosting. Save to persist.');
-  }));
-
-  qs('#saveWebsiteStudio')?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'saveConfig', payload: collectConfig() });
-    notice('Saving Website Studio…');
-  });
-  qs('#importClientIntake')?.addEventListener('click', () => {
-    const payload = qs('#clientIntakeJson')?.value ?? '';
-    vscode.postMessage({ type: 'importIntake', payload });
-    notice('Importing and normalizing client intake…');
-  });
-  qs('#addWebsitePage')?.addEventListener('click', () => {
-    const id = makeId('page');
-    qs('#sitemapRows')?.insertAdjacentHTML('beforeend', sitemapRow(id));
-    qs('#wireframeCards')?.insertAdjacentHTML('beforeend', wireframeCard(id));
-    notice('New page added. Save Website Studio to persist it.');
-  });
-  qs('#addWebsiteAutomation')?.addEventListener('click', () => {
-    qs('#automationEmpty')?.remove();
-    const id = makeId('automation');
-    qs('#automationCards')?.insertAdjacentHTML('beforeend', automationCard(id));
-    notice('New n8n workflow added. Add references only, then save.');
-  });
-
-  document.addEventListener('click', event => {
-    const removePage = event.target.closest('[data-remove-id]');
-    if (removePage) {
-      if (removePage.dataset.confirm !== 'true') {
-        removePage.dataset.confirm = 'true';
-        removePage.textContent = 'Confirm remove';
-        return;
-      }
-      const id = removePage.dataset.removeId;
-      qsa('[data-page-id]').filter(element => element.dataset.pageId === id).forEach(element => element.remove());
-      notice('Page removed from the draft. Save Website Studio to persist.');
-      return;
-    }
-    const removeAutomation = event.target.closest('[data-remove-automation]');
-    if (removeAutomation) {
-      if (removeAutomation.dataset.confirm !== 'true') {
-        removeAutomation.dataset.confirm = 'true';
-        removeAutomation.textContent = 'Confirm remove';
-        return;
-      }
-      removeAutomation.closest('[data-automation-id]')?.remove();
-      notice('Automation removed from the draft. Save Website Studio to persist.');
-    }
-  });
-
-  // Colour editing used to be one-way and partial: moving the picker wrote into
-  // its paired hex field, typing a hex did not move the picker back, and the
-  // swatches above were server-rendered so neither updated them until a save
-  // and re-render.
-  function paintSwatch(id, value) {
-    const swatch = document.querySelector('[data-token-swatch="' + id + '"]');
-    if (swatch) swatch.style.background = value;
-  }
-
-  qsa('[data-color-for]').forEach(picker => {
-    const id = picker.dataset.colorFor;
-    const target = document.getElementById(id);
-    picker.addEventListener('input', () => {
-      if (target) target.value = picker.value;
-      paintSwatch(id, picker.value);
-    });
-    if (target) {
-      target.addEventListener('input', () => {
-        const value = target.value.trim();
-        // Only a complete hex can drive the native picker; anything else is
-        // still mid-typing, so the swatch waits rather than flickering.
-        if (/^#[0-9a-fA-F]{6}$/.test(value)) {
-          picker.value = value;
-          paintSwatch(id, value);
-        }
-      });
-    }
-  });
-
-  window.addEventListener('message', event => {
-    if (event.data?.type === 'notice') notice(event.data.message, event.data.tone);
-  });
-  vscode.postMessage({ type: 'ready' });
-`;

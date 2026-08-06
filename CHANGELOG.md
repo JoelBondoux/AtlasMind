@@ -6,6 +6,131 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.264.0] - 2026-08-06
+
+### Added
+
+- **Website Studio: a wireframe canvas you draw on** (`src/core/websiteWireframe.ts`, `media/websiteStudio.js`).
+  The old "wireframe" took the first eight strings out of a page's `sections` list and rendered them as
+  `<div class="block-N">` on a three-class CSS grid. It carried no position, no size, no nesting and no
+  identity, so nothing downstream could act on it. Pages now hold real geometry: drag to draw a nav, a hero,
+  a grid or a card, resize from eight handles, drop one block inside another to nest it, and nudge with the
+  arrow keys. Every box is a focusable element with a spoken description of its kind, size and position, so
+  the canvas is not mouse-only. **Coordinates are canvas units on a fixed 1000-wide grid, never pixels** —
+  storing pixels would put the author's monitor size into a git-tracked file and make one design read
+  differently on another machine.
+- **A sitemap that draws its own hierarchy** (`src/core/websiteSitemap.ts`). The page inventory was a flat
+  table; adding `/services/seo` produced another row rather than a child of Services. The hierarchy is now
+  derived from the slug path as pages are added, with an explicit parent able to override it. Rendered as a
+  deterministic SVG tree — the same pages always produce the same coordinates, because a map that shifts
+  when nothing changed is one nobody trusts. A page whose slug names a parent that does not exist is shown
+  at the top level **and flagged**, rather than being hidden or quietly re-parented.
+- **The page inventory knows where each page leads** (`src/core/websiteLinkGraph.ts`). Outbound links,
+  inbound counts, orphan pages that nothing links to, and links whose target page was deleted. A dangling
+  link is **reported, never dropped** — it is the evidence that a nav is broken. Nav and CTA blocks on the
+  canvas suggest links by matching their label to a page title, exactly or case-insensitively and never
+  loosely; a suggested link never overwrites one somebody typed.
+- **Select anything and describe it in your own words** (`src/core/websiteDesignPrompt.ts`). Selecting an
+  element and typing a sentence sends Atlas a prompt that names the selection completely — its kind, label,
+  size, what contains it, the page it is on, and the shared design tokens — so "make this wider" has a
+  referent. Also available for a whole page and for the whole site. Everything read out of the workspace is
+  fenced as REPORTED CONTENT, because labels and stored prompts are model-writable; the person's own
+  sentence is not fenced, because it is the instruction.
+- **Natural-language design prompts on every page and on the site** (`src/types.ts`). A page with a written
+  prompt can be generated without anyone drawing a box, so a whole site can reach first-draft design from
+  the sitemap alone.
+- **A Generate button at every stage, and a preview window beside the Studio**
+  (`src/core/websiteGeneration.ts`, `src/core/websiteGenerationRunner.ts`, `src/core/websitePreviewServer.ts`,
+  `src/views/websitePreviewPanel.ts`, `src/views/websitePreviewHost.ts`). Generate from the brief (a concept
+  page), from the sitemap (every page, driven by its own prompt), from a wireframe (honouring the drawn
+  layout), or from a single selected element. The plan is **deterministic and no model chooses the file
+  list**, which is what makes the confirmation dialog worth reading: it names every file before anything is
+  written. What a stage could not account for is stated with the result rather than left implied.
+- **New commands**: `AtlasMind: Open Website Preview`, `AtlasMind: Stop Website Preview`,
+  `AtlasMind: Generate Website From Plan`.
+- **New settings**, both gates off by default because writing model-authored files and opening a local port
+  are two different decisions: `atlasmind.website.generation.enabled`, `atlasmind.website.preview.enabled`,
+  `atlasmind.website.preview.port`, `atlasmind.website.generation.maxFiles`.
+
+### Changed
+
+- **Website Studio's SSOT is now format v2**, with a registered `website` migration
+  (`src/core/schemaMigration.ts`). The 1 → 2 step transcribes each page's old `sections` list into stacked
+  wireframe bands, so a project written by an earlier build never opens onto an empty canvas. Design prompts
+  and links are seeded **empty rather than guessed** — a migration has no standing to write a design intent
+  on the author's behalf.
+- **`WebsiteWorkspaceManager` reads through `interpretVersionedDocument`.** The old
+  `try { parse } catch { default }` collapsed two very different situations: a corrupt file (safe to replace)
+  and a file written by a *newer* AtlasMind (never safe to replace). An older build would hand back a default
+  and the first save would overwrite the newer format silently, in a git-tracked file. The Studio now opens
+  read-only and says why.
+- **The `website.md` mirror shows the hierarchy, the links and the design prompts**, so "nothing links to the
+  new Pricing page" is visible in a pull request rather than only on screen.
+- Website Studio's CSS moved to `src/views/websiteStudioStyles.ts` and its script to `media/websiteStudio.js`;
+  the panel was carrying ~350 lines of both in template strings, which the canvas would have pushed past
+  readable.
+
+### Security
+
+- The preview server **binds `127.0.0.1` only**, serves nothing but `.atlasmind/website-preview/`, re-checks
+  every request against that root with `path.relative` rather than a prefix test, offers no directory
+  listing, refuses any extension outside a small allowlist, and carries a **random per-session token in its
+  URL** so another local process cannot enumerate the site. It starts on demand and stops with the window.
+- **Generated files can never leave the preview folder.** Paths are validated at plan time, again before
+  every write, and a model that returns a file the user did not approve has it **reported, not written**.
+  No `.js` may be generated at all.
+- The preview panel builds its **own document with its own CSP** rather than using the shared webview shell,
+  so granting `frame-src` to a loopback port does not widen every other panel in AtlasMind. A test pins the
+  shared shell's policy so the decision cannot quietly be undone.
+
+## [0.263.0] - 2026-08-06
+
+### Changed
+
+- **Every panel now renders in the Project Dashboard's design language.** Each webview is an
+  isolated document, so a panel cannot inherit another panel's stylesheet — which is how nineteen
+  panels came to declare nineteen palettes, under five different prefixes (`--atlas-*`, `--lens-*`,
+  `--run-*`, `--studio-*`, `--atlas-panel-*`). Four of those were near-verbatim copies of the
+  dashboard's, drifted by a radius here and a surface mix there. None of it was ever a decision; it
+  was what happened when a panel written in March could not see one written in July. Settings, MCP,
+  Model Providers, Agent Manager, Mission Control, Run Center, Cost Dashboard, Model Comparison,
+  Website Studio, Ideation, Vision, Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the
+  ten Lens surfaces now draw the same card, the same header, the same tab, the same input.
+
+  The **Personality Profile is deliberately unchanged** — its warm palette is a choice rather than
+  drift.
+
+- **The shared theme is applied in two layers, and the order is the mechanism.**
+  `getWebviewHtmlShell({ dashboardSkin: true })` puts the tokens and the page frame *before* a
+  panel's own CSS and the surfaces *after* it. A panel therefore keeps its **layout** — grid
+  templates, gaps, sticky offsets, everything it legitimately owns — and loses its **palette**,
+  which it never really decided on. There is no helper that concatenates the layers, on purpose: a
+  second entry point is a second chance to get the order backwards, and the symptom of getting it
+  backwards is a panel that looks exactly as it did before, which nobody would report as a bug.
+
+- **The skin names the classes it repaints rather than matching them.** A substring match on
+  `-card` would have been shorter and would also have caught `.card-kicker`, `.card-header-row` and
+  the next class somebody names after a card without meaning one. A class that is not on the list
+  keeps its own styling, visibly, until somebody adds it.
+
+  Three families are excluded and stay excluded, because a shared surface must not overwrite a
+  colour that carries meaning: the Ideation board's tinted sticky notes, the chat transcript (a
+  conversation is not a deck of cards), and toned notices. The Lens accent is the same case in the
+  tokens — eight lenses, eight hues, so the header rule says which lens you are reading, and
+  collapsing them into one accent would have deleted information rather than unified a style.
+
+### Added
+
+- `--dash-radius-sm` and `--dash-radius-xs`. The dashboard always had a smaller corner for dense
+  elements; it just spelled the numbers out at each site, which is exactly how a second scale gets
+  invented next door.
+
+- `tests/views/sharedPanelTheme.test.ts` pins the three things a screenshot would not catch: a panel
+  that opts out, a private palette that comes back, and the layer ordering. `themeContrast.test.ts`
+  now resolves skinned panels against the shared theme as well — without that, every `var(--dash-*)`
+  in a converted panel resolved to nothing, the rule was skipped, and the suite would have passed
+  over an empty set.
+
 ## [0.262.0] - 2026-08-06
 
 ### Added

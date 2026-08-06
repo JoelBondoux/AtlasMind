@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.262.0",
+  "version": "0.264.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -585,6 +585,21 @@
         "command": "atlasmind.openWebsiteStudio",
         "title": "AtlasMind: Open Website Studio",
         "icon": "$(globe)"
+      },
+      {
+        "command": "atlasmind.generateWebsite",
+        "title": "AtlasMind: Generate Website From Plan",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "atlasmind.stopWebsitePreview",
+        "title": "AtlasMind: Stop Website Preview",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "atlasmind.openWebsitePreview",
+        "title": "AtlasMind: Open Website Preview",
+        "icon": "$(preview)"
       },
       {
         "command": "atlasmind.sessions.rename",
@@ -2476,6 +2491,34 @@
           ],
           "description": "What AtlasMind does when a chat request would commit, push, branch, open a pull request, promote, or publish. Defaults to following the declared route in the same turn.",
           "markdownDescription": "What AtlasMind does when something you ask for in chat is covered by the declared workflow —\na commit, a push, a new branch, a pull request, a promotion, or a release.\n\n- `follow` **(default)** — treats the declared workflow as a standing policy for this turn. Ask for\nthe outcome once; AtlasMind follows the enabled route without requiring a second \"follow the\nworkflow\" message. Existing tool approvals, automation ceilings, protected-ref checks, release\ngates, and outward-write confirmations are unchanged. Unrelated working-tree edits are never\nstashed or included merely to make a release clean; branch-changing delivery work should use an\nisolated Git worktree when possible.\n- `inform` — states what the workflow expects, then continues exactly as asked. It does not ask a\nquestion or stop the turn.\n- `gate` — refuses until you explicitly say to go ahead. Stronger, and opt-in on purpose: a prompt\nthat appears on every commit becomes one people learn to click through, at which point it protects\nnobody and is still in the way.\n- `off` — no workflow chat policy or notice.\n\nDetection is a **published keyword table**, not a model: no model call in front of every chat turn,\nand the same prompt always produces the same decision. The host passes only a narrow validated\npolicy object into the Orchestrator; free-form checks, blockers, and commands from the repository\nnever become system-prompt text.\n\nNothing is applied when no workflow is declared, or when the stage that owns the action is disabled.\nThere would be no rule to follow, and inventing one would describe a process the project never adopted."
+        },
+        "atlasmind.website.generation.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Website Studio to generate static HTML and CSS into .atlasmind/website-preview/. Off by default.",
+          "markdownDescription": "Allow the **Generate** buttons in Website Studio to call a model and write static\nHTML and CSS files.\n\nOff by default, and separate from `#atlasmind.website.preview.enabled#` on purpose: writing\nmodel-authored files and opening a local port are two different decisions, and one switch\ncarrying both would make the second one happen without being agreed to.\n\nEvery generation shows a modal listing **each file it will write** before anything happens,\nand the plan is deterministic — the same sitemap and the same stage always produce the same\nfile list, which is what makes that dialog worth reading.\n\nFiles only ever land in `.atlasmind/website-preview/`. Your source tree is never written to;\npromoting a generated design out of the preview folder is a separate, deliberate step."
+        },
+        "atlasmind.website.preview.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to serve the generated website preview from a local 127.0.0.1 port. Off by default.",
+          "markdownDescription": "Allow the website preview to run a small static web server so the generated design can be\nrendered in a window beside Website Studio.\n\nThe server binds **`127.0.0.1` only** — never `0.0.0.0` — so it is not reachable from your\nnetwork. It serves nothing but `.atlasmind/website-preview/`, refuses any path that resolves\noutside it, offers no directory listing, and its URL carries a random per-session token so\nanother process on this machine cannot simply guess the port and read your client work.\n\nIt starts only when you open the preview and stops when you close it or close Website Studio."
+        },
+        "atlasmind.website.preview.port": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Port for the local website preview server. 0 picks a free port automatically.",
+          "markdownDescription": "The port the website preview server listens on, on `127.0.0.1`.\n\n`0` **(default)** lets the operating system pick a free one, which is almost always what you\nwant — a fixed port collides with whatever else you happen to be running.\n\nSet a specific port only if you need a stable address, for example to keep a browser tab\nopen across restarts. Values below 1024 are ignored and fall back to automatic."
+        },
+        "atlasmind.website.generation.maxFiles": {
+          "type": "number",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 120,
+          "description": "Most files a single website generation may write. A plan exceeding this is refused rather than truncated.",
+          "markdownDescription": "The most files one **Generate** may write into `.atlasmind/website-preview/`.\n\nA plan that exceeds the limit is **refused with the count**, never silently truncated —\na half-generated site whose missing pages look like broken links is harder to diagnose\nthan one that did not run.\n\nRaise it for a large sitemap, or generate one page at a time from the wireframe canvas."
         }
       }
     }

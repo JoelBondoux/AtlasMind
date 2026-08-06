@@ -279,6 +279,7 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
+- per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
 - project-level UI system decisions;
 - the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
 - a catalog of static, managed-CMS, commerce, and custom platform targets;
@@ -290,7 +291,22 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframes & UI, UI System, Hosting & Platforms, n8n Automations). Its Hosting & Platforms page renders the fixed three-stage environment pipeline, locked access posture, readiness issues, and platform catalog. Its message guard accepts only save/import, the two fixed website SSOT paths, and three fixed AtlasMind navigation commands. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`, where backup, preflight, approval, protected confirmation, and verification remain enforceable; n8n triggering is likewise deliberately outside this planning surface.
+The SSOT is at **format version 2**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 1 → 2 step transcribes each page's old `sections` list into stacked wireframe bands (the transcription is inlined in `schemaMigration.ts` rather than imported, because a migration must keep producing the same output forever); `designPrompt` and `links` are seeded empty rather than guessed.
+
+`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframe canvas, UI System, Hosting & Platforms, n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js`, read inline the way `projectDashboardPanel` reads its script. Its message guard accepts save/import, the two fixed website SSOT paths, three fixed navigation commands, and the four new data-only messages (`promptForTarget`, `generate`, `openPreview`, `stopPreview`) — none of which can name a command, a path, or a file. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`; n8n triggering is likewise deliberately outside this planning surface.
+
+### Website Studio design and generation modules
+
+Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+
+- **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
+- **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.
+- **`websiteLinkGraph.ts`** — outbound/inbound links, orphan pages, and dangling links (reported, never dropped — a link whose target was deleted is the evidence a nav is broken). The root page is never an orphan. Nav/CTA labels suggest links by exact then case-insensitive match, never looser.
+- **`websiteDesignPrompt.ts`** — composes the selection-scoped prompt for `site`, `page` and `element`. Everything read out of the workspace is fenced as REPORTED CONTENT (labels and stored prompts are model-writable) and passed through `redactSecrets`; the user's own instruction is deliberately *not* fenced. The prompt states that the answer is a proposal.
+- **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
+- **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
+
+`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
 
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
@@ -1201,8 +1217,17 @@ extension.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
-  │     ├── views/websiteStudioPanel.ts
-  │     │     └── core/websiteWorkspaceManager.ts
+  │     ├── views/websiteStudioPanel.ts (+ views/websiteStudioStyles.ts, media/websiteStudio.js)
+  │     │     ├── core/websiteWorkspaceManager.ts
+  │     │     ├── core/websiteWireframe.ts
+  │     │     ├── core/websiteSitemap.ts
+  │     │     ├── core/websiteLinkGraph.ts
+  │     │     ├── core/websiteDesignPrompt.ts
+  │     │     └── core/websiteGeneration.ts
+  │     ├── views/websitePreviewHost.ts
+  │     │     ├── views/websitePreviewPanel.ts
+  │     │     ├── core/websitePreviewServer.ts
+  │     │     └── core/websiteGenerationRunner.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
   │     └── bootstrap/bootstrapper.ts
@@ -1252,6 +1277,13 @@ tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   ├── websiteWorkspaceManager.test.ts
+  ├── websiteWireframe.test.ts
+  ├── websiteSitemap.test.ts
+  ├── websiteLinkGraph.test.ts
+  ├── websiteDesignPrompt.test.ts
+  ├── websiteGeneration.test.ts
+  ├── websiteGenerationRunner.test.ts
+  ├── websitePreviewServer.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/

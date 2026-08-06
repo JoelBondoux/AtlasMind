@@ -205,6 +205,30 @@ compose SQL for a generic query tool.
 
 ---
 
+## Website Studio — generating and previewing
+
+Website Studio plans a client website. Most of it is inert: a brief, a sitemap, a wireframe canvas,
+a UI system. Two things in it actually *do* something, and each has its own switch — because writing
+files a model wrote and opening a port on your machine are different decisions, and one control
+carrying both would make the second happen without you agreeing to it.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.generation.enabled` | `false` | Lets **Generate** call a model and write static HTML and CSS. You see a modal listing every file first — and it can list them because the plan is worked out *before* any model runs, so the same sitemap always produces the same list |
+| `atlasmind.website.generation.maxFiles` | `40` | Most files one Generate may write. Over the limit it refuses and tells you the count, rather than writing half a site whose missing pages look like broken links |
+| `atlasmind.website.preview.enabled` | `false` | Lets the preview serve the generated site into a window beside the Studio |
+| `atlasmind.website.preview.port` | `0` | Which port to use. `0` picks a free one, which is nearly always what you want |
+
+Generated files go **only** to `.atlasmind/website-preview/`. Your source tree is never written to;
+moving an approved design out of the preview folder is a separate, deliberate step.
+
+The preview server binds `127.0.0.1` and nothing else — no setting can change that — serves only the
+preview folder, offers no directory listing, and puts a random per-session token in its URL so
+another process on your machine can't guess the port and read your client's work. It starts when you
+open the preview and stops when you close it, or when you close Website Studio.
+
+---
+
 ## Ideation and research
 
 | Setting | Default | What it does |

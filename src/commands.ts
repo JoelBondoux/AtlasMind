@@ -1430,6 +1430,25 @@ export function registerCommands(
       const { WebsiteStudioPanel } = await import('./views/websiteStudioPanel.js');
       WebsiteStudioPanel.createOrShow(atlas.extensionContext, target);
     }),
+
+    vscode.commands.registerCommand('atlasmind.openWebsitePreview', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { openWebsitePreview } = await import('./views/websitePreviewHost.js');
+      await openWebsitePreview(atlas.extensionContext);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.stopWebsitePreview', async () => {
+      const { stopWebsitePreview } = await import('./views/websitePreviewHost.js');
+      await stopWebsitePreview();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.generateWebsite', async (request?: unknown) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { generateWebsiteFromPlan } = await import('./views/websitePreviewHost.js');
+      await generateWebsiteFromPlan(atlas, request);
+    }),
   );
 }
 

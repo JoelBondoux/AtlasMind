@@ -45,7 +45,8 @@ export type SchemaDocumentKind =
   | 'personality-profile'
   | 'mcp-environment'
   | 'workflow'
-  | 'research';
+  | 'research'
+  | 'website';
 
 /**
  * The version each kind is written at today.
@@ -67,6 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
+  website: 2,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -100,7 +102,73 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
     // no standing to invent on the user's behalf.
     migrate: document => ({ ...document, version: 2 }),
   },
+  {
+    kind: 'website',
+    from: 1,
+    to: 2,
+    summary: 'Pages now carry a drawn wireframe, a place in the sitemap hierarchy, their outbound links, and a natural-language design prompt.',
+    // The wireframe is *transcribed* from the old `sections` array rather than
+    // left empty. An empty canvas would read as "your layout work is gone" to
+    // somebody who had filled in eight sections, and the transcription claims
+    // only what the list already said: the order of the bands.
+    //
+    // `designPrompt` and `links` are seeded empty rather than invented. A
+    // migration has no standing to write a design intent on the author's
+    // behalf, and a guessed link would be indistinguishable from one they set.
+    migrate: document => {
+      const pages = Array.isArray(document['pages']) ? document['pages'] : [];
+      return {
+        ...document,
+        version: 2,
+        designPrompt: typeof document['designPrompt'] === 'string' ? document['designPrompt'] : '',
+        pages: pages.map((page, index) => {
+          if (typeof page !== 'object' || page === null || Array.isArray(page)) {
+            return page;
+          }
+          const record = page as Record<string, unknown>;
+          const sections = Array.isArray(record['sections'])
+            ? record['sections'].filter((section): section is string => typeof section === 'string')
+            : [];
+          return {
+            ...record,
+            // Array position is the only ordering a v1 file recorded, so it is
+            // the only ordering that can be carried across honestly.
+            order: typeof record['order'] === 'number' ? record['order'] : index,
+            designPrompt: typeof record['designPrompt'] === 'string' ? record['designPrompt'] : '',
+            links: Array.isArray(record['links']) ? record['links'] : [],
+            ...(record['wireframe'] === undefined && sections.length > 0
+              ? { wireframe: transcribeSectionsToWireframe(sections) }
+              : {}),
+          };
+        }),
+      };
+    },
+  },
 ];
+
+/**
+ * The `sections` → wireframe transcription used by the website 1 → 2 step.
+ *
+ * Inlined here rather than imported from `websiteWireframe.ts` on purpose: a
+ * migration must keep producing the same output forever, and importing a module
+ * that is free to evolve would make an old file migrate differently depending on
+ * which AtlasMind version happened to open it. Migrations are frozen history.
+ */
+function transcribeSectionsToWireframe(sections: readonly string[]): Record<string, unknown> {
+  const BAND_HEIGHT = 240;
+  const CANVAS_WIDTH = 1000;
+  return {
+    breakpoint: 'desktop',
+    elements: sections.slice(0, 60).map((label, index) => ({
+      id: `wf-${index + 1}`,
+      kind: 'section',
+      label,
+      rect: { x: 0, y: index * BAND_HEIGHT, width: CANVAS_WIDTH, height: BAND_HEIGHT },
+      designPrompt: '',
+      notes: '',
+    })),
+  };
+}
 
 export type SchemaMigrationOutcome<T> =
   /** Already at the current version. */

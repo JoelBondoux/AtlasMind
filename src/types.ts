@@ -1195,6 +1195,86 @@ export interface ClientWebsiteIntake {
   stakeholders: string[];
 }
 
+/**
+ * The structural role a drawn wireframe box claims. Deliberately a closed set:
+ * generation reads the kind to decide what markup a box becomes, so a free-text
+ * kind would put the generated element under the model's control rather than
+ * the author's. `custom` is the honest escape hatch — it says "structure I have
+ * not named", which generation renders as a plain container.
+ */
+export type WireframeElementKind =
+  | 'nav'
+  | 'hero'
+  | 'section'
+  | 'grid'
+  | 'card'
+  | 'media'
+  | 'text'
+  | 'form'
+  | 'cta'
+  | 'sidebar'
+  | 'footer'
+  | 'custom';
+
+/**
+ * A box on the wireframe canvas, in canvas units — never device pixels.
+ *
+ * `x`/`width` run across a fixed 1000-unit column grid and `y`/`height` down the
+ * same unit. Storing pixels would record the author's monitor size in a
+ * git-tracked SSOT file and make one design read differently on another
+ * machine; a proportional grid is the claim the author actually made.
+ */
+export interface WireframeRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** One drawn element on a page's wireframe. */
+export interface WebsiteWireframeElement {
+  id: string;
+  kind: WireframeElementKind;
+  label: string;
+  rect: WireframeRect;
+  /** Containing element, for nested structure. Absent means top level. */
+  parentId?: string;
+  /**
+   * Natural-language design intent for this element alone — what the author
+   * would say if they pointed at it. Model-writable, so every reader that
+   * interpolates it into a prompt must fence it.
+   */
+  designPrompt: string;
+  notes: string;
+}
+
+/** Which viewport a wireframe describes. Each page holds one wireframe per breakpoint it has been drawn for. */
+export type WireframeBreakpoint = 'desktop' | 'tablet' | 'mobile';
+
+/** A page's drawn structure at one breakpoint. */
+export interface WebsiteWireframe {
+  breakpoint: WireframeBreakpoint;
+  elements: WebsiteWireframeElement[];
+}
+
+/**
+ * A link leaving one page.
+ *
+ * `origin` separates a link somebody typed from one read off a nav or CTA box
+ * on the wireframe. The distinction is load-bearing: a derived link may be
+ * recomputed whenever the canvas changes, and a declared one may not — silently
+ * overwriting a person's link because a box was moved would lose a decision.
+ */
+export interface WebsitePageLink {
+  id: string;
+  label: string;
+  /** Another page in this workspace. */
+  targetPageId?: string;
+  /** An address outside the site. `https` only. */
+  externalUrl?: string;
+  origin: 'declared' | 'derived';
+}
+
 /** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
 export interface WebsitePagePlan {
   id: string;
@@ -1209,6 +1289,24 @@ export interface WebsitePagePlan {
   designStatus: WebsiteWorkStatus;
   contentStatus: WebsiteWorkStatus;
   seoStatus: WebsiteWorkStatus;
+  /**
+   * Explicit parent in the sitemap hierarchy. Absent means the parent is
+   * derived from the slug path instead — which is what makes the hierarchy map
+   * build itself as pages are added. An explicit value always wins, because it
+   * is the one a person set on purpose.
+   */
+  parentId?: string;
+  /** Sibling ordering. Ties are broken on id so the map cannot shuffle between renders. */
+  order: number;
+  /**
+   * Natural-language design intent for the whole page. Enough of these and a
+   * site can be taken to first-draft design from the sitemap alone, without
+   * anybody drawing a box. Model-writable — fence before prompting.
+   */
+  designPrompt: string;
+  links: WebsitePageLink[];
+  /** Drawn structure. Absent means this page has never been opened on the canvas. */
+  wireframe?: WebsiteWireframe;
 }
 
 /** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
@@ -1286,11 +1384,21 @@ export interface WebsiteAutomation {
 /**
  * Website Studio SSOT. Persisted to `project_memory/domain/website.json` with
  * a human-readable `website.md` mirror for review and version control.
+ *
+ * Version 2 added the wireframe canvas, sitemap hierarchy, link graph, and the
+ * natural-language design prompts. The 1 → 2 step lives in `schemaMigration.ts`
+ * and builds a stacked wireframe from the old `sections` array, so a project
+ * written by an earlier build never opens onto an empty canvas.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 1;
+  version: 2;
   updatedAt: string;
   intake: ClientWebsiteIntake;
+  /**
+   * Natural-language design intent for the site as a whole — the sentence every
+   * page prompt is read against. Model-writable; fence before prompting.
+   */
+  designPrompt: string;
   pages: WebsitePagePlan[];
   designSystem: WebsiteDesignSystem;
   platforms: WebsitePlatformTarget[];

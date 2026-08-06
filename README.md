@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.262.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.264.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -67,8 +67,10 @@ evidence, argue with yourself visually, and then turn the cards that survived in
 **Ship properly.** A guided eight-stage GitHub workflow takes you from an idea to a released version —
 issues, branches, pull requests, review, CI, release — with a clear explanation at every step.
 
-**Deliver a client website.** Website Studio carries a site from the client brief through sitemap,
-wireframes, design system, hosting choice, and a protected path to production.
+**Deliver a client website.** Website Studio carries a site from the client brief through a sitemap
+that draws its own hierarchy, a wireframe canvas you actually draw on, a shared design system, and a
+protected path to production. Select any block and say what you want in plain English; press
+**Generate** at any stage and watch it render in a preview beside you.
 
 ---
 
@@ -121,10 +123,55 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.262.0
+## What's new in 0.264.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Website Studio: draw the site, point at it, and press Generate.** The old wireframe was the first
+  eight strings from a page's section list rendered as coloured blocks — no position, no size, no
+  nesting, nothing downstream could act on it. There is now a real canvas: drag a nav, a hero, a grid
+  or a card onto a snapping 12-column grid, resize from eight handles, drop one block inside another
+  to nest it, and move it with the arrow keys. Every block is focusable and announces its kind, width
+  and position, so the canvas is not mouse-only. Geometry is stored on a fixed 1000-unit grid rather
+  than in pixels — `website.json` is committed, and pixels would record the author's monitor size.
+
+  **The sitemap now draws its own hierarchy**, derived from the slug path as pages are added, so
+  `/services/seo` appears under Services without anybody drawing an edge. An explicit parent overrides
+  it. A page whose slug names a parent that isn't there is shown at the top level *and flagged*, rather
+  than hidden or silently re-parented — and the map is deterministic, so it never shifts when nothing
+  changed.
+
+  **The page inventory knows where each page leads** — outbound links, inbound counts, orphan pages,
+  and links whose target was deleted. A broken link is kept and marked rather than tidied away; it is
+  the evidence that a nav is broken.
+
+  **Select anything and describe it in plain English.** Click a hero, type "full-bleed photo, headline
+  left, one button", and Atlas gets a prompt naming the selection completely — kind, label, width, what
+  contains it, which page, and the shared design tokens. That is what makes "make this wider"
+  answerable. Works for a page and the whole site too. Every page can also carry its own written design
+  prompt, so a site can reach first-draft design from the sitemap alone without a box being drawn.
+
+  **Generate works from wherever you are** — brief, sitemap, a wireframe, or one selected element — and
+  the result renders in a preview window beside the Studio. The file list is decided before any model
+  runs, so the confirmation dialog names every file you are agreeing to. Both switches are **off by
+  default**, and they are two switches because writing files and opening a port are different
+  decisions. Files land only in `.atlasmind/website-preview/`, never in your source tree; the preview
+  server binds `127.0.0.1` only and stops when you close the window.
+
+- **Every panel now looks like the Project Dashboard.** Settings, MCP, Model Providers, Agent Manager,
+  Mission Control, Run Center, Cost Dashboard, Model Comparison, Website Studio, Ideation, Vision,
+  Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the ten Lens surfaces draw the same card,
+  the same header, the same tab and the same input.
+
+  The reason they didn't is structural. Each webview is an isolated document, so a panel genuinely
+  cannot inherit another panel's stylesheet — which over time produced nineteen palettes under five
+  prefixes, four of them drifted copies of the dashboard's. There is now one definition, applied in
+  two layers: tokens and the page frame *before* a panel's own CSS, surfaces *after* it. A panel keeps
+  its layout, which it owns, and loses its private palette, which it never chose.
+
+  Colour that carries meaning is left alone — the Ideation board's tinted notes, the chat transcript,
+  warnings, and each Lens's own accent. The **Personality Profile is unchanged** by request.
 
 - **The Pipeline page can read CI itself, and says when it couldn't.** CI was only ever fetched as a
   side effect of the Issues refresh, so the one page whose whole subject is *did the build pass* had
@@ -266,7 +313,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
-| **Website Studio** | Client intake through to a protected Develop → Staging → Production path. |
+| **Website Studio** | Draw the site on a wireframe canvas, watch the sitemap build its own hierarchy, select any element and describe it in words, then Generate into a live preview beside you — through to a protected Develop → Staging → Production path. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |

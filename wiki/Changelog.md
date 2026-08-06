@@ -19,6 +19,106 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.264.0 — Website Studio: draw the site, point at it, and watch it build
+
+Website Studio could describe a website. It could not show you one.
+
+A "wireframe" was the first eight strings from a page's section list, rendered as coloured blocks on a
+three-class CSS grid. It had no position, no size, no nesting and no identity, so nothing downstream
+could act on it and no two people looking at it were looking at the same thing. The sitemap was a flat
+table: adding `/services/seo` produced another row, not a child of Services. Nothing knew that Home's
+nav pointed at Services, or that nothing at all pointed at the page you added last week. And there was
+no way to see the result — the extension had no preview anywhere.
+
+**Now you draw the page.** Pick a nav, a hero, a grid, a card or a form from the palette and drag it
+onto a snapping 12-column grid. Resize from eight handles. Drop one block inside another to nest it.
+Nudge with the arrow keys, delete with Delete — and deleting a wrapper *promotes* what was inside it
+rather than quietly taking six cards with it. Every block is a real focusable control that announces
+its kind, its width and where it sits, so the canvas is not mouse-only.
+
+Coordinates are stored on a fixed 1000-unit grid rather than in pixels. `website.json` is committed, and
+pixels would record the author's monitor size — the same design would then read differently on a laptop
+and a 4K panel. You never claimed "980px"; you claimed "most of the width".
+
+**The sitemap draws itself.** Hierarchy comes from the slug path as pages are added, so `/services/seo`
+appears under Services without anybody drawing an edge — and an explicit parent overrides it, because a
+decision somebody made on purpose outranks a naming convention. A page whose slug names a parent that
+isn't there goes to the top level *and says so*, rather than being hidden or attached to the nearest
+thing that happens to exist. The map is deterministic: the same pages always produce the same picture.
+
+**The inventory knows where every page leads** — outbound links, inbound counts, pages nothing links to,
+and links whose target was deleted. A broken link is kept and marked, never tidied away; it is the
+evidence that a nav is broken. Nav and CTA blocks suggest links by matching their label to a page title
+exactly or case-insensitively, and never more loosely than that: "Get in touch" silently wired to "Get
+Started" is a wrong answer that looks like a right one.
+
+**Select anything and just say what you want.** Click a hero, type "full-bleed photo, headline left, one
+button", and Atlas receives a prompt that names the selection completely — what kind of thing it is,
+what it's called, how wide it is, what contains it, which page it's on, and the shared design tokens it
+has to stay consistent with. That's what makes "make this wider" answerable. It works for a whole page
+and for the whole site too. Everything read out of the project file is fenced as reported content,
+because labels and stored prompts can be written by a model; your own sentence isn't fenced, because it
+is the instruction.
+
+**Every page can carry a design prompt in plain English** — which means a whole site can reach
+first-draft design from the sitemap alone, without anybody drawing a single box.
+
+**And Generate works from wherever you are.** From the brief you get a one-page concept. From the sitemap
+you get every page, each driven by its own prompt and wired to the others. From a wireframe you get that
+page with the layout you drew honoured. From a selected element you get that element reworked. The
+result renders in a preview window that opens beside the Studio.
+
+Three things about Generate are deliberate. The file list is **decided before any model runs**, so the
+confirmation dialog names every file you're agreeing to and the same sitemap always produces the same
+list — a plan a model composed would differ on every press and nobody could learn what "yes" means.
+Files land **only** in `.atlasmind/website-preview/`, never in your source tree. And what a stage
+*couldn't* account for is reported with the result: generating from a brief cannot honour a layout that
+doesn't exist yet, and a partial answer stored as a whole one lies by omission.
+
+Both switches are **off by default**, and they are two switches rather than one: writing model-authored
+files and opening a local port are different decisions, and one control carrying both would make the
+second happen without being agreed to. The preview server binds `127.0.0.1` only, serves nothing but the
+preview folder, has no directory listing, and puts a random per-session token in its URL so another
+process on your machine can't simply guess the port and read your client's work. It stops when you close
+the window.
+
+Existing projects migrate automatically: your old section lists become stacked bands on the canvas, so
+nothing opens onto an empty page. Design prompts and links start empty rather than guessed — a migration
+has no business writing a design intent on your behalf. And a `website.json` written by a *newer*
+AtlasMind now opens read-only with an explanation, where an older build would previously have
+overwritten it without a word.
+
+---
+
+## v0.263.0 — One design language, across every panel
+
+Every AtlasMind panel now looks like the Project Dashboard. Settings, MCP, Model Providers, Agent
+Manager, Mission Control, Run Center, Cost Dashboard, Model Comparison, Website Studio, Ideation,
+Vision, Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the ten Lens surfaces draw the same
+card, the same header, the same tab and the same input.
+
+The reason they didn't is structural rather than careless. Each webview is an isolated document, so a
+panel genuinely cannot inherit another panel's stylesheet — the tokens have to be injected into each
+one. What that produced over time was nineteen palettes under five different prefixes, four of them
+near-verbatim copies of the dashboard's that had each drifted by a radius here and a surface mix
+there. None of it was ever decided; it was what happened when a panel written in March could not see
+one written in July.
+
+The fix is one definition applied in two layers, and the ordering is the whole idea: the tokens and
+the page frame go in **before** a panel's own CSS, and the surfaces go in **after** it. So a panel
+keeps its layout — where its cards sit, how its columns wrap, what stays stuck to the top — which is
+the part it legitimately owns, and loses its private palette, which it never really chose.
+
+Some things are deliberately left alone, because a shared surface must not overwrite a colour that
+means something. The Ideation board's sticky notes keep the tint you gave them. The chat transcript
+stays a conversation rather than becoming a deck of cards. Warnings keep their warning colour. And
+each Lens keeps its own accent — eight lenses, eight hues, so the rule under the title still tells you
+which one you are reading.
+
+The **Personality Profile is unchanged**, on request. Its warm palette is a choice, not drift.
+
+---
+
 ## v0.262.0 — The Pipeline page can read CI itself
 
 CI was only ever fetched as a side effect of the Issues refresh. The one page whose entire subject is
