@@ -1,3 +1,5 @@
+import { DASHBOARD_PANEL_BASE_CSS, DASHBOARD_PANEL_SKIN_CSS } from './dashboardTheme.js';
+
 /**
  * Shared HTML shell for webview panels.
  * Keeps styling consistent across all AtlasMind panels.
@@ -11,6 +13,20 @@ export interface WebviewShellOptions {
   scriptUri?: string;
   /** Additional CSS injected into the <style> block. */
   extraCss?: string;
+  /**
+   * Render this panel in the Project Dashboard's design language.
+   *
+   * The shell wraps `extraCss` in the two layers described in
+   * `dashboardTheme.ts`: the tokens and page frame before it, the skin after.
+   * That ordering is the point — the panel keeps its own layout and loses its
+   * own palette — and doing it here rather than at each call site is what stops
+   * one panel from concatenating the layers in the wrong order and quietly
+   * looking like it did before.
+   *
+   * Opt-in rather than default, because the Personality Profile's warm palette
+   * is deliberate and stays as it is.
+   */
+  dashboardSkin?: boolean;
 }
 
 export function getWebviewHtmlShell(options: WebviewShellOptions): string {
@@ -144,7 +160,9 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     .slider-group { display: flex; gap: 16px; margin-top: 8px; }
     .slider-group label { cursor: pointer; }
     input[type="radio"] { margin-right: 4px; }
+    ${options.dashboardSkin ? DASHBOARD_PANEL_BASE_CSS : ''}
     ${options.extraCss ?? ''}
+    ${options.dashboardSkin ? DASHBOARD_PANEL_SKIN_CSS : ''}
   </style>
 </head>
 <body>

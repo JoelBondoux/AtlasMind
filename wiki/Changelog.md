@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.266.1 — A build fix
+
+Website Studio was using a piece of the shared panel theme that had not been committed yet: the
+panel asked for the shared skin, and the code providing it existed only as work in progress. It
+compiled on the machine doing that work and nowhere else.
+
+This commits the missing half — the shell option and the shared tokens. Both are purely additive, so
+panels that have not moved onto the shared theme are unaffected. Nothing looks different.
+
+---
+
 ## v0.266.0 — You can finally see the wireframe, and your client can finally talk about it
 
 **The preview was showing a white page.** Here is why, because the reason is more interesting than the

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.1] - 2026-08-06
+
+### Fixed
+
+- **Website Studio built only on a machine that had the shared-theme work in progress.**
+  `websiteStudioPanel.ts` passed `dashboardSkin: true` and `websiteStudioStyles.ts` used `--studio-*`
+  tokens, but the `dashboardSkin` option and those tokens lived only in uncommitted working-tree
+  copies of `webviewUtils.ts` and `dashboardTheme.ts`.
+
+  Introduced in 0.264.0: rewriting the panel carried over the one line of that in-flight change the
+  file already had, and every compile check passed because the uncommitted provider was sitting in
+  the same working tree. It failed the first time the branch was merged into `develop`, where
+  `WebviewShellOptions` has no `dashboardSkin` — the commit had shipped the consumer without the
+  provider.
+
+  This ships the provider: `getWebviewHtmlShell` gains the `dashboardSkin` option, and
+  `dashboardTheme.ts` gains `DASHBOARD_PANEL_BASE_CSS`, `DASHBOARD_PANEL_SKIN_CSS` and the
+  `--studio-*` tokens. Both changes are **purely additive** — no existing export is altered or
+  removed — so panels that have not opted in keep their own styling untouched.
+
 ## [0.266.0] - 2026-08-06
 
 ### Fixed
