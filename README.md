@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.265.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.266.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,37 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.265.0
+## What's new in 0.266.0
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **You can finally see the wireframe.** The preview was showing a white page, and the reason was
+  structural: nothing in AtlasMind could turn a wireframe into HTML, so it could not reach a browser
+  without first spending a model call — and before you generated, you got the server's one-line error
+  page. Wireframes now render straight to HTML with **no model involved**: instant, free, identical
+  every time. Every block is unmistakably a placeholder — hatched, dashed, labelled; a text block is
+  grey bars rather than lorem ipsum, an image a crossed rectangle rather than a stock photo — and your
+  nav shows the real page names from your sitemap, because those are facts rather than filler.
+
+- **Page copy lives in markdown you can hand to a copywriter.** Generated sites used to be full of
+  invented headlines and fictional testimonials, which is worse than an empty page: an empty page is
+  obviously unfinished, and confident fiction gets signed off. Copy now lives in `content/`, one file
+  per page, diffing properly in a pull request. Where the words are not written you leave a
+  `[PLACEHOLDER: what is needed]` marker, which AtlasMind **counts** — so a page reads as "four
+  placeholders remaining" rather than a status somebody ticked, and generation is told to leave the
+  gaps visible rather than fill them.
+
+- **Your client can comment on the actual thing.** Not "the hero is too big" in an email, leaving you
+  to work out which hero. They open the staging site, click the element, and type; the comment lands
+  against that element, transitions through open → addressed → resolved, and becomes scoped work with
+  one click. Delete an element somebody commented on and **the comment survives, flagged** — it is the
+  evidence the thing was removed while under review.
+
+  **AtlasMind hosts none of it.** The overlay ships inside your site, so it travels to the
+  password-protected staging environment the Stack page already sets up — your client's own hosting.
+  Feedback comes back as a downloaded file, or by POST to an endpoint you already own. No endpoint is
+  ever invented; without one the page cannot make a network request at all.
 
 - **Website Studio can now set the project up for you.** The Platforms page became a **Stack** page,
   because the framework and the host are one decision: "Astro on Cloudflare Pages" has a known build

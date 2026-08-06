@@ -1417,7 +1417,7 @@ export interface WebsiteStackChoice {
  * to infer it.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 3;
+  version: 4;
   updatedAt: string;
   intake: ClientWebsiteIntake;
   /**

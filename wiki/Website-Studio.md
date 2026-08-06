@@ -170,6 +170,74 @@ a guard the promotion runner depends on.
 
 ---
 
+## Seeing the wireframe
+
+Open the preview and you see your drawing — immediately, with no model call and no waiting. Every block
+is obviously a placeholder: hatched, dashed, labelled. Text is grey bars rather than lorem ipsum, images
+are crossed rectangles rather than stock photos, and your nav shows the real page names from your
+sitemap because those are actual facts.
+
+The banner says outright that nothing on the page is real content, which matters more than it sounds:
+the whole failure mode here is a page that *looks* finished getting signed off.
+
+Generated pages and wireframes live side by side, so pressing Generate never overwrites your drawing
+and looking at your drawing never hides the generated site.
+
+## Writing the copy
+
+Page copy lives in **markdown files under `content/`**, one per page. Hand them to a copywriter, edit
+them in any editor, review them in a pull request like anything else.
+
+Where the words aren't written yet, leave a marker:
+
+```
+[PLACEHOLDER: two paragraphs on how the firm started — needs the founder interview]
+```
+
+AtlasMind **counts** those. A page reads as "four placeholders remaining" rather than a status somebody
+ticked, and generation is explicitly told to leave them visible rather than helpfully inventing
+something. That instruction is the point of the whole feature.
+
+A couple of behaviours worth knowing:
+
+- **A page with no file and a page with an empty file are different things.** One hasn't been started;
+  the other was started and left blank. AtlasMind never reports the first as "0 placeholders".
+- **The file always wins.** Edit the markdown while the Studio has it open and the Studio's save is
+  refused rather than merged — automatically combining two versions of your prose produces something
+  neither of you wrote.
+- Seeding a starter file writes **only placeholders**, one per section you drew. Never draft prose.
+
+## Client feedback on the actual thing
+
+Your client opens the staging site, clicks the element they want to talk about, and types. The comment
+lands against *that element*, and turns into scoped work with one click.
+
+- Comments move through open → addressed → resolved (or "not doing"), and are **never deleted** —
+  "we fixed it" and "we decided not to" are different things worth keeping apart.
+- Anything resolved can be re-opened, because "still not right" is the commonest event in a review.
+- **Delete an element somebody commented on and the comment survives**, flagged, still saying what it
+  was about. That's the evidence the thing was removed mid-review, and it's exactly the comment that
+  would otherwise vanish.
+
+**AtlasMind doesn't host any of this.** The overlay ships inside your site, so it travels to the
+password-protected staging environment the Stack page already sets up — your client's own hosting. They
+get a normal URL.
+
+Feedback comes back either as a file they download and send you (import it with **AtlasMind: Import
+Website Client Feedback**), or by POST to an endpoint you already own if you've configured one. Without
+one, the page can't make a network request at all — no endpoint is ever invented, because a guessed URL
+would send your client's feedback to a stranger.
+
+Re-importing the same file is safe: nothing duplicates, and nothing you've already resolved gets
+re-opened.
+
+What this deliberately can't do — no live presence, no threaded replies, and comments sit in your
+client's browser until they send them — is written up in
+`project_memory/decisions/website-client-review-hosting.md`, along with why we didn't build a hosted
+relay.
+
+---
+
 ## Getting a brief in without retyping it
 
 The Brief dashboard accepts **JSON** — from your intake form, a CRM export, or an n8n workflow that

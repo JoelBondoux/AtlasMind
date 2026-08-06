@@ -16,10 +16,26 @@
 import * as vscode from 'vscode';
 import * as http from 'node:http';
 import * as path from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { AtlasMindContext } from '../extension.js';
 import type { Orchestrator } from '../core/orchestrator.js';
-import { WEBSITE_PREVIEW_ROOT, type WebsiteGenerationPlan } from '../core/websiteGeneration.js';
+import { WEBSITE_PREVIEW_ROOT, pagePath, type WebsiteGenerationPlan } from '../core/websiteGeneration.js';
+import { WebsiteWorkspaceManager } from '../core/websiteWorkspaceManager.js';
+import { WebsiteReviewManager } from '../core/websiteContentManager.js';
+import {
+  REVIEW_OVERLAY_FILENAME,
+  REVIEW_OVERLAY_SCRIPT,
+  buildReviewOverlay,
+  injectReviewOverlay,
+  sanitizeEndpoint,
+} from '../core/websiteReviewBundle.js';
+import {
+  previewPathFor,
+  renderWireframeIndex,
+  renderWireframePreview,
+  WIREFRAME_INDEX_PATH,
+} from '../core/websiteWireframePreview.js';
 import { WebsitePreviewServer } from '../core/websitePreviewServer.js';
 import { describeGenerationRun, runWebsiteGeneration } from '../core/websiteGenerationRunner.js';
 import { WebsitePreviewPanel } from './websitePreviewPanel.js';
@@ -79,13 +95,25 @@ export async function openWebsitePreview(context: vscode.ExtensionContext): Prom
     return;
   }
   const root = previewRootFor(workspaceRoot);
-  // Created up front so the server has something to serve; an empty folder gives
-  // "not generated yet" rather than a failure to start.
   await mkdir(root, { recursive: true });
+
+  // Render the wireframes before starting. Without this, opening the preview
+  // before anything has been generated served the 404 — a white page with one
+  // line of grey text, which is exactly what it looked like. These are
+  // deterministic, cost nothing, and mean the preview always shows the drawing.
+  const entryPath = await writeWireframePreviews(workspaceRoot, root);
 
   try {
     if (!server?.running) {
-      server = new WebsitePreviewServer({ rootDirectory: root, port: configuredPort(), http });
+      server = new WebsitePreviewServer({
+        rootDirectory: root,
+        port: configuredPort(),
+        http,
+        // Tied to the same setting that puts the overlay into the pages, so
+        // the policy widens exactly when there is something that needs it.
+        allowOverlayScript: vscode.workspace.getConfiguration('atlasmind')
+          .get<boolean>('website.review.includeOverlayInBuild', false),
+      });
       await server.start();
     }
   } catch (error) {
@@ -102,9 +130,69 @@ export async function openWebsitePreview(context: vscode.ExtensionContext): Prom
     return;
   }
 
-  WebsitePreviewPanel.createOrShow(context, url, port, () => {
+  WebsitePreviewPanel.createOrShow(context, `${url}${entryPath}`, port, () => {
     void stopWebsitePreview();
   });
+}
+
+/**
+ * Render every page's wireframe into the preview root, and say which page the
+ * preview should open on.
+ *
+ * The renders live under `_wireframe/`, deliberately *not* at the address a
+ * generated page occupies. Sharing an address would mean either the create-only
+ * rule blocking a later Generate, or a Generate silently replacing the wireframe
+ * — and in both cases somebody ends up looking at the wrong thing while
+ * believing they are looking at the other. Side by side, both stay available.
+ *
+ * Unlike generated files these *are* overwritten each time: they are derived
+ * from the canvas, cost nothing to rebuild, and a stale one would show a drawing
+ * that no longer exists.
+ *
+ * Returns the sub-path to open — the generated site when there is one, the
+ * wireframe index when there is not.
+ */
+async function writeWireframePreviews(workspaceRoot: string, root: string): Promise<string> {
+  let config;
+  try {
+    config = new WebsiteWorkspaceManager(workspaceRoot).load();
+  } catch {
+    // No workspace file yet. Nothing to draw, and the server will answer
+    // honestly rather than this failing the whole open.
+    return '';
+  }
+
+  try {
+    await mkdir(path.join(root, '_wireframe'), { recursive: true });
+
+    await writeFile(
+      path.join(root, WIREFRAME_INDEX_PATH),
+      renderWireframeIndex(config.pages, config.designSystem, config.intake.projectName),
+      'utf8',
+    );
+
+    for (const page of config.pages) {
+      await writeFile(
+        path.join(root, previewPathFor(page)),
+        renderWireframePreview({
+          page,
+          designSystem: config.designSystem,
+          siblings: config.pages,
+          ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
+        }),
+        'utf8',
+      );
+    }
+  } catch {
+    // A failed render must not stop the preview opening — the generated site may
+    // still be there and is the more important thing to show. If it is not, the
+    // root answers "not generated yet", which is at least true.
+    return '';
+  }
+
+  // A generated site takes precedence: it is the more finished artefact, and
+  // the wireframes stay one click away at `_wireframe/`.
+  return existsSync(path.join(root, 'index.html')) ? '' : WIREFRAME_INDEX_PATH;
 }
 
 /** Stop the server. Safe to call when nothing is running — the Studio calls it on dispose. */
@@ -181,6 +269,12 @@ export async function generateWebsiteFromPlan(
     return;
   }
 
+  // The overlay is added *after* generation rather than asked for in the prompt.
+  // The model contributes only the inert `data-atlas-element` attributes; the
+  // script, the styling and the policy come from constants here, which is what
+  // lets the script be frozen and reviewable.
+  await injectReviewOverlayIfEnabled(workspaceRoot, root, result.written);
+
   // Omissions are shown with the success, not instead of it. A partial result
   // reported as a whole one is the failure mode the plan's `omitted` list exists
   // to prevent.
@@ -189,6 +283,88 @@ export async function generateWebsiteFromPlan(
 
   await openWebsitePreview(atlas.extensionContext);
   WebsitePreviewPanel.currentPanel?.refresh();
+}
+
+/**
+ * Add the client review overlay to the pages that were just generated.
+ *
+ * Reads the declared webhook once, here. With none configured the overlay is
+ * export-only — the client downloads a file — and the generated page's policy
+ * forbids it making any request at all. **No endpoint is ever invented**, so an
+ * unset setting means export, never a fallback destination.
+ */
+async function injectReviewOverlayIfEnabled(
+  workspaceRoot: string,
+  root: string,
+  writtenPaths: readonly string[],
+): Promise<void> {
+  const settings = vscode.workspace.getConfiguration('atlasmind');
+  if (!settings.get<boolean>('website.review.includeOverlayInBuild', false)) {
+    return;
+  }
+
+  const endpoint = sanitizeEndpoint(settings.get<string>('website.review.webhookUrl', ''));
+  const config = new WebsiteWorkspaceManager(workspaceRoot).load();
+  const reviewRound = new WebsiteReviewManager(workspaceRoot).load().currentRound;
+
+  // The script is written once, as its own file, so the page's `script-src
+  // 'self'` needs no `unsafe-inline`.
+  await writeFile(path.join(root, REVIEW_OVERLAY_FILENAME), REVIEW_OVERLAY_SCRIPT, 'utf8');
+
+  for (const relative of writtenPaths) {
+    if (!relative.toLowerCase().endsWith('.html')) {
+      continue;
+    }
+    const page = config.pages.find(candidate => pagePath(candidate) === relative);
+    if (!page) {
+      continue;
+    }
+    const absolute = path.join(root, relative);
+    try {
+      const html = await readFile(absolute, 'utf8');
+      const overlay = buildReviewOverlay({
+        page,
+        round: reviewRound,
+        ...(endpoint ? { endpoint } : {}),
+      });
+      await writeFile(absolute, injectReviewOverlay(html, overlay), 'utf8');
+    } catch {
+      // A page we cannot re-read keeps its generated form. Losing the overlay on
+      // one page is better than losing the page.
+    }
+  }
+}
+
+/**
+ * Re-render the wireframes on demand, for the Studio's "Preview wireframe"
+ * action.
+ *
+ * Separate from opening the preview because the canvas changes far more often
+ * than the generated site does: after moving three boxes you want to see the
+ * drawing, not run a model.
+ */
+export async function refreshWireframePreview(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRoot = requireWorkspaceRoot();
+  if (!workspaceRoot) {
+    return;
+  }
+  const root = previewRootFor(workspaceRoot);
+  await mkdir(root, { recursive: true });
+  await writeWireframePreviews(workspaceRoot, root);
+
+  if (!server?.running) {
+    await openWebsitePreview(context);
+    return;
+  }
+  // Already serving: point the existing window at the wireframe index rather
+  // than opening a second one.
+  const url = server.url;
+  const port = server.port;
+  if (url && port !== undefined) {
+    WebsitePreviewPanel.createOrShow(context, `${url}${WIREFRAME_INDEX_PATH}`, port, () => {
+      void stopWebsitePreview();
+    });
+  }
 }
 
 /**

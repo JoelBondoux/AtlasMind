@@ -214,6 +214,84 @@ Sync also **never creates a Delivery stage** — that would mean inventing a bac
 from a page that models neither, and `promotionRunner` would then act on defaults nobody chose. An
 unmapped environment is reported instead.
 
+## Seeing the wireframe
+
+A wireframe renders straight to HTML with **no model involved** — instant, free, and identical every
+time. This exists because of a real bug: there was no deterministic HTML renderer anywhere in
+`src/core/`, so a wireframe could not reach a browser without first running a generation, and an empty
+preview root served the 404 as a near-blank page.
+
+Renders live under `_wireframe/`, deliberately **not** at the address a generated page occupies.
+Sharing an address would mean either the create-only rule blocking a later Generate, or a Generate
+silently replacing the wireframe — and in both cases somebody looks at the wrong thing believing it is
+the other. Opening the preview shows the generated site when there is one and the wireframe index when
+there is not.
+
+Every block is unmistakably unfinished: hatched fill, dashed border, its own label. A `text` block
+renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than a stock
+photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
+rather than filler. The output carries no script and no external request, so it satisfies the preview
+server's existing strict CSP without that policy being widened.
+
+## Page content
+
+Copy lives in markdown under `content/` (configurable), one file per page, with YAML front-matter for
+`title`, `metaDescription` and `status`. Unknown front-matter keys survive a round trip, so a field
+your static-site generator depends on is never silently dropped.
+
+Five rules:
+
+- **Invented copy must never look like approved copy.** `[PLACEHOLDER: what is needed]` is parsed,
+  **counted**, and rendered visibly as a gap. A page's readiness is "four placeholders remaining" — a
+  fact — rather than a status somebody set. Generation is instructed to emit markers rather than
+  plausible prose, and never to write invented company names, testimonials, prices or statistics.
+- **The file wins.** Saving from the Studio re-reads first, and a file that changed underneath is
+  refused rather than merged: automatically resolving two versions of somebody's prose produces a
+  document neither of them wrote.
+- **Missing is not empty.** No file means nobody has started; an empty file means somebody started and
+  left it blank. Distinguishable at every layer, and a missing file is never reported as
+  "0 placeholders".
+- **Front-matter is bounded and sanitized**, and the body keeps its newlines — markdown is
+  line-structured, and collapsing whitespace would destroy every paragraph break.
+- **The path is derived from the slug one way**, via the sitemap's own `normalizeSlug`, so the content
+  tree and the sitemap cannot disagree. A file no page claims is reported, never deleted.
+
+Seeding a starter file writes **only placeholders** — one per drawn section, naming what is needed.
+
+## Client review
+
+Comments are recorded against a page or a specific wireframe element and transition through
+`open → addressed → resolved`, plus `wont-fix`.
+
+- **Comments transition, never delete.** "We fixed it" and "we decided not to" are different facts.
+- **An orphaned comment is kept and flagged**, carrying the label the element had when the comment was
+  made. It is the evidence that something was removed while under review — and the comment a naive
+  implementation drops. `resolved` can always be re-opened, because "still not right" is the commonest
+  event in a review.
+- **The body is fenced as REPORTED CONTENT** wherever it reaches a model. It is third-party text that
+  travelled through a browser we do not control.
+
+### The shareable link
+
+The overlay is generated **into the site**, so it travels to the password-protected staging
+environment the Stack page already sets up — the client's own hosting. **AtlasMind hosts nothing.**
+
+Comments return either by download (imported with **AtlasMind: Import Website Client Feedback**) or by
+POST to an endpoint the team already owns. **No endpoint is ever invented**: unset means export-only,
+and the page's `connect-src` is then `'none'` — it cannot make a request at all.
+
+This is the only place AtlasMind puts JavaScript into a generated page, so:
+
+- The script is a **frozen constant**, hand-written, never model-written, with nothing from the
+  workspace interpolated into it — configuration travels in a `data-` attribute as JSON.
+- The preview server's `.js` exception is **one named file**, not a widened extension class, and
+  `script-src 'self'` is added only while the overlay setting is on.
+- Import is **idempotent**: re-sending the same export adds nothing and never resets a comment already
+  resolved.
+
+The decision not to run a hosted relay — and what that costs — is recorded in
+`project_memory/decisions/website-client-review-hosting.md`.
+
 ## Client Intake JSON
 
 The Brief dashboard accepts a bounded JSON object. This works well for an export from a form/CRM or the normalized output of an n8n intake workflow. Common field aliases are mapped:

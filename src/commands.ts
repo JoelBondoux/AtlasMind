@@ -1450,6 +1450,20 @@ export function registerCommands(
       await generateWebsiteFromPlan(atlas, request);
     }),
 
+    vscode.commands.registerCommand('atlasmind.previewWebsiteWireframe', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { refreshWireframePreview } = await import('./views/websitePreviewHost.js');
+      await refreshWireframePreview(atlas.extensionContext);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.importWebsiteFeedback', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { importWebsiteFeedbackFile } = await import('./views/websiteReviewHost.js');
+      await importWebsiteFeedbackFile();
+    }),
+
     vscode.commands.registerCommand('atlasmind.setUpWebsiteStack', async (request?: unknown) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

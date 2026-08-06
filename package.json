@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.265.0",
+  "version": "0.266.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -595,6 +595,16 @@
         "command": "atlasmind.setUpWebsiteStack",
         "title": "AtlasMind: Set Up Website Stack",
         "icon": "$(tools)"
+      },
+      {
+        "command": "atlasmind.importWebsiteFeedback",
+        "title": "AtlasMind: Import Website Client Feedback",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.previewWebsiteWireframe",
+        "title": "AtlasMind: Preview Website Wireframe",
+        "icon": "$(layout)"
       },
       {
         "command": "atlasmind.stopWebsitePreview",
@@ -2560,6 +2570,30 @@
           ],
           "description": "Package manager used for scaffold, dev and build commands when setting up a website stack.",
           "markdownDescription": "Which package manager Website Studio uses in the commands it plans and in the scripts it\nwrites into `package.json`.\n\nOnly the leading executable and the `run`/`exec` verbs are translated; flags are passed\nthrough untouched. That is deliberately narrow — a general translation layer would have to\nunderstand each manager's flag differences, and getting that subtly wrong produces a command\nthat runs and does something other than what you read."
+        },
+        "atlasmind.website.content.directory": {
+          "type": "string",
+          "default": "content",
+          "description": "Folder holding the markdown content files Website Studio reads and writes. Relative to the workspace root.",
+          "markdownDescription": "Where page copy lives, as one markdown file per page with YAML front-matter.\n\nFiles are the **source of truth**; the Studio shows an editable mirror of them. That way a\ncopywriter can work in their own editor, the copy diffs cleanly in a pull request, and every\nstatic framework in the catalog can read it natively.\n\nA path that escapes the workspace is ignored and the default is used instead."
+        },
+        "atlasmind.website.review.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Website Studio to record client review comments against pages and wireframe elements. Off by default.",
+          "markdownDescription": "Turn on client review: comments recorded against a page, or against a specific element on\nit, tracked through `open → addressed → resolved`.\n\nComments **transition, never delete** — \"we fixed it\" and \"we decided not to\" are different\nfacts. A comment against an element somebody later removed is **kept and flagged**, because it\nis the evidence that the element was removed while it was under review.\n\nComment text is treated as third-party input everywhere it is used, including being fenced as\nreported content before it ever reaches a model."
+        },
+        "atlasmind.website.review.includeOverlayInBuild": {
+          "type": "boolean",
+          "default": false,
+          "description": "Inject the client comment overlay into generated pages so a client can leave feedback in their own browser. Off by default.",
+          "markdownDescription": "Include the review overlay in generated pages, so a client can open the site and click on the\nthing they want to talk about.\n\n**AtlasMind hosts nothing.** The overlay ships inside the site itself, so it travels to the\npassword-protected staging environment the Stack page already sets up — your client's own\nhosting. Comments come back either as a file they download and send you, or by POST to a\nwebhook you already own (see `#atlasmind.website.review.webhookUrl#`).\n\nThis is the **only** place AtlasMind puts JavaScript into a generated page. The overlay script\nis a fixed constant in AtlasMind's source — nothing from your project is ever interpolated into\nit, and its configuration travels in a data attribute instead."
+        },
+        "atlasmind.website.review.webhookUrl": {
+          "type": "string",
+          "default": "",
+          "description": "HTTPS endpoint the review overlay POSTs comments to. Empty means the client downloads a file instead.",
+          "markdownDescription": "An endpoint **you already own** — a form handler, a Worker, an n8n webhook — that the review\noverlay posts client comments to.\n\nEmpty (the default) means export-only: the client downloads a JSON file and sends it to you,\nand you import it with **AtlasMind: Import Website Client Feedback**. No endpoint is ever\ninvented or defaulted, because a guessed URL would send your client's feedback to a stranger.\n\n`https` only, and a URL carrying credentials is refused. The value is also the only origin the\ngenerated page's content-security-policy permits a connection to."
         }
       }
     }

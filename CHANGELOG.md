@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.0] - 2026-08-06
+
+### Fixed
+
+- **The preview no longer opens on a white page** (`src/core/websiteWireframePreview.ts`). There was no
+  deterministic HTML renderer anywhere in `src/core/` — the only HTML was the preview server's error
+  page — so a wireframe could not reach a browser *at all* without first running a model generation.
+  With an empty preview root the server answered its 404, which is a white page with one line of small
+  grey text. Wireframes now render straight to HTML with **no model involved**: instant, free,
+  deterministic, and written before the server starts, so **Open preview always shows the drawing**.
+  Renders live under `_wireframe/`, never at the address a generated page occupies, so both stay
+  available and neither can silently replace the other.
+
+### Added
+
+- **Visible placeholders, everywhere.** Every wireframe block renders hatched, dashed and labelled; a
+  text block is grey bars rather than lorem ipsum, an image is a crossed rectangle rather than a stock
+  photo, and a nav shows the **real page names from the sitemap** because those are facts rather than
+  filler. The generation output contract now demands the same of generated pages: `[PLACEHOLDER: …]`
+  markers styled as unfinished, and no invented company names, testimonials, prices or statistics.
+  A page that looks finished but is full of fiction is worse than an obviously unfinished one, because
+  somebody signs it off.
+- **A content model** (`src/core/websiteContent.ts`, `src/core/websiteContentManager.ts`). Page copy
+  lives in markdown files under `content/` with YAML front-matter, one per page, so a copywriter can
+  edit it in their own editor and it diffs cleanly in a pull request. Files are the source of truth
+  and the Studio shows a mirror; a save whose file changed underneath is **refused rather than
+  merged**, because automatically resolving two versions of somebody's prose produces a document
+  neither of them wrote. Placeholders are parsed, **counted** and reported — a page's readiness is
+  "four placeholders remaining", a fact, not a status somebody set. **Missing is not empty**: a page
+  with no file has not been started, a page with an empty file was started and left blank, and the two
+  stay distinguishable at every layer. Generation reads the real copy and is told not to fill the
+  gaps.
+- **Client review, anchored to the thing being reviewed** (`src/core/websiteReviewComments.ts`).
+  Comments recorded against a page or a specific wireframe element, tracked through
+  `open → addressed → resolved` plus `wont-fix`. Comments **transition, never delete** — "we fixed it"
+  and "we decided not to" are different facts. A comment against an element somebody later removed is
+  **kept and flagged, carrying the label the element had**: it is the evidence that something was
+  removed while under review, and it is the comment a naive implementation silently drops. Round
+  numbers make "third time we have been asked about this hero" answerable, and
+  `buildCommentWorkPrompt` turns one comment into scoped work with the body fenced as REPORTED
+  CONTENT.
+- **A shareable client review link that AtlasMind does not host**
+  (`src/core/websiteReviewBundle.ts`). The overlay is generated *into the site*, so it travels to the
+  password-protected staging environment the Stack page already sets up — the client's own hosting.
+  They open a normal URL, click the thing they mean, and type. Comments come back as a downloaded file
+  (`AtlasMind: Import Website Client Feedback`) or, if the team already owns an endpoint, by POST to
+  it. **No endpoint is ever invented**: unset means export-only, and the page's policy then forbids it
+  making any request at all. Recorded as a decision record at
+  `project_memory/decisions/website-client-review-hosting.md`, including what this deliberately cannot
+  do.
+- **New commands**: `AtlasMind: Preview Website Wireframe`, `AtlasMind: Import Website Client
+  Feedback`. **New settings**: `atlasmind.website.content.directory`,
+  `atlasmind.website.review.enabled`, `atlasmind.website.review.includeOverlayInBuild`,
+  `atlasmind.website.review.webhookUrl`.
+
+### Changed
+
+- Website Studio's SSOT is **format v4**, with a 3 → 4 step that adds only the version. Content lives
+  in files the migration has no business creating, and an absent content file is a meaningful state —
+  "nobody has written this yet" — that seeding would destroy.
+- `splitFrontMatter` now parses empty front-matter (`---\n---`) correctly. It previously required a
+  content line, fell through, and treated the whole file as body — which made an empty page read as
+  "this page has copy".
+- `sanitizeContentDirectory` **refuses** an absolute path instead of relativising it. Turning `/etc`
+  into `<workspace>/etc` silently reinterpreted what somebody wrote and left them believing content
+  went somewhere it did not.
+
+### Security
+
+- **The review overlay script is a frozen constant.** It is the only place AtlasMind puts JavaScript
+  into a generated page, so it is hand-written in one file, no model touches it, and nothing from the
+  workspace is interpolated into it — its configuration travels in a `data-` attribute as JSON. A test
+  asserts the emitted script is byte-identical to the constant regardless of page, round or endpoint.
+- **The preview server's `.js` exception is one named file**, not a widened extension class:
+  `atlas-review.js` and nothing else. `script-src 'self'` is added to the served policy only when the
+  overlay setting is on, so the widening happens exactly when there is something that needs it.
+- Imported feedback runs through the **same sanitizer as the workspace file** — third-party text that
+  has been through a browser we do not control. Import is idempotent: re-sending the same export adds
+  nothing and **never resets a comment already resolved**.
+- A webhook must be plain `https` with no credentials in the URL, and it is the only origin the
+  generated page's `connect-src` permits.
+
 ## [0.265.0] - 2026-08-06
 
 ### Added

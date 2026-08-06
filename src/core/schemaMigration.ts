@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 3,
+  website: 4,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -153,6 +153,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
     // a package.json or a config file on disk: absent means "nobody has chosen",
     // and a wrong guess here is the field that decides what gets scaffolded.
     migrate: document => ({ ...document, version: 3 }),
+  },
+  {
+    kind: 'website',
+    from: 3,
+    to: 4,
+    summary: 'Page copy now lives in markdown files under content/, and client review feedback in its own register.',
+    // Only the version changes. Content lives in files this migration has no
+    // business creating, and an absent content file is a meaningful state —
+    // "nobody has written this yet" — which seeding would destroy.
+    migrate: document => ({ ...document, version: 4 }),
   },
 ];
 

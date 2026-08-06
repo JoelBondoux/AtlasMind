@@ -229,6 +229,31 @@ open the preview and stops when you close it, or when you close Website Studio.
 
 ---
 
+## Website Studio — copy and client feedback
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.content.directory` | `content` | Where page copy lives — one markdown file per page. The files are the source of truth; the Studio shows a mirror |
+| `atlasmind.website.review.enabled` | `false` | Record client comments against pages and individual elements |
+| `atlasmind.website.review.includeOverlayInBuild` | `false` | Put the comment overlay into generated pages so your client can leave feedback in their own browser |
+| `atlasmind.website.review.webhookUrl` | `''` | An endpoint **you own** for comments to POST to. Empty means your client downloads a file and sends it |
+
+Where the words aren't written yet, leave a `[PLACEHOLDER: what's needed]` marker. AtlasMind counts
+them, so a page reads as "four placeholders remaining" rather than a status somebody ticked — and
+generation is told to leave them visible rather than helpfully inventing copy. A page that looks
+finished but is full of fiction is worse than an obviously unfinished one, because it gets signed off.
+
+A page with **no** content file and a page with an **empty** one are different things, and stay
+different. And if you edit the markdown while the Studio has it open, the Studio's save is refused
+rather than merged — the file wins.
+
+**AtlasMind doesn't host the review.** The overlay ships inside your site, so it goes wherever the
+site goes, including the password-protected staging environment the Stack page sets up. Your client
+opens a normal URL. Comments come back as a downloaded file, or by POST to an endpoint you already own
+if you configure one — and if you don't, the page can't make a network request at all.
+
+---
+
 ## Website Studio — setting the project up
 
 Picking a framework does nothing by itself. **Set up this stack** is the part that runs commands and

@@ -42,6 +42,8 @@ import { buildScopedDesignPrompt } from './websiteDesignPrompt.js';
 import { normalizeSlug } from './websiteSitemap.js';
 import { buildSitemapTree, flattenSitemap } from './websiteSitemap.js';
 import { orderedWireframeElements, wireframeKindSpec } from './websiteWireframe.js';
+import { renderContentForPrompt, type WebsitePageContent } from './websiteContent.js';
+import { reviewGenerationInstruction } from './websiteReviewBundle.js';
 
 /** Where Generate was pressed. Ordered from least to most structural knowledge. */
 export type WebsiteGenerationStage = 'brief' | 'sitemap' | 'wireframe' | 'element';
@@ -94,6 +96,19 @@ export interface WebsiteGenerationRequest {
   elementId?: string;
   /** Ceiling from settings, further clamped by `MAX_GENERATED_FILES`. */
   maxFiles?: number;
+  /**
+   * Real copy, by page id, read from `content/`.
+   *
+   * Supplied by the caller rather than read here, so this module stays pure.
+   * A page with no entry gets the "mark everything as a placeholder"
+   * instruction — which is the honest default, not a degraded one.
+   */
+  content?: ReadonlyMap<string, WebsitePageContent>;
+  /**
+   * `atlasmind.website.review.includeOverlayInBuild`. When on, generated pages
+   * carry the data attributes the client review overlay needs.
+   */
+  reviewMode?: boolean;
 }
 
 // ── Planning ─────────────────────────────────────────────────────
@@ -145,13 +160,13 @@ export function planWebsiteGeneration(request: WebsiteGenerationRequest): Websit
 function draftFor(request: WebsiteGenerationRequest): WebsiteGenerationPlanResult {
   switch (request.stage) {
     case 'brief':
-      return planFromBrief(request.config);
+      return planFromBrief(request.config, request);
     case 'sitemap':
-      return planFromSitemap(request.config);
+      return planFromSitemap(request.config, request);
     case 'wireframe':
-      return planFromWireframe(request.config, request.pageId);
+      return planFromWireframe(request.config, request.pageId, request);
     case 'element':
-      return planFromElement(request.config, request.pageId, request.elementId);
+      return planFromElement(request.config, request.pageId, request.elementId, request);
     default:
       return { ok: false, reason: 'Unknown generation stage.' };
   }
@@ -165,7 +180,7 @@ function draftFor(request: WebsiteGenerationRequest): WebsiteGenerationPlanResul
  * six would put structure into the preview that nobody chose and that the
  * sitemap would then contradict.
  */
-function planFromBrief(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanResult {
+function planFromBrief(config: WebsiteWorkspaceConfig, request: WebsiteGenerationRequest): WebsiteGenerationPlanResult {
   const prompt = buildGenerationPrompt(config, {
     heading: 'Generate a single-page visual concept for this site from the brief below.',
     scope: 'site',
@@ -174,6 +189,7 @@ function planFromBrief(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanRes
       'a nav, a hero, two or three content bands, and a footer, using the design system given.',
       'This is a concept, not the finished site — no page has been planned in detail yet.',
     ].join(' '),
+    ...(request.reviewMode ? { reviewMode: true } : {}),
   });
 
   return {
@@ -203,7 +219,7 @@ function planFromBrief(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanRes
  * sitemap alone" true — a page with a written prompt and no drawing still gets a
  * real page out of it.
  */
-function planFromSitemap(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanResult {
+function planFromSitemap(config: WebsiteWorkspaceConfig, request: WebsiteGenerationRequest): WebsiteGenerationPlanResult {
   const tree = buildSitemapTree(config.pages);
   const ordered = flattenSitemap(tree).map(node => node.page);
 
@@ -229,6 +245,9 @@ function planFromSitemap(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanR
       'sitemap hierarchy and the recorded links so the pages actually reach each other.',
     ].join(' '),
     includeSitemap: true,
+    contentPages: ordered,
+    ...(request.content ? { content: request.content } : {}),
+    ...(request.reviewMode ? { reviewMode: true } : {}),
   });
 
   return {
@@ -254,6 +273,7 @@ function planFromSitemap(config: WebsiteWorkspaceConfig): WebsiteGenerationPlanR
 function planFromWireframe(
   config: WebsiteWorkspaceConfig,
   pageId: string | undefined,
+  request: WebsiteGenerationRequest,
 ): WebsiteGenerationPlanResult {
   const page = config.pages.find(candidate => candidate.id === pageId);
   if (!page) {
@@ -271,6 +291,9 @@ function planFromWireframe(
       'not pixels, so treat them as proportions. Produce one HTML file and update the shared',
       'stylesheet.',
     ].join(' '),
+    contentPages: [page],
+    ...(request.content ? { content: request.content } : {}),
+    ...(request.reviewMode ? { reviewMode: true } : {}),
   });
 
   return {
@@ -306,6 +329,7 @@ function planFromElement(
   config: WebsiteWorkspaceConfig,
   pageId: string | undefined,
   elementId: string | undefined,
+  request: WebsiteGenerationRequest,
 ): WebsiteGenerationPlanResult {
   const page = config.pages.find(candidate => candidate.id === pageId);
   if (!page) {
@@ -327,6 +351,9 @@ function planFromElement(
       `Rewrite the whole page, but change only the "${label}" element and whatever must move`,
       'to accommodate it. Every other element keeps its current structure and styling.',
     ].join(' '),
+    contentPages: [page],
+    ...(request.content ? { content: request.content } : {}),
+    ...(request.reviewMode ? { reviewMode: true } : {}),
   });
 
   return {
@@ -355,6 +382,10 @@ interface GenerationPromptOptions {
   elementId?: string;
   instruction: string;
   includeSitemap?: boolean;
+  /** Pages whose real copy should be included, in order. */
+  contentPages?: readonly WebsitePagePlan[];
+  content?: ReadonlyMap<string, WebsitePageContent>;
+  reviewMode?: boolean;
 }
 
 /**
@@ -375,6 +406,10 @@ function buildGenerationPrompt(config: WebsiteWorkspaceConfig, options: Generati
   });
 
   const sitemapBlock = options.includeSitemap ? renderSitemapBlock(config) : '';
+  const contentBlock = renderContentBlock(options.contentPages ?? [], options.content);
+  const reviewBlock = options.reviewMode
+    ? (options.contentPages ?? []).map(page => reviewGenerationInstruction(page)).filter(Boolean).join('\n\n')
+    : '';
 
   return [
     options.heading,
@@ -383,15 +418,57 @@ function buildGenerationPrompt(config: WebsiteWorkspaceConfig, options: Generati
     '',
     sitemapBlock,
     '',
+    contentBlock,
+    '',
+    reviewBlock,
+    '',
     '--- output contract ---',
     'Return each file in its own fenced code block, preceded by a line reading `FILE: <path>`',
     'using exactly the paths listed in the plan. Write complete files, not fragments or diffs.',
     'The result must be static: no <script> tags, no inline event handlers, no external requests,',
-    'no CDN links, no web fonts. Reference images by a data URI or omit them and use a coloured',
-    'placeholder block. The page is served from a local sandbox with no network access.',
+    'no CDN links, no web fonts. The page is served from a local sandbox with no network access.',
     'Meet the stated accessibility target: real landmarks, one h1, alt text, visible focus.',
+    '',
+    'ABOUT CONTENT YOU WERE NOT GIVEN:',
+    'Where real copy, a real image or a real statistic was not supplied, you must leave a visible',
+    'placeholder rather than inventing something plausible. Write the placeholder as',
+    '`[PLACEHOLDER: what is needed here]` in the text, and style it so it is obviously unfinished',
+    '(a dashed outline and a muted background). For an image, output a plain coloured block with',
+    'its intended subject written on it — never a data-URI photograph and never a stock image.',
+    'Do not write invented company names, testimonials, prices, client logos, or statistics.',
+    'A page that looks finished but is full of fiction is worse than an obviously unfinished one,',
+    'because somebody signs it off.',
     '--- end output contract ---',
   ].filter(line => line !== '').join('\n');
+}
+
+/**
+ * The real copy for each page being generated.
+ *
+ * Given verbatim so the model uses the client's words rather than writing its
+ * own, and fenced like everything else read out of the workspace. A page with no
+ * content file says so explicitly — the instruction to mark every piece of copy
+ * as a placeholder is the *point*, not a fallback, because a page of plausible
+ * invented prose is the failure this whole path exists to prevent.
+ */
+function renderContentBlock(
+  pages: readonly WebsitePagePlan[],
+  content: ReadonlyMap<string, WebsitePageContent> | undefined,
+): string {
+  if (pages.length === 0) {
+    return '';
+  }
+  const blocks = pages.map(page => [
+    `### ${page.title} (${pagePath(page)})`,
+    renderContentForPrompt(content?.get(page.id)),
+  ].join('\n'));
+
+  return [
+    '--- page copy (untrusted) ---',
+    'Use this text as the page\'s words. Do not rewrite it, do not improve it, and do not extend it.',
+    ...blocks,
+    '--- end page copy ---',
+  ].join('\n\n');
 }
 
 function renderSitemapBlock(config: WebsiteWorkspaceConfig): string {

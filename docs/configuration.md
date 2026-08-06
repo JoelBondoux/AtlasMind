@@ -397,6 +397,50 @@ model's reply is read, and again immediately before each write. A model that ret
 did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
 page that can execute is a different security question from one that cannot.
 
+## Website Studio — content and client review
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.content.directory` | string | `content` | Folder holding one markdown file per page, with YAML front-matter. **Files are the source of truth**; the Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
+| `atlasmind.website.review.enabled` | boolean | `false` | Record client review comments against pages and wireframe elements. Comments transition through `open → addressed → resolved` (plus `wont-fix`) and are **never deleted**. |
+| `atlasmind.website.review.includeOverlayInBuild` | boolean | `false` | Inject the comment overlay into generated pages so a client can leave feedback in their own browser. |
+| `atlasmind.website.review.webhookUrl` | string | `''` | An `https` endpoint **you already own** for the overlay to POST to. Empty means export-only: the client downloads a file and you import it. |
+
+**Placeholders are the point.** A `[PLACEHOLDER: what is needed]` marker in a content file is parsed,
+counted and rendered visibly as a gap, and generation is instructed to emit markers rather than
+plausible prose. A page that looks finished but is full of fiction is worse than an obviously
+unfinished one, because somebody signs it off.
+
+**Missing is not empty.** A page with no content file has not been started; a page with an empty file
+was started and left blank. The two stay distinguishable at every layer, and a missing file is never
+reported as "0 placeholders".
+
+**The file wins.** Saving from the Studio re-reads first, and a file that changed underneath is
+**refused rather than merged** — automatically resolving two versions of somebody's prose produces a
+document neither of them wrote.
+
+Four things about the review overlay, since it is the only place AtlasMind puts JavaScript into a
+generated page:
+
+- **The script is a frozen constant.** Hand-written in `websiteReviewBundle.ts`, never model-written,
+  with nothing from the workspace interpolated into it — its configuration travels in a `data-`
+  attribute as JSON. A test asserts the emitted script is byte-identical regardless of page, round or
+  endpoint.
+- **AtlasMind hosts nothing.** The overlay ships inside the site, so it deploys to the
+  password-protected staging environment the Stack page sets up — the client's own infrastructure.
+- **No endpoint is ever invented.** Unset means export-only, and the page's `connect-src` is then
+  `'none'` — it cannot make a request at all. A configured endpoint must be plain `https` with no
+  credentials, and becomes the only permitted origin.
+- **The preview server's script exception is one named file** (`atlas-review.js`), not a widened
+  extension class, and `script-src 'self'` is added to the served policy only while the overlay
+  setting is on.
+
+Imported feedback is treated as third-party text that has been through a browser we do not control:
+same sanitizer as the workspace file, and the import is **idempotent** — re-sending the same export
+adds nothing and never resets a comment already resolved. A comment naming an element or page that no
+longer exists is **kept and flagged**, because the likeliest cause is that somebody deleted the thing
+the client was asking about.
+
 ## Website Studio — stack setup
 
 Choosing a framework and a platform does nothing on its own. **Set up this stack** is what runs

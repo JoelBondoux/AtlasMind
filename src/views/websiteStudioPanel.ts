@@ -24,6 +24,7 @@ import {
 } from '../core/websiteSitemap.js';
 import { buildLinkGraph } from '../core/websiteLinkGraph.js';
 import { readDeliveryConfig } from '../core/deliveryManager.js';
+import { WebsiteContentManager } from '../core/websiteContentManager.js';
 import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
 import { WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
@@ -439,12 +440,25 @@ export class WebsiteStudioPanel {
       return;
     }
 
+    // Real copy is read here and handed in, so `websiteGeneration` stays pure.
+    // A page with no content file is not an error: the prompt tells the model to
+    // mark every piece of copy on it as a placeholder, which is the honest
+    // outcome rather than a degraded one.
+    const settings = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const content = workspaceRoot
+      ? new WebsiteContentManager(workspaceRoot, settings.get<string>('website.content.directory'))
+        .read(this.config.pages)
+      : undefined;
+
     const planned = planWebsiteGeneration({
       config: this.config,
       stage: payload.stage,
       ...(payload.pageId ? { pageId: payload.pageId } : {}),
       ...(payload.elementId ? { elementId: payload.elementId } : {}),
       maxFiles: generationFileLimit(),
+      ...(content ? { content } : {}),
+      ...(settings.get<boolean>('website.review.includeOverlayInBuild', false) ? { reviewMode: true } : {}),
     });
 
     if (!planned.ok) {

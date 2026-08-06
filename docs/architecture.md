@@ -306,6 +306,15 @@ Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
+### Website Studio content and review
+
+- **`websiteWireframePreview.ts`** — renders a wireframe straight to self-contained HTML with **no model involved**. It exists because there was no deterministic HTML renderer anywhere in `src/core/`, so a wireframe could not reach a browser without a generation, and an empty preview root served the 404 as a near-blank page. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; renders live under `_wireframe/`, never at a generated page's address.
+- **`websiteContent.ts`** / **`websiteContentManager.ts`** — markdown copy with YAML front-matter, one file per page, derived from the same `normalizeSlug` the sitemap uses. `[PLACEHOLDER: …]` is parsed and **counted**; *missing* and *empty* stay distinguishable; the file is the source of truth and a save whose file changed underneath is refused rather than merged.
+- **`websiteReviewComments.ts`** — comments against a page or element, transitioning and never deleted, with an orphaned comment kept and flagged carrying the element's remembered label. `buildCommentWorkPrompt` fences the body as REPORTED CONTENT.
+- **`websiteReviewBundle.ts`** — the overlay generated *into the site*, so it deploys to the client's own staging. The script is a **frozen constant** with configuration passed in a `data-` attribute; no endpoint is ever invented, and `connect-src` names the single declared origin or is `'none'`. Import reuses the record sanitizer and is idempotent. The decision not to host a relay is recorded in `project_memory/decisions/website-client-review-hosting.md`.
+
+The preview server's `.js` exception is **one named file** (`REVIEW_OVERLAY_SERVED_NAME`), not a widened extension class, and `script-src 'self'` is added to the served policy only when `allowOverlayScript` is set — which the host ties to the same setting that injects the overlay.
+
 ### Website Studio stack setup
 
 Four more modules cover the framework half, all pure and unit-tested except the host:
@@ -1237,7 +1246,11 @@ extension.ts
   │     │     ├── core/websiteGeneration.ts
   │     │     ├── core/websiteFrameworks.ts
   │     │     ├── core/websiteStackSetup.ts (→ core/websiteCiTemplate.ts)
-  │     │     └── core/websiteDeliverySync.ts
+  │     │     ├── core/websiteDeliverySync.ts
+  │     │     ├── core/websiteWireframePreview.ts
+  │     │     ├── core/websiteContent.ts (→ core/websiteContentManager.ts)
+  │     │     └── core/websiteReviewComments.ts (→ core/websiteReviewBundle.ts)
+  │     ├── views/websiteReviewHost.ts
   │     ├── views/websiteStackSetupHost.ts
   │     ├── views/websitePreviewHost.ts
   │     │     ├── views/websitePreviewPanel.ts
@@ -1303,6 +1316,9 @@ tests/core/
   ├── websiteCiTemplate.test.ts
   ├── websiteStackSetup.test.ts
   ├── websiteDeliverySync.test.ts
+  ├── websiteWireframePreview.test.ts
+  ├── websiteContent.test.ts
+  ├── websiteReview.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/

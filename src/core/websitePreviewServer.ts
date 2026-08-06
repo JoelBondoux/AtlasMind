@@ -81,20 +81,38 @@ const SERVABLE_EXTENSIONS = new Set<string>([
  * script, no frames, no connections, no fonts from anywhere. This markup was
  * written by a model and is being rendered inside the user's editor.
  */
-const SERVED_CONTENT_SECURITY_POLICY = [
-  "default-src 'none'",
-  "img-src 'self' data:",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self' data:",
-  "form-action 'none'",
-  "base-uri 'none'",
-  "frame-ancestors *",
-].join('; ');
+function servedContentSecurityPolicy(allowOverlayScript: boolean): string {
+  return [
+    "default-src 'none'",
+    "img-src 'self' data:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    // Same-origin only, and only when the review overlay is switched on. The
+    // page's own meta policy narrows this further once deployed.
+    ...(allowOverlayScript ? ["script-src 'self'", "connect-src https:"] : []),
+    "form-action 'none'",
+    "base-uri 'none'",
+    "frame-ancestors *",
+  ].join('; ');
+}
+
+/** The policy when nothing extra is permitted — the ordinary case. */
+const SERVED_CONTENT_SECURITY_POLICY = servedContentSecurityPolicy(false);
 
 /** Minimal surface of `node:http`, so tests can supply a fake. */
 export interface PreviewHttpModule {
   createServer(handler: (request: IncomingMessage, response: ServerResponse) => void): Server;
 }
+
+/**
+ * The single script the preview will serve, by exact name.
+ *
+ * `.js` is deliberately not added to `SERVABLE_EXTENSIONS`: that would let *any*
+ * script in the preview root run, when the thing we actually need is one file
+ * whose contents are a frozen constant in `websiteReviewBundle.ts`. Naming the
+ * exception keeps the general rule — generated output carries no script — intact.
+ */
+export const REVIEW_OVERLAY_SERVED_NAME = 'atlas-review.js';
 
 export interface PreviewServerOptions {
   /** Absolute path to the directory to serve. */
@@ -102,6 +120,15 @@ export interface PreviewServerOptions {
   /** Defaults to an ephemeral port. */
   port?: number;
   http: PreviewHttpModule;
+  /**
+   * Serve and permit the client review overlay script.
+   *
+   * Off by default and tied to the same setting that puts the overlay into the
+   * pages, so the policy widens exactly when — and only when — there is
+   * something that needs it. With it off the server behaves as it always has:
+   * no script served, no script permitted.
+   */
+  allowOverlayScript?: boolean;
 }
 
 export interface PreviewServerHandle {
@@ -191,7 +218,12 @@ export class WebsitePreviewServer {
       return;
     }
 
-    const resolved = resolvePreviewRequest(request.url ?? '/', this.token, root);
+    const resolved = resolvePreviewRequest(
+      request.url ?? '/',
+      this.token,
+      root,
+      this.options.allowOverlayScript === true,
+    );
     if (!resolved.ok) {
       respondError(response, resolved.status, resolved.reason);
       return;
@@ -213,9 +245,11 @@ export class WebsitePreviewServer {
 
     const extension = path.extname(resolved.filePath).toLowerCase();
     response.writeHead(200, {
-      'Content-Type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
+      'Content-Type': path.basename(resolved.filePath) === REVIEW_OVERLAY_SERVED_NAME
+        ? 'text/javascript; charset=utf-8'
+        : CONTENT_TYPES[extension] ?? 'application/octet-stream',
       'Content-Length': stats.size,
-      'Content-Security-Policy': SERVED_CONTENT_SECURITY_POLICY,
+      'Content-Security-Policy': servedContentSecurityPolicy(this.options.allowOverlayScript === true),
       'X-Content-Type-Options': 'nosniff',
       // The preview must never be cached: the whole point is that it changes
       // when Generate is pressed again.
@@ -245,6 +279,7 @@ export function resolvePreviewRequest(
   requestUrl: string,
   token: string,
   root: string,
+  allowOverlayScript = false,
 ): PreviewResolution {
   let pathname: string;
   try {
@@ -298,7 +333,9 @@ export function resolvePreviewRequest(
   }
 
   const extension = path.extname(filePath).toLowerCase();
-  if (!SERVABLE_EXTENSIONS.has(extension)) {
+  // One named file, not a widened extension class.
+  const isOverlayScript = allowOverlayScript && path.basename(filePath) === REVIEW_OVERLAY_SERVED_NAME;
+  if (!isOverlayScript && !SERVABLE_EXTENSIONS.has(extension)) {
     // Refused rather than sent as a download: the preview root is a sandbox for
     // rendering, not a file share.
     return { ok: false, status: 404, reason: 'Not found.' };

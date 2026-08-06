@@ -19,6 +19,71 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.266.0 — You can finally see the wireframe, and your client can finally talk about it
+
+**The preview was showing a white page.** Here is why, because the reason is more interesting than the
+fix: there was no code anywhere in AtlasMind that could turn a wireframe into HTML. The only HTML in
+the whole core was the preview server's error page. So a wireframe could not reach a browser at all
+without first spending a model call — and if you opened the preview before generating, you got that
+error page, which is white with one line of small grey text.
+
+Wireframes now render straight to HTML with **no model involved**. Instant, free, and the same every
+time, so the preview becomes something you work against — draw, look, adjust — rather than something
+you pay to consult.
+
+And every block is *obviously* a placeholder. Hatched fill, dashed border, its own label. A text block
+is grey bars, not lorem ipsum. An image is a crossed rectangle, not a stock photo. Your nav shows the
+real page names from your sitemap, because those are facts rather than filler. The banner says
+outright that nothing on the page is real content.
+
+That last point is the theme of this release.
+
+**Generated pages used to be full of invented copy** — plausible headlines, fictional testimonials,
+made-up statistics. That is worse than an empty page, because an empty page is obviously unfinished
+and a page of confident fiction gets signed off.
+
+So page copy now lives in **markdown files under `content/`**, one per page. A copywriter edits them in
+their own editor. They diff properly in a pull request. Every static framework in the Stack catalog
+reads markdown natively. And where the words are not written yet you leave a `[PLACEHOLDER: what is
+needed]` marker — which AtlasMind *counts*, so a page's readiness is "four placeholders remaining"
+rather than a status somebody ticked.
+
+Generation reads your real copy and is explicitly told not to fill the gaps.
+
+Two distinctions in there are load-bearing. **A page with no content file is not the same as a page
+with an empty one** — one has not been started, the other was started and left blank — and they stay
+different everywhere. And **the file always wins**: if you edit the markdown while the Studio has it
+open, the save is refused rather than merged, because automatically resolving two versions of somebody's
+prose produces a document neither of them wrote.
+
+**Then your client can comment on it.** Not by emailing "the hero is too big" and leaving you to work
+out which hero. They open the site, click the thing they mean, and type.
+
+Comments are anchored to the actual element, tracked through open → addressed → resolved, and turn into
+scoped work with one click — using the element-prompt machinery from v0.264.0. They *transition, never
+delete*, because "we fixed it" and "we decided not to" are different facts. And if you delete an
+element somebody commented on, **the comment survives and is flagged**, still carrying the element's
+old label. That is the evidence the thing was removed while under review — and it is exactly the
+comment a naive implementation loses.
+
+**AtlasMind hosts none of this.** The review overlay is generated *into your site*, so it travels to
+the password-protected staging environment the Stack page already sets up — your client's own hosting.
+Comments come back either as a file they download and send you, or by POST to an endpoint you already
+own. No endpoint is ever invented: unset means download-only, and the page then cannot make a network
+request at all.
+
+That was a real architectural decision rather than a default, and it is written up in
+`project_memory/decisions/website-client-review-hosting.md` — including the things it deliberately
+cannot do: no live presence, no threaded replies, and comments sitting in the client's browser until
+they send them.
+
+The overlay is the only place AtlasMind puts JavaScript into a generated page, so it is a **frozen
+constant**: hand-written in one file, never touched by a model, with nothing from your project
+interpolated into it — its settings travel in a data attribute instead. The preview server's script
+exception is one named file, not a widened rule.
+
+---
+
 ## v0.265.0 — Website Studio can start the project, not just design it
 
 v0.264.0 let you design a site. It still couldn't *start* one — you'd plan a whole Cloudflare Pages

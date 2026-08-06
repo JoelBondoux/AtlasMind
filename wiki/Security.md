@@ -323,6 +323,39 @@ instruction must not become one.
 
 ---
 
+## Client review, and the one script we generate
+
+The review overlay is the **only** place AtlasMind puts JavaScript into a generated page, so it gets
+treated accordingly.
+
+**The script is a frozen constant.** Hand-written in one file, never written by a model, and nothing
+from your project is interpolated into it — its configuration travels in a `data-` attribute as JSON.
+A test asserts the emitted script is byte-identical to the constant whatever the page, the round or the
+endpoint. That is why it can be reviewed once rather than every time.
+
+**AtlasMind hosts nothing.** The overlay ships inside your site and deploys to your client's own
+staging environment. There is no relay, no account, and no copy of your client's work on anyone else's
+infrastructure. The reasoning, and what it costs, is in
+`project_memory/decisions/website-client-review-hosting.md`.
+
+**No endpoint is ever invented.** With no webhook configured the overlay is download-only and the
+page's `connect-src` is `'none'` — it cannot make a request at all. A configured endpoint must be
+plain `https` with no credentials in the URL, and becomes the single permitted origin.
+
+**The preview server's script exception is one named file.** `atlas-review.js`, by exact name — not
+`.js` added to the allowlist, which would let any script in the preview folder run. `script-src 'self'`
+is added to the served policy only while the overlay setting is on, so the policy widens exactly when
+there is something that needs it and not a moment earlier.
+
+**Feedback coming back is untrusted twice** — third-party text that has been through a browser we do
+not control, possibly on a machine we know nothing about. It runs through the same sanitizer as the
+workspace file, and is fenced as reported content before it ever reaches a model. Import is
+idempotent: re-sending the same export adds nothing and never re-opens work you have already resolved.
+A comment naming an element or page that no longer exists is **kept and flagged**, not dropped — the
+likeliest cause is that somebody deleted the thing the client was asking about.
+
+---
+
 ## Scaffolding a website stack, and the workflow it can write
 
 **Set up this stack** is the only place AtlasMind runs commands on your behalf to build a project, and
