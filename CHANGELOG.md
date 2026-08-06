@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.3] - 2026-08-06
+
+### Security
+
+- **js-yaml pinned to ^4.3.1** (GHSA-5p4m-2wfm-xmqj, high): quadratic CPU consumption resolving
+  `!!omap`, affecting `>=4.0.0 <4.3.1`. It reaches the tree only through `@vscode/vsce` →
+  `@secretlint/node`, so it is a **build-time dependency and never ships in the extension** —
+  `npm ls js-yaml --omit=dev` is empty. Pinned inside the 4.x line rather than moved to 5.x, because
+  a major bump of a transitive dependency to clear a dev-only advisory risks more than it fixes.
+  `npm audit` now reports zero vulnerabilities, and `vsce` still runs.
+
+### Note on the Dependabot alerts
+
+- The 11 alerts GitHub reports (3 high, 8 moderate — `fast-uri`, `ip-address` ×3, `undici` ×5,
+  `hono`, `postcss`) are **already fixed on `develop`** and were resolved by the checked overrides in
+  0.257.6. Dependabot scans the default branch, which is `main`, and `main` is still at 0.257.5 with
+  the older override block. They will clear on the next promotion to `main`; nothing further is
+  needed on `develop`.
+
 ## [0.266.2] - 2026-08-06
 
 ### Changed

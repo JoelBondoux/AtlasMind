@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.266.3 — One dependency advisory, and a note on the others
+
+Pinned `js-yaml` to 4.3.1, clearing a high-severity advisory about CPU consumption when parsing a
+particular YAML construct. It only ever reached the tree through the packaging tool, so it never
+shipped inside the extension — but a clean audit is worth more than an argument about exposure.
+
+On the eleven alerts GitHub is showing: those are **already fixed here**. Dependabot scans the
+default branch, which is `main`, and `main` is still on 0.257.5 — several releases behind, without
+the dependency overrides that resolved them. They clear when `main` next catches up. Nothing is
+outstanding on `develop`.
+
+---
+
 ## v0.266.2 — The shared panel theme, actually applied
 
 v0.263.0 said every panel had moved onto the Project Dashboard's design language. The code for that
