@@ -51,9 +51,9 @@ export interface RemoteServerStatus {
   mode: 'localhost' | 'gateway';
 }
 
-/** Optional read-only RPC handler for the cost/runs channels (wired in Phase 4). */
+/** Optional read-only RPC handler for the cost/runs/buzz channels (wired in Phase 4). */
 export type RemoteRpcHandler = (
-  channel: 'cost' | 'runs',
+  channel: 'cost' | 'runs' | 'buzz',
   request: { method: string; params?: Record<string, unknown> },
 ) => Promise<unknown>;
 
@@ -329,7 +329,7 @@ export class RemoteControlServer {
   }
 
   private async handleRpc(session: RemoteSession, envelope: RemoteEnvelope): Promise<void> {
-    const channel = envelope.channel as 'cost' | 'runs';
+    const channel = envelope.channel as 'cost' | 'runs' | 'buzz';
     if (!isRemoteRpcRequest(envelope.payload)) {
       this.safeSend(session.socket, errorFrame({ code: 'invalid-frame', message: 'Invalid RPC request.' }, envelope.id));
       return;

@@ -2781,6 +2781,70 @@ async function bootstrapAtlasMind(
         }));
         return { runs };
       }
+      // Buzz, read-only. The browser never reaches a relay: NIP-42 auth needs the agent
+      // key, which stays in SecretStorage on this machine. It asks the desktop for what
+      // the desktop has already received, and there is deliberately no send method.
+      // Inbound is deny-by-default and off unless the user turned both gates on, so an
+      // absent service is the NORMAL case, not an error — say so rather than throwing.
+      if (channel === 'buzz') {
+        const buzz = atlasContext!.buzzInbound;
+        if (!buzz) {
+          if (request.method === 'buzz.status') {
+            return { status: 'disabled', channelIds: [], identityCount: 0 };
+          }
+          return request.method === 'buzz.channels' ? { channels: [] } : { messages: [] };
+        }
+        const identities = buzz.listIdentities();
+        const nameFor = (pubkey: string): string | undefined =>
+          identities.find(identity => identity.pubkey === pubkey)?.displayName;
+        const selfPubkey = buzz.getSelfPubkey();
+        // Clamp before it reaches the conversation store: `limit` is attacker-controllable
+        // in the sense that it arrives over the bridge, and an unbounded read would let a
+        // client pull the whole history in one frame.
+        const limit = typeof request.params?.['limit'] === 'number'
+          ? Math.max(1, Math.min(100, Math.floor(request.params['limit'] as number)))
+          : 30;
+        const toRemote = (message: {
+          id: string;
+          authorPubkey: string;
+          channelId?: string;
+          createdAt: number;
+          text: string;
+        }) => ({
+          id: message.id,
+          channelId: message.channelId ?? '',
+          pubkey: message.authorPubkey,
+          ...(nameFor(message.authorPubkey) ? { author: nameFor(message.authorPubkey)! } : {}),
+          content: message.text,
+          createdAt: message.createdAt,
+          mine: selfPubkey !== undefined && message.authorPubkey === selfPubkey,
+        });
+
+        if (request.method === 'buzz.status') {
+          return {
+            status: buzz.getStatus(),
+            ...(selfPubkey ? { selfPubkey } : {}),
+            channelIds: buzz.listConversationChannels(),
+            identityCount: identities.length,
+          };
+        }
+        if (request.method === 'buzz.channels') {
+          const channels = buzz.listConversationChannels().map(id => {
+            const recent = buzz.readConversation(id, 1);
+            const last = recent[recent.length - 1];
+            return last ? { id, lastAt: last.createdAt } : { id };
+          });
+          return { channels };
+        }
+        if (request.method === 'buzz.messages') {
+          const channelId = typeof request.params?.['channelId'] === 'string'
+            ? (request.params['channelId'] as string)
+            : undefined;
+          const messages = (channelId ? buzz.readConversation(channelId, limit) : buzz.readAllConversations(limit))
+            .map(toRemote);
+          return { messages };
+        }
+      }
       throw new Error(`Unsupported RPC ${channel}.${request.method}`);
     });
     const remoteStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
