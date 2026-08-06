@@ -328,6 +328,160 @@ Specialist integration credentials are also stored in SecretStorage using the `a
 |---|---|---|---|
 | `atlasmind.debt.markers` | array | `[]` | Extra comment markers the tech-debt scan looks for, on top of `TODO`, `FIXME`, `HACK` and `XXX`. Written as `NAME` or `NAME:severity`, e.g. `["DEBT", "REVISIT:high"]`. An unqualified marker is graded **medium**. Each becomes a declared rule, named on every entry it grades and published in `tech-debt.md`. The built-in four cannot be redefined, and a marker mentioning a credential is still graded high whatever you called it. |
 
+## Atlas Lenses — live services
+
+The three live lenses (Live Contract Drift, Service Reachability, Live Data Trust) are the only
+part of AtlasMind that reaches a system somebody else operates. They compare the schema your
+repository declares against the one a running API or database actually serves.
+
+**They read shape and nothing else.** An API probe fetches the OpenAPI document the service
+publishes, or sends a fixed GraphQL introspection query. A database probe asks a connected MCP
+server's schema-reading tool what tables and columns exist. AtlasMind never issues a query that
+returns rows, never composes SQL, never sends a write verb, and never follows a redirect away from
+the destination you declared.
+
+Which services may be reached is declared in `.atlasmind/lens-endpoints.json`, a committed file —
+not a setting, and never a model, because a hostname nobody typed is a request to a stranger made
+in your name. That file *names* a secret via `secretRef`; a document that actually contains a
+token, password, or connection string is refused whole rather than quietly cleaned up.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.lens.live.enabled` | boolean | `false` | Master switch for the live lenses. Off by default: a probe leaves this machine. Nothing is probed until you pick an endpoint — there is no automatic or background probing at any setting. |
+| `atlasmind.lens.live.allowedStages` | array | `["local", "development", "staging"]` | Which declared environments a probe may reach. **`production` is deliberately absent from the default**, and an endpoint that does not state its stage counts as `unknown`, which is treated *as production*. Adding either does not skip the gate: those endpoints still require you to type the endpoint's label before each probe, mirroring the promotion runner's protected gate. An empty list means no stage is allowed, and is honoured as written. |
+
+Two facts worth knowing before you turn this on:
+
+- **AtlasMind bundles no database driver and stores no database credential.** A `database`
+  endpoint is reached through an MCP server you have already connected and approved, and only if
+  that server exposes a tool whose *name* says it reads schema (`list_tables`, `get_schema`,
+  `describe_table`, …). A server offering only a generic `query` tool is not used — AtlasMind will
+  not compose SQL — and the lens says so rather than trying anyway.
+- **An unassessed endpoint is never reported as healthy.** A probe that was refused, timed out, or
+  was never run reads as *not assessed*, separately from *unreachable*, and a drift report for an
+  endpoint nobody probed carries no findings and says explicitly that this is not a finding of
+  "no drift".
+
+## Website Studio — generation and preview
+
+Website Studio models a client website: brief, sitemap, wireframe canvas, UI system, hosting and
+automation plans. All of that is inert. Two things in it are not, and each has its own switch.
+
+**They are two switches on purpose.** Writing model-authored files to disk and opening a local
+network port are different decisions with different consequences, and a single control carrying
+both would make the second one happen without anybody agreeing to it.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.generation.enabled` | boolean | `false` | Allow the **Generate** buttons to call a model and write static HTML and CSS. Every generation shows a modal listing **each file it will write** first, and the plan is deterministic — the same sitemap and stage always produce the same list, which is what makes that dialog worth reading. Files land only in `.atlasmind/website-preview/`; your source tree is never written to. |
+| `atlasmind.website.generation.maxFiles` | number | `40` | Most files one generation may write. A plan over the limit is **refused with the count**, never truncated — a half-generated site whose missing pages look like broken links is harder to diagnose than one that did not run. Hard ceiling of 120 regardless. |
+| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the preview to serve the generated site so it can be rendered beside the Studio. |
+| `atlasmind.website.preview.port` | number | `0` | Port for the preview server on `127.0.0.1`. `0` picks a free one, which is almost always right. Values below 1024 are ignored and fall back to automatic. |
+
+Four facts about the preview server, since it is the only part of Website Studio that opens a port:
+
+- **It binds `127.0.0.1`, never `0.0.0.0`.** The address is a constant in the source and there is no
+  setting to change it. The usual wildcard default would publish a client's unfinished site to
+  whatever network the machine is on.
+- **It serves one directory and re-checks every request against it**, comparing resolved paths with
+  `path.relative` rather than a string prefix — a prefix test says `preview-evil/` is inside
+  `preview/`, and on Windows it also fails on case. No directory listing, and an extension outside a
+  small allowlist returns 404 rather than being offered as a download.
+- **Its URL carries a random per-session token.** Any process on the machine can reach a localhost
+  port, and a client's design work is not something to hand to whatever else is running.
+- **It starts on demand and stops with the window.** Closing the preview, or Website Studio, stops
+  the server. A port outliving the thing that could show it is a port nobody remembers is open.
+
+Generated files are constrained the same way at three points — when the plan is built, when the
+model's reply is read, and again immediately before each write. A model that returns a file the user
+did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
+page that can execute is a different security question from one that cannot.
+
+## Website Studio — content and client review
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.content.directory` | string | `content` | Folder holding one markdown file per page, with YAML front-matter. **Files are the source of truth**; the Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
+| `atlasmind.website.review.enabled` | boolean | `false` | Record client review comments against pages and wireframe elements. Comments transition through `open → addressed → resolved` (plus `wont-fix`) and are **never deleted**. |
+| `atlasmind.website.review.includeOverlayInBuild` | boolean | `false` | Inject the comment overlay into generated pages so a client can leave feedback in their own browser. |
+| `atlasmind.website.review.webhookUrl` | string | `''` | An `https` endpoint **you already own** for the overlay to POST to. Empty means export-only: the client downloads a file and you import it. |
+
+**Placeholders are the point.** A `[PLACEHOLDER: what is needed]` marker in a content file is parsed,
+counted and rendered visibly as a gap, and generation is instructed to emit markers rather than
+plausible prose. A page that looks finished but is full of fiction is worse than an obviously
+unfinished one, because somebody signs it off.
+
+**Missing is not empty.** A page with no content file has not been started; a page with an empty file
+was started and left blank. The two stay distinguishable at every layer, and a missing file is never
+reported as "0 placeholders".
+
+**The file wins.** Saving from the Studio re-reads first, and a file that changed underneath is
+**refused rather than merged** — automatically resolving two versions of somebody's prose produces a
+document neither of them wrote.
+
+Four things about the review overlay, since it is the only place AtlasMind puts JavaScript into a
+generated page:
+
+- **The script is a frozen constant.** Hand-written in `websiteReviewBundle.ts`, never model-written,
+  with nothing from the workspace interpolated into it — its configuration travels in a `data-`
+  attribute as JSON. A test asserts the emitted script is byte-identical regardless of page, round or
+  endpoint.
+- **AtlasMind hosts nothing.** The overlay ships inside the site, so it deploys to the
+  password-protected staging environment the Stack page sets up — the client's own infrastructure.
+- **No endpoint is ever invented.** Unset means export-only, and the page's `connect-src` is then
+  `'none'` — it cannot make a request at all. A configured endpoint must be plain `https` with no
+  credentials, and becomes the only permitted origin.
+- **The preview server's script exception is one named file** (`atlas-review.js`), not a widened
+  extension class, and `script-src 'self'` is added to the served policy only while the overlay
+  setting is on.
+
+Imported feedback is treated as third-party text that has been through a browser we do not control:
+same sanitizer as the workspace file, and the import is **idempotent** — re-sending the same export
+adds nothing and never resets a comment already resolved. A comment naming an element or page that no
+longer exists is **kept and flagged**, because the likeliest cause is that somebody deleted the thing
+the client was asking about.
+
+## Website Studio — stack setup
+
+Choosing a framework and a platform does nothing on its own. **Set up this stack** is what runs
+commands and writes files, and it is gated by three separate switches because they are three
+genuinely different decisions.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.website.setup.enabled` | boolean | `false` | Allow setup to run the framework's own create command, write the platform deploy config, add `dev`/`build` scripts, write a names-only `.env.example`, and create the stage branches. Every run shows a modal listing **each command with its purpose and each file with its full contents** first. |
+| `atlasmind.website.setup.generateCi` | boolean | `false` | Also write a GitHub Actions deploy workflow. Gated separately because it is the one generated artefact that **acts on its own** — everything else sits inert until you look at it, but a workflow runs on GitHub's infrastructure with your secrets, and can deploy and spend money. |
+| `atlasmind.website.setup.allowRemoteProjectCreation` | boolean | `false` | Allow AtlasMind to actually run `wrangler pages project create` / `netlify sites:create` / `vercel link`. Off by default: these authenticate as you and create billable resources, and a run that fails halfway leaves them orphaned with no teardown. With it off you still get the exact command to run yourself. |
+| `atlasmind.website.setup.packageManager` | string | `npm` | `npm`, `pnpm`, `yarn` or `bun`. Only the leading executable and the `run`/`exec` verbs are translated; flags pass through untouched. Deliberately narrow — a general translation layer would have to model each manager's flag differences, and getting that subtly wrong produces a command that runs and does something other than what you read. |
+
+Five properties hold regardless of the settings, and each is pinned by a test:
+
+- **No step can run a shell.** Every executable step is `execFile(command, args)`, and every command
+  is a constant in AtlasMind's source — never composed from a setting, never parsed from
+  documentation, never model-generated. A test walks *every* producible plan (framework × platform ×
+  package manager × gate combination) and fails on a shell metacharacter or a command naming a shell
+  or a downloader.
+- **No step can write outside the workspace.** Paths are validated when the plan is built and
+  re-resolved against the root immediately before each write.
+- **Everything is create-only.** An existing config file, `package.json` script, branch or workflow is
+  reported untouched, never merged and never replaced. Re-running a setup is safe.
+- **Branch creation is `git branch` only** — never checkout, never push, never force.
+- **Success is re-probed, not inferred from exit codes.** A scaffold command can exit zero having done
+  nothing useful; the report comes from looking at the filesystem afterwards.
+
+A framework AtlasMind has no verified command for (`custom`, plain `static`, `wordpress-theme`) gets
+**no** scaffold command and says so. A platform with no verified deploy action refuses to generate a
+workflow rather than guessing one — a workflow that half-works still runs.
+
+### Website Studio and the Delivery pipeline
+
+Website Studio keeps its own three environments; the Delivery page has its own `DeploymentStage`s with
+the backup, approval and rollback policy that promotions actually use. The two can drift, so the Stack
+page **compares them and shows which fields disagree**, with both values. Comparing writes nothing.
+Syncing is one-directional, confirmed, **never clears a populated Delivery field from an empty Studio
+one**, and can only ever tighten promotion protection — a planning surface must not be able to remove
+a guard the promotion runner relies on.
+
 ## Settings that were live but undeclared
 
 Both of these have been read by real code for months and were absent from the manifest, so they worked if you typed them into `settings.json` by hand and were invisible in the Settings UI. Documented, functioning, and undiscoverable is the worst of the three states — declared in 0.205.0.

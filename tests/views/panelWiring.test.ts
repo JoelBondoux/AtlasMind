@@ -117,6 +117,12 @@ describe('theme safety', () => {
     'media/projectDashboard.js': 'src/views/projectDashboardPanel.ts',
     'media/projectIdeation.js': 'src/views/projectIdeationPanel.ts',
     'media/chatPanel.js': 'src/views/chatWebviewMarkup.ts',
+    // Website Studio keeps its CSS in a sibling module rather than in the panel:
+    // the wireframe canvas pushed the panel's inline CSS and script past what a
+    // template string can hold readably. Both the panel's own markup and the
+    // canvas script are painted from there, so both name it as their partner.
+    'media/websiteStudio.js': 'src/views/websiteStudioStyles.ts',
+    'src/views/websiteStudioPanel.ts': 'src/views/websiteStudioStyles.ts',
   };
 
   /** Remove `var(--x, fallback)` so a fallback hex is not mistaken for a value. */
@@ -230,6 +236,12 @@ describe('button paint ownership', () => {
     'media/projectDashboard.js': 'src/views/projectDashboardPanel.ts',
     'media/projectIdeation.js': 'src/views/projectIdeationPanel.ts',
     'media/chatPanel.js': 'src/views/chatWebviewMarkup.ts',
+    // Website Studio keeps its CSS in a sibling module rather than in the panel:
+    // the wireframe canvas pushed the panel's inline CSS and script past what a
+    // template string can hold readably. Both the panel's own markup and the
+    // canvas script are painted from there, so both name it as their partner.
+    'media/websiteStudio.js': 'src/views/websiteStudioStyles.ts',
+    'src/views/websiteStudioPanel.ts': 'src/views/websiteStudioStyles.ts',
   };
   // `webviewUtils.ts` joins the shared-CSS scope because QUICK_REPLY_CSS lives
   // there: quick-reply pills render on four surfaces, so their paint is defined

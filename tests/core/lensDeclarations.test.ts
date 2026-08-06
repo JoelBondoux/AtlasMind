@@ -35,13 +35,13 @@ describe('Lens declaration status', () => {
     const root = workspace();
 
     expect(inspectLensDeclarations(root).files.map(file => file.status))
-      .toEqual(['missing', 'missing', 'missing', 'missing']);
+      .toEqual(['missing', 'missing', 'missing', 'missing', 'missing']);
 
     writeFileSync(path.join(root, '.atlasmind', 'lens-state.json'), buildLensDeclarationStarter('state'), 'utf8');
     writeFileSync(path.join(root, '.atlasmind', 'lens-config.json'), buildLensDeclarationStarter('config'), 'utf8');
 
     const snapshot = inspectLensDeclarations(root);
-    expect(snapshot.files.map(file => file.status)).toEqual(['empty', 'empty', 'missing', 'missing']);
+    expect(snapshot.files.map(file => file.status)).toEqual(['empty', 'empty', 'missing', 'missing', 'missing']);
     expect(snapshot.readyCount).toBe(0);
   });
 
@@ -100,7 +100,7 @@ describe('required declarations versus optional refinements', () => {
     expect(snapshot.readyCount).toBe(2);
     expect(snapshot.totalCount).toBe(2);
     expect(snapshot.optionalReadyCount).toBe(0);
-    expect(snapshot.optionalTotalCount).toBe(2);
+    expect(snapshot.optionalTotalCount).toBe(3);
   });
 
   it('marks each file required or optional according to whether a lens is gated on it', () => {
@@ -110,6 +110,10 @@ describe('required declarations versus optional refinements', () => {
       ['config', true],
       ['mappings', false],
       ['trust', false],
+      // Optional deliberately: the live lenses are the only ones that leave the
+      // repository, and a project that declines to point AtlasMind at its
+      // production database must not be told it is half configured.
+      ['endpoints', false],
     ]);
   });
 

@@ -6,6 +6,553 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.266.1] - 2026-08-06
+
+### Fixed
+
+- **Website Studio built only on a machine that had the shared-theme work in progress.**
+  `websiteStudioPanel.ts` passed `dashboardSkin: true` and `websiteStudioStyles.ts` used `--studio-*`
+  tokens, but the `dashboardSkin` option and those tokens lived only in uncommitted working-tree
+  copies of `webviewUtils.ts` and `dashboardTheme.ts`.
+
+  Introduced in 0.264.0: rewriting the panel carried over the one line of that in-flight change the
+  file already had, and every compile check passed because the uncommitted provider was sitting in
+  the same working tree. It failed the first time the branch was merged into `develop`, where
+  `WebviewShellOptions` has no `dashboardSkin` — the commit had shipped the consumer without the
+  provider.
+
+  This ships the provider: `getWebviewHtmlShell` gains the `dashboardSkin` option, and
+  `dashboardTheme.ts` gains `DASHBOARD_PANEL_BASE_CSS`, `DASHBOARD_PANEL_SKIN_CSS` and the
+  `--studio-*` tokens. Both changes are **purely additive** — no existing export is altered or
+  removed — so panels that have not opted in keep their own styling untouched.
+
+## [0.266.0] - 2026-08-06
+
+### Fixed
+
+- **The preview no longer opens on a white page** (`src/core/websiteWireframePreview.ts`). There was no
+  deterministic HTML renderer anywhere in `src/core/` — the only HTML was the preview server's error
+  page — so a wireframe could not reach a browser *at all* without first running a model generation.
+  With an empty preview root the server answered its 404, which is a white page with one line of small
+  grey text. Wireframes now render straight to HTML with **no model involved**: instant, free,
+  deterministic, and written before the server starts, so **Open preview always shows the drawing**.
+  Renders live under `_wireframe/`, never at the address a generated page occupies, so both stay
+  available and neither can silently replace the other.
+
+### Added
+
+- **Visible placeholders, everywhere.** Every wireframe block renders hatched, dashed and labelled; a
+  text block is grey bars rather than lorem ipsum, an image is a crossed rectangle rather than a stock
+  photo, and a nav shows the **real page names from the sitemap** because those are facts rather than
+  filler. The generation output contract now demands the same of generated pages: `[PLACEHOLDER: …]`
+  markers styled as unfinished, and no invented company names, testimonials, prices or statistics.
+  A page that looks finished but is full of fiction is worse than an obviously unfinished one, because
+  somebody signs it off.
+- **A content model** (`src/core/websiteContent.ts`, `src/core/websiteContentManager.ts`). Page copy
+  lives in markdown files under `content/` with YAML front-matter, one per page, so a copywriter can
+  edit it in their own editor and it diffs cleanly in a pull request. Files are the source of truth
+  and the Studio shows a mirror; a save whose file changed underneath is **refused rather than
+  merged**, because automatically resolving two versions of somebody's prose produces a document
+  neither of them wrote. Placeholders are parsed, **counted** and reported — a page's readiness is
+  "four placeholders remaining", a fact, not a status somebody set. **Missing is not empty**: a page
+  with no file has not been started, a page with an empty file was started and left blank, and the two
+  stay distinguishable at every layer. Generation reads the real copy and is told not to fill the
+  gaps.
+- **Client review, anchored to the thing being reviewed** (`src/core/websiteReviewComments.ts`).
+  Comments recorded against a page or a specific wireframe element, tracked through
+  `open → addressed → resolved` plus `wont-fix`. Comments **transition, never delete** — "we fixed it"
+  and "we decided not to" are different facts. A comment against an element somebody later removed is
+  **kept and flagged, carrying the label the element had**: it is the evidence that something was
+  removed while under review, and it is the comment a naive implementation silently drops. Round
+  numbers make "third time we have been asked about this hero" answerable, and
+  `buildCommentWorkPrompt` turns one comment into scoped work with the body fenced as REPORTED
+  CONTENT.
+- **A shareable client review link that AtlasMind does not host**
+  (`src/core/websiteReviewBundle.ts`). The overlay is generated *into the site*, so it travels to the
+  password-protected staging environment the Stack page already sets up — the client's own hosting.
+  They open a normal URL, click the thing they mean, and type. Comments come back as a downloaded file
+  (`AtlasMind: Import Website Client Feedback`) or, if the team already owns an endpoint, by POST to
+  it. **No endpoint is ever invented**: unset means export-only, and the page's policy then forbids it
+  making any request at all. Recorded as a decision record at
+  `project_memory/decisions/website-client-review-hosting.md`, including what this deliberately cannot
+  do.
+- **New commands**: `AtlasMind: Preview Website Wireframe`, `AtlasMind: Import Website Client
+  Feedback`. **New settings**: `atlasmind.website.content.directory`,
+  `atlasmind.website.review.enabled`, `atlasmind.website.review.includeOverlayInBuild`,
+  `atlasmind.website.review.webhookUrl`.
+
+### Changed
+
+- Website Studio's SSOT is **format v4**, with a 3 → 4 step that adds only the version. Content lives
+  in files the migration has no business creating, and an absent content file is a meaningful state —
+  "nobody has written this yet" — that seeding would destroy.
+- `splitFrontMatter` now parses empty front-matter (`---\n---`) correctly. It previously required a
+  content line, fell through, and treated the whole file as body — which made an empty page read as
+  "this page has copy".
+- `sanitizeContentDirectory` **refuses** an absolute path instead of relativising it. Turning `/etc`
+  into `<workspace>/etc` silently reinterpreted what somebody wrote and left them believing content
+  went somewhere it did not.
+
+### Security
+
+- **The review overlay script is a frozen constant.** It is the only place AtlasMind puts JavaScript
+  into a generated page, so it is hand-written in one file, no model touches it, and nothing from the
+  workspace is interpolated into it — its configuration travels in a `data-` attribute as JSON. A test
+  asserts the emitted script is byte-identical to the constant regardless of page, round or endpoint.
+- **The preview server's `.js` exception is one named file**, not a widened extension class:
+  `atlas-review.js` and nothing else. `script-src 'self'` is added to the served policy only when the
+  overlay setting is on, so the widening happens exactly when there is something that needs it.
+- Imported feedback runs through the **same sanitizer as the workspace file** — third-party text that
+  has been through a browser we do not control. Import is idempotent: re-sending the same export adds
+  nothing and **never resets a comment already resolved**.
+- A webhook must be plain `https` with no credentials in the URL, and it is the only origin the
+  generated page's `connect-src` permits.
+
+## [0.265.0] - 2026-08-06
+
+### Added
+
+- **A framework model** (`src/core/websiteFrameworks.ts`). Nothing in AtlasMind knew what a website was
+  built with: `projectArchetype` knew a project was a "website" and `archetypePacks` knew a website's CI
+  shape in the abstract, but neither knew Astro from Next from Hugo. Ten frameworks, each carrying the
+  three facts everything downstream needs — the scaffold command, the build command, and the output
+  directory. **Every command is a module constant**: never composed, never parsed from documentation,
+  never model-generated, because a command from any of those sources is remote code execution with extra
+  steps. `custom`, `static` and `wordpress-theme` deliberately carry **no** scaffold command — an
+  improvised command that usually works is worse than an honest gap, since the failure lands in somebody's
+  repository.
+- **The Platforms page is now the Stack page** (`websiteStudioPanel.ts`). Framework and platform are one
+  decision — "Astro on Cloudflare Pages" determines the build command, the output directory and the deploy
+  config together — so splitting them across two pages made the compatible pairing something the user was
+  expected to already know. `describeStackCompatibility` grades every pairing `ideal`/`workable`/
+  `unsupported` **with a reason**, and an unsupported pairing stays visible: removing Hugo from the list
+  when Shopify is selected would leave somebody wondering where it went, where "Shopify serves Liquid
+  templates from its own theme system" answers the question they actually had. The old `platforms` page id
+  still resolves, because it is a public deep-link target.
+- **Stack autosetup** (`src/core/websiteStackSetup.ts`, `src/views/websiteStackSetupHost.ts`). Planning
+  performs nothing; a separate call executes, after a modal listing **every command with its purpose and
+  every file with its full contents**. Runs the framework's create command, writes the platform deploy
+  config, adds `dev`/`build` scripts, writes a `.env.example` of variable *names*, and creates the
+  develop/staging/production branches. Every file and branch step is **create-only** — an existing file is
+  reported untouched, never merged — so re-running a setup is safe, which is the case it exists for.
+  Success is **re-probed from the filesystem**, not inferred from exit codes.
+- **CI/CD generation** (`src/core/websiteCiTemplate.ts`), off by default and gated separately. The YAML
+  comes from a declared template with only validated values substituted, never from a model. Production
+  deploys declare `environment: production` so the approval gate lives on GitHub's side as well as ours;
+  an explicit `permissions:` block replaces the repository default; `concurrency` is per environment with
+  `cancel-in-progress: false`, because a half-finished deploy is worse than a queued one. **Secrets are
+  named, never written.** An existing workflow file is never overwritten. A platform with no verified
+  deploy action is **refused rather than guessed at** — a workflow that half-works still runs.
+- **Delivery drift comparison** (`src/core/websiteDeliverySync.ts`). Website Studio keeps its own three
+  environments rather than being folded into `DeploymentStage`, so the two can disagree. Rather than hide
+  that, `compareWebsiteToDelivery` reports it per stage with both values — a comparison, not a verdict,
+  shaped after `findTaxonomyDrift`. Sync is one-directional and confirmed, **never clears a populated
+  Delivery field from an empty Studio one**, and can only ever *tighten* promotion protection.
+- **New command** `AtlasMind: Set Up Website Stack`, and four settings, all off or conservative by
+  default: `atlasmind.website.setup.enabled`, `atlasmind.website.setup.generateCi`,
+  `atlasmind.website.setup.allowRemoteProjectCreation`, `atlasmind.website.setup.packageManager`.
+- **A strategy document** at `project_memory/ideas/website-studio-strategy.md` — an honest competitive
+  read, the five capability gaps in dependency order, what we should deliberately not build, and the
+  signals that would show it worked. Every competitive claim is marked *observed* or *assumed*, and it
+  cites no price or market figure, because an invented number in a committed file is indistinguishable
+  from research six months later.
+
+### Changed
+
+- **Website Studio's SSOT is format v3**, with a registered 2 → 3 step that adds the version and nothing
+  else. `stack` is left absent rather than inferred from the files on disk: absent means nobody has
+  chosen, and a wrong guess here decides what gets scaffolded.
+
+### Security
+
+- **Remote project creation is manual by default.** `wrangler pages project create` and its equivalents
+  authenticate as the user and create billable resources that a half-finished run would orphan, so they
+  are quoted with their purpose and not run until `allowRemoteProjectCreation` is explicitly turned on.
+- **No setup step can run a shell.** Every executable step is `execFile(command, args)`. A test walks
+  *every* producible plan — every framework × platform × package manager × gate combination — and fails on
+  a shell metacharacter in any command or argument, or on a command that names a shell or a downloader.
+- **No setup step can write outside the workspace.** Paths are validated when the plan is built and
+  re-resolved against the root immediately before each write, with the writer injected so a test fails the
+  run if it is ever handed an escaping path.
+- Branch creation is `git branch` only — never checkout, never push, never force — asserted by test.
+
+## [0.264.0] - 2026-08-06
+
+### Added
+
+- **Website Studio: a wireframe canvas you draw on** (`src/core/websiteWireframe.ts`, `media/websiteStudio.js`).
+  The old "wireframe" took the first eight strings out of a page's `sections` list and rendered them as
+  `<div class="block-N">` on a three-class CSS grid. It carried no position, no size, no nesting and no
+  identity, so nothing downstream could act on it. Pages now hold real geometry: drag to draw a nav, a hero,
+  a grid or a card, resize from eight handles, drop one block inside another to nest it, and nudge with the
+  arrow keys. Every box is a focusable element with a spoken description of its kind, size and position, so
+  the canvas is not mouse-only. **Coordinates are canvas units on a fixed 1000-wide grid, never pixels** —
+  storing pixels would put the author's monitor size into a git-tracked file and make one design read
+  differently on another machine.
+- **A sitemap that draws its own hierarchy** (`src/core/websiteSitemap.ts`). The page inventory was a flat
+  table; adding `/services/seo` produced another row rather than a child of Services. The hierarchy is now
+  derived from the slug path as pages are added, with an explicit parent able to override it. Rendered as a
+  deterministic SVG tree — the same pages always produce the same coordinates, because a map that shifts
+  when nothing changed is one nobody trusts. A page whose slug names a parent that does not exist is shown
+  at the top level **and flagged**, rather than being hidden or quietly re-parented.
+- **The page inventory knows where each page leads** (`src/core/websiteLinkGraph.ts`). Outbound links,
+  inbound counts, orphan pages that nothing links to, and links whose target page was deleted. A dangling
+  link is **reported, never dropped** — it is the evidence that a nav is broken. Nav and CTA blocks on the
+  canvas suggest links by matching their label to a page title, exactly or case-insensitively and never
+  loosely; a suggested link never overwrites one somebody typed.
+- **Select anything and describe it in your own words** (`src/core/websiteDesignPrompt.ts`). Selecting an
+  element and typing a sentence sends Atlas a prompt that names the selection completely — its kind, label,
+  size, what contains it, the page it is on, and the shared design tokens — so "make this wider" has a
+  referent. Also available for a whole page and for the whole site. Everything read out of the workspace is
+  fenced as REPORTED CONTENT, because labels and stored prompts are model-writable; the person's own
+  sentence is not fenced, because it is the instruction.
+- **Natural-language design prompts on every page and on the site** (`src/types.ts`). A page with a written
+  prompt can be generated without anyone drawing a box, so a whole site can reach first-draft design from
+  the sitemap alone.
+- **A Generate button at every stage, and a preview window beside the Studio**
+  (`src/core/websiteGeneration.ts`, `src/core/websiteGenerationRunner.ts`, `src/core/websitePreviewServer.ts`,
+  `src/views/websitePreviewPanel.ts`, `src/views/websitePreviewHost.ts`). Generate from the brief (a concept
+  page), from the sitemap (every page, driven by its own prompt), from a wireframe (honouring the drawn
+  layout), or from a single selected element. The plan is **deterministic and no model chooses the file
+  list**, which is what makes the confirmation dialog worth reading: it names every file before anything is
+  written. What a stage could not account for is stated with the result rather than left implied.
+- **New commands**: `AtlasMind: Open Website Preview`, `AtlasMind: Stop Website Preview`,
+  `AtlasMind: Generate Website From Plan`.
+- **New settings**, both gates off by default because writing model-authored files and opening a local port
+  are two different decisions: `atlasmind.website.generation.enabled`, `atlasmind.website.preview.enabled`,
+  `atlasmind.website.preview.port`, `atlasmind.website.generation.maxFiles`.
+
+### Changed
+
+- **Website Studio's SSOT is now format v2**, with a registered `website` migration
+  (`src/core/schemaMigration.ts`). The 1 → 2 step transcribes each page's old `sections` list into stacked
+  wireframe bands, so a project written by an earlier build never opens onto an empty canvas. Design prompts
+  and links are seeded **empty rather than guessed** — a migration has no standing to write a design intent
+  on the author's behalf.
+- **`WebsiteWorkspaceManager` reads through `interpretVersionedDocument`.** The old
+  `try { parse } catch { default }` collapsed two very different situations: a corrupt file (safe to replace)
+  and a file written by a *newer* AtlasMind (never safe to replace). An older build would hand back a default
+  and the first save would overwrite the newer format silently, in a git-tracked file. The Studio now opens
+  read-only and says why.
+- **The `website.md` mirror shows the hierarchy, the links and the design prompts**, so "nothing links to the
+  new Pricing page" is visible in a pull request rather than only on screen.
+- Website Studio's CSS moved to `src/views/websiteStudioStyles.ts` and its script to `media/websiteStudio.js`;
+  the panel was carrying ~350 lines of both in template strings, which the canvas would have pushed past
+  readable.
+
+### Security
+
+- The preview server **binds `127.0.0.1` only**, serves nothing but `.atlasmind/website-preview/`, re-checks
+  every request against that root with `path.relative` rather than a prefix test, offers no directory
+  listing, refuses any extension outside a small allowlist, and carries a **random per-session token in its
+  URL** so another local process cannot enumerate the site. It starts on demand and stops with the window.
+- **Generated files can never leave the preview folder.** Paths are validated at plan time, again before
+  every write, and a model that returns a file the user did not approve has it **reported, not written**.
+  No `.js` may be generated at all.
+- The preview panel builds its **own document with its own CSP** rather than using the shared webview shell,
+  so granting `frame-src` to a loopback port does not widen every other panel in AtlasMind. A test pins the
+  shared shell's policy so the decision cannot quietly be undone.
+
+## [0.263.0] - 2026-08-06
+
+### Changed
+
+- **Every panel now renders in the Project Dashboard's design language.** Each webview is an
+  isolated document, so a panel cannot inherit another panel's stylesheet — which is how nineteen
+  panels came to declare nineteen palettes, under five different prefixes (`--atlas-*`, `--lens-*`,
+  `--run-*`, `--studio-*`, `--atlas-panel-*`). Four of those were near-verbatim copies of the
+  dashboard's, drifted by a radius here and a surface mix there. None of it was ever a decision; it
+  was what happened when a panel written in March could not see one written in July. Settings, MCP,
+  Model Providers, Agent Manager, Mission Control, Run Center, Cost Dashboard, Model Comparison,
+  Website Studio, Ideation, Vision, Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the
+  ten Lens surfaces now draw the same card, the same header, the same tab, the same input.
+
+  The **Personality Profile is deliberately unchanged** — its warm palette is a choice rather than
+  drift.
+
+- **The shared theme is applied in two layers, and the order is the mechanism.**
+  `getWebviewHtmlShell({ dashboardSkin: true })` puts the tokens and the page frame *before* a
+  panel's own CSS and the surfaces *after* it. A panel therefore keeps its **layout** — grid
+  templates, gaps, sticky offsets, everything it legitimately owns — and loses its **palette**,
+  which it never really decided on. There is no helper that concatenates the layers, on purpose: a
+  second entry point is a second chance to get the order backwards, and the symptom of getting it
+  backwards is a panel that looks exactly as it did before, which nobody would report as a bug.
+
+- **The skin names the classes it repaints rather than matching them.** A substring match on
+  `-card` would have been shorter and would also have caught `.card-kicker`, `.card-header-row` and
+  the next class somebody names after a card without meaning one. A class that is not on the list
+  keeps its own styling, visibly, until somebody adds it.
+
+  Three families are excluded and stay excluded, because a shared surface must not overwrite a
+  colour that carries meaning: the Ideation board's tinted sticky notes, the chat transcript (a
+  conversation is not a deck of cards), and toned notices. The Lens accent is the same case in the
+  tokens — eight lenses, eight hues, so the header rule says which lens you are reading, and
+  collapsing them into one accent would have deleted information rather than unified a style.
+
+### Added
+
+- `--dash-radius-sm` and `--dash-radius-xs`. The dashboard always had a smaller corner for dense
+  elements; it just spelled the numbers out at each site, which is exactly how a second scale gets
+  invented next door.
+
+- `tests/views/sharedPanelTheme.test.ts` pins the three things a screenshot would not catch: a panel
+  that opts out, a private palette that comes back, and the layer ordering. `themeContrast.test.ts`
+  now resolves skinned panels against the shared theme as well — without that, every `var(--dash-*)`
+  in a converted panel resolved to nothing, the rule was skipped, and the suite would have passed
+  over an empty set.
+
+## [0.262.0] - 2026-08-06
+
+### Added
+
+- **The Pipeline page can now read CI itself.** CI was only ever fetched as a side effect of the
+  Issues refresh, so the one page whose entire subject is *did the build pass* had no way to go and
+  find out — its empty state told you to open a different tab. It now has its own **Refresh CI**,
+  costing two `gh` calls instead of the issues refresh's five, so watching a build no longer means
+  re-reading a hundred issues. It shares the single in-flight repository read with that refresh, so
+  clicking both is a no-op rather than two bursts of API quota.
+
+- **A run list that could not be read now says so.** An empty list previously carried two
+  incompatible meanings — "this branch has never been built" and "we could not ask" — and the page
+  rendered the second as the first, which is the exact class of lie the rest of the dashboard is
+  built to avoid. `fetchFailure` is now carried separately from `logFailure`, because the two send
+  you to different places: one is a `gh` or network problem, the other is a permissions or retention
+  problem on a single run's log. Previously-read runs are replaced by the failure rather than left
+  beside it — old runs under a fresh timestamp would report a stale build as the current one.
+
+### Fixed
+
+- **The CI pass rate on the Workflow page was hardcoded to "not measured".** `deriveCiMetrics` was
+  called with an empty array left over from a phase that had no check-run fetch, so the CI component
+  of workflow health permanently abstained even with a hundred runs already in memory. It now derives
+  from the runs on the head commit.
+
+  Narrowing to *one commit* is the point: `deriveCiMetrics` answers questions about a single commit,
+  and handing it a fortnight of branch history would have kept its labels while silently changing
+  what they mean — a clean commit reporting 60% because of failures somebody already fixed. Two
+  further rules follow. A re-run is another attempt at one check, not a second check, so the newest
+  run per workflow wins, using the same rule the branch cards already apply rather than a second copy
+  that could disagree with it. And an in-flight run contributes **no duration**: its `updatedAt` is
+  the last thing that happened, not a completion, and entering it as one would report a slow build as
+  fast precisely while it is still running.
+
+## [0.261.1] - 2026-08-05
+
+### Security
+
+- **Cleared all six open advisories — four high, two moderate.** `npm audit` and Dependabot agreed on
+  the set; every one was a transitive pinned by its parent, which is why `npm audit fix` was a
+  **no-op** (0 added, 0 removed, 0 changed) while still printing "fix available". The real fix was
+  `overrides`, and the existing `undici: ^7.28.0` override turned out to be what was *holding* undici
+  inside the vulnerable range in the first place.
+
+  | Package | Was | Now | Advisory |
+  |---|---|---|---|
+  | `undici` (via `cheerio`) | 7.28.0 | 7.29.0 | GHSA-8xcm-r25x-g524 + 4 more — response desync, cross-user disclosure, CRLF injection |
+  | `ip-address` (via `express-rate-limit`) | 10.2.0 | 10.4.0 | GHSA-mwp4-54f8-5fhr + 2 more — SSRF and trust-boundary bypass |
+  | `fast-uri` (via `ajv`) | 3.1.4 | 3.1.5 | GHSA-7p8r-x3mc-p8w7 — host confusion via backslash authority |
+  | `brace-expansion` (via `minimatch`) | 5.0.8 | 5.0.9 | GHSA-rgw5-rvv9-x895 — DoS via unbounded intermediate arrays |
+  | `hono` (via `@modelcontextprotocol/sdk`) | 4.12.32 | 4.13.0 | GHSA-8j4g-w8fx-2239 — ReDoS in CORS middleware |
+  | `postcss` (via `vite`) | 8.5.22 | 8.5.25 | GHSA-fxqj-rqcc-2cmp — arbitrary `.map` read via sourceMappingURL |
+
+  Every override was checked against its parent's **declared range** before being applied, and two are
+  deliberately pinned *below* latest for that reason: `fast-uri` to 3.1.x because `ajv` requires
+  `^3.0.1` and 4.x would break it, and `undici` to 7.x because `cheerio` requires `^7.19.0` and 8.x
+  would break it. Each package has exactly one consumer in the tree, so no override is reaching past
+  the dependency it was written for.
+
+  Three of the six (`hono`, `fast-uri`, `ip-address`) are **runtime** dependencies that ship in the
+  VSIX, reached through `@modelcontextprotocol/sdk` — which is already at its latest published
+  version, so there was no upstream release to wait for. The other three are build-time only.
+
+  Worth recording, because it will happen again: `npm install` reported *"up to date … found 0
+  vulnerabilities"* while the vulnerable versions were still on disk. The audit was reading the
+  lockfile's intent rather than the installed tree. `npm ci` was needed to actually reify it, and the
+  fix is only verified by reading versions out of `node_modules` — which is now what was done, rather
+  than trusting the summary line.
+
+## [0.261.0] - 2026-08-05
+
+### Added
+
+- **Direct database connections, with the credential in the OS keychain**
+  (`src/core/lensDatabaseDialect.ts`, `src/core/lensCredentials.ts`,
+  `src/core/lensDatabaseReading.ts`, `src/views/lensDatabaseTransport.ts`,
+  `src/views/lensCredentialCommand.ts`). The live lenses shipped reaching a database only through a
+  connected MCP server, which meant anybody with a Neon, RDS, Railway or self-hosted instance — most
+  people — was told to go and install one first. Three new endpoint kinds close that: `postgres` and
+  `mysql` connect directly with bundled drivers, and `sql-http` reaches vendors that expose SQL over
+  HTTPS with no wire protocol at all.
+
+  This changes a boundary v0.260.0 stated, so the honest version of the rule replaces it:
+  **AtlasMind never *composes* SQL — it sends a *constant*.** Every statement lives in
+  `lensDatabaseDialect.ts` as a module-level `const` with no interpolation, no parameters, and no
+  code path that accepts a fragment from a caller, a setting, a webview, or a model. A test walks
+  every exported statement and fails on a write verb, a placeholder, or a second statement. It is
+  the same guarantee `GRAPHQL_INTROSPECTION_QUERY` already carried. The MCP refusal still stands on
+  its own reasoning — with somebody else's tool AtlasMind cannot guarantee what it does with the
+  string it is handed, and guessing which of its arguments means "the query" is guesswork.
+
+  Everything sent runs inside `BEGIN READ ONLY` with a statement timeout, opened before anything
+  else and **not optional**: a server too old to support it fails the probe rather than getting one
+  that runs without the guard, which is the exact case where the guard would have mattered. The
+  connection is closed in a `finally` on every path — a probe that leaves a connection open against
+  a production pooler is a worse bug than anything it was looking for, and Neon bills connection
+  time.
+
+- **Measurement, all of it from the catalog** — row estimates, table and index sizes, index and
+  constraint counts, last-analyze age, latency percentiles, and the query plan. **Row counts are
+  planner estimates the database already maintains, never a `COUNT(*)`**: a count returns only a
+  number but reads every row to produce it, and "AtlasMind never reads a row" should be literally
+  true rather than nearly true. A test asserts that every aggregate in the file reads a *catalog*
+  relation, rather than banning the word and forcing whoever hits it to weaken the check.
+
+  **A never-analyzed table reports unknown, not zero.** Postgres writes `reltuples = -1` and MySQL
+  leaves `TABLE_ROWS` null; both mean nobody has measured this table, and `0` would put "this table
+  is empty" in front of somebody checking whether a migration ran — the single most expensive wrong
+  answer here. `rowEstimate` is optional rather than defaulted, the panel prints *unknown (never
+  analyzed)*, and each estimate carries when it was last refreshed, because a row count from a table
+  last analyzed in March is a fact about March. The first latency sample is kept apart from the rest
+  and never smoothed away: on a serverless database it is a cold start measured in seconds, and an
+  average including it describes neither the cold path nor the warm one. `EXPLAIN` is sent
+  **without** `ANALYZE` — a probe that executes whatever it explains is a shape nobody should build,
+  however harmless this particular statement is — and a missing plan never discards a schema reading
+  that worked, since MySQL before 5.7 has no `FORMAT=JSON`.
+
+- **`AtlasMind: Store a Live Service Credential`** and its clearing counterpart. The connection
+  string goes to VS Code SecretStorage through a password-style box: never echoed, never logged, and
+  **validated by parsing rather than by connecting**, so a mistyped string fails where somebody can
+  still see what they pasted instead of opening a socket to whatever host the typo produced. The
+  parsed summary — host, database, user, TLS mode — is shown back, because that is the check that
+  catches a production string pasted into the staging endpoint, and it is the same summary the probe
+  confirmation shows later so the two cannot disagree. A read-only role is recommended at the moment
+  of decision rather than only in the docs, since AtlasMind cannot verify what a credential may do
+  and least privilege is the control that does not depend on AtlasMind being correct.
+
+  `secretRef` is **namespaced** before it reaches SecretStorage (`atlasmind.lens.endpoint.*`) and
+  refused if it is not a plain identifier. Without that, a committed file naming
+  `atlasmind.anthropic.apiKey` would make AtlasMind put a provider key in an `Authorization` header
+  aimed at a host that same file chose. Driver errors are scrubbed of anything URL- or
+  `user:password@host`-shaped before display, because `pg` interpolates the connection target into
+  several of its messages and output channels get pasted into issues.
+
+- `pg` and `mysql2` as dependencies, **lazily imported on first probe** — the same pattern
+  `buzzSigner` uses for `@noble/secp256k1`. A user who never probes a database pays nothing at
+  activation, and the web extension bundle is unchanged at 107.7 kB. Availability is reported as a
+  transport fact rather than a setting: the web host cannot open a socket and says so, instead of
+  failing at connect time.
+
+### Changed
+
+- `.atlasmind/lens-endpoints.json` accepts `postgres`, `mysql` and `sql-http`. `secretRef` is
+  **required** for all three — there is no such thing as a direct database probe with nothing
+  stored — and `url` is refused on `postgres`/`mysql`, because putting one there commits the host,
+  and usually the credential, to the repository. `sql-http` requires an explicit `vendor`: each
+  vendor's HTTP SQL API uses a different envelope, and guessing would post a Neon-shaped body to a
+  Cloudflare D1 endpoint and report the resulting error as "unreachable".
+- The `database` (MCP) kind's rejection message now points at the direct kinds, so somebody holding
+  a connection string is sent somewhere useful rather than told to install an MCP server.
+- The probe confirmation for a direct database names the parsed destination — host, database, user,
+  TLS mode — read from the stored string at confirmation time. A dialog that cannot name the host is
+  one where a production string in a staging endpoint is invisible exactly when it matters.
+
+## [0.260.0] - 2026-08-05
+
+### Added
+
+- **Three lenses that reach the services your project actually talks to**
+  (`src/core/lensEndpoints.ts`, `src/core/lensProbePolicy.ts`, `src/core/lensServedContract.ts`,
+  `src/core/lensLiveDrift.ts`, `src/core/lensReachability.ts`, `src/core/lensLiveTrust.ts`,
+  `src/core/lensProbeRunner.ts`). Every lens until now read the repository, which meant the
+  question people actually have — *does the running system still agree with what the code
+  believes?* — was one AtlasMind could not answer. Field Wiring could compare two declarations and
+  told you so in its own limit line; nothing could compare a declaration against reality.
+
+  **Live Contract Drift** compares the schema your repository declares against the one a service
+  serves. `absent-remotely` is the finding worth having: the code declares a field or table the
+  running service does not serve, which is a dead end and a schema failure at once. It is kept
+  separate from `undeclared-remotely` — a service serving something nobody wrote down — because the
+  two need opposite fixes and one combined "mismatch" class would hide which you are looking at.
+  **Service Reachability** asks the prior question, which endpoints answered at all, and carries an
+  endpoint whose `expectedContractIds` name a contract the repository no longer has as a dead end
+  pointing the other way. **Live Data Trust** checks the fields a service actually serves against
+  `.atlasmind/lens-data-trust.json` and lists the ones no rule covers — unknown sensitivity on real,
+  live data, which the static Data Trust lens cannot see because the field was never in a file.
+
+  The whole feature rests on one rule: **the shape is read, the rows never are.** An API probe
+  fetches the OpenAPI document the service publishes or sends a fixed GraphQL introspection query;
+  a database probe asks a connected MCP server's schema-reading tool what exists. `buildProbeRequest`
+  composes every request from constants — there is no function anywhere that accepts a query, so
+  `SELECT * FROM users` is not something a caller can reach, and a test asserts no request the
+  module can produce carries a write verb. OpenAPI `example`, `default` and `enum` are read and
+  *discarded by name* rather than merely ignored, because they are the keys most likely to hold a
+  real customer record and a derivation that swept unknown keys along would eventually carry one.
+
+  Everything else follows from that request leaving the machine. Deny by default at two gates
+  (`atlasmind.lens.live.enabled` is off; a probe additionally needs the per-run confirmation),
+  because switching the feature on and pointing it at production are two decisions. **An endpoint
+  that does not state its stage is treated as production** — guessing downward would move the gate
+  off the one environment it exists for, and the endpoint most likely to omit its stage is the one
+  somebody added in a hurry. A protected stage costs a type-to-confirm on the endpoint's own label,
+  mirroring `promotionRunner`. Redirects are not followed: a redirect is the server nominating a
+  destination nobody reviewed, with the bearer token still attached. The response is capped *while*
+  it is read, since a cap checked after `await response.text()` has already admitted the body it
+  exists to refuse. And a probe that is not authorized never reaches the transport at all — the
+  runner takes it as an injected seam precisely so a test can hand it a transport that fails the run
+  if it is called, which is what makes the gate a property rather than a convention.
+
+  Three refusals are as load-bearing as the features. **A partial reading reports nothing as
+  absent** — if the probe hit a budget, "declared but not served" is indistinguishable from
+  "declared and past the cap", so a truncated reading downgrades every absence claim rather than
+  publishing schema failures a budget invented. **Unassessed is never healthy**: a probe that was
+  refused, timed out, or was never run yields a report with no findings that says so explicitly,
+  and `refused`/`unauthorized` stay distinct from `unreachable` because reporting a production
+  endpoint you declined to confirm as unreachable would be a lie about somebody else's
+  infrastructure. **A classification is never inferred from a field name** — a fabricated
+  sensitivity rating closes the gap without closing it, and in a git-tracked file a later reader
+  cannot tell it from a decision somebody made.
+
+- **`.atlasmind/lens-endpoints.json`**, the fifth Lens declaration file, with an installed JSON
+  schema. It is a committed file rather than a setting, so a change to what AtlasMind may reach
+  arrives as a diff with a reviewer. It **names** a secret via `secretRef` and never holds one — a
+  document carrying a credential-shaped key is refused *whole* rather than quietly cleaned up,
+  because a silently-scrubbed file would leave the secret on disk while reporting that all was
+  well. It says *where*, never *what to send*: there is no method, query or body field, so the
+  safety rule is not editable by the thing it constrains. Plaintext `http` is accepted only on the
+  loopback, since a probe may carry a token; private-range `https` is allowed, because a staging
+  API on the office network is the ordinary case and the destination came from a reviewed file.
+
+- **Atlas refuses to draft the endpoints file** (`LENS_UNDRAFTABLE_KINDS` in
+  `src/core/lensDeclarationDraft.ts`). The other four declaration kinds can be proposed by a model
+  and reviewed; this one cannot, and the refusal happens *before* the reply is parsed so a
+  sufficiently plausible draft cannot pass it. A hallucinated hostname is a request sent to a
+  stranger in the user's name with their bearer token attached. The setup guide states the refusal
+  where the other files offer the button, rather than silently omitting it.
+
+- **`atlasmind.lens.probeLiveEndpoints` and `atlasmind.lens.openLiveSettings`**, plus the
+  `Lens — Live Services` panel (`src/views/lensLivePanel.ts`, `src/views/lensLiveCommand.ts`,
+  `src/views/lensLiveTransport.ts`). Probe results are held **in memory for the session only**:
+  `project_memory/` is git-tracked, and "the staging database answered at 14:02" is one developer's
+  environment, not the repository's. An unassessed outcome *replaces* the findings list rather than
+  sitting above an empty one, because an empty table reads as "nothing wrong" whatever the caption
+  says.
+
+### Changed
+
+- The Lens dashboard now carries **eleven** lenses across five groups, with `live-service` as a
+  distinct evidence source rather than a flag on contract files — a lens that can reach production
+  should never sit one row down from one that reads a file, unlabelled. Three new rules
+  (`live-probing-disabled`, `no-endpoints-declared`, `live-not-probed`) are published in the rule
+  table like every other, ranked root-cause first so nobody is told to type a production endpoint's
+  name while the feature is switched off.
+- Field Wiring's limit line now points at Live Contract Drift instead of only promising that it
+  never connects to a live database. The promise is still true of that lens; it stopped being the
+  whole story for the suite.
+- `settingsIntegrity`'s scoped-read check now tries every section prefix rather than only the first
+  segment. `atlasmind.lens.live.*` is read via `getConfiguration('atlasmind.lens.live')`, which the
+  old single-level check reported as dead — and a guard that reports live settings as dead is one
+  people allowlist their way past.
+
 ## [0.259.0] - 2026-08-05
 
 ### Added

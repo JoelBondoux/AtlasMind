@@ -47,6 +47,7 @@ import {
   type LensDeclarationStatus,
   type LensDeclarationsSnapshot,
 } from './lensDeclarations.js';
+import { isLensDeclarationDraftable } from './lensDeclarationDraft.js';
 import type { SetupGuideSummary, SetupStatus, SetupStep } from './setupWalkthrough.js';
 
 /** The guide as `/setup` lists it. */
@@ -67,7 +68,7 @@ export const LENS_SETUP_GUIDE: SetupGuideSummary = {
 export const LENS_REQUIRED_STEP_IDS: readonly string[] = ['workspace', 'state', 'config'];
 
 /** Every step the plan emits, required and optional, in render order. */
-export const LENS_ALL_STEP_IDS: readonly string[] = ['workspace', 'state', 'config', 'mappings', 'trust'];
+export const LENS_ALL_STEP_IDS: readonly string[] = ['workspace', 'state', 'config', 'mappings', 'trust', 'endpoints'];
 
 export interface LensDeclarationPlanInput {
   /** Absent means the files were never inspected — reported as unknown, not as missing. */
@@ -260,13 +261,21 @@ function buildDeclarationGuidance(
     { text: example.opening },
     { text: 'A worked example — the shape, from a project that is not yours:', command: example.json, authored: true },
     { text: example.closing },
-    ...(drafting === false
-      ? []
-      : [{
-        text: drafting
-          ? 'Or let Atlas read the repository and propose a first draft. It is shown to you in full and written only if you accept it; anything it cannot anchor to a real file is dropped and said so.'
-          : 'Atlas can also read the repository and propose a first draft, once a model provider is configured. Nothing is written without you seeing it first.',
-      }]),
+    // The undraftable kinds get the refusal in place of the offer, rather than
+    // silently omitting it — somebody who has seen "Ask Atlas" on the other four
+    // files needs to know this one is deliberate, not missing.
+    ...(!isLensDeclarationDraftable(kind)
+      ? [{
+        text: 'Atlas will not draft this file. It names the services AtlasMind sends requests to, and a '
+          + 'hostname nobody typed is a request to a stranger made in your name.',
+      }]
+      : drafting === false
+        ? []
+        : [{
+          text: drafting
+            ? 'Or let Atlas read the repository and propose a first draft. It is shown to you in full and written only if you accept it; anything it cannot anchor to a real file is dropped and said so.'
+            : 'Atlas can also read the repository and propose a first draft, once a model provider is configured. Nothing is written without you seeing it first.',
+        }]),
     { text: `The installed JSON schema gives autocomplete and validation as you type in ${file.workspacePath}.` },
   ];
 }
@@ -359,5 +368,31 @@ export const LENS_DECLARATION_EXAMPLES: Record<LensDeclarationKind, LensDeclarat
       }],
     }, null, 2),
     closing: 'Classification is one of `public`, `internal`, `confidential`, `restricted`. Controls are `consent`, `authorization`, `redaction`, `encryption`, `retention`, `residency`. One rule per `contractId` + `fieldPath` pair. This file holds metadata about fields and never a value from one — do not paste a sample in to illustrate a rule.',
+  },
+  endpoints: {
+    opening: 'Name the databases and APIs this project talks to, so a lens can compare the schema you declare against the one that is actually served. This is the only Lens file that leads to a request leaving your machine, so write it by hand — Atlas will not draft it, because a hostname nobody typed is a request to a stranger made in your name.',
+    json: JSON.stringify({
+      version: 1,
+      endpoints: [
+        {
+          id: 'orders-api-staging',
+          label: 'Orders API (staging)',
+          kind: 'http-openapi',
+          stage: 'staging',
+          url: 'https://staging.example.com/openapi.json',
+          secretRef: 'orders-api-staging-token',
+          expectedContractIds: ['api.Order'],
+        },
+        {
+          id: 'orders-db-staging',
+          label: 'Orders database (staging)',
+          kind: 'database',
+          stage: 'staging',
+          mcpServerId: 'postgres',
+          expectedContractIds: ['db.orders'],
+        },
+      ],
+    }, null, 2),
+    closing: 'Kind is `http-openapi` (the URL points at the schema document, not the API root), `graphql` (the introspection endpoint), or `database` (reached through a connected MCP server that exposes a schema-reading tool — AtlasMind bundles no database driver). Stage is `local`, `development`, `staging`, or `production`; **an endpoint that does not state its stage is treated as production** and asks you to type its name before every probe. `secretRef` names a key in VS Code SecretStorage — never paste a token, password, or connection string into this file, and a document containing one is refused whole rather than cleaned up.',
   },
 };

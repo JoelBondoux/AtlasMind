@@ -67,11 +67,26 @@ const NOT_READ_BY_DESIGN: Record<string, string> = {
 function isReadSomewhere(key: string): boolean {
   const short = key.replace(/^atlasmind\./, '');
   const leaf = short.split('.').pop() ?? short;
-  return ALL_TEXT.includes(`'${short}'`)
-    || ALL_TEXT.includes(`"${short}"`)
-    || ALL_TEXT.includes(`'${key}'`)
-    // A scoped read: getConfiguration('atlasmind.voice').get('sttEnabled')
-    || (short.includes('.') && ALL_TEXT.includes(`getConfiguration('atlasmind.${short.split('.')[0]}')`) && ALL_TEXT.includes(`'${leaf}'`));
+  if (
+    ALL_TEXT.includes(`'${short}'`) ||
+    ALL_TEXT.includes(`"${short}"`) ||
+    ALL_TEXT.includes(`'${key}'`)
+  ) {
+    return true;
+  }
+  // A scoped read: getConfiguration('atlasmind.voice').get('sttEnabled'). Every
+  // prefix is tried, not just the first segment — a section can nest more than
+  // one level (`atlasmind.lens.live`), and a check that only looked at the first
+  // would report a setting that is read as dead, which teaches people to
+  // allowlist their way past this guard.
+  const segments = short.split('.');
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    const section = `atlasmind.${segments.slice(0, depth).join('.')}`;
+    if (ALL_TEXT.includes(`getConfiguration('${section}')`) && ALL_TEXT.includes(`'${leaf}'`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 describe('every declared setting is honoured by code', () => {

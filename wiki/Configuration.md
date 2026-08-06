@@ -182,6 +182,108 @@ All off by default. See [[GitHub Workflow]].
 
 ---
 
+## Atlas Lenses — live services
+
+The three live lenses compare what your repository declares against what a running API or
+database actually serves. They are the only part of AtlasMind that reaches a system somebody else
+operates, and they read **shape only** — the schema a service publishes, or an `information_schema`
+listing. Never a row, never a field value, never a write.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.lens.live.enabled` | `false` | Master switch for Live Contract Drift, Service Reachability and Live Data Trust. Off by default — a probe leaves your machine. Nothing is ever probed automatically |
+| `atlasmind.lens.live.allowedStages` | `["local", "development", "staging"]` | Which declared environments a probe may reach. **`production` is deliberately absent**, and an endpoint that doesn't state its stage counts as `unknown`, which is treated *as production*. Adding either still requires you to type the endpoint's label before each probe |
+
+Which services may be reached is declared in `.atlasmind/lens-endpoints.json` — a committed file,
+reviewed like any other change. Atlas will **not** draft it: a hostname nobody typed is a request
+to a stranger made in your name. The file *names* a secret with `secretRef`; one that actually
+contains a token or connection string is refused whole.
+
+Databases go through an MCP server you have already connected, and only via a tool whose name says
+it reads schema. AtlasMind bundles no database driver, stores no database credential, and will not
+compose SQL for a generic query tool.
+
+---
+
+## Website Studio — generating and previewing
+
+Website Studio plans a client website. Most of it is inert: a brief, a sitemap, a wireframe canvas,
+a UI system. Two things in it actually *do* something, and each has its own switch — because writing
+files a model wrote and opening a port on your machine are different decisions, and one control
+carrying both would make the second happen without you agreeing to it.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.generation.enabled` | `false` | Lets **Generate** call a model and write static HTML and CSS. You see a modal listing every file first — and it can list them because the plan is worked out *before* any model runs, so the same sitemap always produces the same list |
+| `atlasmind.website.generation.maxFiles` | `40` | Most files one Generate may write. Over the limit it refuses and tells you the count, rather than writing half a site whose missing pages look like broken links |
+| `atlasmind.website.preview.enabled` | `false` | Lets the preview serve the generated site into a window beside the Studio |
+| `atlasmind.website.preview.port` | `0` | Which port to use. `0` picks a free one, which is nearly always what you want |
+
+Generated files go **only** to `.atlasmind/website-preview/`. Your source tree is never written to;
+moving an approved design out of the preview folder is a separate, deliberate step.
+
+The preview server binds `127.0.0.1` and nothing else — no setting can change that — serves only the
+preview folder, offers no directory listing, and puts a random per-session token in its URL so
+another process on your machine can't guess the port and read your client's work. It starts when you
+open the preview and stops when you close it, or when you close Website Studio.
+
+---
+
+## Website Studio — copy and client feedback
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.content.directory` | `content` | Where page copy lives — one markdown file per page. The files are the source of truth; the Studio shows a mirror |
+| `atlasmind.website.review.enabled` | `false` | Record client comments against pages and individual elements |
+| `atlasmind.website.review.includeOverlayInBuild` | `false` | Put the comment overlay into generated pages so your client can leave feedback in their own browser |
+| `atlasmind.website.review.webhookUrl` | `''` | An endpoint **you own** for comments to POST to. Empty means your client downloads a file and sends it |
+
+Where the words aren't written yet, leave a `[PLACEHOLDER: what's needed]` marker. AtlasMind counts
+them, so a page reads as "four placeholders remaining" rather than a status somebody ticked — and
+generation is told to leave them visible rather than helpfully inventing copy. A page that looks
+finished but is full of fiction is worse than an obviously unfinished one, because it gets signed off.
+
+A page with **no** content file and a page with an **empty** one are different things, and stay
+different. And if you edit the markdown while the Studio has it open, the Studio's save is refused
+rather than merged — the file wins.
+
+**AtlasMind doesn't host the review.** The overlay ships inside your site, so it goes wherever the
+site goes, including the password-protected staging environment the Stack page sets up. Your client
+opens a normal URL. Comments come back as a downloaded file, or by POST to an endpoint you already own
+if you configure one — and if you don't, the page can't make a network request at all.
+
+---
+
+## Website Studio — setting the project up
+
+Picking a framework does nothing by itself. **Set up this stack** is the part that runs commands and
+writes files, and it has three switches rather than one because they're three different decisions.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.website.setup.enabled` | `false` | Lets setup run the framework's create command, write the deploy config, add dev/build scripts and create the stage branches. You see every command and every file in full first |
+| `atlasmind.website.setup.generateCi` | `false` | Also writes a GitHub Actions deploy workflow. Separate because it's the one thing AtlasMind generates that **runs on its own** — with your secrets, and it can spend money |
+| `atlasmind.website.setup.allowRemoteProjectCreation` | `false` | Lets AtlasMind run `wrangler pages project create` and friends for real. Off by default: they authenticate as you and create billable resources. With it off you still get the command to run yourself |
+| `atlasmind.website.setup.packageManager` | `npm` | `npm`, `pnpm`, `yarn` or `bun` for the commands it plans and the scripts it writes |
+
+However you set these, a few things hold:
+
+- **Nothing runs through a shell**, and every command is a constant in AtlasMind's source rather than
+  something composed, fetched, or written by a model.
+- **Nothing is overwritten.** An existing config file, script, branch or workflow is left exactly as
+  it is and reported — so running setup twice is safe.
+- **Branches are only ever created**, never checked out, pushed or forced.
+- **Success is checked afterwards**, not assumed from an exit code.
+- A framework or platform AtlasMind has no verified command for gets **no command**, and says so,
+  rather than an improvised one.
+
+The Stack page also compares Website Studio's three environments with the Delivery page's stages and
+shows you which fields disagree. They're two separate copies, so they can drift; syncing never clears
+a real Delivery value with an empty one from the Studio, and can only ever *add* promotion protection,
+never remove it.
+
+---
+
 ## Ideation and research
 
 | Setting | Default | What it does |

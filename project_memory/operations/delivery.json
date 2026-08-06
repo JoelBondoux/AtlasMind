@@ -116,7 +116,12 @@
     {
       "id": "promote-local-staging",
       "fromStageId": "stage-local",
-      "toStageId": "stage-staging"
+      "toStageId": "stage-staging",
+      "lastPromotion": {
+        "ranAt": "2026-08-05T21:35:32.764Z",
+        "succeeded": true,
+        "version": "0.261.1"
+      }
     },
     {
       "id": "promote-staging-production",
@@ -125,5 +130,5 @@
       "routineId": "publishing-routine"
     }
   ],
-  "updatedAt": "2026-07-04T00:00:00.000Z"
+  "updatedAt": "2026-08-05T21:35:32.765Z"
 }

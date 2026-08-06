@@ -992,6 +992,53 @@ export class Orchestrator {
   }
 
   /**
+   * One-shot completion for Website Studio generation.
+   *
+   * Separate from `completeBootstrap` for one concrete reason: a whole site is
+   * several complete HTML files plus a stylesheet, and 3,000 tokens truncates
+   * that mid-tag. A truncated file is worse than a failed generation, because it
+   * is written to disk and rendered, so the failure looks like a bad design
+   * rather than a clipped response.
+   *
+   * Errors are **not** swallowed. `completeBootstrap` returns '' so callers can
+   * fall back to a template; there is no template for a generated website, and
+   * silently writing nothing would leave the preview showing the previous run
+   * with no indication the new one failed.
+   */
+  async completeWebsiteGeneration(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'balanced' };
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: userPrompt,
+      // 'execution' rather than 'maintenance': this produces the artefact the
+      // user asked for, so it should route to a capable model, not the cheapest
+      // one background upkeep is allowed to use.
+      phase: 'execution',
+      requiresTools: false,
+    });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new Error('No model provider is configured. Add a provider before generating a website.');
+    }
+    const response = await provider.complete({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      maxTokens: 16_000,
+      // Low but not zero: this is a design task, and the structure is already
+      // pinned by the wireframe and the output contract.
+      temperature: 0.3,
+    });
+    if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+      throw new Error('The selected model is the local echo placeholder, which cannot generate a website. Configure a real provider.');
+    }
+    return response.content;
+  }
+
+  /**
    * Two-step recovery when the primary attempt returns empty content.
    *
    * Step 1 — Reprompt: re-runs the same agent with an explicit instruction to use

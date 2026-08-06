@@ -9,6 +9,7 @@ import {
   type LensDashboardView,
 } from '../core/lensDashboard.js';
 import { inspectLensDeclarations } from '../core/lensDeclarations.js';
+import { readLiveLensState } from './lensLiveCommand.js';
 import {
   LENS_PANEL_CSS,
   LENS_PANEL_SCRIPT,
@@ -188,7 +189,15 @@ export async function collectLensDashboardInput(): Promise<LensDashboardInput> {
     ...(activeTarget ? { activeTarget } : {}),
     ...(diskBacked ? { declarations: inspectLensDeclarations(folder.uri.fsPath) } : {}),
     ...(diskBacked ? { git: await readGitState(folder.uri.fsPath) } : {}),
+    // Absent on a non-disk workspace, or when the state could not be read, so
+    // the live lenses report `unknown` rather than being marked cleanly
+    // disabled by a check that never ran.
+    ...(diskBacked ? optionalLive(await readLiveLensState()) : {}),
   };
+}
+
+function optionalLive(live: LensDashboardInput['live']): Pick<LensDashboardInput, 'live'> {
+  return live ? { live } : {};
 }
 
 function activeLensTarget(): LensDashboardInput['activeTarget'] {

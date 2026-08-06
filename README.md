@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.259.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.266.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -67,8 +67,10 @@ evidence, argue with yourself visually, and then turn the cards that survived in
 **Ship properly.** A guided eight-stage GitHub workflow takes you from an idea to a released version —
 issues, branches, pull requests, review, CI, release — with a clear explanation at every step.
 
-**Deliver a client website.** Website Studio carries a site from the client brief through sitemap,
-wireframes, design system, hosting choice, and a protected path to production.
+**Deliver a client website.** Website Studio carries a site from the client brief through a sitemap
+that draws its own hierarchy, a wireframe canvas you actually draw on, a shared design system, and a
+protected path to production. Select any block and say what you want in plain English; press
+**Generate** at any stage and watch it render in a preview beside you.
 
 ---
 
@@ -121,10 +123,146 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.259.0
+## What's new in 0.266.1
 
 Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **You can finally see the wireframe.** The preview was showing a white page, and the reason was
+  structural: nothing in AtlasMind could turn a wireframe into HTML, so it could not reach a browser
+  without first spending a model call — and before you generated, you got the server's one-line error
+  page. Wireframes now render straight to HTML with **no model involved**: instant, free, identical
+  every time. Every block is unmistakably a placeholder — hatched, dashed, labelled; a text block is
+  grey bars rather than lorem ipsum, an image a crossed rectangle rather than a stock photo — and your
+  nav shows the real page names from your sitemap, because those are facts rather than filler.
+
+- **Page copy lives in markdown you can hand to a copywriter.** Generated sites used to be full of
+  invented headlines and fictional testimonials, which is worse than an empty page: an empty page is
+  obviously unfinished, and confident fiction gets signed off. Copy now lives in `content/`, one file
+  per page, diffing properly in a pull request. Where the words are not written you leave a
+  `[PLACEHOLDER: what is needed]` marker, which AtlasMind **counts** — so a page reads as "four
+  placeholders remaining" rather than a status somebody ticked, and generation is told to leave the
+  gaps visible rather than fill them.
+
+- **Your client can comment on the actual thing.** Not "the hero is too big" in an email, leaving you
+  to work out which hero. They open the staging site, click the element, and type; the comment lands
+  against that element, transitions through open → addressed → resolved, and becomes scoped work with
+  one click. Delete an element somebody commented on and **the comment survives, flagged** — it is the
+  evidence the thing was removed while under review.
+
+  **AtlasMind hosts none of it.** The overlay ships inside your site, so it travels to the
+  password-protected staging environment the Stack page already sets up — your client's own hosting.
+  Feedback comes back as a downloaded file, or by POST to an endpoint you already own. No endpoint is
+  ever invented; without one the page cannot make a network request at all.
+
+- **Website Studio can now set the project up for you.** The Platforms page became a **Stack** page,
+  because the framework and the host are one decision: "Astro on Cloudflare Pages" has a known build
+  command, a known output directory and a known deploy config, and splitting them made the compatible
+  pairing something you had to already know. Pick from ten frameworks, each graded against your chosen
+  platform with the reason shown — including the bad pairings, because removing Hugo when Shopify is
+  selected just leaves you wondering where it went.
+
+  **Set up this stack** then runs the framework's own create command, writes the deploy config, adds
+  the `dev`/`build` scripts, creates a `.env.example` with variable names and no values, makes the
+  develop/staging/production branches, and — if you turn it on — writes a GitHub Actions workflow that
+  deploys each branch to its environment. Everything is shown first: every command with its purpose,
+  every file with its full contents. Commands are constants in AtlasMind's source, run with no shell,
+  and every file and branch step is **create-only**, so re-running is safe and nothing you wrote is
+  overwritten.
+
+  Three switches, all off by default and separate on purpose — scaffolding, generating CI, and letting
+  AtlasMind run the hosting provider's CLI are three different decisions, and the last one spends
+  money on your account.
+
+  The Stack page also **compares itself with the Delivery pipeline**. Website Studio keeps its own
+  three environments, so the two can drift; rather than hide that, the page shows exactly which fields
+  disagree, and says plainly when nobody has looked yet.
+
+- **Website Studio: draw the site, point at it, and press Generate.** The old wireframe was the first
+  eight strings from a page's section list rendered as coloured blocks — no position, no size, no
+  nesting, nothing downstream could act on it. There is now a real canvas: drag a nav, a hero, a grid
+  or a card onto a snapping 12-column grid, resize from eight handles, drop one block inside another
+  to nest it, and move it with the arrow keys. Every block is focusable and announces its kind, width
+  and position, so the canvas is not mouse-only. Geometry is stored on a fixed 1000-unit grid rather
+  than in pixels — `website.json` is committed, and pixels would record the author's monitor size.
+
+  **The sitemap now draws its own hierarchy**, derived from the slug path as pages are added, so
+  `/services/seo` appears under Services without anybody drawing an edge. An explicit parent overrides
+  it. A page whose slug names a parent that isn't there is shown at the top level *and flagged*, rather
+  than hidden or silently re-parented — and the map is deterministic, so it never shifts when nothing
+  changed.
+
+  **The page inventory knows where each page leads** — outbound links, inbound counts, orphan pages,
+  and links whose target was deleted. A broken link is kept and marked rather than tidied away; it is
+  the evidence that a nav is broken.
+
+  **Select anything and describe it in plain English.** Click a hero, type "full-bleed photo, headline
+  left, one button", and Atlas gets a prompt naming the selection completely — kind, label, width, what
+  contains it, which page, and the shared design tokens. That is what makes "make this wider"
+  answerable. Works for a page and the whole site too. Every page can also carry its own written design
+  prompt, so a site can reach first-draft design from the sitemap alone without a box being drawn.
+
+  **Generate works from wherever you are** — brief, sitemap, a wireframe, or one selected element — and
+  the result renders in a preview window beside the Studio. The file list is decided before any model
+  runs, so the confirmation dialog names every file you are agreeing to. Both switches are **off by
+  default**, and they are two switches because writing files and opening a port are different
+  decisions. Files land only in `.atlasmind/website-preview/`, never in your source tree; the preview
+  server binds `127.0.0.1` only and stops when you close the window.
+
+- **Every panel now looks like the Project Dashboard.** Settings, MCP, Model Providers, Agent Manager,
+  Mission Control, Run Center, Cost Dashboard, Model Comparison, Website Studio, Ideation, Vision,
+  Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the ten Lens surfaces draw the same card,
+  the same header, the same tab and the same input.
+
+  The reason they didn't is structural. Each webview is an isolated document, so a panel genuinely
+  cannot inherit another panel's stylesheet — which over time produced nineteen palettes under five
+  prefixes, four of them drifted copies of the dashboard's. There is now one definition, applied in
+  two layers: tokens and the page frame *before* a panel's own CSS, surfaces *after* it. A panel keeps
+  its layout, which it owns, and loses its private palette, which it never chose.
+
+  Colour that carries meaning is left alone — the Ideation board's tinted notes, the chat transcript,
+  warnings, and each Lens's own accent. The **Personality Profile is unchanged** by request.
+
+- **The Pipeline page can read CI itself, and says when it couldn't.** CI was only ever fetched as a
+  side effect of the Issues refresh, so the one page whose whole subject is *did the build pass* had
+  no way to go and find out — its empty state sent you to a different tab. It now has its own
+  **Refresh CI**, two `gh` calls rather than five. And an empty run list no longer reads as a quiet
+  green: "this branch has never been built" and "we could not ask" are now told apart, with the
+  reason and the command that fixes it.
+
+  The CI pass rate on the Workflow page also stopped abstaining. It was wired to an empty array left
+  over from an earlier phase, so it reported *not measured* however many runs were sitting in memory.
+  It now derives from the checks on the head commit — deliberately just that commit, since a
+  fortnight of branch history would have made a clean commit read red for failures somebody already
+  fixed.
+
+- **Connect a database directly — Neon, Supabase, RDS, Railway, self-hosted, MySQL.** The live lenses
+  originally reached a database only through an MCP server, which meant most people were told to
+  install one before they could use the feature. Now you point AtlasMind at a `postgres`, `mysql` or
+  `sql-http` endpoint, store the connection string in the OS keychain with **AtlasMind: Store a Live
+  Service Credential**, and it reads the catalog directly. The string never touches your repository —
+  the committed file names the key, and a file containing an actual credential is refused outright.
+
+  It also **measures**: row counts, table and index sizes, constraints, how stale the statistics are,
+  connection latency with cold starts called out separately, and the query plan. Every number comes
+  from the catalog the database already maintains — no `COUNT(*)`, no table scan, no row of your data
+  read to produce any of it. A table nobody has analyzed reports **unknown**, never zero, because
+  "this table is empty" is the most expensive thing it could get wrong.
+
+- **The lenses can now look at the services your project actually talks to.** Every lens read the
+  repository, so the question people really have — *does the running system still agree with what the
+  code believes?* — was one AtlasMind could not answer. Three new lenses close that. **Live Contract
+  Drift** compares the schema you declare against the one a live API or database serves, and names
+  every field that has gone missing, changed type, or turned up without being declared. **Service
+  Reachability** reports which declared services answered, which did not, and which nobody has looked
+  at. **Live Data Trust** lists the fields a service actually serves that no classification covers.
+
+  It reads **shape only** — the schema a service publishes, or a listing of tables and columns. Never
+  a row, never a field value, never a write. Which services may be reached is declared in a committed
+  file that *names* a stored secret rather than holding one, and Atlas will not draft that file:
+  a hostname nobody typed is a request to a stranger made in your name. Probing is off by default,
+  production is not in the default allowed stages, and an endpoint that does not say which environment
+  it is gets treated as production and asks you to type its name before every probe.
 
 - **"Promote to staging" now means what your project says it means.** AtlasMind records your delivery
   pipeline — the stages, what each one is called, which branch represents it — and until now the chat
@@ -225,8 +363,9 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
-| **Website Studio** | Client intake through to a protected Develop → Staging → Production path. |
+| **Website Studio** | Draw the site on a wireframe canvas, watch the sitemap build its own hierarchy, select any element and describe it in words, then Generate into a live preview beside you — through to a protected Develop → Staging → Production path. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
+| **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |
 
 ---
@@ -284,8 +423,9 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
+| `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 
-All 114 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 116 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 

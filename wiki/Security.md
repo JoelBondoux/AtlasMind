@@ -191,10 +191,75 @@ hold one.
 
 ---
 
+## Lenses that reach a live service
+
+Three lenses — Live Contract Drift, Service Reachability, Live Data Trust — compare what your
+repository declares against what a running API or database actually serves. They are the only part of
+AtlasMind that reaches a system somebody else operates, and everything about them follows from that.
+
+- **The shape is read, the rows never are.** An API probe fetches the OpenAPI document the service
+  publishes, or sends one fixed GraphQL introspection query. A database probe asks a connected MCP
+  server's schema-reading tool what tables and columns exist. There is no function anywhere in the
+  probe path that accepts a query, so `SELECT * FROM users` is not something any caller — a panel, a
+  setting, a model — can reach, and a test asserts that no request AtlasMind can compose carries a
+  write verb.
+- **Value-bearing keys are dropped by name.** OpenAPI `example`, `examples`, `default`, `enum` and
+  `const` are read and discarded rather than merely ignored. They're the keys most likely to hold a
+  real customer record, and code that simply skipped unknown keys would eventually carry one along.
+- **Deny by default, at two gates.** `atlasmind.lens.live.enabled` is off, and a probe still needs
+  the per-run confirmation. Turning the feature on and pointing it at production are two decisions.
+  Nothing is ever probed automatically or in the background, at any setting.
+- **An endpoint that doesn't say which environment it is counts as production.** It gets the same
+  type-to-confirm gate — you type the endpoint's own label before each probe, exactly as promotion to
+  a protected stage works. Guessing downward would move the gate off the one environment it exists for.
+- **Which services may be reached is a committed file, never a setting and never a model.**
+  `.atlasmind/lens-endpoints.json` is reviewed like any other change. Atlas refuses to draft it —
+  refused before the reply is even parsed, so a convincing draft can't pass — because a hostname
+  nobody typed is a request sent to a stranger in your name with your token attached.
+- **The file names a secret; it never holds one.** `secretRef` points at VS Code SecretStorage. A
+  document carrying an actual token, password or connection string is refused *whole* rather than
+  quietly cleaned up: a silently-scrubbed file would leave the credential on disk while reporting
+  that everything was fine. Credentials embedded in a URL are rejected for the same reason.
+- **Redirects are not followed.** A redirect is the server nominating a destination nobody reviewed,
+  with the bearer token still attached. It's reported as an outcome you can see instead.
+- **Plaintext `http` only on the loopback.** A probe may carry a token, so anything off your machine
+  must be `https`. Private-range `https` is allowed — a staging API on the office network is the
+  ordinary case, and unlike a fetched URL this destination came from a file somebody reviewed.
+- **AtlasMind never *composes* SQL — it sends a *constant*.** Direct database connections
+  (`postgres`, `mysql`, `sql-http`) send statements that are module-level constants with no
+  interpolation, no parameters, and no code path that accepts a fragment from anywhere. A test walks
+  every statement the code can emit and fails on a write verb, a placeholder, or a second statement.
+  Everything runs inside `BEGIN READ ONLY` with a timeout, opened first and not optional — a server
+  too old to support it fails the probe rather than getting one that runs unguarded.
+- **Row counts never scan a table.** They are planner estimates the database already maintains, so
+  "AtlasMind never reads a row" is literally true rather than nearly true. A table nobody has
+  analyzed reports *unknown*, never zero.
+- **The connection string lives in the OS keychain and nowhere else.** The committed file names the
+  key; a file containing an actual credential is refused whole. The name is namespaced before it
+  reaches SecretStorage, so a declaration file cannot name — and therefore cannot read — a key
+  belonging to a model provider or anything else AtlasMind stores. Driver errors are scrubbed of
+  anything URL- or `user:password@host`-shaped before they can reach a dialog or an output channel.
+- **A credential is validated by parsing, never by connecting.** A mistyped connection string fails
+  where you can still see what you pasted, rather than opening a socket to whatever host the typo
+  produced. AtlasMind cannot verify what a credential is permitted to do, so it recommends a
+  read-only role at the moment you store one — least privilege is the control that doesn't depend on
+  AtlasMind being correct.
+- **Going through MCP instead is still supported, and still refuses a generic query tool.** With
+  somebody else's tool AtlasMind cannot guarantee what happens to the string it hands over, and
+  guessing which argument means "the query" is guesswork — so that path takes only tools whose
+  *name* says they read schema.
+- **An unassessed service is never reported as healthy.** Refused, timed out and never-probed are
+  distinct from unreachable, and a drift report for an endpoint nobody probed says explicitly that
+  this is not a finding of "no drift". Probe results are held in memory for the session only; nothing
+  about your environment is written into the git-tracked project memory.
+
+---
+
 ## Model-drafted files
 
 The Lens declaration guide is the one place AtlasMind will have a model write a file that lands in your
-repository, so the boundary is worth stating in full. A draft is a **proposal, never a write**:
+repository, so the boundary is worth stating in full. A draft is a **proposal, never a write** — and
+one declaration kind, `lens-endpoints.json`, is refused outright rather than drafted at all:
 
 - **Refused whole, never repaired.** The draft goes through the same check the lens itself reads the file
   with. If it fails, it is rejected outright — patching it up would mean AtlasMind inventing the parts the
@@ -211,6 +276,138 @@ repository, so the boundary is worth stating in full. A draft is a **proposal, n
   individually rather than counted, and a confirmation naming the file and the exact counts.
 - **Your own entries always win.** Merging never replaces something you wrote — a silent overwrite would
   be invisible in a diff full of additions.
+
+---
+
+## Generated websites and the preview port
+
+Website Studio's **Generate** is the second place AtlasMind has a model write files, and the *only*
+place it opens a network port. Both are off until you turn them on, and they are two switches rather
+than one — writing model-authored files and listening on a port are different decisions, and a single
+control carrying both would make the second happen without being agreed to.
+
+**Where the files go.** Only `.atlasmind/website-preview/`. Your source tree is never written to;
+moving an approved design out of the preview folder is a separate, deliberate step you take yourself.
+
+**Which files, decided before any model runs.** The plan is worked out from your sitemap, not by a
+model, so the confirmation dialog can name every single file — and the same sitemap always produces the
+same list, which is what makes "yes" mean something you can learn. The model writes file *contents*; it
+never chooses file *paths*. A path that doesn't validate refuses the whole plan with the reason, rather
+than being quietly cleaned up.
+
+**A file you didn't approve is reported, not written.** If the model returns `admin/index.html` when
+the plan said `index.html`, the defence isn't that the path looks wrong — it's that you didn't agree to
+it. Paths are checked when the plan is built, again when the reply is read, and again immediately before
+each write. Nothing executable can be generated at all: `.js` is not in the allowlist.
+
+**The preview server.** It binds `127.0.0.1` and nothing else — the address is a constant in the source
+and there is no setting for it. The common wildcard default would publish a client's unfinished site to
+whatever network you're on. It serves one directory, re-checks every request against it by resolving the
+path rather than comparing string prefixes (a prefix test says `preview-evil/` is inside `preview/`),
+has no directory listing, and returns 404 for anything outside a small extension allowlist rather than
+offering it as a download. Its URL carries a **random per-session token**, because any process on your
+machine can reach a localhost port and your client's work isn't something to hand to whatever else is
+running. It starts when you open the preview and stops when you close it or close the Studio.
+
+**The preview window has its own policy.** It builds its own HTML document rather than reusing the
+shared panel shell, so allowing it to frame a local port doesn't give that ability to every other panel
+in AtlasMind. The frame runs without scripts, sends no referrer, and the served pages carry a strict
+policy of their own that permits no network requests at all. A test pins the shared shell's policy so
+this can't be undone by accident.
+
+**What the Studio sends is data, never a command.** Selecting an element and asking about it sends a
+scope and some ids; pressing Generate sends a stage and some ids. Neither can name a command, a path or
+a file. Text already stored in the project file — labels, page purposes, saved design prompts — is
+passed to the model as quoted material, because a model wrote some of it and a block named like an
+instruction must not become one.
+
+---
+
+## Client review, and the one script we generate
+
+The review overlay is the **only** place AtlasMind puts JavaScript into a generated page, so it gets
+treated accordingly.
+
+**The script is a frozen constant.** Hand-written in one file, never written by a model, and nothing
+from your project is interpolated into it — its configuration travels in a `data-` attribute as JSON.
+A test asserts the emitted script is byte-identical to the constant whatever the page, the round or the
+endpoint. That is why it can be reviewed once rather than every time.
+
+**AtlasMind hosts nothing.** The overlay ships inside your site and deploys to your client's own
+staging environment. There is no relay, no account, and no copy of your client's work on anyone else's
+infrastructure. The reasoning, and what it costs, is in
+`project_memory/decisions/website-client-review-hosting.md`.
+
+**No endpoint is ever invented.** With no webhook configured the overlay is download-only and the
+page's `connect-src` is `'none'` — it cannot make a request at all. A configured endpoint must be
+plain `https` with no credentials in the URL, and becomes the single permitted origin.
+
+**The preview server's script exception is one named file.** `atlas-review.js`, by exact name — not
+`.js` added to the allowlist, which would let any script in the preview folder run. `script-src 'self'`
+is added to the served policy only while the overlay setting is on, so the policy widens exactly when
+there is something that needs it and not a moment earlier.
+
+**Feedback coming back is untrusted twice** — third-party text that has been through a browser we do
+not control, possibly on a machine we know nothing about. It runs through the same sanitizer as the
+workspace file, and is fenced as reported content before it ever reaches a model. Import is
+idempotent: re-sending the same export adds nothing and never re-opens work you have already resolved.
+A comment naming an element or page that no longer exists is **kept and flagged**, not dropped — the
+likeliest cause is that somebody deleted the thing the client was asking about.
+
+---
+
+## Scaffolding a website stack, and the workflow it can write
+
+**Set up this stack** is the only place AtlasMind runs commands on your behalf to build a project, and
+the generated CI workflow is the only thing it produces that later runs *without* it. Three separate
+switches, all off by default, because scaffolding, generating CI, and touching your hosting account
+are three genuinely different decisions.
+
+**Every command is a constant in AtlasMind's source.** Not composed from a setting, not read out of a
+webview message, not parsed from documentation, and never written by a model. A command from any of
+those is remote code execution with extra steps. Adding a framework means adding a literal, and a test
+walks *every* producible plan — every framework, platform, package manager and gate combination — and
+fails on a shell metacharacter in any argument, or on a command that names a shell or a downloader.
+
+**Nothing runs through a shell.** Steps are `execFile(command, args)` with an argument array, so an
+argument cannot become a second command.
+
+**Nothing writes outside your workspace.** Paths are checked when the plan is built and resolved
+against the workspace root again immediately before each write.
+
+**Nothing is overwritten.** Config files, `package.json` scripts, branches and workflow files are all
+create-only: what already exists is reported untouched. Branch steps use `git branch` and nothing
+else — never checkout, never push, never force.
+
+**You see it before it happens.** The confirmation lists every command with its purpose and every file
+with its complete contents, and offers to open them as real documents first. Afterwards AtlasMind
+**re-checks the filesystem** rather than trusting exit codes, because a create command can exit
+successfully having done nothing.
+
+### The generated workflow specifically
+
+A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a
+push nobody reviewed it for. It can deploy, and it can spend money. So:
+
+- The YAML is a **declared template** with only validated values substituted. No model writes any part
+  of it. A rendered file still containing a placeholder is refused rather than written.
+- **An existing workflow is never replaced.** Losing a working deploy pipeline to a scaffolder is not
+  something you recover from in an editor.
+- **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
+  confirmation protects the moment the file is written; the environment protects every run after that.
+- **Secrets are named, never written.** You are told which to add and where; no value goes near the
+  file, which is committed.
+- Permissions are explicit rather than inherited, actions are pinned to a major version, and deploys
+  to the same branch queue rather than racing.
+- A platform AtlasMind has no verified deploy action for gets **no workflow** — a pipeline that
+  half-works still runs.
+
+### Your hosting account
+
+`wrangler pages project create`, `netlify sites:create` and `vercel link` authenticate as you and
+create billable resources, and a run that fails halfway leaves them orphaned with no teardown. They
+are shown as commands with their purpose and **not run** unless you explicitly turn on
+`atlasmind.website.setup.allowRemoteProjectCreation`.
 
 ---
 

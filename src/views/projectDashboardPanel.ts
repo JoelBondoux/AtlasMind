@@ -98,6 +98,7 @@ import {
   type DoraMetrics,
   type HealthComponent,
   type IssueMetrics,
+  type MetricCheckRunInput,
   type MetricReleaseInput,
   type PullRequestMetrics,
   type ReleaseMetrics,
@@ -168,6 +169,7 @@ import {
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
   deriveBranchDashboard,
+  latestWorkflowRuns,
   matchBranchCodeowners,
   parseBranchCodeowners,
   type BranchDashboardInsight,
@@ -518,6 +520,13 @@ type ProjectDashboardMessage =
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
+  /**
+   * Read CI on its own, without the four other `gh` calls the issues refresh
+   * makes. The Pipeline page used to have no way to load the data it renders —
+   * its empty state told you to open a different tab — so the one page whose
+   * whole subject is "did the build pass" could not go and find out.
+   */
+  | { type: 'refreshCi' }
   | { type: 'workOnIssue'; payload: string }
   | { type: 'createIssue'; payload: { title: string; body?: string; labels?: string[] } }
   | { type: 'closeIssue'; payload: { number: number } }
@@ -1357,6 +1366,15 @@ interface DashboardCiRun {
  * `report` absent with runs present means nothing has failed. `logFailure`
  * set means something failed but the log could not be read — a different
  * fact, and one the surface has to state rather than imply.
+ *
+ * `fetchFailure` is a third fact again, and the one most easily lost: the run
+ * *list* could not be read at all. Without it an empty `runs` array carries two
+ * incompatible meanings — "this branch has never been built" and "we could not
+ * ask" — and the page renders the second as the first, which is the exact
+ * failure the rest of this file is built to avoid. It is kept separate from
+ * `logFailure` because they send you to different places: one is a `gh` or
+ * network problem, the other is a permissions or retention problem on a single
+ * run's log.
  */
 interface DashboardCiIntelligence {
   runs: DashboardCiRun[];
@@ -1364,6 +1382,10 @@ interface DashboardCiIntelligence {
   branchRuns?: DashboardCiRun[];
   report?: CiFailureReport;
   logFailure?: string;
+  /** Why the run list itself could not be read, when it could not. */
+  fetchFailure?: string;
+  /** The fix for {@link fetchFailure}, when `ghClient` could name one. */
+  fetchFixCommand?: string;
   loadedAt: string;
 }
 
@@ -3488,6 +3510,9 @@ export class ProjectDashboardPanel {
       case 'refreshIssues':
         await this.handleRefreshIssues();
         return;
+      case 'refreshCi':
+        await this.handleRefreshCi();
+        return;
       case 'workOnIssue':
         await this.handleWorkOnIssue(message.payload);
         return;
@@ -4739,6 +4764,78 @@ export class ProjectDashboardPanel {
       }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
+    } finally {
+      this.repositoryActivityRefreshRunning = false;
+      await this.syncState();
+      await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
+    }
+  }
+
+  /**
+   * Read CI for the current branch, on explicit request from the Pipeline page.
+   *
+   * Separate from {@link handleRefreshIssues} rather than folded into it,
+   * because the two have different costs and different reasons to be run. The
+   * issues refresh makes five `gh` calls to populate four pages; this makes two,
+   * plus at most one log download, for the page the user is looking at. Somebody
+   * watching a build should not have to re-read a hundred issues to find out
+   * whether it went green.
+   *
+   * It shares `repositoryActivityRefreshRunning` with that refresh — one
+   * in-flight repository read at a time, matching the single busy flag the
+   * webview carries — so clicking both is a no-op rather than two bursts of API
+   * quota.
+   *
+   * A failure is **recorded on the snapshot**, not swallowed. The issues refresh
+   * can afford to swallow this one (it is tertiary there, and hiding it would
+   * not hide the primary read that succeeded); here it is the entire point of
+   * the click, and a button that silently does nothing is worse than one that
+   * says why.
+   */
+  private async handleRefreshCi(): Promise<void> {
+    if (this.repositoryActivityRefreshRunning) {
+      return;
+    }
+
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      this.ciState = {
+        runs: [],
+        fetchFailure: 'Open a workspace folder to read its pipeline runs.',
+        loadedAt: new Date().toISOString(),
+      };
+      await this.syncState();
+      return;
+    }
+
+    this.repositoryActivityRefreshRunning = true;
+    this.repositoryActivityLastAttemptAt = Date.now();
+    await this.postMessage({ type: 'repositoryRefreshBusy', payload: true });
+
+    try {
+      const branch = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      // A detached HEAD has no branch to list runs for. Reported as itself:
+      // `gh run list --branch HEAD` would return nothing and read as a green
+      // absence of failures.
+      this.ciState = !branch || branch === 'HEAD'
+        ? {
+          runs: [],
+          fetchFailure: 'This workspace is not on a branch, so there are no branch runs to read.',
+          loadedAt: new Date().toISOString(),
+        }
+        : await gatherCiIntelligence(workspaceRoot, branch);
+    } catch (error) {
+      const failure = ghFailureOf(error);
+      // Previously-read runs are *replaced* by the failure rather than kept
+      // beside it. Runs from an earlier fetch shown under a fresh timestamp
+      // would report an old build as the current one, which is the specific
+      // wrong answer somebody clicking Refresh is trying to avoid.
+      this.ciState = {
+        runs: [],
+        fetchFailure: failure.detail,
+        ...(failure.fixCommand === undefined ? {} : { fetchFixCommand: failure.fixCommand }),
+        loadedAt: new Date().toISOString(),
+      };
     } finally {
       this.repositoryActivityRefreshRunning = false;
       await this.syncState();
@@ -7617,6 +7714,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
+  if (candidate['type'] === 'refreshCi') {
+    return true;
+  }
+
   if (candidate['type'] === 'workOnIssue') {
     return sanitizeIssueNumber(candidate['payload']) > 0;
   }
@@ -8156,9 +8257,10 @@ function buildGuidedWorkflowSnapshot(input: {
       now,
     );
 
-  // Phase 1 has no check-run fetch on the render path, so CI reports honestly
-  // that it has not looked rather than implying a green build.
-  const ci = deriveCiMetrics([]);
+  // Derived from the runs on the head commit, or honestly empty when CI was
+  // never read. `deriveCiMetrics([])` reports "not measured" rather than a
+  // green build, so the absent case needs no special handling here.
+  const ci = deriveCiMetrics(headCommitCheckRuns(input.ci?.runs ?? []));
 
   // The versions the changelog *actually documents*, read from its headings.
   //
@@ -10896,6 +10998,64 @@ async function collectArchetypeEvidence(
     files,
     ...(language === undefined ? {} : { language }),
   };
+}
+
+/**
+ * The runs that are the *checks on the head commit*, for {@link deriveCiMetrics}.
+ *
+ * `deriveCiMetrics` answers questions about one commit — "does this commit pass",
+ * "what share of its checks are green", "how long do they take" — and its own
+ * unknown reason says "No check runs found for this commit". Handing it thirty
+ * runs spanning a fortnight of branch history would keep the labels and silently
+ * change what they mean: a commit that passes cleanly would report 60% because
+ * of failures somebody already fixed last week. So the list is narrowed to one
+ * commit first, and that narrowing is the whole job of this function.
+ *
+ * Two rules do it:
+ *
+ * - **The head commit is the newest run's commit**, taken from `runs[0]` because
+ *   `gh run list` returns newest first. Deliberately the same "latest" that
+ *   `latestCiConclusion` uses — a second, cleverer definition here (newest by
+ *   parsed timestamp, say) would eventually disagree with it, and the Overview
+ *   and this page would report different verdicts for the same repository.
+ * - **One run per workflow**, newest wins, via the rule the branch cards already
+ *   use. A re-run is another attempt at one check, not a second check.
+ *
+ * An empty list stays empty rather than becoming a zeroed metric: absent is not
+ * measured-as-nothing, and `deriveCiMetrics` is built to say so.
+ */
+export function headCommitCheckRuns(runs: readonly DashboardCiRun[]): MetricCheckRunInput[] {
+  const head = runs[0];
+  if (!head) {
+    return [];
+  }
+
+  // A run with no `headSha` cannot be attributed to a commit. Matching those
+  // together would gather every unattributable run into one pseudo-commit, so
+  // they are dropped — the metric then covers fewer checks rather than the
+  // wrong ones.
+  if (!head.headSha) {
+    return [];
+  }
+
+  return latestWorkflowRuns(runs.filter(run => run.headSha === head.headSha))
+    .map(run => ({
+      name: run.workflowName || run.displayTitle || '(unnamed workflow)',
+      status: run.status,
+      conclusion: run.conclusion,
+      // `gh run list` reports no started/completed pair, so the run's own
+      // window stands in for the check's duration. It includes queue time,
+      // which is a real part of how long CI takes to answer.
+      //
+      // `completedAt` is supplied **only for a completed run**. On one still in
+      // flight, `updatedAt` is simply the last time anything happened, and
+      // feeding that in would enter "how long it has been running so far" into
+      // the median as though it were a finished duration — pulling the number
+      // down exactly while a slow build is running, which is when somebody is
+      // most likely to be looking at it.
+      ...(run.createdAt ? { startedAt: run.createdAt } : {}),
+      ...(run.status === 'completed' && run.updatedAt ? { completedAt: run.updatedAt } : {}),
+    }));
 }
 
 /** Parse `gh run list --json …`. Never throws; a bad entry is dropped. */

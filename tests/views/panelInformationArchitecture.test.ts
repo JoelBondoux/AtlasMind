@@ -376,7 +376,10 @@ describe('website studio step order', () => {
     // done consistently before the shared typography/colour/component
     // decisions exist. The numbered steps promise a linear workflow, so the
     // order has to actually be one.
-    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'ui-system', 'wireframes', 'platforms', 'automations']);
+    // `platforms` became `stack` when the page grew the framework half: the
+    // framework and the hosting platform are one decision, and the pairing
+    // determines the build command and output directory together.
+    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'ui-system', 'wireframes', 'stack', 'automations']);
   });
 
   it('numbers the steps consecutively from 1', () => {
