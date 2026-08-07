@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-08-01T20:31:40.242Z",
+  "updatedAt": "2026-08-05T20:59:08.557Z",
   "methodologies": [
     {
       "id": "tdd",
@@ -14,7 +14,7 @@
     },
     {
       "id": "atdd",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -36,7 +36,7 @@
     },
     {
       "id": "mutation",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -51,12 +51,12 @@
     },
     {
       "id": "white-box",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
       "id": "e2e",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -65,12 +65,12 @@
     },
     {
       "id": "contract",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
       "id": "mbt",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {

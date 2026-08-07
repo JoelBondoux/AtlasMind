@@ -71,7 +71,7 @@ describe('registerTreeViews', () => {
     // already existed as a closure and only tree events reached it — a glance
     // surface whose only way to update is an unrelated event firing is one
     // people learn not to trust.
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(14);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(19);
   });
 });
 

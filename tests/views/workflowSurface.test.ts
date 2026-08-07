@@ -125,7 +125,22 @@ describe('empty states teach rather than report emptiness', () => {
 
   it('explains what issue intake is for when issues were never loaded', () => {
     expect(prSource).toContain('Open the Issues tab and refresh');
-    expect(pipelineSource).toContain('Open the Issues tab and refresh');
+  });
+
+  it('lets the Pipeline page read the data it renders', () => {
+    // It used to send you to the Issues tab, because CI was only ever fetched
+    // as a side effect of that refresh. A page whose whole subject is "did the
+    // build pass" could not go and find out.
+    expect(pipelineSource).toContain('pipeline-refresh');
+    expect(pipelineSource).toContain('Read CI for this branch');
+    expect(pipelineSource).not.toContain('Open the Issues tab and refresh');
+  });
+
+  it('distinguishes "the run list could not be read" from "nothing failed"', () => {
+    // An empty run list means one of two opposite things, and only one of them
+    // is news about the build.
+    expect(pipelineSource).toContain('The run list could not be read');
+    expect(pipelineSource).toMatch(/if \(fetchFailure\)/);
   });
 
   it('distinguishes "no pull requests loaded" from "none open"', () => {

@@ -180,6 +180,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildTestMapHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Test & Behaviour',
     cspSource,
     bodyContent: `

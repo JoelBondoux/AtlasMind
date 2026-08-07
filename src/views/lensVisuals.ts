@@ -40,13 +40,12 @@ import { escapeHtml } from './webviewUtils.js';
  * a hue and every one still moves with the active theme.
  */
 export const LENS_BASE_CSS = `
+  /* The surface tokens Lens used to declare here — gap, radius, surface,
+     border, muted — now come from \`DASHBOARD_TOKEN_ALIASES_CSS\`, so a Lens
+     card is the dashboard's card. Only the accent stays local: it is keyed per
+     surface so the header rule says which lens you are reading, which is
+     information rather than decoration. */
   :root {
-    --lens-gap: 14px;
-    --lens-radius: 10px;
-    --lens-surface: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--tint-away) 8%);
-    --lens-surface-raised: color-mix(in srgb, var(--vscode-editor-background) 84%, var(--tint-away) 16%);
-    --lens-border: color-mix(in srgb, var(--vscode-widget-border, rgba(127,127,127,.4)) 70%, transparent);
-    --lens-muted: var(--vscode-descriptionForeground);
     --lens-accent: var(--vscode-charts-blue, #75beff);
   }
   [data-accent="blue"]   { --lens-accent: var(--vscode-charts-blue, #75beff); }

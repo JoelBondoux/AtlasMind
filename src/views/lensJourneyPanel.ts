@@ -182,6 +182,7 @@ function normalizeRelativePath(value: string): string | undefined {
 
 function buildJourneyHtml(cspSource: string): string {
   return getWebviewHtmlShell({
+    dashboardSkin: true,
     title: 'AtlasMind Lens — Possible Flow',
     cspSource,
     bodyContent: `

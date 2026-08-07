@@ -1195,6 +1195,86 @@ export interface ClientWebsiteIntake {
   stakeholders: string[];
 }
 
+/**
+ * The structural role a drawn wireframe box claims. Deliberately a closed set:
+ * generation reads the kind to decide what markup a box becomes, so a free-text
+ * kind would put the generated element under the model's control rather than
+ * the author's. `custom` is the honest escape hatch — it says "structure I have
+ * not named", which generation renders as a plain container.
+ */
+export type WireframeElementKind =
+  | 'nav'
+  | 'hero'
+  | 'section'
+  | 'grid'
+  | 'card'
+  | 'media'
+  | 'text'
+  | 'form'
+  | 'cta'
+  | 'sidebar'
+  | 'footer'
+  | 'custom';
+
+/**
+ * A box on the wireframe canvas, in canvas units — never device pixels.
+ *
+ * `x`/`width` run across a fixed 1000-unit column grid and `y`/`height` down the
+ * same unit. Storing pixels would record the author's monitor size in a
+ * git-tracked SSOT file and make one design read differently on another
+ * machine; a proportional grid is the claim the author actually made.
+ */
+export interface WireframeRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** One drawn element on a page's wireframe. */
+export interface WebsiteWireframeElement {
+  id: string;
+  kind: WireframeElementKind;
+  label: string;
+  rect: WireframeRect;
+  /** Containing element, for nested structure. Absent means top level. */
+  parentId?: string;
+  /**
+   * Natural-language design intent for this element alone — what the author
+   * would say if they pointed at it. Model-writable, so every reader that
+   * interpolates it into a prompt must fence it.
+   */
+  designPrompt: string;
+  notes: string;
+}
+
+/** Which viewport a wireframe describes. Each page holds one wireframe per breakpoint it has been drawn for. */
+export type WireframeBreakpoint = 'desktop' | 'tablet' | 'mobile';
+
+/** A page's drawn structure at one breakpoint. */
+export interface WebsiteWireframe {
+  breakpoint: WireframeBreakpoint;
+  elements: WebsiteWireframeElement[];
+}
+
+/**
+ * A link leaving one page.
+ *
+ * `origin` separates a link somebody typed from one read off a nav or CTA box
+ * on the wireframe. The distinction is load-bearing: a derived link may be
+ * recomputed whenever the canvas changes, and a declared one may not — silently
+ * overwriting a person's link because a box was moved would lose a decision.
+ */
+export interface WebsitePageLink {
+  id: string;
+  label: string;
+  /** Another page in this workspace. */
+  targetPageId?: string;
+  /** An address outside the site. `https` only. */
+  externalUrl?: string;
+  origin: 'declared' | 'derived';
+}
+
 /** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
 export interface WebsitePagePlan {
   id: string;
@@ -1209,6 +1289,24 @@ export interface WebsitePagePlan {
   designStatus: WebsiteWorkStatus;
   contentStatus: WebsiteWorkStatus;
   seoStatus: WebsiteWorkStatus;
+  /**
+   * Explicit parent in the sitemap hierarchy. Absent means the parent is
+   * derived from the slug path instead — which is what makes the hierarchy map
+   * build itself as pages are added. An explicit value always wins, because it
+   * is the one a person set on purpose.
+   */
+  parentId?: string;
+  /** Sibling ordering. Ties are broken on id so the map cannot shuffle between renders. */
+  order: number;
+  /**
+   * Natural-language design intent for the whole page. Enough of these and a
+   * site can be taken to first-draft design from the sitemap alone, without
+   * anybody drawing a box. Model-writable — fence before prompting.
+   */
+  designPrompt: string;
+  links: WebsitePageLink[];
+  /** Drawn structure. Absent means this page has never been opened on the canvas. */
+  wireframe?: WebsiteWireframe;
 }
 
 /** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
@@ -1284,18 +1382,56 @@ export interface WebsiteAutomation {
 }
 
 /**
+ * The framework and platform a site is built and shipped with.
+ *
+ * One choice rather than two fields on separate pages: "Astro on Cloudflare
+ * Pages" determines the build command, the output directory and the deploy
+ * config together, and splitting the decision makes the compatible pairing
+ * something the user is expected to already know.
+ *
+ * Absent means *not chosen*. It is never defaulted, and the v2 → v3 migration
+ * deliberately does not guess one from the files on disk — a wrong guess here
+ * scaffolds the wrong project.
+ */
+export interface WebsiteStackChoice {
+  /** A `WebsiteFrameworkId` from `websiteFrameworks.ts`. */
+  frameworkId: string;
+  platformId: WebsitePlatformId;
+  /** A `WebsitePackageManager`. Defaults to npm at the point of use, not here. */
+  packageManager: string;
+  /** ISO 8601. When the choice was made, so a stale pairing can be spotted. */
+  decidedAt: string;
+}
+
+/**
  * Website Studio SSOT. Persisted to `project_memory/domain/website.json` with
  * a human-readable `website.md` mirror for review and version control.
+ *
+ * Version 2 added the wireframe canvas, sitemap hierarchy, link graph, and the
+ * natural-language design prompts. The 1 → 2 step lives in `schemaMigration.ts`
+ * and builds a stacked wireframe from the old `sections` array, so a project
+ * written by an earlier build never opens onto an empty canvas.
+ *
+ * Version 3 added `stack`. The 2 → 3 step adds nothing but the version number:
+ * an absent stack means nobody has chosen one, and a migration has no standing
+ * to infer it.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 1;
+  version: 4;
   updatedAt: string;
   intake: ClientWebsiteIntake;
+  /**
+   * Natural-language design intent for the site as a whole — the sentence every
+   * page prompt is read against. Model-writable; fence before prompting.
+   */
+  designPrompt: string;
   pages: WebsitePagePlan[];
   designSystem: WebsiteDesignSystem;
   platforms: WebsitePlatformTarget[];
   hostingEnvironments: WebsiteHostingEnvironment[];
   automations: WebsiteAutomation[];
+  /** The framework/platform pairing. Absent until somebody picks one. */
+  stack?: WebsiteStackChoice;
 }
 
 // ── Delivery / Deployment Stages ─────────────────────────────────
@@ -2625,6 +2761,333 @@ export interface LensDataTrustMap {
   seedContractId: string;
   seedFieldId: string;
   items: LensDataTrustItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
+// ── Lens: live endpoints ────────────────────────────────────────
+//
+// Every other Lens reads files. These types describe the one that reaches a
+// third-party service, and they are shaped by a single rule that the whole
+// feature rests on: **the shape is read, the rows never are**. A probe asks a
+// database for `information_schema`, an API for the OpenAPI document it serves,
+// a GraphQL endpoint for its introspection — and nothing in these types has a
+// field that could hold a row, a response body, or a value. That is not a
+// convention; `LensServedContract` reuses `LensContract`, which has nowhere to
+// put one, and a test asserts no probe output carries sample data.
+
+/**
+ * How a live endpoint is reached. Decides the probe, the source, and the gate.
+ *
+ * `database` is the MCP path — a connected server's schema tool. The three
+ * direct kinds exist because most managed databases have no MCP server, and
+ * telling somebody with a Neon or RDS instance to go and install one is not an
+ * answer. `sql-http` is separate from `postgres` rather than a flag on it
+ * because Cloudflare D1 and Turso have no wire protocol at all: a driver cannot
+ * reach them, and collapsing the two would make the transport undecidable.
+ */
+export type LensEndpointKind =
+  | 'http-openapi'
+  | 'graphql'
+  | 'database'
+  | 'postgres'
+  | 'mysql'
+  | 'sql-http';
+
+/** Which catalog vocabulary a SQL endpoint speaks. */
+export type LensSqlDialect = 'postgres' | 'mysql';
+
+/** The vendor whose HTTP SQL API an `sql-http` endpoint speaks. */
+export type LensSqlHttpVendor = 'neon' | 'cloudflare-d1' | 'turso';
+
+/**
+ * How sensitive an endpoint's environment is.
+ *
+ * Mirrors `DeploymentStage.isProtected` rather than inventing a second word for
+ * the same idea: `production` is the one that costs a type-to-confirm, and an
+ * endpoint that does not say gets `unknown`, which is treated **as production**.
+ * Guessing downward here would silently move the gate off the one environment it
+ * exists for.
+ */
+export type LensEndpointStage = 'local' | 'development' | 'staging' | 'production' | 'unknown';
+
+/**
+ * A declared third-party service, from `.atlasmind/lens-endpoints.json`.
+ *
+ * Two absences are deliberate. There is **no credential field** — `secretRef`
+ * names a SecretStorage key and the normalizer refuses a document that looks
+ * like it carries a value — because this file is committed, and a schema that
+ * accepts a password will eventually be given one. And there is **no method or
+ * query field**: what a probe sends is chosen by AtlasMind from a fixed
+ * allowlist, never by the file, or the safety rule would be editable by the
+ * thing it constrains.
+ */
+export interface LensEndpointDeclaration {
+  id: string;
+  label: string;
+  kind: LensEndpointKind;
+  stage: LensEndpointStage;
+  /** Absolute `https` URL for `http-openapi`/`graphql`. Absent for `database`. */
+  url?: string;
+  /**
+   * For `database`: the connected MCP server id whose schema tool should be
+   * asked. AtlasMind bundles no database driver and holds no database
+   * credential — the already-approved MCP connection is the whole transport.
+   */
+  mcpServerId?: string;
+  /**
+   * SecretStorage key holding a bearer token, API key, or connection string.
+   * Never the value — the normalizer refuses a document that carries one.
+   */
+  secretRef?: string;
+  /** For `sql-http`: which vendor's HTTP SQL API this endpoint speaks. */
+  vendor?: LensSqlHttpVendor;
+  /** Repository contract ids this endpoint is expected to match, if known. */
+  expectedContractIds: string[];
+  note?: string;
+}
+
+/** The committed declaration file listing every service a lens may reach. */
+export interface LensEndpointFile {
+  version: 1;
+  endpoints: LensEndpointDeclaration[];
+}
+
+/**
+ * Whether a probe reached the endpoint, and what that means.
+ *
+ * `unassessed` is the load-bearing member and is never merged into
+ * `unreachable`: "nobody looked" and "we looked and it was not there" are
+ * different facts, and a reachability lens that reported the first as the second
+ * would raise a dead end for every endpoint on a machine that is simply offline.
+ */
+export type LensProbeOutcome = 'reached' | 'unreachable' | 'refused' | 'unauthorized' | 'unassessed';
+
+/** One endpoint's probe result. Carries evidence about shape, never content. */
+export interface LensProbeResult {
+  version: 1;
+  endpointId: string;
+  outcome: LensProbeOutcome;
+  /** Why, in one sentence, phrased for somebody who did not run it. */
+  reason: string;
+  /** The declared rule that decided a `refused` or `unauthorized` outcome. */
+  rule?: string;
+  /** Round-trip milliseconds, when a call was actually made. */
+  latencyMs?: number;
+  /** HTTP status, when the transport was HTTP. Never a body. */
+  status?: number;
+  /** How many shape declarations came back. Never what they contained. */
+  contractCount?: number;
+  observedAt: string;
+}
+
+/**
+ * What a live service served, derived into the same shape the repository
+ * extractors produce.
+ *
+ * `contracts` is a list — one per served schema or table, with bare field paths
+ * — deliberately mirroring `extractJsonContractSources` and
+ * `extractSqlContractSources` rather than flattening everything into one
+ * contract with dotted paths. The two sides of a drift comparison have to be
+ * built the same way or every field mismatches on its name alone, and the
+ * comparison would report a total schema failure for a service that is working
+ * perfectly.
+ */
+export interface LensServedContract {
+  version: 1;
+  endpointId: string;
+  contracts: LensContract[];
+  observedAt: string;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * How a declared contract and a served contract differ.
+ *
+ * The first three are what The User asked to see. `absent-remotely` is a schema
+ * failure and a dead end at once — the code declares a field or table the live
+ * service does not serve — and it is separated from `undeclared-remotely`
+ * because the two need opposite fixes and collapsing them into "mismatch" would
+ * hide which.
+ */
+export type LensLiveDriftKind =
+  | 'absent-remotely'
+  | 'undeclared-remotely'
+  | 'type-changed'
+  | 'nullability-changed'
+  | 'presence-changed'
+  | 'matched';
+
+export interface LensLiveDriftFinding {
+  id: string;
+  kind: LensLiveDriftKind;
+  severity: LensContractFindingSeverity;
+  label: string;
+  reason: string;
+  fieldPath: string;
+  /** What the repository declares, and what the service served. Shapes only. */
+  declared?: string;
+  served?: string;
+  target?: LensVisualTarget;
+  evidence: LensEvidence;
+}
+
+export interface LensLiveDriftReport {
+  version: 1;
+  id: string;
+  endpointId: string;
+  declaredContractId: string;
+  outcome: LensProbeOutcome;
+  findings: LensLiveDriftFinding[];
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * One endpoint on the reachability map.
+ *
+ * `expectedContractIds` that resolved to nothing are carried as `danglingContractIds`
+ * rather than dropped — an endpoint pointing at a contract that no longer exists
+ * is exactly the dead end this lens is for.
+ */
+export interface LensReachabilityItem {
+  id: string;
+  endpointId: string;
+  label: string;
+  kind: LensEndpointKind;
+  stage: LensEndpointStage;
+  outcome: LensProbeOutcome;
+  reason: string;
+  latencyMs?: number;
+  danglingContractIds: string[];
+  evidence: LensEvidence;
+}
+
+export interface LensReachabilityMap {
+  version: 1;
+  id: string;
+  items: LensReachabilityItem[];
+  reachedCount: number;
+  unreachableCount: number;
+  unassessedCount: number;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * Per-table health, read entirely from catalog statistics.
+ *
+ * Every number here is an estimate the database already maintains — nothing is
+ * produced by scanning a table, so "AtlasMind never reads a row" stays literally
+ * true rather than nearly true. `rowEstimate` is therefore **optional**: a
+ * relation Postgres has never analyzed reports `reltuples = -1`, and MySQL
+ * leaves `TABLE_ROWS` null for several engines. Both mean *unknown*, and
+ * defaulting either to `0` would say "this table is empty" about a table nobody
+ * has ever measured.
+ */
+export interface LensTableMetrics {
+  table: string;
+  /** Planner estimate. Absent when the table has never been analyzed. */
+  rowEstimate?: number;
+  totalBytes?: number;
+  indexBytes?: number;
+  indexCount?: number;
+  /** When the estimate was last refreshed. Absent means never, not recently. */
+  lastAnalyzedAt?: string;
+  lastVacuumedAt?: string;
+}
+
+/** One declared constraint, so a drift report can name a key that has gone. */
+export interface LensTableConstraint {
+  table: string;
+  name: string;
+  /** `PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`, `CHECK` — as the catalog spells it. */
+  constraintType: string;
+  column?: string;
+}
+
+/**
+ * Round-trip timing across several samples of the cheapest possible statement.
+ *
+ * `first` is kept separate from `p50` on purpose: on a serverless database the
+ * first connection of the day pays a cold start measured in seconds, and folding
+ * it into an average produces a number that describes neither the cold path nor
+ * the warm one. Reported as two facts because they are two facts.
+ */
+export interface LensLatencyProfile {
+  samples: number;
+  firstMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  minMs: number;
+  maxMs: number;
+  /** True when the first sample dominates the rest — a cold start, not slowness. */
+  coldStartSuspected: boolean;
+}
+
+/**
+ * What the planner intends to do with the catalog query.
+ *
+ * From `EXPLAIN` **without** `ANALYZE`: the plan is computed and the statement
+ * is not run. A probe that executed whatever it explained would be a shape
+ * nobody should build, however harmless this particular statement is.
+ * Every field is optional — a plan is a nice-to-have, and a schema reading that
+ * succeeded is never discarded because the plan did not.
+ */
+export interface LensQueryPlanProfile {
+  available: boolean;
+  /** Why no plan was read, when there is none. */
+  unavailableReason?: string;
+  planningMs?: number;
+  estimatedCost?: number;
+  estimatedRows?: number;
+  /** Top-level node type, e.g. `Nested Loop`, `Hash Join`. Never the full tree. */
+  rootNode?: string;
+}
+
+/** Everything a direct database probe measured, beyond the schema itself. */
+export interface LensDatabaseHealth {
+  version: 1;
+  endpointId: string;
+  dialect: LensSqlDialect;
+  tables: LensTableMetrics[];
+  constraints: LensTableConstraint[];
+  latency?: LensLatencyProfile;
+  plan?: LensQueryPlanProfile;
+  /** Server version string, when the driver reports one. Never a connection string. */
+  serverVersion?: string;
+  notices: string[];
+  truncated: boolean;
+}
+
+/**
+ * Whether the trust policy still describes what the service actually serves.
+ *
+ * `served-undeclared` is the finding worth having: a field the live service
+ * returns that no rule in `.atlasmind/lens-data-trust.json` classifies. It is
+ * unknown sensitivity on real, live data — which the static Data Trust lens
+ * cannot see, because the field was never in a repository file.
+ */
+export type LensLiveTrustStatus = 'confirmed' | 'served-undeclared' | 'declared-absent' | 'unassessed';
+
+export interface LensLiveTrustItem {
+  id: string;
+  endpointId: string;
+  fieldPath: string;
+  status: LensLiveTrustStatus;
+  classification?: LensDataClassification;
+  controls: LensDataControlKind[];
+  reason: string;
+  evidence: LensEvidence;
+}
+
+export interface LensLiveTrustMap {
+  version: 1;
+  id: string;
+  endpointId: string;
+  items: LensLiveTrustItem[];
+  undeclaredCount: number;
   notices: string[];
   truncated: boolean;
 }

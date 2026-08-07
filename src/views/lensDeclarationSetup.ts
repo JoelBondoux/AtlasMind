@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import {
   buildLensDeclarationStarter,
+  findLensDeclarationDescriptor,
   inspectLensDeclarations,
   isLensDeclarationKind,
   lensDeclarationStatusLabel,
@@ -11,7 +12,7 @@ import {
 } from '../core/lensDeclarations.js';
 
 interface LensSetupPick extends vscode.QuickPickItem {
-  declarationKind: LensDeclarationKind | 'all';
+  declarationKind: LensDeclarationKind | 'all' | 'guide';
 }
 
 interface WorkspacePick extends vscode.QuickPickItem {
@@ -34,17 +35,19 @@ export async function showMissingLensDeclarationGuidance(
   kind: LensDeclarationKind,
   folder: vscode.WorkspaceFolder,
 ): Promise<void> {
-  const label = kind === 'state' ? 'State Lifecycle' : 'Configuration Resolution';
-  const workspacePath = kind === 'state' ? '.atlasmind/lens-state.json' : '.atlasmind/lens-config.json';
+  const descriptor = findLensDeclarationDescriptor(kind);
   const choice = await vscode.window.showInformationMessage(
-    `${label} does not analyze the active file. It needs the repository declaration ${workspacePath}.`,
+    `${descriptor.label} does not analyze the active file. It needs the repository declaration ${descriptor.workspacePath}.`,
+    'Show me how',
     'Create starter',
-    'Set up Lens declarations',
   );
-  if (choice === 'Create starter') {
+  // "Show me how" leads, and is the default an Enter press lands on. Offering
+  // the empty starter first was the original dead end: it produced a valid file
+  // and no idea what goes in it.
+  if (choice === 'Show me how') {
+    await vscode.commands.executeCommand('atlasmind.lens.openDeclarationGuide', kind);
+  } else if (choice === 'Create starter') {
     await createOrOpenStarter(folder, kind);
-  } else if (choice === 'Set up Lens declarations') {
-    await setupWorkspaceLensDeclarations(undefined, folder);
   }
 }
 
@@ -66,6 +69,14 @@ export async function setupWorkspaceLensDeclarations(
   const snapshot = inspectLensDeclarations(folder.uri.fsPath);
   const missing = snapshot.files.filter(file => file.status === 'missing');
   const picks: LensSetupPick[] = [
+    {
+      // First, because it is the answer to the question people actually have.
+      // Creating an empty starter is only useful once you know what goes in it.
+      label: '$(book) Show me what these files are for',
+      description: 'Guide',
+      detail: 'What each declaration does, a worked example, and an option to have Atlas propose a first draft from your repository.',
+      declarationKind: 'guide' as const,
+    },
     ...(missing.length > 1 ? [{
       label: '$(new-folder) Create all missing starters',
       description: `${missing.length} files`,
@@ -94,7 +105,12 @@ export async function setupWorkspaceLensDeclarations(
   if (!selected) {
     return;
   }
-  if (selected.declarationKind === 'all') {
+  if (selected.declarationKind === 'guide') {
+    // Opens on the first thing that still needs doing, or State Lifecycle when
+    // everything is already declared.
+    const next = snapshot.files.find(file => file.required && file.status !== 'ready') ?? snapshot.files[0];
+    await vscode.commands.executeCommand('atlasmind.lens.openDeclarationGuide', next.kind);
+  } else if (selected.declarationKind === 'all') {
     for (const file of missing) {
       await createOrOpenStarter(folder, file.kind);
     }
@@ -131,7 +147,10 @@ async function chooseWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
 }
 
 async function createOrOpenStarter(folder: vscode.WorkspaceFolder, kind: LensDeclarationKind): Promise<void> {
-  const relativePath = kind === 'state' ? '.atlasmind/lens-state.json' : '.atlasmind/lens-config.json';
+  // From the declaration table, never a local conditional. This was a two-armed
+  // `kind === 'state' ? … : …`, which quietly sent every kind that was not
+  // `state` to the configuration file the moment a third kind existed.
+  const relativePath = findLensDeclarationDescriptor(kind).workspacePath;
   const uri = vscode.Uri.joinPath(folder.uri, ...relativePath.split('/'));
   if (folder.uri.scheme !== 'file' && folder.uri.scheme !== 'vscode-remote') {
     void vscode.window.showWarningMessage(

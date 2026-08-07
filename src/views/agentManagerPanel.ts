@@ -1059,14 +1059,7 @@ export class AgentManagerPanel {
     `;
 
     const extraCss = `
-      :root {
-        --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
-        --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
-        --atlas-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
-        --atlas-accent: var(--vscode-textLink-foreground);
-        --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
-      }
-      body { padding: 18px; }
+      /* Palette, page frame and hero come from the shared dashboard theme. */
       .workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 16px; padding: 2px 2px 16px; border-bottom: 1px solid var(--atlas-border); }
       .workspace-header h1, .editor-heading h2 { margin: 0; }
       .workspace-header-copy { max-width: 720px; margin: 5px 0 0; color: var(--atlas-muted); }
@@ -1226,6 +1219,7 @@ export class AgentManagerPanel {
     `;
 
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'Manage Agents',
       cspSource: this.panel.webview.cspSource,
       bodyContent,

@@ -182,7 +182,7 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 > Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
 > changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
 
-This project enforces **13** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+This project enforces **7** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
 
 ### TDD
 
@@ -198,25 +198,11 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Cucumber, SpecFlow, Behave, Gherkin, Codecept, Playwright BDD plugin
 - **Primary owner:** Test Developer
 
-### ATDD
-
-- **What:** Acceptance Test-Driven Development — customer-facing criteria first
-- **When to apply:** When the delivery team works directly from customer acceptance criteria. Bridges the gap between BDD storytelling and executable acceptance tests.
-- **Key tools:** Robot Framework, FitNesse, Cucumber, SpecFlow, Gauge
-- **Primary owner:** Test Developer
-
 ### Unit Testing
 
 - **What:** Isolated function and class-level tests
 - **When to apply:** All projects. Start here. Fast, cheap, and gives precise regression signals. Should be the largest layer of your test pyramid.
 - **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
-- **Primary owner:** Test Developer
-
-### Mutation Testing
-
-- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
-- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
-- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
 - **Primary owner:** Test Developer
 
 ### Property-Based
@@ -233,34 +219,6 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
 - **Primary owner:** Test Developer
 
-### White-Box
-
-- **What:** Structure-aware testing — code paths, branches, and conditions guided by internal knowledge
-- **When to apply:** Security-sensitive modules, complex algorithms, and codebases where path or branch coverage is a compliance requirement (DO-178C, IEC 61508). Augments unit tests with precise coverage metrics to identify dead code and untested logic.
-- **Key tools:** Istanbul / nyc (JS/TS), coverage.py, JaCoCo (Java/Kotlin), gcov / lcov (C/C++), LLVM coverage, SonarQube, Codecov, Coveralls
-- **Primary owner:** Test Developer
-
-### End-to-End
-
-- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
-- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
-- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
-- **Primary owner:** Test Developer
-
-### Contract
-
-- **What:** Consumer-driven API contract verification (Pact)
-- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
-- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
-- **Primary owner:** Test Developer
-
-### Model-Based (MBT)
-
-- **What:** Derive test cases from formal system models — state machines, UML diagrams, decision tables
-- **When to apply:** Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.
-- **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
-- **Primary owner:** Test Developer
-
 ### Security
 
 - **What:** SAST / DAST and dependency vulnerability scanning
@@ -275,7 +233,7 @@ This project enforces **13** testing methodologies. When writing or verifying te
 - **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:48eb1fe2fa685815 -->
+<!-- atlasmind:source-digest:21a574f088b98221 -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->

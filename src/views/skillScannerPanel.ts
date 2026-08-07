@@ -429,6 +429,7 @@ export class SkillScannerPanel {
     const bodyWithData = `<div id="rules-data" hidden data-rules="${rulesJson}"></div>${body}`;
 
     return getWebviewHtmlShell({
+      dashboardSkin: true,
       title: 'AtlasMind — Skill Scanner Rules',
       bodyContent: bodyWithData,
       cspSource,

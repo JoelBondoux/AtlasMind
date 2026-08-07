@@ -51,10 +51,12 @@ describe('Lens configuration review command', () => {
 
     await reviewWorkspaceConfiguration();
 
+    // The guide leads: an empty starter was the original dead end, because it
+    // produced a valid file and no idea what belongs in it.
     expect(showInformationMessage).toHaveBeenCalledWith(
       expect.stringContaining('does not analyze the active file'),
+      'Show me how',
       'Create starter',
-      'Set up Lens declarations',
     );
   });
 });

@@ -31,7 +31,7 @@
 
 import type { LensDeclarationFileStatus, LensDeclarationsSnapshot } from './lensDeclarations.js';
 
-/** The eight lenses AtlasMind ships, in catalog order. */
+/** The eleven lenses AtlasMind ships, in catalog order. */
 export type LensId =
   | 'code-explorer'
   | 'possible-flow'
@@ -40,14 +40,26 @@ export type LensId =
   | 'field-wiring'
   | 'state-lifecycle'
   | 'config-resolution'
-  | 'change-story';
+  | 'change-story'
+  | 'live-drift'
+  | 'live-reachability'
+  | 'live-trust';
 
-/** Where a lens gets its facts. Presentation groups by this, and so do the flows. */
+/**
+ * Where a lens gets its facts. Presentation groups by this, and so do the flows.
+ *
+ * `live-service` is the only source that leaves this machine, and it is a
+ * separate member rather than a flag on `contract-files` precisely so every
+ * surface that groups by evidence has to decide what to do about it — a lens
+ * that reaches production should never be one row down from one that reads a
+ * file, unlabelled.
+ */
 export type LensEvidenceSource =
   | 'language-service'
   | 'contract-files'
   | 'repository-declarations'
-  | 'git-history';
+  | 'git-history'
+  | 'live-service';
 
 /**
  * Whether a lens can answer its question right now.
@@ -68,6 +80,9 @@ export type LensRuleId =
   | 'no-contract-files'
   | 'needs-active-file'
   | 'needs-active-symbol'
+  | 'live-probing-disabled'
+  | 'no-endpoints-declared'
+  | 'live-not-probed'
   | 'not-assessed';
 
 /** How loudly an action asks for a person. Presentation only; the rule decides. */
@@ -94,7 +109,7 @@ export interface LensCatalogEntry {
   limit: string;
   evidence: LensEvidenceSource;
   /** Which conversation this lens belongs to; the gallery groups by it. */
-  group: 'The code' | 'The contract' | 'The declared model' | 'The history';
+  group: 'The code' | 'The contract' | 'The declared model' | 'The history' | 'The live service';
   accent: LensAccent;
   /** A VS Code codicon id, used for the card glyph. */
   icon: string;
@@ -166,6 +181,21 @@ export interface LensDashboardInput {
   git?: { repository: boolean; branch?: string };
   /** Absent means the workspace was never scanned for contract sources. */
   contractCandidates?: number;
+  /**
+   * Absent means the live-probe configuration was never read.
+   *
+   * Optional like every other input, and for the same reason: absent is *not
+   * assessed*, never "switched off". A dashboard that reported the live lenses
+   * as cleanly disabled without having looked would be earning silence by not
+   * looking, which is the one failure mode this whole module is built against.
+   */
+  live?: {
+    enabled: boolean;
+    /** How many endpoints `.atlasmind/lens-endpoints.json` declares. */
+    declaredEndpoints: number;
+    /** How many have actually been probed in this session. */
+    probedEndpoints: number;
+  };
 }
 
 export interface LensDashboardView {
@@ -246,6 +276,25 @@ export const LENS_RULES: readonly LensRule[] = [
     severity: 'suggestion',
   },
   {
+    id: 'live-probing-disabled',
+    description: 'The live lenses can reach a declared service, and `atlasmind.lens.live.enabled` is off. That is its default, and switching it on is a deliberate decision.',
+    severity: 'setup',
+  },
+  {
+    id: 'no-endpoints-declared',
+    description: 'No live services are declared, so there is nothing for the live lenses to compare against.',
+    severity: 'setup',
+  },
+  {
+    id: 'live-not-probed',
+    // Ranked last of the live rules on purpose: it is the state a correctly
+    // configured project sits in until somebody deliberately runs a probe, and
+    // treating "ready and waiting" as a problem would make the band permanently
+    // non-empty for every project using the feature properly.
+    description: 'Services are declared and probing is on, but nothing has been probed in this session. A lens that has not looked reports nothing, which is not a clean result.',
+    severity: 'suggestion',
+  },
+  {
     id: 'not-assessed',
     description: 'This evidence was never inspected. Absence of a check is not a clean result.',
     severity: 'suggestion',
@@ -278,6 +327,11 @@ const EVIDENCE_SOURCES: readonly EvidenceDescriptor[] = [
     id: 'git-history',
     label: 'Git history',
     detail: 'Commits and paths already committed on this branch. Read-only, never a shell.',
+  },
+  {
+    id: 'live-service',
+    label: 'Live services',
+    detail: 'The databases and APIs you declare in .atlasmind/lens-endpoints.json. Shape only — never a row, never a write.',
   },
 ];
 
@@ -344,7 +398,7 @@ export const LENS_CATALOG: readonly LensCatalogEntry[] = [
     name: 'Field Wiring',
     question: 'Does this field survive the trip between layers?',
     plain: 'Puts two contracts side by side — an API and a table, say — and shows which field connects to which.',
-    limit: 'Declarations only. It never connects to a live database and never edits your contracts.',
+    limit: 'Declarations only, and this lens never leaves the repository. To compare a declared contract against the one a running service actually serves, use Live Contract Drift.',
     evidence: 'contract-files',
     group: 'The contract',
     accent: 'yellow',
@@ -391,6 +445,45 @@ export const LENS_CATALOG: readonly LensCatalogEntry[] = [
     command: 'atlasmind.lens.reviewChangeStory',
     reachedFromSelection: false,
   },
+  {
+    id: 'live-drift',
+    name: 'Live Contract Drift',
+    question: 'Does the running service still match what the code expects?',
+    plain: 'Compares the schema your repository declares against the one a live API or database actually serves, and names every field that has gone missing, changed type, or appeared without being declared.',
+    limit: 'Shape only. It reads the schema a service publishes — never a row, never a record, never a field value — and it never writes. A field it cannot see may still exist behind a permission.',
+    evidence: 'live-service',
+    group: 'The live service',
+    accent: 'red',
+    icon: 'plug',
+    command: 'atlasmind.lens.probeLiveEndpoints',
+    reachedFromSelection: false,
+  },
+  {
+    id: 'live-reachability',
+    name: 'Service Reachability',
+    question: 'Which of the services we depend on actually answer?',
+    plain: 'Takes every service you have declared and reports which answered, which did not, and which nobody has looked at — plus any that point at a contract the repository no longer has.',
+    limit: 'A shape-reading request reaching the host. It proves nothing about whether the service is behaving correctly, and an endpoint nobody probed is reported as unassessed rather than as working.',
+    evidence: 'live-service',
+    group: 'The live service',
+    accent: 'orange',
+    icon: 'radio-tower',
+    command: 'atlasmind.lens.probeLiveEndpoints',
+    reachedFromSelection: false,
+  },
+  {
+    id: 'live-trust',
+    name: 'Live Data Trust',
+    question: 'Is the service serving data nobody has classified?',
+    plain: 'Checks the fields a live service actually serves against your data-trust policy, and lists the ones no rule covers.',
+    limit: 'Field names and shapes against declared policy. It reads no values, so it cannot confirm a control is implemented — only that a rule exists. An unclassified field is unknown, never public.',
+    evidence: 'live-service',
+    group: 'The live service',
+    accent: 'purple',
+    icon: 'shield',
+    command: 'atlasmind.lens.probeLiveEndpoints',
+    reachedFromSelection: false,
+  },
 ];
 
 /** The question column of the flow map. Two lenses may answer the same question. */
@@ -424,6 +517,12 @@ const QUESTIONS: ReadonlyArray<{ id: string; label: string; detail: string; lens
     label: 'What changed?',
     detail: 'The work already committed on this branch.',
     lensIds: ['change-story'],
+  },
+  {
+    id: 'question:reality',
+    label: 'Does reality agree?',
+    detail: 'Where what the code believes and what the running system does have come apart.',
+    lensIds: ['live-drift', 'live-reachability', 'live-trust'],
   },
 ];
 
@@ -548,7 +647,61 @@ function resolveReadiness(entry: LabelledEntry, input: LensDashboardInput): Lens
   if (entry.evidence === 'git-history') {
     return resolveGitLens(entry, input);
   }
+  if (entry.evidence === 'live-service') {
+    return resolveLiveLens(entry, input);
+  }
   return resolveContractLens(entry, input);
+}
+
+/**
+ * Readiness for the three lenses that reach outside the repository.
+ *
+ * Ordered root-cause first, as the probe policy is: being told to declare an
+ * endpoint when the feature is switched off would send somebody to the wrong
+ * screen, and being told to probe when nothing is declared would send them to a
+ * button that does nothing.
+ */
+function resolveLiveLens(entry: LabelledEntry, input: LensDashboardInput): LensCard {
+  if (!input.live) {
+    return {
+      ...entry,
+      readiness: 'unknown',
+      readinessReason: 'The live-probe configuration was not read, so nothing is known about this lens.',
+      rule: 'not-assessed',
+    };
+  }
+  if (!input.live.enabled) {
+    return {
+      ...entry,
+      readiness: 'needs-setup',
+      readinessReason: 'Live probing is off, which is its default. Turn on `atlasmind.lens.live.enabled` to let this lens reach a declared service.',
+      rule: 'live-probing-disabled',
+    };
+  }
+  if (input.live.declaredEndpoints === 0) {
+    return {
+      ...entry,
+      readiness: 'needs-setup',
+      readinessReason: 'No services are declared. Write `.atlasmind/lens-endpoints.json` to name the databases and APIs this project talks to.',
+      rule: 'no-endpoints-declared',
+    };
+  }
+  if (input.live.probedEndpoints === 0) {
+    // `needs-selection`, not `needs-setup`: everything is configured and the
+    // only thing missing is somebody choosing to run it. A probe leaves this
+    // machine, so it is never automatic.
+    return {
+      ...entry,
+      readiness: 'needs-selection',
+      readinessReason: `${input.live.declaredEndpoints} service${input.live.declaredEndpoints === 1 ? ' is' : 's are'} declared and nothing has been probed yet. A probe reaches a real service, so it always waits for you.`,
+      rule: 'live-not-probed',
+    };
+  }
+  return {
+    ...entry,
+    readiness: 'ready',
+    readinessReason: `${input.live.probedEndpoints} of ${input.live.declaredEndpoints} declared service${input.live.declaredEndpoints === 1 ? '' : 's'} have been probed in this session.`,
+  };
 }
 
 function resolveCodeLens(entry: LabelledEntry, input: LensDashboardInput): LensCard {
@@ -722,17 +875,17 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         ...base,
         title: `Repair the ${lens.name} declaration`,
         detail: `${lens.readinessReason} Open it and fix it against the installed schema — autocomplete knows the shape.`,
-        actionLabel: 'Open declaration',
-        command: 'atlasmind.lens.setupDeclarations',
+        actionLabel: 'Open the guide',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'declaration-missing':
       return {
         ...base,
         title: `Create the ${lens.name} declaration`,
-        detail: `${lens.readinessReason} The starter is empty by design; AtlasMind never invents your project's topology.`,
-        actionLabel: 'Create starter',
-        command: 'atlasmind.lens.setupDeclarations',
+        detail: `${lens.readinessReason} The guide shows what the file is for, a worked example, and can ask Atlas to propose a first draft from your repository.`,
+        actionLabel: 'Show me how',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'declaration-empty':
@@ -740,8 +893,8 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         ...base,
         title: `Declare your first ${lens.name.toLowerCase()} entry`,
         detail: lens.readinessReason,
-        actionLabel: 'Open declaration',
-        command: 'atlasmind.lens.setupDeclarations',
+        actionLabel: 'Show me how',
+        command: 'atlasmind.lens.openDeclarationGuide',
         commandArg: lens.id === 'state-lifecycle' ? 'state' : 'config',
       };
     case 'needs-active-file':
@@ -780,6 +933,37 @@ function actionForLens(lens: LensCard): LensSuggestedAction | undefined {
         detail: lens.readinessReason,
         actionLabel: 'Scan again',
         command: 'atlasmind.lens.reviewContracts',
+      };
+    case 'live-probing-disabled':
+      // Titled for the group, not for this lens: all three live lenses raise
+      // this rule and the collapse below keeps one, so naming whichever came
+      // first in the catalog would misreport what turning it on unblocks.
+      return {
+        ...base,
+        title: 'Turn on live probing to compare against a running service',
+        detail: 'Live Contract Drift, Service Reachability, and Live Data Trust read the schema a real '
+          + 'service serves. They are off by default because they leave this machine.',
+        actionLabel: 'Open settings',
+        command: 'atlasmind.lens.openLiveSettings',
+      };
+    case 'no-endpoints-declared':
+      return {
+        ...base,
+        title: 'Declare the services this project talks to',
+        detail: `${lens.readinessReason} The file names a stored secret rather than holding one, and says `
+          + 'which environment each endpoint is, so production can be gated separately.',
+        actionLabel: 'Show me how',
+        command: 'atlasmind.lens.openDeclarationGuide',
+        commandArg: 'endpoints',
+      };
+    case 'live-not-probed':
+      return {
+        ...base,
+        title: 'Probe your declared services',
+        detail: `${lens.readinessReason} Nothing is sent until you choose an endpoint, and a production `
+          + 'endpoint asks you to type its name first.',
+        actionLabel: 'Probe now',
+        command: 'atlasmind.lens.probeLiveEndpoints',
       };
     case 'not-assessed':
       return {
@@ -840,6 +1024,7 @@ function countAssessedEvidence(input: LensDashboardInput): number {
     input.declarations !== undefined,
     input.git !== undefined,
     input.contractCandidates !== undefined,
+    input.live !== undefined,
   ].filter(Boolean).length;
 }
 

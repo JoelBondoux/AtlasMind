@@ -28,12 +28,18 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/setup` | Every setup guide and how far along each one is. `/setup acp` jumps straight into one |
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
 | `/buzz` | Guided setup for the Buzz messaging integration |
+| `/lens` | What to put in the Lens declaration files, with a worked example for each |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
-Both setup guides work the same way: each step is reported as done, to do, blocked or optional based on
-what's actually configured, and **neither will switch anything on for you**. `/acp` finishes by proving
-a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the same
-as receiving, and installed isn't the same as working.
+All three setup guides work the same way: each step is reported as done, to do, blocked or optional based
+on what's actually configured, and **none of them will switch anything on for you**. `/acp` finishes by
+proving a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the
+same as receiving, and installed isn't the same as working.
+
+`/lens` differs in one respect: it lists all five declaration files rather than walking you through them in
+order, because the files are independent and you may only ever want one of them. Only the two that
+actually gate a lens are counted, so a project that has declared its state machines and its configuration
+precedence reads as finished rather than as permanently half-done.
 
 ### Doing work
 
@@ -139,6 +145,12 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |
 | `AtlasMind: Open Website Studio` | The client-website workspace |
+| `AtlasMind: Open Website Preview` | Serve the generated site from `127.0.0.1` and show it beside the Studio. Asks before turning the preview on for the first time |
+| `AtlasMind: Stop Website Preview` | Stop the local preview server. Also happens automatically when you close the preview or the Studio |
+| `AtlasMind: Generate Website From Plan` | Runs an already-confirmed generation plan. Normally reached from a **Generate** button in Website Studio, which is what builds the plan and shows you the file list |
+| `AtlasMind: Preview Website Wireframe` | Render the wireframes to HTML and open them in the preview. No model runs, so this is instant and free |
+| `AtlasMind: Import Website Client Feedback` | Read a feedback file your client exported from the review overlay and merge it into the review register |
+| `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |
 | `AtlasMind: Open Voice Panel` · `Open Vision Panel` | Speech and image analysis |
 | `AtlasMind: Open a Setup Guide` | Starts a walkthrough **in a fresh chat session**, so it never lands mid-conversation and inherits unrelated context |
@@ -196,14 +208,19 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 
 | Command | What it does |
 |---------|-------------|
-| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eight lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
+| `AtlasMind: Lens: Open Atlas Lenses Dashboard` | **Start here.** One page for all eleven lenses — what each reads, the question it answers, whether it can answer it right now, and the rule behind that verdict. A flow map draws evidence → lens → question, and a ⓘ on every card explains the lens in plain language and, separately, what it *cannot* prove. A **Do this next** band lists only what needs a person, and is empty when nothing does |
 | `AtlasMind: Lens: Refresh Active Outline` | Re-read the current file's symbols |
 | `AtlasMind: Lens: Filter Symbols` | Show everything, or focus on types, callables, data or containers |
+| `AtlasMind: Lens: Declaration Guide` | **What to write, and how.** Per file: what it declares, its current status, and a worked example small enough to read. **Ask Atlas to draft it** has a model read your repository and propose a first draft — refused whole if it fails the same check the lens uses, every file path it claims verified against your workspace and dropped if it doesn't resolve, any credential-shaped value left out entirely, and nothing written until you've seen it all and confirmed. Entries you wrote yourself always win |
 | `AtlasMind: Lens: Set Up Repository Declarations` | Check what's configured, and create valid empty starters. Existing files are opened, never overwritten |
 | `AtlasMind: Lens: Review Contract Wiring` | Compare a TypeScript / OpenAPI / JSON Schema / SQL boundary, with drift and relationship views |
 | `AtlasMind: Lens: Review State Lifecycle` | Visualise a declared state machine — reachability, terminal states, dead ends, guards |
 | `AtlasMind: Lens: Review Configuration Resolution` | Show a setting's precedence chain, what wins and what's shadowed — without reading live values |
 | `AtlasMind: Lens: Review Branch Change Story` | Turn a branch's committed history into a readable story of what changed and where |
+| `AtlasMind: Probe Live Services` | **Does the running system still agree with the code?** Pick a service you've declared and AtlasMind reads the schema it actually serves, then reports every field that has gone missing, changed type, or turned up undeclared — plus which services answered at all, and which served fields no classification covers. Reads shape only: never a row, never a value, never a write. Off by default; a production endpoint asks you to type its name first |
+| `AtlasMind: Live Service Settings` | Open the two settings that gate the live lenses: whether they may run at all, and which environments they may reach |
+| `AtlasMind: Store a Live Service Credential` | Put a connection string or token in the OS keychain for one declared endpoint. Never echoed, never logged, never written to your repository. Validated by parsing, not by connecting, so a typo fails while you can still see what you pasted — and the parsed host, database, user and TLS mode are shown back, which is what catches a production string pasted into a staging endpoint |
+| `AtlasMind: Clear a Live Service Credential` | Remove a stored credential. The endpoint stays declared, and its next probe reports that nothing is stored |
 
 ### Remote and system
 

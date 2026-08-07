@@ -102,6 +102,23 @@ export function isOpeningAction(command: string): boolean {
   if (/^atlasmind\.open[A-Z]/.test(command) || /^atlasmind\.(show|reveal)[A-Z]/.test(command)) {
     return true;
   }
+  // The same verbs inside a feature namespace — `atlasmind.lens.openDashboard`,
+  // `atlasmind.research.openRegister`. Most of AtlasMind's commands are
+  // namespaced, so without this the allowlist would only admit the handful that
+  // are not, and every namespaced guide would have to be special-cased by name
+  // until somebody special-cased the wrong one. The verb still carries the
+  // semantics: `atlasmind.buzz.setEnabled` and friends remain excluded, which is
+  // what this list is for.
+  if (/^atlasmind\.[a-z][a-zA-Z]*\.(open|show|reveal)[A-Z]/.test(command)) {
+    return true;
+  }
+  // Opening VS Code's own folder picker. It opens a dialog and cannot choose on
+  // the user's behalf; dismissing it does nothing. Named explicitly rather than
+  // admitting a `workbench.action.files.*` prefix, which would also cover
+  // saving, renaming, and deleting.
+  if (command === 'workbench.action.files.openFolder') {
+    return true;
+  }
   // Loading a command into a terminal without running it — the user presses Enter.
   if (command === 'atlasmind.buzz.prepareCommand' || command === 'atlasmind.setup.prepareCommand') {
     return true;

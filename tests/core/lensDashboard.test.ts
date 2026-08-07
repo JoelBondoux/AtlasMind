@@ -28,6 +28,7 @@ const fullyReady: LensDashboardInput = {
   declarations: declarations('ready', 'ready', [2, 3]),
   git: { repository: true, branch: 'feat/orders' },
   contractCandidates: 4,
+  live: { enabled: true, declaredEndpoints: 2, probedEndpoints: 2 },
 };
 
 describe('Lens dashboard model', () => {
@@ -39,7 +40,7 @@ describe('Lens dashboard model', () => {
     expect(view.lenses.every(lens => lens.readiness === 'ready')).toBe(true);
     expect(view.actions).toEqual([]);
     expect(view.emptyState).toBe('clear');
-    expect(view.summary).toContain('8 of 8 lenses ready');
+    expect(view.summary).toContain('11 of 11 lenses ready');
   });
 
   it('treats an unassessed input as unknown rather than as ready or empty', () => {
@@ -137,9 +138,14 @@ describe('Lens dashboard model', () => {
     });
 
     expect(view.actions.length).toBeLessThanOrEqual(LENS_ACTION_CAP);
-    expect(view.hiddenActionCount).toBe(0);
+    // A cap that says nothing reads as "that was everything". The remainder is
+    // whatever the cap dropped, and it must always account for the difference.
+    expect(view.hiddenActionCount).toBeGreaterThanOrEqual(0);
     const total = view.actions.length + view.hiddenActionCount;
     expect(total).toBeGreaterThan(0);
+    if (view.hiddenActionCount > 0) {
+      expect(view.actions.length).toBe(LENS_ACTION_CAP);
+    }
   });
 
   it('draws every lens between its evidence and a question, and marks unread evidence', () => {
