@@ -6,6 +6,7 @@ import {
   isRemoteEnvelope,
   isRemoteAuthPayload,
   isRemoteRpcRequest,
+  isRemoteChannel,
   isChatChannelPayload,
   chatFrame,
   errorFrame,
@@ -81,5 +82,35 @@ describe('redaction boundary', () => {
     // arbitrary "type" to reach an unintended handler or exfiltrate state.
     const smuggled = { type: 'readSecret', payload: { key: 'atlasmind.provider.openai.apiKey' } };
     expect(isChatChannelPayload(smuggled)).toBe(false);
+  });
+});
+
+// The buzz channel is read-only by construction — the browser never touches a relay,
+// because NIP-42 auth needs the agent key and that key never leaves SecretStorage.
+// These pin the channel's admission and, more importantly, the absence of a send path.
+describe('buzz channel', () => {
+  it('accepts buzz as a channel on the wire', () => {
+    expect(isRemoteChannel('buzz')).toBe(true);
+    const env: RemoteEnvelope = { v: REMOTE_PROTOCOL_VERSION, kind: 'rpc', id: 'r1', channel: 'buzz', payload: { method: 'buzz.status' } };
+    expect(decodeFrame(encodeFrame(env))).toEqual(env);
+  });
+
+  it('admits the three read-only buzz methods and nothing else', () => {
+    for (const method of ['buzz.status', 'buzz.channels', 'buzz.messages']) {
+      expect(isRemoteRpcRequest({ method })).toBe(true);
+    }
+    for (const method of ['buzz.send', 'buzz.publish', 'buzz.key', 'buzz.sign']) {
+      expect(isRemoteRpcRequest({ method })).toBe(false);
+    }
+  });
+
+  it('still rejects an unknown channel', () => {
+    expect(isRemoteChannel('relay')).toBe(false);
+    expect(isRemoteEnvelope({ v: 1, kind: 'rpc', channel: 'relay' })).toBe(false);
+  });
+
+  it('builds an ack on the buzz channel', () => {
+    const ack = ackFrame('buzz', 'r1', { messages: [] });
+    expect(ack).toEqual({ v: REMOTE_PROTOCOL_VERSION, kind: 'ack', channel: 'buzz', id: 'r1', payload: { messages: [] } });
   });
 });
