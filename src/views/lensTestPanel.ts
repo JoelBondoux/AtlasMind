@@ -300,6 +300,7 @@ function buildTestMapHtml(cspSource: string): string {
         open.addEventListener('click', () => vscode.postMessage({ type: 'openTarget', targetId }));
         const ask = textElement(actions, 'button', 'lens-button', 'Ask Atlas');
         ask.type = 'button';
+        makeAtlasDiscussButton(ask, 'Ask Atlas about this test target', 'Open this test target in Atlas Chat');
         ask.addEventListener('click', () => vscode.postMessage({ type: 'askTarget', targetId }));
         item.appendChild(actions);
         item.addEventListener('pointerenter', () => setHighlight(targetId));

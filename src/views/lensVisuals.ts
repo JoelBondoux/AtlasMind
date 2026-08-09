@@ -29,7 +29,7 @@
  * `textContent`, never markup.
  */
 
-import { escapeHtml } from './webviewUtils.js';
+import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml } from './webviewUtils.js';
 
 /**
  * Tokens, header, cards, badges, states.
@@ -515,10 +515,27 @@ export function renderLensInfo(options: LensInfoOptions): string {
 }
 
 /** Every lens surface pulls the same three stylesheets in the same order. */
-export const LENS_PANEL_CSS = `${LENS_BASE_CSS}${LENS_FLOW_CSS}${LENS_INFO_CSS}`;
+export const LENS_PANEL_CSS = `${LENS_BASE_CSS}${LENS_FLOW_CSS}${LENS_INFO_CSS}${ATLAS_DISCUSS_ACTION_CSS}`;
 
 /** Every lens surface that draws links pulls both scripts, flow first. */
-export const LENS_PANEL_SCRIPT = `${LENS_FLOW_SCRIPT}${LENS_INFO_SCRIPT}`;
+export const LENS_PANEL_SCRIPT = `${LENS_FLOW_SCRIPT}${LENS_INFO_SCRIPT}
+
+  function makeAtlasDiscussButton(button, label, title) {
+    button.className = 'atlas-discuss-action icon-only';
+    button.textContent = '';
+    button.title = title;
+    button.setAttribute('aria-label', label);
+    const image = document.createElement('img');
+    image.src = '${ATLAS_ICON_DATA_URI}';
+    image.alt = '';
+    image.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.className = 'atlas-discuss-label';
+    text.textContent = label;
+    button.append(image, text);
+    return button;
+  }
+`;
 
 /**
  * The header every lens surface opens with.

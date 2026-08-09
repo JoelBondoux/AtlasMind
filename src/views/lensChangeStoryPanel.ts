@@ -312,7 +312,13 @@ function buildChangeStoryHtml(cspSource: string): string {
         item.append(element('p', commit.hash.slice(0, 8) + ' · ' + commit.author + ' · ' + commit.authoredAt, 'commit-meta'));
         return item;
       }
-      function button(label, action, id) { const value = element('button', label, 'lens-button'); value.type = 'button'; value.dataset.action = action; value.dataset.changeId = id; return value; }
+      function button(label, action, id) {
+        const value = element('button', label, 'lens-button');
+        value.type = 'button'; value.dataset.action = action; value.dataset.changeId = id;
+        return action === 'askChange'
+          ? makeAtlasDiscussButton(value, 'Ask Atlas about this change', 'Open this committed change in Atlas Chat')
+          : value;
+      }
       function element(tag, text, className) { const value = document.createElement(tag); if (text) value.textContent = text; if (className) value.className = className; return value; }
       vscode.postMessage({ type: 'ready' });
     `,

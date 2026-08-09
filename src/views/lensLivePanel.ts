@@ -525,7 +525,10 @@ function buildLiveHtml(cspSource: string): string {
 
       function button(label, action, id) {
         const value = element('button', label, 'lens-button');
-        value.type = 'button'; value.dataset.action = action; value.dataset.findingId = id; return value;
+        value.type = 'button'; value.dataset.action = action; value.dataset.findingId = id;
+        return action === 'askFinding'
+          ? makeAtlasDiscussButton(value, 'Ask Atlas about this live finding', 'Open this live contract finding in Atlas Chat')
+          : value;
       }
       function element(tag, text, className) {
         const value = document.createElement(tag);

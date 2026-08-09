@@ -745,6 +745,9 @@ function buildContractReviewHtml(cspSource: string): string {
       function action(parent, label, message) {
         const button = textElement(parent, 'button', 'small-action', label);
         button.type = 'button';
+        if (String(message.type || '').startsWith('ask')) {
+          makeAtlasDiscussButton(button, label, 'Open this contract item in Atlas Chat');
+        }
         button.addEventListener('click', () => vscode.postMessage(message));
       }
 

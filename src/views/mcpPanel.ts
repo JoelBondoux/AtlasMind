@@ -613,7 +613,7 @@ export class McpPanel {
       cspSource: this.panel.webview.cspSource,
       extraCss: MCP_EXTRA_CSS,
       bodyContent: buildBody(servers, this.atlasIconUri, this.currentTarget),
-      scriptContent: buildMcpScript(this.currentTarget, servers, this.envScanner.getCached()),
+      scriptContent: buildMcpScript(this.currentTarget, servers, this.envScanner.getCached(), this.atlasIconUri),
     });
   }
 }
@@ -1356,7 +1356,7 @@ function serializeForInlineScript(value: unknown): string {
     .replace(/&/g, '\\u0026');
 }
 
-function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [], scan?: import('../types.js').McpEnvironmentScan): string {
+function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [], scan?: import('../types.js').McpEnvironmentScan, atlasIconUri = ''): string {
   const mcpEnvironmentScan = serializeForInlineScript(scan ?? null);
   const recommendedServers = serializeForInlineScript(buildRecommendedPresetData());
   const existingServers = serializeForInlineScript(servers.map(server => ({
@@ -1371,6 +1371,7 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
   })));
   const initialPage = JSON.stringify(target?.page ?? 'servers');
   const initialRecommendedServerId = JSON.stringify(target?.recommendedServerId ?? '');
+  const atlasDiscussIcon = serializeForInlineScript(atlasIconUri);
 
   return `
 (function() {
@@ -2345,9 +2346,18 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
     ask.className = 'mcp-scan-ask';
     const askBtn = document.createElement('button');
     askBtn.type = 'button';
-    askBtn.className = 'link-button';
+    askBtn.className = 'atlas-discuss-action icon-only';
     askBtn.dataset.scanAction = 'ask-atlas';
-    askBtn.textContent = 'Not sure how to configure a server? Ask Atlas to help';
+    askBtn.title = 'Ask AtlasMind to help configure an MCP server from the detected environment';
+    askBtn.setAttribute('aria-label', 'Ask AtlasMind to help configure this MCP server');
+    const askIcon = document.createElement('img');
+    askIcon.src = ${atlasDiscussIcon};
+    askIcon.alt = '';
+    askIcon.setAttribute('aria-hidden', 'true');
+    const askLabel = document.createElement('span');
+    askLabel.className = 'atlas-discuss-label';
+    askLabel.textContent = 'Ask AtlasMind to help configure this MCP server';
+    askBtn.append(askIcon, askLabel);
     ask.appendChild(askBtn);
     host.appendChild(ask);
   }

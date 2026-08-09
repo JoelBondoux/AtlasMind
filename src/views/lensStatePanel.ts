@@ -327,7 +327,10 @@ function buildStateHtml(cspSource: string): string {
         return row;
       }
       function button(label, action, itemId) {
-        const value = element('button', label, 'lens-button'); value.type = 'button'; value.dataset.action = action; value.dataset.itemId = itemId; return value;
+        const value = element('button', label, 'lens-button'); value.type = 'button'; value.dataset.action = action; value.dataset.itemId = itemId;
+        return action === 'askItem'
+          ? makeAtlasDiscussButton(value, 'Ask Atlas about this state item', 'Open this state item in Atlas Chat')
+          : value;
       }
       function element(tag, text, className) {
         const value = document.createElement(tag); if (text) value.textContent = text; if (className) value.className = className; return value;

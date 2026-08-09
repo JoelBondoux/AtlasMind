@@ -47,7 +47,7 @@ import {
   WEBSITE_FRAMEWORK_CATALOG,
   websiteFrameworkSpec,
 } from '../core/websiteFrameworks.js';
-import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
 
 export type WebsiteStudioPage =
@@ -632,6 +632,7 @@ export function getWebsiteStudioHtml(
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
     readOnly: options.readOnly === true,
+    atlasIcon: ATLAS_ICON_DATA_URI,
   });
 
   return getWebviewHtmlShell({
@@ -649,7 +650,7 @@ export function getWebsiteStudioHtml(
         <div class="hero-actions">
           <button type="button" class="secondary" data-command="atlasmind.openProjectIdeation">Ideation board</button>
           <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Project dashboard</button>
-          <button type="button" data-command="atlasmind.openChatPanel">Plan next milestone with Atlas</button>
+          <button type="button" class="atlas-discuss-action icon-only" data-command="atlasmind.openChatPanel" title="Ask AtlasMind to plan the next safe website milestone" aria-label="Ask AtlasMind to plan the next website milestone"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to plan the next website milestone</span></button>
         </div>
       </header>
       ${options.readOnly ? `
@@ -709,7 +710,7 @@ export function getWebsiteStudioHtml(
         <button type="button" id="saveWebsiteStudio"${options.readOnly ? ' disabled' : ''}>Save Website Studio</button>
       </footer>
     `,
-    extraCss: WEBSITE_STUDIO_CSS,
+    extraCss: `${WEBSITE_STUDIO_CSS}${ATLAS_DISCUSS_ACTION_CSS}`,
     ...(options.scriptContent
       ? { scriptContent: options.scriptContent }
       : options.scriptUri
@@ -738,7 +739,7 @@ function renderBriefPage(
         </div>
         <textarea id="siteDesignPrompt" rows="3" placeholder="Calm, editorial, lots of white space. Photography-led, no stock illustration.">${escapeHtml(config.designPrompt)}</textarea>
         <div class="inspector-actions">
-          <button type="button" id="askAboutSite">Ask Atlas about the whole site</button>
+          <button type="button" id="askAboutSite" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review the whole-site design prompt" aria-label="Ask AtlasMind about the whole site"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about the whole site</span></button>
         </div>
       </article>
       <div class="two-column">
@@ -935,7 +936,7 @@ function renderWireframesPage(
                 placeholder="A services page that leads with outcomes, three service cards, then a short enquiry form."></textarea>
             </label>
             <div class="inspector-actions">
-              <button type="button" id="askAboutPage">Ask Atlas about this page</button>
+              <button type="button" id="askAboutPage" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this page's wireframe and design prompt" aria-label="Ask AtlasMind about this page"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this page</span></button>
             </div>
           </div>
         </aside>

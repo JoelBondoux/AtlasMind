@@ -37,6 +37,7 @@ import type {
   DeploymentStageKind,
   PromotionHistoryEntry,
   PromotionPath,
+  RoutineDefinition,
 } from '../types.js';
 
 export const DELIVERY_SSOT_PATH = 'project_memory/operations/delivery.json';
@@ -167,6 +168,444 @@ export interface DeliverySeedInput {
   statusChecks?: { staging?: string[]; production?: string[] };
   /** CD workflow file to dispatch for promotion (trigger CD instead of local deploy). */
   dispatchWorkflow?: { staging?: string; production?: string };
+}
+
+// ── Project-specific delivery guide ─────────────────────────────
+
+export type DeliveryGuideStepStatus = 'configured' | 'conventional' | 'manual' | 'missing';
+export type DeliveryGuidePhaseId = 'prepare' | 'validate' | 'package' | 'deploy' | 'publish';
+
+export interface DeliveryGuideStep {
+  id: string;
+  label: string;
+  detail: string;
+  status: DeliveryGuideStepStatus;
+  /** Display-only. Rendering this command never authorizes or executes it. */
+  command?: string;
+  /** Safe workspace-relative evidence path, when one exists. */
+  path?: string;
+  /** Missing this item prevents a trustworthy delivery path. */
+  blocking: boolean;
+}
+
+export interface DeliveryGuidePhase {
+  id: DeliveryGuidePhaseId;
+  label: string;
+  description: string;
+  steps: DeliveryGuideStep[];
+}
+
+export interface ProjectDeliveryGuide {
+  ecosystem: string;
+  toolchain: string;
+  target: string;
+  configuredCount: number;
+  totalCount: number;
+  blockerCount: number;
+  phases: DeliveryGuidePhase[];
+}
+
+export interface DeliveryGuideWorkflowInput {
+  name: string;
+  path: string;
+  triggers: readonly string[];
+}
+
+/**
+ * Read-only evidence used to explain how this particular project ships.
+ *
+ * Manifest text and routine commands are workspace-authored, untrusted data.
+ * The builder strips controls, caps lengths, and only returns commands for
+ * display. The dashboard cannot execute a guide step; guarded promotion keeps
+ * its separate server-side command source and authorization boundary.
+ */
+export interface ProjectDeliveryGuideInput {
+  files: readonly string[];
+  manifestContents?: Readonly<Record<string, string>>;
+  packageJson?: unknown;
+  deliveryConfig?: DeliveryConfig;
+  routines?: readonly RoutineDefinition[];
+  workflows?: readonly DeliveryGuideWorkflowInput[];
+  workingTreeClean?: boolean;
+}
+
+const GUIDE_PHASE_COPY: Record<DeliveryGuidePhaseId, { label: string; description: string }> = {
+  prepare: { label: 'Prerequisites', description: 'What must be present before a release attempt is meaningful.' },
+  validate: { label: 'Validate', description: 'Project checks detected from scripts or the runtime convention. Nothing is run on refresh.' },
+  package: { label: 'Package', description: 'How source becomes the artifact that is shipped.' },
+  deploy: { label: 'Deploy', description: 'How the artifact moves into a hosted environment or production branch.' },
+  publish: { label: 'Publish', description: 'How the finished version reaches a registry, marketplace, or release channel.' },
+};
+
+function guideText(value: unknown, max = 800): string {
+  return typeof value === 'string'
+    ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max)
+    : '';
+}
+
+function guidePath(value: unknown): string | undefined {
+  const normalized = guideText(value, 400).replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!normalized || path.isAbsolute(normalized) || normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function guideId(phase: DeliveryGuidePhaseId, label: string, index: number): string {
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'step';
+  return `${phase}-${slug}-${index + 1}`;
+}
+
+/**
+ * Derive the newcomer-facing delivery runbook from facts already committed to
+ * the repository. Exact project scripts/routines are labelled `configured`;
+ * standard runtime commands are labelled `conventional`; human-only gates stay
+ * `manual`; absent load-bearing facts are `missing` rather than guessed.
+ */
+export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): ProjectDeliveryGuide {
+  const originalFiles = input.files.map(file => guidePath(file)).filter((file): file is string => file !== undefined);
+  const fileByLower = new Map(originalFiles.map(file => [file.toLowerCase(), file]));
+  const hasFile = (...candidates: string[]): boolean => candidates.some(candidate => fileByLower.has(candidate.toLowerCase()));
+  const firstFile = (...candidates: string[]): string | undefined => {
+    for (const candidate of candidates) {
+      const found = fileByLower.get(candidate.toLowerCase());
+      if (found) { return found; }
+    }
+    return undefined;
+  };
+  const manifests = new Map<string, string>();
+  for (const [name, content] of Object.entries(input.manifestContents ?? {})) {
+    const safe = guidePath(name);
+    // Preserve line boundaries for anchored manifest syntax (`go 1.24`, Cargo
+    // tables, and similar). Matched values are passed through `guideText`
+    // before they can reach the view model.
+    if (safe && typeof content === 'string') { manifests.set(safe.toLowerCase(), content.slice(0, 60_000)); }
+  }
+  const manifest = (name: string): string => manifests.get(name.toLowerCase()) ?? '';
+
+  const rawPackage = typeof input.packageJson === 'object' && input.packageJson !== null
+    ? input.packageJson as Record<string, unknown>
+    : {};
+  const rawScripts = typeof rawPackage['scripts'] === 'object' && rawPackage['scripts'] !== null
+    ? rawPackage['scripts'] as Record<string, unknown>
+    : {};
+  const scripts = new Map<string, string>();
+  for (const [name, command] of Object.entries(rawScripts)) {
+    const safeName = guideText(name, 100);
+    const safeCommand = guideText(command, 1_200);
+    if (safeName && safeCommand) { scripts.set(safeName, safeCommand); }
+  }
+
+  const packageFile = firstFile('package.json');
+  const pyproject = firstFile('pyproject.toml', 'requirements.txt');
+  const goMod = firstFile('go.mod');
+  const cargo = firstFile('Cargo.toml');
+  const pom = firstFile('pom.xml');
+  const gradle = firstFile('build.gradle', 'build.gradle.kts');
+  const dotnet = originalFiles.find(file => /(?:^|\/)[^/]+\.(?:sln|csproj)$/i.test(file));
+  const dockerfile = firstFile('Dockerfile');
+
+  let ecosystem = 'Undeclared';
+  let manifestPath: string | undefined;
+  if (packageFile || Object.keys(rawPackage).length > 0) { ecosystem = 'Node.js'; manifestPath = packageFile; }
+  else if (pyproject) { ecosystem = 'Python'; manifestPath = pyproject; }
+  else if (goMod) { ecosystem = 'Go'; manifestPath = goMod; }
+  else if (cargo) { ecosystem = 'Rust'; manifestPath = cargo; }
+  else if (pom || gradle) { ecosystem = pom ? 'Java / Maven' : 'Java / Gradle'; manifestPath = pom ?? gradle; }
+  else if (dotnet) { ecosystem = '.NET'; manifestPath = dotnet; }
+  else if (dockerfile) { ecosystem = 'Container'; manifestPath = dockerfile; }
+
+  let toolchain = ecosystem;
+  let installCommand = '';
+  if (ecosystem === 'Node.js') {
+    const declared = guideText(rawPackage['packageManager'], 80).split('@')[0]?.toLowerCase();
+    const manager = declared === 'pnpm' || declared === 'yarn' || declared === 'bun' || declared === 'npm'
+      ? declared
+      : hasFile('pnpm-lock.yaml') ? 'pnpm'
+        : hasFile('yarn.lock') ? 'yarn'
+          : hasFile('bun.lock', 'bun.lockb') ? 'bun'
+            : 'npm';
+    toolchain = manager;
+    installCommand = manager === 'pnpm' ? 'pnpm install --frozen-lockfile'
+      : manager === 'yarn' ? 'yarn install --immutable'
+        : manager === 'bun' ? 'bun install --frozen-lockfile'
+          : hasFile('package-lock.json', 'npm-shrinkwrap.json') ? 'npm ci' : 'npm install';
+  } else if (ecosystem === 'Python') {
+    if (hasFile('uv.lock')) { toolchain = 'Python + uv'; installCommand = 'uv sync --frozen'; }
+    else if (hasFile('poetry.lock')) { toolchain = 'Python + Poetry'; installCommand = 'poetry install --sync'; }
+    else if (hasFile('requirements.txt')) { toolchain = 'Python + pip'; installCommand = 'python -m pip install -r requirements.txt'; }
+    else { toolchain = 'Python'; }
+  } else if (ecosystem === 'Go') { toolchain = 'Go modules'; installCommand = 'go mod download'; }
+  else if (ecosystem === 'Rust') { toolchain = 'Cargo'; installCommand = hasFile('Cargo.lock') ? 'cargo fetch --locked' : 'cargo fetch'; }
+  else if (ecosystem === 'Java / Maven') { toolchain = hasFile('mvnw', 'mvnw.cmd') ? 'Maven Wrapper' : 'Maven'; installCommand = `${hasFile('mvnw', 'mvnw.cmd') ? './mvnw' : 'mvn'} dependency:go-offline`; }
+  else if (ecosystem === 'Java / Gradle') { toolchain = hasFile('gradlew', 'gradlew.bat') ? 'Gradle Wrapper' : 'Gradle'; installCommand = `${hasFile('gradlew', 'gradlew.bat') ? './gradlew' : 'gradle'} dependencies`; }
+  else if (ecosystem === '.NET') { toolchain = '.NET SDK'; installCommand = 'dotnet restore'; }
+
+  const config = input.deliveryConfig;
+  const orderedStages = [...(config?.stages ?? [])].sort((a, b) => a.rank - b.rank);
+  const production = orderedStages.find(stage => stage.kind === 'production') ?? orderedStages.at(-1);
+  const target = guideText(production?.hosting.provider) && !/^tbd$/i.test(guideText(production?.hosting.provider))
+    ? guideText(production?.hosting.provider)
+    : 'Not configured';
+  const productionPaths = (config?.paths ?? []).filter(candidate => candidate.toStageId === production?.id);
+  const boundRoutineIds = new Set(productionPaths.map(candidate => candidate.routineId).filter((id): id is string => Boolean(id)));
+  const routines = (input.routines ?? []).filter(routine => boundRoutineIds.has(routine.id));
+
+  const phases = new Map<DeliveryGuidePhaseId, DeliveryGuidePhase>();
+  for (const id of ['prepare', 'validate', 'package', 'deploy', 'publish'] as const) {
+    phases.set(id, { id, ...GUIDE_PHASE_COPY[id], steps: [] });
+  }
+  const seenCommands = new Set<string>();
+  const add = (
+    phaseId: DeliveryGuidePhaseId,
+    step: Omit<DeliveryGuideStep, 'id'>,
+  ): void => {
+    const phase = phases.get(phaseId)!;
+    const command = guideText(step.command, 1_200);
+    if (command && seenCommands.has(command)) { return; }
+    if (command) { seenCommands.add(command); }
+    const safePath = guidePath(step.path);
+    phase.steps.push({
+      ...step,
+      ...(command ? { command } : {}),
+      ...(safePath ? { path: safePath } : {}),
+      id: guideId(phaseId, step.label, phase.steps.length),
+    });
+  };
+
+  add('prepare', {
+    label: manifestPath ? `${ecosystem} project manifest` : 'Project manifest',
+    detail: manifestPath ? `Detected ${manifestPath}.` : 'No supported root manifest was detected, so AtlasMind cannot derive a trustworthy build path.',
+    status: manifestPath ? 'configured' : 'missing',
+    ...(manifestPath ? { path: manifestPath } : {}),
+    blocking: !manifestPath,
+  });
+  if (installCommand) {
+    add('prepare', {
+      label: `Restore dependencies with ${toolchain}`,
+      detail: 'Detected from the project manifest and lockfile. Confirm the required runtime is installed on this machine.',
+      command: installCommand,
+      path: manifestPath,
+      status: 'conventional',
+      blocking: false,
+    });
+  } else {
+    add('prepare', {
+      label: 'Dependency restore',
+      detail: 'No deterministic dependency-restore command could be derived. Document the project setup command for new contributors.',
+      status: 'manual',
+      blocking: false,
+    });
+  }
+
+  const runtimeRequirement = (() => {
+    if (ecosystem === 'Node.js') {
+      const engines = typeof rawPackage['engines'] === 'object' && rawPackage['engines'] !== null ? rawPackage['engines'] as Record<string, unknown> : {};
+      return guideText(engines['node'], 80);
+    }
+    if (ecosystem === 'Python') { return manifest('pyproject.toml').match(/requires-python\s*=\s*["']([^"']+)/i)?.[1] ?? ''; }
+    if (ecosystem === 'Go') { return manifest('go.mod').match(/^go\s+([^\s]+)/m)?.[1] ?? ''; }
+    if (ecosystem === 'Rust') { return hasFile('rust-toolchain.toml', 'rust-toolchain') ? 'declared in rust-toolchain' : ''; }
+    if (ecosystem === '.NET') { return hasFile('global.json') ? 'declared in global.json' : ''; }
+    return '';
+  })();
+  add('prepare', {
+    label: 'Runtime requirement',
+    detail: runtimeRequirement
+      ? `${ecosystem} requirement: ${guideText(runtimeRequirement, 120)}. AtlasMind has detected the declaration, not verified the installed runtime.`
+      : `No ${ecosystem === 'Undeclared' ? 'runtime' : ecosystem} version requirement was detected. New machines may reproduce a different build.`,
+    status: runtimeRequirement ? 'configured' : 'manual',
+    path: manifestPath,
+    blocking: false,
+  });
+  add('prepare', {
+    label: 'Working tree clean',
+    detail: input.workingTreeClean === true
+      ? 'No pending workspace changes were detected.'
+      : input.workingTreeClean === false
+        ? 'The working tree has pending changes; a package or tag would not represent everything on disk.'
+        : 'Git cleanliness was not available and must be checked before shipping.',
+    status: input.workingTreeClean === true ? 'configured' : input.workingTreeClean === false ? 'missing' : 'manual',
+    command: 'git status --short',
+    blocking: input.workingTreeClean === false,
+  });
+  const requiresChangelog = production?.promotionPolicy.requireChangelog === true;
+  if (requiresChangelog) {
+    add('prepare', {
+      label: 'Release notes / changelog',
+      detail: hasFile('CHANGELOG.md') ? 'CHANGELOG.md is present; confirm it contains the version being shipped.' : 'Production requires a changelog, but CHANGELOG.md is missing.',
+      status: hasFile('CHANGELOG.md') ? 'manual' : 'missing',
+      path: firstFile('CHANGELOG.md'),
+      blocking: !hasFile('CHANGELOG.md'),
+    });
+  }
+  add('prepare', {
+    label: 'Production target',
+    detail: target === 'Not configured' ? 'The Delivery pipeline does not name where production is hosted or published.' : `Production is configured for ${target}.`,
+    status: target === 'Not configured' ? 'missing' : 'configured',
+    path: DELIVERY_SSOT_PATH,
+    blocking: target === 'Not configured',
+  });
+  if (production?.backupPolicy.required) {
+    add('prepare', {
+      label: 'Production backup',
+      detail: production.backupPolicy.command ? 'A backup command is configured and remains gated by the promotion flow.' : 'A backup is required, but no command is configured. Promotion remains blocked.',
+      status: production.backupPolicy.command ? 'configured' : 'missing',
+      path: DELIVERY_SSOT_PATH,
+      blocking: !production.backupPolicy.command,
+    });
+  }
+
+  const nodeRun = (name: string): string => toolchain === 'yarn' ? `yarn ${name}` : `${toolchain} run ${name}`;
+  const addScript = (phaseId: DeliveryGuidePhaseId, name: string): void => {
+    if (!scripts.has(name)) { return; }
+    add(phaseId, {
+      label: name,
+      detail: `Exact script declared in package.json: ${guideText(scripts.get(name), 300)}`,
+      command: nodeRun(name),
+      path: packageFile,
+      status: 'configured',
+      blocking: false,
+    });
+  };
+  if (ecosystem === 'Node.js') {
+    ['typecheck', 'compile', 'lint', 'test', 'test:coverage', 'check', 'verify'].forEach(name => addScript('validate', name));
+  } else if (ecosystem === 'Python') {
+    const pythonText = `${manifest('pyproject.toml')}\n${manifest('requirements.txt')}`.toLowerCase();
+    if (/pytest/.test(pythonText)) { add('validate', { label: 'Python tests', detail: 'Pytest is declared by the project.', command: 'python -m pytest', path: pyproject, status: 'conventional', blocking: false }); }
+    if (/ruff/.test(pythonText)) { add('validate', { label: 'Python lint', detail: 'Ruff is declared by the project.', command: 'ruff check .', path: pyproject, status: 'conventional', blocking: false }); }
+    if (/mypy/.test(pythonText)) { add('validate', { label: 'Python type check', detail: 'Mypy is declared by the project.', command: 'mypy .', path: pyproject, status: 'conventional', blocking: false }); }
+  } else if (ecosystem === 'Go') {
+    add('validate', { label: 'Go tests', detail: 'Standard Go module validation.', command: 'go test ./...', path: goMod, status: 'conventional', blocking: false });
+    add('validate', { label: 'Go vet', detail: 'Standard Go static analysis.', command: 'go vet ./...', path: goMod, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Rust') {
+    add('validate', { label: 'Rust format', detail: 'Standard Cargo formatting validation.', command: 'cargo fmt --check', path: cargo, status: 'conventional', blocking: false });
+    add('validate', { label: 'Rust lint', detail: 'Standard Cargo lint validation.', command: 'cargo clippy --all-targets -- -D warnings', path: cargo, status: 'conventional', blocking: false });
+    add('validate', { label: 'Rust tests', detail: 'Standard Cargo test command.', command: 'cargo test', path: cargo, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Java / Maven') {
+    add('validate', { label: 'Maven verification', detail: 'Standard Maven verification lifecycle.', command: `${toolchain === 'Maven Wrapper' ? './mvnw' : 'mvn'} verify`, path: pom, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Java / Gradle') {
+    add('validate', { label: 'Gradle checks', detail: 'Standard Gradle verification lifecycle.', command: `${toolchain === 'Gradle Wrapper' ? './gradlew' : 'gradle'} check`, path: gradle, status: 'conventional', blocking: false });
+  } else if (ecosystem === '.NET') {
+    add('validate', { label: '.NET tests', detail: 'Standard .NET solution test command.', command: 'dotnet test --no-restore', path: dotnet, status: 'conventional', blocking: false });
+  }
+
+  if (ecosystem === 'Node.js') {
+    const packageScripts = ['package', 'package:vsix', 'pack', 'bundle'].filter(name => scripts.has(name));
+    if (packageScripts.length > 0) { packageScripts.forEach(name => addScript('package', name)); }
+    else if (scripts.has('build')) { addScript('package', 'build'); }
+  } else if (ecosystem === 'Python' && firstFile('pyproject.toml')) {
+    add('package', { label: 'Build Python distributions', detail: 'Standard pyproject build, inferred from pyproject.toml.', command: 'python -m build', path: 'pyproject.toml', status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Go') {
+    add('package', { label: 'Build Go binaries', detail: 'Standard Go module build.', command: 'go build ./...', path: goMod, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Rust') {
+    add('package', { label: 'Build release artifacts', detail: 'Standard optimized Cargo build.', command: 'cargo build --release', path: cargo, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Java / Maven') {
+    add('package', { label: 'Package with Maven', detail: 'Standard Maven package lifecycle.', command: `${toolchain === 'Maven Wrapper' ? './mvnw' : 'mvn'} package`, path: pom, status: 'conventional', blocking: false });
+  } else if (ecosystem === 'Java / Gradle') {
+    add('package', { label: 'Build with Gradle', detail: 'Standard Gradle build lifecycle.', command: `${toolchain === 'Gradle Wrapper' ? './gradlew' : 'gradle'} build`, path: gradle, status: 'conventional', blocking: false });
+  } else if (ecosystem === '.NET') {
+    add('package', { label: 'Publish .NET artifacts', detail: 'Standard release publish output.', command: 'dotnet publish -c Release --no-restore', path: dotnet, status: 'conventional', blocking: false });
+  } else if (dockerfile) {
+    add('package', { label: 'Build container image', detail: 'Dockerfile detected; choose and record an immutable image tag before publishing.', command: 'docker build .', path: dockerfile, status: 'conventional', blocking: false });
+  }
+
+  const phaseForRoutineStep = (routineStep: RoutineDefinition['steps'][number]): DeliveryGuidePhaseId => {
+    const text = `${routineStep.id} ${routineStep.label} ${routineStep.run}`.toLowerCase();
+    if (/\b(test|lint|check|verify|compile|typecheck)\b/.test(text)) { return 'validate'; }
+    if (/\b(package|pack|bundle|build|artifact)\b/.test(text)) { return 'package'; }
+    if (/\b(publish|marketplace|registry|tag(?:ging)?|release)\b/.test(text)) { return 'publish'; }
+    return 'deploy';
+  };
+  for (const routine of routines) {
+    for (const routineStep of routine.steps) {
+      const phaseId = phaseForRoutineStep(routineStep);
+      add(phaseId, {
+        label: guideText(routineStep.label, 160) || 'Delivery routine step',
+        detail: `Configured by the bound “${guideText(routine.name, 120)}” routine; failure policy: ${routineStep.on_fail}.`,
+        command: routineStep.run,
+        status: 'configured',
+        blocking: false,
+      });
+    }
+  }
+
+  const dispatchWorkflow = guidePath(production?.promotionPolicy.dispatchWorkflow);
+  if (dispatchWorkflow) {
+    add('deploy', {
+      label: 'Dispatch production workflow',
+      detail: 'The production stage delegates deployment to CI/CD.',
+      command: ['gh', 'workflow', 'run', dispatchWorkflow].join(' '),
+      path: dispatchWorkflow.startsWith('.github/') ? dispatchWorkflow : `.github/workflows/${dispatchWorkflow}`,
+      status: 'configured',
+      blocking: false,
+    });
+  }
+  if (production?.promotionPolicy.viaPullRequest) {
+    add('deploy', {
+      label: `Promote through a pull request${production.branchRef ? ` into ${guideText(production.branchRef, 120)}` : ''}`,
+      detail: 'This is a human-reviewed gate. Required status checks must pass before the protected target is merged.',
+      path: DELIVERY_SSOT_PATH,
+      status: 'manual',
+      blocking: false,
+    });
+  }
+
+  const deliveryWorkflows = (input.workflows ?? []).filter(workflow => /\b(deploy|publish|release|ship|promotion)\b/i.test(workflow.name));
+  for (const workflow of deliveryWorkflows) {
+    const safeWorkflowPath = guidePath(workflow.path);
+    const triggers = workflow.triggers.map(trigger => guideText(trigger, 60)).filter(Boolean);
+    const publishLike = /\b(publish|release)\b/i.test(workflow.name);
+    const phaseId: DeliveryGuidePhaseId = publishLike ? 'publish' : 'deploy';
+    const dispatchable = triggers.some(trigger => trigger === 'workflow_dispatch');
+    add(phaseId, {
+      label: guideText(workflow.name, 160) || 'Delivery workflow',
+      detail: triggers.length > 0 ? `GitHub Actions triggers: ${triggers.join(', ')}.` : 'A delivery-named workflow is present, but its trigger was not parsed.',
+      ...(dispatchable && safeWorkflowPath ? { command: ['gh', 'workflow', 'run', safeWorkflowPath].join(' ') } : {}),
+      path: safeWorkflowPath,
+      status: dispatchable ? 'manual' : 'configured',
+      blocking: false,
+    });
+  }
+
+  if (ecosystem === 'Node.js') {
+    [...scripts.keys()]
+      .filter(name => /^(?:publish(?:$|:)|release(?:$|:)|ship(?:$|:)|tag:)/i.test(name))
+      .slice(0, 6)
+      .forEach(name => addScript('publish', name));
+  } else if (/pypi/i.test(target)) {
+    add('publish', { label: 'Publish Python distribution', detail: 'The target is PyPI, but AtlasMind will not invent repository credentials or an upload command.', path: pyproject, status: 'manual', blocking: false });
+  } else if (/crates\.io/i.test(target)) {
+    add('publish', { label: 'Publish crate', detail: 'Standard crates.io publish command. Review the packaged file list and credentials first.', command: 'cargo publish', path: cargo, status: 'conventional', blocking: false });
+  }
+
+  const publishTarget = /marketplace|registry|pypi|crates\.io|app store/i.test(target);
+  if (phases.get('validate')!.steps.length === 0) {
+    add('validate', { label: 'Project validation', detail: 'No test, lint, compile, or verification command was detected. Declare the checks that make a build trustworthy.', status: 'missing', blocking: true });
+  }
+  if (phases.get('package')!.steps.length === 0) {
+    add('package', { label: 'Packaging command', detail: 'No package, build, bundle, or artifact command was detected.', status: 'missing', blocking: true });
+  }
+  if (!publishTarget && target !== 'Not configured' && phases.get('deploy')!.steps.length === 0) {
+    add('deploy', { label: `Deploy to ${target}`, detail: 'A target is named, but no bound routine or dispatch workflow explains how code reaches it.', path: DELIVERY_SSOT_PATH, status: 'missing', blocking: true });
+  }
+  if (publishTarget && phases.get('publish')!.steps.length === 0) {
+    add('publish', { label: `Publish to ${target}`, detail: 'A publishing target is named, but no project script, routine step, or workflow explains how to publish.', path: DELIVERY_SSOT_PATH, status: 'missing', blocking: true });
+  }
+
+  const visiblePhases = [...phases.values()].filter(phase =>
+    phase.id === 'prepare' || phase.id === 'validate' || phase.id === 'package' || phase.steps.length > 0,
+  );
+  const allSteps = visiblePhases.flatMap(phase => phase.steps);
+  return {
+    ecosystem,
+    toolchain,
+    target,
+    configuredCount: allSteps.filter(step => step.status === 'configured' || step.status === 'conventional').length,
+    totalCount: allSteps.length,
+    blockerCount: allSteps.filter(step => step.status === 'missing' && step.blocking).length,
+    phases: visiblePhases,
+  };
 }
 
 export function defaultDeliveryConfig(): DeliveryConfig {

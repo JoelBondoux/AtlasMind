@@ -2742,7 +2742,8 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('Review-first orchestration');
     expect(html).toContain('What this panel does');
-    expect(html).toContain('Discuss Draft');
+    expect(html).toContain('class="atlas-discuss-action icon-only"');
+    expect(html).toContain('Ask AtlasMind to refine this Project Run draft');
     expect(html).toContain('metricSelectedStatus');
     expect(html).toContain('status-banner');
     expect(html).toContain('goalInput');
