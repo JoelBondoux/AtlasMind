@@ -10,6 +10,58 @@ Open it from **Project Dashboard → Delivery**.
 
 ---
 
+## Your project's shipping guide
+
+The first section answers the practical newcomer questions: **what must be installed, which checks make
+the build trustworthy, how is it packaged, and what moves it into production or a registry?**
+
+AtlasMind derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide from the
+project in front of you. It understands Node package managers and lockfiles, Python, Go, Rust,
+Maven/Gradle, .NET and container projects, then combines that runtime evidence with the Delivery stages,
+the bound project routine and CI/CD workflows.
+
+Each item says how strong the evidence is:
+
+- **Configured** — the repository explicitly declares the script, routine step, target or policy.
+- **Runtime convention** — a standard ecosystem command AtlasMind can safely suggest, such as
+  `go test ./...`; useful, but not a claim that the project declared or ran it.
+- **Manual check** — something a person must inspect or approve.
+- **Missing** — a load-bearing step AtlasMind could not find. Blocking items are counted at the top.
+
+Each item links back to the file that supplied the evidence.
+
+The five phase columns start **collapsed**. Their numbered identifiers show the strongest status inside:
+green is fully configured, blue includes a runtime convention, amber needs a manual check or has a
+non-blocking gap, and red contains a blocker. Open a column to see the detail. Every non-green step has
+an AtlasMind-logo button; hover it to see the exact action, then press it to open a focused resolution
+draft. The webview sends only the step id — the extension host rebuilds the live guide before composing
+that draft, so the page cannot supply a command or prompt of its own.
+
+### Running what it found
+
+Opening or refreshing the page never runs anything. Every run starts with a click:
+
+- **⧉ Copy** puts the command on the clipboard.
+- **&gt;_ Send to terminal** types it into a terminal named `AtlasMind Delivery`, opened at the project
+  root — **without pressing Enter**. Read it, then run it yourself. That keystroke is deliberately left
+  to you, which is why this button asks nothing first.
+- **▶ Run** inside an expanded column runs that whole phase, after a confirmation that lists every command in
+  the order they will run, marks the ones that reach beyond your machine (a push, a deployment, a
+  publication — none of which closing the terminal undoes), and tells you whether a failure will stop
+  the rest.
+
+That last point is worth knowing before you use it. Commands are chained with `&&` so a failing check
+stops the ones after it — but Windows PowerShell 5.1 has no `&&`, and on an unrecognised shell AtlasMind
+will not assume one. There, the commands are sent separately and the dialog says so: a failing test will
+**not** stop the packaging behind it. Run them one at a time if that matters. AtlasMind never reads the
+terminal output, so the result is yours to check either way.
+
+Actual deployments still go through the guarded promotion flow below, with live preflight checks,
+approval and protected-stage confirmation. The runbook's commands come from *detection*; promotion's come
+from a reviewed `delivery.json`, and the two paths stay separate.
+
+---
+
 ## Stages and promotions
 
 Delivery is modelled as **stages** — places your code can be — joined by **promotions**, the permitted

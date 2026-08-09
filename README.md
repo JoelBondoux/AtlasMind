@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.266.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.269.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,35 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.266.3
+## What's new in 0.269.0
 
-Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
+Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Delivery is compact until you need it.** Every detected runbook column starts collapsed, and its
+  numbered marker is green, blue, amber or red according to the strongest status inside. Open one to
+  see its steps; every non-green step carries the AtlasMind logo, which opens a host-resolved repair
+  draft for that exact item.
+
+- **“Ask AtlasMind” is now one visual language everywhere.** Dashboard fixes, Lens explanations, MCP
+  setup help, Website Studio design questions, and Project Run draft refinement all use the AtlasMind
+  logo alone. Hovering names the exact action, while `aria-label` text keeps the control explicit for
+  assistive technology.
+
+- **The Delivery page now tells you how this project actually ships — and will run it for you.**
+  AtlasMind detects the runtime, package manager, lockfile, project scripts, bound delivery routine,
+  CI/CD workflows, production target, and safety gates, then lays them out as **Prerequisites →
+  Validate → Package → Deploy → Publish**. Exact repository configuration is kept distinct from
+  standard runtime conventions and manual checks, and missing load-bearing steps are explicit blockers.
+  This makes an unfamiliar Node, Python, Go, Rust, Java, .NET, or container project useful to a new
+  contributor without pretending all projects deploy the same way.
+
+  Every command has a **copy** icon and a **send to terminal** icon, and each column has a **▶ Run**
+  button for the whole phase. Refreshing the page still runs nothing. Send-to-terminal deliberately
+  does not press Enter, so your own keystroke stays the last gate on a single command; running a column
+  opens a confirmation that names every command in order, marks the ones that leave your machine, and
+  says whether a failure will stop the rest — it will not on shells without `&&`, which is precisely
+  the case where a failed test would otherwise be followed by a publish.
 
 - **You can finally see the wireframe.** The preview was showing a white page, and the reason was
   structural: nothing in AtlasMind could turn a wireframe into HTML, so it could not reach a browser

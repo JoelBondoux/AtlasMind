@@ -23,9 +23,9 @@
   }
 
   function renderAtlasDiscussAction(action, payload, label, options = {}) {
-    const iconOnly = options.iconOnly === true;
     const title = options.title || label;
-    return `<button type="button" class="atlas-discuss-action${iconOnly ? ' icon-only' : ''}" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
+    const disabled = options.disabled ? ' disabled aria-disabled="true"' : '';
+    return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"${disabled}><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
   /**
@@ -1467,6 +1467,27 @@
       render();
       return;
     }
+    // The detected runbook sends only the step or phase id it rendered. The host
+    // rebuilds the guide and resolves the command text itself, so this page can
+    // point at a command but never compose one.
+    if (action === 'delivery-copy-command') {
+      if (payload) { vscode.postMessage({ type: 'copyDeliveryCommand', payload: payload }); }
+      return;
+    }
+    if (action === 'delivery-send-command') {
+      if (payload) { vscode.postMessage({ type: 'sendDeliveryCommandToTerminal', payload: payload }); }
+      return;
+    }
+    if (action === 'delivery-run-phase') {
+      // The confirmation naming every command lives on the host side, where the
+      // command list is authoritative; a dialog drawn here could not name it.
+      if (payload) { vscode.postMessage({ type: 'runDeliveryGuidePhase', payload: payload }); }
+      return;
+    }
+    if (action === 'delivery-discuss-step') {
+      if (payload) { vscode.postMessage({ type: 'discussDeliveryGuideStep', payload: payload }); }
+      return;
+    }
     if (action === 'promote-plan') {
       vscode.postMessage({ type: 'requestPromotionPlan', payload: { pathId: payload, mode: 'execute' } });
       return;
@@ -2640,7 +2661,7 @@
             })}
             ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
             <div class="tag-row">
-              ${grouped.length > 0 ? grouped.map(group => `<button type="button" class="action-link" data-action="gap-group" data-payload="${escapeAttr(group.priority)}">Resolve ${escapeHtml(group.priority)} (${group.items.length})</button>`).join('') : ''}
+              ${grouped.length > 0 ? grouped.map(group => renderAtlasDiscussAction('gap-group', group.priority, `Ask AtlasMind to resolve the ${group.priority} gap group`, { title: `Ask AtlasMind to resolve ${group.items.length} ${group.priority} gap-analysis item${group.items.length === 1 ? '' : 's'}` })).join('') : ''}
               <button type="button" class="action-link" data-action="gap-run" data-payload="" ${state.gapBusy ? 'disabled' : ''}>${state.gapBusy ? 'Running…' : gap.completed ? 'Re-run Analysis' : 'Run Gap Analysis'}</button>
             </div>
           </article>
@@ -2657,7 +2678,7 @@
                     </div>
                     <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
                     <div class="tag-row">
-                      <button type="button" class="action-link" data-action="gap-resolve" data-payload="${escapeAttr(item.id)}">Resolve in Chat</button>
+                      ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
                       <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
                     </div>
@@ -3530,7 +3551,7 @@
             <div class="stat-detail">${escapeHtml(rt.tdd.detail)}</div>
             <div class="tag-row">
               ${rt.tdd.missing > 0 || rt.tdd.blocked > 0 ? `
-              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(rt.tdd))}">🔧 Ask Atlas to fix TDD gaps</button>
+              ${renderAtlasDiscussAction('prompt', buildTddChatPrompt(rt.tdd), 'Ask AtlasMind to fix the TDD gaps', { title: 'Ask AtlasMind to inspect and fix the blocked or missing TDD evidence' })}
               <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(rt.tdd))}">▶ Plan a TDD fix run</button>
               ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
@@ -3745,7 +3766,7 @@
             </div>
             <div class="tag-row">
               ${selectedTest ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(`${selectedTest.relativePath}#L${selectedTest.line}`)}">Open at source</button>` : ''}
-              ${selectedTest ? `<button type="button" class="action-link" data-action="prompt" data-payload="Review the test named '${escapeAttr(selectedTest.title)}' in ${escapeAttr(selectedTest.relativePath)} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.">Analyze in chat</button>` : ''}
+              ${selectedTest ? renderAtlasDiscussAction('prompt', `Review the test named '${selectedTest.title}' in ${selectedTest.relativePath} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.`, 'Ask AtlasMind to analyze this test', { title: 'Ask AtlasMind to analyze the selected test and identify coverage gaps' }) : ''}
             </div>
           </article>
         </div>
@@ -3978,7 +3999,7 @@
           ${(row.toolingSignals || []).length > 0 ? `<div class="policy-card-signals">Tooling: ${escapeHtml(row.toolingSignals.join(', '))}</div>` : ''}
           <div class="tag-row">
             ${row.exampleFile ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(row.exampleFile)}">Open a test</button>` : ''}
-            <button type="button" class="action-link${row.status === 'missing' || row.failedCount > 0 ? ' primary' : ''}" data-action="prompt" data-payload="${escapeAttr(row.actionPrompt)}">${escapeHtml(row.failedCount > 0 ? 'Fix with Atlas' : row.status === 'covered' ? 'Review with Atlas' : 'Write tests with Atlas')}</button>
+            ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this testing policy' : row.status === 'covered' ? 'Ask AtlasMind to review this testing policy' : 'Ask AtlasMind to write tests for this policy', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
           </div>
         </div>`;
     }).join('');
@@ -3999,7 +4020,7 @@
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
-          <button type="button" class="action-link primary" data-action="fix-activated-testing"${fixRunning ? ' disabled' : ''} title="Inspect and repair the enabled test surfaces through AtlasMind's normal approval flow">${fixRunning ? 'Repairing activated testing…' : 'Fix activated testing…'}</button>
+          ${renderAtlasDiscussAction('fix-activated-testing', '', fixRunning ? 'AtlasMind is repairing activated testing' : 'Ask AtlasMind to fix activated testing', { disabled: fixRunning, title: fixRunning ? 'AtlasMind is currently repairing the enabled testing surfaces' : 'Ask AtlasMind to inspect and repair all enabled testing surfaces through the normal approval flow' })}
           <button type="button" class="action-link" data-action="reconcile-testing"${fixRunning ? ' disabled' : ''}>Reconcile with the repository…</button>
           <span class="list-meta">Fix runs only after confirmation and normal tool approvals; routed activity and its final report appear below. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
         </div>
@@ -4465,7 +4486,7 @@
         <div class="list-meta">${escapeHtml(`${issue.author ? `by ${issue.author}` : 'author unknown'}${(issue.assignees || []).length > 0 ? ` · assigned to ${issue.assignees.join(', ')}` : ' · unassigned'}${issue.comments > 0 ? ` · ${issue.comments} comment${issue.comments === 1 ? '' : 's'}` : ''}${issue.updatedAt ? ` · updated ${relativeLabel(issue.updatedAt)}` : ''}`)}</div>
         ${issue.body ? `<div class="list-meta issue-body">${escapeHtml(issue.body.slice(0, 320))}${issue.bodyTruncated || issue.body.length > 320 ? '…' : ''}</div>` : ''}
         <div class="tag-row">
-          <button type="button" class="action-link primary" data-action="issues-work" data-payload="${escapeAttr(String(issue.number))}" title="Open a chat that treats this issue as a report to check, not as instructions">Work on it with Atlas</button>
+          ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
           <button type="button" class="action-link" data-action="issues-comment" data-payload="${escapeAttr(String(issue.number))}">${composing ? 'Cancel comment' : 'Comment'}</button>
           ${isOpen
             ? `<button type="button" class="action-link" data-action="issues-close" data-payload="${escapeAttr(String(issue.number))}">Close</button>`
@@ -4951,7 +4972,7 @@
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
-          <button type="button" class="action-link" data-action="work-on-debt" data-payload="${escapeAttr(entry.id)}">Look at it with Atlas</button>
+          ${renderAtlasDiscussAction('work-on-debt', entry.id, 'Ask AtlasMind to review this debt entry', { title: 'Ask AtlasMind to inspect this debt record and propose whether to fix, retain, or reclassify it' })}
         </div>
       </div>`).join('');
 
@@ -6062,7 +6083,7 @@
               : `Nothing is tagged for ${gateLabel} yet. Use the ${gateLabel} chip on a backlog item below to put it on this release.`)}</div>
           `}
           <div class="tag-row">
-            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">${escapeHtml(`Plan the ${gateLabel} route with Atlas`)}</button>
+            ${renderAtlasDiscussAction('prompt', mvp.planPrompt || '', `Ask AtlasMind to plan the ${gateLabel} route`, { title: `Ask AtlasMind to plan the shortest defensible route to ${gateLabel}` })}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
           </div>
         </article>
@@ -6330,7 +6351,7 @@
           ` : `
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|open')}" title="Reopen this finding">Reopen</button>
           `}
-          <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr('Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.')}" title="Ask Atlas to investigate this finding">Investigate</button>
+          ${renderAtlasDiscussAction('prompt', 'Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.', 'Ask AtlasMind to investigate this finding', { title: 'Ask AtlasMind to verify this finding and propose the smallest concrete response' })}
         </div>
       </article>
     `;
@@ -6661,7 +6682,7 @@
         <div class="list-meta">${escapeHtml(entry.detail)}</div>
         ${entry.sourceHint ? `<div class="list-meta">Tracks: ${escapeHtml(entry.sourceHint)}</div>` : ''}
         <div class="tag-row">
-          <button type="button" class="action-link primary" data-action="prompt" data-payload="${escapeAttr(entry.updatePrompt)}" title="Open an Atlas chat to update this document">Update with Atlas</button>
+          ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { title: 'Ask AtlasMind to inspect and update this document' })}
           <button type="button" class="action-link" data-action="documents-mark-reviewed" data-payload="${escapeAttr(entry.id)}" title="Record that this document is current as of now">Mark reviewed</button>
           ${entry.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.path)}">Open</button>` : ''}
           <button type="button" class="action-link" data-action="documents-edit-auto" data-payload="${escapeAttr(entry.id)}">Edit</button>
@@ -7645,8 +7666,23 @@
   }
 
   function renderDelivery(snapshot) {
+    const guide = snapshot.delivery && snapshot.delivery.guide;
+    const blockerCount = guide ? Number(guide.blockerCount || 0) : 0;
     return `
       ${pageSectionOpen('delivery')}
+        ${renderPageIntro({
+          kicker: 'Project delivery',
+          title: 'Package, deploy, and publish this project',
+          summary: guide
+            ? `AtlasMind detected the ${guide.ecosystem} toolchain, ${guide.configuredCount} configured or conventional step${guide.configuredCount === 1 ? '' : 's'}, and ${blockerCount} missing blocker${blockerCount === 1 ? '' : 's'}. Opening or refreshing this page never runs a command; every run starts with a click and a confirmation.`
+            : 'AtlasMind could not collect a project-specific delivery guide. The deployment pipeline remains available below.',
+          chips: guide ? [
+            { label: guide.toolchain || guide.ecosystem, tone: guide.ecosystem === 'Undeclared' ? 'warn' : 'accent' },
+            { label: guide.target || 'Target not configured', tone: guide.target === 'Not configured' ? 'warn' : 'good' },
+            { label: blockerCount ? `${blockerCount} blocker${blockerCount === 1 ? '' : 's'}` : 'No detected blockers', tone: blockerCount ? 'critical' : 'good' },
+          ] : [],
+        })}
+        ${renderProjectDeliveryGuide(guide)}
         ${renderStagePipeline(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
@@ -7745,6 +7781,95 @@
         })()}
       </section>
     `;
+  }
+
+  function deliveryGuideStatus(status) {
+    if (status === 'configured') { return { icon: '✓', label: 'configured', tone: 'good' }; }
+    if (status === 'conventional') { return { icon: '◇', label: 'runtime convention', tone: 'accent' }; }
+    if (status === 'missing') { return { icon: '!', label: 'missing', tone: 'critical' }; }
+    return { icon: '○', label: 'manual check', tone: 'warn' };
+  }
+
+  function renderProjectDeliveryGuide(guide) {
+    if (!guide || !Array.isArray(guide.phases)) { return ''; }
+    const flow = guide.phases.map(phase => {
+      const blockers = (phase.steps || []).filter(step => step.status === 'missing' && step.blocking).length;
+      const missing = (phase.steps || []).filter(step => step.status === 'missing').length;
+      const manual = (phase.steps || []).filter(step => step.status === 'manual').length;
+      const conventional = (phase.steps || []).filter(step => step.status === 'conventional').length;
+      return {
+        label: phase.label,
+        status: blockers > 0 ? 'critical' : missing > 0 || manual > 0 ? 'warn' : conventional > 0 ? 'accent' : 'good',
+        icon: blockers > 0 ? '!' : missing > 0 || manual > 0 ? '○' : conventional > 0 ? '◇' : '✓',
+        sub: `${(phase.steps || []).length} step${(phase.steps || []).length === 1 ? '' : 's'}`,
+        title: phase.description,
+      };
+    });
+    return `
+      <article class="list-card delivery-guide" style="grid-column: 1 / -1">
+        <div class="delivery-guide-header">
+          <div>
+            <p class="section-kicker">Detected runbook</p>
+            <h3>What to do, in order</h3>
+            <p class="section-copy">Each column starts collapsed. Its numbered identifier carries the strongest status inside: green is fully configured, blue includes a runtime convention, amber needs a manual check, and red has a missing blocker. Open a column for its steps. The AtlasMind logo on any non-green step opens a focused resolution draft; <strong>⧉</strong> copies a command, <strong>&gt;_</strong> types it without pressing Enter, and <strong>▶ Run</strong> runs the column only after you confirm the exact list.</p>
+          </div>
+          <span class="tag ${guide.blockerCount ? 'tag-critical' : 'tag-good'}">${guide.configuredCount}/${guide.totalCount} detected · ${guide.blockerCount} blocking</span>
+        </div>
+        ${renderFlowStrip(flow)}
+        <div class="delivery-guide-phases">
+          ${guide.phases.map((phase, phaseIndex) => {
+            const runnable = (phase.steps || []).filter(step => step.command).length;
+            const blockers = (phase.steps || []).filter(step => step.status === 'missing' && step.blocking).length;
+            const missing = (phase.steps || []).filter(step => step.status === 'missing').length;
+            const manual = (phase.steps || []).filter(step => step.status === 'manual').length;
+            const conventional = (phase.steps || []).filter(step => step.status === 'conventional').length;
+            const phaseTone = blockers > 0 ? 'critical' : missing > 0 || manual > 0 ? 'warn' : conventional > 0 ? 'accent' : 'good';
+            const phaseStatus = blockers > 0 ? `${blockers} blocking` : missing > 0 ? `${missing} missing` : manual > 0 ? `${manual} manual` : conventional > 0 ? `${conventional} conventional` : 'configured';
+            return `
+            <details class="delivery-guide-phase phase-${escapeAttr(phaseTone)}">
+              <summary class="delivery-guide-phase-head" aria-labelledby="delivery-guide-phase-${phaseIndex}">
+                <span class="delivery-guide-number status-${escapeAttr(phaseTone)}">${phaseIndex + 1}</span>
+                <div class="delivery-guide-phase-copy">
+                  <h4 id="delivery-guide-phase-${phaseIndex}">${escapeHtml(phase.label)}</h4>
+                  <p>${escapeHtml(phase.description)}</p>
+                </div>
+                <span class="delivery-guide-phase-status tag ${phaseTone === 'critical' ? 'tag-critical' : phaseTone === 'warn' ? 'tag-warn' : phaseTone === 'good' ? 'tag-good' : ''}">${escapeHtml(phaseStatus)}</span>
+              </summary>
+              ${runnable > 0 ? `<div class="delivery-guide-phase-actions"><button type="button" class="delivery-guide-run" data-action="delivery-run-phase" data-payload="${escapeAttr(phase.id)}" title="Run the ${runnable} detected command${runnable === 1 ? '' : 's'} in this column, in order. You confirm the exact list first." aria-label="Run the ${escapeAttr(phase.label)} column">▶ Run ${runnable}</button></div>` : ''}
+              <div class="delivery-guide-steps" role="list">
+                ${(phase.steps || []).map(step => {
+                  const meta = deliveryGuideStatus(step.status);
+                  return `
+                    <div class="delivery-guide-step status-${escapeAttr(meta.tone)}" role="listitem">
+                      <div class="delivery-guide-step-head">
+                        <span class="delivery-guide-step-icon" aria-hidden="true">${meta.icon}</span>
+                        <strong>${escapeHtml(step.label)}</strong>
+                        <span class="tag ${meta.tone === 'critical' ? 'tag-critical' : meta.tone === 'good' ? 'tag-good' : meta.tone === 'warn' ? 'tag-warn' : ''}">${escapeHtml(meta.label)}</span>
+                        ${step.status !== 'configured' ? renderAtlasDiscussAction(
+                          'delivery-discuss-step',
+                          step.id,
+                          `Ask AtlasMind to resolve ${step.label}`,
+                          { title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
+                        ) : ''}
+                      </div>
+                      <p>${escapeHtml(step.detail)}</p>
+                      ${step.command ? `
+                        <div class="delivery-guide-command-block">
+                          <pre class="delivery-guide-command"><code>${escapeHtml(step.command)}</code></pre>
+                          <div class="delivery-guide-command-actions">
+                            <button type="button" class="code-icon-btn" data-action="delivery-copy-command" data-payload="${escapeAttr(step.id)}" title="Copy to clipboard" aria-label="Copy the ${escapeAttr(step.label)} command to the clipboard">⧉</button>
+                            <button type="button" class="code-icon-btn" data-action="delivery-send-command" data-payload="${escapeAttr(step.id)}" title="Send to terminal — typed, not run. Press Enter yourself." aria-label="Send the ${escapeAttr(step.label)} command to the terminal">&gt;_</button>
+                          </div>
+                        </div>` : ''}
+                      ${step.path ? `<button type="button" class="action-link delivery-guide-source" data-action="file" data-payload="${escapeAttr(step.path)}">Open ${escapeHtml(step.path)}</button>` : ''}
+                    </div>`;
+                }).join('')}
+              </div>
+            </details>
+          `;
+          }).join('')}
+        </div>
+      </article>`;
   }
 
   // ── Project Director page ──────────────────────────────────────
@@ -8729,6 +8854,9 @@
         <strong>${escapeHtml(item.title)}</strong>
         <div class="stat-detail">${escapeHtml(item.detail)}</div>
         ${resolved ? `<span class="card-destination">${escapeHtml(resolved.destination)} ›</span>` : ''}`;
+    if (resolved && resolved.action === 'prompt') {
+      return `<div class="action-card score-recommendation-item static has-atlas-action">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, `Ask AtlasMind to address ${item.title}`, { title: `Ask AtlasMind to address this recommendation: ${item.title}` })}</div>`;
+    }
     return resolved
       ? `<button type="button" class="action-card score-recommendation-item is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.destination)}">${inner}</button>`
       : `<div class="action-card score-recommendation-item static">${inner}</div>`;
@@ -8965,6 +9093,9 @@
     const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${meter}`;
     const resolved = resolveActionAttrs(options.action);
     if (resolved) {
+      if (resolved.action === 'prompt') {
+        return `<div class="metric-pill has-atlas-action${toneClass}">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}</div>`;
+      }
       return `<button type="button" class="metric-pill is-actionable${toneClass}" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">${inner}</button>`;
     }
     return `<div class="metric-pill${toneClass}">${inner}</div>`;
@@ -8977,6 +9108,14 @@
       <div class="signal-detail">${escapeHtml(detail)}</div>
     `;
     if (resolved) {
+      if (resolved.action === 'prompt') {
+        return `
+          <div class="signal-card ${ok ? 'good' : 'warn'} static has-atlas-action">
+            ${body}
+            ${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}
+          </div>
+        `;
+      }
       return `
         <button type="button" class="signal-card ${ok ? 'good' : 'warn'} is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">
           ${body}
@@ -9004,7 +9143,9 @@
       : '';
     const resolved = resolveActionAttrs(o.action);
     const actionBtn = resolved
-      ? `<button type="button" class="action-link primary" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}">${escapeHtml(o.actionLabel || resolved.hint)}</button>`
+      ? resolved.action === 'prompt'
+        ? renderAtlasDiscussAction('prompt', resolved.payload, o.actionLabel || resolved.hint, { title: o.actionLabel || resolved.hint })
+        : `<button type="button" class="action-link primary" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}">${escapeHtml(o.actionLabel || resolved.hint)}</button>`
       : '';
     return `
       <div class="page-intro">

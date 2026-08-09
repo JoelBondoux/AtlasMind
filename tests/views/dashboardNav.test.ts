@@ -11,6 +11,7 @@ import {
   parseGhReleaseList,
   shouldRefreshRepositoryActivity,
 } from '../../src/views/projectDashboardPanel.ts';
+import { ATLAS_ICON_DATA_URI, renderAtlasDiscussAction } from '../../src/views/webviewUtils.ts';
 
 /**
  * The dashboard nav is rendered by `media/projectDashboard.js`, but prompts
@@ -140,6 +141,84 @@ describe('dashboard nav definition', () => {
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
     expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+  });
+
+  const deliverySection = (): string => WEBVIEW_SCRIPT.slice(
+    WEBVIEW_SCRIPT.indexOf('function renderDelivery(snapshot)'),
+    WEBVIEW_SCRIPT.indexOf('// ── Project Director page', WEBVIEW_SCRIPT.indexOf('function renderDelivery(snapshot)')),
+  );
+
+  it('renders the project delivery guide before the stage pipeline', () => {
+    const delivery = deliverySection();
+    expect(delivery).toContain('${renderProjectDeliveryGuide(guide)}');
+    expect(delivery.indexOf('${renderProjectDeliveryGuide(guide)}'))
+      .toBeLessThan(delivery.indexOf('${renderStagePipeline(snapshot)}'));
+    expect(delivery).toContain('delivery-guide-command');
+  });
+
+  it('offers copy, send-to-terminal and run-column, and never carries the command text itself', () => {
+    // The page may name a step; only the host may say what that step runs. If a
+    // payload here ever became `step.command`, a crafted webview message would
+    // be able to choose the text a terminal receives — which is the whole
+    // reason the ids are opaque.
+    const delivery = deliverySection();
+    expect(delivery).toContain('data-action="delivery-copy-command" data-payload="${escapeAttr(step.id)}"');
+    expect(delivery).toContain('data-action="delivery-send-command" data-payload="${escapeAttr(step.id)}"');
+    expect(delivery).toContain('data-action="delivery-run-phase" data-payload="${escapeAttr(phase.id)}"');
+    expect(delivery).not.toContain('data-payload="${escapeAttr(step.command)}"');
+    expect(delivery).not.toContain('payload: step.command');
+  });
+
+  it('starts every runbook phase collapsed and colour-codes its identifier from the strongest non-green step', () => {
+    const delivery = deliverySection();
+    expect(delivery).toContain('<details class="delivery-guide-phase phase-${escapeAttr(phaseTone)}">');
+    expect(delivery).not.toContain('<details class="delivery-guide-phase phase-${escapeAttr(phaseTone)}" open>');
+    expect(delivery).toContain('delivery-guide-number status-${escapeAttr(phaseTone)}');
+    expect(delivery).toContain("conventional > 0 ? 'accent' : 'good'");
+    expect(delivery).toContain("blockers > 0 ? 'critical'");
+  });
+
+  it('shows a host-resolved AtlasMind logo action only for non-configured runbook steps', () => {
+    const delivery = deliverySection();
+    expect(delivery).toContain("step.status !== 'configured' ? renderAtlasDiscussAction(");
+    expect(delivery).toContain("'delivery-discuss-step'");
+    expect(delivery).toContain('step.id');
+    expect(delivery).not.toContain('data-payload="${escapeAttr(step.detail)}"');
+  });
+
+  it('says the send button does not press Enter, so the affordances read differently', () => {
+    // Copy and send need no dialog because the human still presses Enter; the
+    // column run does, and the two must not look interchangeable on screen.
+    const delivery = deliverySection();
+    expect(delivery).toContain('typed, not run');
+    expect(delivery).toContain('You confirm the exact list first');
+  });
+
+  it('routes every delivery command action through the host, never a webview-side run', () => {
+    const dispatch = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf("if (action === 'delivery-copy-command')"),
+      WEBVIEW_SCRIPT.indexOf("if (action === 'promote-plan')"),
+    );
+    expect(dispatch).toContain("vscode.postMessage({ type: 'copyDeliveryCommand', payload: payload })");
+    expect(dispatch).toContain("vscode.postMessage({ type: 'sendDeliveryCommandToTerminal', payload: payload })");
+    expect(dispatch).toContain("vscode.postMessage({ type: 'runDeliveryGuidePhase', payload: payload })");
+    expect(dispatch).toContain("vscode.postMessage({ type: 'discussDeliveryGuideStep', payload: payload })");
+  });
+});
+
+describe('AtlasMind discussion controls', () => {
+  it('renders the logo as the only visible content while retaining tooltip and accessible text', () => {
+    const html = renderAtlasDiscussAction({
+      iconUri: ATLAS_ICON_DATA_URI,
+      action: 'askAtlas',
+      label: 'Ask AtlasMind to fix this item',
+      title: 'Inspect the item and propose the smallest safe fix',
+    });
+    expect(html).toContain('class="atlas-discuss-action icon-only"');
+    expect(html).toContain('title="Inspect the item and propose the smallest safe fix"');
+    expect(html).toContain('aria-label="Ask AtlasMind to fix this item"');
+    expect(html).toContain('<img src="data:image/svg+xml,');
+    expect(html).toContain('<span class="atlas-discuss-label">Ask AtlasMind to fix this item</span>');
   });
 });
 
@@ -373,7 +452,8 @@ describe('testing methodology guidance', () => {
   });
 
   it('offers a host-confirmed repair action for every activated test surface', () => {
-    expect(WEBVIEW_SCRIPT).toContain('Fix activated testing');
+    expect(WEBVIEW_SCRIPT).toContain('Ask AtlasMind to fix activated testing');
+    expect(WEBVIEW_SCRIPT).toContain("renderAtlasDiscussAction('fix-activated-testing'");
     expect(WEBVIEW_SCRIPT).toContain("type: 'fixActivatedTesting'");
     expect(WEBVIEW_SCRIPT).toContain('normal tool approvals');
   });

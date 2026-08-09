@@ -235,7 +235,25 @@ import {
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, acquireDeliveryLock, releaseDeliveryLock, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
+import {
+  DELIVERY_SSOT_PATH,
+  DELIVERY_SUMMARY_SSOT_PATH,
+  sanitizeDeliveryConfig,
+  seedDeliveryConfig,
+  appendPromotionHistory,
+  readPromotionHistory,
+  acquireDeliveryLock,
+  releaseDeliveryLock,
+  buildProjectDeliveryGuide,
+  type DeliverySeedInput,
+  type DeliveryArchetype,
+  type ProjectDeliveryGuide,
+} from '../core/deliveryManager.js';
+import {
+  DELIVERY_RUN_TERMINAL_NAME,
+  buildDeliveryRunConfirmation,
+  buildDeliveryRunPlan,
+} from '../core/deliveryRunPlan.js';
 import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation } from '../core/promotionRunner.js';
 import {
   PROJECT_DIRECTOR_SSOT_PATH,
@@ -587,6 +605,12 @@ type ProjectDashboardMessage =
   | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
   | { type: 'setRiskFilter'; payload: string }
   | { type: 'copyContact'; payload: string }
+  // Opaque runbook step / phase ids. The host rebuilds the guide and resolves
+  // the command itself, so the page names a step but never supplies one.
+  | { type: 'copyDeliveryCommand'; payload: string }
+  | { type: 'sendDeliveryCommandToTerminal'; payload: string }
+  | { type: 'runDeliveryGuidePhase'; payload: string }
+  | { type: 'discussDeliveryGuideStep'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
@@ -1934,6 +1958,8 @@ interface DashboardSnapshot {
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
     stages: DashboardStagePipeline;
+    /** Detected commands and human gates, grouped in the order a newcomer ships. */
+    guide: ProjectDeliveryGuide;
   };
   /** Stage 6 — what a release from here would look like, and what blocks it. */
   release: DashboardReleaseSnapshot;
@@ -3712,6 +3738,18 @@ export class ProjectDashboardPanel {
       case 'createShelfFolder':
         await this.ensureShelfFolders([message.payload]);
         await this.syncState();
+        return;
+      case 'copyDeliveryCommand':
+        await this.handleCopyDeliveryCommand(message.payload);
+        return;
+      case 'sendDeliveryCommandToTerminal':
+        await this.handleSendDeliveryCommandToTerminal(message.payload);
+        return;
+      case 'runDeliveryGuidePhase':
+        await this.handleRunDeliveryGuidePhase(message.payload);
+        return;
+      case 'discussDeliveryGuideStep':
+        await this.handleDiscussDeliveryGuideStep(message.payload);
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -7119,6 +7157,165 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await this.syncState();
   }
 
+  /**
+   * Rebuild the detected runbook so a command can be resolved from the
+   * workspace rather than from the page.
+   *
+   * The webview sends an opaque step or phase id and nothing else — the same
+   * rule `addIdeationEvidence` follows. A crafted message can therefore name a
+   * command that does not exist, which resolves to nothing; it can never
+   * *supply* one. Cleanliness is left ungathered because it changes a step's
+   * status and never a command, so a copy click does not pay for a git call.
+   */
+  private async resolveDeliveryGuide(): Promise<{ guide: ProjectDeliveryGuide; workspaceRoot: string } | undefined> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    const workflows = await collectWorkflowSnapshot(workspaceRoot);
+    const guide = await collectProjectDeliveryGuide(
+      this.atlas,
+      workspaceRoot,
+      undefined,
+      workflows,
+      this.atlas.deliveryManager?.getConfig() ?? undefined,
+    );
+    return { guide, workspaceRoot };
+  }
+
+  private async resolveDeliveryGuideCommand(stepId: string): Promise<{ label: string; command: string; workspaceRoot: string } | undefined> {
+    const resolved = await this.resolveDeliveryGuide();
+    if (!resolved) {
+      return undefined;
+    }
+    for (const phase of resolved.guide.phases) {
+      const step = phase.steps.find(candidate => candidate.id === stepId);
+      if (step?.command) {
+        return { label: step.label, command: step.command, workspaceRoot: resolved.workspaceRoot };
+      }
+    }
+    return undefined;
+  }
+
+  private async handleDiscussDeliveryGuideStep(stepId: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuide();
+    const step = resolved?.guide.phases
+      .flatMap(phase => phase.steps)
+      .find(candidate => candidate.id === String(stepId ?? '') && candidate.status !== 'configured');
+    if (!step) {
+      vscode.window.setStatusBarMessage('AtlasMind: that runbook issue changed — refresh the Delivery page.', 4000);
+      return;
+    }
+    const evidence = [
+      `Runbook step: ${step.label}`,
+      `Current status: ${step.status}`,
+      `Detected detail: ${step.detail}`,
+      ...(step.path ? [`Evidence path: ${step.path}`] : []),
+      ...(step.command ? [`Detected command: ${step.command}`] : []),
+    ].join('\n');
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: [
+        'Resolve this non-green Delivery runbook step. Inspect the current workspace evidence, make the smallest safe change that turns the step green when possible, and explain any remaining manual action or blocker. Do not execute a release, deployment, publication, or destructive command without the normal approval flow.',
+        evidence,
+      ].join('\n\n'),
+      sendMode: 'new-session',
+    });
+  }
+
+  private async handleCopyDeliveryCommand(stepId: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
+      return;
+    }
+    await vscode.env.clipboard.writeText(resolved.command);
+    vscode.window.setStatusBarMessage(`AtlasMind: copied \`${resolved.command}\``, 4000);
+  }
+
+  /**
+   * Put a command in a terminal without pressing Enter.
+   *
+   * The trailing newline is deliberately withheld — as it is in the chat panel
+   * and the setup walkthroughs — so the human's own keystroke stays the last
+   * gate on a single command. That is why this needs no confirmation dialog and
+   * running a whole column does.
+   */
+  private async handleSendDeliveryCommandToTerminal(stepId: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
+      return;
+    }
+    const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
+    terminal.show(true);
+    terminal.sendText(resolved.command, false);
+    vscode.window.setStatusBarMessage('AtlasMind: sent to the terminal — press Enter to run it.', 5000);
+  }
+
+  /**
+   * Run one column of the detected runbook, after a confirmation that names
+   * every command in it.
+   *
+   * Two things separate this from the promotion flow it sits next to, and both
+   * are stated in the dialog rather than implied: the commands come from
+   * detection rather than from a reviewed `delivery.json`, and AtlasMind does
+   * not watch the output — so where the shell cannot chain with `&&`, a failing
+   * check will not stop the packaging that follows it.
+   */
+  private async handleRunDeliveryGuidePhase(phaseId: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuide();
+    const phase = resolved?.guide.phases.find(candidate => candidate.id === String(phaseId ?? ''));
+    if (!resolved || !phase) {
+      vscode.window.setStatusBarMessage('AtlasMind: that runbook column changed — refresh the Delivery page.', 4000);
+      return;
+    }
+
+    const plan = buildDeliveryRunPlan(phase, vscode.env.shell);
+    if (plan.commands.length === 0) {
+      await vscode.window.showInformationMessage(
+        `The ${plan.phaseLabel} column has no detected command to run. Its steps are manual checks or missing evidence.`,
+      );
+      return;
+    }
+
+    const confirmation = buildDeliveryRunConfirmation(plan);
+    const choice = await vscode.window.showWarningMessage(
+      confirmation.title,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel,
+    );
+    if (choice !== confirmation.confirmLabel) {
+      return;
+    }
+
+    const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
+    terminal.show(true);
+    for (const line of plan.lines) {
+      terminal.sendText(line, true);
+    }
+    vscode.window.setStatusBarMessage(
+      `AtlasMind: running the ${plan.phaseLabel} column in the ${DELIVERY_RUN_TERMINAL_NAME} terminal.`,
+      6000,
+    );
+  }
+
+  /**
+   * One named terminal, rooted at the workspace. A delivery command that runs
+   * in whatever directory the active terminal happened to be in is a different
+   * command from the one the page displayed.
+   */
+  private getOrCreateDeliveryTerminal(workspaceRoot: string): vscode.Terminal {
+    const existing = vscode.window.terminals.find(terminal => terminal.name === DELIVERY_RUN_TERMINAL_NAME);
+    if (existing) {
+      return existing;
+    }
+    return vscode.window.createTerminal({
+      name: DELIVERY_RUN_TERMINAL_NAME,
+      cwd: vscode.Uri.file(workspaceRoot),
+      isTransient: false,
+    });
+  }
+
   private async handleCopyContact(contactId: string): Promise<void> {
     const contact = this.atlas.projectDirectorManager?.getConfig()?.contacts.find(entry => entry.id === contactId);
     if (!contact) {
@@ -7922,7 +8119,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -8816,6 +9013,13 @@ async function collectDashboardSnapshot(
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
   const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
+  const deliveryGuide = await collectProjectDeliveryGuide(
+    atlas,
+    workspaceRoot,
+    gitSnapshot.dirty,
+    workflowSnapshot,
+    stagePipeline.config ?? undefined,
+  );
 
   const testingSnapshot = collectTestingDashboardSnapshot(atlas);
   const providers = atlas.modelRouter.listProviders();
@@ -9310,6 +9514,7 @@ async function collectDashboardSnapshot(
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
       stages: stagePipeline,
+      guide: deliveryGuide,
     },
     director: directorSnapshot,
     documents: documentsSnapshot,
@@ -10546,6 +10751,81 @@ async function collectPackageSnapshot(workspaceRoot: string | undefined): Promis
       keyScripts: [],
     };
   }
+}
+
+/**
+ * Gather bounded, read-only delivery evidence. Opening the dashboard must never
+ * install a runtime, run a validation command, or probe deployment credentials;
+ * the guide says what is declared and leaves execution to the guarded flow.
+ *
+ * `workingTreeDirty` is `undefined` when cleanliness was not gathered — which is
+ * the case on the copy/send/run path, where the guide is rebuilt only to resolve
+ * a command. It changes a step's *status*, never a command, so the resolution
+ * path does not pay for a git call it cannot use.
+ */
+async function collectProjectDeliveryGuide(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  workingTreeDirty: boolean | undefined,
+  workflows: readonly DashboardWorkflow[],
+  deliveryConfig: DeliveryConfig | undefined,
+): Promise<ProjectDeliveryGuide> {
+  if (!workspaceRoot) {
+    return buildProjectDeliveryGuide({ files: [], workingTreeClean: undefined });
+  }
+
+  const topFiles = await listDirFiles(workspaceRoot);
+  const dotnetManifest = topFiles.find(file => /\.(?:sln|csproj)$/i.test(file));
+  const manifestNames = [
+    'package.json',
+    'pyproject.toml',
+    'requirements.txt',
+    'go.mod',
+    'Cargo.toml',
+    'pom.xml',
+    'build.gradle',
+    'build.gradle.kts',
+    'rust-toolchain',
+    'rust-toolchain.toml',
+    'global.json',
+    ...(dotnetManifest ? [dotnetManifest] : []),
+  ];
+  const manifestContents: Record<string, string> = {};
+  await Promise.all(manifestNames.map(async name => {
+    try {
+      manifestContents[name] = await fs.readFile(path.join(workspaceRoot, name), 'utf-8');
+    } catch {
+      // Missing is evidence too; the builder receives only manifests that exist.
+    }
+  }));
+
+  let packageJson: unknown;
+  if (manifestContents['package.json']) {
+    try {
+      packageJson = JSON.parse(manifestContents['package.json']);
+    } catch {
+      packageJson = undefined;
+    }
+  }
+
+  // The registry is the authoritative parser for routine frontmatter. Reloading
+  // keeps a hand-edited runbook visible without teaching the dashboard a second
+  // parser; failure simply leaves the routine unreported, never guessed.
+  const routineRegistry = atlas.routineRegistry;
+  await routineRegistry?.reload(workspaceRoot).catch(() => undefined);
+  return buildProjectDeliveryGuide({
+    files: [...topFiles, ...workflows.map(workflow => workflow.path)],
+    manifestContents,
+    packageJson,
+    ...(deliveryConfig ? { deliveryConfig } : {}),
+    routines: routineRegistry?.list() ?? [],
+    workflows: workflows.map(workflow => ({
+      name: workflow.name,
+      path: workflow.path,
+      triggers: workflow.triggers,
+    })),
+    workingTreeClean: workingTreeDirty === undefined ? undefined : !workingTreeDirty,
+  });
 }
 
 async function collectVersionSnapshot(
@@ -17335,6 +17615,9 @@ const DASHBOARD_CSS = `
 
   /* ── Shared design-refresh primitives ─────────────────────────────── */
 
+  .has-atlas-action { position: relative; padding-right: 46px; }
+  .has-atlas-action > .atlas-discuss-action { position: absolute; top: 9px; right: 9px; }
+
   /* Metric pill: status dot, optional meter, actionable button variant */
   .metric-pill {
     flex-wrap: wrap;
@@ -18311,6 +18594,60 @@ const DASHBOARD_CSS = `
   .testing-fix-output > pre { max-height: 260px; overflow: auto; margin: 7px 0 0; padding: 8px 9px; border-radius: 7px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12)); color: var(--vscode-editor-foreground); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
   .testing-fix-actions { margin-top: 10px; }
   .policy-failure-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+  /* ── Delivery: detected project runbook ─────────────────────────
+     A reading surface with two deliberate exits. Per-command icons copy, or
+     type the command into a terminal without pressing Enter. The column button
+     is the only affordance that runs anything, and it is a request the host
+     confirms — the page cannot execute, and it cannot supply a command. */
+  .delivery-guide { margin-bottom: 14px; }
+  .delivery-guide-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+  .delivery-guide-header h3 { margin-bottom: 5px; }
+  .delivery-guide-header .section-copy { max-width: 820px; margin: 0; }
+  .delivery-guide-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
+  .delivery-guide-phase { min-width: 0; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); border-radius: 12px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.05)); overflow: hidden; }
+  .delivery-guide-phase.phase-good { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase.phase-accent { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase.phase-warn { border-color: color-mix(in srgb, var(--dash-warn) 60%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase.phase-critical { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase-head { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; cursor: pointer; list-style: none; }
+  .delivery-guide-phase-head::-webkit-details-marker { display: none; }
+  .delivery-guide-phase-head::after { content: '›'; flex: 0 0 auto; margin: 2px 0 0 2px; color: var(--vscode-descriptionForeground); font-size: 1.1em; line-height: 1; transform: rotate(0deg); transition: transform 120ms ease; }
+  .delivery-guide-phase[open] > .delivery-guide-phase-head::after { transform: rotate(90deg); }
+  .delivery-guide-phase-head:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+  .delivery-guide-phase-copy { flex: 1 1 auto; }
+  .delivery-guide-number { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 25px; width: 25px; height: 25px; border-radius: 50%; background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent); color: var(--dash-accent-strong); font-weight: 800; font-size: 0.78em; }
+  .delivery-guide-number.status-good { background: color-mix(in srgb, var(--dash-good) 20%, transparent); color: var(--dash-good); }
+  .delivery-guide-number.status-warn { background: color-mix(in srgb, var(--dash-warn) 22%, transparent); color: var(--dash-warn); }
+  .delivery-guide-number.status-critical { background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--dash-critical); }
+  .delivery-guide-phase h4 { margin: 1px 0 3px; font-size: 0.98em; }
+  .delivery-guide-phase-head p { margin: 0; color: var(--vscode-descriptionForeground); font-size: 0.78em; line-height: 1.4; }
+  .delivery-guide-phase-status { flex: 0 0 auto; margin: 2px 0 0 auto; }
+  .delivery-guide-phase-actions { display: flex; justify-content: flex-end; padding: 0 13px 8px; }
+  .delivery-guide-steps { display: flex; flex-direction: column; gap: 8px; padding: 0 13px 13px; }
+  .delivery-guide-step { padding: 9px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); min-width: 0; }
+  .delivery-guide-step.status-good { border-left-color: var(--dash-good); }
+  .delivery-guide-step.status-accent { border-left-color: var(--dash-accent-strong); }
+  .delivery-guide-step.status-warn { border-left-color: var(--dash-warn); }
+  .delivery-guide-step.status-critical { border-left-color: var(--dash-critical); }
+  .delivery-guide-step-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .delivery-guide-step-head strong { flex: 1 1 130px; font-size: 0.86em; }
+  .delivery-guide-step-head .atlas-discuss-action { margin-left: auto; }
+  .delivery-guide-step-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; font-weight: 800; }
+  .delivery-guide-step p { margin: 6px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.77em; line-height: 1.42; overflow-wrap: anywhere; }
+  .delivery-guide-command { margin: 0; padding: 7px 46px 7px 8px; border-radius: 6px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12)); color: var(--vscode-editor-foreground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.75em; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto; }
+  .delivery-guide-command code { font: inherit; }
+  .delivery-guide-command-block { position: relative; margin-top: 7px; }
+  /* Visible without a hover, because a touch or keyboard user never hovers and
+     an affordance that only appears on hover is one half the room cannot find. */
+  .delivery-guide-command-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; }
+  .code-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 5px; background: var(--vscode-editor-background); color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.68em; line-height: 1; cursor: pointer; opacity: 0.75; }
+  .code-icon-btn:hover { opacity: 1; color: var(--dash-accent-strong); border-color: var(--dash-accent-strong); }
+  .code-icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; opacity: 1; }
+  .delivery-guide-run { margin-left: auto; flex: 0 0 auto; align-self: flex-start; padding: 3px 8px; border: 1px solid var(--dash-accent-strong); border-radius: 999px; background: color-mix(in srgb, var(--dash-accent-strong) 14%, transparent); color: var(--dash-accent-strong); font-size: 0.72em; font-weight: 700; white-space: nowrap; cursor: pointer; }
+  .delivery-guide-run:hover { background: color-mix(in srgb, var(--dash-accent-strong) 26%, transparent); }
+  .delivery-guide-run:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+  .delivery-guide-source { margin-top: 6px; font-size: 0.74em; }
 
   /* ── Delivery: Stages & Promotion ─────────────────────────────── */
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }

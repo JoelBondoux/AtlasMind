@@ -29,7 +29,7 @@ import {
 } from '../chat/participant.js';
 import type { SessionThoughtSummary, SessionTimelineNote, SessionTranscriptMetadata } from '../chat/sessionConversation.js';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
-import { getWebviewHtmlShell } from './webviewUtils.js';
+import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, getWebviewHtmlShell } from './webviewUtils.js';
 import { formatCost } from '../core/currencyFormatter.js';
 
 interface ProjectRunDiscussionPayload {
@@ -1226,7 +1226,7 @@ export class ProjectRunCenterPanel {
               <div class="button-row">
                 <span class="btn-tip" id="tip-previewGoal"><button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button></span>
                 <span class="btn-tip" id="tip-applyPlanEdits"><button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button></span>
-                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button></span>
+                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="atlas-discuss-action icon-only" type="button" title="Ask AtlasMind to refine the current Project Run draft before execution" aria-label="Ask AtlasMind to refine this Project Run draft"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to refine this Project Run draft</span></button></span>
                 <span class="btn-tip" id="tip-executePreview"><button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button></span>
               </div>
 
@@ -2541,6 +2541,7 @@ export class ProjectRunCenterPanel {
         .button-stack .btn-tip {
           flex-shrink: 0;
         }
+        ${ATLAS_DISCUSS_ACTION_CSS}
       `,
       scriptContent: buildScript(),
     });

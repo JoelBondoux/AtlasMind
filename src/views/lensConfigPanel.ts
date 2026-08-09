@@ -251,7 +251,10 @@ function buildConfigHtml(cspSource: string): string {
         return card;
       }
       function button(label, action, id) {
-        const value = element('button', label, 'lens-button'); value.type = 'button'; value.dataset.action = action; value.dataset.sourceId = id; return value;
+        const value = element('button', label, 'lens-button'); value.type = 'button'; value.dataset.action = action; value.dataset.sourceId = id;
+        return action === 'askSource'
+          ? makeAtlasDiscussButton(value, 'Ask Atlas about this configuration source', 'Open this configuration source in Atlas Chat')
+          : value;
       }
       function element(tag, text, className) {
         const value = document.createElement(tag); if (text) value.textContent = text; if (className) value.className = className; return value;

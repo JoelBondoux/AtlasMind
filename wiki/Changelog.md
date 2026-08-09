@@ -19,6 +19,66 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.269.0 — Compact runbooks and one AtlasMind action language
+
+The Delivery runbook now starts with every phase collapsed. The numbered phase marker carries the
+strongest status inside — green when everything is configured, blue for a runtime convention, amber for
+a manual or non-blocking gap, and red for a blocker — so the page stays compact without hiding risk.
+Every non-green step has an AtlasMind-logo control that opens a focused repair draft after the host
+rebuilds the current runbook from the workspace.
+
+That logo is now the single visual affordance for asking AtlasMind to explain, check, draft, repair or
+review something throughout the extension. Hover text names the exact action, and an accessible label
+provides the same meaning without relying on the image.
+
+---
+
+## v0.268.0 — The runbook stops being something you retype
+
+0.267.0's Delivery guide could tell you the right command. You then read it off the screen and typed it
+somewhere else, which is the part that made it feel like documentation rather than a tool.
+
+Every command in the detected runbook now has two icons — **⧉** copies it, **>_** types it into a
+terminal named `AtlasMind Delivery`, opened at the project root — and every column header has a
+**▶ Run** button for the whole phase.
+
+The read-only framing that came with it is gone, and what replaced it is stronger, because it has to hold
+now that there *is* a button:
+
+- **The page names a step; only AtlasMind says what it runs.** The webview sends an opaque id and nothing
+  else. The command is resolved by rebuilding the guide from your workspace, so a crafted message can
+  name a step that does not exist — it can never supply a command.
+- **Send to terminal does not press Enter.** The keystroke is left to you deliberately, which is why that
+  button asks nothing first and running a column does.
+- **A column run confirms the exact list**, in order, marking the commands that reach beyond your machine
+  — a push, a deployment, a publication — and saying plainly that AtlasMind does not read the output.
+- **Whether a failure stops the rest is stated, not assumed.** Commands chain with `&&` where the shell
+  supports it. Windows PowerShell 5.1 does not, and an unrecognised shell has promised nothing, so there
+  they are sent separately and the dialog tells you a failing test will not stop the publish behind it.
+
+Which commands count as reaching beyond your machine is a written-down table, matched on word boundaries,
+not a judgement call made per command. Guarded promotion is untouched: it remains the only path that runs
+commands from a reviewed `delivery.json`, with its own preflight, approval and protected-stage gates.
+
+---
+
+## v0.267.0 — A delivery guide for the project in front of you
+
+The Delivery page now answers the question a new contributor actually has: **what do I need, what do I
+run, and what happens after that?** AtlasMind reads the project's own manifests, lockfiles, scripts,
+delivery routine, stages, workflows, target and safety gates, then lays out Prerequisites → Validate →
+Package → Deploy → Publish.
+
+It labels where every step came from. A repository-declared command is **configured**; a standard Go,
+Cargo, Python, Node, Maven/Gradle, .NET or container command is a **runtime convention**; a human gate is
+**manual**; and an absent load-bearing step is **missing**. That makes the page dynamic without making it
+confidently wrong. The guide is read-only — it displays commands but has no command-running action — so
+the guarded promotion flow remains the only route that can execute a deployment.
+
+The README's source-build comparison also catches up to the latest published tag, v0.266.3.
+
+---
+
 ## v0.266.3 — One dependency advisory, and a note on the others
 
 Pinned `js-yaml` to 4.3.1, clearing a high-severity advisory about CPU consumption when parsing a

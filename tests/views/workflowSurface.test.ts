@@ -517,11 +517,12 @@ describe('handing a debt entry to an agent', () => {
     // The prompt is built host-side from the entry looked up by id, so the
     // webview cannot influence what an agent is told.
     expect(WEBVIEW_SCRIPT).toContain("type: 'workOnDebt', payload: { id: payload }");
-    expect(rendered()).toContain('data-action="work-on-debt"');
+    expect(rendered()).toContain("renderAtlasDiscussAction('work-on-debt', entry.id");
   });
 
   it('does not label it as fixing, because the answer may be to keep it', () => {
-    expect(rendered()).toContain('Look at it with Atlas');
+    expect(rendered()).toContain('Ask AtlasMind to review this debt entry');
+    expect(rendered()).toContain('propose whether to fix, retain, or reclassify it');
     expect(rendered()).not.toMatch(/Fix it with Atlas/);
   });
 });
