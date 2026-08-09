@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.270.1 — Workflow status colour is quieter
+
+The **Your workflow file** stage rows now follow the dashboard's standard status treatment. Colour is
+limited to the segment outline and the **Enabled** tag; row contents and the larger state marker remain
+neutral. The written **Enabled** / **Disabled** label and pressed state still make the distinction clear
+without colour.
+
+---
+
 ## v0.270.0 — Pipeline becomes a CI control centre
 
 Pipeline now explains and manages the parts of CI that are usually hidden in YAML: what each workflow

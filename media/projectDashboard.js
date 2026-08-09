@@ -5815,7 +5815,7 @@
               <span>${escapeHtml(stage.name)}</span>
             </button>
             <div class="tag-row workflow-stage-tags">
-              <span class="tag workflow-stage-state">${stage.enabled ? 'Enabled' : 'Disabled'}</span>
+              <span class="tag workflow-stage-state ${stage.enabled ? 'tag-good' : ''}">${stage.enabled ? 'Enabled' : 'Disabled'}</span>
               <span class="tag">${escapeHtml(stage.automationLevel)}</span>
             </div>
           </div>

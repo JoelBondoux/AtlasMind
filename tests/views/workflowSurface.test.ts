@@ -450,9 +450,10 @@ describe('the workflow configuration card', () => {
     expect(rendered()).toMatch(/lowest of/);
   });
 
-  it('makes each stage state clear across the whole segment', () => {
+  it('uses the standard outline and status-tag treatment without tinting row contents', () => {
     expect(rendered()).toContain("workflow-stage-segment ${stage.enabled ? 'is-enabled' : 'is-disabled'}");
     expect(rendered()).toContain("${stage.enabled ? 'Enabled' : 'Disabled'}");
+    expect(rendered()).toContain("workflow-stage-state ${stage.enabled ? 'tag-good' : ''}");
     expect(rendered()).toContain('class="workflow-stage-marker"');
     expect(rendered()).toContain('aria-pressed=');
 
@@ -463,6 +464,8 @@ describe('the workflow configuration card', () => {
     expect(css).toContain('.workflow-stage-segment.is-enabled');
     expect(css).toContain('.workflow-stage-segment.is-disabled');
     expect(css).toContain('border-left-width: 4px');
+    expect(css).not.toContain('.workflow-stage-segment.is-enabled .workflow-stage-marker');
+    expect(css).not.toContain('.workflow-stage-segment.is-disabled .workflow-stage-marker');
   });
 
   it('warns before writing rather than after', () => {

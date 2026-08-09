@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.1] - 2026-08-09
+
+### Changed
+
+- **Workflow-stage status now uses the dashboard's standard restrained treatment.** In **Workflow →
+  Your workflow file**, a stage's outline and **Enabled** tag carry its status colour; the row contents
+  and state marker remain neutral. Explicit **Enabled** / **Disabled** text and `aria-pressed` continue
+  to communicate the state without relying on colour.
+
 ## [0.270.0] - 2026-08-09
 
 ### Added
