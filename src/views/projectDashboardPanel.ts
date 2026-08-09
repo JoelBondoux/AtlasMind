@@ -17236,6 +17236,70 @@ const DASHBOARD_CSS = `
     padding: 12px 14px;
   }
 
+  /* A workflow stage's enabled state belongs to the whole segment, not to a
+     checkbox-sized glyph. The word and marker keep the distinction available
+     without colour; the border and wash make it visible while scanning. */
+  .workflow-stage-segment {
+    border-left-width: 4px;
+  }
+
+  .workflow-stage-segment.is-enabled {
+    border-color: color-mix(in srgb, var(--dash-good) 62%, var(--dash-border));
+    background: linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--dash-good) 14%, var(--dash-panel-strong)),
+      color-mix(in srgb, var(--dash-good) 4%, var(--dash-panel))
+    );
+  }
+
+  .workflow-stage-segment.is-disabled {
+    border-color: color-mix(in srgb, var(--dash-muted) 52%, var(--dash-border));
+    background: linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--dash-muted) 8%, var(--dash-panel-strong)),
+      var(--dash-panel)
+    );
+  }
+
+  .workflow-stage-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 30px;
+    text-align: left;
+  }
+
+  .workflow-stage-marker {
+    display: inline-grid;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 7px;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .workflow-stage-segment.is-enabled .workflow-stage-marker,
+  .workflow-stage-segment.is-enabled .workflow-stage-state {
+    border-color: color-mix(in srgb, var(--dash-good) 72%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 20%, transparent);
+    color: color-mix(in srgb, var(--dash-good) 86%, var(--vscode-foreground));
+  }
+
+  .workflow-stage-segment.is-disabled .workflow-stage-marker,
+  .workflow-stage-segment.is-disabled .workflow-stage-state {
+    border-color: color-mix(in srgb, var(--dash-muted) 58%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-muted) 10%, transparent);
+    color: var(--dash-muted);
+  }
+
+  .workflow-stage-tags {
+    justify-content: flex-end;
+  }
+
   /* An at-rest marker for the clickable variant. The identical card chrome is
      used for both live and inert rows, so before this the only thing telling
      them apart was the hover lift — which the user only discovers after

@@ -187,6 +187,10 @@ draft from the current record. The same icon-only action is shared by Dashboard,
 Studio, and Project Run surfaces. Its visible label is the logo; a precise `title` and `aria-label`
 preserve the action's meaning for hover, keyboard and assistive-technology users.
 
+On the Workflow page, the **Your workflow file** card makes each stage's enablement visible across the
+whole row: enabled segments have a green accent, while disabled segments are muted. A larger marker,
+the words **Enabled** / **Disabled**, and `aria-pressed` preserve the same distinction without colour.
+
 **They share one design language.** Each webview is an isolated document, so a panel cannot inherit
 another's stylesheet — which is how nineteen panels ended up with nineteen palettes, four of them drifted
 copies of the Project Dashboard's. `src/views/dashboardTheme.ts` is now the single definition, and the

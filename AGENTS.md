@@ -406,6 +406,8 @@ The operator's ceiling is `auto`. A stage asking for more than that gets the cei
 | Pull requests & review | `observe` | Report what you find. Do not create, modify or close anything. |
 | CI & failure analysis | `observe` | Report what you find. Do not create, modify or close anything. |
 | Release | `observe` | Report what you find. Do not create, modify or close anything. |
+| Maintenance & tech debt | `observe` | Report what you find. Do not create, modify or close anything. |
+| Automation policy | `observe` | Report what you find. Do not create, modify or close anything. |
 
 ### Evidence a stage requires
 
@@ -438,5 +440,5 @@ Testing requirements are **not** duplicated here. They live in
 of this same file. Follow those.
 
 
-<!-- atlasmind:source-digest:3c0c3d8e48c9a985 -->
+<!-- atlasmind:source-digest:04ac1c6059209df5 -->
 <!-- atlasmind:workflow:end -->

@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.269.1 — Workflow stages are clear at a glance
+
+The Workflow page's committed-file card now colour-codes each stage segment: enabled stages use a
+green accent and disabled stages use a muted treatment. Every segment also carries a larger marker and
+an explicit **Enabled** or **Disabled** label, so the state remains clear without colour.
+
+---
+
 ## v0.269.0 — Compact runbooks and one AtlasMind action language
 
 The Delivery runbook now starts with every phase collapsed. The numbered phase marker carries the

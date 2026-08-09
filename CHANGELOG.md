@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.269.1] - 2026-08-09
+
+### Changed
+
+- **Workflow stages now show their enabled state across the whole segment.** Enabled rows carry a
+  green accent and wash; disabled rows use a muted treatment. A larger state marker and explicit
+  **Enabled** / **Disabled** label keep the distinction clear without relying on colour or the former
+  small checkbox glyph.
+
 ## [0.269.0] - 2026-08-09
 
 ### Changed

@@ -403,6 +403,21 @@ describe('the workflow configuration card', () => {
     expect(rendered()).toMatch(/lowest of/);
   });
 
+  it('makes each stage state clear across the whole segment', () => {
+    expect(rendered()).toContain("workflow-stage-segment ${stage.enabled ? 'is-enabled' : 'is-disabled'}");
+    expect(rendered()).toContain("${stage.enabled ? 'Enabled' : 'Disabled'}");
+    expect(rendered()).toContain('class="workflow-stage-marker"');
+    expect(rendered()).toContain('aria-pressed=');
+
+    const css = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    expect(css).toContain('.workflow-stage-segment.is-enabled');
+    expect(css).toContain('.workflow-stage-segment.is-disabled');
+    expect(css).toContain('border-left-width: 4px');
+  });
+
   it('warns before writing rather than after', () => {
     expect(rendered()).toMatch(/you will see the exact change first/i);
   });

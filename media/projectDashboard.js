@@ -5689,13 +5689,17 @@
       const blockersFor = id => (cfg.blockers && cfg.blockers[id]) || [];
       const problems = cfg.problems || [];
       const stageRows = (config.stages || []).map(stage => `
-        <div class="recent-item">
+        <div class="recent-item workflow-stage-segment ${stage.enabled ? 'is-enabled' : 'is-disabled'}">
           <div class="row-head">
-            <button type="button" class="action-link" data-action="workflow-stage-toggle" data-payload="${escapeAttr(stage.id)}"
-              aria-label="${stage.enabled ? 'Disable' : 'Enable'} ${escapeAttr(stage.name)}">
-              ${stage.enabled ? '☑' : '☐'} ${escapeHtml(stage.name)}
+            <button type="button" class="action-link workflow-stage-toggle" data-action="workflow-stage-toggle" data-payload="${escapeAttr(stage.id)}"
+              aria-label="${stage.enabled ? 'Disable' : 'Enable'} ${escapeAttr(stage.name)}" aria-pressed="${stage.enabled ? 'true' : 'false'}">
+              <span class="workflow-stage-marker" aria-hidden="true">${stage.enabled ? '✓' : '—'}</span>
+              <span>${escapeHtml(stage.name)}</span>
             </button>
-            <span class="tag">${escapeHtml(stage.automationLevel)}</span>
+            <div class="tag-row workflow-stage-tags">
+              <span class="tag workflow-stage-state">${stage.enabled ? 'Enabled' : 'Disabled'}</span>
+              <span class="tag">${escapeHtml(stage.automationLevel)}</span>
+            </div>
           </div>
           ${(stage.requiredChecks || []).length
             ? `<div class="list-meta">Attests: ${escapeHtml(stage.requiredChecks.join(' · '))}</div>`

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.269.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.269.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.269.0
+## What's new in 0.269.1
 
 Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Workflow stages are now obvious at a glance.** In **Workflow → Your workflow file**, enabled
+  segments use a green accent and disabled segments use a muted treatment. A larger marker and written
+  **Enabled** / **Disabled** label mean the state no longer depends on a small checkbox or on colour.
 
 - **Delivery is compact until you need it.** Every detected runbook column starts collapsed, and its
   numbered marker is green, blue, amber or red according to the strongest status inside. Open one to
