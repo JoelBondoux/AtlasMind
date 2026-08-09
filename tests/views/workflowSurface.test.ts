@@ -294,6 +294,53 @@ describe('the page costs nothing to open', () => {
   });
 });
 
+describe('the Pipeline CI management surface', () => {
+  const source = (): string => renderSource('renderPipeline', 'renderWorkflow');
+
+  it('teaches definition, assignment, and enforcement as separate layers', () => {
+    expect(source()).toContain('Definition — a workflow file');
+    expect(source()).toContain('Assignment — the on: section');
+    expect(source()).toContain('Enforcement — a required status check');
+    expect(source()).toContain('<strong>Define</strong>');
+    expect(source()).toContain('<strong>Assign</strong>');
+    expect(source()).toContain('<strong>Enforce</strong>');
+  });
+
+  it('stays useful before CI run history has been fetched', () => {
+    const body = source();
+    expect(body).toContain('${managerCard}');
+    expect(body.indexOf('const managerCard')).toBeLessThan(body.indexOf('if (!intel)'));
+  });
+
+  it('shows workflow triggers, jobs, safeguards, and declared delivery bindings', () => {
+    const body = source();
+    expect(body).toContain('workflow.triggers');
+    expect(body).toContain('workflow.jobs');
+    expect(body).toContain('workflow.hasExplicitPermissions');
+    expect(body).toContain('workflow.hasConcurrency');
+    expect(body).toContain('requiredChecks');
+    expect(body).toContain('Confirm the same names are required in GitHub branch protection');
+  });
+
+  it('sends no YAML, command, path, or branch in the create request', () => {
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'createCiStarter' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'createCiStarter',\s*payload/);
+  });
+
+  it('reviews an existing workflow by opaque filename rather than browser-authored content', () => {
+    expect(WEBVIEW_SCRIPT).toContain("type: 'reviewCiWorkflow', payload: payload");
+    const host = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    expect(host).toContain("collectWorkflowSnapshot(workspaceRoot)).find(candidate => candidate.id === workflowId)");
+    expect(host).toContain("flag: 'wx'");
+    expect(host).toContain('UNREADABLE_CI_WORKFLOW_CAUTION');
+    expect(host).toContain('could not inspect every existing workflow');
+    expect(host).toContain('Existing files are never overwritten.');
+  });
+});
+
 /**
  * The Release page carries a property the others do not: it is the only surface
  * describing an action that cannot be undone. Everything here follows from that.

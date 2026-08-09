@@ -20,6 +20,29 @@ project in front of you. It understands Node package managers and lockfiles, Pyt
 Maven/Gradle, .NET and container projects, then combines that runtime evidence with the Delivery stages,
 the bound project routine and CI/CD workflows.
 
+## Configure and manage CI
+
+Open **Project Dashboard → Pipeline**. The page separates three ideas that CI tools often compress
+into one YAML file:
+
+1. **Define** — workflow files describe jobs, runners and steps.
+2. **Assign** — triggers under `on:` choose the events and branches that run those jobs.
+3. **Enforce** — required checks and branch protection decide whether a missing or failing result blocks
+   a merge.
+
+Every detected GitHub Actions workflow gets a card showing those facts, plus job timeouts, explicit
+token permissions, concurrency, build/lint/test coverage and cautions. **Open workflow** edits the real
+file in VS Code. The AtlasMind action opens a proposal-first review that explains the workflow for a
+newcomer and checks professional concerns such as least privilege, action pinning, caching, secret
+exposure, artifact retention and duplicated work.
+
+When a Node project has no quality CI, **Preview starter CI** derives one from the project's declared
+integration/release branches, lockfile and actual package scripts. The confirmation names the path,
+branches and checks before `.github/workflows/ci.yml` is created. It is create-only: AtlasMind never
+adds a competing starter beside existing quality CI and never overwrites, disables or deletes a workflow.
+Release-only automation remains separate because building a release artifact does not prove pull
+requests are checked before merge.
+
 Each item says how strong the evidence is:
 
 - **Configured** — the repository explicitly declares the script, routine step, target or policy.

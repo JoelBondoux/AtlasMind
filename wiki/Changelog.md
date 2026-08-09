@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.270.0 — Pipeline becomes a CI control centre
+
+Pipeline now explains and manages the parts of CI that are usually hidden in YAML: what each workflow
+defines, which events and branches assign it work, and which required checks make its result enforceable.
+Each GitHub Actions workflow shows readable triggers, jobs, runners, timeouts, permissions, concurrency,
+validation coverage and cautions, alongside its live run history.
+
+Existing files can be opened or handed to AtlasMind for a proposal-first review. A Node repository with
+no quality CI can create a starter from its declared branches, supported lockfile and package scripts
+after reviewing the exact plan. Release and pull-request labelling automation are kept distinct from
+code-quality validation. The browser supplies no YAML, path, branch or command, and creation never
+overwrites a file.
+
+---
+
 ## v0.269.1 — Workflow stages are clear at a glance
 
 The Workflow page's committed-file card now colour-codes each stage segment: enabled stages use a

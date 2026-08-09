@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.269.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.270.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.269.1
+## What's new in 0.270.0
 
 Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Pipeline is now a CI control centre, not only a run history.** It explains the three professional
+  layers—workflow definition, trigger/branch assignment, and required-check enforcement—then inspects
+  every GitHub Actions file into readable workflow and job cards. Beginners can see what runs and why;
+  experienced engineers get runners, timeouts, permissions, concurrency, validation coverage, and
+  delivery-gate bindings. Existing workflows can be opened or reviewed with AtlasMind. A Node project
+  with no quality CI can preview and create a deterministic, create-only starter from its real branches,
+  lockfile and package scripts; no YAML, command, or path comes from the browser, and no existing file is replaced.
 
 - **Workflow stages are now obvious at a glance.** In **Workflow → Your workflow file**, enabled
   segments use a green accent and disabled segments use a muted treatment. A larger marker and written
@@ -462,7 +470,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, CI inspection/scaffolding (`ciManager.ts`), and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |

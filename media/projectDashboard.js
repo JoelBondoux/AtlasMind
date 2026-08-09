@@ -986,6 +986,14 @@
       requestRepositoryRefresh('refreshCi');
       return;
     }
+    if (action === 'pipeline-create-starter') {
+      vscode.postMessage({ type: 'createCiStarter' });
+      return;
+    }
+    if (action === 'pipeline-review-workflow') {
+      vscode.postMessage({ type: 'reviewCiWorkflow', payload: payload });
+      return;
+    }
     if (action === 'issues-filter') {
       state.issueFilter = payload || 'open';
       render();
@@ -5245,6 +5253,113 @@
     // itself could not be fetched, every count below would be a zero nobody
     // measured, so the failure replaces them rather than sitting above them.
     const fetchFailure = intel && intel.fetchFailure;
+    const delivery = snapshot.delivery || {};
+    const workflows = delivery.workflows || [];
+    const management = delivery.ciManagement || {
+      assessment: { state: 'unconfigured', summary: 'CI configuration was not assessed.', workflowCount: 0, jobCount: 0, cautions: [] },
+      starterAvailable: false,
+      starterReason: 'CI setup is unavailable for this workspace.',
+    };
+    const assessment = management.assessment || {};
+    const stagePaths = (delivery.stages && delivery.stages.paths) || [];
+    const requiredChecks = [...new Set(stagePaths.reduce((all, item) => all.concat(item.statusChecks || []), []))];
+    const setupHelp = renderWorkflowHelp('pipeline.setup-model', {
+      label: 'how CI is defined, assigned, and enforced',
+      why: 'CI is not assigned to a developer or an agent. A workflow file defines jobs; event triggers assign those jobs to pushes, pull requests, schedules, releases, or manual runs; branch protection decides whether a successful result is required before merge. Keeping those three layers separate makes it possible to change when a check runs without accidentally changing what it does.',
+      how: [
+        { text: 'Definition — a workflow file under .github/workflows describes jobs, runners, steps, permissions, and timeouts.' },
+        { text: 'Assignment — the on: section says which events and branches cause those jobs to run.' },
+        { text: 'Enforcement — a required status check or protected-branch rule decides whether a failing or missing result blocks a merge.' },
+        { text: 'AtlasMind reads existing files but does not silently rewrite them. Open edits happen in the editor; Atlas-assisted reviews begin as proposals.' },
+      ],
+      commonMistakes: [
+        'Treating “a workflow exists” as “pull requests are protected”. A workflow can run and still be advisory.',
+        'Putting deployment credentials into YAML. Workflows should name GitHub secrets, never contain their values.',
+        'Adding a second starter beside an existing CI workflow and paying twice for the same checks.',
+      ],
+    });
+
+    const triggerText = trigger => {
+      const event = trigger.event === 'pull_request' ? 'pull request'
+        : trigger.event === 'workflow_dispatch' ? 'manual'
+          : trigger.event;
+      const branches = trigger.branches === 'all' ? 'all branches' : (trigger.branches || []).join(', ');
+      return `${event} · ${branches || 'branch scope unreadable'}`;
+    };
+    const workflowCards = workflows.map(workflow => `
+      <div class="recent-item ci-workflow-card">
+        <div class="row-head">
+          <div>
+            <strong>${escapeHtml(workflow.name)}</strong>
+            <div class="list-meta">GitHub Actions · ${escapeHtml(workflow.role || 'automation')} · <code>${escapeHtml(workflow.path)}</code></div>
+          </div>
+          <span class="tag ${(workflow.cautions || []).length ? 'tag-warn' : 'tag-good'}">${(workflow.cautions || []).length ? `${workflow.cautions.length} to review` : 'readable'}</span>
+        </div>
+        <div class="ci-workflow-section">
+          <span class="ci-workflow-label">Runs when</span>
+          <div class="tag-row">${(workflow.triggers || []).length
+            ? workflow.triggers.map(trigger => `<span class="tag mono">${escapeHtml(triggerText(trigger))}</span>`).join('')
+            : '<span class="tag tag-warn">No supported trigger read</span>'}</div>
+        </div>
+        <div class="ci-workflow-section">
+          <span class="ci-workflow-label">Jobs</span>
+          <div class="stack-list ci-job-list">${(workflow.jobs || []).length ? workflow.jobs.map(job => `
+            <div class="ci-job-row">
+              <span><strong>${escapeHtml(job.name)}</strong> · ${escapeHtml(job.runsOn)}</span>
+              <span class="list-meta">${escapeHtml(String(job.stepCount))} step${job.stepCount === 1 ? '' : 's'} · ${job.timeoutMinutes ? `${escapeHtml(String(job.timeoutMinutes))} min timeout` : 'no declared timeout'}</span>
+            </div>`).join('') : '<span class="stat-detail wf-unknown">No jobs could be read.</span>'}</div>
+        </div>
+        <div class="tag-row">
+          <span class="tag ${workflow.hasExplicitPermissions ? 'tag-good' : 'tag-warn'}">${workflow.hasExplicitPermissions ? 'permissions declared' : 'implicit permissions'}</span>
+          <span class="tag ${workflow.hasConcurrency ? 'tag-good' : ''}">${workflow.hasConcurrency ? 'duplicate runs controlled' : 'no concurrency rule'}</span>
+          ${(workflow.validations || []).map(item => `<span class="tag tag-good">${escapeHtml(item)}</span>`).join('')}
+        </div>
+        ${(workflow.cautions || []).length ? `<ul class="ci-caution-list">${workflow.cautions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        <div class="tag-row ci-workflow-actions">
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open workflow</button>
+          ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
+        </div>
+      </div>`).join('');
+    const managerCard = `
+      <article class="panel-card ci-manager-card">
+        <div class="row-head">
+          <div>
+            <p class="card-kicker">CI configuration${setupHelp.button}</p>
+            <strong>${escapeHtml(assessment.summary || 'CI configuration was not assessed.')}</strong>
+          </div>
+          <span class="tag ${assessment.state === 'ready' ? 'tag-good' : assessment.state === 'attention' ? 'tag-warn' : 'tag-critical'}">${escapeHtml(assessment.state || 'unknown')}</span>
+        </div>
+        ${setupHelp.panel}
+        <div class="ci-concept-grid" aria-label="How CI works">
+          <div class="ci-concept"><span>1</span><div><strong>Define</strong><small>Jobs and steps in workflow files</small></div></div>
+          <div class="ci-concept"><span>2</span><div><strong>Assign</strong><small>Events and branches under <code>on:</code></small></div></div>
+          <div class="ci-concept"><span>3</span><div><strong>Enforce</strong><small>Required checks and branch protection</small></div></div>
+        </div>
+        <div class="mini-grid">
+          ${renderMetricPill('Quality workflows', String(assessment.qualityWorkflowCount || 0), { tone: assessment.qualityWorkflowCount ? 'good' : 'warn' })}
+          ${renderMetricPill('All automation jobs', String(assessment.jobCount || 0))}
+          ${renderMetricPill('Pull requests checked', assessment.pullRequestCoverage ? 'Yes' : 'No', { tone: assessment.pullRequestCoverage ? 'good' : 'warn' })}
+        </div>
+        <div class="ci-enforcement-note">
+          <strong>Declared delivery enforcement</strong>
+          <p class="stat-detail">${requiredChecks.length
+            ? `AtlasMind’s delivery gates expect: ${escapeHtml(requiredChecks.join(', '))}. Confirm the same names are required in GitHub branch protection; a delivery declaration cannot enforce GitHub by itself.`
+            : 'No required status-check names are bound to a delivery path. These workflows may run, but AtlasMind has no evidence that a failed result blocks promotion.'}</p>
+          <button type="button" class="action-link" data-action="page" data-payload="delivery">Configure delivery check bindings</button>
+        </div>
+        ${management.starterAvailable ? `<div class="inline-notice warning">
+          <strong>Quality CI is missing.</strong>
+          <p class="stat-detail">${escapeHtml(management.starterReason || '')}</p>
+          <button type="button" class="action-link primary" data-action="pipeline-create-starter">Preview starter CI</button>
+        </div>` : ''}
+        ${workflowCards
+          ? `<div class="stack-list ci-workflow-list">${workflowCards}</div>`
+          : `<div class="dashboard-empty ci-manager-empty"><div>
+              <strong>No CI workflow yet</strong>
+              <p class="section-copy">A starter turns the project’s real package scripts into one GitHub Actions workflow for pushes, pull requests, and manual runs. It creates a new file only; it never overwrites one.</p>
+              <p class="stat-detail">${escapeHtml(management.starterReason || '')}</p>
+            </div></div>`}
+      </article>`;
 
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
@@ -5268,6 +5383,7 @@
     if (!intel) {
       return `${pageSectionOpen('pipeline')}
         ${intro}
+        ${managerCard}
         <div class="dashboard-empty"><div>
           <strong>CI has not been read</strong>
           <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
@@ -5279,6 +5395,7 @@
     if (fetchFailure) {
       return `${pageSectionOpen('pipeline')}
         ${intro}
+        ${managerCard}
         <div class="dashboard-empty"><div>
           <strong>The run list could not be read</strong>
           <div class="stat-detail">${escapeHtml(fetchFailure)}</div>
@@ -5301,6 +5418,7 @@
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
+      ${managerCard}
       <div class="tag-row">
         ${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, {
           busyLabel: 'Reading CI…',
@@ -7737,7 +7855,7 @@
                     <h4>${escapeHtml(workflow.name)}</h4>
                     <span class="list-meta">${escapeHtml(relativeLabel(workflow.lastModified))}</span>
                   </div>
-                  <div class="tag-row">${workflow.triggers.length > 0 ? workflow.triggers.map(trigger => `<span class="tag mono">${escapeHtml(trigger)}</span>`).join('') : '<span class="tag">No triggers parsed</span>'}</div>
+                  <div class="tag-row">${workflow.triggers.length > 0 ? workflow.triggers.map(trigger => `<span class="tag mono">${escapeHtml(trigger.event || trigger)}</span>`).join('') : '<span class="tag">No triggers parsed</span>'}</div>
                   <div class="list-meta mono">${escapeHtml(workflow.path)}</div>
                 </button>`).join('') : '<div class="dashboard-empty">No workflow files detected.</div>'}
             </div>

@@ -172,6 +172,14 @@ this project asks a newcomer to do**: prerequisites, validation, packaging, depl
 derived from bounded local manifests, scripts, routines, workflows and the stage model. Exact repository
 configuration, runtime conventions, human checks and missing blockers remain visibly different.
 
+The Pipeline panel has a third, deliberately separate reading: `ciManager.ts` explains how CI itself
+is defined, assigned and enforced. Existing GitHub Actions files are reduced to safe metadata—triggers,
+branch scopes, jobs, runners, counts, timeouts, permission/concurrency flags and validation categories;
+raw YAML, commands, inputs and environment values never enter the browser snapshot. A starter workflow
+is a closed create-only template derived host-side from declared branches and package scripts. The
+browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
+file appears between review and write.
+
 Detected commands can be copied, typed into a terminal, or run a column at a time, and `deliveryRunPlan.ts`
 decides what a terminal is asked to do before anything is sent. The webview posts an opaque step or phase
 id and the host rebuilds the guide to resolve the command, so the page can name a step but never supply

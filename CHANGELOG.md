@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.0] - 2026-08-09
+
+### Added
+
+- **The Pipeline page is now a progressive CI configuration and management surface.** It separates
+  workflow definition, event/branch assignment, and required-check enforcement; inspects GitHub
+  Actions workflows into safe summaries of triggers, jobs, runners, step counts, timeouts, explicit
+  permissions, concurrency, validation coverage, and cautions; and keeps that configuration view
+  available before network-backed run history has been fetched.
+- **Existing workflows can be opened or reviewed with AtlasMind, and a Node project without quality CI can
+  create a safe starter.** Review actions send only an opaque workflow filename and re-resolve the live
+  file host-side. Starter creation sends no payload at all: the host re-derives branches, a supported
+  lockfile/package manager, and declared scripts; previews the exact create-only plan; and writes
+  `.github/workflows/ci.yml` with `wx`, so an existing workflow can never be replaced.
+
+### Security
+
+- **CI workflow contents and commands never enter the dashboard snapshot.** The pure `ciManager`
+  exposes bounded metadata only, while the starter is a closed template with validated branch and
+  package-script names, read-only token permissions, duplicate-run cancellation, and a job timeout.
+  Release automation and pull-request labelling are not misreported as code-quality validation, and
+  an unreadable existing workflow blocks starter creation rather than being mistaken for absence.
+
 ## [0.269.1] - 2026-08-09
 
 ### Changed

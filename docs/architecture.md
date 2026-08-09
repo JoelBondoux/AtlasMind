@@ -328,6 +328,27 @@ Four more modules cover the framework half, all pure and unit-tested except the 
 
 `websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
 
+### CiManager (`src/core/ciManager.ts`)
+
+The pure interpretation layer behind Project Dashboard → Pipeline. `inspectGithubActionsWorkflow`
+turns repository-authored YAML into a bounded `CiWorkflowSummary`: provider, file id/path, supported
+event and branch scopes, job names/runners/step counts/timeouts, explicit-permission and concurrency
+flags, validation categories, and declared-rule cautions. It deliberately has no field for a `run:`
+command, action input, environment value, secret name, or raw YAML, so the dashboard snapshot cannot
+forward executable or credential-bearing workflow content by accident. The parser is conservative:
+unsupported or ambiguous structure is reported as unreadable rather than guessed.
+
+`assessCiPortfolio` distinguishes unconfigured, configured-with-attention, and ready; absence is never
+a clean result. `buildNodeCiStarter` is the write-side inverse: a closed GitHub Actions template accepts
+only validated branch refs, a closed package-manager set, and validated package-script names selected
+from `compile`/`build`/`lint`/`test`. It emits explicit read-only token permissions, concurrency
+cancellation and a timeout. The dashboard sends no creation payload; `ProjectDashboardPanel`
+re-derives the plan from an actual lockfile, confirms the exact path/branches/checks, and writes with
+`flag: 'wx'`. Existing quality CI is reviewed or opened, never overwritten, disabled, or deleted;
+release-only automation is not treated as quality coverage. Unit coverage lives in
+`tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
+`webviewMessages.test.ts`.
+
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.

@@ -705,6 +705,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'gap-analysis:gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTesting' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'createCiStarter' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'reviewCiWorkflow', payload: 'ci.yml' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openTestingFixChat' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'unit' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussDashboardError' })).toBe(true);
@@ -777,6 +779,9 @@ describe('isProjectDashboardMessage', () => {
     })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'reviewCiWorkflow', payload: '../ci.yml' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'reviewCiWorkflow', payload: 'ci.yml; rm -rf' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'createCiStarter', payload: { content: 'run: hostile' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 42 } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'draftIssueFromPullRequest', payload: { number: 0 } })).toBe(false);
