@@ -19,6 +19,125 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.270.3 — Resolve & run prepares the complete release
+
+**Resolve & run** no longer bumps only `package.json` and `CHANGELOG.md` and then discovers in the
+pre-commit hook that the repository requires other release surfaces to agree. It now treats versioning
+as one release-metadata operation: npm's root lockfile version, recognised README current-version
+markers, the formal changelog, and an existing wiki changelog are synchronized and committed together.
+
+The Detected Runbook also names **Prepare release version** as a prerequisite and surfaces an exact
+repository release-preparation script when one is declared. Failed hooks are rendered from sanitized,
+secret-redacted tail output, and verbose successful hooks receive a larger bounded capture buffer.
+
+---
+
+## v0.270.2 — Buzz persona-team implementation plan
+
+The Buzz integration roadmap now records how Director will recommend a small set of useful
+Buzz-facing AtlasMind roles—such as Engineering, Business, Marketing, Research and Oversight—from a
+project's enabled agents. One AtlasMind agent may support several Buzz identities, while each identity
+keeps its own constrained orchestration and permission ceiling.
+
+The plan separates project-owned persona intent from local deployment state, the secret-free runtime
+manifest, and Buzz-owned keys. It also requires a two-agent compatibility proof before a channel
+default is enabled, so an unaddressed message reaches the default identity while an explicit specialist
+mention produces exactly one specialist reply.
+
+---
+
+## v0.270.1 — Workflow status colour is quieter
+
+The **Your workflow file** stage rows now follow the dashboard's standard status treatment. Colour is
+limited to the segment outline and the **Enabled** tag; row contents and the larger state marker remain
+neutral. The written **Enabled** / **Disabled** label and pressed state still make the distinction clear
+without colour.
+
+---
+
+## v0.270.0 — Pipeline becomes a CI control centre
+
+Pipeline now explains and manages the parts of CI that are usually hidden in YAML: what each workflow
+defines, which events and branches assign it work, and which required checks make its result enforceable.
+Each GitHub Actions workflow shows readable triggers, jobs, runners, timeouts, permissions, concurrency,
+validation coverage and cautions, alongside its live run history.
+
+Existing files can be opened or handed to AtlasMind for a proposal-first review. A Node repository with
+no quality CI can create a starter from its declared branches, supported lockfile and package scripts
+after reviewing the exact plan. Release and pull-request labelling automation are kept distinct from
+code-quality validation. The browser supplies no YAML, path, branch or command, and creation never
+overwrites a file.
+
+---
+
+## v0.269.1 — Workflow stages are clear at a glance
+
+The Workflow page's committed-file card now colour-codes each stage segment: enabled stages use a
+green accent and disabled stages use a muted treatment. Every segment also carries a larger marker and
+an explicit **Enabled** or **Disabled** label, so the state remains clear without colour.
+
+---
+
+## v0.269.0 — Compact runbooks and one AtlasMind action language
+
+The Delivery runbook now starts with every phase collapsed. The numbered phase marker carries the
+strongest status inside — green when everything is configured, blue for a runtime convention, amber for
+a manual or non-blocking gap, and red for a blocker — so the page stays compact without hiding risk.
+Every non-green step has an AtlasMind-logo control that opens a focused repair draft after the host
+rebuilds the current runbook from the workspace.
+
+That logo is now the single visual affordance for asking AtlasMind to explain, check, draft, repair or
+review something throughout the extension. Hover text names the exact action, and an accessible label
+provides the same meaning without relying on the image.
+
+---
+
+## v0.268.0 — The runbook stops being something you retype
+
+0.267.0's Delivery guide could tell you the right command. You then read it off the screen and typed it
+somewhere else, which is the part that made it feel like documentation rather than a tool.
+
+Every command in the detected runbook now has two icons — **⧉** copies it, **>_** types it into a
+terminal named `AtlasMind Delivery`, opened at the project root — and every column header has a
+**▶ Run** button for the whole phase.
+
+The read-only framing that came with it is gone, and what replaced it is stronger, because it has to hold
+now that there *is* a button:
+
+- **The page names a step; only AtlasMind says what it runs.** The webview sends an opaque id and nothing
+  else. The command is resolved by rebuilding the guide from your workspace, so a crafted message can
+  name a step that does not exist — it can never supply a command.
+- **Send to terminal does not press Enter.** The keystroke is left to you deliberately, which is why that
+  button asks nothing first and running a column does.
+- **A column run confirms the exact list**, in order, marking the commands that reach beyond your machine
+  — a push, a deployment, a publication — and saying plainly that AtlasMind does not read the output.
+- **Whether a failure stops the rest is stated, not assumed.** Commands chain with `&&` where the shell
+  supports it. Windows PowerShell 5.1 does not, and an unrecognised shell has promised nothing, so there
+  they are sent separately and the dialog tells you a failing test will not stop the publish behind it.
+
+Which commands count as reaching beyond your machine is a written-down table, matched on word boundaries,
+not a judgement call made per command. Guarded promotion is untouched: it remains the only path that runs
+commands from a reviewed `delivery.json`, with its own preflight, approval and protected-stage gates.
+
+---
+
+## v0.267.0 — A delivery guide for the project in front of you
+
+The Delivery page now answers the question a new contributor actually has: **what do I need, what do I
+run, and what happens after that?** AtlasMind reads the project's own manifests, lockfiles, scripts,
+delivery routine, stages, workflows, target and safety gates, then lays out Prerequisites → Validate →
+Package → Deploy → Publish.
+
+It labels where every step came from. A repository-declared command is **configured**; a standard Go,
+Cargo, Python, Node, Maven/Gradle, .NET or container command is a **runtime convention**; a human gate is
+**manual**; and an absent load-bearing step is **missing**. That makes the page dynamic without making it
+confidently wrong. The guide is read-only — it displays commands but has no command-running action — so
+the guarded promotion flow remains the only route that can execute a deployment.
+
+The README's source-build comparison also catches up to the latest published tag, v0.266.3.
+
+---
+
 ## v0.266.3 — One dependency advisory, and a note on the others
 
 Pinned `js-yaml` to 4.3.1, clearing a high-severity advisory about CPU consumption when parsing a

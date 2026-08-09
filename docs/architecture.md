@@ -328,9 +328,46 @@ Four more modules cover the framework half, all pure and unit-tested except the 
 
 `websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
 
+### CiManager (`src/core/ciManager.ts`)
+
+The pure interpretation layer behind Project Dashboard → Pipeline. `inspectGithubActionsWorkflow`
+turns repository-authored YAML into a bounded `CiWorkflowSummary`: provider, file id/path, supported
+event and branch scopes, job names/runners/step counts/timeouts, explicit-permission and concurrency
+flags, validation categories, and declared-rule cautions. It deliberately has no field for a `run:`
+command, action input, environment value, secret name, or raw YAML, so the dashboard snapshot cannot
+forward executable or credential-bearing workflow content by accident. The parser is conservative:
+unsupported or ambiguous structure is reported as unreadable rather than guessed.
+
+`assessCiPortfolio` distinguishes unconfigured, configured-with-attention, and ready; absence is never
+a clean result. `buildNodeCiStarter` is the write-side inverse: a closed GitHub Actions template accepts
+only validated branch refs, a closed package-manager set, and validated package-script names selected
+from `compile`/`build`/`lint`/`test`. It emits explicit read-only token permissions, concurrency
+cancellation and a timeout. The dashboard sends no creation payload; `ProjectDashboardPanel`
+re-derives the plan from an actual lockfile, confirms the exact path/branches/checks, and writes with
+`flag: 'wx'`. Existing quality CI is reviewed or opened, never overwritten, disabled, or deleted;
+release-only automation is not treated as quality coverage. Unit coverage lives in
+`tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
+`webviewMessages.test.ts`.
+
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
+
+**The pipeline and the shipping instructions are separate readings of the same evidence.** The stage model answers *where a version moves*; `buildProjectDeliveryGuide` answers *what a newcomer actually does*. The dashboard supplies a bounded root-file and manifest reading, the already-parsed `DeliveryConfig`, the bound routines, workflow names/triggers, and git cleanliness. The pure builder derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide for Node, Python, Go, Rust, Maven/Gradle, .NET, or container projects. Exact package scripts/routine steps are `configured`; ecosystem-standard commands are `conventional`; human gates stay `manual`; and absent load-bearing facts are `missing`. This distinction is load-bearing: a standard `cargo test` is useful guidance, but it is not evidence that the repository declared or ran it. Unknown shapes get explicit gaps instead of a fictional universal release command.
+
+Workspace-authored text is control-stripped and length-capped, evidence paths must remain workspace-relative and traversal-free, and commands render only inside code blocks. Guarded promotion continues to read executable commands server-side from the persisted delivery config or routine, rebuild live preflight state, and apply its ordinary approvals. Detection therefore cannot become authorization.
+
+### DeliveryRunPlan (`src/core/deliveryRunPlan.ts`)
+
+The guide's commands can be copied, typed into a terminal, or run a column at a time. This pure module decides what a terminal will be asked to do, **before** anything is sent, and returns it as a value a test can walk rather than a convention a refactor can lose.
+
+**A column is planned, never improvised.** The webview posts an opaque step or phase id — the rule `addIdeationEvidence` and the branch-inventory actions already follow — and the panel rebuilds the guide from the workspace before resolving anything. A crafted message can therefore name a command that does not exist, which resolves to nothing; it can never *supply* one. Steps in a column with no command are reported in `skipped` rather than dropped, because a plan that silently omits the manual gates reads as the whole column. `tests/views/dashboardNav.test.ts` pins that no payload on this surface is ever `step.command`.
+
+**Fail-fast is a property of the shell, and it is reported rather than assumed.** `chainDeliveryCommands` joins with `&&` where the shell can stop on failure and sends separate lines where it cannot — Windows PowerShell 5.1 has no `&&`, and an unrecognised shell has made no promise, so it is treated as unable rather than assumed able. `buildDeliveryRunConfirmation` states which happened in the sentence the user actually reads: a column that keeps going after `npm test` fails will happily package and publish a broken build.
+
+**Reach is classified so the confirmation can differ.** "Run the tests" and "publish to a registry" cannot be the same dialog. `classifyDeliveryCommandReach` matches a declared, word-boundary-matched token list (`git push`, `npm publish`, `vsce publish`, `cargo publish`, `docker push`, `gh workflow run`, `terraform apply`, a script named `publish`/`release`/`ship`/`deploy`/`tag`, and similar); an unrecognised command is `local`, which is safe here precisely because the classification only ever *adds* a warning — every command is listed in the confirmation either way, so a miss loses emphasis and never a gate.
+
+Single-command actions need no dialog because they are not runs: **copy** writes to the clipboard, and **send to terminal** withholds the trailing newline exactly as `chatPanel` and the setup walkthroughs do, leaving the human's own keystroke as the last gate. Both use one named `AtlasMind Delivery` terminal rooted at the workspace, because a delivery command that runs in whatever directory the active terminal happened to be in is a different command from the one the page displayed. The module is `vscode`-free and unit-tested (`tests/core/deliveryRunPlan.test.ts`).
 
 On first open the dashboard seeds a pipeline that reflects the repository's **actual** delivery protocol. `detectDeliverySignals` (in `projectDashboardPanel.ts`) imports: branch layout, **project archetype** (VS Code extension / library / web service / generic, from `engines.vscode`/`contributes`/server deps/`Dockerfile`/`main`), **database presence** (DB dependency regex + `migrations`/`prisma` dirs), **publish target** (Marketplace from vsce, container from a Dockerfile, npm from a publish script), **`.env` files** (only referenced when present), **package scripts** (`compile`/`build`, `lint`, `test`), **CI** presence, and **existing routines** (the production push binds to a `publish|release|ship|deploy` or default routine). `seedDeliveryConfig` turns those into stages: a deploy-less project gets an **Integration** stage rather than a fictional staging-server-with-DB, the publish target becomes production hosting, required checks mirror the scripts that exist (+ "CI green"), and **no backup gate is imposed when there is no database** — avoiding a phantom deny-by-default block. A data-bearing production target still gets `required: true` with an empty command, so it stays **deny-by-default blocked** until a real backup command is supplied. Each `DeploymentStage` carries a plain-English `description`, config-source **location** (never secret values), and explicit `backupPolicy` / `promotionPolicy` / `rollbackPolicy`. Per-stage status (the deployed version) is read from each branch's `package.json`, preferring the **remote-tracking ref** (`origin/<branch>`) over the local branch (`chooseDeployedVersionRef`) — a developer working on `develop` rarely pulls the release branch, so the local `master` is usually stale and would otherwise report a long-outdated version; the local ref is used only as a fallback for offline/local-only repos. Branch import is **honest, never fabricated**: when `detectProductionBranchRef` finds no production branch (no `main`/`master`/`production`/`prod`/`release` ref), `seedDeliveryConfig` leaves the Production `branchRef` unset rather than inventing `main`, and the runbook mirror renders `— (not detected)` for a branchless non-local stage — a wrong imported branch could mislead a promotion target, so deny-by-default applies to detection too.
 
@@ -343,6 +380,15 @@ The Delivery page hosts a full **stage editor**: stages can be added, edited, re
 **Stays current + drift detection.** A `vscode` file watcher on `delivery.json` (registered in `extension.ts`) reloads the manager and fires `deliveryRefresh` whenever the file changes outside the dashboard (hand edits, a teammate's `git pull`, a script), so the page never shows a stale protocol. The dashboard also computes a **review status**: it fingerprints the review-relevant state (a stable projection of the stage/path config, stage-candidate branches in the repo not yet modelled, stage branches that have gone missing, and the CI/CD workflow set) and diffs it against the last-reviewed baseline stored workspace-scoped in `workspaceState` (`atlasmind.deliveryReview`). When they differ, a **"Review needed"** banner lists what changed and offers **Mark reviewed**, which snapshots the current fingerprint as the new baseline. Saving edits through the dashboard editor updates the baseline implicitly — the banner is reserved for drift the user did *not* author.
 
 ### PromotionRunner (`src/core/promotionRunner.ts`)
+
+Release remediation and the detected runbook now describe the same versioning boundary. When a target
+requires a version bump, `buildProjectDeliveryGuide` surfaces **Prepare release version** in
+Prerequisites and prefers an exact repository script (`prepare:release`, `release:prepare`,
+`version:bump`, `bump:version`, or `version`) when declared. `applyPromotionRemediation` treats the bump
+as one path-scoped metadata edit: `package.json`, npm's root lockfile version, `CHANGELOG.md`, recognised
+README current-version markers, and an existing `wiki/Changelog.md` heading are synchronized before the
+commit. It never creates project-specific mirrors. Hook output crosses the same sanitized/redacted
+terminal boundary as CI logs, retains the failure tail, and uses a bounded 16 MiB Git capture buffer.
 
 The guarded promotion ("push") engine. `buildPromotionPlan(input)` assembles an inspectable `PromotionPlan` for a path: the ordered guarded steps (**preflight gate → backup → deploy → verify → record**) and the preflight checks. Checks AtlasMind can mechanically evaluate are computed (`requireVersionBump` via `compareSemver` of source vs target `package.json`, `requireChangelog` via a CHANGELOG scan, "working tree clean" via `git status`); every other named check is flagged for **manual attestation**. A target whose `backupPolicy.required` is set but has no command is recorded as a hard **blocker** (deny-by-default).
 

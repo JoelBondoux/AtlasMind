@@ -361,6 +361,13 @@ Risky built-in skills are also filtered by a tool-approval policy before executi
 
 The Branch Dashboard's readiness, PR/CI, ownership, traceability, comparison, and cleanup readings are deterministic extension-host features, not agent claims. **Ask Atlas** receives the host-derived branch review as fenced context and remains advisory; it cannot invoke a dashboard action. Inspection and comparison are read-only host operations. Cleanup is intentionally outside the general skill surface so neither an agent nor a forged webview message can supply a ref or command: the webview sends an opaque branch id, the host re-resolves live branch state, refreshes remotes, refuses current/default/protected/worktree branches and unique commits, and presents its own confirmation. Local cleanup uses only Git's merged-only `branch -d`; remote cleanup additionally requires loaded PR evidence, a live remote hash match, and typing the exact branch name.
 
+Pipeline CI management is likewise a host feature rather than a general-purpose agent tool. Workflow
+inspection emits no YAML, commands, inputs or environment values. **Review with AtlasMind** sends an
+opaque filename; the host re-reads the workflow and opens a proposal-only conversation. Starter
+creation sends no payload at all and uses a closed template built from host-derived branches, lockfile
+and package-script names. The host shows the exact create-only plan and writes with `wx`; agents cannot
+use this surface to overwrite, disable, delete or silently weaken CI.
+
 Execution-oriented built-in skills now include a dedicated `docker-cli` helper for container work. Instead of passing arbitrary Docker commands through the generic terminal skill, AtlasMind exposes a separate allow-list for `docker` and `docker compose` inspection and lifecycle operations such as `ps`, `logs`, `inspect`, `compose up`, and `compose down`.
 
 ### Operational Boundaries

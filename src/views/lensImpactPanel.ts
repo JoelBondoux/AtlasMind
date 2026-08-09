@@ -282,6 +282,9 @@ function buildImpactHtml(cspSource: string): string {
       function action(parent, label, message) {
         const button = textElement(parent, 'button', 'lens-button', label);
         button.type = 'button';
+        if (message.type === 'askTarget') {
+          makeAtlasDiscussButton(button, 'Ask Atlas about this impact target', 'Open this impact target in Atlas Chat');
+        }
         button.addEventListener('click', () => vscode.postMessage(message));
       }
 

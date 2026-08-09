@@ -393,6 +393,15 @@ push nobody reviewed it for. It can deploy, and it can spend money. So:
   of it. A rendered file still containing a placeholder is refused rather than written.
 - **An existing workflow is never replaced.** Losing a working deploy pipeline to a scaffolder is not
   something you recover from in an editor.
+
+The Project Dashboard's Pipeline starter follows an even narrower version of this boundary. Its
+webview request has no payload, so it cannot submit YAML, a path, a branch or a command. The extension
+host re-derives a Node quality workflow from a closed template, validates branch and package-script
+names, shows the exact plan, and uses create-only filesystem semantics. An existing quality CI workflow,
+an unreadable workflow, or occupied `.github/workflows/ci.yml` target suppresses the starter entirely, avoiding a duplicate
+pipeline that spends twice and can disagree with the first; release-only automation remains visibly
+distinct from quality coverage. Existing workflows are reduced to non-executable metadata for display; raw commands, action
+inputs, environment values and YAML remain in the extension host.
 - **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
   confirmation protects the moment the file is written; the environment protects every run after that.
 - **Secrets are named, never written.** You are told which to add and where; no value goes near the

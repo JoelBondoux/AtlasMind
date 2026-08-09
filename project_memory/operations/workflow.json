@@ -128,7 +128,7 @@
     {
       "id": "maintenance",
       "name": "Maintenance & tech debt",
-      "enabled": false,
+      "enabled": true,
       "automationLevel": "observe",
       "requiredChecks": [],
       "requiredStatusChecks": [],
@@ -138,7 +138,7 @@
     {
       "id": "automation",
       "name": "Automation policy",
-      "enabled": false,
+      "enabled": true,
       "automationLevel": "observe",
       "requiredChecks": [],
       "requiredStatusChecks": [],
@@ -146,5 +146,5 @@
       "managed": true
     }
   ],
-  "updatedAt": "2026-08-02T02:04:48.000Z"
+  "updatedAt": "2026-08-09T20:45:01.489Z"
 }

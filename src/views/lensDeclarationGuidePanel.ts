@@ -26,7 +26,7 @@ import {
   type LensDeclarationStatus,
 } from '../core/lensDeclarations.js';
 import type { AtlasMindContext } from '../extension.js';
-import { LENS_PANEL_CSS } from './lensVisuals.js';
+import { LENS_PANEL_CSS, LENS_PANEL_SCRIPT } from './lensVisuals.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type GuideMessage =
@@ -501,7 +501,7 @@ function buildGuideHtml(cspSource: string): string {
       .guide-tab .dot.ready { background: var(--vscode-testing-iconPassed, #3fb950); }
       .guide-section { margin: 18px 0; }
       .guide-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
-      .guide-actions button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
+      .guide-actions button:not(.atlas-discuss-action) { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
       .guide-actions button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
       .guide-actions button:disabled { opacity: .5; cursor: default; }
       pre.guide-code { overflow-x: auto; padding: 12px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-size: 12px; }
@@ -526,7 +526,7 @@ function buildGuideHtml(cspSource: string): string {
       </div>
       <div id="guideDraft"></div>
     `,
-    scriptContent: GUIDE_SCRIPT,
+    scriptContent: `${LENS_PANEL_SCRIPT}\n${GUIDE_SCRIPT}`,
   });
 }
 
@@ -575,7 +575,9 @@ const GUIDE_SCRIPT = /* javascript */ `
     } else if (view.status !== 'unavailable') {
       actions.append(button('Open ' + view.workspacePath, 'openFile', false));
     }
-    const ask = button(view.busy ? 'Atlas is reading the repository…' : 'Ask Atlas to draft it', 'askAtlas', view.status !== 'missing');
+    const askLabel = view.busy ? 'Atlas is reading the repository' : 'Ask Atlas to draft this declaration';
+    const ask = button(askLabel, 'askAtlas', view.status !== 'missing');
+    makeAtlasDiscussButton(ask, askLabel, view.busy ? 'Atlas is reading the repository' : 'Ask Atlas to draft this declaration from repository evidence');
     ask.disabled = view.busy || view.status === 'unavailable';
     actions.append(ask);
 

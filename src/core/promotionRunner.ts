@@ -25,6 +25,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as https from 'node:https';
 import * as http from 'node:http';
+import { sanitizeCiLog } from './ciFailureAnalysis.js';
 import type {
   DeliveryConfig,
   PromotionPlan,
@@ -51,6 +52,8 @@ const STEP_TIMEOUT_MS = 300_000;
 const VERIFY_TIMEOUT_MS = 15_000;
 /** Cap on captured step output kept for display. */
 const MAX_OUTPUT_CHARS = 4_000;
+/** Successful repository hooks can be verbose; do not kill git at Node's small default buffer. */
+const GIT_OUTPUT_BUFFER_BYTES = 16 * 1024 * 1024;
 
 // ── Plan building ────────────────────────────────────────────────
 
@@ -394,7 +397,10 @@ function assembleRemediation(
   }
 
   const parts: string[] = [];
-  if (doBump) { parts.push(`bump ${base} → ${targetVersion} (${assessment.bumpLevel})`); }
+  if (doBump) {
+    parts.push(`bump ${base} → ${targetVersion} (${assessment.bumpLevel})`);
+    parts.push('synchronize recognised README/wiki version markers');
+  }
   if (editsChangelog) { parts.push(`add a CHANGELOG entry for ${targetVersion}`); }
   parts.push(`commit (chore(release): v${targetVersion}, no push)`);
 
@@ -617,8 +623,7 @@ function routineOnFail(routine: RoutineDefinition | undefined, stepId: string): 
 }
 
 function clip(text: string): string {
-  const trimmed = text.trim();
-  return trimmed.length > MAX_OUTPUT_CHARS ? `${trimmed.slice(0, MAX_OUTPUT_CHARS)}\n… (truncated)` : trimmed;
+  return sanitizeCiLog(text, MAX_OUTPUT_CHARS).text.trim();
 }
 
 /** Ping a health-check URL (used by the stage editor's "Test" button). */
@@ -772,6 +777,81 @@ export function buildInitialChangelog(version: string, date: string): string {
   ].join('\n');
 }
 
+/**
+ * Synchronize common reader-facing current-version markers without replacing
+ * historical version references elsewhere in a README.
+ */
+export function syncReadmeReleaseVersion(raw: string, previousVersion: string, targetVersion: string): string {
+  return raw
+    .replaceAll(`Current source version: ${previousVersion}`, `Current source version: ${targetVersion}`)
+    .replaceAll(`## What's new in ${previousVersion}`, `## What's new in ${targetVersion}`);
+}
+
+/** Synchronize npm's root package version while leaving dependency versions alone. */
+export function syncNpmLockfileVersion(raw: string, targetVersion: string): string {
+  const parsed = JSON.parse(raw) as { version?: unknown; packages?: Record<string, { version?: unknown }> };
+  let changed = false;
+  if (typeof parsed.version === 'string' && parsed.version !== targetVersion) {
+    parsed.version = targetVersion;
+    changed = true;
+  }
+  const rootPackage = parsed.packages?.[''];
+  if (rootPackage && typeof rootPackage.version === 'string' && rootPackage.version !== targetVersion) {
+    rootPackage.version = targetVersion;
+    changed = true;
+  }
+  if (!changed) {
+    return raw;
+  }
+  const indent = raw.match(/\n([ \t]+)"/)?.[1] ?? '  ';
+  const newline = raw.includes('\r\n') ? '\r\n' : '\n';
+  return JSON.stringify(parsed, null, indent).replace(/\n/g, newline) + (raw.endsWith('\n') ? newline : '');
+}
+
+/** Add a compact current-version heading to an existing wiki changelog. */
+export function insertWikiChangelogEntry(raw: string, version: string): string {
+  const escapedVersion = version.replace(/\./g, '\\.');
+  if (new RegExp(`^## v${escapedVersion}(?:\\s|$)`, 'm').test(raw)) {
+    return raw;
+  }
+  const entry = [
+    `## v${version} — Release metadata prepared`,
+    '',
+    'Release metadata was synchronized automatically. See the formal `CHANGELOG.md` entry for details.',
+    '',
+  ].join('\n');
+  const firstVersion = raw.search(/^## v\d+\.\d+\.\d+(?:\s|$)/m);
+  if (firstVersion === -1) {
+    return `${raw.replace(/\n+$/, '')}\n\n${entry}`;
+  }
+  const head = raw.slice(0, firstVersion).replace(/\n+$/, '');
+  const tail = raw.slice(firstVersion).replace(/^\n+/, '');
+  return `${head}\n\n${entry}\n${tail}`;
+}
+
+async function updateExistingReleaseFile(
+  workspaceRoot: string,
+  relativePath: string,
+  transform: (raw: string) => string,
+): Promise<boolean> {
+  const absolutePath = path.join(workspaceRoot, ...relativePath.split('/'));
+  let raw: string;
+  try {
+    raw = await fs.readFile(absolutePath, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+  const updated = transform(raw);
+  if (updated === raw) {
+    return false;
+  }
+  await fs.writeFile(absolutePath, updated, 'utf-8');
+  return true;
+}
+
 export interface RemediationApplyResult {
   ok: boolean;
   committed: boolean;
@@ -795,9 +875,15 @@ export async function applyPromotionRemediation(
   }
   const changedFiles: string[] = [];
   try {
+    let previousVersion = '';
     if (remediation.bumpLevel) {
       const pkgPath = path.join(workspaceRoot, 'package.json');
       const raw = await fs.readFile(pkgPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      previousVersion = typeof parsed.version === 'string' ? parsed.version : '';
+      if (!SAFE_VERSION.test(previousVersion)) {
+        return { ok: false, committed: false, output: 'Could not read a valid current "version" from package.json.' };
+      }
       const updated = setPackageJsonVersion(raw, remediation.targetVersion);
       if (updated === raw) {
         return { ok: false, committed: false, output: 'Could not update the "version" field in package.json.' };
@@ -827,6 +913,27 @@ export async function applyPromotionRemediation(
       }
     }
 
+    // A version bump is one logical edit. Repositories commonly pin the same
+    // current version in reader-facing release surfaces and enforce that in a
+    // commit hook. Synchronize only recognised markers in files that already
+    // exist; never create project-specific documentation or rewrite history.
+    if (remediation.bumpLevel && previousVersion) {
+      for (const lockfile of ['package-lock.json', 'npm-shrinkwrap.json']) {
+        if (await updateExistingReleaseFile(workspaceRoot, lockfile, raw =>
+          syncNpmLockfileVersion(raw, remediation.targetVersion))) {
+          changedFiles.push(lockfile);
+        }
+      }
+      if (await updateExistingReleaseFile(workspaceRoot, 'README.md', raw =>
+        syncReadmeReleaseVersion(raw, previousVersion, remediation.targetVersion))) {
+        changedFiles.push('README.md');
+      }
+      if (await updateExistingReleaseFile(workspaceRoot, 'wiki/Changelog.md', raw =>
+        insertWikiChangelogEntry(raw, remediation.targetVersion))) {
+        changedFiles.push('wiki/Changelog.md');
+      }
+    }
+
     if (changedFiles.length === 0) {
       return { ok: true, committed: false, output: 'No changes were necessary.' };
     }
@@ -839,8 +946,9 @@ export async function applyPromotionRemediation(
     // execFile passes arguments directly (no shell), so the version/message can
     // never be interpreted as a command — and we never push or force-push.
     const subject = `chore(release): v${remediation.targetVersion}`;
-    await execFileAsync('git', ['add', '--', ...changedFiles], { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true });
-    await execFileAsync('git', ['commit', '-m', subject, '--', ...changedFiles], { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true });
+    const gitOptions = { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true, maxBuffer: GIT_OUTPUT_BUFFER_BYTES };
+    await execFileAsync('git', ['add', '--', ...changedFiles], gitOptions);
+    await execFileAsync('git', ['commit', '-m', subject, '--', ...changedFiles], gitOptions);
     return { ok: true, committed: true, output: `${subject} — ${changedFiles.join(', ')}.` };
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string; message?: string };

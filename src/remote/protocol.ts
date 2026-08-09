@@ -5,8 +5,16 @@ import { isChatPanelMessage, type ChatPanelMessage } from '../views/chatProtocol
 
 export const REMOTE_PROTOCOL_VERSION = 1 as const;
 
-/** Logical surfaces multiplexed over a single connection. */
-export type RemoteChannel = 'chat' | 'cost' | 'runs';
+/**
+ * Logical surfaces multiplexed over a single connection.
+ *
+ * `buzz` is READ-ONLY by construction, and deliberately so: Buzz auth is NIP-42,
+ * which means signing a kind-22242 event with the agent key. That key lives in
+ * SecretStorage on this machine and must never cross the bridge, so the browser
+ * never speaks to a relay — it asks the desktop what the desktop already knows.
+ * There is no send method here; publishing stays on the desktop side.
+ */
+export type RemoteChannel = 'chat' | 'cost' | 'runs' | 'buzz';
 
 /** Frame kinds. `auth` must be the first frame a client sends. */
 export type RemoteFrameKind = 'auth' | 'msg' | 'rpc' | 'ack' | 'error';
@@ -25,8 +33,15 @@ export interface RemoteAuthPayload {
   clientName?: string;
 }
 
-/** Read-only RPC method names for the `cost` and `runs` channels. */
-export const REMOTE_RPC_METHODS = ['cost.snapshot', 'runs.list', 'runs.detail'] as const;
+/** Read-only RPC method names for the `cost`, `runs` and `buzz` channels. */
+export const REMOTE_RPC_METHODS = [
+  'cost.snapshot',
+  'runs.list',
+  'runs.detail',
+  'buzz.status',
+  'buzz.channels',
+  'buzz.messages',
+] as const;
 export type RemoteRpcMethod = (typeof REMOTE_RPC_METHODS)[number];
 
 export interface RemoteRpcRequest {
@@ -68,8 +83,51 @@ export interface RemoteRunsList {
   runs: RemoteRunSummary[];
 }
 
+// ── Read-only RPC result shapes (buzz channel) ───────────────────────────────
+//
+// What crosses the bridge is what the desktop has ALREADY received and derived:
+// connection status, the channels it is subscribed to, and recent messages. No
+// key material, no relay URL, no send path.
+
+export interface RemoteBuzzStatus {
+  /** BuzzClientStatus as a plain string, e.g. 'idle' | 'connecting' | 'subscribed'. */
+  status: string;
+  /** The agent's own pubkey, so a client can mark its own messages. Absent when inbound is off. */
+  selfPubkey?: string;
+  /** Channel ids the desktop currently holds a conversation for. */
+  channelIds: string[];
+  /** How many distinct identities the desktop has observed. */
+  identityCount: number;
+}
+
+export interface RemoteBuzzChannel {
+  id: string;
+  /** Most recent message timestamp in this channel (epoch seconds), if any. */
+  lastAt?: number;
+}
+
+export interface RemoteBuzzChannels {
+  channels: RemoteBuzzChannel[];
+}
+
+export interface RemoteBuzzMessage {
+  id: string;
+  channelId: string;
+  pubkey: string;
+  /** Display name from the observed profile directory, when one is known. */
+  author?: string;
+  content: string;
+  createdAt: number;
+  /** True when this message was published by this desktop's own agent key. */
+  mine: boolean;
+}
+
+export interface RemoteBuzzMessages {
+  messages: RemoteBuzzMessage[];
+}
+
 export function isRemoteChannel(value: unknown): value is RemoteChannel {
-  return value === 'chat' || value === 'cost' || value === 'runs';
+  return value === 'chat' || value === 'cost' || value === 'runs' || value === 'buzz';
 }
 
 export function isRemoteEnvelope(value: unknown): value is RemoteEnvelope {

@@ -314,6 +314,7 @@ function buildJourneyHtml(cspSource: string): string {
             open.addEventListener('click', () => vscode.postMessage({ type: 'openNode', nodeId: node.id }));
             const ask = appendTextElement(actions, 'button', 'lens-button', 'Ask Atlas');
             ask.type = 'button';
+            makeAtlasDiscussButton(ask, 'Ask Atlas about this journey node', 'Open this journey node in Atlas Chat');
             ask.addEventListener('click', () => vscode.postMessage({ type: 'askNode', nodeId: node.id }));
             card.appendChild(actions);
             card.addEventListener('pointerenter', () => setHighlight(node.id));

@@ -294,6 +294,53 @@ describe('the page costs nothing to open', () => {
   });
 });
 
+describe('the Pipeline CI management surface', () => {
+  const source = (): string => renderSource('renderPipeline', 'renderWorkflow');
+
+  it('teaches definition, assignment, and enforcement as separate layers', () => {
+    expect(source()).toContain('Definition — a workflow file');
+    expect(source()).toContain('Assignment — the on: section');
+    expect(source()).toContain('Enforcement — a required status check');
+    expect(source()).toContain('<strong>Define</strong>');
+    expect(source()).toContain('<strong>Assign</strong>');
+    expect(source()).toContain('<strong>Enforce</strong>');
+  });
+
+  it('stays useful before CI run history has been fetched', () => {
+    const body = source();
+    expect(body).toContain('${managerCard}');
+    expect(body.indexOf('const managerCard')).toBeLessThan(body.indexOf('if (!intel)'));
+  });
+
+  it('shows workflow triggers, jobs, safeguards, and declared delivery bindings', () => {
+    const body = source();
+    expect(body).toContain('workflow.triggers');
+    expect(body).toContain('workflow.jobs');
+    expect(body).toContain('workflow.hasExplicitPermissions');
+    expect(body).toContain('workflow.hasConcurrency');
+    expect(body).toContain('requiredChecks');
+    expect(body).toContain('Confirm the same names are required in GitHub branch protection');
+  });
+
+  it('sends no YAML, command, path, or branch in the create request', () => {
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'createCiStarter' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'createCiStarter',\s*payload/);
+  });
+
+  it('reviews an existing workflow by opaque filename rather than browser-authored content', () => {
+    expect(WEBVIEW_SCRIPT).toContain("type: 'reviewCiWorkflow', payload: payload");
+    const host = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    expect(host).toContain("collectWorkflowSnapshot(workspaceRoot)).find(candidate => candidate.id === workflowId)");
+    expect(host).toContain("flag: 'wx'");
+    expect(host).toContain('UNREADABLE_CI_WORKFLOW_CAUTION');
+    expect(host).toContain('could not inspect every existing workflow');
+    expect(host).toContain('Existing files are never overwritten.');
+  });
+});
+
 /**
  * The Release page carries a property the others do not: it is the only surface
  * describing an action that cannot be undone. Everything here follows from that.
@@ -401,6 +448,24 @@ describe('the workflow configuration card', () => {
 
   it('states that the file cannot raise what actually happens', () => {
     expect(rendered()).toMatch(/lowest of/);
+  });
+
+  it('uses the standard outline and status-tag treatment without tinting row contents', () => {
+    expect(rendered()).toContain("workflow-stage-segment ${stage.enabled ? 'is-enabled' : 'is-disabled'}");
+    expect(rendered()).toContain("${stage.enabled ? 'Enabled' : 'Disabled'}");
+    expect(rendered()).toContain("workflow-stage-state ${stage.enabled ? 'tag-good' : ''}");
+    expect(rendered()).toContain('class="workflow-stage-marker"');
+    expect(rendered()).toContain('aria-pressed=');
+
+    const css = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    expect(css).toContain('.workflow-stage-segment.is-enabled');
+    expect(css).toContain('.workflow-stage-segment.is-disabled');
+    expect(css).toContain('border-left-width: 4px');
+    expect(css).not.toContain('.workflow-stage-segment.is-enabled .workflow-stage-marker');
+    expect(css).not.toContain('.workflow-stage-segment.is-disabled .workflow-stage-marker');
   });
 
   it('warns before writing rather than after', () => {
@@ -517,11 +582,12 @@ describe('handing a debt entry to an agent', () => {
     // The prompt is built host-side from the entry looked up by id, so the
     // webview cannot influence what an agent is told.
     expect(WEBVIEW_SCRIPT).toContain("type: 'workOnDebt', payload: { id: payload }");
-    expect(rendered()).toContain('data-action="work-on-debt"');
+    expect(rendered()).toContain("renderAtlasDiscussAction('work-on-debt', entry.id");
   });
 
   it('does not label it as fixing, because the answer may be to keep it', () => {
-    expect(rendered()).toContain('Look at it with Atlas');
+    expect(rendered()).toContain('Ask AtlasMind to review this debt entry');
+    expect(rendered()).toContain('propose whether to fix, retain, or reclassify it');
     expect(rendered()).not.toMatch(/Fix it with Atlas/);
   });
 });

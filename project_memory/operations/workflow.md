@@ -31,8 +31,8 @@ one of them agrees.
 | Pull requests & reviews | yes | `observe` (reports only) | Self-reviewed the diff; Linked to an issue; Version bumped and changelog written | CI | n/a | — |
 | CI/CD & failure analysis | yes | `observe` (reports only) | — | CI | n/a | — |
 | Release automation | yes | `observe` (reports only) | Changelog entry written; Version bumped; README banner matches package.json | CI | `npm run tag:release` | — |
-| Maintenance & tech debt | no | `observe` (reports only) | — | — | n/a | — |
-| Automation policy | no | `observe` (reports only) | — | — | n/a | — |
+| Maintenance & tech debt | yes | `observe` (reports only) | — | — | n/a | — |
+| Automation policy | yes | `observe` (reports only) | — | — | n/a | — |
 
 ## What this file cannot do
 

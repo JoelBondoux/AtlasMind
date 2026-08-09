@@ -166,6 +166,47 @@ Dashboard, Model Providers, Agent Manager, Website Studio, Personality Profile, 
 plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
 Skills, MCP Servers and Resource Discovery.
 
+The Project Dashboard's Delivery panel presents two related but deliberately separate views. The stage
+pipeline says **where versions move** and owns guarded promotion. The detected shipping guide says **what
+this project asks a newcomer to do**: prerequisites, validation, packaging, deployment and publishing,
+derived from bounded local manifests, scripts, routines, workflows and the stage model. Exact repository
+configuration, runtime conventions, human checks and missing blockers remain visibly different.
+
+Versioning is now explicit in both readings. A production path that requires a bump adds **Prepare
+release version** to the Detected Runbook and displays the repository's exact preparation script when it
+has one. The promotion resolver applies that same contract atomically across the manifest, npm root
+lockfile version, formal changelog, recognised README version markers, and an existing wiki changelog,
+then commits only those files. Hook logs are sanitized, secret-redacted and tail-capped before entering
+the webview, while Git's capture buffer remains bounded but large enough for the full quality hook.
+
+The Pipeline panel has a third, deliberately separate reading: `ciManager.ts` explains how CI itself
+is defined, assigned and enforced. Existing GitHub Actions files are reduced to safe metadata—triggers,
+branch scopes, jobs, runners, counts, timeouts, permission/concurrency flags and validation categories;
+raw YAML, commands, inputs and environment values never enter the browser snapshot. A starter workflow
+is a closed create-only template derived host-side from declared branches and package scripts. The
+browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
+file appears between review and write.
+
+Detected commands can be copied, typed into a terminal, or run a column at a time, and `deliveryRunPlan.ts`
+decides what a terminal is asked to do before anything is sent. The webview posts an opaque step or phase
+id and the host rebuilds the guide to resolve the command, so the page can name a step but never supply
+one. Send-to-terminal withholds the newline, leaving your keystroke as the last gate on a single command;
+a column run confirms every command in order, marks the ones that leave the machine, and states whether
+the shell can stop on failure. Guarded promotion is untouched and remains the only path that executes
+commands from a reviewed `delivery.json`.
+
+Runbook phases render as collapsed disclosures whose numbered marker reflects the strongest step state.
+A non-green step can be handed to Chat through its AtlasMind-logo action, but the browser posts only the
+step id: the host rebuilds the guide, refuses a now-green or missing id, and composes the bounded repair
+draft from the current record. The same icon-only action is shared by Dashboard, Lens, MCP, Website
+Studio, and Project Run surfaces. Its visible label is the logo; a precise `title` and `aria-label`
+preserve the action's meaning for hover, keyboard and assistive-technology users.
+
+On the Workflow page, the **Your workflow file** card makes each stage's enablement visible without
+tinting its contents: the segment outline and standard **Enabled** status tag carry the colour, while
+the larger marker stays neutral. The words **Enabled** / **Disabled** and `aria-pressed` preserve the
+same distinction without colour.
+
 **They share one design language.** Each webview is an isolated document, so a panel cannot inherit
 another's stylesheet — which is how nineteen panels ended up with nineteen palettes, four of them drifted
 copies of the Project Dashboard's. `src/views/dashboardTheme.ts` is now the single definition, and the

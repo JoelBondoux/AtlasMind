@@ -1,5 +1,8 @@
 import { DASHBOARD_PANEL_BASE_CSS, DASHBOARD_PANEL_SKIN_CSS } from './dashboardTheme.js';
 
+/** The extension mark as a CSP-safe data URI for panels without local resource roots. */
+export const ATLAS_ICON_DATA_URI = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cpath d=%22M12 2 C7 7,7 17,12 22%22/%3E%3Cpath d=%22M12 2 C17 7,17 17,12 22%22/%3E%3Cline x1=%222%22 y1=%2212%22 x2=%2222%22 y2=%2212%22/%3E%3C/svg%3E';
+
 /**
  * Shared HTML shell for webview panels.
  * Keeps styling consistent across all AtlasMind panels.
@@ -257,6 +260,10 @@ export const ATLAS_DISCUSS_ACTION_CSS = `
     object-fit: contain;
     flex: 0 0 auto;
   }
+  body.vscode-dark .atlas-discuss-action img,
+  body.vscode-high-contrast .atlas-discuss-action img {
+    filter: invert(1);
+  }
   .atlas-discuss-action.icon-only {
     width: 30px;
     padding: 4px;
@@ -280,7 +287,6 @@ export interface AtlasDiscussActionOptions {
   label: string;
   title: string;
   targetId?: string;
-  iconOnly?: boolean;
 }
 
 /** Render a nonce-free, delegated-event button that opens an Atlas discussion. */
@@ -288,7 +294,7 @@ export function renderAtlasDiscussAction(options: AtlasDiscussActionOptions): st
   const target = options.targetId
     ? ` data-id="${escapeHtml(options.targetId)}"`
     : '';
-  return `<button type="button" class="atlas-discuss-action${options.iconOnly ? ' icon-only' : ''}" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
+  return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
 }
 
 export function escapeHtml(text: string): string {

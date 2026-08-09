@@ -6,6 +6,142 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.3] - 2026-08-09
+
+### Changed
+
+- **Resolve & run now prepares the whole detected release contract.** A version bump synchronizes npm's
+  root lockfile version, recognised README current-version markers, the formal changelog, and an existing
+  wiki changelog before making its path-scoped commit. The Detected Runbook now shows version preparation
+  explicitly and detects a repository-provided release-preparation script when one exists.
+- **Promotion failures now show the useful end of clean output.** ANSI/control sequences and secret-shaped
+  values are removed, verbose hook output keeps its failure tail, and Git receives a bounded 16 MiB capture
+  buffer so a successful but chatty pre-commit hook is not killed by Node's default buffer.
+
+## [0.270.2] - 2026-08-09
+
+### Changed
+
+- **Recorded the implementation contract for Director-recommended Buzz persona teams.** The Buzz
+  roadmap now defines explainable grouping of enabled AtlasMind agents into a smaller set of signed
+  Buzz identities, many-to-many membership, project intent versus local deployment and runtime
+  manifests, persona-scoped selection/handoffs/skills, default-versus-mention routing, colleague
+  allowlists, migration rules, phased delivery, and the tests required before default routing can be
+  enabled without duplicate replies.
+
+## [0.270.1] - 2026-08-09
+
+### Changed
+
+- **Workflow-stage status now uses the dashboard's standard restrained treatment.** In **Workflow →
+  Your workflow file**, a stage's outline and **Enabled** tag carry its status colour; the row contents
+  and state marker remain neutral. Explicit **Enabled** / **Disabled** text and `aria-pressed` continue
+  to communicate the state without relying on colour.
+
+## [0.270.0] - 2026-08-09
+
+### Added
+
+- **The Pipeline page is now a progressive CI configuration and management surface.** It separates
+  workflow definition, event/branch assignment, and required-check enforcement; inspects GitHub
+  Actions workflows into safe summaries of triggers, jobs, runners, step counts, timeouts, explicit
+  permissions, concurrency, validation coverage, and cautions; and keeps that configuration view
+  available before network-backed run history has been fetched.
+- **Existing workflows can be opened or reviewed with AtlasMind, and a Node project without quality CI can
+  create a safe starter.** Review actions send only an opaque workflow filename and re-resolve the live
+  file host-side. Starter creation sends no payload at all: the host re-derives branches, a supported
+  lockfile/package manager, and declared scripts; previews the exact create-only plan; and writes
+  `.github/workflows/ci.yml` with `wx`, so an existing workflow can never be replaced.
+
+### Security
+
+- **CI workflow contents and commands never enter the dashboard snapshot.** The pure `ciManager`
+  exposes bounded metadata only, while the starter is a closed template with validated branch and
+  package-script names, read-only token permissions, duplicate-run cancellation, and a job timeout.
+  Release automation and pull-request labelling are not misreported as code-quality validation, and
+  an unreadable existing workflow blocks starter creation rather than being mistaken for absence.
+
+## [0.269.1] - 2026-08-09
+
+### Changed
+
+- **Workflow stages now show their enabled state across the whole segment.** Enabled rows carry a
+  green accent and wash; disabled rows use a muted treatment. A larger state marker and explicit
+  **Enabled** / **Disabled** label keep the distinction clear without relying on colour or the former
+  small checkbox glyph.
+
+## [0.269.0] - 2026-08-09
+
+### Changed
+
+- **The Delivery runbook now opens compactly and points straight at what needs attention.** Every phase
+  is a collapsed disclosure by default. Its numbered identifier inherits the strongest step state:
+  green for fully configured, blue for a runtime convention, amber for a manual or missing non-blocking
+  item, and red for a blocker. Every non-green step carries an AtlasMind-logo action that asks the host
+  to rebuild the live guide and open a focused resolution draft for that step. The browser supplies only
+  the opaque step id; it cannot supply a command or prompt text.
+- **AtlasMind-assisted buttons now use one icon-only affordance across the extension.** Project
+  Dashboard fixes and reviews, Lens questions, MCP configuration help, Website Studio prompt reviews,
+  and Project Run draft refinement show the AtlasMind logo with a specific hover tooltip and accessible
+  label. Shared CSS keeps the mark visible in light, dark, and high-contrast themes.
+
+## [0.268.0] - 2026-08-09
+
+### Added
+
+- **The Delivery page's detected runbook is now usable, not just readable.** Every command carries two
+  icons — **⧉** copies it, **>_** types it into a dedicated `AtlasMind Delivery` terminal — and each
+  column header carries a **▶ Run** button that runs that whole phase in order. This supersedes the
+  read-only framing 0.267.0 shipped with: reading the right command and then retyping it by hand was the
+  part that made the runbook feel like documentation rather than a tool.
+
+  The safety properties it replaces that framing with are stronger than "no button", because they hold
+  even now that there is one:
+
+  - **The page names a step; only the host says what it runs.** The webview posts an opaque step or phase
+    id, exactly as the Ideation evidence and branch-inventory actions do. AtlasMind rebuilds the guide
+    from the workspace and resolves the command itself, so a crafted message can name a command that
+    does not exist — it can never supply one. A test pins that no payload in this surface is ever
+    `step.command`.
+  - **Send-to-terminal does not press Enter.** The trailing newline is withheld, as it already is in the
+    chat panel and the setup walkthroughs, so your own keystroke stays the last gate on a single command.
+    That is why copy and send need no dialog and running a column does.
+  - **Running a column confirms the exact list first**, in a modal that names every command in order,
+    marks the ones that leave this machine (a push, deployment or publication that closing the terminal
+    cannot undo), and says plainly that AtlasMind does not read the output.
+  - **Fail-fast is reported, never assumed.** Commands are chained with `&&` where the shell can stop on
+    failure. Windows PowerShell 5.1 has no `&&` and an unrecognised shell has made no promise, so there
+    the commands are sent separately and the dialog says the failure of one will not stop the rest —
+    which matters most in exactly the column where a failing test is followed by a publish.
+
+  The classification of which commands reach beyond this machine is a declared, word-boundary-matched
+  table in `src/core/deliveryRunPlan.ts`, not a model's impression of a command string; the module is
+  pure and unit-tested. Guarded promotion is untouched and remains the only path that executes commands
+  from a reviewed `delivery.json`, with its own preflight, approval and protected-stage gates.
+
+## [0.267.0] - 2026-08-09
+
+### Added
+
+- **The Project Dashboard's Delivery page now provides a project-specific shipping guide.** It derives
+  an ordered **Prerequisites → Validate → Package → Deploy → Publish** runbook from bounded local
+  evidence: manifests and lockfiles, exact package scripts, the bound delivery routine, declared
+  deployment stages, CI/CD workflows, the production target, changelog policy, backup policy, and git
+  cleanliness. Node, Python, Go, Rust, Maven/Gradle, .NET, and container projects receive tailored
+  commands; an unknown project receives named missing steps rather than a generic invented workflow.
+
+  Evidence is graded instead of flattened: **configured** means the repository declares it, **runtime
+  convention** means AtlasMind derived the ecosystem's standard command, **manual check** names a human
+  gate, and **missing** is a blocker only where the path would otherwise be untrustworthy. The page is
+  read-only: workspace-authored text is control-stripped and bounded, evidence paths reject traversal,
+  commands render as code with no execution action, and promotion execution remains behind its existing
+  host-side source, preflight, approval, and protected-stage gates.
+
+### Fixed
+
+- The README's “since the last Marketplace publication” baseline now names the actual newest tag,
+  `v0.266.3`, rather than the older `v0.257.5` baseline.
+
 ## [0.266.3] - 2026-08-06
 
 ### Security

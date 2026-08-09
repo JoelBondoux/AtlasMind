@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.266.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.270.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,61 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.266.3
+## What's new in 0.270.3
 
-Since the last Marketplace publication, **v0.257.5**, source builds have added the following. The full
+Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
+  preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,
+  formal changelog, and recognised README/wiki version markers together before committing, so the
+  repository's own pre-commit checks do not reject a half-updated release. If a hook still fails, the
+  dialog shows clean, concise failure-tail output instead of pages of terminal escape codes.
+
+- **The Buzz roadmap now defines AtlasMind persona teams for future implementation.** Director will
+  recommend a small set of Buzz-facing roles from the project's enabled agents, allow one AtlasMind
+  agent to participate in several personas, and keep each signed Buzz identity behind a constrained
+  orchestration scope. The plan separates shared project intent, local deployment state, the headless
+  runtime manifest, and Buzz-owned keys; it also makes exclusive default routing and colleague
+  allowlists an explicit compatibility gate rather than an assumption.
+
+- **Pipeline is now a CI control centre, not only a run history.** It explains the three professional
+  layers—workflow definition, trigger/branch assignment, and required-check enforcement—then inspects
+  every GitHub Actions file into readable workflow and job cards. Beginners can see what runs and why;
+  experienced engineers get runners, timeouts, permissions, concurrency, validation coverage, and
+  delivery-gate bindings. Existing workflows can be opened or reviewed with AtlasMind. A Node project
+  with no quality CI can preview and create a deterministic, create-only starter from its real branches,
+  lockfile and package scripts; no YAML, command, or path comes from the browser, and no existing file is replaced.
+
+- **Workflow stages are now obvious at a glance.** In **Workflow → Your workflow file**, enabled
+  segments use a green outline and standard **Enabled** tag while disabled segments use a muted
+  outline. Row contents and the larger marker remain neutral; the written **Enabled** / **Disabled**
+  label means the state no longer depends on a small checkbox or on colour.
+
+- **Delivery is compact until you need it.** Every detected runbook column starts collapsed, and its
+  numbered marker is green, blue, amber or red according to the strongest status inside. Open one to
+  see its steps; every non-green step carries the AtlasMind logo, which opens a host-resolved repair
+  draft for that exact item.
+
+- **“Ask AtlasMind” is now one visual language everywhere.** Dashboard fixes, Lens explanations, MCP
+  setup help, Website Studio design questions, and Project Run draft refinement all use the AtlasMind
+  logo alone. Hovering names the exact action, while `aria-label` text keeps the control explicit for
+  assistive technology.
+
+- **The Delivery page now tells you how this project actually ships — and will run it for you.**
+  AtlasMind detects the runtime, package manager, lockfile, project scripts, bound delivery routine,
+  CI/CD workflows, production target, and safety gates, then lays them out as **Prerequisites →
+  Validate → Package → Deploy → Publish**. Exact repository configuration is kept distinct from
+  standard runtime conventions and manual checks, and missing load-bearing steps are explicit blockers.
+  This makes an unfamiliar Node, Python, Go, Rust, Java, .NET, or container project useful to a new
+  contributor without pretending all projects deploy the same way.
+
+  Every command has a **copy** icon and a **send to terminal** icon, and each column has a **▶ Run**
+  button for the whole phase. Refreshing the page still runs nothing. Send-to-terminal deliberately
+  does not press Enter, so your own keystroke stays the last gate on a single command; running a column
+  opens a confirmation that names every command in order, marks the ones that leave your machine, and
+  says whether a failure will stop the rest — it will not on shells without `&&`, which is precisely
+  the case where a failed test would otherwise be followed by a publish.
 
 - **You can finally see the wireframe.** The preview was showing a white page, and the reason was
   structural: nothing in AtlasMind could turn a wireframe into HTML, so it could not reach a browser
@@ -433,7 +484,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, CI inspection/scaffolding (`ciManager.ts`), and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |

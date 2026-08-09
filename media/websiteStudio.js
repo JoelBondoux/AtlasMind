@@ -39,12 +39,12 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, kinds: Array, canGenerate: boolean, readOnly: boolean}} */
-  let state = { pages: [], kinds: [], canGenerate: false, readOnly: false };
+  /** @type {{pages: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], kinds: [], canGenerate: false, readOnly: false };
+    state = { pages: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
@@ -328,7 +328,7 @@
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
       + escapeText(element.designPrompt || '') + '</textarea></label>'
       + '<div class="inspector-actions">'
-      + '<button type="button" id="askAboutElement">Ask Atlas about this element</button>'
+      + '<button type="button" id="askAboutElement" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this wireframe element and its design prompt" aria-label="Ask AtlasMind about this wireframe element"><img src="' + escapeAttribute(state.atlasIcon || '') + '" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this wireframe element</span></button>'
       + (state.canGenerate ? '<button type="button" class="secondary" id="generateElement">Generate</button>' : '')
       + '<button type="button" class="danger subtle" id="deleteElement">Delete</button>'
       + '</div>'
@@ -625,15 +625,15 @@
 
     if (event.target.id === 'deleteElement') { deleteSelected(); return; }
 
-    if (event.target.id === 'askAboutElement') {
+    if (event.target.closest('#askAboutElement')) {
       promptFor('element', { elementId: selectedElementId });
       return;
     }
-    if (event.target.id === 'askAboutPage') {
+    if (event.target.closest('#askAboutPage')) {
       promptFor('page', {});
       return;
     }
-    if (event.target.id === 'askAboutSite') {
+    if (event.target.closest('#askAboutSite')) {
       promptFor('site', {});
       return;
     }

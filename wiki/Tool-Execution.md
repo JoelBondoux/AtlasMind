@@ -124,6 +124,14 @@ shouldn't also be the thing that ships it.
 
 ## Before anything is written
 
+**CI starter creation is a host-owned create-only action.** The Pipeline webview sends no YAML, path,
+branch or command. AtlasMind re-reads the project, derives one closed starter from its workflow config,
+lockfile and package scripts, confirms the exact file/branches/checks, and writes with `wx`. If a quality
+CI workflow already exists, or the target appears before the write, creation is refused. Release-only
+automation remains separate because it is not evidence of pull-request validation. Existing
+workflows can be opened or reviewed as proposals, never overwritten, disabled or deleted from this
+surface.
+
 **Checkpoints.** A snapshot is taken before each write, so a failed step can be rolled back to exactly
 how things were.
 

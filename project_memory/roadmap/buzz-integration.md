@@ -6,7 +6,8 @@
 > (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
 > wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
 > switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0; per-agent key generation,
-> authorization grants, signed A2A handoff, and revocation remain planned.
+> authorization grants, signed A2A handoff, and revocation remain planned. Tier 5 — Director-
+> recommended, orchestration-backed Buzz persona teams — is specified below and remains planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -501,6 +502,273 @@ and coordinate in channels with a full, human-attributable audit trail.
 
 **Entry criteria:** Tiers 1–3 stable; a threat-model + security review of key custody, scope grants,
 and revocation; explicit opt-in. This is a MAJOR-version-class change (new secret material + identity model).
+
+---
+
+## Tier 5 — Director-recommended Buzz persona teams
+
+**Status:** planned. This section is the implementation contract for future agents.
+
+**Goal:** expose a small, comprehensible AtlasMind team in Buzz — for example **AM Engineer**,
+**AM Business**, **AM Marketing**, and **AM Oversight** — without publishing every internal
+`AgentDefinition` as a separate Buzz identity. Each Buzz-facing persona owns a scoped collection of
+AtlasMind agents and uses AtlasMind's classifier, model router, memory, skills, approvals, and handoffs
+inside that collection. One AtlasMind agent may belong to several personas.
+
+This supersedes the earlier assumption that the current Director **Buzz Identity** editor could grow
+into this feature. That editor binds an *inbound author* to likely work owners. A runnable Buzz persona
+is the reverse direction: a Buzz-managed identity launches AtlasMind and AtlasMind chooses a worker.
+They are different facts, with different stores and failure modes, and must remain different models.
+
+### Product contract
+
+- Director recommends Buzz personas from the project's **enabled** agent registry; it never creates
+  one merely because an agent was discovered.
+- A recommendation is deterministic and explainable: the card names every included agent, the rule
+  that included it, capability coverage, gaps, conflicts, suggested response mode, and permission
+  ceiling. No model call decides the team.
+- The user may accept, edit, or dismiss a recommendation. Accepting creates project intent, not a
+  Buzz key or a running process.
+- Several AtlasMind agents may form one Buzz persona, and the same AtlasMind agent may participate in
+  several personas. Membership is therefore many-to-many.
+- Each Buzz persona remains one stable signed author in Buzz even when different internal agents
+  handle consecutive turns. Director records which internal agent, model, and skills handled each
+  turn.
+- Exactly one persona may be the default for a channel; the others are mention-only or oversight.
+  An explicit mention wins over the default and must produce exactly one response.
+- Project switching is an explicit channel/deployment action. Chat text never becomes a raw
+  filesystem path or silently rebinds a shared channel.
+
+### Four records, four owners
+
+| Record | Owner / store | Contains | Must not contain |
+|---|---|---|---|
+| Project persona intent | `.atlasmind/buzz-agents.json`, versioned and project-owned | Persona id/name/purpose, member agent ids, preferred member, routing mode, independence class, skill ceiling | Buzz private keys, workspace paths, provider credentials, channel history |
+| Local deployment | VS Code workspace state | Persona id → Buzz public key, channel response modes, manifest fingerprint, verification/status timestamps | Secret keys, model prompts, raw messages |
+| Runtime persona manifest | AtlasMind extension-owned local storage | Sanitised snapshots of the referenced agent definitions plus a canonical fingerprint | Unrelated agents, provider credentials, Buzz private keys |
+| Buzz identity | Buzz managed-agent store | Nostr keypair, signed identity, channel membership, harness configuration | AtlasMind project memory or orchestration state |
+
+The project declaration is shared intent. Deployment is local because it names a local running setup.
+The manifest bridges VS Code's live registry into the standalone ACP process: today Director can see
+user-created agents held by the extension, while `atlasmind-acp` creates a fresh headless runtime that
+loads only built-ins. Without the manifest, Director could recommend a team the Buzz-launched process
+cannot run.
+
+Proposed project shape:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "am-engineer",
+      "displayName": "AM Engineer",
+      "purpose": "Engineering delivery for this project",
+      "agentIds": ["backend-engineer", "frontend-engineer", "workspace-debugger", "code-reviewer"],
+      "preferredAgentId": "backend-engineer",
+      "routingMode": "scoped-orchestration",
+      "independenceClass": "execution",
+      "skillCeiling": { "mode": "member" }
+    }
+  ]
+}
+```
+
+The shape is illustrative until Phase 1 lands. Its semantic decisions are not: ids are stable,
+membership is explicit, unknown fields/newer versions are preserved or refused through
+`schemaMigration`, and the file contains intent rather than live identity state.
+
+### Recommendation rules
+
+Add a pure `buzzAgentRecommendations` rule table. Use `primaryRoutingNeeds` as the strongest signal,
+then declared skills, testing responsibilities, role/description tokens, enabled state, and explicit
+advisory/read-only status. Initial families:
+
+1. **AM Engineering** — architecture, frontend, backend, debugging, testing, review, security,
+   DevOps, release, and documentation agents relevant to delivery.
+2. **AM Business/Product** — product, requirements, planning, commercial, finance, and applicable
+   research agents.
+3. **AM Marketing/Growth** — marketing, positioning, content, SEO, analytics, customer and market
+   research agents.
+4. **AM Research** — external research specialists where a separate research identity adds value.
+5. **AM Oversight** — ethics, legal, commercial, security, risk, and review specialists under a
+   read-only ceiling.
+6. **AM Coordinator** — optional only when the registry has several distinct families and the user
+   wants one front door.
+
+An agent may score into several families. That is intended, not a conflict. Separation-of-duty rules
+are different: oversight agents are never silently folded into an execution persona, and accepting a
+mixed group must state the loss of independence. Recommendations carry a stable ruleset version and
+agent-registry fingerprint so Director can explain why one changed.
+
+### Scoped orchestration contract
+
+The current ACP facade resolves registry agent `default` and calls `processTaskWithAgent`, bypassing
+normal selection. Replace that path for persona deployments with a typed orchestrator entry point,
+for example `processTaskInScope(request, scope, callbacks)`. `scope` is host-owned data, never prompt
+context, and contains:
+
+- allowed agent ids;
+- preferred fallback id;
+- skill ceiling;
+- allowed handoff ids;
+- synthesis policy (disabled for v1);
+- persona id; and
+- host-delivery policy (`buzz-acp` owns the final send).
+
+Classification and scoring continue normally, but only over the named members. A missing preferred
+member may degrade to another valid member with a visible warning; zero valid members refuses the
+turn. There is no fallback to the global registry and no synthesized specialist outside the group.
+`AgentHandoff` must carry the same member ceiling so a selected worker cannot escape the persona by
+delegating.
+
+The effective authority for a selected worker is:
+
+```text
+selected agent skills
+  ∩ persona skill ceiling
+  ∩ project policy
+  ∩ tool policy
+  ∩ current approval
+```
+
+`member` means keep the selected agent's own authority; it does **not** mean union the skills of every
+member. `read-only` narrows every member to safe reads. `allowlist` intersects the member with explicit
+skill ids. Adding an agent to a persona must never increase another member's authority.
+
+Move the existing "the ACP host delivers the Buzz reply" instruction from the fixed default-agent
+copy into a trusted turn envelope applying to every selected and delegated worker. Buzz messaging
+tools are unavailable for final delivery; the host validates Buzz's generated context and publishes
+one response through the existing communication-only bridge.
+
+### Default and colleague routing
+
+Buzz's current harness listens for `@mention`s by default. It supports an inbound author gate
+(`owner-only`, `allowlist`, `anyone`, `nobody`) and per-channel `require_mention = false`, but those
+pieces alone do not prove exclusive dispatch when several AM identities share a channel. Before the
+UI promises **Default**, run this compatibility gate against the supported Buzz build:
+
+1. Put two disposable AM identities in one private channel.
+2. Configure AM Engineer as default and AM Marketing as mention-only.
+3. Send an unaddressed message: exactly one Engineer response.
+4. Mention Marketing: exactly one Marketing response and no Engineer response.
+5. Send from a pubkey outside the owner/colleague allowlist: no response.
+6. Restart the harness and repeat to cover replayed events.
+
+Prefer Buzz's `allowlist` mode containing the owner plus selected colleague pubkeys. Even in a private
+channel, `anyone` also widens DM handling, so channel membership alone is not the same boundary. If
+Buzz's ACP prompt does not carry enough authenticated mention metadata to suppress the default on an
+explicit specialist mention, keep all personas mention-only and pursue an upstream Buzz default-
+routing capability. Do not turn AtlasMind's structurally read-only inbound subscription into a second
+reply harness: that would duplicate delivery, key custody, replay, and loop prevention.
+
+### Director experience
+
+Add a dedicated **Buzz Agents** section rather than expanding the Person editor:
+
+- **Recommended Buzz agents** — proposal cards with rationale, coverage, gaps, permission implications,
+  suggested channels, and Accept / Customise / Dismiss.
+- **Active Buzz identities** — actual public key, persona membership, channels, response mode,
+  manifest sync state, runtime/verification health, and recent internal workers.
+
+Relabel the existing Person-form surface as **Buzz contact / channel** and its agent checklist as
+**Inbound work attribution**. It continues editing `atlasmind.buzz.agentBindings`; it does not create
+or start an agent.
+
+Accepting a recommendation opens a reviewable profile editor. Saving writes project intent. Deployment
+then walks the user through:
+
+1. select project channels and default/mention-only/oversight mode;
+2. select owner/colleague pubkeys for the response allowlist;
+3. generate the local persona manifest;
+4. copy a persona-specific Custom-command recipe containing
+   `--workspace` and `--buzz-persona-manifest` but no credential;
+5. create the managed identity in Buzz and add it to the channels;
+6. send a nonce-bearing verification mention; and
+7. observe the signed reply before associating its public key and marking it verified.
+
+AtlasMind never reports "created" merely because a command was copied. Agent-definition changes make
+the manifest visibly stale and require an explicit **Resynchronise** action; changing a system prompt
+under a running signed identity without review is not a safe convenience.
+
+### Implementation sequence
+
+#### Phase 0 — compatibility contract
+
+- Verify Buzz Desktop persistence/exposure of per-channel mention rules and author allowlists.
+- Verify the ACP prompt carries authenticated destination/mention metadata sufficient for exclusive
+  default dispatch.
+- Pin the two-agent real-relay scenario above, including Windows custom-command launch behavior.
+
+#### Phase 1 — project model
+
+- Add pure profile types/sanitizer/validator, versioned manager, and JSON schema.
+- Enforce stable ids, bounds, many-to-many membership, one preferred member, independence classes,
+  skill ceilings, missing/disabled diagnostics, and newer-document refusal.
+- Opening Director never seeds the file; saving an accepted/custom profile is the first write.
+
+#### Phase 2 — deterministic recommendations
+
+- Implement the declared family rule table and stable explanations.
+- Store dismissed recommendation state locally so "Not now" does not dirty the repository.
+- Recompute when the enabled-agent fingerprint changes; never mutate an accepted profile.
+
+#### Phase 3 — scoped orchestrator
+
+- Add the typed persona scope and limit selection, handoff, skills, and synthesis.
+- Add the host-delivery envelope and exclude model-controlled Buzz final delivery.
+- Preserve ordinary `processTask` and project-executor behavior.
+
+#### Phase 4 — manifest and ACP runtime
+
+- Export referenced built-ins and user-created agents to a canonical, secret-free local manifest.
+- Add `--buzz-persona-manifest` parsing/loading and register its sanitised definitions in the headless
+  runtime before the ACP facade starts.
+- Fingerprint definition changes; refuse corrupt, path-escaping, empty, or newer manifests.
+- Keep the existing no-manifest recipe working as a clearly labelled legacy deployment.
+
+#### Phase 5 — Director and setup
+
+- Build Recommended / Active cards, profile editor, channel/default constraints, diagnostics, manifest
+  resync, setup copy, and nonce verification.
+- Do not place secret values, raw messages, full agent prompts, or local workspace paths in the
+  dashboard snapshot.
+
+#### Phase 6 — default routing and operational proof
+
+- Enable default mode only after Phase 0's exclusive-dispatch contract passes for the detected Buzz
+  version. Otherwise render the mode as unavailable with the exact reason.
+- Exercise owner and colleague allowlists, replay, cancellation, revocation, remote TLS relay policy,
+  and exactly-once host delivery.
+
+### Required tests
+
+- **Pure/unit:** schema migration and bounds; deterministic recommendations; overlapping membership;
+  oversight separation; missing/disabled members; stable canonical fingerprints; secret exclusion;
+  scoped selection/fallback; handoff confinement; permission intersection; one default per channel;
+  malformed/spoofed Buzz context.
+- **Integration:** recommendation → accepted profile → manifest; user-created agent loading in the
+  headless runtime; one agent shared by two personas; stale-manifest detection; exactly one host-owned
+  reply; workspace/manifest path containment.
+- **Real Buzz:** distinct signed identities; owner/colleague allowlists; mention-only routing; default
+  routing; specialist override without duplicate response; restart/replay; Windows startup; remote
+  TLS; identity removal/revocation.
+
+### Migration and compatibility
+
+- `atlasmind.buzz.agentBindings` stays inbound attribution and is not migrated automatically.
+- Director contacts and current subscription behavior remain unchanged.
+- Existing ACP setup without a persona manifest continues as a legacy fixed-default deployment until
+  the user deliberately adopts a profile.
+- Missing referenced agents mark a profile degraded; no reference is silently deleted or replaced.
+- No persona, manifest, Buzz identity, channel membership, or response gate is created on upgrade.
+
+### Completion gate
+
+Tier 5 is complete when a user can accept an AM Engineering recommendation, deploy it as a verified
+Buzz-managed identity, share one constituent AtlasMind agent with a second persona, place both in one
+project channel, designate exactly one default, and receive correctly attributed responses with no
+duplicate send, no permission expansion, no project escape, and no Buzz secret stored by AtlasMind.
 
 ---
 

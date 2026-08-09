@@ -129,6 +129,11 @@ The Workflow page shows all four, so you can see where you stand instead of work
 - **Deleting a tag or a release.**
 - **Re-running a CI job.** Re-running until green turns a flaky test into policy.
 - **Editing a CI workflow file.** That file is what enforces the gates.
+
+The Pipeline page does allow a human to manage CI without weakening that rule. It inspects existing
+workflow files read-only, opens them in the editor, and can ask AtlasMind for a proposal. For a project
+with no CI, it can create one deterministic starter after an exact preview. That path is manual,
+create-only, and cannot replace, disable or delete a workflow; it is not automatic workflow editing.
 - **Merging a dependency update.** That's a supply-chain decision.
 - **Storing a GitHub token.** AtlasMind holds no credential — it uses your authenticated `gh` CLI, so
   your access stays revocable where you granted it.
