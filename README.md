@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.270.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.270.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.270.1
+## What's new in 0.270.2
 
 Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Buzz roadmap now defines AtlasMind persona teams for future implementation.** Director will
+  recommend a small set of Buzz-facing roles from the project's enabled agents, allow one AtlasMind
+  agent to participate in several personas, and keep each signed Buzz identity behind a constrained
+  orchestration scope. The plan separates shared project intent, local deployment state, the headless
+  runtime manifest, and Buzz-owned keys; it also makes exclusive default routing and colleague
+  allowlists an explicit compatibility gate rather than an assumption.
 
 - **Pipeline is now a CI control centre, not only a run history.** It explains the three professional
   layers—workflow definition, trigger/branch assignment, and required-check enforcement—then inspects

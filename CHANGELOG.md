@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.2] - 2026-08-09
+
+### Changed
+
+- **Recorded the implementation contract for Director-recommended Buzz persona teams.** The Buzz
+  roadmap now defines explainable grouping of enabled AtlasMind agents into a smaller set of signed
+  Buzz identities, many-to-many membership, project intent versus local deployment and runtime
+  manifests, persona-scoped selection/handoffs/skills, default-versus-mention routing, colleague
+  allowlists, migration rules, phased delivery, and the tests required before default routing can be
+  enabled without duplicate replies.
+
 ## [0.270.1] - 2026-08-09
 
 ### Changed

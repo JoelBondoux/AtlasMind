@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.270.2 — Buzz persona-team implementation plan
+
+The Buzz integration roadmap now records how Director will recommend a small set of useful
+Buzz-facing AtlasMind roles—such as Engineering, Business, Marketing, Research and Oversight—from a
+project's enabled agents. One AtlasMind agent may support several Buzz identities, while each identity
+keeps its own constrained orchestration and permission ceiling.
+
+The plan separates project-owned persona intent from local deployment state, the secret-free runtime
+manifest, and Buzz-owned keys. It also requires a two-agent compatibility proof before a channel
+default is enabled, so an unaddressed message reaches the default identity while an explicit specialist
+mention produces exactly one specialist reply.
+
+---
+
 ## v0.270.1 — Workflow status colour is quieter
 
 The **Your workflow file** stage rows now follow the dashboard's standard status treatment. Colour is
