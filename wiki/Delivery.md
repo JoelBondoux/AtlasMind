@@ -164,8 +164,10 @@ record at all.
   protected branch it refuses outright.
 - **Every command comes from your configuration**, read on the server side. The dashboard can trigger a
   promotion and attest a check; it can never supply a command to run.
-- **Release fixes never push, tag or force-push.** At most they edit `package.json` and `CHANGELOG.md`
-  and make a scoped commit.
+- **Release fixes never push, tag or force-push.** The Detected Runbook shows **Prepare release version**
+  as a prerequisite. Resolve & run updates the manifest, npm root lockfile version, formal changelog,
+  recognised README current-version markers, and an existing wiki changelog as one scoped commit. It
+  never creates a project-specific mirror that was not already there.
 - **Production is protected by default**, and the backup gate denies by default.
 - **The history is append-only.** Entries get added, never rewritten.
 

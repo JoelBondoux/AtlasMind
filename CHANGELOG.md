@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.3] - 2026-08-09
+
+### Changed
+
+- **Resolve & run now prepares the whole detected release contract.** A version bump synchronizes npm's
+  root lockfile version, recognised README current-version markers, the formal changelog, and an existing
+  wiki changelog before making its path-scoped commit. The Detected Runbook now shows version preparation
+  explicitly and detects a repository-provided release-preparation script when one exists.
+- **Promotion failures now show the useful end of clean output.** ANSI/control sequences and secret-shaped
+  values are removed, verbose hook output keeps its failure tail, and Git receives a bounded 16 MiB capture
+  buffer so a successful but chatty pre-commit hook is not killed by Node's default buffer.
+
 ## [0.270.2] - 2026-08-09
 
 ### Changed

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import {
   buildPromotionPlan,
   evaluatePromotionGateExceptFixable,
@@ -7,6 +10,9 @@ import {
   setPackageJsonVersion,
   insertChangelogEntry,
   buildInitialChangelog,
+  syncReadmeReleaseVersion,
+  syncNpmLockfileVersion,
+  insertWikiChangelogEntry,
   applyPromotionRemediation,
 } from '../../src/core/promotionRunner.ts';
 import type { DeliveryConfig, DeploymentStage, PromotionPlan } from '../../src/types.ts';
@@ -108,6 +114,34 @@ describe('buildInitialChangelog', () => {
   });
 });
 
+describe('release metadata synchronization', () => {
+  it('updates only recognised current-version README markers', () => {
+    const raw = '# App\nCurrent source version: 1.2.3\n## What\'s new in 1.2.3\nHistory: 1.2.3\n';
+    const out = syncReadmeReleaseVersion(raw, '1.2.3', '1.2.4');
+    expect(out).toContain('Current source version: 1.2.4');
+    expect(out).toContain("## What's new in 1.2.4");
+    expect(out).toContain('History: 1.2.3');
+  });
+
+  it('inserts a wiki release above history and is idempotent', () => {
+    const raw = '# Changelog\n\n---\n\n## v1.2.3 — Previous\n\nOld.\n';
+    const once = insertWikiChangelogEntry(raw, '1.2.4');
+    expect(once.indexOf('## v1.2.4')).toBeLessThan(once.indexOf('## v1.2.3'));
+    expect(insertWikiChangelogEntry(once, '1.2.4')).toBe(once);
+  });
+
+  it('updates only the root versions in an npm lockfile', () => {
+    const raw = JSON.stringify({
+      name: 'demo', version: '1.2.3', lockfileVersion: 3,
+      packages: { '': { name: 'demo', version: '1.2.3' }, 'node_modules/same': { version: '1.2.3' } },
+    }, null, 2) + '\n';
+    const parsed = JSON.parse(syncNpmLockfileVersion(raw, '1.2.4'));
+    expect(parsed.version).toBe('1.2.4');
+    expect(parsed.packages[''].version).toBe('1.2.4');
+    expect(parsed.packages['node_modules/same'].version).toBe('1.2.3');
+  });
+});
+
 describe('buildPromotionPlan — remediation', () => {
   function planFor(opts: {
     fromVersion: string;
@@ -188,6 +222,40 @@ describe('applyPromotionRemediation — safety', () => {
     expect(res.ok).toBe(false);
     expect(res.committed).toBe(false);
     expect(res.output).toMatch(/unexpected version/i);
+  });
+
+  it('treats the manifest, changelog, and recognised release docs as one edit', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'atlasmind-promotion-'));
+    try {
+      await mkdir(path.join(root, 'wiki'));
+      await writeFile(path.join(root, 'package.json'), '{\n  "name": "demo",\n  "version": "1.2.3"\n}\n');
+      await writeFile(path.join(root, 'package-lock.json'), '{\n  "name": "demo",\n  "version": "1.2.3",\n  "lockfileVersion": 3,\n  "packages": { "": { "version": "1.2.3" } }\n}\n');
+      await writeFile(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-01-01\n\n- Old.\n');
+      await writeFile(path.join(root, 'README.md'), '# Demo\n\nCurrent source version: 1.2.3\n\n## What\'s new in 1.2.3\n');
+      await writeFile(path.join(root, 'wiki', 'Changelog.md'), '# Changelog\n\n---\n\n## v1.2.3 — Old\n');
+
+      const res = await applyPromotionRemediation(root, {
+        resolves: ['version-bump', 'changelog'],
+        targetVersion: '1.2.4',
+        bumpLevel: 'patch',
+        bumpReason: 'patch',
+        editsChangelog: true,
+        commits: false,
+        summary: '',
+      });
+
+      expect(res).toEqual(expect.objectContaining({ ok: true, committed: false }));
+      expect(await readFile(path.join(root, 'package.json'), 'utf8')).toContain('"version": "1.2.4"');
+      expect(await readFile(path.join(root, 'package-lock.json'), 'utf8')).toContain('"version": "1.2.4"');
+      expect(await readFile(path.join(root, 'CHANGELOG.md'), 'utf8')).toContain('## [1.2.4]');
+      expect(await readFile(path.join(root, 'README.md'), 'utf8')).toContain('Current source version: 1.2.4');
+      expect(await readFile(path.join(root, 'wiki', 'Changelog.md'), 'utf8')).toContain('## v1.2.4');
+      expect(res.output).toContain('README.md');
+      expect(res.output).toContain('package-lock.json');
+      expect(res.output).toContain('wiki/Changelog.md');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

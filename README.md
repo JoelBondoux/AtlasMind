@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.270.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.270.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.270.2
+## What's new in 0.270.3
 
 Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
+  preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,
+  formal changelog, and recognised README/wiki version markers together before committing, so the
+  repository's own pre-commit checks do not reject a half-updated release. If a hook still fails, the
+  dialog shows clean, concise failure-tail output instead of pages of terminal escape codes.
 
 - **The Buzz roadmap now defines AtlasMind persona teams for future implementation.** Director will
   recommend a small set of Buzz-facing roles from the project's enabled agents, allow one AtlasMind

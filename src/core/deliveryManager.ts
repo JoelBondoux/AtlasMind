@@ -429,6 +429,24 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     command: 'git status --short',
     blocking: input.workingTreeClean === false,
   });
+  const requiresVersionBump = production?.promotionPolicy.requireVersionBump === true;
+  if (requiresVersionBump) {
+    const versionScript = ['prepare:release', 'release:prepare', 'version:bump', 'bump:version', 'version']
+      .find(name => scripts.has(name));
+    const currentVersion = guideText(rawPackage['version'], 80);
+    add('prepare', {
+      label: 'Prepare release version',
+      detail: versionScript
+        ? `Exact script declared in package.json: ${guideText(scripts.get(versionScript), 300)}`
+        : currentVersion
+          ? `package.json currently declares ${currentVersion}. Promotion requires a newer version and synchronized release notes; Resolve & run prepares them together.`
+          : 'Production requires a version bump, but no manifest version or release-preparation script was detected.',
+      ...(versionScript ? { command: toolchain === 'yarn' ? `yarn ${versionScript}` : `${toolchain} run ${versionScript}` } : {}),
+      path: packageFile,
+      status: versionScript ? 'configured' : currentVersion ? 'manual' : 'missing',
+      blocking: !currentVersion && !versionScript,
+    });
+  }
   const requiresChangelog = production?.promotionPolicy.requireChangelog === true;
   if (requiresChangelog) {
     add('prepare', {

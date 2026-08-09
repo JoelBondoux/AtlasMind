@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.270.3 — Resolve & run prepares the complete release
+
+**Resolve & run** no longer bumps only `package.json` and `CHANGELOG.md` and then discovers in the
+pre-commit hook that the repository requires other release surfaces to agree. It now treats versioning
+as one release-metadata operation: npm's root lockfile version, recognised README current-version
+markers, the formal changelog, and an existing wiki changelog are synchronized and committed together.
+
+The Detected Runbook also names **Prepare release version** as a prerequisite and surfaces an exact
+repository release-preparation script when one is declared. Failed hooks are rendered from sanitized,
+secret-redacted tail output, and verbose successful hooks receive a larger bounded capture buffer.
+
+---
+
 ## v0.270.2 — Buzz persona-team implementation plan
 
 The Buzz integration roadmap now records how Director will recommend a small set of useful

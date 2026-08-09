@@ -381,6 +381,15 @@ The Delivery page hosts a full **stage editor**: stages can be added, edited, re
 
 ### PromotionRunner (`src/core/promotionRunner.ts`)
 
+Release remediation and the detected runbook now describe the same versioning boundary. When a target
+requires a version bump, `buildProjectDeliveryGuide` surfaces **Prepare release version** in
+Prerequisites and prefers an exact repository script (`prepare:release`, `release:prepare`,
+`version:bump`, `bump:version`, or `version`) when declared. `applyPromotionRemediation` treats the bump
+as one path-scoped metadata edit: `package.json`, npm's root lockfile version, `CHANGELOG.md`, recognised
+README current-version markers, and an existing `wiki/Changelog.md` heading are synchronized before the
+commit. It never creates project-specific mirrors. Hook output crosses the same sanitized/redacted
+terminal boundary as CI logs, retains the failure tail, and uses a bounded 16 MiB Git capture buffer.
+
 The guarded promotion ("push") engine. `buildPromotionPlan(input)` assembles an inspectable `PromotionPlan` for a path: the ordered guarded steps (**preflight gate → backup → deploy → verify → record**) and the preflight checks. Checks AtlasMind can mechanically evaluate are computed (`requireVersionBump` via `compareSemver` of source vs target `package.json`, `requireChangelog` via a CHANGELOG scan, "working tree clean" via `git status`); every other named check is flagged for **manual attestation**. A target whose `backupPolicy.required` is set but has no command is recorded as a hard **blocker** (deny-by-default).
 
 `evaluatePromotionGate(plan, attestations, confirmText, targetName)` is the single authorization point: it refuses when there is any blocker, any failing auto-check, an un-attested manual check, a missing approval (when `requiresApproval`), or — for a protected stage — a confirmation string that does not match the target name. `runPromotion(options)` executes only after the gate passes, running the backup command, the bound routine's deploy steps (honouring each step's `on_fail`), and an HTTP health check of `hosting.healthCheckUrl`, streaming per-step progress and returning a result plus a rollback hint.

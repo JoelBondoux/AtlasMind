@@ -172,6 +172,13 @@ this project asks a newcomer to do**: prerequisites, validation, packaging, depl
 derived from bounded local manifests, scripts, routines, workflows and the stage model. Exact repository
 configuration, runtime conventions, human checks and missing blockers remain visibly different.
 
+Versioning is now explicit in both readings. A production path that requires a bump adds **Prepare
+release version** to the Detected Runbook and displays the repository's exact preparation script when it
+has one. The promotion resolver applies that same contract atomically across the manifest, npm root
+lockfile version, formal changelog, recognised README version markers, and an existing wiki changelog,
+then commits only those files. Hook logs are sanitized, secret-redacted and tail-capped before entering
+the webview, while Git's capture buffer remains bounded but large enough for the full quality hook.
+
 The Pipeline panel has a third, deliberately separate reading: `ciManager.ts` explains how CI itself
 is defined, assigned and enforced. Existing GitHub Actions files are reduced to safe metadata—triggers,
 branch scopes, jobs, runners, counts, timeouts, permission/concurrency flags and validation categories;

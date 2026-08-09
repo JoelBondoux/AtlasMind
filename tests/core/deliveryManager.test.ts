@@ -82,6 +82,7 @@ describe('buildProjectDeliveryGuide', () => {
     const guide = buildProjectDeliveryGuide({
       files: ['package.json', 'package-lock.json', 'CHANGELOG.md', '.github/workflows/publish.yml'],
       packageJson: {
+        version: '1.2.3',
         packageManager: 'npm@11.0.0',
         engines: { node: '>=22' },
         scripts: {
@@ -108,7 +109,10 @@ describe('buildProjectDeliveryGuide', () => {
     expect(guide.target).toBe('VS Code Marketplace');
     expect(guide.blockerCount).toBe(0);
     expect(guide.phases.find(phase => phase.id === 'prepare')?.steps)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ command: 'npm ci' })]));
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ command: 'npm ci' }),
+        expect.objectContaining({ label: 'Prepare release version', status: 'manual', path: 'package.json' }),
+      ]));
     expect(guide.phases.find(phase => phase.id === 'validate')?.steps.map(step => step.command))
       .toEqual(expect.arrayContaining(['npm run compile', 'npm run lint', 'npm run test']));
     expect(guide.phases.find(phase => phase.id === 'package')?.steps)
@@ -117,6 +121,33 @@ describe('buildProjectDeliveryGuide', () => {
       .toEqual(expect.arrayContaining([expect.objectContaining({ command: 'gh pr create --base main' })]));
     expect(guide.phases.find(phase => phase.id === 'publish')?.steps.map(step => step.command))
       .toContain('npm run tag:release');
+  });
+
+  it('shows a declared release-preparation script in the detected runbook', () => {
+    const config = seedDeliveryConfig({
+      currentBranch: 'develop',
+      productionBranch: 'main',
+      archetype: 'vscode-extension',
+      publishTarget: 'VS Code Marketplace',
+    });
+    const guide = buildProjectDeliveryGuide({
+      files: ['package.json', 'CHANGELOG.md'],
+      packageJson: {
+        version: '1.2.3',
+        scripts: { 'prepare:release': 'node scripts/prepare-release.mjs', test: 'vitest run', build: 'tsc' },
+      },
+      deliveryConfig: config,
+      workingTreeClean: true,
+    });
+
+    expect(guide.phases.find(phase => phase.id === 'prepare')?.steps)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Prepare release version',
+          status: 'configured',
+          command: 'npm run prepare:release',
+        }),
+      ]));
   });
 
   it('derives labelled Python conventions without claiming the project declared scripts', () => {
