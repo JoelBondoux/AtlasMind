@@ -2630,7 +2630,7 @@
     "@types/pg": "^8.20.4",
     "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.65.0",
     "@vitest/coverage-v8": "^4.1.10",
     "@vscode/test-web": "^0.0.81",
@@ -2639,7 +2639,7 @@
     "eslint": "^10.8.0",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.2"
   },
   "dependencies": {
