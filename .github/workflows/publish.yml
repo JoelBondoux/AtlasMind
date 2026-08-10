@@ -74,7 +74,7 @@ jobs:
           fi
 
       - name: Sign in to Azure with workload identity federation
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           # Variables, not secrets: a client id, tenant id and subscription id are
           # all discoverable. What stops anyone else assuming this identity is the
