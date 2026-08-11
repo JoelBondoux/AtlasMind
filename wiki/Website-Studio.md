@@ -1,5 +1,10 @@
 # UI Studio
 
+The approved multi-phase path from today's Studio to a complete visual builder is in
+[[UI Studio Builder Plan]]. It records requirements and acceptance criteria for the design graph, live
+built-in-browser editing loop, responsive layout, components, content/assets/data, repository mappings,
+quality gates, agency review, and imports.
+
 **A visual guide for designing an interface and continuing it in the real project.**
 
 Choose website, web app, mobile app, desktop app, editor extension, embedded UI, or another interface.

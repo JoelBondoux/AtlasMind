@@ -1,0 +1,129 @@
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+import {
+  applyDesignGraphToPages,
+  designGraphFromPages,
+  sanitizeUiDesignGraph,
+  UI_DESIGN_GRAPH_MAX_REVISION,
+  wireframeFromScreen,
+} from '../../src/core/uiDesignGraph.ts';
+import { createDefaultWebsiteWorkspace } from '../../src/core/websiteWorkspaceManager.ts';
+
+function pagesWithWireframe() {
+  const pages = createDefaultWebsiteWorkspace().pages;
+  pages[0]!.wireframe = {
+    breakpoint: 'tablet',
+    elements: [
+      {
+        id: 'hero',
+        kind: 'hero',
+        label: 'Opening',
+        rect: { x: 10, y: 20, width: 900, height: 360 },
+        designPrompt: 'Quiet and editorial.',
+        notes: 'Keep the photograph uncropped.',
+      },
+      {
+        id: 'copy',
+        kind: 'text',
+        label: 'Introduction',
+        parentId: 'hero',
+        rect: { x: 80, y: 100, width: 480, height: 160 },
+        designPrompt: '',
+        notes: '',
+      },
+    ],
+  };
+  return pages;
+}
+
+describe('UI design graph', () => {
+  it('transcribes every legacy wireframe fact and round-trips its projection', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    const screen = graph.screens[0]!;
+
+    expect(screen).toMatchObject({
+      id: pages[0]!.id,
+      pageId: pages[0]!.id,
+      initialized: true,
+      baseBreakpoint: 'tablet',
+    });
+    expect(wireframeFromScreen(screen)).toEqual(pages[0]!.wireframe);
+    expect(screen.nodes[1]).toMatchObject({
+      id: 'copy',
+      parentId: 'hero',
+      layout: { mode: 'free', widthMode: 'fixed', heightMode: 'fixed', hidden: false },
+      viewportOverrides: {},
+    });
+  });
+
+  it('preserves the difference between an untouched screen and an empty drawing', () => {
+    const pages = createDefaultWebsiteWorkspace().pages;
+    const graph = designGraphFromPages(pages);
+    expect(graph.screens.every(screen => !screen.initialized)).toBe(true);
+
+    pages[0]!.wireframe = { breakpoint: 'desktop', elements: [] };
+    const withEmptyDrawing = designGraphFromPages(pages);
+    expect(withEmptyDrawing.screens[0]?.initialized).toBe(true);
+    expect(applyDesignGraphToPages(pages, graph)[0]?.wireframe).toBeUndefined();
+    expect(applyDesignGraphToPages(pages, withEmptyDrawing)[0]?.wireframe).toEqual({
+      breakpoint: 'desktop',
+      elements: [],
+    });
+
+    const hostile = designGraphFromPages(pages);
+    hostile.revision = Number.MAX_SAFE_INTEGER;
+    hostile.screens[0]!.initialized = false;
+    hostile.screens[0]!.nodes = withEmptyDrawing.screens[0]!.nodes;
+    const sanitized = sanitizeUiDesignGraph(hostile, pages);
+    expect(sanitized.revision).toBe(UI_DESIGN_GRAPH_MAX_REVISION);
+    expect(sanitized.screens[0]?.nodes).toEqual([]);
+  });
+
+  it('makes a supplied graph authoritative over its legacy page projection', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages, 7);
+    graph.screens[0]!.nodes[0]!.label = 'Graph wins';
+
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    const projected = applyDesignGraphToPages(pages, sanitized);
+
+    expect(sanitized.revision).toBe(7);
+    expect(projected[0]?.wireframe?.elements[0]?.label).toBe('Graph wins');
+    expect(projected[0]?.sections[0]).toBe('Graph wins');
+  });
+
+  it('bounds layout, refs, viewport overrides, and invalid hierarchy through one sanitizer', () => {
+    const pages = pagesWithWireframe();
+    const raw = designGraphFromPages(pages);
+    const node = raw.screens[0]!.nodes[1]!;
+    node.parentId = 'missing';
+    node.layout.rect = { x: -100, y: -10, width: 50_000, height: Number.POSITIVE_INFINITY };
+    node.contentRef = '../content/<script>';
+    node.viewportOverrides.mobile = {
+      rect: { x: -100, y: 9_000, width: 0, height: 0 },
+      hidden: true,
+    };
+
+    const sanitized = sanitizeUiDesignGraph(raw, pages);
+    const result = sanitized.screens[0]!.nodes[1]!;
+
+    expect(result.parentId).toBeUndefined();
+    expect(result.layout.rect.x).toBeGreaterThanOrEqual(0);
+    expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
+    expect(result.contentRef).toBe('content-script');
+    expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true });
+  });
+
+  it('is total for arbitrary untrusted graph input', () => {
+    const pages = pagesWithWireframe();
+    fc.assert(fc.property(fc.anything(), input => {
+      const graph = sanitizeUiDesignGraph(input, pages);
+      expect(graph.screens).toHaveLength(pages.length);
+      expect(Number.isSafeInteger(graph.revision)).toBe(true);
+      for (const screen of graph.screens) {
+        expect(pages.some(page => page.id === screen.pageId)).toBe(true);
+      }
+    }));
+  });
+});

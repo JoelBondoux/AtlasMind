@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 5,
+  website: 6,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -194,7 +194,67 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       },
     }),
   },
+  {
+    kind: 'website',
+    from: 5,
+    to: 6,
+    summary: 'UI Studio now stores a revisioned target-independent design graph while retaining page wireframes as a compatibility projection.',
+    // The graph says only what v5 already said. Layout defaults name the old
+    // canvas semantics; responsive overrides, references, components, tokens,
+    // and states remain empty because a migration has no standing to invent
+    // them. `initialized` preserves the distinction between an untouched page
+    // and a deliberately empty canvas.
+    migrate: document => {
+      const pages = Array.isArray(document['pages']) ? document['pages'] : [];
+      return {
+        ...document,
+        version: 6,
+        designGraph: {
+          revision: 0,
+          screens: pages.map(page => {
+            const pageRecord = asMigrationRecord(page);
+            const wireframe = asMigrationRecord(pageRecord['wireframe']);
+            const elements = Array.isArray(wireframe['elements']) ? wireframe['elements'] : [];
+            const pageId = typeof pageRecord['id'] === 'string' ? pageRecord['id'] : '';
+            return {
+              id: pageId,
+              pageId,
+              initialized: pageRecord['wireframe'] !== undefined,
+              baseBreakpoint: typeof wireframe['breakpoint'] === 'string'
+                ? wireframe['breakpoint']
+                : 'desktop',
+              nodes: elements.map(element => {
+                const record = asMigrationRecord(element);
+                return {
+                  id: record['id'],
+                  kind: record['kind'],
+                  label: record['label'],
+                  ...(record['parentId'] !== undefined ? { parentId: record['parentId'] } : {}),
+                  layout: {
+                    mode: 'free',
+                    rect: record['rect'],
+                    widthMode: 'fixed',
+                    heightMode: 'fixed',
+                    hidden: false,
+                  },
+                  viewportOverrides: {},
+                  designPrompt: record['designPrompt'],
+                  notes: record['notes'],
+                };
+              }),
+            };
+          }),
+        },
+      };
+    },
+  },
 ];
+
+function asMigrationRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
 
 /**
  * The `sections` → wireframe transcription used by the website 1 → 2 step.

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.274.0] - 2026-08-11
+
+### Added
+
+- **UI Studio's class-leading visual-builder roadmap is now a repository-owned product contract.** The
+  PRD defines goals, non-goals, P0/P1/P2 requirements and acceptance criteria, phased delivery, reference
+  projects, metrics, risks, and open questions. Three accepted decisions pin design authority, the bounded
+  built-in-browser preview protocol, and v6 compatibility semantics.
+- **Format v6 introduces the authoritative target-independent design graph.** Stable screens and nodes carry
+  base layout, viewport overrides, content/style/component references, and a monotonic revision. The 5 → 6
+  migration transcribes existing wireframes without inventing responsive or component intent, including the
+  distinction between an untouched screen and an intentionally empty drawing.
+- **A pure closed edit-command reducer establishes the future canvas mutation boundary.** Initial label,
+  design-intent, move, resize, reparent, visibility, undo, and redo commands validate the revision and target
+  before mutation. Stale edits are refused, geometry remains bounded, hierarchy is checked, redo branches are
+  explicit, and history is capped at 100 snapshots.
+
+### Changed
+
+- **Legacy page wireframes are now compatibility projections of the graph when v6 data is present.** Current
+  renderers keep working while graph consumers move incrementally, but there is one declared winner rather
+  than silent last-write-wins drift.
+
 ## [0.273.0] - 2026-08-11
 
 ### Added

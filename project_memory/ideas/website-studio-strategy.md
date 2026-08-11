@@ -1,6 +1,7 @@
 # Website Studio — a plan to lead the category
 
-**Status:** proposal, for argument. Nothing here is committed to a roadmap.
+**Status:** superseded as the active roadmap by `docs/ui-studio-builder-plan.md`; retained as the strategy
+and competitive rationale that led to the approved plan.
 **Written:** 2026-08-06, against v0.265.0.
 **Audience decision:** agencies *and* developers — the agency workflow as the frame, a real
 repository as the artefact.

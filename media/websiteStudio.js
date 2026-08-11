@@ -806,7 +806,7 @@
     }));
 
     return {
-      version: 5,
+      version: 6,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
       intake: {

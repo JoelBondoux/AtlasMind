@@ -167,13 +167,21 @@ plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, 
 Skills, MCP Servers and Resource Discovery.
 
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
-`project_memory/domain/website.json` path for compatibility, but format v5 adds an explicit interface
-profile. Website, web-app, mobile, desktop, editor-extension, embedded and other profiles share screens,
+`project_memory/domain/website.json` path for compatibility, but format v6 adds a revisioned,
+target-independent `UiDesignGraph` behind the explicit interface profile. Website, web-app, mobile,
+desktop, editor-extension, embedded and other profiles share screens,
 flows, content design, Markdown copy, wireframes, design-system decisions and an implementation guide.
 Only a website profile renders SEO, stack setup, hosting, Delivery comparison and n8n. Content writes
 carry no path: the host resolves a bounded screen id through `WebsiteContentManager`, derives the file,
 and refuses a save when its expected body no longer matches disk. Missing files are create-only and
 placeholder-only.
+
+`uiDesignGraph.ts` is the graph's untrusted-input boundary and derives the legacy page wireframe while
+existing readers migrate; a valid graph is the declared winner. `uiEditCommands.ts` is the pure closed
+mutation path for future canvas, preview, form, and model-proposed edits. Every command names the revision
+it read, refuses stale or invalid targets, and records bounded undo/redo without ever rewinding revision.
+The 5 → 6 migration preserves every prior wireframe fact and the untouched-versus-empty distinction while
+inventing no responsive, token, component, or source-mapping intent.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content under the preview server's

@@ -114,6 +114,7 @@ AtlasMind/
 │   ├── ssot-memory.md    Memory system design
 │   ├── agents-and-skills.md  Agent and skill system
 │   ├── website-studio.md Website Studio workflow and safety boundary
+│   ├── ui-studio-builder-plan.md Approved visual-builder PRD and phased delivery plan
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
@@ -128,7 +129,7 @@ AtlasMind/
 │   ├── acp/              Agent-side ACP sessions, permissions, Buzz setup/reply boundary
 │   ├── chat/             Chat participant
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`) plus its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit core (`uiDesignGraph.ts`, `uiEditCommands.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensDashboard.ts Pure Lens catalog, readiness rules, flow map, and ranked actions
 │   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the five declaration files
 │   │   ├── lensDeclarationDraft.ts Untrusted-model boundary for a proposed declaration: refuse, anchor-check, withhold, merge
@@ -306,6 +307,13 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
+Format v6 adds `UiDesignGraph`. `uiDesignGraph.ts` is the only compatibility converter: when a graph is
+present it derives page wireframes for older renderers, and when the current canvas submits its temporary
+wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
+graph/wireframe converter. New design mutations belong in `uiEditCommands.ts`; its expected-revision check,
+closed command union, bounded geometry/hierarchy, and monotonic history are the contract the live preview
+will use too.
+
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized
 plan, and `WebsiteContentManager` derives the path. Save includes the body originally opened and is
@@ -333,7 +341,10 @@ Stack setup adds four rules of its own, and each is pinned by a test rather than
 - **Create-only for anything that could destroy work** — config files, `package.json` scripts, branches, workflows. An existing one is reported untouched. A scaffolder that overwrites can only safely be run once, which makes it useless for the case it exists for.
 - **Re-probe, never infer.** A scaffold command can exit zero having done nothing; `websiteStackSetupHost.ts` checks the filesystem afterwards and reports what is actually there.
 
-Tests live in `tests/core/website*.test.ts` (eleven suites, including property tests for the wireframe sanitizer and the preview server's path resolution, and exhaustive walks for the setup planner and the CI templates) and `tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`.
+Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`, and
+`tests/core/uiEditCommands.test.ts` (including property tests for the graph/wireframe sanitizers and preview
+path resolution, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
+`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`.
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 

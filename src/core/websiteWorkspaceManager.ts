@@ -38,6 +38,7 @@ import { deriveSectionLabels, sanitizeWireframe } from './websiteWireframe.js';
 import { buildSitemapTree, flattenSitemap, normalizeSlug } from './websiteSitemap.js';
 import { buildLinkGraph } from './websiteLinkGraph.js';
 import { interpretVersionedDocument } from './schemaMigration.js';
+import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph } from './uiDesignGraph.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
 export const WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH = 'project_memory/domain/website.md';
@@ -49,7 +50,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 5;
+const WEBSITE_SCHEMA_VERSION = 6;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -111,6 +112,12 @@ export interface WebsiteBootstrapSeed {
 export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): WebsiteWorkspaceConfig {
   const now = new Date().toISOString();
   const primaryPlatform = inferPlatformId(seed.platformHint);
+  const pages = [
+    defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action'], 0),
+    defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action'], 1),
+    defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action'], 2),
+    defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
+  ];
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: now,
@@ -131,12 +138,8 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
       budget: optionalText(seed.budget, 160),
       stakeholders: [],
     },
-    pages: [
-      defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action'], 0),
-      defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action'], 1),
-      defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action'], 2),
-      defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
-    ],
+    pages,
+    designGraph: designGraphFromPages(pages),
     designSystem: defaultDesignSystem(seed.brandNotes),
     contentDesign: defaultContentDesign(),
     implementation: defaultImplementationGuide(),
@@ -157,6 +160,9 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const fallback = createDefaultWebsiteWorkspace();
   const intake = sanitizeClientWebsiteIntake(source['intake']);
   const pages = sanitizePages(source['pages']);
+  const selectedPages = pages.length > 0 ? pages : fallback.pages;
+  const designGraph = sanitizeUiDesignGraph(source['designGraph'], selectedPages);
+  const projectedPages = applyDesignGraphToPages(selectedPages, designGraph);
   const designSystem = sanitizeDesignSystem(source['designSystem']);
   const contentDesign = sanitizeContentDesign(source['contentDesign']);
   const implementation = sanitizeImplementationGuide(source['implementation']);
@@ -174,7 +180,8 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
       : 'website',
     designPrompt: cleanText(source['designPrompt'], 4_000),
     intake,
-    pages: pages.length > 0 ? pages : fallback.pages,
+    pages: projectedPages,
+    designGraph,
     designSystem,
     contentDesign,
     implementation,
@@ -398,6 +405,8 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '| Page | Slug | Links to | Wireframe | UI design | Content | SEO |',
     '|---|---|---|---:|---:|---:|---:|',
     ...renderPageRows(config),
+    '',
+    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}.`,
     '',
     ...renderLinkFindings(config),
     '## Page Design Prompts',

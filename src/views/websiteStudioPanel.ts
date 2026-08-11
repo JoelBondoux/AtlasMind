@@ -3,11 +3,13 @@ import { readFileSync } from 'node:fs';
 import {
   assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
+  sanitizeWebsiteWorkspace,
   WEBSITE_PLATFORM_CATALOG,
   WEBSITE_WORKSPACE_SSOT_PATH,
   WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH,
   WebsiteWorkspaceManager,
 } from '../core/websiteWorkspaceManager.js';
+import { designGraphFromPages, UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
 import type {
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
@@ -346,8 +348,30 @@ export class WebsiteStudioPanel {
       switch (input.type) {
         case 'ready':
           return;
-        case 'saveConfig':
-          this.config = await this.manager.save(input.payload);
+        case 'saveConfig': {
+          const payload = sanitizeWebsiteWorkspace(input.payload);
+          const suppliedGraph = typeof input.payload === 'object'
+            && input.payload !== null
+            && !Array.isArray(input.payload)
+            && 'designGraph' in input.payload;
+          if (!suppliedGraph && this.config.designGraph.revision >= UI_DESIGN_GRAPH_MAX_REVISION) {
+            throw new Error('The UI design revision limit has been reached. Save was refused so an older browser event cannot become current again.');
+          }
+          // The current canvas still edits the compatibility wireframe in one
+          // in-memory batch. Until its gestures route through UiEditCommand,
+          // transcribe that batch once and advance revision rather than saving
+          // an absent graph as revision zero or letting the previous graph
+          // overwrite the newly drawn boxes.
+          const compatiblePayload = suppliedGraph
+            ? payload
+            : {
+                ...payload,
+                designGraph: designGraphFromPages(
+                  payload.pages,
+                  this.config.designGraph.revision + 1,
+                ),
+              };
+          this.config = await this.manager.save(compatiblePayload);
           await this.refreshPreviewIfRunning();
           // Re-render on the page the user is already on. Saving used to update
           // `this.config` and post a success notice without re-rendering, so
@@ -362,6 +386,7 @@ export class WebsiteStudioPanel {
             message: `UI plan saved to ${WEBSITE_WORKSPACE_SSOT_PATH}.`,
           });
           return;
+        }
         case 'savePageContent': {
           const page = this.config.pages.find(candidate => candidate.id === input.payload.pageId);
           if (!page) {

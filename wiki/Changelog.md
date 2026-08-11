@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.274.0 — UI Studio gets an authoritative design core
+
+UI Studio's complete visual-builder direction now lives in the repository as an approved product plan,
+with phased requirements, acceptance criteria, reference projects, metrics, risks, and explicit decisions
+about design authority and the built-in-browser preview boundary.
+
+The first foundation is implemented too. Format v6 transcribes existing wireframes into one revisioned,
+target-independent design graph without losing page structure or inventing responsive/component intent.
+A closed edit reducer validates revisions, nodes, geometry, and hierarchy before changing the graph; its
+bounded undo and redo keep revisions moving forward so stale browser events cannot become current again.
+
 ## v0.273.0 — Full preview becomes the design loop
 
 UI Studio now has a numbered **Full Preview** step. Its primary canvas opens in VS Code's built-in

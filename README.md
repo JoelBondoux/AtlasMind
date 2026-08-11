@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.273.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.274.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,24 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.273.0
+## What's new in 0.274.0
 
-The last Marketplace publication, **v0.270.3**, is the baseline for the first nine items below; the remaining
+The last Marketplace publication, **v0.270.3**, is the baseline for the first twelve items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **UI Studio now has a durable plan to compete as a complete visual builder.** The repository records the
+  product contract, delivery phases, acceptance criteria, reference projects, quality measures, and the
+  design/source/preview authority decisions. See the [full builder plan](docs/ui-studio-builder-plan.md).
+
+- **The visual design now has one revisioned graph underneath it.** Format v6 preserves every existing
+  wireframe fact while giving screens and nodes stable identities, bounded layout, responsive override slots,
+  and content/style/component references. Existing renderers receive a derived compatibility wireframe, so
+  this foundation can land without disconnecting today's Studio.
+
+- **Future canvas and preview edits now share a safe mutation protocol.** A pure closed command reducer checks
+  the graph revision, node, geometry, and parent relationship before changing anything. Undo and redo restore
+  design content while revisions keep moving forward, so an old browser or webview event never becomes current
+  again by accident.
 
 - **Preview is now the centre of UI Studio's design loop.** Full-canvas review opens in VS Code's
   built-in browser and always starts from a deterministic index built from saved structure, visual
@@ -549,7 +563,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, CI inspection/scaffolding (`ciManager.ts`), and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit core (`uiDesignGraph.ts`, `uiEditCommands.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -560,7 +574,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security and regression coverage |
-| `docs/` and `wiki/` | Developer reference and user guides |
+| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
 
 The full service map is in [Architecture](docs/architecture.md).
 
@@ -570,7 +584,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Start here:** [Getting Started](wiki/Getting-Started.md) · [FAQ](wiki/FAQ.md) · [Chat Commands](wiki/Chat-Commands.md) · [Configuration](wiki/Configuration.md)
 
-**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [CLI](wiki/CLI.md)
+**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [UI Studio builder plan](wiki/UI-Studio-Builder-Plan.md) · [CLI](wiki/CLI.md)
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 

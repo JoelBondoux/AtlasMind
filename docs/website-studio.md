@@ -6,6 +6,10 @@ embedded UI, or another interface profile. Open it from **Project Dashboard → 
 Project Ideation board, or with **AtlasMind: Open UI Studio**. The command id and the
 `project_memory/domain/website.json` path remain stable for extension and repository compatibility.
 
+The approved path from this foundation to a class-leading visual builder is recorded in
+[UI Studio — class-leading visual builder plan](ui-studio-builder-plan.md), including phased requirements,
+acceptance criteria, reference projects, metrics, risks, and the design/source/preview authority decisions.
+
 Website is a profile, not the product boundary. Every profile shares project brief, screens and flows,
 content design, Markdown screen copy, wireframes, UI system, and implementation guidance. The website
 profile additionally exposes sitemap/SEO language, stack setup,
@@ -359,7 +363,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 5**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 6**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -378,7 +382,7 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
 
-### Formats v2 → v5
+### Formats v2 → v6
 
 - v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
 - v4 moved actual copy into separately managed Markdown files; migration created no files because
@@ -386,6 +390,10 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
 - v5 adds `surfaceKind`, project-wide content design and implementation guidance. A v4 workspace
   becomes `website`, the only profile the old format could represent, and both new guidance records
   start empty rather than inventing product or source-code decisions.
+- v6 adds the target-independent, monotonic-revision design graph. The migration transcribes every
+  existing node, parent, label, prompt, note, breakpoint, and rectangle. It records whether a screen had
+  never been drawn, creates no responsive override or component claim, and keeps page wireframes as a
+  derived compatibility projection while current renderers move to the graph.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

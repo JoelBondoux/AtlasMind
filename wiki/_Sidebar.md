@@ -18,6 +18,7 @@
 - [[GitHub Workflow]]
 - [[Delivery]]
 - [[Website Studio|UI Studio]]
+- [[UI Studio Builder Plan]]
 - [[Resource Discovery]]
 
 ### Other ways in

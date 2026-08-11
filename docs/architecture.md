@@ -285,6 +285,8 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
 - per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
+- a revisioned `UiDesignGraph` whose stable screens/nodes, base layout, viewport overrides, and bounded
+  content/style/component references are authoritative when present;
 - project-level UI system decisions;
 - project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
   source-root, component-location, and handoff hints (data only, never commands);
@@ -298,7 +300,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 5**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either.
+The SSOT is at **format version 6**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
 `src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
 Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
@@ -311,7 +313,16 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 ### Website Studio design and generation modules
 
-Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+Eight pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v6 graph against the page inventory, preserves
+  stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
+  `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
+  a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
+- **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
+  events, and model proposals. Commands carry an expected revision; stale/missing/invalid targets refuse.
+  Successful mutations and undo/redo all advance revision monotonically, history is capped at 100, and a
+  fresh edit clears the redo branch.
 
 - **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
 - **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.
@@ -1032,6 +1043,27 @@ Desktop-only localhost WebSocket server that lets the AtlasMind web build remote
 
 ## Key Interfaces
 
+`WebsiteWorkspaceConfig` v6 keeps the compatibility page model and adds the authoritative design core:
+
+```typescript
+interface UiDesignGraph {
+  revision: number;
+  screens: UiDesignScreen[];
+}
+
+interface UiDesignScreen {
+  id: string;
+  pageId: string;
+  initialized: boolean;
+  baseBreakpoint: 'desktop' | 'tablet' | 'mobile';
+  nodes: UiDesignNode[];
+}
+```
+
+Each `UiDesignNode` owns a bounded base layout, optional per-viewport overrides, stable parent identity,
+and non-executable content/style/component references. `initialized` is required because “never drawn” and
+“drawn, intentionally empty” are different facts. Revision is monotonic even across undo/redo.
+
 `VoiceSettings` carries both synthesis controls and capability-sensitive device preferences:
 
 ```typescript
@@ -1304,6 +1336,8 @@ extension.ts
   │     ├── views/skillScannerPanel.ts
   │     ├── views/websiteStudioPanel.ts (+ views/websiteStudioStyles.ts, media/websiteStudio.js)
   │     │     ├── core/websiteWorkspaceManager.ts
+  │     │     ├── core/uiDesignGraph.ts
+  │     │     ├── core/uiEditCommands.ts
   │     │     ├── core/websiteWireframe.ts
   │     │     ├── core/websiteSitemap.ts
   │     │     ├── core/websiteLinkGraph.ts
@@ -1370,6 +1404,8 @@ tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   ├── websiteWorkspaceManager.test.ts
+  ├── uiDesignGraph.test.ts
+  ├── uiEditCommands.test.ts
   ├── websiteWireframe.test.ts
   ├── websiteSitemap.test.ts
   ├── websiteLinkGraph.test.ts

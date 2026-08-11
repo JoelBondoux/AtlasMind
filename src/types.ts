@@ -1295,6 +1295,70 @@ export interface WebsiteWireframe {
   elements: WebsiteWireframeElement[];
 }
 
+/** Layout semantics shared by web and non-web UI targets. */
+export type UiLayoutMode = 'free' | 'stack' | 'grid' | 'overlay';
+
+/** How a node claims space on one axis. */
+export type UiSizeMode = 'fixed' | 'fill' | 'hug';
+
+/** The base layout claim for one design node. */
+export interface UiNodeLayout {
+  mode: UiLayoutMode;
+  rect: WireframeRect;
+  widthMode: UiSizeMode;
+  heightMode: UiSizeMode;
+  hidden: boolean;
+}
+
+/**
+ * An intentional viewport-specific departure from the base layout. Missing
+ * properties inherit; storing a complete duplicate would make it impossible to
+ * tell an override from a coincidentally equal value.
+ */
+export interface UiNodeViewportOverride {
+  rect?: WireframeRect;
+  hidden?: boolean;
+}
+
+/**
+ * One target-independent node in UI Studio's authoritative design graph.
+ * References are stable identifiers, never source paths or executable values.
+ */
+export interface UiDesignNode {
+  id: string;
+  kind: WireframeElementKind;
+  label: string;
+  parentId?: string;
+  layout: UiNodeLayout;
+  viewportOverrides: Partial<Record<WireframeBreakpoint, UiNodeViewportOverride>>;
+  designPrompt: string;
+  notes: string;
+  contentRef?: string;
+  styleRef?: string;
+  componentRef?: string;
+}
+
+/** A page/screen projection in the shared design graph. */
+export interface UiDesignScreen {
+  /** Stable screen identity. Initially identical to the compatible page id. */
+  id: string;
+  pageId: string;
+  /** False preserves the meaningful legacy state "this screen has not been drawn". */
+  initialized: boolean;
+  baseBreakpoint: WireframeBreakpoint;
+  nodes: UiDesignNode[];
+}
+
+/**
+ * UI Studio's authoritative visual-design document. `revision` is monotonic:
+ * undo restores content from history but still advances this value so a stale
+ * preview or webview event can never become current again by accident.
+ */
+export interface UiDesignGraph {
+  revision: number;
+  screens: UiDesignScreen[];
+}
+
 /**
  * A link leaving one page.
  *
@@ -1456,10 +1520,12 @@ export interface WebsiteStackChoice {
  * Version 4 moved page copy into separately managed Markdown files. Version 5
  * generalizes the design core beyond websites with `surfaceKind`,
  * `contentDesign`, and `implementation`; existing projects migrate explicitly
- * to `website`, the only surface the older format could describe.
+ * to `website`, the only surface the older format could describe. Version 6
+ * adds the revisioned target-independent design graph; the page wireframe is a
+ * compatibility projection while existing readers move to that graph.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 5;
+  version: 6;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;
@@ -1470,6 +1536,7 @@ export interface WebsiteWorkspaceConfig {
    */
   designPrompt: string;
   pages: WebsitePagePlan[];
+  designGraph: UiDesignGraph;
   designSystem: WebsiteDesignSystem;
   contentDesign: UiContentDesign;
   implementation: UiImplementationGuide;
