@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   KINDS_WITH_PLACEHOLDER_SHAPE,
+  UI_PREVIEW_MOBILE_MAX_WIDTH,
+  UI_PREVIEW_TABLET_MAX_WIDTH,
   WIREFRAME_INDEX_PATH,
   previewPathFor,
   renderWireframeIndex,
@@ -9,6 +11,7 @@ import {
 } from '../../src/core/websiteWireframePreview.js';
 import { WIREFRAME_KIND_CATALOG } from '../../src/core/websiteWireframe.js';
 import { pagePath } from '../../src/core/websiteGeneration.js';
+import { designGraphFromPages } from '../../src/core/uiDesignGraph.js';
 import type { WebsiteDesignSystem, WebsitePagePlan, WireframeElementKind } from '../../src/types.js';
 
 const designSystem: WebsiteDesignSystem = {
@@ -137,6 +140,49 @@ describe('websiteWireframePreview', () => {
       const subject = withElements(['nav', 'hero', 'footer']);
       expect(renderWireframePreview({ page: subject, designSystem }))
         .toBe(renderWireframePreview({ page: subject, designSystem }));
+    });
+
+    it('projects inherited tablet and mobile layouts through static media rules', () => {
+      const subject = withElements(['hero', 'cta']);
+      const graph = designGraphFromPages([subject]);
+      const screen = graph.screens[0]!;
+      screen.nodes[0]!.viewportOverrides.tablet = {
+        rect: { x: 100, y: 40, width: 800, height: 240 },
+      };
+      screen.nodes[0]!.viewportOverrides.mobile = { hidden: true };
+      screen.nodes[1]!.viewportOverrides.mobile = {
+        rect: { x: 80, y: 100, width: 840, height: 120 },
+      };
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('<style data-atlas-responsive-layout>');
+      expect(html).toContain(`@media (max-width: ${UI_PREVIEW_TABLET_MAX_WIDTH}px)`);
+      expect(html).toContain(`@media (max-width: ${UI_PREVIEW_MOBILE_MAX_WIDTH}px)`);
+      expect(html).toContain('.wf-block[data-atlas-screen-id="home"][data-atlas-node-id="e0"]');
+      expect(html).toContain('left:10.000% !important');
+      expect(html).toContain('display:none !important');
+      expect(html).toContain('left:8.000% !important');
+      expect(html).not.toContain('<script');
+    });
+
+    it('ignores a responsive screen that does not own the rendered page', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.pageId = 'another-page';
+      expect(renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen }))
+        .not.toContain('data-atlas-responsive-layout');
+    });
+
+    it('escapes responsive graph identities before using them in CSS selectors', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.id = 'home</style><script>alert(1)</script>';
+      screen.nodes[0]!.id = 'hero"]{display:none}</style>';
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-responsive-layout');
+      expect(html).not.toContain('<script>alert(1)</script>');
+      expect(html).not.toContain('hero"]{display:none}</style>');
+      expect(html).toContain('\\3c ');
     });
 
     it('never throws, for any wireframe the sanitizer could produce', () => {

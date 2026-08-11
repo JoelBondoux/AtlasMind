@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.279.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.280.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.279.0
+## What's new in 0.280.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Full Preview now reflects responsive design intent.** The deterministic Studio draft projects inherited
+  tablet and mobile geometry/visibility as the built-in browser or Responsive lab changes width. The result
+  remains static, script-free renderer output with content and style together; only AtlasMind's existing
+  frozen live-reload/selection runtime is injected by the host.
 
 - **Responsive layout now has a deterministic inheritance engine.** Desktop values flow through tablet
   into mobile, each computed property reports whether it came from the base or a named override, and

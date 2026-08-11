@@ -30,6 +30,7 @@
  */
 
 import type {
+  UiDesignScreen,
   WebsiteDesignSystem,
   WebsitePagePlan,
   WebsiteWireframe,
@@ -43,6 +44,11 @@ import {
   wireframeKindSpec,
 } from './websiteWireframe.js';
 import { normalizeSlug } from './websiteSitemap.js';
+import { resolveUiNodeLayout } from './uiDesignGraph.js';
+
+/** Fixed until breakpoint tokens become part of the design system in Phase 3. */
+export const UI_PREVIEW_TABLET_MAX_WIDTH = 1_023;
+export const UI_PREVIEW_MOBILE_MAX_WIDTH = 599;
 
 export interface WireframePreviewOptions {
   page: WebsitePagePlan;
@@ -53,6 +59,8 @@ export interface WireframePreviewOptions {
   siteName?: string;
   /** Exact Markdown copy for this page. Missing copy remains visibly unfinished. */
   content?: WebsitePageContent;
+  /** Authoritative screen used to project inherited tablet/mobile layout. */
+  responsiveScreen?: UiDesignScreen;
 }
 
 export interface WireframeIndexOptions {
@@ -130,6 +138,9 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
   }).join('\n');
 
   const contentProof = renderContentProof(options.content);
+  const responsiveStyles = options.responsiveScreen?.pageId === page.id
+    ? renderResponsiveStyles(options.responsiveScreen)
+    : '';
 
   return renderShell({
     title,
@@ -140,8 +151,52 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
       `${ordered.length} element${ordered.length === 1 ? '' : 's'}`,
       options.content,
     ),
-    body: `<div class="wf-stage" style="aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height}">${blocks}</div>${contentProof}`,
+    body: `<div class="wf-stage" style="aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height}">${blocks}</div>${contentProof}${responsiveStyles}`,
   });
+}
+
+function renderResponsiveStyles(screen: UiDesignScreen): string {
+  if (!screen.initialized || screen.nodes.length === 0) {
+    return '';
+  }
+  const tablet = renderResponsiveBreakpoint(screen, 'tablet', UI_PREVIEW_TABLET_MAX_WIDTH);
+  const mobile = renderResponsiveBreakpoint(screen, 'mobile', UI_PREVIEW_MOBILE_MAX_WIDTH);
+  return `<style data-atlas-responsive-layout>\n${tablet}\n${mobile}\n</style>`;
+}
+
+function renderResponsiveBreakpoint(
+  screen: UiDesignScreen,
+  breakpoint: 'tablet' | 'mobile',
+  maxWidth: number,
+): string {
+  const resolved = screen.nodes.map(node => ({ node, layout: resolveUiNodeLayout(screen, node, breakpoint).layout }));
+  const height = Math.max(
+    600,
+    resolved.reduce(
+      (lowest, candidate) => candidate.layout.hidden
+        ? lowest
+        : Math.max(lowest, candidate.layout.rect.y + candidate.layout.rect.height),
+      0,
+    ) + 40,
+  );
+  const rules = resolved.map(({ node, layout }) => {
+    const rect = layout.rect;
+    const selector = `.wf-block[data-atlas-screen-id="${cssIdentifier(screen.id)}"]`
+      + `[data-atlas-node-id="${cssIdentifier(node.id)}"]`;
+    return `  ${selector} { left:${percent(rect.x / WIREFRAME_CANVAS_WIDTH)} !important;`
+      + ` top:${percent(rect.y / height)} !important;`
+      + ` width:${percent(rect.width / WIREFRAME_CANVAS_WIDTH)} !important;`
+      + ` height:${percent(rect.height / height)} !important;`
+      + ` display:${layout.hidden ? 'none' : 'block'} !important; }`;
+  }).join('\n');
+  return `@media (max-width: ${maxWidth}px) {\n`
+    + `  .wf-stage { aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height} !important; }\n`
+    + `${rules}\n}`;
+}
+
+/** CSS-string escaping for an attribute value; graph IDs are sanitized too. */
+function cssIdentifier(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, character => `\\${character.codePointAt(0)!.toString(16)} `);
 }
 
 function consumesContent(kind: WireframeElementKind): boolean {

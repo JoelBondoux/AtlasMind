@@ -124,6 +124,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
       designSystem: reference.legacyWorkspace.designSystem,
       siteName: reference.legacyWorkspace.intake.projectName,
       content: reference.content,
+      responsiveScreen: graph.screens[0]!,
     };
 
     const first = renderWireframePreview(options);
@@ -131,6 +132,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
     expect(first).toBe(second);
     expect(first).toContain(reference.proofText);
     expect(first).toContain('Content proof');
+    expect(first).toContain('data-atlas-responsive-layout');
     expect(first).toContain(`data-atlas-screen-id="${projectedPages[0]!.id}"`);
     expect(first).toContain(`data-atlas-node-id="${graph.screens[0]!.nodes[0]!.id}"`);
     expect(first).not.toContain('<script');

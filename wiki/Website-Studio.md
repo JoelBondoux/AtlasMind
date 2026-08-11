@@ -204,6 +204,11 @@ Use the separate **Responsive lab** for Fit, Desktop 1280, Tablet 834, and Mobil
 the same guarded loopback server and URL as the full browser. If a model-generated visual guide exists,
 the index links to it separately; it never replaces the live Studio draft.
 
+The deterministic draft now projects the saved responsive graph at those widths. Desktop values inherit
+through tablet into mobile; explicit geometry and visibility overrides replace only the properties they
+name, and clearing one restores inheritance. The projection is static CSS, so responsive review adds no
+new browser command, storage, or write capability.
+
 Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
 The built-in browser receives the new render revision and reloads automatically. Select a saved block in
 Studio to highlight it in the full preview; click a preview block to focus it back in Studio. The frozen

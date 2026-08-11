@@ -340,6 +340,13 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 - **`websiteLinkGraph.ts`** — outbound/inbound links, orphan pages, and dangling links (reported, never dropped — a link whose target was deleted is the evidence a nav is broken). The root page is never an orphan. Nav/CTA labels suggest links by exact then case-insensitive match, never looser.
 - **`websiteDesignPrompt.ts`** — composes the selection-scoped prompt for `site`, `page` and `element`. Everything read out of the workspace is fenced as REPORTED CONTENT (labels and stored prompts are model-writable) and passed through `redactSecrets`; the user's own instruction is deliberately *not* fenced. The prompt states that the answer is a proposal.
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
+
+`websiteWireframePreview.ts` consumes the graph screen alongside its compatibility page projection. It uses
+`resolveUiNodeLayout()` to emit ordered tablet (`≤1023px`) and mobile (`≤599px`) static media rules for every
+saved node, including inherited geometry, explicit visibility, and a visible-content-derived stage height.
+Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
+renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
+injects only the separately audited frozen live runtime.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review

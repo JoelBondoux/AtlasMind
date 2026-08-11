@@ -129,7 +129,10 @@ The primary surface is VS Code's built-in Simple Browser, giving the design a fu
 leaving the editor. Each screen repeats all copy in a **Content proof** below the spatial canvas: fixed
 wireframe boxes can clip during layout exploration, but clipped copy must never disappear from review.
 The companion **Responsive lab** uses the same URL and server with Fit, Desktop 1280, Tablet 834, and
-Mobile 390 widths.
+Mobile 390 widths. The deterministic draft resolves the saved graph at each width: desktop values inherit
+through tablet into mobile, explicit geometry or visibility overrides take precedence, and clearing an
+override restores the inherited result. The responsive projection is static CSS and adds no browser-write
+capability.
 
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.280.0] - 2026-08-11
+
+### Added
+
+- **The full built-in-browser preview now shows inherited responsive layouts.** Deterministic draft pages
+  project the authoritative screen at tablet and mobile widths through static media rules; geometry cascades
+  in breakpoint order, visibility can change independently, and the canvas height follows visible content.
+- **Responsive preview projection runs across all three reference products.** Website, web-app, and native
+  desktop fixtures now render the same script-free desktop/tablet/mobile contract.
+
+### Security
+
+- **Responsive rendering adds no browser capability.** The pure renderer emits inline static CSS only,
+  escapes graph identities used in selectors, ignores a screen that does not own the rendered page, and
+  leaves the frozen live runtime as the sole injected script.
+
 ## [0.279.0] - 2026-08-11
 
 ### Added

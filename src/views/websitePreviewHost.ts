@@ -254,6 +254,7 @@ async function writeWireframePreviews(
     );
 
     for (const page of config.pages) {
+      const responsiveScreen = config.designGraph.screens.find(screen => screen.pageId === page.id);
       await writeFile(
         path.join(root, previewPathFor(page)),
         injectUiPreviewRuntime(
@@ -262,6 +263,7 @@ async function writeWireframePreviews(
             designSystem: config.designSystem,
             siblings: config.pages,
             content: contents.get(page.id),
+            ...(responsiveScreen ? { responsiveScreen } : {}),
             ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
           }),
           renderRevision,

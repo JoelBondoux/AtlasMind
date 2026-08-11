@@ -46,7 +46,8 @@ competitive layout controls.
 Phase 2 started in v0.279.0 with a deterministic desktop → tablet → mobile resolver that reports the source
 of every computed layout property. Revisioned set/clear commands now manage viewport geometry and visibility;
 clearing an override restores inheritance, and the same behaviour runs across all three reference projects.
-Studio controls, responsive preview projection, richer layout properties, manipulation tools, and diagnostics
+In v0.280.0 the deterministic full preview began projecting that inherited layout at tablet/mobile browser
+widths with static media rules. Studio controls, richer layout properties, manipulation tools, and diagnostics
 remain to complete the phase.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot

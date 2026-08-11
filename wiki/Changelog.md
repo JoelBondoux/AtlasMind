@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.280.0 — Full Preview responds to the saved design graph
+
+The deterministic full-browser draft now projects the authoritative screen at tablet and mobile widths.
+Geometry inherits in desktop → tablet → mobile order, visibility can change independently, and the spatial
+canvas height follows visible content. The same result appears in VS Code's built-in browser and the fixed
+Responsive lab widths across website, web-app, and native desktop reference projects.
+
+Responsive rendering is static CSS from the pure renderer. Graph identities are escaped before becoming
+selectors, a screen that does not own the rendered page is ignored, and no browser-write capability or
+generated script was added; AtlasMind's frozen live reload/selection runtime remains the only injection.
+
 ## v0.279.0 — Responsive values inherit and explain themselves
 
 UI Studio's Phase 2 layout work has begun. Desktop values now flow through tablet into mobile, and every
