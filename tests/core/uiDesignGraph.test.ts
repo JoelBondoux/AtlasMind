@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyDesignGraphToPages,
   designGraphFromPages,
+  resolveUiNodeLayout,
   sanitizeUiDesignGraph,
   UI_DESIGN_GRAPH_MAX_REVISION,
   wireframeFromScreen,
@@ -113,6 +114,39 @@ describe('UI design graph', () => {
     expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
     expect(result.contentRef).toBe('content-script');
     expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true });
+  });
+
+  it('inherits responsive properties in order and reports the source of every computed value', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const screen = graph.screens[0]!;
+    const node = screen.nodes[0]!;
+    node.viewportOverrides.mobile = { hidden: true };
+    node.viewportOverrides.desktop = {
+      rect: { x: 20, y: 30, width: 960, height: 400 },
+    };
+
+    // This migrated fixture has a tablet base. Wider desktop uses its exact
+    // override; smaller mobile inherits tablet geometry and adds mobile state.
+    const desktop = resolveUiNodeLayout(screen, node, 'desktop');
+    expect(desktop.layout.rect).toEqual({ x: 20, y: 30, width: 960, height: 400 });
+    expect(desktop.provenance.rect).toEqual({ kind: 'override', breakpoint: 'desktop' });
+
+    const mobile = resolveUiNodeLayout(screen, node, 'mobile');
+    expect(mobile.layout.rect).toEqual(node.layout.rect);
+    expect(mobile.layout.hidden).toBe(true);
+    expect(mobile.provenance).toEqual({
+      mode: { kind: 'base', breakpoint: 'tablet' },
+      rect: { kind: 'base', breakpoint: 'tablet' },
+      widthMode: { kind: 'base', breakpoint: 'tablet' },
+      heightMode: { kind: 'base', breakpoint: 'tablet' },
+      hidden: { kind: 'override', breakpoint: 'mobile' },
+    });
+
+    const desktopBase = { ...screen, baseBreakpoint: 'desktop' as const };
+    node.viewportOverrides.tablet = { rect: { x: 40, y: 50, width: 820, height: 320 } };
+    const inheritedMobile = resolveUiNodeLayout(desktopBase, node, 'mobile');
+    expect(inheritedMobile.layout.rect).toEqual(node.viewportOverrides.tablet.rect);
+    expect(inheritedMobile.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });
   });
 
   it('is total for arbitrary untrusted graph input', () => {

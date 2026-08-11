@@ -179,8 +179,12 @@ placeholder-only.
 `uiDesignGraph.ts` is the graph's untrusted-input boundary and derives the legacy page wireframe while
 existing readers migrate; a valid graph is the declared winner. `uiEditCommands.ts` is the pure closed
 mutation path for canvas, form, future preview, and model-proposed edits. Drawing, frame/reparent, deletion,
-kind, label, intent, visibility, undo, and redo commands name the revision they read and pass an exact parser;
-the webview never submits a graph patch. Invalid targets refuse, and bounded undo/redo never rewinds revision.
+kind, label, intent, visibility, viewport geometry/visibility override set/reset, undo, and redo commands
+name the revision they read and pass an exact parser; the webview never submits a graph patch. Invalid
+targets refuse, and bounded undo/redo never rewinds revision. Responsive resolution applies desktop →
+tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
+override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
+through an exact override, so the resolver does not turn absent intent into a design decision.
 The 5 → 6 migration preserves every prior wireframe fact and the untouched-versus-empty distinction while
 inventing no responsive, token, component, or source-mapping intent.
 

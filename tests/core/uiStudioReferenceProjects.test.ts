@@ -3,7 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { UiDesignGraph, WebsitePagePlan } from '../../src/types.ts';
-import { applyDesignGraphToPages, designGraphFromPages } from '../../src/core/uiDesignGraph.ts';
+import {
+  applyDesignGraphToPages,
+  designGraphFromPages,
+  resolveUiNodeLayout,
+} from '../../src/core/uiDesignGraph.ts';
 import { applyUiEditCommand, createUiEditSession } from '../../src/core/uiEditCommands.ts';
 import { injectUiPreviewRuntime, parseUiPreviewSelection } from '../../src/core/uiPreviewRuntime.ts';
 import { renderWireframePreview } from '../../src/core/websiteWireframePreview.ts';
@@ -136,5 +140,46 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
     expect(live).toContain('<script src="../_atlas/runtime.js"></script>');
     expectTargetIndependentGraph(graph);
     expect(JSON.stringify(graph)).not.toContain(reference.targetTechnology);
+  });
+
+  it('inherits a tablet layout into mobile until that override is explicitly cleared', () => {
+    const graph = designGraphFromPages(reference.legacyWorkspace.pages);
+    const screen = graph.screens[0]!;
+    const node = screen.nodes[0]!;
+    const tabletRect = {
+      x: node.layout.rect.x + 20,
+      y: node.layout.rect.y + 12,
+      width: node.layout.rect.width - 40,
+      height: node.layout.rect.height,
+    };
+    const tablet = applyUiEditCommand(createUiEditSession(graph), {
+      type: 'set-node-viewport-override', expectedRevision: 0,
+      screenId: screen.id, nodeId: node.id, breakpoint: 'tablet', rect: tabletRect,
+    });
+    expect(tablet.ok).toBe(true);
+    if (!tablet.ok) { return; }
+    const mobile = applyUiEditCommand(tablet.session, {
+      type: 'set-node-viewport-override', expectedRevision: 1,
+      screenId: screen.id, nodeId: node.id, breakpoint: 'mobile', hidden: true,
+    });
+    expect(mobile.ok).toBe(true);
+    if (!mobile.ok) { return; }
+    const responsiveScreen = mobile.session.graph.screens[0]!;
+    const responsiveNode = responsiveScreen.nodes[0]!;
+    const resolved = resolveUiNodeLayout(responsiveScreen, responsiveNode, 'mobile');
+    expect(resolved.layout).toMatchObject({ rect: tabletRect, hidden: true });
+    expect(resolved.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });
+    expect(resolved.provenance.hidden).toEqual({ kind: 'override', breakpoint: 'mobile' });
+
+    const cleared = applyUiEditCommand(mobile.session, {
+      type: 'clear-node-viewport-override', expectedRevision: 2,
+      screenId: screen.id, nodeId: node.id, breakpoint: 'tablet',
+    });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) { return; }
+    const clearedScreen = cleared.session.graph.screens[0]!;
+    const clearedNode = clearedScreen.nodes[0]!;
+    expect(resolveUiNodeLayout(clearedScreen, clearedNode, 'mobile').layout.rect)
+      .toEqual(node.layout.rect);
   });
 });

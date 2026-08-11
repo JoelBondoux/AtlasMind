@@ -32,6 +32,74 @@ const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay'])
 const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
 const BREAKPOINTS = new Set<WireframeBreakpoint>(WIREFRAME_BREAKPOINTS);
 
+export interface UiLayoutPropertySource {
+  kind: 'base' | 'override';
+  breakpoint: WireframeBreakpoint;
+}
+
+export interface ResolvedUiNodeLayout {
+  layout: UiDesignNode['layout'];
+  provenance: {
+    mode: UiLayoutPropertySource;
+    rect: UiLayoutPropertySource;
+    widthMode: UiLayoutPropertySource;
+    heightMode: UiLayoutPropertySource;
+    hidden: UiLayoutPropertySource;
+  };
+}
+
+/**
+ * Resolve one node at a viewport while retaining where every value came from.
+ * Smaller viewports inherit intervening overrides (desktop → tablet → mobile).
+ * A legacy mobile/tablet base can still describe a wider viewport, but only an
+ * exact wider override changes it; migration never invents the missing intent.
+ */
+export function resolveUiNodeLayout(
+  screen: UiDesignScreen,
+  node: UiDesignNode,
+  breakpoint: WireframeBreakpoint,
+): ResolvedUiNodeLayout {
+  const baseSource = (): UiLayoutPropertySource => ({
+    kind: 'base',
+    breakpoint: screen.baseBreakpoint,
+  });
+  const layout: UiDesignNode['layout'] = {
+    ...node.layout,
+    rect: { ...node.layout.rect },
+  };
+  const provenance: ResolvedUiNodeLayout['provenance'] = {
+    mode: baseSource(),
+    rect: baseSource(),
+    widthMode: baseSource(),
+    heightMode: baseSource(),
+    hidden: baseSource(),
+  };
+  const baseIndex = WIREFRAME_BREAKPOINTS.indexOf(screen.baseBreakpoint);
+  const targetIndex = WIREFRAME_BREAKPOINTS.indexOf(breakpoint);
+  const candidates = targetIndex > baseIndex
+    ? WIREFRAME_BREAKPOINTS.slice(baseIndex + 1, targetIndex + 1)
+    : targetIndex < baseIndex
+      ? [breakpoint]
+      : [];
+
+  for (const candidate of candidates) {
+    const override = node.viewportOverrides[candidate];
+    if (!override) {
+      continue;
+    }
+    if (override.rect) {
+      layout.rect = { ...override.rect };
+      provenance.rect = { kind: 'override', breakpoint: candidate };
+    }
+    if (override.hidden !== undefined) {
+      layout.hidden = override.hidden;
+      provenance.hidden = { kind: 'override', breakpoint: candidate };
+    }
+  }
+
+  return { layout, provenance };
+}
+
 /** Transcribe every compatible page fact into the v6 graph without guessing. */
 export function designGraphFromPages(
   pages: readonly WebsitePagePlan[],

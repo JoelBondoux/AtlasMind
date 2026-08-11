@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.278.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.279.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.278.0
+## What's new in 0.279.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Responsive layout now has a deterministic inheritance engine.** Desktop values flow through tablet
+  into mobile, each computed property reports whether it came from the base or a named override, and
+  clearing an override restores the inherited result. Setting and clearing responsive geometry/visibility
+  uses the same exact revisioned, undoable command boundary as direct canvas editing.
 
 - **The UI Studio foundation is proven across three kinds of product.** Committed executable fixtures for a
   marketing website, data-rich web app, and native desktop UI now verify lossless migration and reopening,

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.279.0] - 2026-08-11
+
+### Added
+
+- **UI Studio now resolves responsive layout through explicit inheritance.** A desktop base flows through
+  tablet into mobile, while a migrated tablet/mobile base remains honest about wider layouts and changes
+  them only through exact overrides. Resolution returns per-property provenance for mode, geometry, sizing,
+  and visibility, so an inspector can explain every computed value.
+- **Viewport overrides use the same revisioned edit boundary as canvas changes.** Exact set/clear commands
+  support bounded geometry and visibility, reject the base breakpoint and malformed/empty payloads, advance
+  history once, and remain undoable. Clearing an override deterministically restores its inherited value.
+- **All three reference projects now exercise responsive inheritance.** Website, web-app, and desktop
+  fixtures prove tablet-to-mobile inheritance, property provenance, and reset-to-base behaviour.
+
+### Security
+
+- **Responsive messages cannot smuggle style or execution data.** The parser accepts only a closed
+  breakpoint plus bounded rectangle and/or Boolean visibility; unknown fields and breakpoint names refuse
+  before the reducer sees them.
+
 ## [0.278.0] - 2026-08-11
 
 ### Added

@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.279.0 — Responsive values inherit and explain themselves
+
+UI Studio's Phase 2 layout work has begun. Desktop values now flow through tablet into mobile, and every
+resolved mode, rectangle, size mode, and visibility value reports the base or override breakpoint that
+supplied it. Migrated tablet/mobile bases remain honest about wider layouts: only an exact wider override
+changes them.
+
+Viewport geometry and visibility overrides use exact revisioned set/clear commands, participate in bounded
+undo/redo history, and reject malformed, empty, extra-field, base-breakpoint, and stale requests. Clearing
+an override restores the inherited value. All three reference projects exercise that behaviour.
+
 ## v0.278.0 — The UI Studio foundation passes all three reference projects
 
 Phase 1 is complete with executable fixtures for a marketing website, a data-rich operations web app, and

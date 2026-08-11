@@ -5,10 +5,10 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.278.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.279.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
-gestures, and executable validation across all three reference projects now pass. Phase 2 responsive layout
-is next.
+gestures, and executable validation across all three reference projects pass. Phase 2 has started with
+deterministic base → tablet → mobile inheritance, per-property provenance, and revisioned override reset.
 
 ## Problem
 
@@ -154,6 +154,11 @@ Acceptance criteria:
 ### P1 — competitive design capability
 
 #### P1.1 Responsive layout engine
+
+Progress: v0.279.0 delivers the pure inheritance/provenance resolver and exact set/clear commands for
+viewport geometry and visibility. The three reference projects exercise inheritance and reset. Studio
+controls, responsive preview projection, the remaining layout properties, multi-selection tools, and
+diagnostics remain in this phase.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

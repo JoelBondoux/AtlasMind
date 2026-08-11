@@ -10,6 +10,7 @@ import type {
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
+  WireframeBreakpoint,
   WireframeElementKind,
   WireframeRect,
 } from '../types.js';
@@ -21,6 +22,7 @@ import {
   WIREFRAME_CANVAS_HEIGHT,
   WIREFRAME_CANVAS_WIDTH,
   MAX_WIREFRAME_DEPTH,
+  WIREFRAME_BREAKPOINTS,
 } from './websiteWireframe.js';
 import { UI_DESIGN_GRAPH_MAX_REVISION } from './uiDesignGraph.js';
 
@@ -56,6 +58,13 @@ export type UiEditCommand =
   | (UiNodeCommandBase & { type: 'resize-node'; width: number; height: number })
   | (UiNodeCommandBase & { type: 'reparent-node'; parentId?: string })
   | (UiNodeCommandBase & { type: 'set-node-hidden'; hidden: boolean })
+  | (UiNodeCommandBase & {
+    type: 'set-node-viewport-override';
+    breakpoint: WireframeBreakpoint;
+    rect?: WireframeRect;
+    hidden?: boolean;
+  })
+  | (UiNodeCommandBase & { type: 'clear-node-viewport-override'; breakpoint: WireframeBreakpoint })
   | (UiEditCommandBase & { type: 'undo' })
   | (UiEditCommandBase & { type: 'redo' });
 
@@ -162,6 +171,34 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
       return typeof input['hidden'] === 'boolean'
         && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'hidden'])
         ? { type: 'set-node-hidden', ...base, hidden: input['hidden'] }
+        : undefined;
+    case 'set-node-viewport-override': {
+      const breakpoint = input['breakpoint'];
+      const hasRect = Object.prototype.hasOwnProperty.call(input, 'rect');
+      const rect = hasRect ? parseRect(input['rect']) : undefined;
+      const hasHidden = Object.prototype.hasOwnProperty.call(input, 'hidden');
+      return isBreakpoint(breakpoint)
+        && (hasRect || hasHidden)
+        && (!hasRect || rect !== undefined)
+        && (!hasHidden || typeof input['hidden'] === 'boolean')
+        && exactKeys(
+          input,
+          ['type', 'expectedRevision', 'screenId', 'nodeId', 'breakpoint'],
+          ['rect', 'hidden'],
+        )
+        ? {
+          type: 'set-node-viewport-override',
+          ...base,
+          breakpoint,
+          ...(rect ? { rect } : {}),
+          ...(hasHidden ? { hidden: input['hidden'] as boolean } : {}),
+        }
+        : undefined;
+    }
+    case 'clear-node-viewport-override':
+      return isBreakpoint(input['breakpoint'])
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'breakpoint'])
+        ? { type: 'clear-node-viewport-override', ...base, breakpoint: input['breakpoint'] }
         : undefined;
     default:
       return undefined;
@@ -329,6 +366,38 @@ function applyNodeCommand(
         return { ok: false, reason: 'invalid-command' };
       }
       return { ok: true, node: { ...node, layout: { ...node.layout, hidden: command.hidden } } };
+    }
+    case 'set-node-viewport-override': {
+      if (!isBreakpoint(command.breakpoint)
+          || command.breakpoint === screen.baseBreakpoint
+          || (command.rect === undefined && command.hidden === undefined)
+          || (command.rect !== undefined && !validRect(command.rect))
+          || (command.hidden !== undefined && typeof command.hidden !== 'boolean')) {
+        return { ok: false, reason: 'invalid-command' };
+      }
+      const current = node.viewportOverrides[command.breakpoint] ?? {};
+      const override = {
+        ...current,
+        ...(command.rect
+          ? { rect: sanitizeRect(command.rect, wireframeKindSpec(node.kind)) }
+          : {}),
+        ...(command.hidden !== undefined ? { hidden: command.hidden } : {}),
+      };
+      return {
+        ok: true,
+        node: {
+          ...node,
+          viewportOverrides: { ...node.viewportOverrides, [command.breakpoint]: override },
+        },
+      };
+    }
+    case 'clear-node-viewport-override': {
+      if (!isBreakpoint(command.breakpoint) || command.breakpoint === screen.baseBreakpoint) {
+        return { ok: false, reason: 'invalid-command' };
+      }
+      const viewportOverrides = { ...node.viewportOverrides };
+      delete viewportOverrides[command.breakpoint];
+      return { ok: true, node: { ...node, viewportOverrides } };
     }
     case 'reparent-node':
       return reparentNode(screen, node, command.parentId);
@@ -525,6 +594,10 @@ function parseRect(input: unknown): WireframeRect | undefined {
 
 function validIdentifier(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9._-]{1,120}$/.test(value);
+}
+
+function isBreakpoint(value: unknown): value is WireframeBreakpoint {
+  return WIREFRAME_BREAKPOINTS.includes(value as WireframeBreakpoint);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

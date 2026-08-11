@@ -43,5 +43,11 @@ fixtures assert migration/save/reopen integrity, the shared edit/history/selecti
 real-content full preview, and a target-independent graph. Phase 2 begins with responsive inheritance and
 competitive layout controls.
 
+Phase 2 started in v0.279.0 with a deterministic desktop → tablet → mobile resolver that reports the source
+of every computed layout property. Revisioned set/clear commands now manage viewport geometry and visibility;
+clearing an override restores inheritance, and the same behaviour runs across all three reference projects.
+Studio controls, responsive preview projection, richer layout properties, manipulation tools, and diagnostics
+remain to complete the phase.
+
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

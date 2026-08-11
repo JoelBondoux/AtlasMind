@@ -5,7 +5,11 @@ import {
   parseUiEditCommand,
   UI_EDIT_HISTORY_LIMIT,
 } from '../../src/core/uiEditCommands.ts';
-import { designGraphFromPages, UI_DESIGN_GRAPH_MAX_REVISION } from '../../src/core/uiDesignGraph.ts';
+import {
+  designGraphFromPages,
+  resolveUiNodeLayout,
+  UI_DESIGN_GRAPH_MAX_REVISION,
+} from '../../src/core/uiDesignGraph.ts';
 import { createDefaultWebsiteWorkspace } from '../../src/core/websiteWorkspaceManager.ts';
 
 function graph() {
@@ -226,5 +230,73 @@ describe('UI edit commands', () => {
       type: 'add-node', expectedRevision: 4, screenId: 'page-home',
       node: { id: 'new', kind: 'script', label: 'x', rect: command.rect, designPrompt: '', notes: '' },
     })).toBeUndefined();
+  });
+
+  it('sets and clears responsive overrides through revisioned, undoable commands', () => {
+    const initial = createUiEditSession(graph());
+    const tabletRect = { x: 40, y: 120, width: 720, height: 100 };
+    const tablet = applyUiEditCommand(initial, {
+      type: 'set-node-viewport-override', expectedRevision: 0,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet', rect: tabletRect,
+    });
+    expect(tablet.ok).toBe(true);
+    if (!tablet.ok) { return; }
+
+    const mobile = applyUiEditCommand(tablet.session, {
+      type: 'set-node-viewport-override', expectedRevision: 1,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'mobile', hidden: true,
+    });
+    expect(mobile.ok).toBe(true);
+    if (!mobile.ok) { return; }
+    const screen = mobile.session.graph.screens[0]!;
+    const node = screen.nodes.find(candidate => candidate.id === 'child')!;
+    const resolved = resolveUiNodeLayout(screen, node, 'mobile');
+    expect(resolved.layout).toMatchObject({ rect: tabletRect, hidden: true });
+    expect(resolved.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });
+    expect(resolved.provenance.hidden).toEqual({ kind: 'override', breakpoint: 'mobile' });
+
+    const cleared = applyUiEditCommand(mobile.session, {
+      type: 'clear-node-viewport-override', expectedRevision: 2,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
+    });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) { return; }
+    const clearedNode = cleared.session.graph.screens[0]!.nodes.find(candidate => candidate.id === 'child')!;
+    expect(resolveUiNodeLayout(cleared.session.graph.screens[0]!, clearedNode, 'mobile').layout.rect)
+      .toEqual(clearedNode.layout.rect);
+
+    const undone = applyUiEditCommand(cleared.session, { type: 'undo', expectedRevision: 3 });
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) { return; }
+    expect(undone.session.graph.revision).toBe(4);
+    expect(undone.session.graph.screens[0]!.nodes.find(candidate => candidate.id === 'child')
+      ?.viewportOverrides.tablet?.rect).toEqual(tabletRect);
+
+    expect(applyUiEditCommand(undone.session, {
+      type: 'set-node-viewport-override', expectedRevision: 4,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'desktop', hidden: true,
+    })).toMatchObject({ ok: false, reason: 'invalid-command' });
+  });
+
+  it('parses only exact, non-empty responsive override commands', () => {
+    const responsive = {
+      type: 'set-node-viewport-override', expectedRevision: 2,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'mobile', hidden: true,
+    };
+    expect(parseUiEditCommand(responsive)).toEqual(responsive);
+    expect(parseUiEditCommand({ ...responsive, breakpoint: 'watch' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...responsive, hidden: 'yes' })).toBeUndefined();
+    expect(parseUiEditCommand({
+      type: 'set-node-viewport-override', expectedRevision: 2,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'mobile',
+    })).toBeUndefined();
+    expect(parseUiEditCommand({ ...responsive, command: 'write-file' })).toBeUndefined();
+    expect(parseUiEditCommand({
+      type: 'clear-node-viewport-override', expectedRevision: 3,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
+    })).toEqual({
+      type: 'clear-node-viewport-override', expectedRevision: 3,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
+    });
   });
 });

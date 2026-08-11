@@ -319,11 +319,16 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
+  `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
+  the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
+  viewport only through an exact override, so migration does not invent responsive intent.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
-  geometry plus reparenting, visibility, undo, and redo; commands carry an expected revision and never a
-  graph patch. Stale/missing/invalid targets refuse. Successful mutations and undo/redo all advance revision
-  monotonically, deletion promotes direct children, history is capped at 100, and a fresh edit clears redo.
+  geometry plus reparenting, base visibility, viewport geometry/visibility override set/reset, undo, and
+  redo; commands carry an expected revision and never a graph patch. A responsive command names only a
+  closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
+  invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
+  promotes direct children, history is capped at 100, and a fresh edit clears redo.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/
