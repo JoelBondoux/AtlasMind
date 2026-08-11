@@ -19,6 +19,102 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.271.6 — Branch choices and recency stay truthful
+
+The Branch Dashboard now remembers its saved view, sort field, direction, grouping, and SCM-colour
+choice after the panel is closed and reopened. Preferences remain workspace-specific and pass through a
+closed host validator before they are stored; the webview keeps its own copy for immediate re-renders.
+
+Recent activity now means the newest commit visible on the logical branch. When a local branch and its
+upstream are folded into one card, AtlasMind uses the newer side's timestamp and commit summary, so a
+behind or diverged local ref no longer sorts the whole branch as artificially old.
+
+---
+
+## v0.271.5 — Director attention and exact dashboard links
+
+Project Director now gives assigned dashboard work the same treatment as Project State. Active work
+owned by the contact marked as **me** joins due and overdue reminders under **Follow-ups**; its count is
+visible on the Project Director title while collapsed, on the Follow-ups row while expanded, and on the
+AtlasMind activity icon.
+
+Project State and Director rows now open the page and the record they name. The validated deep link
+carries only an allowlisted page/work kind and a bounded stable id. The dashboard clears a hiding view
+filter, scrolls the record into view, gives it keyboard focus, and outlines it. A stale or unloaded id
+still lands on the correct page. This also fixes the command bridge that accidentally honoured only the
+Ideation page and discarded every other requested dashboard destination.
+
+---
+
+## v0.271.4 — Closed Project State keeps its attention signal
+
+Collapsing Project State no longer hides the count. VS Code removes a view's title description with its
+body, so the live signal now forms part of the native title itself: **Project State · N waiting**. The
+title returns to plain **Project State** as soon as nothing needs attention.
+
+The activity-bar badge and coloured **Waiting on you** row badge continue to use the same count; this
+change closes the last presentation state where that count was available but invisible.
+
+---
+
+## v0.271.3 — Project State shows its badge inside the panel
+
+The assignment count no longer stops at AtlasMind's activity-bar logo. The open Project State header
+now carries an **N waiting** title signal, and **Waiting on you** uses a real coloured numeric tree-row
+decoration rather than a plain trailing description.
+
+This split follows VS Code's native API boundary: `TreeView.badge` is implemented as activity on the
+view container and is not rendered inside an expanded view header. AtlasMind therefore sends the same
+count through the container badge, title description, and row-decoration APIs, so all three locations
+update together without replacing the native tree.
+
+---
+
+## v0.271.2 — Assigned work reaches Project State
+
+Choosing your own Director identity as the owner of dashboard work now adds that active assignment to
+Project State → **Waiting on you** immediately. Each assignment is a separate ToDo row with its status,
+priority, and a link back to the branch, roadmap, issue, pull request, gap, risk, debt, document, run, or
+Director surface that owns it.
+
+The same number appears beside **Waiting on you** and in the Project State view badge, which VS Code also
+shows on the AtlasMind activity-bar icon. Completed, cancelled, and assignments owned by somebody else
+stay out of the personal count. Direct owner changes and external edits of the Project Director source
+of truth now both run the same refresh path.
+
+---
+
+## v0.271.1 — Compact branch Work controls
+
+The expanded Branch card no longer drops its Work actions into the narrow label column when an Owner
+picker is present. Owner and actions now occupy one flexible content column, and the daily actions use
+fixed-size icons instead of verbose pills. Hovering an icon still gives the complete action, eligibility
+or blocker, and safety behaviour; assistive technology receives the same description through its
+accessible label.
+
+---
+
+## v0.271.0 — Branch workflows and shared Director ownership
+
+Expanded branch cards now separate everyday **Work** from **Review**. A user can bring a branch into
+the workspace, prepare its pending changes in Source Control, pull with a fast-forward-only guard,
+push or publish without force, create a new local branch at its current commit, and open GitHub's
+pull-request form. Actions that do not apply remain visible but disabled with an explanation, so each
+card also says what must happen next.
+
+The browser still knows only the card's opaque id and a closed action name. The extension host rebuilds
+the branch inventory, current working-tree state, tracking ref, live remotes and source commit before it
+runs anything. AtlasMind does not commit automatically, choose merge versus rebase, bypass branch
+protection, or force-push from this surface.
+
+Project Director ownership now appears where work is actually discussed. The same person picker is on
+branches, active roadmap items, open issues and pull requests, gaps, risks, debt, and documents needing
+attention, while Director → Assignments lists active work so it can make the first assignment as well
+as change one. These are not parallel assignee fields: every picker reads and writes the same sanitized
+Project Director assignment record.
+
+---
+
 ## v0.270.3 — Resolve & run prepares the complete release
 
 **Resolve & run** no longer bumps only `package.json` and `CHANGELOG.md` and then discovers in the

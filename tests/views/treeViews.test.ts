@@ -7,6 +7,17 @@ vi.mock('vscode', () => ({
   EventEmitter: class {
     fire() {}
     event = vi.fn();
+    dispose() {}
+  },
+  Uri: {
+    parse: vi.fn((value: string) => ({ toString: () => value })),
+  },
+  FileDecoration: class {
+    constructor(
+      public readonly badge?: string,
+      public readonly tooltip?: string,
+      public readonly color?: unknown,
+    ) {}
   },
   workspace: {
     // The Project State view reads settings per scope, so `inspect` must be
@@ -24,9 +35,11 @@ vi.mock('vscode', () => ({
     onDidChangeActiveTextEditor: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     registerWebviewViewProvider: vi.fn(),
     registerTreeDataProvider: vi.fn(),
-    createTreeView: vi.fn().mockReturnValue({
+    registerFileDecorationProvider: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    createTreeView: vi.fn((viewId: string) => ({
+      viewId,
       onDidChangeSelection: vi.fn(),
-    }),
+    })),
   },
   commands: {
     registerCommand: vi.fn(),
@@ -36,6 +49,7 @@ vi.mock('vscode', () => ({
     executeCommand: vi.fn(),
   },
   ThemeIcon: class { constructor(public readonly id: string) {} },
+  ThemeColor: class { constructor(public readonly id: string) {} },
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
 }));
 
@@ -47,6 +61,17 @@ describe('registerTreeViews', () => {
       },
     };
 
+    const directorConfig = {
+      selfContactId: 'contact-me',
+      contacts: [{ id: 'contact-me', name: 'The User' }],
+      stakeholders: [],
+      teamMembers: [],
+      responsibilities: [],
+      assignments: [] as any[],
+      followUps: [],
+      settings: { teamMode: 'solo' },
+    };
+    const projectDirectorRefresh = vi.fn();
     const mockAtlas = {
       agentsRefresh: { event: vi.fn() },
       skillsRefresh: { event: vi.fn() },
@@ -54,6 +79,8 @@ describe('registerTreeViews', () => {
       projectRunsRefresh: { event: vi.fn() },
       memoryRefresh: { event: vi.fn() },
       discoveryRefresh: { event: vi.fn() },
+      projectDirectorRefresh: { event: projectDirectorRefresh },
+      projectDirectorManager: { getConfig: vi.fn(() => directorConfig) },
       ardRegistry: { list: vi.fn(() => []), getRecentResults: vi.fn(() => []) },
       sessionConversation: { onDidChange: vi.fn() },
     };
@@ -72,6 +99,79 @@ describe('registerTreeViews', () => {
     // surface whose only way to update is an unrelated event firing is one
     // people learn not to trust.
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(19);
+
+    directorConfig.assignments.push({
+      id: 'asg-1', title: 'Finish the branch', assigneeContactId: 'contact-me',
+      status: 'todo', priority: 'medium', linkedWork: { kind: 'branch', id: 'develop' },
+    }, {
+      id: 'asg-done', title: 'Already finished', assigneeContactId: 'contact-me',
+      status: 'done', priority: 'medium', linkedWork: { kind: 'issue', id: '1' },
+    }, {
+      id: 'asg-other', title: 'A colleague owns this', assigneeContactId: 'contact-colleague',
+      status: 'todo', priority: 'high', linkedWork: { kind: 'risk', id: 'risk-1' },
+    });
+    const refreshListener = projectDirectorRefresh.mock.calls[0]?.[0] as (() => void) | undefined;
+    expect(refreshListener).toBeTypeOf('function');
+    refreshListener?.();
+    const viewFor = (viewId: string): any => {
+      const index = vi.mocked(vscode.window.createTreeView).mock.calls.findIndex(([id]) => id === viewId);
+      return vi.mocked(vscode.window.createTreeView).mock.results[index]?.value;
+    };
+    const projectStateTreeView = viewFor('atlasmind.projectStateView');
+    const projectDirectorTreeView = viewFor('atlasmind.projectDirectorView');
+    expect(projectStateTreeView.badge).toMatchObject({ value: 1, tooltip: '1 thing waiting on you' });
+    expect(projectStateTreeView.title).toBe('Project State · 1 waiting');
+    expect(projectStateTreeView.description).toBeUndefined();
+    expect(projectDirectorTreeView.badge).toMatchObject({
+      value: 1,
+      tooltip: '1 Director follow-up needing attention',
+    });
+    expect(projectDirectorTreeView.title).toBe('Project Director · 1 follow-up');
+    expect(projectDirectorTreeView.description).toBeUndefined();
+
+    const decorationProvider = vi.mocked(vscode.window.registerFileDecorationProvider).mock.calls[0]?.[0];
+    const decoration = decorationProvider?.provideFileDecoration?.(
+      vscode.Uri.parse('atlasmind-project-state:/waiting-on-you'),
+    );
+    expect(decoration).toMatchObject({
+      badge: '1',
+      tooltip: '1 thing waiting on you',
+      color: { id: 'notificationsWarningIcon.foreground' },
+    });
+
+    const directorDecorationProvider = vi.mocked(vscode.window.registerFileDecorationProvider).mock.calls[1]?.[0];
+    const directorDecoration = directorDecorationProvider?.provideFileDecoration?.(
+      vscode.Uri.parse('atlasmind-project-director:/follow-ups'),
+    );
+    expect(directorDecoration).toMatchObject({
+      badge: '1',
+      tooltip: '1 Director follow-up needing attention',
+      color: { id: 'notificationsWarningIcon.foreground' },
+    });
+
+    const projectStateOptions = vi.mocked(vscode.window.createTreeView).mock.calls
+      .find(([viewId]) => viewId === 'atlasmind.projectStateView')?.[1] as any;
+    const roots = projectStateOptions.treeDataProvider.getChildren();
+    expect(roots.map((item: any) => ({ id: item.id, resource: item.resourceUri?.toString() })))
+      .toContainEqual({ id: 'state.attention', resource: 'atlasmind-project-state:/waiting-on-you' });
+
+    const projectDirectorOptions = vi.mocked(vscode.window.createTreeView).mock.calls
+      .find(([viewId]) => viewId === 'atlasmind.projectDirectorView')?.[1] as any;
+    const directorRoots = projectDirectorOptions.treeDataProvider.getChildren();
+    const followUpsRoot = directorRoots.find((item: any) => item.group === 'followups');
+    expect(followUpsRoot.resourceUri?.toString()).toBe('atlasmind-project-director:/follow-ups');
+    const directorFollowUps = projectDirectorOptions.treeDataProvider.getChildren(followUpsRoot);
+    expect(directorFollowUps[0].command).toMatchObject({
+      command: 'atlasmind.openProjectDashboard',
+      arguments: [{ page: 'branches', focus: { kind: 'branch', id: 'develop' } }],
+    });
+
+    directorConfig.assignments.splice(0);
+    refreshListener?.();
+    expect(projectStateTreeView.title).toBe('Project State');
+    expect(projectStateTreeView.badge).toBeUndefined();
+    expect(projectDirectorTreeView.title).toBe('Project Director');
+    expect(projectDirectorTreeView.badge).toBeUndefined();
   });
 });
 

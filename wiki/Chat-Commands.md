@@ -139,8 +139,8 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 | `AtlasMind: Focus Chat View` | The chat in the sidebar |
 | `AtlasMind: Open Settings Panel` | The full settings workspace |
 | `AtlasMind: Open Chat / Model / Safety / Project Settings` | Straight to one settings page |
-| `AtlasMind: Open Project Dashboard` | Repo health, roadmap, issues, branches, delivery and more |
-| `AtlasMind: Open Project Director` | Stakeholders, team, assignments, follow-ups |
+| `AtlasMind: Open Project Dashboard` | Repo health, roadmap, issues, branches, delivery and more; internal callers may supply a validated page and exact-record focus |
+| `AtlasMind: Open Project Director` | Stakeholders, team, assignments, and the shared personal Follow-ups attention list |
 | `AtlasMind: Open Project Ideation` | The thinking board |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |

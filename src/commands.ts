@@ -1406,9 +1406,9 @@ export function registerCommands(
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
-      // Commands are an extension boundary too: only a known dashboard page can
-      // influence navigation, and the panel still normalises it defensively.
-      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target === 'ideation' ? 'ideation' : undefined);
+      // Commands are an extension boundary too. The panel accepts only a known
+      // page and an optional allowlisted focus kind with a bounded opaque id.
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target);
     }),
     vscode.commands.registerCommand('atlasmind.openProjectDirector', async () => {
       const atlas = requireAtlas();

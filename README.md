@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.270.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.271.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,53 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.270.3
+## What's new in 0.271.6
 
-Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
-history is in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.270.3**, is the baseline for the first nine items below; the remaining
+items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Branch Dashboard choices now stay chosen.** Saved view, sort, order, grouping, and SCM-colour
+  preferences survive closing and reopening the dashboard for this workspace. Recent activity also
+  reflects the newest commit across a folded local/upstream pair, keeping newest-first and oldest-first
+  ordering faithful when the two refs differ.
+
+- **Project Director now carries the same live attention signal as Project State.** Active dashboard
+  work assigned to your Director identity joins due and overdue reminders under **Follow-ups**. The
+  Project Director title, Follow-ups row, and AtlasMind activity icon all carry the same count—even
+  while the view is collapsed.
+
+- **Sidebar ToDos now open the record they name.** Dashboard links carry a validated page, work kind,
+  and stable item id. The dashboard opens the owning page, clears any presentation filter hiding the
+  target, scrolls it into view, and gives it a visible focus outline. Director's **Open work** links use
+  the same route; removed or not-yet-loaded records still fall back safely to the correct page.
+
+- **A closed Project State panel still tells you what is waiting.** Its live title now reads
+  **Project State · N waiting**, so collapsing the ToDo list no longer removes the only local indicator.
+
+- **Project State carries its attention count on all three visible surfaces.** AtlasMind's activity-bar
+  logo keeps the container badge, the open Project State header says how many items are waiting, and
+  **Waiting on you** carries a coloured numeric row badge instead of an unstyled trailing number.
+
+- **Your assigned work now reaches Project State.** Choosing your own Director identity on a branch,
+  roadmap item, issue, pull request, gap, risk, debt item, document, or run adds that active work under
+  **Waiting on you** immediately. The same count badges the Project State title and AtlasMind activity
+  icon, while completed, cancelled, and other people's work stay quiet.
+
+- **Branch Work actions are compact and resilient.** The owner picker and icon toolbar now share one
+  flexible content column, so narrow cards no longer squeeze action labels into vertical word stacks.
+  Each icon keeps the complete action and safety explanation in its tooltip and accessible label.
+
+- **Branch cards now carry the daily workflow.** Expand any card to work on that branch, prepare a
+  commit in Source Control, pull with a fast-forward-only guard, push or publish without force, create
+  a new local branch from its current commit, and open GitHub's pull-request form. Each action sends
+  only an opaque card id to the extension host, which rebuilds live Git state before it enables or runs
+  anything; merge, rebase, force-push, and automatic commit remain deliberate workflows elsewhere.
+
+- **The Director can assign people where the work appears.** Branches, roadmap items, open issues and
+  pull requests, gaps, risks, debt, and documents needing attention now expose the same owner picker.
+  Those owners are stored once in Project Director; its Assignments view lists active work so an owner
+  can be assigned there first or changed later. Each work page and the people view therefore report
+  the same responsibility.
 
 - **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
   preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,

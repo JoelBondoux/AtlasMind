@@ -33,11 +33,19 @@ _None recorded yet._
 
 ## Assignments
 
-_None recorded yet._
+| Title | Linked work | Assignee | Status | Priority | Due |
+| --- | --- | --- | --- | --- | --- |
+| dependabot/npm_and_yarn/develop/developer-tooling-d37d1d647a | branch: dependabot/npm_and_yarn/develop/developer-tooling-d37d1d647a | Joel Bondoux (you) | todo | medium | — |
+| develop | branch: develop | Joel Bondoux (you) | in-progress | medium | — |
+| #166 Interface Studio redesign is stranded on an unmerged branch | issue: 166 | Joel Bondoux (you) | todo | medium | — |
+| Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmi | roadmap: roadmap-1 | Joel Bondoux (you) | todo | medium | — |
+| ATDD is enabled with no evidence it runs | debt: test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs | Joel Bondoux (you) | todo | medium | — |
+| main | branch: main | Joel Bondoux (you) | todo | medium | — |
+| Core functionality and feature completeness still need work relative to the intended project outcome. | gap: Y29yZSBmdW5jdGlv | Joel Bondoux (you) | todo | high | — |
 
 ## Follow-ups
 
 _No open follow-ups._
 ---
 
-_Last updated: 2026-08-01T11:24:00.535Z._
+_Last updated: 2026-08-11T12:16:18.674Z._

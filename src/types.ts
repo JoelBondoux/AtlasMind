@@ -2147,11 +2147,46 @@ export type AssignmentStatus =
   | (string & {});
 export type AssignmentPriority = 'high' | 'medium' | 'low' | (string & {});
 
+/** Dashboard work records that can carry a Director-assigned human owner. */
+export type DashboardWorkKind =
+  | 'branch'
+  | 'roadmap'
+  | 'issue'
+  | 'pull-request'
+  | 'gap'
+  | 'risk'
+  | 'debt'
+  | 'document';
+
+/** A concrete dashboard record that a cross-surface link can reveal. */
+export type DashboardFocusKind = DashboardWorkKind | 'assignment' | 'follow-up';
+
+/**
+ * A guarded dashboard deep link. The page is always required; focus is an
+ * optional enhancement, so a record removed between click and render still
+ * lands on the correct owning page rather than failing navigation entirely.
+ */
+export interface ProjectDashboardOpenTarget {
+  page: string;
+  focus?: {
+    kind: DashboardFocusKind;
+    id: string;
+  };
+}
+
+/** Stable link to work owned by another Project Dashboard surface. */
+export interface AssignmentLinkedWork {
+  kind: DashboardWorkKind;
+  id: string;
+}
+
 /**
  * Links a human (contact) to a unit of work — the human-assignee overlay that
  * {@link ProjectRunRecord} / {@link SubTask} (assigned to *agent roles*) lack.
  * `linkedRunId` binds an autonomous run to its human owner **without mutating
- * the run record**; `linkedResponsibilityId` binds an ongoing responsibility.
+ * the run record**; `linkedResponsibilityId` binds an ongoing responsibility;
+ * `linkedWork` lets the same Director-owned assignment follow actionable work
+ * across Project Dashboard surfaces without those surfaces inventing owners.
  */
 export interface Assignment {
   id: string;
@@ -2165,8 +2200,9 @@ export interface Assignment {
   /** ProjectRunRecord.id this assignment aggregates, when it maps to a run. */
   linkedRunId?: string;
   linkedResponsibilityId?: string;
+  linkedWork?: AssignmentLinkedWork;
   /** Provenance so imported/derived items are distinguishable from manual ones. */
-  source: 'manual' | 'imported' | 'run' | (string & {});
+  source: 'manual' | 'imported' | 'run' | 'dashboard' | (string & {});
   createdAt: string;
   updatedAt: string;
   notes?: string;

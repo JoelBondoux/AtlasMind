@@ -1,13 +1,27 @@
 (function () {
   const vscode = acquireVsCodeApi();
-  const persistedWebviewState = vscode.getState() || {};
+  const root = document.getElementById('dashboard-root');
+  let hostBranchPreferences = {};
+  try {
+    hostBranchPreferences = root?.dataset.branchPreferences
+      ? JSON.parse(decodeURIComponent(root.dataset.branchPreferences))
+      : {};
+  } catch {
+    hostBranchPreferences = {};
+  }
+  // Webview state covers a hidden/re-rendered panel. Host workspace state wins
+  // when a panel is recreated, so closing the dashboard does not reset its
+  // saved view, sort, order, grouping, or branch-title presentation.
+  const persistedWebviewState = {
+    ...(vscode.getState() || {}),
+    ...hostBranchPreferences,
+  };
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
   // The same explanation, generalised: MVP is the built-in first gate, and a
   // project past it needs somewhere to say "this belongs to the beta" instead.
   const GATE_HELP_TEXT = 'Release gates are the milestones your backlog is working towards — MVP is the built-in first one, and you can add your own (a public beta, v1.0, v2). Tagging an item puts it on that release\'s path. An item can belong to more than one, and removing a gate never deletes any work.';
-  const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
   const noProjectBanner = document.getElementById('no-project-banner');
@@ -164,6 +178,31 @@
     return NAV_PAGE_IDS.indexOf(value) === -1 ? DEFAULT_PAGE : value;
   }
 
+  const DASHBOARD_FOCUS_KINDS = [
+    'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
+    'assignment', 'follow-up',
+  ];
+
+  // The host validates this first; the webview validates it again because a
+  // posted message is still an untrusted boundary. An invalid focus degrades to
+  // page navigation, never to a selector assembled from arbitrary input.
+  function normalizeNavigationTarget(value) {
+    if (typeof value === 'string') {
+      return { page: normalizePageId(value), focus: null };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { page: DEFAULT_PAGE, focus: null };
+    }
+    const page = normalizePageId(value.page);
+    const focus = value.focus;
+    if (!focus || typeof focus !== 'object' || Array.isArray(focus)
+      || DASHBOARD_FOCUS_KINDS.indexOf(focus.kind) === -1
+      || typeof focus.id !== 'string' || focus.id.length === 0 || focus.id.length > 500) {
+      return { page: page, focus: null };
+    }
+    return { page: page, focus: { kind: focus.kind, id: focus.id } };
+  }
+
   // Opening tag for a page panel. Centralised so the tab/panel ARIA wiring
   // cannot drift out of sync with the nav.
   function pageSectionOpen(id) {
@@ -216,6 +255,9 @@
     branchFetchBusy: false,
     /** Opaque branch id whose on-demand review evidence is currently loading. */
     branchInspectionBusyId: '',
+    /** One host-backed branch write workflow at a time. */
+    branchWorkflowBusyId: '',
+    branchWorkflowBusyAction: '',
     // The host owns every entry in this activity record. Keeping it separate
     // from the snapshot means an evidence refresh cannot erase the task the
     // user just started or its terminal outcome.
@@ -307,6 +349,10 @@
     directorNewAssignment: false,
     directorSeedConfirm: false,
     directorComposeKey: '',
+    // Consumed only after the exact record is present in a completed render.
+    // Keeping it while data is loading lets an issue/PR deep link focus after
+    // the next host snapshot instead of silently giving up.
+    pendingDashboardFocus: null,
   };
 
   // Set when a tab activation should keep keyboard focus on the nav across the
@@ -318,15 +364,41 @@
   // and cleared by render(), so it never leaks into an unrelated update.
   let refocusAfterRender = '';
 
+  function prepareDashboardFocus(target) {
+    state.activePage = target.page;
+    state.pendingDashboardFocus = target.focus;
+    resetScrollAfterRender = !target.focus;
+    if (!target.focus) { return; }
+    // A saved presentation filter must not be allowed to hide the record a
+    // direct link explicitly asked to reveal.
+    if (target.focus.kind === 'branch') {
+      state.branchSearch = '';
+      state.branchFilter = 'all';
+      state.branchView = 'all';
+    } else if (target.focus.kind === 'issue') {
+      state.issueSearch = '';
+      state.issueFilter = 'all';
+    } else if (target.focus.kind === 'risk') {
+      state.riskFilter = '';
+    } else if (target.focus.kind === 'debt') {
+      state.debtSearch = '';
+      state.debtRuleFilter = 'all';
+    }
+  }
+
   function persistBranchPreferences() {
-    vscode.setState({
-      ...(vscode.getState() || {}),
+    const preferences = {
       branchView: state.branchView,
       branchSort: state.branchSort,
       branchSortDirection: state.branchSortDirection,
       branchGroup: state.branchGroup,
       branchScmChips: state.branchScmChips,
+    };
+    vscode.setState({
+      ...(vscode.getState() || {}),
+      ...preferences,
     });
+    vscode.postMessage({ type: 'saveBranchPreferences', payload: preferences });
   }
 
   function requestRepositoryRefresh(type) {
@@ -468,6 +540,20 @@
       return;
     }
 
+    if (message.type === 'branchWorkflowBusy') {
+      const payload = message.payload || {};
+      if (payload.busy === true && typeof payload.branchId === 'string' && typeof payload.action === 'string') {
+        state.branchWorkflowBusyId = payload.branchId;
+        state.branchWorkflowBusyAction = payload.action;
+      } else if (state.branchWorkflowBusyId === payload.branchId) {
+        state.branchWorkflowBusyId = '';
+        state.branchWorkflowBusyAction = '';
+      }
+      announce(payload.busy === true ? 'Running branch workflow…' : 'Branch workflow finished.');
+      render();
+      return;
+    }
+
     if (message.type === 'branchComparison') {
       state.branchComparison = message.payload || null;
       announce(state.branchComparison
@@ -491,7 +577,8 @@
       return;
     }
     if (message.type === 'navigate') {
-      state.activePage = normalizePageId(typeof message.payload === 'string' ? message.payload : DEFAULT_PAGE);
+      const target = normalizeNavigationTarget(message.payload);
+      prepareDashboardFocus(target);
       render();
       return;
     }
@@ -653,6 +740,15 @@
 
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
+    if (action === 'dashboard-focus') {
+      const navigation = normalizeNavigationTarget({
+        page: target.dataset.page || DEFAULT_PAGE,
+        focus: { kind: target.dataset.focusKind || '', id: target.dataset.focusId || '' },
+      });
+      prepareDashboardFocus(navigation);
+      render();
+      return;
+    }
     if (action === 'page') {
       const next = normalizePageId(payload);
       const changed = next !== state.activePage;
@@ -728,6 +824,20 @@
     if (action === 'branch-activate') {
       if (payload) {
         vscode.postMessage({ type: 'activateBranch', payload });
+      }
+      return;
+    }
+    if (action === 'branch-workflow') {
+      const workflow = target.dataset.workflow || '';
+      const allowed = ['commit', 'pull', 'push', 'create-branch', 'create-pull-request'];
+      if (payload && allowed.includes(workflow) && !state.branchWorkflowBusyId) {
+        state.branchWorkflowBusyId = payload;
+        state.branchWorkflowBusyAction = workflow;
+        render();
+        vscode.postMessage({
+          type: 'runBranchWorkflow',
+          payload: { branchId: payload, action: workflow },
+        });
       }
       return;
     }
@@ -1868,6 +1978,13 @@
       if (runId) {
         vscode.postMessage({ type: 'assignRunOwner', payload: { runId: runId, contactId: target.value } });
       }
+      return;
+    }
+    if (target.getAttribute('data-action') === 'director-assign-work') {
+      const targetId = target.getAttribute('data-target') || '';
+      if (targetId) {
+        vscode.postMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: targetId, contactId: target.value } });
+      }
     }
   });
 
@@ -2252,6 +2369,8 @@
         window.scrollTo(0, pageScrollY);
       }
 
+      applyPendingDashboardFocus();
+
       // Meters, rings and bars are driven from here rather than from CSS —
       // see applyValueAnimations() for why a plain transition cannot work
       // against a wholesale innerHTML swap.
@@ -2631,6 +2750,54 @@
     `;
   }
 
+  /** One ownership picker shared by every actionable dashboard work record. */
+  function renderDirectorOwnerControl(kind, stableId, options) {
+    const snapshot = state.snapshot || {};
+    const work = snapshot.workAssignments || { targets: [] };
+    const target = (work.targets || []).find(entry => entry.kind === kind && entry.stableId === String(stableId));
+    if (!target) { return ''; }
+    const cfg = snapshot.director && snapshot.director.config;
+    if (!cfg) { return ''; }
+    const assignment = (cfg.assignments || []).find(entry => entry.linkedWork
+      && entry.linkedWork.kind === kind && entry.linkedWork.id === String(stableId));
+    const selected = assignment ? assignment.assigneeContactId || '' : '';
+    const contacts = Array.isArray(cfg.contacts) ? cfg.contacts : [];
+    if (contacts.length === 0) {
+      return `<button type="button" class="action-link" data-action="page" data-payload="director" title="Add people in Project Director before assigning work">Add owner in Director</button>`;
+    }
+    const choices = [{ id: '', name: '— unassigned —' }].concat(contacts);
+    const select = `<select class="work-owner-select" data-action="director-assign-work" data-target="${escapeAttr(target.token)}" aria-label="Assign an owner to ${escapeAttr(target.title)}">${choices.map(contact => `<option value="${escapeAttr(contact.id)}"${contact.id === selected ? ' selected' : ''}>${escapeHtml(contact.name)}</option>`).join('')}</select>`;
+    return options && options.bare
+      ? select
+      : `<label class="work-owner-control"><span>Owner</span>${select}</label>`;
+  }
+
+  function applyPendingDashboardFocus() {
+    const focus = state.pendingDashboardFocus;
+    if (!focus || !root) { return; }
+    const selector = '[data-dashboard-focus-kind="' + cssEscape(focus.kind)
+      + '"][data-dashboard-focus-id="' + cssEscape(focus.id) + '"]';
+    const target = root.querySelector(selector);
+    if (!(target instanceof HTMLElement)) { return; }
+    root.querySelectorAll('.dashboard-focus-target').forEach(item => item.classList.remove('dashboard-focus-target'));
+    target.classList.add('dashboard-focus-target');
+    target.tabIndex = -1;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target.focus({ preventScroll: true });
+    announce('Focused ' + focus.kind.replace(/-/g, ' ') + ' item.');
+    state.pendingDashboardFocus = null;
+  }
+
+  function renderDirectorOwnerBadge(kind, stableId) {
+    const cfg = state.snapshot && state.snapshot.director && state.snapshot.director.config;
+    if (!cfg) { return ''; }
+    const assignment = (cfg.assignments || []).find(entry => entry.linkedWork
+      && entry.linkedWork.kind === kind && entry.linkedWork.id === String(stableId));
+    if (!assignment || !assignment.assigneeContactId) { return ''; }
+    const owner = (cfg.contacts || []).find(contact => contact.id === assignment.assigneeContactId);
+    return owner ? `<span class="tag" title="Director-assigned owner">Owner: ${escapeHtml(owner.name)}</span>` : '';
+  }
+
   function renderGapAnalysis(snapshot) {
     const gap = snapshot.gapAnalysis || { completed: false, items: [], lastRun: null };
     const openItems = gap.items.filter(item => !item.resolved && item.type !== 'praise');
@@ -2679,13 +2846,14 @@
               <h3>${escapeHtml(group.priority === 'P1' ? 'Highest priority' : group.priority === 'P2' ? 'Important follow-up' : 'Polish and refinement')}</h3>
               <div class="stack-list">
                 ${group.items.map(item => `
-                  <div class="recent-item">
+                  <div class="recent-item" data-dashboard-focus-kind="gap" data-dashboard-focus-id="${escapeAttr(item.id)}">
                     <div class="row-head">
                       <strong>${escapeHtml(item.text)}</strong>
                       <span class="tag ${group.priority === 'P1' ? 'tag-critical' : group.priority === 'P2' ? 'tag-warn' : ''}">${escapeHtml(item.priority)}</span>
                     </div>
                     <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
                     <div class="tag-row">
+                      ${renderDirectorOwnerControl('gap', item.id)}
                       ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
                       <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
@@ -3231,7 +3399,7 @@
         : warningStatuses.includes(branch.status) || branch.stale
         ? 'tag-warn'
         : '';
-    const canActivate = Boolean(branch.canActivate) && !dirty && !branch.current;
+    const canActivate = Boolean(branch.canActivate) && !dirty && !branch.current && !state.branchWorkflowBusyId;
     const disabledReason = dirty
       ? 'Commit, stash, or discard pending changes before switching.'
       : branch.blocker || (branch.current ? 'This is already the current branch.' : '');
@@ -3272,11 +3440,18 @@
       ? state.branchInspection
       : null;
     const inspectionBusy = state.branchInspectionBusyId === branch.id;
+    const workflowLocked = Boolean(state.branchWorkflowBusyId);
+    const workflowBusyForBranch = state.branchWorkflowBusyId === branch.id;
+    const workflowButton = (action, icon, label, enabled, title) => {
+      const busy = workflowBusyForBranch && state.branchWorkflowBusyAction === action;
+      const disabled = workflowLocked || !enabled;
+      return `<button type="button" class="action-link branch-icon-action${busy ? ' is-refreshing' : ''}" data-action="branch-workflow" data-workflow="${escapeAttr(action)}" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${label} — ${title}`)}" aria-label="${escapeAttr(`${label}. ${title}`)}" aria-busy="${busy ? 'true' : 'false'}" ${disabled ? 'disabled' : ''}><span aria-hidden="true">${escapeHtml(busy ? '…' : icon)}</span></button>`;
+    };
     const subject = branch.subject || 'No commit subject available.';
 
     return `
       <div class="branch-inventory-item">
-        <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}${compareSelected ? ' is-compare-selected' : ''}${expanded ? ' is-expanded' : ''}${hasFailure ? ' has-failure' : ''}" data-branch-id="${escapeAttr(branch.id || '')}">
+        <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}${compareSelected ? ' is-compare-selected' : ''}${expanded ? ' is-expanded' : ''}${hasFailure ? ' has-failure' : ''}" data-branch-id="${escapeAttr(branch.id || '')}" data-dashboard-focus-kind="branch" data-dashboard-focus-id="${escapeAttr(branch.name || '')}">
           <button type="button" class="branch-card-summary" data-action="branch-card-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="branch-details-${escapeAttr(branch.id || '')}" aria-label="${expanded ? 'Collapse' : 'Expand'} details for ${escapeAttr(branch.name)}">
             <div class="row-head branch-card-head">
               <div>
@@ -3289,6 +3464,7 @@
               <span class="tag ${readinessClass}" title="${escapeAttr(readiness.summary || '')}">${escapeHtml(readiness.label || 'Not assessed')}</span>
               <span class="tag ${ciClass}" title="${escapeAttr(ci.source === 'not-loaded' ? 'Refresh GitHub activity to load per-branch CI.' : 'Latest check per workflow or PR check rollup.')}">${escapeHtml(ci.label || 'CI unknown')}</span>
               <span class="tag ${traceClass}" title="${escapeAttr(traceability.summary || '')}">${traceability.state === 'linked' ? 'Traceability linked' : traceability.state === 'inferred' ? 'Traceability inferred' : traceability.state === 'missing' ? 'Traceability gap' : 'Traceability unknown'}</span>
+              ${renderDirectorOwnerBadge('branch', branch.name)}
             </div>
             <p class="branch-subject" title="${escapeAttr(subject)}">${escapeHtml(subject)}</p>
             <div class="branch-compact-footer">
@@ -3337,30 +3513,48 @@
                 ${(traceability.roadmapItems || []).slice(0, 1).map(item => `<span class="tag" title="${escapeAttr(item)}">Roadmap linked</span>`).join('')}
               </p>
               ${reasons.length > 0 ? `<ul class="branch-readiness-reasons">${reasons.map(reason => `<li class="reason-${escapeAttr(reason.level)}"><strong>${escapeHtml(reason.label)}</strong> — ${escapeHtml(reason.detail)}</li>`).join('')}</ul>` : ''}
-              <div class="branch-card-actions">
-                ${renderAtlasDiscussAction(
-                  'branch-discuss',
-                  branch.id || '',
-                  'Ask Atlas',
-                  {
-                    iconOnly: true,
-                    title: `Ask Atlas for a deterministic summary of ${branch.name}`,
-                  },
-                )}
-                ${renderRefreshAction(
-                  'branch-inspect',
-                  inspection ? 'Refresh review details' : 'Review details',
-                  inspectionBusy,
-                  {
-                    busyLabel: inspection ? 'Refreshing review…' : 'Loading review…',
-                    payload: branch.id || '',
-                  },
-                )}
-                <button type="button" class="action-link" data-action="branch-story" data-payload="${escapeAttr(branch.id || '')}">Open Change Story</button>
-                ${pullRequest ? `<button type="button" class="action-link" data-action="branch-open-pr" data-payload="${escapeAttr(branch.id || '')}">Open PR #${escapeHtml(String(pullRequest.number))}</button>` : ''}
-                <button type="button" class="action-link${compareSelected ? ' primary' : ''}" data-action="branch-compare-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-pressed="${compareSelected ? 'true' : 'false'}">${compareSelected ? 'Selected to compare' : 'Compare'}</button>
-                ${insight.cleanup && insight.cleanup.candidate ? `<button type="button" class="action-link danger-link" data-action="branch-cleanup" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${insight.cleanup.summary || ''} A remote-backed candidate is fetched before review.`)}">Review cleanup</button>` : ''}
-                <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
+              <div class="branch-action-stack">
+                <div class="branch-action-group" role="group" aria-label="Work on ${escapeAttr(branch.name)}">
+                  <span class="branch-action-label">Work</span>
+                  <div class="branch-action-content">
+                    ${renderDirectorOwnerControl('branch', branch.name)}
+                    <div class="branch-card-actions branch-work-actions">
+                      <button type="button" class="action-link branch-icon-action${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(branch.current ? 'Current branch — this branch is already active in the workspace.' : `Work on this branch — ${disabledReason || `${branch.activationLabel} for immediate work.`}`)}" aria-label="${escapeAttr(branch.current ? 'Current branch. This branch is already active in the workspace.' : `Work on this branch. ${disabledReason || `${branch.activationLabel} for immediate work.`}`)}"><span aria-hidden="true">⎇</span></button>
+                      ${workflowButton('commit', '●', 'Commit', Boolean(branch.current && dirty), branch.current ? (dirty ? `Review, stage, and commit the pending changes on ${branch.name} in Source Control.` : 'There are no pending changes to commit.') : 'Work on this branch before committing to it.')}
+                      ${workflowButton('pull', '↓', 'Pull', Boolean(branch.current && branch.localRef && branch.upstream && branch.status !== 'upstream-gone' && !dirty && !(branch.ahead > 0 && branch.behind > 0)), branch.current ? (branch.status === 'upstream-gone' ? 'The configured upstream no longer exists; publish again or choose a new upstream.' : branch.upstream ? 'Pull with a fast-forward-only guard; AtlasMind never chooses merge or rebase for you.' : 'This branch has no configured upstream.') : 'Work on this branch before pulling into it.')}
+                      ${workflowButton('push', '↑', branch.upstream ? 'Push' : 'Publish', Boolean(branch.current && branch.localRef && branch.behind === 0), branch.current ? (branch.behind > 0 ? 'Pull or reconcile the cached remote commits before pushing.' : 'Push this branch without force; publishing also configures its upstream.') : 'Work on this branch before pushing it.')}
+                      ${workflowButton('create-branch', '+⎇', 'Branch from here', Boolean(branch.localRef || branch.remoteRef), `Create a new local branch at ${branch.name}'s current commit without switching the workspace.`)}
+                      ${pullRequest ? '' : workflowButton('create-pull-request', '⇄', 'Create pull request', Boolean(branch.localRef && (branch.upstream || branch.remoteRef)), branch.localRef && (branch.upstream || branch.remoteRef) ? 'Open GitHub’s pull-request form; nothing is created until you submit it there.' : 'Push or publish this branch before opening a pull request.')}
+                    </div>
+                  </div>
+                </div>
+                <div class="branch-action-group" role="group" aria-label="Review ${escapeAttr(branch.name)}">
+                  <span class="branch-action-label">Review</span>
+                  <div class="branch-card-actions">
+                    ${renderAtlasDiscussAction(
+                      'branch-discuss',
+                      branch.id || '',
+                      'Ask Atlas',
+                      {
+                        iconOnly: true,
+                        title: `Ask Atlas for a deterministic summary of ${branch.name}`,
+                      },
+                    )}
+                    ${renderRefreshAction(
+                      'branch-inspect',
+                      inspection ? 'Refresh review details' : 'Review details',
+                      inspectionBusy,
+                      {
+                        busyLabel: inspection ? 'Refreshing review…' : 'Loading review…',
+                        payload: branch.id || '',
+                      },
+                    )}
+                    <button type="button" class="action-link" data-action="branch-story" data-payload="${escapeAttr(branch.id || '')}">Open Change Story</button>
+                    ${pullRequest ? `<button type="button" class="action-link" data-action="branch-open-pr" data-payload="${escapeAttr(branch.id || '')}">Open PR #${escapeHtml(String(pullRequest.number))}</button>` : ''}
+                    <button type="button" class="action-link${compareSelected ? ' primary' : ''}" data-action="branch-compare-toggle" data-payload="${escapeAttr(branch.id || '')}" aria-pressed="${compareSelected ? 'true' : 'false'}">${compareSelected ? 'Selected to compare' : 'Compare'}</button>
+                    ${insight.cleanup && insight.cleanup.candidate ? `<button type="button" class="action-link danger-link" data-action="branch-cleanup" data-payload="${escapeAttr(branch.id || '')}" title="${escapeAttr(`${insight.cleanup.summary || ''} A remote-backed candidate is fetched before review.`)}">Review cleanup</button>` : ''}
+                  </div>
+                </div>
               </div>
             </div>
           ` : ''}
@@ -4483,7 +4677,7 @@
     const isOpen = issue.state === 'open';
     const composing = state.issueCommentFor === issue.number;
     return `
-      <div class="recent-item">
+      <div class="recent-item" data-dashboard-focus-kind="issue" data-dashboard-focus-id="${escapeAttr(String(issue.number))}">
         <div class="row-head">
           <strong>${escapeHtml(`#${issue.number} ${issue.title}`)}</strong>
           <span class="tag-group">
@@ -4494,6 +4688,7 @@
         <div class="list-meta">${escapeHtml(`${issue.author ? `by ${issue.author}` : 'author unknown'}${(issue.assignees || []).length > 0 ? ` · assigned to ${issue.assignees.join(', ')}` : ' · unassigned'}${issue.comments > 0 ? ` · ${issue.comments} comment${issue.comments === 1 ? '' : 's'}` : ''}${issue.updatedAt ? ` · updated ${relativeLabel(issue.updatedAt)}` : ''}`)}</div>
         ${issue.body ? `<div class="list-meta issue-body">${escapeHtml(issue.body.slice(0, 320))}${issue.bodyTruncated || issue.body.length > 320 ? '…' : ''}</div>` : ''}
         <div class="tag-row">
+          ${isOpen ? renderDirectorOwnerControl('issue', String(issue.number)) : ''}
           ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
           <button type="button" class="action-link" data-action="issues-comment" data-payload="${escapeAttr(String(issue.number))}">${composing ? 'Cancel comment' : 'Comment'}</button>
           ${isOpen
@@ -4722,7 +4917,7 @@
         const approved = submitted.some(r => r.verdict === 'approved');
         const size = (pr.additions || 0) + (pr.deletions || 0);
         return `
-          <div class="recent-item">
+          <div class="recent-item" data-dashboard-focus-kind="pull-request" data-dashboard-focus-id="${escapeAttr(String(pr.number))}">
             <div class="row-head">
               <strong>#${escapeHtml(String(pr.number))} ${escapeHtml(pr.title)}</strong>
               <span class="tag ${PR_STATE_TONE[pr.state] || ''}">${escapeHtml(pr.state)}</span>
@@ -4733,6 +4928,7 @@
               · ${size} line${size === 1 ? '' : 's'}
             </div>
             <div class="tag-row">
+              ${renderDirectorOwnerControl('pull-request', String(pr.number))}
               ${changesRequested ? '<span class="tag tag-critical">changes requested</span>' : ''}
               ${approved && !changesRequested ? '<span class="tag tag-good">approved</span>' : ''}
               ${submitted.length === 0 ? '<span class="tag tag-warn">awaiting review</span>' : ''}
@@ -4966,7 +5162,7 @@
       .map(id => ({ id, label: id }));
 
     const rows = openEntries.slice(0, 200).map(entry => `
-      <div class="recent-item">
+      <div class="recent-item" data-dashboard-focus-kind="debt" data-dashboard-focus-id="${escapeAttr(entry.id)}">
         <div class="row-head">
           <button type="button" class="action-link" data-action="open-debt-evidence" data-payload="${escapeAttr(entry.id)}"
             title="Open ${escapeAttr(entry.evidencePath)}">${escapeHtml(entry.title)}</button>
@@ -4977,6 +5173,7 @@
         </div>
         <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
+          ${renderDirectorOwnerControl('debt', entry.id)}
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
@@ -6120,7 +6317,7 @@
       return `<button type="button" class="gate-toggle${on ? ' is-on' : ''}" data-action="roadmap-gate-toggle" data-payload="${escapeAttr(`${item.id}::${gate.id}`)}" title="${escapeAttr(tooltip)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(gate.label)}</button>`;
     }).join('');
     return `
-      <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
+      <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}" data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(item.id)}">
         <div class="row-head">
           <span class="drag-handle" title="Drag to reorder — position sets Atlas's default priority" aria-hidden="true">⠿</span>
           <strong>${escapeHtml(item.text)}</strong>
@@ -6135,6 +6332,7 @@
           ${gateChips}
         </div>
         <div class="tag-row">
+          ${item.completed ? '' : renderDirectorOwnerControl('roadmap', item.id)}
           ${item.origin
             ? `<span class="tag" title="${escapeAttr('Raised from the ideation card “' + item.origin.cardTitle + '” (' + item.origin.cardKind + '). The board keeps the reasoning.')}">from ideation</span>`
             : ''}
@@ -6446,7 +6644,7 @@
     const evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
     const isOpen = finding.status === 'open';
     return `
-      <article class="risk-finding risk-finding--${escapeAttr(finding.status)}" data-sev="${sev}">
+      <article class="risk-finding risk-finding--${escapeAttr(finding.status)}" data-sev="${sev}" data-dashboard-focus-kind="risk" data-dashboard-focus-id="${escapeAttr(finding.id)}">
         <div class="row-head">
           <strong>${escapeHtml(finding.title)}</strong>
           <span class="risk-tag risk-tag--${escapeAttr(finding.domain)}">${escapeHtml(finding.domain)}</span>
@@ -6466,6 +6664,7 @@
           </div>
         ` : ''}
         <div class="tag-row">
+          ${isOpen ? renderDirectorOwnerControl('risk', finding.id) : ''}
           ${isOpen ? `
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|accepted')}" title="Record that a human has consciously accepted this risk">Accept</button>
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|mitigated')}" title="Mark as mitigated">Mitigated</button>
@@ -6792,7 +6991,7 @@
       : entry.status === 'fresh' ? 'tag-good'
       : '';
     return `
-      <div class="recent-item">
+      <div class="recent-item" data-dashboard-focus-kind="document" data-dashboard-focus-id="${escapeAttr(entry.id)}">
         <div class="row-head">
           <strong>${escapeHtml(entry.label || entry.path)}</strong>
           <span class="tag-group">
@@ -6804,6 +7003,7 @@
         <div class="list-meta">${escapeHtml(entry.detail)}</div>
         ${entry.sourceHint ? `<div class="list-meta">Tracks: ${escapeHtml(entry.sourceHint)}</div>` : ''}
         <div class="tag-row">
+          ${entry.status === 'missing' || entry.status === 'review-due' ? renderDirectorOwnerControl('document', entry.id) : ''}
           ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { title: 'Ask AtlasMind to inspect and update this document' })}
           <button type="button" class="action-link" data-action="documents-mark-reviewed" data-payload="${escapeAttr(entry.id)}" title="Record that this document is current as of now">Mark reviewed</button>
           ${entry.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.path)}">Open</button>` : ''}
@@ -8435,15 +8635,30 @@
   function renderDirectorAssignments(cfg, snap) {
     const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
     const statuses = ['todo', 'in-progress', 'blocked', 'done', 'cancelled'];
-    const manual = cfg.assignments.filter(a => a.source !== 'run' || !a.linkedRunId);
-    const rows = manual.map(a => `
+    const targets = ((state.snapshot && state.snapshot.workAssignments) || { targets: [] }).targets || [];
+    const activeTargetKeys = new Set(targets.map(target => target.kind + '\u0000' + target.stableId));
+    const standalone = cfg.assignments.filter(a =>
+      (!a.linkedWork && (a.source !== 'run' || !a.linkedRunId))
+      || (a.linkedWork && !activeTargetKeys.has(a.linkedWork.kind + '\u0000' + a.linkedWork.id)));
+    const rows = standalone.map(a => {
+      const assigneeText = `Assignee: ${escapeHtml(a.assigneeContactId ? directorNameOf(cfg, a.assigneeContactId) : '—')}`;
+      const linkedControl = a.linkedWork
+        ? renderDirectorOwnerControl(a.linkedWork.kind, a.linkedWork.id) || assigneeText
+        : assigneeText;
+      return `
+        <div class="history-row" data-dashboard-focus-kind="assignment" data-dashboard-focus-id="${escapeAttr(a.id)}">
+          <div><strong>${escapeHtml(a.title)}</strong> <span class="tag">${escapeHtml(a.priority)}</span>${a.linkedWork ? ` <span class="tag">${escapeHtml(a.linkedWork.kind)}</span>` : ''}</div>
+          <div class="list-meta">
+            ${linkedControl}${a.due ? ' · Due ' + escapeHtml(a.due) : ''}
+            <button type="button" class="action-link" data-action="director-assignment-cycle" data-payload="${escapeAttr(a.id)}">${escapeHtml(a.status)} ↻</button>
+            <button type="button" class="action-link danger" data-action="director-assignment-remove" data-payload="${escapeAttr(a.id)}">Remove</button>
+          </div>
+        </div>`;
+    }).join('');
+    const dashboardRows = targets.map(target => `
       <div class="history-row">
-        <div><strong>${escapeHtml(a.title)}</strong> <span class="tag">${escapeHtml(a.priority)}</span></div>
-        <div class="list-meta">
-          Assignee: ${escapeHtml(a.assigneeContactId ? directorNameOf(cfg, a.assigneeContactId) : '—')}${a.due ? ' · Due ' + escapeHtml(a.due) : ''}
-          <button type="button" class="action-link" data-action="director-assignment-cycle" data-payload="${escapeAttr(a.id)}">${escapeHtml(a.status)} ↻</button>
-          <button type="button" class="action-link danger" data-action="director-assignment-remove" data-payload="${escapeAttr(a.id)}">Remove</button>
-        </div>
+        <div><strong>${escapeHtml(target.title)}</strong> <span class="tag">${escapeHtml(target.kind)}</span> <span class="tag">${escapeHtml(target.priority)}</span></div>
+        <div class="list-meta">${renderDirectorOwnerControl(target.kind, target.stableId)} <button type="button" class="action-link" data-action="dashboard-focus" data-page="${escapeAttr(target.page)}" data-focus-kind="${escapeAttr(target.kind)}" data-focus-id="${escapeAttr(target.stableId)}">Open work</button></div>
       </div>`).join('');
     const editor = state.directorNewAssignment ? `
       <article class="stage-card stage-editor" id="director-assignment-editor">
@@ -8463,8 +8678,11 @@
       <article class="list-card">
         <p class="section-kicker">Work</p>
         <h3>Assignments</h3>
-        <div class="stack-list">${rows || '<div class="dashboard-empty">No assignments yet.</div>'}</div>
+        <div class="stack-list">${rows || '<div class="dashboard-empty">No standalone or inactive assignments.</div>'}</div>
         ${editor}
+        <p class="section-kicker" style="margin-top:12px">Active dashboard work</p>
+        <div class="list-meta">Assign people here or beside the same work on its dashboard page. Both controls update this one Director record.</div>
+        <div class="stack-list">${dashboardRows || '<div class="dashboard-empty">No active dashboard work is available to assign.</div>'}</div>
         ${renderDirectorRuns(cfg, snap)}
       </article>`;
   }
@@ -8497,7 +8715,7 @@
       const items = active.filter(f => urgency[f.id] === key);
       if (items.length === 0) { return ''; }
       const rows = items.map(f => `
-        <div class="signal-card ${tone} static" style="text-align:left">
+        <div class="signal-card ${tone} static" style="text-align:left" data-dashboard-focus-kind="follow-up" data-dashboard-focus-id="${escapeAttr(f.id)}">
           <div class="checkline">${escapeHtml(f.title)}</div>
           <div class="signal-detail">Due ${escapeHtml(f.dueDate)}${f.withContactId ? ' · with ' + escapeHtml(directorNameOf(cfg, f.withContactId)) : ''}${f.status === 'snoozed' ? ' · snoozed' : ''}</div>
           <div class="tag-row">

@@ -3075,9 +3075,21 @@ describe('panel refresh flows', () => {
   });
 
   it('renders the project dashboard with a CSP-safe external script shell', async () => {
+    const branchPreferences = {
+      branchView: 'mine',
+      branchSort: 'activity',
+      branchSortDirection: 'desc',
+      branchGroup: 'branch-family',
+      branchScmChips: false,
+    } as const;
+    const workspaceStateUpdate = vi.fn().mockResolvedValue(undefined);
     ProjectDashboardPanel.createOrShow(
       {
         extensionUri: { fsPath: '/ext', path: '/ext' },
+        workspaceState: {
+          get: vi.fn().mockReturnValue(branchPreferences),
+          update: workspaceStateUpdate,
+        },
       } as never,
       {
         agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
@@ -3127,11 +3139,18 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Roadmap');
     expect(html).toContain('Testing');
     expect(html).toContain('data-atlas-discuss-icon="/ext/media/icon.svg"');
+    expect(html).toContain(`data-branch-preferences="${encodeURIComponent(JSON.stringify(branchPreferences))}"`);
     expect(html).toContain('.atlas-discuss-action');
     expect(html).toContain('overflow-wrap: anywhere;');
     expect(html).toContain('min-width: 0;');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'saveBranchPreferences',
+      payload: branchPreferences,
+    });
+    expect(workspaceStateUpdate).toHaveBeenCalledWith('atlasmind.projectDashboard.branchPreferences', branchPreferences);
   });
 
   it('renders the dedicated ideation panel with a CSP-safe external script shell', async () => {

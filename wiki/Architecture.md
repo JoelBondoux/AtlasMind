@@ -187,6 +187,48 @@ is a closed create-only template derived host-side from declared branches and pa
 browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
 file appears between review and write.
 
+The Branches panel follows the same host-authority boundary for daily Git work. An expanded card groups
+**Work** separately from **Review**, but a work button sends only the card's opaque inventory id and a
+closed action name. The host rebuilds live branch, working-tree, tracking, remote and commit state before
+it can switch, prepare a commit, fast-forward pull, non-force push or publish, create a branch at the
+selected commit, or open GitHub's pull-request form. The compact surface never performs an automatic
+commit, selects merge versus rebase, force-pushes, or bypasses remote branch protection. The owner and
+toolbar share one flexible column; daily actions render as fixed-size icons whose native tooltip and
+accessible label retain the complete action and safety description at narrow widths.
+
+Branch presentation state is split deliberately: the webview copy makes re-renders immediate, while a
+host-validated workspace-state copy restores saved view, sort, direction, grouping, and SCM colours after
+the panel is closed and recreated. Folded local/upstream cards derive activity from the newer of their two
+visible commits; recency sorting therefore describes the logical branch rather than always describing its
+local ref.
+
+Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
+issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render
+the Director's contact picker beside the work; Director → Assignments changes the same records. The
+browser submits only a short-lived target token. The host resolves that token from the latest snapshot,
+validates the contact, and stores a closed work-kind/id link in the Project Director assignment source
+of truth. Branch tokens are checked once more against fresh Git state before saving, so a stale card
+cannot assign a renamed or replaced ref.
+
+Project State is the personal ToDo projection of that contract. Active assignments owned by the
+Director contact marked as **me** appear one per row under **Waiting on you**, carrying status, priority,
+and a link to the work's owning page; due and overdue follow-ups appear individually too. Completed,
+cancelled, and colleague-owned assignments are omitted. Project Director's own **Follow-ups** group uses
+the same source: those due reminders plus the active assignments owned by **me**.
+VS Code treats a native tree view's `badge` as container activity and hides a view's description when
+the panel collapses, so AtlasMind projects the same count through the three public channels that own
+these locations: `TreeView.badge` on the AtlasMind activity-bar icon, a dynamic
+**Project State · N waiting** title that remains visible when closed, and a coloured file-decoration
+badge on **Waiting on you**. Project Director repeats those three channels with a dynamic
+**Project Director · N follow-ups** title and a coloured Follow-ups row badge. Dashboard owner saves
+refresh both trees immediately, and external Project Director file changes follow the same path.
+
+Tree commands use a guarded `ProjectDashboardOpenTarget`: a validated page plus an optional allowlisted
+work kind and bounded stable id. Matching focus markers live on branch, roadmap, issue, pull-request,
+gap, risk, debt, document, assignment, and follow-up records. The dashboard clears any presentation
+filter hiding that record, scrolls and focuses it, and draws a temporary focus outline. A removed or
+not-yet-loaded record safely degrades to its owning page.
+
 Detected commands can be copied, typed into a terminal, or run a column at a time, and `deliveryRunPlan.ts`
 decides what a terminal is asked to do before anything is sent. The webview posts an opaque step or phase
 id and the host rebuilds the guide to resolve the command, so the page can name a step but never supply
