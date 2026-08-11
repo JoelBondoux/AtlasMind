@@ -36,9 +36,9 @@ This page summarizes the delivery promise.
 
 ## First milestone
 
-The first slice establishes the v6 graph, lossless v5 migration, closed edit commands, and monotonic
-undo/redo. Next, the built-in-browser preview gains a frozen live runtime and revisioned loopback channel,
-followed by two-way selection and routing basic canvas edits through the command layer. The milestone exits
+The v6 graph, lossless v5 migration, closed edit commands, monotonic undo/redo, and frozen revision-only
+built-in-browser runtime are now implemented through v0.275.0. Next are two-way selection and routing basic
+canvas edits through the command layer. The milestone exits
 only after a marketing site, data-rich web application, and non-web UI all pass the same migration, editing,
 history, selection, and preview scenarios.
 

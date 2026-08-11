@@ -5,6 +5,10 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
+**Progress through v0.275.0:** contract, v6 graph/migration, closed edit reducer/history, and the frozen
+revision-only live preview transport are complete. Two-way selection and routing individual canvas gestures
+through the command layer are next.
+
 ## Problem
 
 UI Studio can already describe a general interface, draw page structure, design content, preserve exact
@@ -264,7 +268,7 @@ Detailed decisions live in:
 2. Add the v6 graph and lossless v5 → v6 migration.
 3. Add the pure closed edit-command reducer.
 4. Add monotonic revision history with bounded undo/redo.
-5. Move full preview delivery onto a frozen live runtime and revisioned channel.
+5. ~~Move full preview delivery onto a frozen live runtime and revisioned channel.~~ Completed in v0.275.0.
 6. Add two-way selection synchronization.
 7. Route basic canvas edits through the command layer.
 8. Validate all of the above on the three reference projects.
@@ -313,4 +317,3 @@ semantics are stable enough that the browser cannot become accidental authority.
   source of truth?
 
 These are sequencing questions, not blockers for the v6 graph and edit protocol.
-

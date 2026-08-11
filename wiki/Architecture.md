@@ -184,11 +184,13 @@ The 5 → 6 migration preserves every prior wireframe fact and the untouched-ver
 inventing no responsive, token, component, or source-mapping intent.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
-wireframe geometry, sanitized colour/type tokens, and escaped Markdown content under the preview server's
-script-free policy. `websitePreviewHost.ts` keeps one tokenized `127.0.0.1` server: VS Code's built-in
-Simple Browser is the full-canvas primary surface, while `websitePreviewPanel.ts` is a sandboxed
-desktop/tablet/mobile inspection lab. Generated visual guides remain at separate paths and are linked
-from the draft index rather than taking over its entry point.
+wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains
+script-free; `websitePreviewHost.ts` injects the frozen `uiPreviewRuntime.ts` listener only into the
+deterministic `_wireframe/` drafts. One tokenized `127.0.0.1` server exposes exactly that runtime and a
+revision-only event stream, capped at eight clients. VS Code's built-in Simple Browser reloads after a newer
+successful render; the sandboxed desktop/tablet/mobile lab stays scriptless and is refreshed host-side.
+Generated visual guides remain uninjected at separate paths and are linked from the draft index rather than
+taking over its entry point.
 
 The Project Dashboard's Delivery panel presents two related but deliberately separate views. The stage
 pipeline says **where versions move** and owns guarded promotion. The detected shipping guide says **what

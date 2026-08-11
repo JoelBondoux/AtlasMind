@@ -132,7 +132,9 @@ Mobile 390 widths.
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.
 Saving structure, content, or UI-system changes rebuilds the draft whenever the preview server is already
-running. Refresh the built-in browser to see that saved revision, or use **Rebuild and open**.
+running. The built-in browser receives the newer render revision over the token-protected live channel and
+reloads automatically; **Rebuild and open** remains the explicit way to start or refocus it. The browser
+receives only an integer revision and has no design-write protocol.
 
 ## Generate
 
@@ -282,8 +284,10 @@ Without content, every block is unmistakably unfinished: hatched fill, dashed bo
 `text` block renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than
 a stock photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
 rather than filler. With content, an inert Markdown subset renders exact copy into eligible blocks and
-the full content proof; input is escaped before formatting. The output carries no script and no external
-request, so it satisfies the preview server's existing strict CSP without widening policy.
+the full content proof; input is escaped before formatting. The pure renderer emits no script or external
+request. Immediately before writing the Studio draft, the host injects one frozen AtlasMind runtime that
+can listen for a same-origin revision event and reload. No workspace value enters that script, and generated
+or exported output is never injected.
 
 ## Page content
 
@@ -336,8 +340,9 @@ This is the only place AtlasMind puts JavaScript into a generated page, so:
 
 - The script is a **frozen constant**, hand-written, never model-written, with nothing from the
   workspace interpolated into it — configuration travels in a `data-` attribute as JSON.
-- The preview server's `.js` exception is **one named file**, not a widened extension class, and
-  `script-src 'self'` is added only while the overlay setting is on.
+- The preview server's on-disk `.js` exception is **one named file**, not a widened extension class. The
+  Studio live runtime is a separate exact `_atlas/runtime.js` response sourced from a frozen constant, never
+  a workspace file; it does not make arbitrary `.js` servable.
 - Import is **idempotent**: re-sending the same export adds nothing and never resets a comment already
   resolved.
 

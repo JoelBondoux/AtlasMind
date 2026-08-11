@@ -313,7 +313,7 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 ### Website Studio design and generation modules
 
-Eight pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
 - **`uiDesignGraph.ts`** — sanitizes the target-independent v6 graph against the page inventory, preserves
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
@@ -323,6 +323,10 @@ Eight pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   events, and model proposals. Commands carry an expected revision; stale/missing/invalid targets refuse.
   Successful mutations and undo/redo all advance revision monotonically, history is capped at 100, and a
   fresh edit clears the redo branch.
+- **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, exact token-scoped protocol paths, HTML
+  injection, and revision-only event hub. A connection receives the current render revision immediately;
+  newer revisions fan out to at most eight listeners, while stale/invalid values and broken clients are
+  dropped. The script can open `EventSource` and reload; it has no edit, message, storage, path, or source API.
 
 - **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
 - **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.
@@ -333,13 +337,16 @@ Eight pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
 ### Website Studio content and review
 
-- **`websiteWireframePreview.ts`** — renders the canonical design draft straight to self-contained HTML with **no model involved**: wireframe geometry, safe colour/type tokens, and an escaped inert subset of the exact Markdown copy, repeated in a complete content proof. Missing copy stays explicit. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; drafts live under `_wireframe/`, never at a generated page's address. The index always owns the preview entry point and links to generated output separately.
+- **`websiteWireframePreview.ts`** — renders the canonical design draft straight to self-contained HTML with **no model involved**: wireframe geometry, safe colour/type tokens, and an escaped inert subset of the exact Markdown copy, repeated in a complete content proof. Missing copy stays explicit. The pure renderer still emits no script; `websitePreviewHost.ts` then injects the one frozen Studio runtime with a numeric render revision before writing `_wireframe/`. Generated/exported output is not injected. The index always owns the preview entry point and links to generated output separately.
 - **`websitePreviewHost.ts` / `websitePreviewPanel.ts`** — one guarded loopback server feeds two consumers. VS Code's built-in Simple Browser is the full-canvas primary preview; the custom sandboxed webview is only the responsive-width lab. Closing that lab does not stop a server still serving the full browser; Stop Preview, Studio disposal, and extension deactivation own shutdown.
 - **`websiteContent.ts`** / **`websiteContentManager.ts`** — markdown copy with YAML front-matter, one file per page, derived from the same `normalizeSlug` the sitemap uses. `[PLACEHOLDER: …]` is parsed and **counted**; *missing* and *empty* stay distinguishable; the file is the source of truth and a save whose file changed underneath is refused rather than merged.
 - **`websiteReviewComments.ts`** — comments against a page or element, transitioning and never deleted, with an orphaned comment kept and flagged carrying the element's remembered label. `buildCommentWorkPrompt` fences the body as REPORTED CONTENT.
 - **`websiteReviewBundle.ts`** — the overlay generated *into the site*, so it deploys to the client's own staging. The script is a **frozen constant** with configuration passed in a `data-` attribute; no endpoint is ever invented, and `connect-src` names the single declared origin or is `'none'`. Import reuses the record sanitizer and is idempotent. The decision not to host a relay is recorded in `project_memory/decisions/website-client-review-hosting.md`.
 
-The preview server's `.js` exception is **one named file** (`REVIEW_OVERLAY_SERVED_NAME`), not a widened extension class, and `script-src 'self'` is added to the served policy only when `allowOverlayScript` is set — which the host ties to the same setting that injects the overlay.
+The preview server still never serves a general `.js` extension class. It has two independently gated exact
+exceptions: the optional on-disk `REVIEW_OVERLAY_SERVED_NAME`, and the Studio-only `_atlas/runtime.js`
+response whose bytes come from `UI_PREVIEW_RUNTIME_SCRIPT`, not the workspace. Live Studio mode adds only
+same-origin `script-src`/`connect-src`; review mode separately adds its declared HTTPS connection capability.
 
 ### Website Studio stack setup
 
@@ -352,7 +359,7 @@ Four more modules cover the framework half, all pure and unit-tested except the 
 
 `src/views/websiteStackSetupHost.ts` is the impure half: probe the machine and workspace, show the modal (every command with its purpose, every file with its full contents, openable as documents before confirming), execute with a real `execFile` — argument array, no shell, `cwd` set to the workspace — then **re-probe the filesystem** rather than trusting exit codes.
 
-`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
+`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. Its two exact live resources deliver the frozen runtime and a server-sent revision stream; neither accepts POST or browser-authored state. The `http` module is injected for unit tests, and an ephemeral-port integration test pins the actual headers, wrong-token response, reconnect state, and event delivery. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window), injects only deterministic drafts, publishes only after render succeeds, and closes streams plus keep-alive sockets on stop. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; that sandbox omits scripts and continues to refresh through its host, while Simple Browser uses the live runtime.
 
 ### CiManager (`src/core/ciManager.ts`)
 
@@ -1338,6 +1345,7 @@ extension.ts
   │     │     ├── core/websiteWorkspaceManager.ts
   │     │     ├── core/uiDesignGraph.ts
   │     │     ├── core/uiEditCommands.ts
+  │     │     ├── core/uiPreviewRuntime.ts
   │     │     ├── core/websiteWireframe.ts
   │     │     ├── core/websiteSitemap.ts
   │     │     ├── core/websiteLinkGraph.ts
@@ -1406,6 +1414,7 @@ tests/core/
   ├── websiteWorkspaceManager.test.ts
   ├── uiDesignGraph.test.ts
   ├── uiEditCommands.test.ts
+  ├── uiPreviewRuntime.test.ts
   ├── websiteWireframe.test.ts
   ├── websiteSitemap.test.ts
   ├── websiteLinkGraph.test.ts

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import * as path from 'node:path';
+import * as http from 'node:http';
+import * as os from 'node:os';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import {
   PREVIEW_BIND_ADDRESS,
   resolvePreviewRequest,
+  WebsitePreviewServer,
 } from '../../src/core/websitePreviewServer.js';
+import { UI_PREVIEW_RUNTIME_SCRIPT } from '../../src/core/uiPreviewRuntime.js';
 
 const ROOT = path.resolve('/tmp/atlas-preview');
 const TOKEN = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
@@ -128,6 +133,14 @@ describe('websitePreviewServer', () => {
       }
     });
 
+    it('does not widen static JavaScript serving for the live runtime endpoint', () => {
+      // The server handles this exact path from a frozen constant before file
+      // resolution. It must never turn into permission to read a .js file from
+      // the preview root.
+      expect(resolve(`/${TOKEN}/_atlas/runtime.js`).ok).toBe(false);
+      expect(resolve(`/${TOKEN}/assets/runtime.js`).ok).toBe(false);
+    });
+
     it('maps a directory request onto its index', () => {
       const result = resolve(`/${TOKEN}/services/seo`);
       expect(result.ok).toBe(true);
@@ -166,3 +179,90 @@ describe('websitePreviewServer', () => {
     });
   });
 });
+
+describe('websitePreviewServer live protocol', () => {
+  it('serves only the exact token-scoped runtime and streams revision updates across reconnects', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'atlasmind-live-preview-'));
+    await writeFile(path.join(root, 'index.html'), '<!doctype html><html><body>Preview</body></html>', 'utf8');
+    const server = new WebsitePreviewServer({
+      rootDirectory: root,
+      http,
+      allowLiveRuntime: true,
+      initialRevision: 7,
+    });
+    const handle = await server.start();
+
+    try {
+      const page = await fetch(handle.url);
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-security-policy')).toContain("script-src 'self'");
+      expect(page.headers.get('content-security-policy')).toContain("connect-src 'self'");
+
+      const runtime = await fetch(`${handle.url}_atlas/runtime.js`);
+      expect(runtime.status).toBe(200);
+      expect(runtime.headers.get('content-type')).toContain('text/javascript');
+      expect(await runtime.text()).toBe(UI_PREVIEW_RUNTIME_SCRIPT);
+
+      const wrongToken = await fetch(`${handle.url.replace(handle.token, 'wrong-token')}_atlas/runtime.js`);
+      expect(wrongToken.status).toBe(404);
+      expect((await fetch(`${handle.url}assets/anything.js`)).status).toBe(404);
+      expect((await fetch(`${handle.url}_atlas/events`, { method: 'POST' })).status).toBe(405);
+
+      const firstController = new AbortController();
+      const first = await fetch(`${handle.url}_atlas/events`, { signal: firstController.signal });
+      expect(first.status).toBe(200);
+      expect(first.headers.get('content-type')).toContain('text/event-stream');
+      const firstReader = first.body!.getReader();
+      expect(await readStreamUntil(firstReader, 'data: {"revision":7}')).toContain('event: revision');
+
+      expect(server.publishRevision(8)).toBe(true);
+      expect(await readStreamUntil(firstReader, 'data: {"revision":8}')).toContain('id: 8');
+      firstController.abort();
+      await firstReader.cancel().catch(() => undefined);
+
+      const reconnectController = new AbortController();
+      const reconnect = await fetch(`${handle.url}_atlas/events`, { signal: reconnectController.signal });
+      const reconnectReader = reconnect.body!.getReader();
+      expect(await readStreamUntil(reconnectReader, 'data: {"revision":8}')).toContain('id: 8');
+      reconnectController.abort();
+      await reconnectReader.cancel().catch(() => undefined);
+    } finally {
+      await handle.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+async function readStreamUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  needle: string,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let received = '';
+  for (let index = 0; index < 8 && !received.includes(needle); index += 1) {
+    const next = await readWithTimeout(reader);
+    if (next.done) {
+      break;
+    }
+    received += decoder.decode(next.value, { stream: true });
+  }
+  return received;
+}
+
+function readWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for preview event.')), 2_000);
+    void reader.read().then(
+      result => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}

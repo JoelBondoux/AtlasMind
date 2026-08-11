@@ -37,11 +37,14 @@ import {
   WIREFRAME_INDEX_PATH,
 } from '../core/websiteWireframePreview.js';
 import { WebsitePreviewServer } from '../core/websitePreviewServer.js';
+import { injectUiPreviewRuntime } from '../core/uiPreviewRuntime.js';
+import { UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
 import { describeGenerationRun, runWebsiteGeneration } from '../core/websiteGenerationRunner.js';
 import { WebsitePreviewPanel } from './websitePreviewPanel.js';
 
 let server: WebsitePreviewServer | undefined;
 let lifecycleRegistered = false;
+let previewRenderRevision = 0;
 
 /** Deny by default. Opening a local port is a decision separate from using the Studio. */
 function isPreviewEnabled(): boolean {
@@ -108,7 +111,7 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
   // before anything has been generated served the 404 — a white page with one
   // line of grey text, which is exactly what it looked like. These are
   // deterministic, cost nothing, and mean the preview always shows the drawing.
-  const entryPath = await writeWireframePreviews(workspaceRoot, root);
+  const rendered = await writeWireframePreviews(workspaceRoot, root);
 
   try {
     if (!server?.running) {
@@ -120,8 +123,13 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
         // the policy widens exactly when there is something that needs it.
         allowOverlayScript: vscode.workspace.getConfiguration('atlasmind')
           .get<boolean>('website.review.includeOverlayInBuild', false),
+        allowLiveRuntime: true,
+        initialRevision: rendered.revision ?? previewRenderRevision,
       });
       await server.start();
+    }
+    if (rendered.revision !== undefined) {
+      server.publishRevision(rendered.revision);
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -141,7 +149,7 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
     lifecycleRegistered = true;
     context.subscriptions.push({ dispose: () => { void stopWebsitePreview(); } });
   }
-  return { entryPath, port, url };
+  return { entryPath: rendered.entryPath, port, url };
 }
 
 /** Open the canonical full-canvas preview in VS Code's built-in Simple Browser. */
@@ -185,16 +193,28 @@ export async function openResponsiveWebsitePreview(context: vscode.ExtensionCont
  * Returns the deterministic design-preview index. Generated output stays linked
  * from that index, but it never replaces the content/style/structure feedback loop.
  */
-async function writeWireframePreviews(workspaceRoot: string, root: string): Promise<string> {
+interface RenderedWireframePreview {
+  entryPath: string;
+  revision?: number;
+}
+
+async function writeWireframePreviews(
+  workspaceRoot: string,
+  root: string,
+): Promise<RenderedWireframePreview> {
   let config;
   try {
     config = new WebsiteWorkspaceManager(workspaceRoot).load();
   } catch {
     // No workspace file yet. Nothing to draw, and the server will answer
     // honestly rather than this failing the whole open.
-    return '';
+    return { entryPath: '' };
   }
 
+  const renderRevision = Math.min(
+    UI_DESIGN_GRAPH_MAX_REVISION,
+    Math.max(config.designGraph.revision, previewRenderRevision + 1),
+  );
   try {
     await mkdir(path.join(root, '_wireframe'), { recursive: true });
     const contentDirectory = vscode.workspace.getConfiguration('atlasmind')
@@ -203,14 +223,17 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
 
     await writeFile(
       path.join(root, WIREFRAME_INDEX_PATH),
-      renderWireframeIndex(
-        config.pages,
-        config.designSystem,
-        config.intake.projectName,
-        {
-          contents,
-          generatedAvailable: existsSync(path.join(root, 'index.html')),
-        },
+      injectUiPreviewRuntime(
+        renderWireframeIndex(
+          config.pages,
+          config.designSystem,
+          config.intake.projectName,
+          {
+            contents,
+            generatedAvailable: existsSync(path.join(root, 'index.html')),
+          },
+        ),
+        renderRevision,
       ),
       'utf8',
     );
@@ -218,13 +241,16 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
     for (const page of config.pages) {
       await writeFile(
         path.join(root, previewPathFor(page)),
-        renderWireframePreview({
-          page,
-          designSystem: config.designSystem,
-          siblings: config.pages,
-          content: contents.get(page.id),
-          ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
-        }),
+        injectUiPreviewRuntime(
+          renderWireframePreview({
+            page,
+            designSystem: config.designSystem,
+            siblings: config.pages,
+            content: contents.get(page.id),
+            ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
+          }),
+          renderRevision,
+        ),
         'utf8',
       );
     }
@@ -232,10 +258,11 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
     // A failed render must not stop the preview opening — the generated site may
     // still be there and is the more important thing to show. If it is not, the
     // root answers "not generated yet", which is at least true.
-    return '';
+    return { entryPath: '' };
   }
 
-  return WIREFRAME_INDEX_PATH;
+  previewRenderRevision = renderRevision;
+  return { entryPath: WIREFRAME_INDEX_PATH, revision: renderRevision };
 }
 
 /** Stop the server. Safe to call when nothing is running — the Studio calls it on dispose. */
@@ -260,8 +287,11 @@ export async function refreshRunningWebsitePreview(): Promise<void> {
     return;
   }
   const root = previewRootFor(workspaceRoot);
-  await writeWireframePreviews(workspaceRoot, root);
-  WebsitePreviewPanel.currentPanel?.refresh();
+  const rendered = await writeWireframePreviews(workspaceRoot, root);
+  if (rendered.revision !== undefined) {
+    server.publishRevision(rendered.revision);
+    WebsitePreviewPanel.currentPanel?.refresh();
+  }
 }
 
 interface GenerateRequest {

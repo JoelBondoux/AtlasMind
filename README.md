@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.274.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.275.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.274.0
+## What's new in 0.275.0
 
-The last Marketplace publication, **v0.270.3**, is the baseline for the first twelve items below; the remaining
+The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The full browser preview now follows saved design and content changes live.** A frozen Studio-only
+  runtime listens for revision numbers on the token-protected loopback server and reloads when the
+  deterministic draft changes. It cannot submit edits, graph fragments, paths, commands, or source code;
+  generated/exported output remains independent.
 
 - **UI Studio now has a durable plan to compete as a complete visual builder.** The repository records the
   product contract, delivery phases, acceptance criteria, reference projects, quality measures, and the
@@ -563,7 +568,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit core (`uiDesignGraph.ts`, `uiEditCommands.ts`), CI inspection/scaffolding, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |

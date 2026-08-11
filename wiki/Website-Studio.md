@@ -203,7 +203,9 @@ the same guarded loopback server and URL as the full browser. If a model-generat
 the index links to it separately; it never replaces the live Studio draft.
 
 Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
-Refresh the built-in browser, or press **Rebuild and open**, to display that saved revision.
+The built-in browser receives the new render revision and reloads automatically. That frozen Studio-only
+listener receives an integer only; it cannot submit edits, paths, commands, graph fragments, or source code.
+The Responsive lab remains scriptless and is refreshed by AtlasMind itself.
 
 ## Seeing the wireframe
 

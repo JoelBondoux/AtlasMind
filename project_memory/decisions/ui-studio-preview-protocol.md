@@ -45,7 +45,11 @@ does not acquire the preview channel.
 
 ## Action items
 
-- Stabilize graph revisions and edit commands before adding the live transport.
-- Define a closed preview event union and maximum payload sizes.
+- ~~Stabilize graph revisions and edit commands before adding the live transport.~~ Shipped in v0.274.0.
+- ~~Define the first closed preview event and maximum payload sizes.~~ The revision-only SSE channel shipped
+  in v0.275.0 with an 80-character browser payload cap and eight-listener host cap.
 - Add two-way selection after reconnect/revision tests pass.
 
+The v0.275.0 implementation also pins the actual loopback path through an ephemeral-port integration test:
+wrong tokens and arbitrary `.js` remain 404, reconnect receives current revision, and Stop Preview closes
+both event streams and idle sockets. Two-way selection remains a separate authority decision and slice.

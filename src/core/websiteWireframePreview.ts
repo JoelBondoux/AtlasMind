@@ -371,7 +371,7 @@ export function renderWireframeIndex(
             ? `${content.placeholders.length} gap${content.placeholders.length === 1 ? '' : 's'}`
             : content.status;
         return `<li>
-          <a href="${escapeHtml(previewPathFor(page))}">${escapeHtml(page.title)}</a>
+          <a href="${escapeHtml(previewPathFromIndex(page))}">${escapeHtml(page.title)}</a>
           <span>${escapeHtml(normalizeSlug(page.slug))}</span>
           <em>${drawn === 0 ? 'not drawn yet' : `${drawn} element${drawn === 1 ? '' : 's'}`} · ${escapeHtml(contentState)}</em>
         </li>`;
@@ -418,12 +418,20 @@ export function renderWireframeIndex(
  */
 export function previewPathFor(page: WebsitePagePlan): string {
   const slug = normalizeSlug(page.slug);
-  const name = slug === '/' ? 'index' : slug.slice(1).replace(/\//g, '-');
+  // `index.html` belongs to the screen inventory. Giving the root page that
+  // same name made the page loop overwrite the entry point after it was
+  // written, so the preview silently stopped being an index at all.
+  const name = slug === '/' ? 'home' : slug.slice(1).replace(/\//g, '-');
   return `_wireframe/${name}.html`;
 }
 
 /** The wireframe index's own path, for the same reason. */
 export const WIREFRAME_INDEX_PATH = '_wireframe/index.html';
+
+/** Links inside the index are relative to `_wireframe/`, not the preview root. */
+function previewPathFromIndex(page: WebsitePagePlan): string {
+  return previewPathFor(page).slice('_wireframe/'.length);
+}
 
 // ── Helpers ──────────────────────────────────────────────────────
 

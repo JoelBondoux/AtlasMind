@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.275.0] - 2026-08-11
+
+### Added
+
+- **The built-in-browser UI Studio draft now has a frozen live runtime.** Deterministic `_wireframe/`
+  pages subscribe to one exact token-scoped server-sent-events endpoint and reload when a newer render
+  revision is available. Structure, UI-system, and Markdown content saves therefore reach an already-open
+  full preview without reopening Simple Browser or granting the page edit authority.
+- **The revision channel has a bounded, transport-independent hub.** Every connection immediately receives
+  the current revision, reconnects resume from current state rather than replaying a backlog, stale/equal/
+  invalid revisions are ignored, broken clients are removed, and eight listeners is the hard cap.
+
+### Security
+
+- **Live preview adds two exact resources, not general JavaScript or API serving.** The random per-session
+  path token protects `_atlas/runtime.js` and `_atlas/events`; the runtime is a byte-stable AtlasMind
+  constant, static `.js` files remain refused, the browser sends no request body or design data, and CSP
+  widens only to same-origin script/connect for the Studio draft server.
+- **Stopping preview closes event streams and idle keep-alive sockets immediately.** The loopback port no
+  longer waits on browser connection reuse after the explicit lifecycle boundary.
+
+### Fixed
+
+- **The deterministic preview index can no longer be overwritten by the `/` screen.** The screen inventory
+  retains `_wireframe/index.html`, the home screen now uses `_wireframe/home.html`, and inventory links are
+  correctly relative to their own folder instead of resolving through `_wireframe/_wireframe/`.
+
 ## [0.274.0] - 2026-08-11
 
 ### Added

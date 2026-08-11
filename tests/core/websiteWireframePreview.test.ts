@@ -225,7 +225,10 @@ describe('websiteWireframePreview', () => {
     });
 
     it('is marked as undrawn in the index', () => {
-      expect(renderWireframeIndex([page()], designSystem)).toContain('not drawn yet');
+      const html = renderWireframeIndex([page()], designSystem);
+      expect(html).toContain('not drawn yet');
+      expect(html).toContain('href="home.html"');
+      expect(html).not.toContain('href="_wireframe/home.html"');
     });
 
     it('keeps model-generated output separate and one click away', () => {
@@ -250,8 +253,9 @@ describe('websiteWireframePreview', () => {
 
     it('flattens nested slugs into one folder', () => {
       expect(previewPathFor(page({ slug: '/services/seo' }))).toBe('_wireframe/services-seo.html');
-      expect(previewPathFor(page({ slug: '/' }))).toBe('_wireframe/index.html');
+      expect(previewPathFor(page({ slug: '/' }))).toBe('_wireframe/home.html');
       expect(WIREFRAME_INDEX_PATH).toBe('_wireframe/index.html');
+      expect(previewPathFor(page({ slug: '/' }))).not.toBe(WIREFRAME_INDEX_PATH);
     });
   });
 });

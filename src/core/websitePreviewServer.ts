@@ -39,6 +39,11 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { GENERATED_FILE_EXTENSIONS } from './websiteGeneration.js';
+import {
+  resolveUiPreviewProtocolResource,
+  UI_PREVIEW_RUNTIME_SCRIPT,
+  UiPreviewRevisionHub,
+} from './uiPreviewRuntime.js';
 
 /** The only address this ever binds. Not configurable, by design. */
 export const PREVIEW_BIND_ADDRESS = '127.0.0.1';
@@ -81,7 +86,11 @@ const SERVABLE_EXTENSIONS = new Set<string>([
  * script, no frames, no connections, no fonts from anywhere. This markup was
  * written by a model and is being rendered inside the user's editor.
  */
-function servedContentSecurityPolicy(allowOverlayScript: boolean): string {
+function servedContentSecurityPolicy(allowOverlayScript: boolean, allowLiveRuntime = false): string {
+  const connectSources = [
+    ...(allowLiveRuntime ? ["'self'"] : []),
+    ...(allowOverlayScript ? ['https:'] : []),
+  ];
   return [
     "default-src 'none'",
     "img-src 'self' data:",
@@ -89,7 +98,8 @@ function servedContentSecurityPolicy(allowOverlayScript: boolean): string {
     "font-src 'self' data:",
     // Same-origin only, and only when the review overlay is switched on. The
     // page's own meta policy narrows this further once deployed.
-    ...(allowOverlayScript ? ["script-src 'self'", "connect-src https:"] : []),
+    ...(allowOverlayScript || allowLiveRuntime ? ["script-src 'self'"] : []),
+    ...(connectSources.length > 0 ? [`connect-src ${connectSources.join(' ')}`] : []),
     "form-action 'none'",
     "base-uri 'none'",
     "frame-ancestors *",
@@ -129,6 +139,10 @@ export interface PreviewServerOptions {
    * no script served, no script permitted.
    */
   allowOverlayScript?: boolean;
+  /** Serve the frozen revision-only runtime used by deterministic Studio drafts. */
+  allowLiveRuntime?: boolean;
+  /** Revision sent immediately to a newly connected draft. */
+  initialRevision?: number;
 }
 
 export interface PreviewServerHandle {
@@ -143,6 +157,7 @@ export class WebsitePreviewServer {
   private server: Server | undefined;
   private token = '';
   private boundPort = 0;
+  private liveHub: UiPreviewRevisionHub | undefined;
 
   constructor(private readonly options: PreviewServerOptions) {}
 
@@ -164,6 +179,7 @@ export class WebsitePreviewServer {
       await this.stop();
     }
     this.token = randomBytes(16).toString('hex');
+    this.liveHub = new UiPreviewRevisionHub(this.options.initialRevision);
     const root = path.resolve(this.options.rootDirectory);
 
     const server = this.options.http.createServer((request, response) => {
@@ -205,9 +221,19 @@ export class WebsitePreviewServer {
     }
     this.server = undefined;
     this.token = '';
+    this.liveHub?.close();
+    this.liveHub = undefined;
     await new Promise<void>(resolve => {
       server.close(() => resolve());
+      // Stop is an explicit lifecycle boundary. Do not leave idle keep-alive
+      // sockets holding the loopback port after every preview consumer closed.
+      server.closeAllConnections();
     });
+  }
+
+  /** Notify connected Studio drafts that a newer graph revision is on disk. */
+  publishRevision(revision: number): boolean {
+    return this.server !== undefined && this.liveHub?.publish(revision) === true;
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse, root: string): Promise<void> {
@@ -215,6 +241,20 @@ export class WebsitePreviewServer {
     // reachable by any local process.
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       respondError(response, 405, 'The preview server only answers GET.');
+      return;
+    }
+
+    const protocolResource = resolveUiPreviewProtocolResource(request.url ?? '/', this.token);
+    if (protocolResource) {
+      if (this.options.allowLiveRuntime !== true) {
+        respondError(response, 404, 'Not found.');
+        return;
+      }
+      if (protocolResource === 'runtime') {
+        respondFrozenRuntime(request, response);
+      } else {
+        this.connectLiveEvents(request, response);
+      }
       return;
     }
 
@@ -249,7 +289,10 @@ export class WebsitePreviewServer {
         ? 'text/javascript; charset=utf-8'
         : CONTENT_TYPES[extension] ?? 'application/octet-stream',
       'Content-Length': stats.size,
-      'Content-Security-Policy': servedContentSecurityPolicy(this.options.allowOverlayScript === true),
+      'Content-Security-Policy': servedContentSecurityPolicy(
+        this.options.allowOverlayScript === true,
+        this.options.allowLiveRuntime === true,
+      ),
       'X-Content-Type-Options': 'nosniff',
       // The preview must never be cached: the whole point is that it changes
       // when Generate is pressed again.
@@ -262,6 +305,47 @@ export class WebsitePreviewServer {
     }
     createReadStream(resolved.filePath).pipe(response);
   }
+
+  private connectLiveEvents(request: IncomingMessage, response: ServerResponse): void {
+    const hub = this.liveHub;
+    if (!hub) {
+      respondError(response, 503, 'The live preview is not ready.');
+      return;
+    }
+    if (request.method !== 'HEAD' && !hub.canConnect) {
+      respondError(response, 503, 'The live preview listener limit has been reached.');
+      return;
+    }
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+    if (!hub.connect(response)) {
+      response.end();
+      return;
+    }
+    const disconnect = (): void => hub.disconnect(response);
+    request.once('close', disconnect);
+    response.once('close', disconnect);
+  }
+}
+
+function respondFrozenRuntime(request: IncomingMessage, response: ServerResponse): void {
+  response.writeHead(200, {
+    'Content-Type': 'text/javascript; charset=utf-8',
+    'Content-Length': Buffer.byteLength(UI_PREVIEW_RUNTIME_SCRIPT, 'utf8'),
+    'Content-Security-Policy': "default-src 'none'; base-uri 'none'",
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+  });
+  response.end(request.method === 'HEAD' ? undefined : UI_PREVIEW_RUNTIME_SCRIPT);
 }
 
 export type PreviewResolution =

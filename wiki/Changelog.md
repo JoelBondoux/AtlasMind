@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.275.0 — Full preview follows the saved design live
+
+An open UI Studio draft in VS Code's built-in browser now reloads when saved structure, UI-system choices,
+or Markdown content produces a newer deterministic render. The listener is a frozen AtlasMind runtime on
+the existing token-protected loopback server; it receives revision numbers only and cannot send edits,
+paths, commands, graph fragments, or source code.
+
+The live channel is deliberately small: two exact endpoints, same-origin-only CSP, at most eight listeners,
+no event backlog, stale revisions ignored, and immediate connection cleanup when preview stops. Static
+JavaScript in the preview root is still refused.
+
+The screen inventory also keeps its own address now: `/` renders as `home.html` instead of overwriting
+the `_wireframe/index.html` entry point, and its links resolve correctly from that folder.
+
 ## v0.274.0 — UI Studio gets an authoritative design core
 
 UI Studio's complete visual-builder direction now lives in the repository as an approved product plan,
