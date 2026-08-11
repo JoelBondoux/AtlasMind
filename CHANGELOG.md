@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.278.0] - 2026-08-11
+
+### Added
+
+- **UI Studio's foundation now has three executable reference projects.** A marketing website, dense
+  operations web app, and native desktop control room each exercise v5 → v6 migration, save/reopen,
+  revisioned edit, undo/redo, stale-event refusal, two-way selection identity, deterministic real-content
+  preview, and frozen live-runtime injection.
+- **Target independence is an asserted graph invariant.** The scenarios walk every graph level against the
+  shared screen/node/layout vocabulary, reject website delivery or implementation fields in the graph, and
+  confirm that Astro, React, and SwiftUI remain handoff facts rather than design-document fields.
+
+### Changed
+
+- **Phase 1 of the UI Studio builder plan is complete.** Its reference-project exit gate is now repeatable
+  test evidence, and responsive layout is the next recorded delivery phase.
+
 ## [0.277.0] - 2026-08-11
 
 ### Added

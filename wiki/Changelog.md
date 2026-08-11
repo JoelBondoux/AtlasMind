@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.278.0 — The UI Studio foundation passes all three reference projects
+
+Phase 1 is complete with executable fixtures for a marketing website, a data-rich operations web app, and
+a native desktop control room. Each scenario proves lossless v5 → v6 migration and reopening, the same
+revisioned edit/undo/redo/stale-event behaviour, current-revision selection identity, and a deterministic
+full-browser preview containing real review copy plus the frozen live runtime.
+
+The tests also walk the graph shape itself: website delivery fields, source locations, surface profiles,
+and Astro/React/SwiftUI target choices remain outside the authoritative target-independent graph. Phase 2
+now starts from evidence rather than an assumed foundation.
+
 ## v0.277.0 — Canvas edits have one revisioned path
 
 Drawing, moving, resizing, nesting, deleting, changing a block's kind, label, or design intent, and undo/redo

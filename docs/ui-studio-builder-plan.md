@@ -5,9 +5,10 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.277.0:** contract, v6 graph/migration, closed edit reducer/history, frozen live preview
-transport, revision-checked two-way selection, and reducer-backed canvas gestures are complete. Validating
-the foundation against the three reference projects is the remaining Phase 1 exit gate.
+**Progress through v0.278.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
+gestures, and executable validation across all three reference projects now pass. Phase 2 responsive layout
+is next.
 
 ## Problem
 
@@ -141,6 +142,8 @@ Acceptance criteria:
 #### P0.4 Three reference projects
 
 The foundation is exercised against a marketing website, a data-rich web application, and a non-web UI.
+The committed fixtures live in `tests/fixtures/uiStudioReferenceProjects.ts`; their shared scenarios live in
+`tests/core/uiStudioReferenceProjects.test.ts`.
 
 Acceptance criteria:
 
@@ -271,10 +274,11 @@ Detailed decisions live in:
 5. ~~Move full preview delivery onto a frozen live runtime and revisioned channel.~~ Completed in v0.275.0.
 6. ~~Add two-way selection synchronization.~~ Completed in v0.276.0.
 7. ~~Route basic canvas edits through the command layer.~~ Completed in v0.277.0.
-8. Validate all of the above on the three reference projects.
+8. ~~Validate all of the above on the three reference projects.~~ Completed in v0.278.0.
 
-Steps 1–4 established the authority and mutation contract. Steps 5–6 now provide a live, selection-aware
-review loop without making the browser an editor. Steps 7–8 complete the first foundation milestone.
+Steps 1–4 established the authority and mutation contract. Steps 5–6 provide a live, selection-aware
+review loop without making the browser an editor. Steps 7–8 completed the first foundation milestone;
+Phase 2 begins with responsive inheritance and the layout controls in P1.1.
 
 ## Success metrics
 

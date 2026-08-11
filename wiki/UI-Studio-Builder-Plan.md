@@ -36,11 +36,12 @@ This page summarizes the delivery promise.
 
 ## First milestone
 
-The v6 graph, lossless v5 migration, closed edit commands, monotonic undo/redo, frozen live runtime,
-revision-checked two-way selection, and reducer-backed canvas gestures are implemented through v0.277.0.
-The remaining foundation gate is exercising the whole path against the three reference projects. The milestone exits
-only after a marketing site, data-rich web application, and non-web UI all pass the same migration, editing,
-history, selection, and preview scenarios.
+Phase 1 is complete through v0.278.0. The v6 graph, lossless v5 migration, closed edit commands, monotonic
+undo/redo, frozen live runtime, revision-checked two-way selection, and reducer-backed canvas gestures now
+run through committed scenarios for a marketing site, data-rich web application, and non-web UI. Those
+fixtures assert migration/save/reopen integrity, the shared edit/history/selection contract, deterministic
+real-content full preview, and a target-independent graph. Phase 2 begins with responsive inheritance and
+competitive layout controls.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

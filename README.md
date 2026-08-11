@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.277.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.278.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.277.0
+## What's new in 0.278.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The UI Studio foundation is proven across three kinds of product.** Committed executable fixtures for a
+  marketing website, data-rich web app, and native desktop UI now verify lossless migration and reopening,
+  the shared edit/history/selection contract, deterministic full-browser content previews, and the absence
+  of target technology or website-delivery fields from the authoritative graph.
 
 - **Canvas edits now use the authoritative revisioned graph.** Drawing, moving, resizing, nesting, deleting,
   changing kind, label, or design intent, plus undo/redo, all pass through one exact command parser and pure

@@ -353,7 +353,10 @@ Stack setup adds four rules of its own, and each is pinned by a test rather than
 Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
 `tests/core/uiEditCommands.test.ts`, and `tests/core/uiPreviewRuntime.test.ts` (including property tests for the graph/wireframe sanitizers and preview
 path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
-`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`.
+`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`. The three executable
+cross-target foundation scenarios are declared in `tests/fixtures/uiStudioReferenceProjects.ts` and run by
+`tests/core/uiStudioReferenceProjects.test.ts`; keep migration, reopening, edit/history, selection, full
+preview, and graph-neutrality coverage aligned when the shared graph contract changes.
 
 The full-preview browser protocol is intentionally smaller than the Studio webview protocol. `runtime.js`
 and the SSE stream are GET-only; `_atlas/selection` is the sole POST and carries exactly a render revision,
