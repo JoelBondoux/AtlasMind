@@ -9,7 +9,17 @@ import {
   WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH,
   WebsiteWorkspaceManager,
 } from '../core/websiteWorkspaceManager.js';
-import { designGraphFromPages, UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
+import {
+  applyDesignGraphToPages,
+  designGraphFromPages,
+  UI_DESIGN_GRAPH_MAX_REVISION,
+} from '../core/uiDesignGraph.js';
+import {
+  applyUiEditCommand,
+  createUiEditSession,
+  parseUiEditCommand,
+  type UiEditSession,
+} from '../core/uiEditCommands.js';
 import type {
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
@@ -122,6 +132,7 @@ export type WebsiteStudioMessage =
   | { type: 'refreshPreview' }
   | { type: 'stopPreview' }
   | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
+  | { type: 'editDesignGraph'; payload: unknown }
   | { type: 'selectFramework'; payload: { frameworkId: string } }
   | { type: 'planStackSetup' }
   | { type: 'compareDelivery' };
@@ -155,6 +166,8 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
         && isBoundedIdentifier(payload['pageId'])
         && isBoundedIdentifier(payload['nodeId']);
     }
+    case 'editDesignGraph':
+      return parseUiEditCommand(message['payload']) !== undefined;
     case 'selectFramework': {
       const payload = asPayload(message['payload']);
       // Checked against the catalog here, not merely for being a string: this
@@ -271,6 +284,7 @@ export class WebsiteStudioPanel {
   private readonly manager: WebsiteWorkspaceManager;
   private readonly contentManager: WebsiteContentManager;
   private config: WebsiteWorkspaceConfig;
+  private editSession: UiEditSession;
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
@@ -290,6 +304,7 @@ export class WebsiteStudioPanel {
     );
     const read = this.manager.read();
     this.config = read.config;
+    this.editSession = createUiEditSession(this.config.designGraph);
     this.readOnly = read.preserveExisting;
     this.activePage = targetPage;
     this.render(targetPage);
@@ -363,6 +378,18 @@ export class WebsiteStudioPanel {
     }
   }
 
+  private async postDesignGraphState(
+    type: 'designGraphUpdated' | 'designEditRefused',
+    reason?: string,
+  ): Promise<void> {
+    await this.panel.webview.postMessage({
+      type,
+      revision: this.editSession.graph.revision,
+      ...(reason ? { reason } : {}),
+      pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
+    });
+  }
+
   private async handleMessage(input: unknown): Promise<void> {
     if (!isWebsiteStudioMessage(input)) {
       void this.panel.webview.postMessage({ type: 'notice', tone: 'error', message: 'UI Studio ignored an invalid message.' });
@@ -375,20 +402,25 @@ export class WebsiteStudioPanel {
           return;
         case 'saveConfig': {
           const payload = sanitizeWebsiteWorkspace(input.payload);
+          const rawPayload = input.payload as Record<string, unknown>;
+          const expectedDesignRevision = rawPayload['designRevision'];
+          const usesEditSession = Number.isSafeInteger(expectedDesignRevision);
           const suppliedGraph = typeof input.payload === 'object'
             && input.payload !== null
             && !Array.isArray(input.payload)
             && 'designGraph' in input.payload;
-          if (!suppliedGraph && this.config.designGraph.revision >= UI_DESIGN_GRAPH_MAX_REVISION) {
+          if (usesEditSession && expectedDesignRevision !== this.editSession.graph.revision) {
+            throw new Error('The canvas changed while this save was being prepared. Reload UI Studio and review the latest design.');
+          }
+          if (!usesEditSession && !suppliedGraph && this.config.designGraph.revision >= UI_DESIGN_GRAPH_MAX_REVISION) {
             throw new Error('The UI design revision limit has been reached. Save was refused so an older browser event cannot become current again.');
           }
-          // The current canvas still edits the compatibility wireframe in one
-          // in-memory batch. Until its gestures route through UiEditCommand,
-          // transcribe that batch once and advance revision rather than saving
-          // an absent graph as revision zero or letting the previous graph
-          // overwrite the newly drawn boxes.
-          const compatiblePayload = suppliedGraph
-            ? payload
+          // Current Studio builds name the revision of the host-owned edit
+          // session. The fallback preserves pre-v0.277 webviews that still
+          // submit one compatibility-wireframe batch after an extension reload.
+          const compatiblePayload = usesEditSession
+            ? { ...payload, designGraph: this.editSession.graph }
+            : suppliedGraph ? payload
             : {
                 ...payload,
                 designGraph: designGraphFromPages(
@@ -397,6 +429,10 @@ export class WebsiteStudioPanel {
                 ),
               };
           this.config = await this.manager.save(compatiblePayload);
+          this.editSession = {
+            ...this.editSession,
+            graph: this.config.designGraph,
+          };
           await this.refreshPreviewIfRunning();
           // Re-render on the page the user is already on. Saving used to update
           // `this.config` and post a success notice without re-rendering, so
@@ -410,6 +446,28 @@ export class WebsiteStudioPanel {
             tone: 'success',
             message: `UI plan saved to ${WEBSITE_WORKSPACE_SSOT_PATH}.`,
           });
+          return;
+        }
+        case 'editDesignGraph': {
+          if (this.readOnly) {
+            throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
+          }
+          const command = parseUiEditCommand(input.payload);
+          if (!command) {
+            throw new Error('UI Studio ignored an invalid design edit.');
+          }
+          const result = applyUiEditCommand(this.editSession, command);
+          if (!result.ok) {
+            await this.postDesignGraphState('designEditRefused', result.reason);
+            return;
+          }
+          this.editSession = result.session;
+          this.config = {
+            ...this.config,
+            designGraph: result.session.graph,
+            pages: applyDesignGraphToPages(this.config.pages, result.session.graph),
+          };
+          await this.postDesignGraphState('designGraphUpdated');
           return;
         }
         case 'savePageContent': {
@@ -467,6 +525,7 @@ export class WebsiteStudioPanel {
         case 'importIntake':
           this.config = importClientWebsiteIntake(this.config, input.payload);
           this.config = await this.manager.save(this.config);
+          this.editSession = createUiEditSession(this.config.designGraph);
           this.render('brief');
           void vscode.window.showInformationMessage('Client intake imported and normalized into UI Studio.');
           return;
@@ -480,6 +539,7 @@ export class WebsiteStudioPanel {
           }
           if (!this.manager.exists()) {
             this.config = await this.manager.save(this.config);
+            this.editSession = createUiEditSession(this.config.designGraph);
           }
           await vscode.window.showTextDocument(vscode.Uri.joinPath(workspace.uri, ...relativePath.split('/')));
           return;
@@ -645,6 +705,7 @@ export class WebsiteStudioPanel {
       return;
     }
     this.config = await persistFrameworkChoice(this.manager, this.config, frameworkId);
+    this.editSession = createUiEditSession(this.config.designGraph);
     this.render('stack');
     const spec = websiteFrameworkSpec(frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
     await this.panel.webview.postMessage({
@@ -795,6 +856,7 @@ export function getWebsiteStudioHtml(
   // introduced and the CSP stays as it is.
   const canvasState = JSON.stringify({
     surfaceKind: config.surfaceKind,
+    designRevision: config.designGraph.revision,
     pages: config.pages,
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,

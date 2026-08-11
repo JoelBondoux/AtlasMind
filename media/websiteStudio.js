@@ -48,6 +48,10 @@
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
+  let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
+    ? state.designRevision
+    : 0;
+  let acknowledgedDesignRevision = designRevision;
 
   /** Page currently open on the canvas. */
   let activePageId = state.pages[0]?.id ?? '';
@@ -68,6 +72,16 @@
       type: 'selectPreviewTarget',
       payload: { pageId: activePageId, nodeId: selectedElementId },
     });
+  }
+
+  function submitDesignEdit(command) {
+    const expectedRevision = designRevision;
+    designRevision += 1;
+    vscode.postMessage({
+      type: 'editDesignGraph',
+      payload: { ...command, expectedRevision },
+    });
+    markDirty();
   }
 
   function elementsOf(page) {
@@ -340,12 +354,12 @@
       + (state.canGenerate ? '<button type="button" class="secondary" id="generateElement">Generate</button>' : '')
       + '<button type="button" class="danger subtle" id="deleteElement">Delete</button>'
       + '</div>'
-      + '<p class="inspector-hint">Arrow keys nudge. Hold Shift for larger steps. Delete removes.</p>';
+      + '<p class="inspector-hint">Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.</p>';
   }
 
   // ── Drawing, moving, resizing ──────────────────────────────────
 
-  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object}} */
+  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object, parentId?: string}} */
   let drag = null;
 
   function beginCanvasPointer(event) {
@@ -363,6 +377,7 @@
         handle: handle.dataset.handle,
         origin: point,
         start: { ...findElement(box.dataset.elementId).rect },
+        parentId: findElement(box.dataset.elementId).parentId,
       };
     } else if (box) {
       selectedElementId = box.dataset.elementId;
@@ -373,6 +388,7 @@
         handle: '',
         origin: point,
         start: { ...findElement(selectedElementId).rect },
+        parentId: findElement(selectedElementId).parentId,
       };
       renderCanvas();
     } else {
@@ -509,8 +525,8 @@
       if (container && depthOf(container.id) < 2) { created.parentId = container.id; }
       elementsOf(activePage()).push(created);
       selectedElementId = created.id;
+      submitDesignEdit({ type: 'add-node', screenId: activePageId, node: created });
       notifyPreviewSelection();
-      markDirty();
       renderCanvas();
       notice('Added a ' + spec.label.toLowerCase() + '. Describe it in the panel on the right, then Save.');
       return;
@@ -529,7 +545,17 @@
         }
       }
     }
-    markDirty();
+    const changed = findElement(session.id);
+    if (changed && (JSON.stringify(changed.rect) !== JSON.stringify(session.start)
+        || (changed.parentId ?? null) !== (session.parentId ?? null))) {
+      submitDesignEdit({
+        type: 'set-node-frame',
+        screenId: activePageId,
+        nodeId: changed.id,
+        rect: { ...changed.rect },
+        parentId: changed.parentId ?? null,
+      });
+    }
     renderCanvas();
   }
 
@@ -550,8 +576,8 @@
       if (element.parentId) { child.parentId = element.parentId; } else { delete child.parentId; }
     }
     activePage().wireframe.elements = elements.filter(candidate => candidate.id !== element.id);
+    submitDesignEdit({ type: 'delete-node', screenId: activePageId, nodeId: element.id });
     selectedElementId = '';
-    markDirty();
     renderCanvas();
     notice(promoted.length > 0
       ? 'Deleted. The ' + promoted.length + ' element' + (promoted.length === 1 ? '' : 's') + ' inside moved up a level rather than being deleted too.'
@@ -563,7 +589,10 @@
     if (!element) { return; }
     element.rect.x = round(clamp(element.rect.x + dx, 0, CANVAS_WIDTH - element.rect.width));
     element.rect.y = round(clamp(element.rect.y + dy, 0, CANVAS_MAX_HEIGHT - element.rect.height));
-    markDirty();
+    submitDesignEdit({
+      type: 'set-node-frame', screenId: activePageId, nodeId: element.id,
+      rect: { ...element.rect }, parentId: element.parentId ?? null,
+    });
     renderCanvas();
   }
 
@@ -585,6 +614,11 @@
     surface.addEventListener('pointercancel', endCanvasPointer);
 
     surface.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        submitDesignEdit({ type: event.shiftKey ? 'redo' : 'undo' });
+        event.preventDefault();
+        return;
+      }
       if (!selectedElementId) { return; }
       const step = event.shiftKey ? COLUMN_WIDTH : 8;
       if (event.key === 'ArrowLeft') { nudgeSelected(-step, 0); event.preventDefault(); }
@@ -613,9 +647,25 @@
   });
 
   document.addEventListener('change', event => {
-    if (event.target.id === 'inspectorKind') {
+    if (event.target.id === 'inspectorLabel') {
+      submitDesignEdit({
+        type: 'set-node-label', screenId: activePageId, nodeId: selectedElementId,
+        label: event.target.value,
+      });
+    } else if (event.target.id === 'inspectorPrompt') {
+      submitDesignEdit({
+        type: 'set-node-design-prompt', screenId: activePageId, nodeId: selectedElementId,
+        designPrompt: event.target.value,
+      });
+    } else if (event.target.id === 'inspectorKind') {
       const element = findElement(selectedElementId);
-      if (element) { element.kind = event.target.value; markDirty(); renderCanvas(); }
+      if (element) {
+        element.kind = event.target.value;
+        submitDesignEdit({
+          type: 'set-node-kind', screenId: activePageId, nodeId: element.id, kind: event.target.value,
+        });
+        renderCanvas();
+      }
     } else if (event.target.id === 'wireframePageSelect') {
       activePageId = event.target.value;
       selectedElementId = '';
@@ -817,6 +867,7 @@
 
     return {
       version: 6,
+      designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
       intake: {
@@ -1069,6 +1120,37 @@
     return window.CSS?.escape ? window.CSS.escape(raw) : raw.replace(/["\\\]]/g, '\\$&');
   }
 
+  function applyDesignGraphState(message) {
+    if (!Number.isSafeInteger(message.revision) || message.revision < acknowledgedDesignRevision
+        || !Array.isArray(message.pages) || message.pages.length > 100) {
+      return;
+    }
+    acknowledgedDesignRevision = message.revision;
+    if (message.type === 'designEditRefused') {
+      designRevision = message.revision;
+    } else if (message.revision < designRevision) {
+      return;
+    } else {
+      designRevision = message.revision;
+    }
+    for (const update of message.pages) {
+      if (!update || !/^[a-zA-Z0-9._-]{1,120}$/.test(update.id)) { continue; }
+      const page = state.pages.find(candidate => candidate.id === update.id);
+      if (!page) { continue; }
+      if (update.wireframe && typeof update.wireframe === 'object') {
+        page.wireframe = update.wireframe;
+      } else {
+        delete page.wireframe;
+      }
+    }
+    if (!findElement(selectedElementId)) { selectedElementId = ''; }
+    renderCanvas();
+    renderPagePromptField();
+    if (message.type === 'designEditRefused') {
+      notice('That canvas edit was refused (' + String(message.reason || 'invalid edit') + '). The saved revision was restored.', 'error');
+    }
+  }
+
   window.addEventListener('message', event => {
     const message = event.data;
     if (message?.type === 'notice') {
@@ -1078,6 +1160,8 @@
         const badge = qs('#unsavedBadge');
         if (badge) { badge.hidden = true; }
       }
+    } else if (message?.type === 'designGraphUpdated' || message?.type === 'designEditRefused') {
+      applyDesignGraphState(message);
     } else if (message?.type === 'previewSelection') {
       const pageId = typeof message.pageId === 'string' ? message.pageId : '';
       const nodeId = typeof message.nodeId === 'string' ? message.nodeId : '';

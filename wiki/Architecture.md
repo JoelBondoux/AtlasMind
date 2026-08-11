@@ -178,8 +178,9 @@ placeholder-only.
 
 `uiDesignGraph.ts` is the graph's untrusted-input boundary and derives the legacy page wireframe while
 existing readers migrate; a valid graph is the declared winner. `uiEditCommands.ts` is the pure closed
-mutation path for future canvas, preview, form, and model-proposed edits. Every command names the revision
-it read, refuses stale or invalid targets, and records bounded undo/redo without ever rewinding revision.
+mutation path for canvas, form, future preview, and model-proposed edits. Drawing, frame/reparent, deletion,
+kind, label, intent, visibility, undo, and redo commands name the revision they read and pass an exact parser;
+the webview never submits a graph patch. Invalid targets refuse, and bounded undo/redo never rewinds revision.
 The 5 → 6 migration preserves every prior wireframe fact and the untouched-versus-empty distinction while
 inventing no responsive, token, component, or source-mapping intent.
 

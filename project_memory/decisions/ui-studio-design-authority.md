@@ -46,7 +46,7 @@ the graph, write an arbitrary graph fragment, or gain source-write authority thr
 
 ## Action items
 
-- Add the v6 graph and derive the compatibility wireframes from it.
+- ~~Add the v6 graph and derive the compatibility wireframes from it.~~ Shipped in v0.274.0; canvas
+  lifecycle/geometry/inspector edits joined the same revision-checked reducer in v0.277.0.
 - Introduce source mappings only after node/component identities are stable.
 - Surface design-only, code-only, and conflicting divergence as separate states.
-

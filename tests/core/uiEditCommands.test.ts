@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyUiEditCommand,
   createUiEditSession,
+  parseUiEditCommand,
   UI_EDIT_HISTORY_LIMIT,
 } from '../../src/core/uiEditCommands.ts';
 import { designGraphFromPages, UI_DESIGN_GRAPH_MAX_REVISION } from '../../src/core/uiDesignGraph.ts';
@@ -161,5 +162,69 @@ describe('UI edit commands', () => {
     expect(branched.ok).toBe(true);
     if (!branched.ok) { return; }
     expect(branched.session.redo).toEqual([]);
+  });
+
+  it('adds, frames, changes, and deletes nodes through the same revision boundary', () => {
+    let session = createUiEditSession(graph());
+    const added = applyUiEditCommand(session, {
+      type: 'add-node',
+      expectedRevision: 0,
+      screenId: 'page-home',
+      node: {
+        id: 'cta-new', kind: 'cta', label: 'Get started',
+        rect: { x: 700, y: 600, width: 250, height: 96 },
+        parentId: 'container', designPrompt: '', notes: '',
+      },
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) { return; }
+    session = added.session;
+    expect(session.graph.screens[0]?.nodes.at(-1)).toMatchObject({ id: 'cta-new', parentId: 'container' });
+
+    const framed = applyUiEditCommand(session, {
+      type: 'set-node-frame', expectedRevision: 1, screenId: 'page-home', nodeId: 'cta-new',
+      rect: { x: 500, y: 700, width: 400, height: 120 }, parentId: null,
+    });
+    expect(framed.ok).toBe(true);
+    if (!framed.ok) { return; }
+    expect(framed.session.graph.screens[0]?.nodes.at(-1)).toMatchObject({
+      id: 'cta-new', layout: { rect: { x: 500, y: 700, width: 400, height: 120 } },
+    });
+    expect(framed.session.graph.screens[0]?.nodes.at(-1)?.parentId).toBeUndefined();
+
+    const changed = applyUiEditCommand(framed.session, {
+      type: 'set-node-kind', expectedRevision: 2, screenId: 'page-home', nodeId: 'cta-new', kind: 'card',
+    });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) { return; }
+    const nested = applyUiEditCommand(changed.session, {
+      type: 'set-node-frame', expectedRevision: 3, screenId: 'page-home', nodeId: 'child',
+      rect: { x: 100, y: 100, width: 400, height: 120 }, parentId: 'container',
+    });
+    expect(nested.ok).toBe(true);
+    if (!nested.ok) { return; }
+    const deleted = applyUiEditCommand(nested.session, {
+      type: 'delete-node', expectedRevision: 4, screenId: 'page-home', nodeId: 'container',
+    });
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) { return; }
+    expect(deleted.session.graph.screens[0]?.nodes.some(node => node.id === 'container')).toBe(false);
+    expect(deleted.session.graph.screens[0]?.nodes.find(node => node.id === 'child')?.parentId).toBeUndefined();
+  });
+
+  it('parses only exact bounded commands at an untrusted boundary', () => {
+    const command = {
+      type: 'set-node-frame', expectedRevision: 4, screenId: 'page-home', nodeId: 'child',
+      rect: { x: 1, y: 2, width: 300, height: 100 }, parentId: null,
+    };
+    expect(parseUiEditCommand(command)).toEqual(command);
+    expect(parseUiEditCommand({ ...command, command: 'run' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, expectedRevision: 4.5 })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, screenId: '../home' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, rect: { ...command.rect, width: Number.NaN } })).toBeUndefined();
+    expect(parseUiEditCommand({
+      type: 'add-node', expectedRevision: 4, screenId: 'page-home',
+      node: { id: 'new', kind: 'script', label: 'x', rect: command.rect, designPrompt: '', notes: '' },
+    })).toBeUndefined();
   });
 });

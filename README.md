@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.276.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.277.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.276.0
+## What's new in 0.277.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Canvas edits now use the authoritative revisioned graph.** Drawing, moving, resizing, nesting, deleting,
+  changing kind, label, or design intent, plus undo/redo, all pass through one exact command parser and pure
+  reducer. Each accepted gesture advances revision once; stale or invalid gestures restore host-owned state,
+  and Save can no longer replace the graph with an arbitrary webview payload.
 
 - **The Studio canvas and full browser preview now share selection.** Selecting a saved block in either
   surface highlights and focuses the same graph node in the other. The browser can submit only the current

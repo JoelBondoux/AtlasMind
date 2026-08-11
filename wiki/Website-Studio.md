@@ -48,6 +48,8 @@ an external edit causes a refusal and reload instead of an automatic merge.
 Pick a block — nav, hero, section, grid, card, image, text, form, call to action, sidebar, footer —
 and drag on the grid to draw it. Resize from any of the eight handles. Drop a card inside a grid and
 it nests. Arrow keys nudge the selection, Shift moves it a whole column, Delete removes it.
+Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. Drawing, movement, resizing, nesting, deletion, kind, label,
+and intent edits all use the same revision-checked graph command path; the webview never submits a graph patch.
 
 A few things behave the way they do on purpose:
 

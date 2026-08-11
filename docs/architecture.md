@@ -320,9 +320,10 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
-  events, and model proposals. Commands carry an expected revision; stale/missing/invalid targets refuse.
-  Successful mutations and undo/redo all advance revision monotonically, history is capped at 100, and a
-  fresh edit clears the redo branch.
+  events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
+  geometry plus reparenting, visibility, undo, and redo; commands carry an expected revision and never a
+  graph patch. Stale/missing/invalid targets refuse. Successful mutations and undo/redo all advance revision
+  monotonically, deletion promotes direct children, history is capped at 100, and a fresh edit clears redo.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/

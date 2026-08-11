@@ -142,7 +142,7 @@ export interface PreviewServerOptions {
    * no script served, no script permitted.
    */
   allowOverlayScript?: boolean;
-  /** Serve the frozen revision-only runtime used by deterministic Studio drafts. */
+  /** Serve the frozen revision/selection runtime used by deterministic Studio drafts. */
   allowLiveRuntime?: boolean;
   /** Revision sent immediately to a newly connected draft. */
   initialRevision?: number;

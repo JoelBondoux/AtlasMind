@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.277.0] - 2026-08-11
+
+### Added
+
+- **UI Studio canvas gestures now run through the authoritative graph reducer.** Draw, move, resize/reparent,
+  delete-with-child-promotion, kind, label, and design-intent changes use the same revision-checked command
+  path as undo and redo. Pointer and form interactions remain responsive locally, then reconcile to the
+  host-owned graph projection.
+- **The closed edit vocabulary now covers node lifecycle and atomic frames.** `add-node`, `delete-node`,
+  `set-node-kind`, and `set-node-frame` join the original commands; Ctrl/Cmd+Z and Shift+Ctrl/Cmd+Z expose
+  the existing monotonic history from the canvas.
+
+### Security
+
+- **The Studio webview cannot submit graph patches or bypass command validation on save.** Every design edit
+  is parsed against exact fields, bounded identifiers/text/geometry, a closed kind catalog, and the expected
+  revision before the pure reducer sees it. Save names only the revision it observed; the extension supplies
+  the graph from its edit session and refuses a mismatch.
+
 ## [0.276.0] - 2026-08-11
 
 ### Added

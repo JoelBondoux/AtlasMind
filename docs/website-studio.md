@@ -49,6 +49,8 @@ auto-merged into something nobody authored.
 A page's structure is a set of drawn boxes, not a list of strings. Pick a block from the palette,
 drag on the grid to draw it, resize from any of eight handles, and drop one block inside another to
 nest it. Arrow keys nudge the selection; Shift makes the step a whole column; Delete removes it.
+Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. These interactions, inspector label/kind/intent changes, and
+draw/delete all become revision-checked graph commands; Save cannot replace the graph from browser data.
 
 Three rules are worth knowing because they are deliberate:
 

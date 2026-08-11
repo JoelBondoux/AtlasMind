@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.277.0 — Canvas edits have one revisioned path
+
+Drawing, moving, resizing, nesting, deleting, changing a block's kind, label, or design intent, and undo/redo
+now use UI Studio's authoritative design graph and pure command reducer. Every accepted gesture advances the
+revision exactly once; stale, malformed, invalid-parent, cyclic, oversized, and no-op edits are refused and
+the canvas reconciles to host-owned state.
+
+The webview sends an exact command, never a graph patch. Save carries only the revision the canvas observed;
+the extension supplies the graph from its bounded edit session, so a tampered or stale webview cannot replace
+the design document. Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes while revision continues forward.
+
 ## v0.276.0 — Studio and full preview select together
 
 Selecting a saved canvas block now highlights it in every connected built-in-browser preview, and clicking

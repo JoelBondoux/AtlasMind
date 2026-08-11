@@ -36,9 +36,9 @@ This page summarizes the delivery promise.
 
 ## First milestone
 
-The v6 graph, lossless v5 migration, closed edit commands, monotonic undo/redo, frozen live runtime, and
-revision-checked two-way selection are now implemented through v0.276.0. Next are routing basic canvas edits
-through the command layer and exercising the whole foundation against the three reference projects. The milestone exits
+The v6 graph, lossless v5 migration, closed edit commands, monotonic undo/redo, frozen live runtime,
+revision-checked two-way selection, and reducer-backed canvas gestures are implemented through v0.277.0.
+The remaining foundation gate is exercising the whole path against the three reference projects. The milestone exits
 only after a marketing site, data-rich web application, and non-web UI all pass the same migration, editing,
 history, selection, and preview scenarios.
 

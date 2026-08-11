@@ -33,6 +33,13 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'openResponsivePreview' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'refreshPreview' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'hero-1' } })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'set-node-frame', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        rect: { x: 0, y: 0, width: 1_000, height: 300 }, parentId: null,
+      },
+    })).toBe(true);
 
     expect(isWebsiteStudioMessage({ type: 'importIntake', payload: 'x'.repeat(128_001) })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'openSsot', payload: '../../package.json' })).toBe(false);
@@ -43,6 +50,13 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: '../outside', nodeId: 'hero-1' } })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'x'.repeat(121) } })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'hero-1', command: 'run' } })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'set-node-frame', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        rect: { x: 0, y: 0, width: 1_000, height: 300 }, parentId: null, command: 'run',
+      },
+    })).toBe(false);
   });
 
   it('keeps the old platforms page id working as a deep link', () => {
@@ -212,5 +226,21 @@ describe('Website Studio is reachable from the surfaces it links to', () => {
   it('still declares the command it is opened by', () => {
     const manifest = JSON.parse(read('package.json')) as { contributes: { commands: Array<{ command: string }> } };
     expect(manifest.contributes.commands.some(entry => entry.command === OPEN_COMMAND)).toBe(true);
+  });
+});
+
+describe('UI Studio canvas command wiring', () => {
+  const source = readFileSync(path.join(process.cwd(), 'media/websiteStudio.js'), 'utf8');
+
+  it('routes every current canvas mutation family through the closed command message', () => {
+    expect(source).toContain("type: 'editDesignGraph'");
+    for (const command of [
+      'add-node', 'delete-node', 'set-node-frame', 'set-node-kind',
+      'set-node-label', 'set-node-design-prompt', 'undo', 'redo',
+    ]) {
+      expect(source).toContain(`'${command}'`);
+    }
+    expect(source).toContain('designRevision,');
+    expect(source).not.toContain('designGraph: state');
   });
 });
