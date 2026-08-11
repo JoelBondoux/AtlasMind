@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatUiPreviewSelectionEvent,
   formatUiPreviewRevisionEvent,
   injectUiPreviewRuntime,
+  parseUiPreviewSelection,
   resolveUiPreviewProtocolResource,
   UI_PREVIEW_MAX_CLIENTS,
+  UI_PREVIEW_MAX_SELECTION_BODY,
   UI_PREVIEW_RUNTIME_SCRIPT,
   UiPreviewRevisionHub,
   type UiPreviewRevisionClient,
@@ -44,20 +47,24 @@ describe('UI preview runtime', () => {
     expect(injectUiPreviewRuntime('<p>fragment</p>', 2)).toBe('<p>fragment</p>');
   });
 
-  it('keeps the frozen browser capability to revision listening and reload', () => {
+  it('keeps the frozen browser capability to revisions and bounded selection identities', () => {
     expect(UI_PREVIEW_RUNTIME_SCRIPT).toContain('new EventSource');
     expect(UI_PREVIEW_RUNTIME_SCRIPT).toContain('location.reload()');
+    expect(UI_PREVIEW_RUNTIME_SCRIPT).toContain('fetch(selectionUrl');
+    expect(UI_PREVIEW_RUNTIME_SCRIPT).toContain('JSON.stringify({ revision, screenId, nodeId })');
     expect(UI_PREVIEW_RUNTIME_SCRIPT).not.toContain('postMessage');
-    expect(UI_PREVIEW_RUNTIME_SCRIPT).not.toContain('fetch(');
     expect(UI_PREVIEW_RUNTIME_SCRIPT).not.toContain('WebSocket');
     expect(UI_PREVIEW_RUNTIME_SCRIPT).not.toContain('localStorage');
+    expect(UI_PREVIEW_RUNTIME_SCRIPT).not.toContain('innerHTML');
   });
 
-  it('resolves only the two exact token-scoped endpoints', () => {
+  it('resolves only the three exact token-scoped endpoints', () => {
     expect(resolveUiPreviewProtocolResource(`/${TOKEN}/_atlas/runtime.js`, TOKEN)).toBe('runtime');
     expect(resolveUiPreviewProtocolResource(`/${TOKEN}/_atlas/events?reconnect=1`, TOKEN)).toBe('events');
+    expect(resolveUiPreviewProtocolResource(`/${TOKEN}/_atlas/selection`, TOKEN)).toBe('selection');
     for (const url of [
       `/${TOKEN}/_atlas/runtime.js/extra`,
+      `/${TOKEN}/_atlas/selection/extra`,
       `/${TOKEN}/_atlas/other`,
       '/wrong/_atlas/events',
       '/_atlas/events',
@@ -65,6 +72,17 @@ describe('UI preview runtime', () => {
       expect(resolveUiPreviewProtocolResource(url, TOKEN)).toBeUndefined();
     }
     expect(resolveUiPreviewProtocolResource(`/${TOKEN}/_atlas/events`, '')).toBeUndefined();
+  });
+
+  it('accepts only a current revision and exact bounded selection identity', () => {
+    const valid = JSON.stringify({ revision: 4, screenId: 'home', nodeId: 'hero-1' });
+    expect(parseUiPreviewSelection(valid, 4)).toEqual({ revision: 4, screenId: 'home', nodeId: 'hero-1' });
+    expect(parseUiPreviewSelection(valid, 5)).toBeUndefined();
+    expect(parseUiPreviewSelection(JSON.stringify({ revision: 4, screenId: 'home', nodeId: 'hero-1', command: 'run' }), 4)).toBeUndefined();
+    expect(parseUiPreviewSelection(JSON.stringify({ revision: 4, screenId: '../home', nodeId: 'hero-1' }), 4)).toBeUndefined();
+    expect(parseUiPreviewSelection(JSON.stringify({ revision: 4, screenId: 'home', nodeId: 'x'.repeat(121) }), 4)).toBeUndefined();
+    expect(parseUiPreviewSelection('{', 4)).toBeUndefined();
+    expect(parseUiPreviewSelection('x'.repeat(UI_PREVIEW_MAX_SELECTION_BODY + 1), 4)).toBeUndefined();
   });
 
   it('sends the current revision on every reconnect and only publishes newer revisions', () => {
@@ -83,6 +101,21 @@ describe('UI preview runtime', () => {
     const reconnected = new Client();
     expect(hub.connect(reconnected)).toBe(true);
     expect(reconnected.chunks).toEqual([formatUiPreviewRevisionEvent(4)]);
+  });
+
+  it('fans a selection out without changing the revision', () => {
+    const hub = new UiPreviewRevisionHub(9);
+    const client = new Client();
+    hub.connect(client);
+
+    expect(hub.publishSelection('settings', 'save-button')).toBe(true);
+    expect(client.chunks.at(-1)).toBe(formatUiPreviewSelectionEvent({
+      revision: 9,
+      screenId: 'settings',
+      nodeId: 'save-button',
+    }));
+    expect(hub.currentRevision).toBe(9);
+    expect(hub.publishSelection('../settings', 'save-button')).toBe(false);
   });
 
   it('caps listeners, removes broken clients, and closes every remaining response', () => {

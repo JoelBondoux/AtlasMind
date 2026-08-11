@@ -117,7 +117,8 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     const describedAs = `${element.label || spec.label}, ${spec.label}`
       + (parent ? `, inside ${parent.label || wireframeKindSpec(parent.kind).label}` : '');
 
-    return `<div class="wf-block" data-kind="${escapeHtml(element.kind)}" style="${style}"
+    return `<div class="wf-block" data-kind="${escapeHtml(element.kind)}"
+      data-atlas-screen-id="${escapeHtml(page.id)}" data-atlas-node-id="${escapeHtml(element.id)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
       <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span></div>
       ${previewBody(
@@ -277,6 +278,9 @@ function renderShell(options: ShellOptions): string {
     background-color: rgba(148, 163, 184, .10);
     background-image: repeating-linear-gradient(135deg,
       rgba(148, 163, 184, .16) 0 8px, transparent 8px 16px);
+  }
+  .wf-block[data-atlas-preview-selected] {
+    outline: 3px solid var(--accent); outline-offset: 3px; border-style: solid;
   }
   .wf-tag {
     display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;

@@ -41,8 +41,11 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { GENERATED_FILE_EXTENSIONS } from './websiteGeneration.js';
 import {
   resolveUiPreviewProtocolResource,
+  parseUiPreviewSelection,
+  UI_PREVIEW_MAX_SELECTION_BODY,
   UI_PREVIEW_RUNTIME_SCRIPT,
   UiPreviewRevisionHub,
+  type UiPreviewSelectionEvent,
 } from './uiPreviewRuntime.js';
 
 /** The only address this ever binds. Not configurable, by design. */
@@ -143,6 +146,8 @@ export interface PreviewServerOptions {
   allowLiveRuntime?: boolean;
   /** Revision sent immediately to a newly connected draft. */
   initialRevision?: number;
+  /** Resolve a current, sanitized identity; false refuses it before fan-out. */
+  onSelection?: (event: UiPreviewSelectionEvent) => boolean;
 }
 
 export interface PreviewServerHandle {
@@ -236,18 +241,28 @@ export class WebsitePreviewServer {
     return this.server !== undefined && this.liveHub?.publish(revision) === true;
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse, root: string): Promise<void> {
-    // Only reads. A preview that accepted a POST would be a write surface
-    // reachable by any local process.
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      respondError(response, 405, 'The preview server only answers GET.');
-      return;
-    }
+  /** Highlight a host-resolved Studio selection in every connected full preview. */
+  publishSelection(screenId: string, nodeId: string): boolean {
+    return this.server !== undefined && this.liveHub?.publishSelection(screenId, nodeId) === true;
+  }
 
+  private async handle(request: IncomingMessage, response: ServerResponse, root: string): Promise<void> {
     const protocolResource = resolveUiPreviewProtocolResource(request.url ?? '/', this.token);
     if (protocolResource) {
       if (this.options.allowLiveRuntime !== true) {
         respondError(response, 404, 'Not found.');
+        return;
+      }
+      if (protocolResource === 'selection') {
+        if (request.method !== 'POST') {
+          respondError(response, 405, 'That preview event requires POST.');
+          return;
+        }
+        await this.acceptSelection(request, response);
+        return;
+      }
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        respondError(response, 405, 'That preview resource only answers GET.');
         return;
       }
       if (protocolResource === 'runtime') {
@@ -266,6 +281,14 @@ export class WebsitePreviewServer {
     );
     if (!resolved.ok) {
       respondError(response, resolved.status, resolved.reason);
+      return;
+    }
+
+    // Static preview content is read-only. Resolve the token before disclosing
+    // which methods exist, so a wrong-token POST is still indistinguishable
+    // from a server that is not running.
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      respondError(response, 405, 'The preview server only serves static content with GET.');
       return;
     }
 
@@ -335,6 +358,63 @@ export class WebsitePreviewServer {
     request.once('close', disconnect);
     response.once('close', disconnect);
   }
+
+  private async acceptSelection(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const hub = this.liveHub;
+    if (!hub) {
+      respondError(response, 503, 'The live preview is not ready.');
+      return;
+    }
+    const contentType = request.headers['content-type'] ?? '';
+    const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      respondError(response, 415, 'Preview selection requires JSON.');
+      return;
+    }
+    const body = await readBoundedBody(request, UI_PREVIEW_MAX_SELECTION_BODY);
+    if (body === undefined) {
+      respondError(response, 413, 'Preview selection is too large.');
+      return;
+    }
+    const event = parseUiPreviewSelection(body, hub.currentRevision);
+    if (!event) {
+      respondError(response, 409, 'Preview selection is stale or invalid.');
+      return;
+    }
+
+    // The transport validates shape and revision; the host then resolves the
+    // identity against the current saved graph before it can affect any view.
+    if (this.options.onSelection?.(event) === false) {
+      respondError(response, 409, 'Preview selection does not exist in the saved design.');
+      return;
+    }
+    hub.publishSelection(event.screenId, event.nodeId);
+    response.writeHead(204, {
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    response.end();
+  }
+}
+
+async function readBoundedBody(request: IncomingMessage, maximumBytes: number): Promise<string | undefined> {
+  const declaredLength = Number(request.headers['content-length'] ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    request.resume();
+    return undefined;
+  }
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > maximumBytes) {
+      request.resume();
+      return undefined;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function respondFrozenRuntime(request: IncomingMessage, response: ServerResponse): void {

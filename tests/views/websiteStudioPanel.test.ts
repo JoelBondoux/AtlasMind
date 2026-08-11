@@ -32,6 +32,7 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'openPreview' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'openResponsivePreview' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'refreshPreview' })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'hero-1' } })).toBe(true);
 
     expect(isWebsiteStudioMessage({ type: 'importIntake', payload: 'x'.repeat(128_001) })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'openSsot', payload: '../../package.json' })).toBe(false);
@@ -39,6 +40,9 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'saveConfig', payload: 'erase everything' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'deploy', payload: 'production' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'savePageContent', payload: { pageId: '../outside', status: 'draft', body: 'x'.repeat(200_001) } })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: '../outside', nodeId: 'hero-1' } })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'x'.repeat(121) } })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'hero-1', command: 'run' } })).toBe(false);
   });
 
   it('keeps the old platforms page id working as a deep link', () => {

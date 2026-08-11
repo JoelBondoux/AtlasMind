@@ -62,6 +62,14 @@
 
   const activePage = () => state.pages.find(page => page.id === activePageId);
 
+  function notifyPreviewSelection() {
+    if (!activePageId || !selectedElementId) { return; }
+    vscode.postMessage({
+      type: 'selectPreviewTarget',
+      payload: { pageId: activePageId, nodeId: selectedElementId },
+    });
+  }
+
   function elementsOf(page) {
     if (!page) { return []; }
     if (!page.wireframe) { page.wireframe = { breakpoint: 'desktop', elements: [] }; }
@@ -358,6 +366,7 @@
       };
     } else if (box) {
       selectedElementId = box.dataset.elementId;
+      notifyPreviewSelection();
       drag = {
         mode: 'move',
         id: selectedElementId,
@@ -500,6 +509,7 @@
       if (container && depthOf(container.id) < 2) { created.parentId = container.id; }
       elementsOf(activePage()).push(created);
       selectedElementId = created.id;
+      notifyPreviewSelection();
       markDirty();
       renderCanvas();
       notice('Added a ' + spec.label.toLowerCase() + '. Describe it in the panel on the right, then Save.');
@@ -1068,6 +1078,23 @@
         const badge = qs('#unsavedBadge');
         if (badge) { badge.hidden = true; }
       }
+    } else if (message?.type === 'previewSelection') {
+      const pageId = typeof message.pageId === 'string' ? message.pageId : '';
+      const nodeId = typeof message.nodeId === 'string' ? message.nodeId : '';
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(pageId) || !/^[a-zA-Z0-9._-]{1,120}$/.test(nodeId)) {
+        return;
+      }
+      const page = state.pages.find(candidate => candidate.id === pageId);
+      if (!page?.wireframe?.elements?.some(element => element.id === nodeId)) {
+        return;
+      }
+      activePageId = pageId;
+      selectedElementId = nodeId;
+      syncPageSelect();
+      showPage('wireframes');
+      renderCanvas();
+      renderPagePromptField();
+      qs('.wf-box[data-element-id="' + cssEscape(nodeId) + '"]')?.focus();
     }
   });
 

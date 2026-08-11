@@ -46,10 +46,12 @@ does not acquire the preview channel.
 ## Action items
 
 - ~~Stabilize graph revisions and edit commands before adding the live transport.~~ Shipped in v0.274.0.
-- ~~Define the first closed preview event and maximum payload sizes.~~ The revision-only SSE channel shipped
+- ~~Define the first closed preview event and maximum payload sizes.~~ The revision SSE channel shipped
   in v0.275.0 with an 80-character browser payload cap and eight-listener host cap.
-- Add two-way selection after reconnect/revision tests pass.
+- ~~Add two-way selection after reconnect/revision tests pass.~~ Shipped in v0.276.0 as one exact POST route:
+  at most 512 bytes, exactly revision/screenId/nodeId, current-revision only, bounded identifiers, and a
+  second saved-graph resolution before the Studio receives it.
 
-The v0.275.0 implementation also pins the actual loopback path through an ephemeral-port integration test:
-wrong tokens and arbitrary `.js` remain 404, reconnect receives current revision, and Stop Preview closes
-both event streams and idle sockets. Two-way selection remains a separate authority decision and slice.
+The integration suite pins the actual loopback boundary: wrong tokens and arbitrary `.js` remain 404,
+reconnect receives current revision, Stop Preview closes streams and idle sockets, and selection refuses
+stale revisions, hostile bodies, invalid identities, and IDs absent from the current saved graph.

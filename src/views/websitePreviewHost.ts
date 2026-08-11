@@ -37,7 +37,7 @@ import {
   WIREFRAME_INDEX_PATH,
 } from '../core/websiteWireframePreview.js';
 import { WebsitePreviewServer } from '../core/websitePreviewServer.js';
-import { injectUiPreviewRuntime } from '../core/uiPreviewRuntime.js';
+import { injectUiPreviewRuntime, type UiPreviewSelectionEvent } from '../core/uiPreviewRuntime.js';
 import { UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
 import { describeGenerationRun, runWebsiteGeneration } from '../core/websiteGenerationRunner.js';
 import { WebsitePreviewPanel } from './websitePreviewPanel.js';
@@ -45,6 +45,20 @@ import { WebsitePreviewPanel } from './websitePreviewPanel.js';
 let server: WebsitePreviewServer | undefined;
 let lifecycleRegistered = false;
 let previewRenderRevision = 0;
+const selectionListeners = new Set<(selection: WebsitePreviewSelection) => void>();
+
+export interface WebsitePreviewSelection {
+  pageId: string;
+  nodeId: string;
+}
+
+/** Subscribe a Studio surface to current, host-resolved preview selections. */
+export function onWebsitePreviewSelection(
+  listener: (selection: WebsitePreviewSelection) => void,
+): vscode.Disposable {
+  selectionListeners.add(listener);
+  return { dispose: () => selectionListeners.delete(listener) };
+}
 
 /** Deny by default. Opening a local port is a decision separate from using the Studio. */
 function isPreviewEnabled(): boolean {
@@ -125,6 +139,7 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
           .get<boolean>('website.review.includeOverlayInBuild', false),
         allowLiveRuntime: true,
         initialRevision: rendered.revision ?? previewRenderRevision,
+        onSelection: event => dispatchPreviewSelection(workspaceRoot, event),
       });
       await server.start();
     }
@@ -291,6 +306,52 @@ export async function refreshRunningWebsitePreview(): Promise<void> {
   if (rendered.revision !== undefined) {
     server.publishRevision(rendered.revision);
     WebsitePreviewPanel.currentPanel?.refresh();
+  }
+}
+
+/** Publish a Studio selection only after resolving it against the saved graph. */
+export function selectWebsitePreviewTarget(pageId: string, nodeId: string): boolean {
+  if (!server?.running) {
+    return false;
+  }
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return false;
+  }
+  const selection = resolveSavedPreviewSelection(workspaceRoot, pageId, nodeId);
+  return selection ? server.publishSelection(selection.pageId, selection.nodeId) : false;
+}
+
+function dispatchPreviewSelection(workspaceRoot: string, event: UiPreviewSelectionEvent): boolean {
+  const selection = resolveSavedPreviewSelection(workspaceRoot, event.screenId, event.nodeId);
+  if (!selection) {
+    return false;
+  }
+  for (const listener of selectionListeners) {
+    try {
+      listener(selection);
+    } catch {
+      // One disposed/broken Studio surface must not block another listener or
+      // turn an ephemeral click into a failed HTTP response.
+    }
+  }
+  return true;
+}
+
+function resolveSavedPreviewSelection(
+  workspaceRoot: string,
+  pageId: string,
+  nodeId: string,
+): WebsitePreviewSelection | undefined {
+  try {
+    const config = new WebsiteWorkspaceManager(workspaceRoot).load();
+    const screen = config.designGraph.screens.find(candidate => candidate.pageId === pageId);
+    if (!screen || !screen.nodes.some(node => node.id === nodeId)) {
+      return undefined;
+    }
+    return { pageId: screen.pageId, nodeId };
+  } catch {
+    return undefined;
   }
 }
 

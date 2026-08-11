@@ -1,18 +1,20 @@
 /**
- * Frozen runtime and revision-only live channel for UI Studio's full preview.
+ * Frozen runtime and identity-only live channel for UI Studio's full preview.
  *
- * The browser receives one integer: the newest graph revision. It can reload a
- * stale deterministic document, but it cannot send graph data, source text,
- * paths, commands, or mutations back to the extension host. The runtime is
- * injected only into `_wireframe/` Studio drafts; generated/exported output
- * remains independent.
+ * The browser receives revision and selection identities. It can reload a stale
+ * deterministic document and select an element from that exact revision, but
+ * it cannot send graph data, source text, paths, commands, or mutations back to
+ * the extension host. The runtime is injected only into `_wireframe/` Studio
+ * drafts; generated/exported output remains independent.
  */
 
 import { UI_DESIGN_GRAPH_MAX_REVISION } from './uiDesignGraph.js';
 
 export const UI_PREVIEW_RUNTIME_PATH = '_atlas/runtime.js';
 export const UI_PREVIEW_EVENTS_PATH = '_atlas/events';
+export const UI_PREVIEW_SELECTION_PATH = '_atlas/selection';
 export const UI_PREVIEW_MAX_CLIENTS = 8;
+export const UI_PREVIEW_MAX_SELECTION_BODY = 512;
 
 /** Relative from every `_wireframe/*.html` draft written today. */
 const UI_PREVIEW_RUNTIME_RELATIVE_PATH = `../${UI_PREVIEW_RUNTIME_PATH}`;
@@ -29,7 +31,16 @@ export const UI_PREVIEW_RUNTIME_SCRIPT = String.raw`(() => {
   const script = document.currentScript;
   if (!script || !script.src || typeof EventSource !== 'function') return;
   const events = new EventSource(new URL('events', script.src));
+  const selectionUrl = new URL('selection', script.src);
   let reloading = false;
+  const validId = value => typeof value === 'string' && /^[a-zA-Z0-9._-]{1,120}$/.test(value);
+  const select = (screenId, nodeId) => {
+    if (!validId(screenId) || !validId(nodeId)) return;
+    for (const node of document.querySelectorAll('[data-atlas-node-id]')) {
+      const selected = node.dataset.atlasScreenId === screenId && node.dataset.atlasNodeId === nodeId;
+      node.toggleAttribute('data-atlas-preview-selected', selected);
+    }
+  };
   events.addEventListener('revision', event => {
     if (reloading || typeof event.data !== 'string' || event.data.length > 80) return;
     try {
@@ -42,6 +53,34 @@ export const UI_PREVIEW_RUNTIME_SCRIPT = String.raw`(() => {
     } catch {
       // A malformed event is ignored. The channel carries no instructions.
     }
+  });
+  events.addEventListener('selection', event => {
+    if (typeof event.data !== 'string' || event.data.length > 320) return;
+    try {
+      const payload = JSON.parse(event.data);
+      if (!payload || Object.keys(payload).some(key => !['revision', 'screenId', 'nodeId'].includes(key))
+          || payload.revision !== revision || !validId(payload.screenId) || !validId(payload.nodeId)) return;
+      select(payload.screenId, payload.nodeId);
+    } catch {
+      // Selection is presentation only; malformed state is ignored.
+    }
+  });
+  document.addEventListener('click', event => {
+    const target = event.target instanceof Element
+      ? event.target.closest('[data-atlas-screen-id][data-atlas-node-id]')
+      : null;
+    if (!target) return;
+    const screenId = target.dataset.atlasScreenId;
+    const nodeId = target.dataset.atlasNodeId;
+    if (!validId(screenId) || !validId(nodeId)) return;
+    select(screenId, nodeId);
+    void fetch(selectionUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision, screenId, nodeId }),
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer'
+    }).catch(() => undefined);
   });
 })();`;
 
@@ -61,9 +100,15 @@ export function injectUiPreviewRuntime(html: string, revision: number): string {
   );
 }
 
-export type UiPreviewProtocolResource = 'runtime' | 'events';
+export type UiPreviewProtocolResource = 'runtime' | 'events' | 'selection';
 
-/** Resolve only the two exact token-scoped protocol paths. */
+export interface UiPreviewSelectionEvent {
+  revision: number;
+  screenId: string;
+  nodeId: string;
+}
+
+/** Resolve only the three exact token-scoped protocol paths. */
 export function resolveUiPreviewProtocolResource(
   requestUrl: string,
   token: string,
@@ -78,6 +123,9 @@ export function resolveUiPreviewProtocolResource(
     }
     if (pathname === `/${token}/${UI_PREVIEW_EVENTS_PATH}`) {
       return 'events';
+    }
+    if (pathname === `/${token}/${UI_PREVIEW_SELECTION_PATH}`) {
+      return 'selection';
     }
   } catch {
     return undefined;
@@ -142,6 +190,18 @@ export class UiPreviewRevisionHub {
     return true;
   }
 
+  publishSelection(screenId: string, nodeId: string): boolean {
+    const event = sanitizeSelection({ revision: this.revision, screenId, nodeId }, this.revision);
+    if (!event) {
+      return false;
+    }
+    const encoded = formatUiPreviewSelectionEvent(event);
+    for (const client of [...this.clients]) {
+      this.write(client, encoded);
+    }
+    return true;
+  }
+
   close(): void {
     for (const client of this.clients) {
       try {
@@ -170,6 +230,42 @@ export function formatUiPreviewRevisionEvent(revision: number): string {
   return `id: ${safeRevision}\nevent: revision\ndata: {"revision":${safeRevision}}\n\n`;
 }
 
+export function parseUiPreviewSelection(
+  body: string,
+  currentRevision: number,
+): UiPreviewSelectionEvent | undefined {
+  if (typeof body !== 'string' || body.length === 0 || body.length > UI_PREVIEW_MAX_SELECTION_BODY) {
+    return undefined;
+  }
+  try {
+    return sanitizeSelection(JSON.parse(body), currentRevision);
+  } catch {
+    return undefined;
+  }
+}
+
+export function formatUiPreviewSelectionEvent(event: UiPreviewSelectionEvent): string {
+  return `event: selection\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+function sanitizeSelection(input: unknown, currentRevision: number): UiPreviewSelectionEvent | undefined {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  if (Object.keys(record).some(key => !['revision', 'screenId', 'nodeId'].includes(key))
+      || record['revision'] !== currentRevision
+      || !validIdentifier(record['screenId'])
+      || !validIdentifier(record['nodeId'])) {
+    return undefined;
+  }
+  return {
+    revision: currentRevision,
+    screenId: record['screenId'],
+    nodeId: record['nodeId'],
+  };
+}
+
 function sanitizeRevision(value: number): number {
   return validRevision(value) ? value : 0;
 }
@@ -178,4 +274,8 @@ function validRevision(value: number): boolean {
   return Number.isSafeInteger(value)
     && value >= 0
     && value <= UI_DESIGN_GRAPH_MAX_REVISION;
+}
+
+function validIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9._-]{1,120}$/.test(value);
 }

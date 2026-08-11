@@ -5,9 +5,9 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.275.0:** contract, v6 graph/migration, closed edit reducer/history, and the frozen
-revision-only live preview transport are complete. Two-way selection and routing individual canvas gestures
-through the command layer are next.
+**Progress through v0.276.0:** contract, v6 graph/migration, closed edit reducer/history, frozen live preview
+transport, and revision-checked two-way selection are complete. Routing individual canvas gestures through
+the command layer and validating the foundation against the three reference projects are next.
 
 ## Problem
 
@@ -269,12 +269,12 @@ Detailed decisions live in:
 3. Add the pure closed edit-command reducer.
 4. Add monotonic revision history with bounded undo/redo.
 5. ~~Move full preview delivery onto a frozen live runtime and revisioned channel.~~ Completed in v0.275.0.
-6. Add two-way selection synchronization.
+6. ~~Add two-way selection synchronization.~~ Completed in v0.276.0.
 7. Route basic canvas edits through the command layer.
 8. Validate all of the above on the three reference projects.
 
-Steps 1–4 are the first implementation slice. Steps 5–8 follow once the stored graph and command
-semantics are stable enough that the browser cannot become accidental authority.
+Steps 1–4 established the authority and mutation contract. Steps 5–6 now provide a live, selection-aware
+review loop without making the browser an editor. Steps 7–8 complete the first foundation milestone.
 
 ## Success metrics
 

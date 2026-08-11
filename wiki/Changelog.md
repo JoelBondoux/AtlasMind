@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.276.0 — Studio and full preview select together
+
+Selecting a saved canvas block now highlights it in every connected built-in-browser preview, and clicking
+a deterministic preview block focuses that same node back in UI Studio. The exchange is presentation state,
+not an edit: it never changes the graph or writes a file.
+
+The browser may send exactly three bounded fields — the current render revision, screen ID, and node ID — to
+one token-scoped endpoint. Stale revisions, unknown fields, malformed or oversized bodies, invalid IDs, wrong
+methods/media types, and wrong tokens are refused. The extension resolves every accepted identity against the
+current saved graph before the Studio sees it; paths, commands, source, graph fragments, and edit operations
+do not exist in this protocol.
+
 ## v0.275.0 — Full preview follows the saved design live
 
 An open UI Studio draft in VS Code's built-in browser now reloads when saved structure, UI-system choices,

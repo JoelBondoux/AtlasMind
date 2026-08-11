@@ -332,12 +332,12 @@ The Studio's CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/w
 - **The webview sends data, never a command.** `promptForTarget` carries a scope, some ids and the user's sentence; `generate` carries a stage and ids. The panel composes the prompt and decides the file list. A webview that could name a path or a command would make every gate advisory.
 - **Generation is gated twice and confirmed once.** `atlasmind.website.generation.enabled` and `atlasmind.website.preview.enabled` are separate and both default off; every Generate shows a `{modal:true}` dialog naming each file. The plan is built by `planWebsiteGeneration()` before any model call, which is what lets the dialog be specific.
 - **Nothing is written outside `.atlasmind/website-preview/`.** Paths are validated at plan time, again when the model's reply is parsed, and again immediately before each write in `websiteGenerationRunner.ts`. Do not remove any of the three: the runner's writer is injected precisely so a test can fail the run if an escaping path is ever passed.
-- **Preview has one canonical draft and two consumers.** `writeWireframePreviews()` rebuilds the `_wireframe/` index from saved geometry, safe UI tokens, and Markdown content; generated output may be linked but never becomes the entry point. The host injects `UI_PREVIEW_RUNTIME_SCRIPT` only into those deterministic draft files. Simple Browser receives revision-only SSE updates and reloads after a successful render; the responsive lab remains a scriptless iframe and is refreshed by its extension host. Both consume the same tokenized loopback URL.
-- **The live protocol is two exact paths, never an API namespace.** `_atlas/runtime.js` is returned from a
-  frozen constant and `_atlas/events` accepts GET/HEAD only. Static `.js` remains refused, the event body is
-  one bounded integer, listeners cap at eight, and Stop Preview closes streams and idle sockets. Add future
-  browser-to-host events as a separately reviewed closed protocol; do not reuse the revision stream for
-  arbitrary messages.
+- **Preview has one canonical draft and two consumers.** `writeWireframePreviews()` rebuilds the `_wireframe/` index from saved geometry, safe UI tokens, and Markdown content; generated output may be linked but never becomes the entry point. The host injects `UI_PREVIEW_RUNTIME_SCRIPT` only into those deterministic draft files. Simple Browser receives revision and selection SSE events, reloads after a successful render, and can send a clicked saved identity back; the responsive lab remains a scriptless iframe and is refreshed by its extension host. Both consume the same tokenized loopback URL.
+- **The live protocol is three exact paths, never an API namespace.** `_atlas/runtime.js` is returned from a
+  frozen constant, `_atlas/events` accepts GET/HEAD only, and `_atlas/selection` accepts only a 512-byte
+  current-revision identity POST. Static `.js` remains refused, listeners cap at eight, saved-graph resolution
+  precedes fan-out, and Stop Preview closes streams and idle sockets. Add future browser-to-host events as a
+  separately reviewed closed protocol; do not turn these routes into arbitrary messages.
 
 Stack setup adds four rules of its own, and each is pinned by a test rather than left as a convention:
 
@@ -348,8 +348,14 @@ Stack setup adds four rules of its own, and each is pinned by a test rather than
 
 Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
 `tests/core/uiEditCommands.test.ts`, and `tests/core/uiPreviewRuntime.test.ts` (including property tests for the graph/wireframe sanitizers and preview
-path resolution, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
+path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
 `tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`.
+
+The full-preview browser protocol is intentionally smaller than the Studio webview protocol. `runtime.js`
+and the SSE stream are GET-only; `_atlas/selection` is the sole POST and carries exactly a render revision,
+screen ID, and node ID in at most 512 bytes. Add no generic message envelope. A new browser-to-host event
+needs its own exact route, payload cap, parser, stale-state rule, host-side resolution, and hostile-input
+integration coverage. Selection remains ephemeral and must never call the graph reducer or a filesystem writer.
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 

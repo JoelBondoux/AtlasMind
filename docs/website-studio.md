@@ -285,8 +285,10 @@ Without content, every block is unmistakably unfinished: hatched fill, dashed bo
 a stock photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
 rather than filler. With content, an inert Markdown subset renders exact copy into eligible blocks and
 the full content proof; input is escaped before formatting. The pure renderer emits no script or external
-request. Immediately before writing the Studio draft, the host injects one frozen AtlasMind runtime that
-can listen for a same-origin revision event and reload. No workspace value enters that script, and generated
+request. Immediately before writing the Studio draft, the host injects one frozen AtlasMind runtime that can
+listen for same-origin revision/selection events, reload, and send a clicked block's current revision plus
+screen/node IDs to one exact endpoint. The host resolves those IDs against the saved graph before Studio
+selects them. No workspace value enters the script, the browser cannot submit edits or source, and generated
 or exported output is never injected.
 
 ## Page content

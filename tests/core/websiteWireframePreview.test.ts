@@ -84,6 +84,14 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('border: 1.5px dashed');
     });
 
+    it('marks every block with graph identity for full-preview selection', () => {
+      const html = renderWireframePreview({ page: withElements(['hero', 'cta']), designSystem });
+      expect(html).toContain('data-atlas-screen-id="home"');
+      expect(html).toContain('data-atlas-node-id="e0"');
+      expect(html).toContain('data-atlas-node-id="e1"');
+      expect(html).toContain('[data-atlas-preview-selected]');
+    });
+
     it('says outright that nothing on the page is real content', () => {
       const html = renderWireframePreview({ page: withElements(['hero']), designSystem });
       expect(html).toContain('nothing here is real content');

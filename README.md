@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.275.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.276.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.275.0
+## What's new in 0.276.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Studio canvas and full browser preview now share selection.** Selecting a saved block in either
+  surface highlights and focuses the same graph node in the other. The browser can submit only the current
+  render revision plus bounded screen/node IDs; the host resolves those IDs against the saved graph, and
+  stale, malformed, oversized, extra-field, or wrong-token requests are refused.
 
 - **The full browser preview now follows saved design and content changes live.** A frozen Studio-only
   runtime listens for revision numbers on the token-protected loopback server and reloads when the

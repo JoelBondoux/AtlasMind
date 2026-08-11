@@ -52,6 +52,7 @@ import {
 } from '../core/websiteFrameworks.js';
 import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
+import { onWebsitePreviewSelection, selectWebsitePreviewTarget } from './websitePreviewHost.js';
 
 export type WebsiteStudioPage =
   | 'brief'
@@ -120,6 +121,7 @@ export type WebsiteStudioMessage =
   | { type: 'openResponsivePreview' }
   | { type: 'refreshPreview' }
   | { type: 'stopPreview' }
+  | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
   | { type: 'selectFramework'; payload: { frameworkId: string } }
   | { type: 'planStackSetup' }
   | { type: 'compareDelivery' };
@@ -146,6 +148,13 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'planStackSetup':
     case 'compareDelivery':
       return true;
+    case 'selectPreviewTarget': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 2
+        && isBoundedIdentifier(payload['pageId'])
+        && isBoundedIdentifier(payload['nodeId']);
+    }
     case 'selectFramework': {
       const payload = asPayload(message['payload']);
       // Checked against the catalog here, not merely for being a string: this
@@ -226,6 +235,10 @@ function isOptionalId(value: unknown): boolean {
   return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 64);
 }
 
+function isBoundedIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9._-]{1,120}$/.test(value);
+}
+
 export class WebsiteStudioPanel {
   public static currentPanel: WebsiteStudioPanel | undefined;
   public static readonly viewType = 'atlasmind.websiteStudio';
@@ -281,6 +294,17 @@ export class WebsiteStudioPanel {
     this.activePage = targetPage;
     this.render(targetPage);
 
+    const previewSelectionSubscription = onWebsitePreviewSelection(selection => {
+      if (WebsiteStudioPanel.currentPanel !== this) {
+        return;
+      }
+      void this.panel.webview.postMessage({
+        type: 'previewSelection',
+        pageId: selection.pageId,
+        nodeId: selection.nodeId,
+      });
+    });
+
     if (read.notice) {
       // Surfaced rather than logged. A migrated file and a refused one are both
       // things the user needs to know before they start editing.
@@ -292,6 +316,7 @@ export class WebsiteStudioPanel {
     }
 
     this.panel.onDidDispose(() => {
+      previewSelectionSubscription.dispose();
       WebsiteStudioPanel.currentPanel = undefined;
       // The preview server is owned by the preview panel, but a Studio that is
       // gone should not leave one running on its behalf.
@@ -487,6 +512,9 @@ export class WebsiteStudioPanel {
           return;
         case 'stopPreview':
           await vscode.commands.executeCommand('atlasmind.stopWebsitePreview');
+          return;
+        case 'selectPreviewTarget':
+          selectWebsitePreviewTarget(input.payload.pageId, input.payload.nodeId);
           return;
         case 'selectFramework':
           await this.handleSelectFramework(input.payload.frameworkId);

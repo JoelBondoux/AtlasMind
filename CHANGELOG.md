@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.276.0] - 2026-08-11
+
+### Added
+
+- **UI Studio and its full built-in-browser preview now share a two-way selection.** Clicking a deterministic
+  preview block focuses the same saved graph node in the Studio; selecting or creating a saved canvas node
+  highlights it in every connected full preview. Selection is ephemeral and never changes the design graph.
+- **The frozen preview protocol now has one closed selection endpoint and event.** A browser request contains
+  exactly the current render revision, screen ID, and node ID. Server-to-browser selection events carry the
+  same three fields so multiple open previews remain aligned without creating another source of truth.
+
+### Security
+
+- **Preview selection is revision-checked and resolved twice.** The loopback server refuses stale, malformed,
+  oversized, unknown-field, invalid-identifier, wrong-method, wrong-media-type, and wrong-token requests; the
+  host then resolves accepted identities against the current saved design graph before notifying the Studio.
+  The endpoint cannot name edits, commands, paths, graph fragments, source text, or filesystem mutations.
+- **Wrong-token POST requests no longer disclose that a preview method exists.** Token/path resolution happens
+  before the static method response, preserving the existing indistinguishable 404 boundary for every method.
+
 ## [0.275.0] - 2026-08-11
 
 ### Added

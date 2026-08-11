@@ -186,9 +186,11 @@ inventing no responsive, token, component, or source-mapping intent.
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains
 script-free; `websitePreviewHost.ts` injects the frozen `uiPreviewRuntime.ts` listener only into the
-deterministic `_wireframe/` drafts. One tokenized `127.0.0.1` server exposes exactly that runtime and a
-revision-only event stream, capped at eight clients. VS Code's built-in Simple Browser reloads after a newer
-successful render; the sandboxed desktop/tablet/mobile lab stays scriptless and is refreshed host-side.
+deterministic `_wireframe/` drafts. One tokenized `127.0.0.1` server exposes exactly that runtime, a
+revision/selection event stream capped at eight clients, and one 512-byte selection POST accepting only the
+current revision plus bounded screen/node IDs. VS Code's built-in Simple Browser reloads after a newer
+successful render and shares selection with Studio after the host resolves the IDs against the saved graph;
+the sandboxed desktop/tablet/mobile lab stays scriptless and is refreshed host-side.
 Generated visual guides remain uninjected at separate paths and are linked from the draft index rather than
 taking over its entry point.
 
