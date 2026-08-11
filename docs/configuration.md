@@ -362,10 +362,12 @@ Two facts worth knowing before you turn this on:
   endpoint nobody probed carries no findings and says explicitly that this is not a finding of
   "no drift".
 
-## Website Studio — generation and preview
+## UI Studio — visual-guide generation and preview
 
-Website Studio models a client website: brief, sitemap, wireframe canvas, UI system, hosting and
-automation plans. All of that is inert. Two things in it are not, and each has its own switch.
+UI Studio models any interface through a selected profile, screens, content design, wireframe canvas,
+UI system and implementation handoff. Every profile can render a static HTML/CSS visual guide; website
+profiles additionally add sitemap/SEO, hosting and automation plans. Most of the Studio is inert; the
+two actions here each have their own switch.
 
 **They are two switches on purpose.** Writing model-authored files to disk and opening a local
 network port are different decisions with different consequences, and a single control carrying
@@ -375,7 +377,7 @@ both would make the second one happen without anybody agreeing to it.
 |---|---|---|---|
 | `atlasmind.website.generation.enabled` | boolean | `false` | Allow the **Generate** buttons to call a model and write static HTML and CSS. Every generation shows a modal listing **each file it will write** first, and the plan is deterministic — the same sitemap and stage always produce the same list, which is what makes that dialog worth reading. Files land only in `.atlasmind/website-preview/`; your source tree is never written to. |
 | `atlasmind.website.generation.maxFiles` | number | `40` | Most files one generation may write. A plan over the limit is **refused with the count**, never truncated — a half-generated site whose missing pages look like broken links is harder to diagnose than one that did not run. Hard ceiling of 120 regardless. |
-| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the preview to serve the generated site so it can be rendered beside the Studio. |
+| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the guarded preview server. The deterministic structure/content/style draft opens in VS Code's built-in browser; a separate responsive lab uses the same URL. |
 | `atlasmind.website.preview.port` | number | `0` | Port for the preview server on `127.0.0.1`. `0` picks a free one, which is almost always right. Values below 1024 are ignored and fall back to automatic. |
 
 Four facts about the preview server, since it is the only part of Website Studio that opens a port:
@@ -389,19 +391,24 @@ Four facts about the preview server, since it is the only part of Website Studio
   small allowlist returns 404 rather than being offered as a download.
 - **Its URL carries a random per-session token.** Any process on the machine can reach a localhost
   port, and a client's design work is not something to hand to whatever else is running.
-- **It starts on demand and stops with the window.** Closing the preview, or Website Studio, stops
-  the server. A port outliving the thing that could show it is a port nobody remembers is open.
+- **It starts on demand and has explicit lifetime owners.** Stop Preview, closing UI Studio, or
+  extension deactivation stops the server. Closing only the responsive lab does not break a full
+  preview that may still be open in the built-in browser.
+
+The full-preview index is always the deterministic Studio draft rebuilt from saved wireframes, safe
+UI colour/type tokens, and exact Markdown content. Model-generated visual guides remain separate files
+linked from that index; they never replace the meaning of the preview entry point.
 
 Generated files are constrained the same way at three points — when the plan is built, when the
 model's reply is read, and again immediately before each write. A model that returns a file the user
 did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
 page that can execute is a different security question from one that cannot.
 
-## Website Studio — content and client review
+## UI Studio — content and client review
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.website.content.directory` | string | `content` | Folder holding one markdown file per page, with YAML front-matter. **Files are the source of truth**; the Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
+| `atlasmind.website.content.directory` | string | `content` | Folder holding one Markdown file per page or screen, with YAML front-matter. **Files are the source of truth**; UI Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
 | `atlasmind.website.review.enabled` | boolean | `false` | Record client review comments against pages and wireframe elements. Comments transition through `open → addressed → resolved` (plus `wont-fix`) and are **never deleted**. |
 | `atlasmind.website.review.includeOverlayInBuild` | boolean | `false` | Inject the comment overlay into generated pages so a client can leave feedback in their own browser. |
 | `atlasmind.website.review.webhookUrl` | string | `''` | An `https` endpoint **you already own** for the overlay to POST to. Empty means export-only: the client downloads a file and you import it. |

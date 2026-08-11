@@ -14,6 +14,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   ClientWebsiteIntake,
+  UiContentDesign,
+  UiImplementationGuide,
+  UiSurfaceKind,
   WebsiteAutomation,
   WebsiteAutomationStatus,
   WebsiteDesignSystem,
@@ -46,12 +49,21 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 4;
+const WEBSITE_SCHEMA_VERSION = 5;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
 const AUTOMATION_STATUSES = new Set<WebsiteAutomationStatus>(['idea', 'mapped', 'configured', 'verified', 'paused']);
 const HOSTING_ENVIRONMENT_IDS: ReadonlyArray<WebsiteHostingEnvironmentId> = ['develop', 'staging', 'production'];
+const UI_SURFACE_KINDS = new Set<UiSurfaceKind>([
+  'website',
+  'web-app',
+  'mobile-app',
+  'desktop-app',
+  'editor-extension',
+  'embedded-ui',
+  'other',
+]);
 
 export type WebsiteHostingReadinessStatus = 'ready' | 'needs-setup' | 'blocked';
 
@@ -102,6 +114,7 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: now,
+    surfaceKind: 'website',
     designPrompt: '',
     intake: {
       clientName: cleanText(seed.clientName, 160),
@@ -125,6 +138,8 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
       defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
     ],
     designSystem: defaultDesignSystem(seed.brandNotes),
+    contentDesign: defaultContentDesign(),
+    implementation: defaultImplementationGuide(),
     platforms: WEBSITE_PLATFORM_CATALOG.map(platform => ({
       id: platform.id,
       label: platform.label,
@@ -143,6 +158,8 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const intake = sanitizeClientWebsiteIntake(source['intake']);
   const pages = sanitizePages(source['pages']);
   const designSystem = sanitizeDesignSystem(source['designSystem']);
+  const contentDesign = sanitizeContentDesign(source['contentDesign']);
+  const implementation = sanitizeImplementationGuide(source['implementation']);
   const platforms = sanitizePlatforms(source['platforms']);
   const hostingEnvironments = sanitizeHostingEnvironments(source['hostingEnvironments']);
   const automations = sanitizeAutomations(source['automations']);
@@ -152,10 +169,15 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
+    surfaceKind: UI_SURFACE_KINDS.has(source['surfaceKind'] as UiSurfaceKind)
+      ? source['surfaceKind'] as UiSurfaceKind
+      : 'website',
     designPrompt: cleanText(source['designPrompt'], 4_000),
     intake,
     pages: pages.length > 0 ? pages : fallback.pages,
     designSystem,
+    contentDesign,
+    implementation,
     platforms: platforms.length > 0 ? platforms : fallback.platforms,
     hostingEnvironments,
     automations,
@@ -343,7 +365,7 @@ export function importClientWebsiteIntake(
 export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): string {
   const primary = config.platforms.find(platform => platform.primary);
   const lines = [
-    '# Website Studio',
+    '# UI Studio',
     '',
     `> Updated ${config.updatedAt}. This mirror is generated from \`${WEBSITE_WORKSPACE_SSOT_PATH}\`.`,
     '',
@@ -351,6 +373,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '',
     `- Client: ${markdownValue(config.intake.clientName)}`,
     `- Project: ${markdownValue(config.intake.projectName)}`,
+    `- Interface profile: ${config.surfaceKind}`,
     `- Summary: ${markdownValue(config.intake.summary)}`,
     `- Target launch: ${markdownValue(config.intake.targetLaunch)}`,
     `- Budget: ${markdownValue(config.intake.budget)}`,
@@ -381,6 +404,25 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '',
     ...renderDesignPrompts(config),
     '',
+    '## Content Design',
+    '',
+    `- Voice: ${markdownValue(config.contentDesign.voice)}`,
+    `- Reading level: ${markdownValue(config.contentDesign.readingLevel)}`,
+    `- Locales: ${markdownValue(config.contentDesign.locales.join(', '))}`,
+    `- Accessibility notes: ${markdownValue(config.contentDesign.accessibilityNotes)}`,
+    '',
+    '### Principles',
+    '',
+    ...markdownList(config.contentDesign.principles),
+    '',
+    '### Preferred terms',
+    '',
+    ...markdownList(config.contentDesign.preferredTerms),
+    '',
+    '### Avoided terms',
+    '',
+    ...markdownList(config.contentDesign.avoidedTerms),
+    '',
     '## UI System',
     '',
     `- Brand direction: ${markdownValue(config.designSystem.brandDirection)}`,
@@ -388,6 +430,14 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     `- Palette: ${config.designSystem.primaryColor}, ${config.designSystem.secondaryColor}, ${config.designSystem.accentColor}`,
     `- Typography: ${markdownValue(config.designSystem.headingFont)} headings / ${markdownValue(config.designSystem.bodyFont)} body`,
     `- Accessibility target: ${markdownValue(config.designSystem.accessibilityTarget)}`,
+    '',
+    '## Implementation Guide',
+    '',
+    `- Target technologies: ${markdownValue(config.implementation.targetTechnologies.join(', '))}`,
+    `- Source roots: ${markdownValue(config.implementation.sourceRoots.join(', '))}`,
+    `- Component locations: ${markdownValue(config.implementation.componentLocations.join(', '))}`,
+    '',
+    ...markdownList(config.implementation.notes),
     '',
     '## Hosting Environments',
     '',
@@ -428,7 +478,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
         ]
       : []),
     '',
-    '> Security boundary: Website Studio stores only secret references. It never stores API keys, passwords, n8n webhook URLs, or credential values, and it never deploys or triggers a workflow without a separate guarded action.',
+    '> Security boundary: UI Studio stores only secret references. It never stores API keys, passwords, n8n webhook URLs, or credential values, and it never deploys or triggers a workflow without a separate guarded action.',
     '',
   ];
   return lines.join('\n');
@@ -504,7 +554,7 @@ export class WebsiteWorkspaceManager {
 
   public async save(input: unknown): Promise<WebsiteWorkspaceConfig> {
     if (!this.workspaceRoot) {
-      throw new Error('Open a workspace folder before saving Website Studio.');
+      throw new Error('Open a workspace folder before saving UI Studio.');
     }
     // The refusal is re-checked here rather than trusted from a previous read:
     // the file can be replaced between opening the panel and pressing save, and
@@ -526,7 +576,7 @@ export class WebsiteWorkspaceManager {
     ].find(result => result.status === 'blocked');
     if (blockedScan) {
       const issue = blockedScan.issues.find(candidate => candidate.severity === 'error');
-      throw new Error(`Website Studio blocked unsafe SSOT content${issue ? `: ${issue.message}` : '.'}`);
+      throw new Error(`UI Studio blocked unsafe SSOT content${issue ? `: ${issue.message}` : '.'}`);
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
     await writeFile(jsonPath, serialized, 'utf8');
@@ -683,6 +733,27 @@ function defaultDesignSystem(brandNotes?: string): WebsiteDesignSystem {
     cornerStyle: '8px',
     accessibilityTarget: 'WCAG 2.2 AA',
     componentNotes: [],
+  };
+}
+
+function defaultContentDesign(): UiContentDesign {
+  return {
+    voice: '',
+    principles: [],
+    preferredTerms: [],
+    avoidedTerms: [],
+    readingLevel: '',
+    locales: [],
+    accessibilityNotes: '',
+  };
+}
+
+function defaultImplementationGuide(): UiImplementationGuide {
+  return {
+    targetTechnologies: [],
+    sourceRoots: [],
+    componentLocations: [],
+    notes: [],
   };
 }
 
@@ -862,6 +933,29 @@ function sanitizeDesignSystem(input: unknown): WebsiteDesignSystem {
     cornerStyle: cleanText(source['cornerStyle'], 160) || fallback.cornerStyle,
     accessibilityTarget: cleanText(source['accessibilityTarget'], 160) || fallback.accessibilityTarget,
     componentNotes: valueToStringList(source['componentNotes']),
+  };
+}
+
+function sanitizeContentDesign(input: unknown): UiContentDesign {
+  const source = asRecord(input);
+  return {
+    voice: cleanText(source['voice'], 4_000),
+    principles: cleanStringList(source['principles'], MAX_LIST_ITEMS, 500),
+    preferredTerms: cleanStringList(source['preferredTerms'], MAX_LIST_ITEMS, 300),
+    avoidedTerms: cleanStringList(source['avoidedTerms'], MAX_LIST_ITEMS, 300),
+    readingLevel: cleanText(source['readingLevel'], 300),
+    locales: cleanStringList(source['locales'], MAX_LIST_ITEMS, 100),
+    accessibilityNotes: cleanText(source['accessibilityNotes'], 4_000),
+  };
+}
+
+function sanitizeImplementationGuide(input: unknown): UiImplementationGuide {
+  const source = asRecord(input);
+  return {
+    targetTechnologies: cleanStringList(source['targetTechnologies'], MAX_LIST_ITEMS, 300),
+    sourceRoots: cleanStringList(source['sourceRoots'], MAX_LIST_ITEMS, 500),
+    componentLocations: cleanStringList(source['componentLocations'], MAX_LIST_ITEMS, 500),
+    notes: cleanStringList(source['notes'], MAX_LIST_ITEMS, 1_000),
   };
 }
 

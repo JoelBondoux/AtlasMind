@@ -144,11 +144,11 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 | `AtlasMind: Open Project Ideation` | The thinking board |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |
-| `AtlasMind: Open Website Studio` | The client-website workspace |
-| `AtlasMind: Open Website Preview` | Serve the generated site from `127.0.0.1` and show it beside the Studio. Asks before turning the preview on for the first time |
-| `AtlasMind: Stop Website Preview` | Stop the local preview server. Also happens automatically when you close the preview or the Studio |
+| `AtlasMind: Open UI Studio` | Visual UI planning, content design, wireframes, design system, and implementation handoff; website profiles also include delivery tooling |
+| `AtlasMind: Open UI Preview in Built-in Browser` | Rebuild the deterministic structure/content/style index, serve it from guarded `127.0.0.1`, and open it in VS Code's built-in browser. Asks before turning preview on for the first time |
+| `AtlasMind: Stop UI Preview` | Stop the shared local preview server. Also happens when UI Studio closes or the extension deactivates |
 | `AtlasMind: Generate Website From Plan` | Runs an already-confirmed generation plan. Normally reached from a **Generate** button in Website Studio, which is what builds the plan and shows you the file list |
-| `AtlasMind: Preview Website Wireframe` | Render the wireframes to HTML and open them in the preview. No model runs, so this is instant and free |
+| `AtlasMind: Rebuild and Open UI Preview` | Rebuild the live design draft from wireframes, UI tokens, and Markdown content, then open its index in the built-in browser. No model runs |
 | `AtlasMind: Import Website Client Feedback` | Read a feedback file your client exported from the review overlay and merge it into the review register |
 | `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |

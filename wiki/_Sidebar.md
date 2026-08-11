@@ -17,7 +17,7 @@
 - [[Ideation]]
 - [[GitHub Workflow]]
 - [[Delivery]]
-- [[Website Studio]]
+- [[Website Studio|UI Studio]]
 - [[Resource Discovery]]
 
 ### Other ways in

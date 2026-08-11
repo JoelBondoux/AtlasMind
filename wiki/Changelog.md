@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.273.0 — Full preview becomes the design loop
+
+UI Studio now has a numbered **Full Preview** step. Its primary canvas opens in VS Code's built-in
+browser and combines the saved wireframe, UI colours and typography, and exact Markdown copy in one
+deterministic draft. Each screen also includes a complete content proof, so clipped canvas copy cannot
+hide and unresolved placeholders stay conspicuous.
+
+The desktop/tablet/mobile view remains as a responsive inspection lab using the same guarded loopback
+server. Model-generated output is linked from the preview index but kept separate from the live Studio
+draft, so pressing Generate never changes what “preview my current design decisions” means.
+
+## v0.272.0 — UI Studio designs the whole interface
+
+Website Studio is now UI Studio. Website is a profile alongside web app, mobile app, desktop app,
+editor extension, embedded UI and another/custom interface. The shared visual workflow covers screens
+and flows, wireframes, the UI system, content, and a source-aware implementation handoff. Every profile
+can generate a sandboxed HTML/CSS visual reference; only the website profile shows SEO, stack, hosting,
+Delivery comparison and n8n.
+
+Content Design is now a numbered step rather than a status somebody updates elsewhere. It records the
+product voice, principles, terminology, comprehension target, locales and accessibility guidance, and
+edits the real Markdown file for each screen. A missing file can be seeded only with explicit
+placeholders. A file changed elsewhere while the Studio was open is refused rather than overwritten.
+
+The SSOT moves to format v5. Existing work migrates to the website profile—the only kind v4 could
+represent—and gets empty content and implementation guidance rather than invented decisions. Existing
+command ids and `project_memory/domain/website.*` paths stay stable for compatibility.
+
+---
+
 ## v0.271.6 — Branch choices and recency stay truthful
 
 The Branch Dashboard now remembers its saved view, sort field, direction, grouping, and SCM-colour

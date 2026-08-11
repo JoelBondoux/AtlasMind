@@ -1,12 +1,14 @@
-# Website Studio
+# UI Studio
 
-**A workspace for taking a client website from the first conversation to launch.**
+**A visual guide for designing an interface and continuing it in the real project.**
 
-If you build sites for clients, the hard part usually isn't the code — it's keeping the brief, the
-sitemap, the design decisions, the hosting choice and the sign-offs in one place that everyone can see.
-Website Studio is that place.
+Choose website, web app, mobile app, desktop app, editor extension, embedded UI, or another interface.
+The shared workflow keeps the brief, screens and flows, words, wireframes, UI-system choices, and
+implementation locations together. A website is one richer profile, with its sitemap, SEO, generated
+stack, hosting, delivery comparison, and n8n workflow intact. Every profile can generate a sandboxed
+HTML/CSS visual guide; for a native target it is explicitly a reference, not the implementation.
 
-**Open it from:** Project Dashboard → Delivery · the Ideation board · **AtlasMind: Open Website Studio** ·
+**Open it from:** Project Dashboard → Delivery · the Ideation board · **AtlasMind: Open UI Studio** ·
 or by choosing **Website / Marketing Site** during `/bootstrap`.
 
 ---
@@ -15,12 +17,24 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 
 | Dashboard | What you use it for |
 |---|---|
-| **Client Brief** | The client, the goals, the audiences, the features, where the content is coming from, brand notes, constraints, success metrics, stakeholders, launch date and budget — and one sentence describing how the whole site should look |
-| **Sitemap** | Every page — title, slug, what it's for, which template it uses, where it links to, and a hierarchy map that draws itself |
+| **Project Brief** | The interface profile, client/project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and one whole-interface prompt |
+| **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
+| **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
 | **UI System** | Brand direction, tone, palette, typography, spacing, corner style, accessibility target and component notes |
-| **Stack & hosting** | What the site is built with and where it ships — and a button that actually sets it up. Plus Develop, Staging and Production, and a cross-check against the Delivery pipeline |
-| **n8n Automations** | Which workflow handles which event, what it should do, whether it's ready, and any data or privacy notes |
+| **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
+| **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
+
+## Design the words too
+
+Content design is now a first-class Studio step. The project-level rules are stored in the reviewable
+UI SSOT; actual screen copy stays in the configured Markdown directory so the Studio edits the same
+files the project uses. Capture labels, help, validation, empty/loading/error/success states, and
+recovery actions beside the main prose.
+
+A missing file can be seeded from the wireframe, but only as loud `[PLACEHOLDER: …]` gaps—never
+fictional copy that looks reviewed. Saving checks that the file body still matches the version opened;
+an external edit causes a refusal and reload instead of an automatic merge.
 
 ---
 
@@ -98,10 +112,11 @@ Files go **only** to `.atlasmind/website-preview/`. Your source tree is never to
 approved design out of the preview folder is a separate, deliberate step. Nothing executable is
 generated at all.
 
-The result renders in a window beside the Studio. The little server behind it listens on `127.0.0.1`
-only, serves nothing but the preview folder, has no directory listing, and puts a random one-time token
-in its address so nothing else running on your machine can guess the port and read your client's
-unfinished work. It stops when you close the window.
+The full result renders in VS Code's built-in browser; a guarded companion window provides fixed
+responsive widths. The little server behind both listens on `127.0.0.1` only, serves nothing but the
+preview folder, has no directory listing, and puts a random one-time token in its address so nothing
+else running on your machine can guess the port and read your client's unfinished work. Stop it with
+**Stop Preview**, by closing UI Studio, or by deactivating the extension.
 
 Both switches — generating files, and opening the preview port — are **off until you turn them on**,
 and they're two switches rather than one because they're genuinely two different decisions.
@@ -170,6 +185,21 @@ a guard the promotion runner depends on.
 
 ---
 
+## Full preview
+
+Full Preview is step 6 of UI Studio and the main place to judge the design as a whole. **Rebuild and
+open** launches VS Code's built-in browser with a deterministic index built from the saved wireframe,
+UI colours and heading/body typography, and exact Markdown content. Each screen includes a complete
+content proof below its spatial canvas, so copy clipped by a fixed wireframe box cannot disappear from
+review. `[PLACEHOLDER: …]` markers remain visibly unfinished.
+
+Use the separate **Responsive lab** for Fit, Desktop 1280, Tablet 834, and Mobile 390 widths. It shares
+the same guarded loopback server and URL as the full browser. If a model-generated visual guide exists,
+the index links to it separately; it never replaces the live Studio draft.
+
+Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
+Refresh the built-in browser, or press **Rebuild and open**, to display that saved revision.
+
 ## Seeing the wireframe
 
 Open the preview and you see your drawing — immediately, with no model call and no waiting. Every block
@@ -180,8 +210,8 @@ sitemap because those are actual facts.
 The banner says outright that nothing on the page is real content, which matters more than it sounds:
 the whole failure mode here is a page that *looks* finished getting signed off.
 
-Generated pages and wireframes live side by side, so pressing Generate never overwrites your drawing
-and looking at your drawing never hides the generated site.
+Generated pages and wireframes live side by side, so pressing Generate never overwrites your drawing.
+The deterministic design index stays the preview entry point, with generated output one click away.
 
 ## Writing the copy
 

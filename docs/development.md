@@ -299,7 +299,24 @@ There are two distinct handoff shapes. Operational errors contain process-, tool
 
 The shell's responsive sizing contract distinguishes containers from content. Grid and flex containers may use `min-width: 0` so a panel can contract, but do not apply that reset to inline text, labels, buttons, or badges: doing so changes their minimum contribution to almost nothing and invites character-by-character wrapping. Normal prose and controls use word-boundary wrapping and stay within `max-width: 100%`; reserve `overflow-wrap: anywhere` for unbroken content such as URLs. In compact mixed-content rows, keep intrinsic columns such as a kind badge or numeric score at `max-content` and give the descriptive column `minmax(0, 1fr)`. `tests/views/panelWiring.test.ts` pins this contract and the Project Ideation checklist/analytics implementation.
 
-The Website Studio follows the same extension-host/webview split. `websiteStudioPanel.ts` renders and collects the six dashboard pages, including the fixed Develop → Staging → Production hosting cards, but every incoming message is checked by `isWebsiteStudioMessage()` and every data payload is passed through `sanitizeWebsiteWorkspace()` in `websiteWorkspaceManager.ts` before persistence. Treat all displayed policy fields as presentation only: the host reconstructs canonical environment names, access policies, hosting restrictions, and Production protection; `assessWebsiteHostingEnvironments()` then validates loopback/HTTPS/password-reference/review-subdomain readiness. Credential inputs are references with an explicit provider prefix, never password values. Keep platform deployment and n8n execution out of the webview: it may record readiness and non-secret references, while real production actions must continue through a separately reviewed/approved host-side path.
+UI Studio follows the same extension-host/webview split while retaining the compatibility-named
+`websiteStudioPanel.ts` and command id. It renders a profile-aware sequence: Brief, Sitemap or Screens
+& Flows, Content Design, UI System, Wireframes, Full Preview, Implementation, and website-only n8n. Non-website
+profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls. Every incoming message
+is checked by `isWebsiteStudioMessage()` and the main payload passes through
+`sanitizeWebsiteWorkspace()` before persistence.
+
+Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
+bounded page id and bounded content fields; the host resolves that id against the current sanitized
+plan, and `WebsiteContentManager` derives the path. Save includes the body originally opened and is
+refused if disk now differs. Seeding is create-only and placeholder-only. Do not fold copy into
+`website.json`, accept a webview-supplied path, or auto-merge concurrent prose.
+
+For website profiles, treat all displayed hosting policy fields as presentation only: the host
+reconstructs canonical environment names, access policies, hosting restrictions, and Production
+protection; `assessWebsiteHostingEnvironments()` validates loopback/HTTPS/password-reference/review-
+subdomain readiness. Credential inputs are references with an explicit provider prefix, never values.
+Keep platform deployment and n8n execution out of the webview.
 
 The Studio's CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js` (read inline by the panel, as `projectDashboardPanel` does). Four rules matter when working on the canvas:
 
@@ -307,6 +324,7 @@ The Studio's CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/w
 - **The webview sends data, never a command.** `promptForTarget` carries a scope, some ids and the user's sentence; `generate` carries a stage and ids. The panel composes the prompt and decides the file list. A webview that could name a path or a command would make every gate advisory.
 - **Generation is gated twice and confirmed once.** `atlasmind.website.generation.enabled` and `atlasmind.website.preview.enabled` are separate and both default off; every Generate shows a `{modal:true}` dialog naming each file. The plan is built by `planWebsiteGeneration()` before any model call, which is what lets the dialog be specific.
 - **Nothing is written outside `.atlasmind/website-preview/`.** Paths are validated at plan time, again when the model's reply is parsed, and again immediately before each write in `websiteGenerationRunner.ts`. Do not remove any of the three: the runner's writer is injected precisely so a test can fail the run if an escaping path is ever passed.
+- **Preview has one canonical draft and two consumers.** `writeWireframePreviews()` rebuilds the `_wireframe/` index from saved geometry, safe UI tokens, and Markdown content; generated output may be linked but never becomes the entry point. `simpleBrowser.api.open` owns the full-canvas surface, while `WebsitePreviewPanel` retains its narrow CSP and scriptless iframe as the responsive-width lab. Both consume the same tokenized loopback URL.
 
 Stack setup adds four rules of its own, and each is pinned by a test rather than left as a convention:
 

@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.273.0] - 2026-08-11
+
+### Added
+
+- **Full Preview is now a first-class UI Studio step.** The canonical review canvas opens in VS Code's
+  built-in browser and is rebuilt deterministically from the saved wireframe, UI colours and typography,
+  and exact Markdown content. Every screen also carries a complete content proof so copy cannot disappear
+  behind a fixed wireframe box, while `[PLACEHOLDER: …]` gaps remain visually explicit.
+- **Responsive inspection remains available as a companion lab.** Desktop, tablet, mobile, and fluid
+  widths share the same loopback server and preview URL as the full browser instead of creating a second
+  version of the design.
+
+### Changed
+
+- **The live Studio draft now always owns the preview entry point.** Model-generated visual guides remain
+  one click away but cannot replace the deterministic content/style/structure index. Studio saves rebuild
+  preview artefacts when the guarded server is already running, and the responsive lab's full-preview
+  action opens inside VS Code rather than the operating-system browser.
+
+## [0.272.0] - 2026-08-11
+
+### Added
+
+- **Website Studio is now UI Studio, with website as one profile rather than the product boundary.**
+  Projects can identify a website, web app, mobile app, desktop app, editor extension, embedded UI, or
+  another interface. Every profile shares screens/flows, wireframes, UI system, content and an
+  implementation guide for target technologies, source roots, component locations and handoff notes.
+  Non-web profiles do not pretend their target is HTML or that they need SEO, hosting or n8n; every
+  profile can render a sandboxed HTML/CSS visual reference, while website projects retain stack,
+  hosting, Delivery and automation workflow.
+- **Content Design is a real Studio step.** Project voice, principles, preferred and avoided terms,
+  comprehension target, locales and accessibility notes are stored in the reviewable SSOT. Per-screen
+  Markdown copy is editable in the Studio, including labels and empty/loading/error/success/recovery
+  states. Missing files seed only explicit placeholders, and optimistic concurrency refuses to
+  overwrite copy changed on disk since the page opened.
+
+### Changed
+
+- **The UI workspace format is v5.** Existing v4 projects migrate explicitly to the `website` profile
+  and receive empty content-design and implementation records; the migration invents no voice,
+  technology or source location. The command id and `project_memory/domain/website.*` paths remain
+  stable for compatibility while the visible command and panel are named UI Studio.
+
 ## [0.271.6] - 2026-08-11
 
 ### Fixed

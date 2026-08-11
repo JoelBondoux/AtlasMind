@@ -1977,7 +1977,7 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       ? '- Seeded ideation defaults in `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md`.'
       : '- Left the existing ideation board in `ideas/atlas-ideation-board.json` untouched. Bootstrap never overwrites a board you have worked on.',
     artifacts.websiteWorkspaceSeeded
-      ? '- Seeded Website Studio in `domain/website.json` and `domain/website.md`; open **AtlasMind: Open Website Studio** to continue from brief to delivery.'
+      ? '- Seeded the website profile in UI Studio at `domain/website.json` and `domain/website.md`; open **AtlasMind: Open UI Studio** to continue from brief to delivery.'
       : '',
     artifacts.githubArtifactsUpdated
       ? '- Wrote GitHub-ready planning artifacts under `.github/ISSUE_TEMPLATE/` and `.github/project-planning/`.'

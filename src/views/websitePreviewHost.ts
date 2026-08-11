@@ -22,7 +22,7 @@ import type { AtlasMindContext } from '../extension.js';
 import type { Orchestrator } from '../core/orchestrator.js';
 import { WEBSITE_PREVIEW_ROOT, pagePath, type WebsiteGenerationPlan } from '../core/websiteGeneration.js';
 import { WebsiteWorkspaceManager } from '../core/websiteWorkspaceManager.js';
-import { WebsiteReviewManager } from '../core/websiteContentManager.js';
+import { WebsiteContentManager, WebsiteReviewManager } from '../core/websiteContentManager.js';
 import {
   REVIEW_OVERLAY_FILENAME,
   REVIEW_OVERLAY_SCRIPT,
@@ -41,6 +41,7 @@ import { describeGenerationRun, runWebsiteGeneration } from '../core/websiteGene
 import { WebsitePreviewPanel } from './websitePreviewPanel.js';
 
 let server: WebsitePreviewServer | undefined;
+let lifecycleRegistered = false;
 
 /** Deny by default. Opening a local port is a decision separate from using the Studio. */
 function isPreviewEnabled(): boolean {
@@ -71,15 +72,21 @@ function requireWorkspaceRoot(): string | undefined {
   return root;
 }
 
-/** Start the server if it is not already running, and show the preview beside the Studio. */
-export async function openWebsitePreview(context: vscode.ExtensionContext): Promise<void> {
+interface RunningPreview {
+  entryPath: string;
+  port: number;
+  url: string;
+}
+
+/** Start the server if it is not already running and return its canonical draft URL. */
+async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<RunningPreview | undefined> {
   if (!isPreviewEnabled()) {
     const choice = await vscode.window.showWarningMessage(
-      'The website preview is off.',
+      'The UI preview is off.',
       {
         modal: true,
         detail: 'Turning it on starts a small web server bound to 127.0.0.1 that serves only '
-          + `${WEBSITE_PREVIEW_ROOT}/. It is reachable from this machine only, and stops when you close the preview.`,
+          + `${WEBSITE_PREVIEW_ROOT}/. It is reachable from this machine only and stops with UI Studio or the Stop Preview command.`,
       },
       'Turn on and open',
     );
@@ -126,11 +133,37 @@ export async function openWebsitePreview(context: vscode.ExtensionContext): Prom
   const url = server.url;
   const port = server.port;
   if (!url || port === undefined) {
-    void vscode.window.showErrorMessage('The website preview server started but reported no address.');
+    void vscode.window.showErrorMessage('The UI preview server started but reported no address.');
     return;
   }
 
-  WebsitePreviewPanel.createOrShow(context, `${url}${entryPath}`, port, () => {
+  if (!lifecycleRegistered) {
+    lifecycleRegistered = true;
+    context.subscriptions.push({ dispose: () => { void stopWebsitePreview(); } });
+  }
+  return { entryPath, port, url };
+}
+
+/** Open the canonical full-canvas preview in VS Code's built-in Simple Browser. */
+export async function openWebsitePreview(context: vscode.ExtensionContext): Promise<void> {
+  const preview = await ensureWebsitePreview(context);
+  if (!preview) {
+    return;
+  }
+  await vscode.commands.executeCommand(
+    'simpleBrowser.api.open',
+    `${preview.url}${preview.entryPath}`,
+    { title: 'UI Studio Preview', viewColumn: vscode.ViewColumn.Beside },
+  );
+}
+
+/** Open the guarded iframe with explicit desktop/tablet/mobile widths. */
+export async function openResponsiveWebsitePreview(context: vscode.ExtensionContext): Promise<void> {
+  const preview = await ensureWebsitePreview(context);
+  if (!preview) {
+    return;
+  }
+  WebsitePreviewPanel.createOrShow(context, `${preview.url}${preview.entryPath}`, preview.port, () => {
     void stopWebsitePreview();
   });
 }
@@ -149,8 +182,8 @@ export async function openWebsitePreview(context: vscode.ExtensionContext): Prom
  * from the canvas, cost nothing to rebuild, and a stale one would show a drawing
  * that no longer exists.
  *
- * Returns the sub-path to open — the generated site when there is one, the
- * wireframe index when there is not.
+ * Returns the deterministic design-preview index. Generated output stays linked
+ * from that index, but it never replaces the content/style/structure feedback loop.
  */
 async function writeWireframePreviews(workspaceRoot: string, root: string): Promise<string> {
   let config;
@@ -164,10 +197,21 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
 
   try {
     await mkdir(path.join(root, '_wireframe'), { recursive: true });
+    const contentDirectory = vscode.workspace.getConfiguration('atlasmind')
+      .get<string>('website.content.directory', 'content');
+    const contents = new WebsiteContentManager(workspaceRoot, contentDirectory).read(config.pages);
 
     await writeFile(
       path.join(root, WIREFRAME_INDEX_PATH),
-      renderWireframeIndex(config.pages, config.designSystem, config.intake.projectName),
+      renderWireframeIndex(
+        config.pages,
+        config.designSystem,
+        config.intake.projectName,
+        {
+          contents,
+          generatedAvailable: existsSync(path.join(root, 'index.html')),
+        },
+      ),
       'utf8',
     );
 
@@ -178,6 +222,7 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
           page,
           designSystem: config.designSystem,
           siblings: config.pages,
+          content: contents.get(page.id),
           ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
         }),
         'utf8',
@@ -190,9 +235,7 @@ async function writeWireframePreviews(workspaceRoot: string, root: string): Prom
     return '';
   }
 
-  // A generated site takes precedence: it is the more finished artefact, and
-  // the wireframes stay one click away at `_wireframe/`.
-  return existsSync(path.join(root, 'index.html')) ? '' : WIREFRAME_INDEX_PATH;
+  return WIREFRAME_INDEX_PATH;
 }
 
 /** Stop the server. Safe to call when nothing is running — the Studio calls it on dispose. */
@@ -205,6 +248,20 @@ export async function stopWebsitePreview(): Promise<void> {
 /** True when a preview is currently being served. */
 export function isPreviewRunning(): boolean {
   return server?.running === true;
+}
+
+/** Rebuild the deterministic draft after a Studio save without opening a port. */
+export async function refreshRunningWebsitePreview(): Promise<void> {
+  if (!server?.running) {
+    return;
+  }
+  const workspaceRoot = requireWorkspaceRoot();
+  if (!workspaceRoot) {
+    return;
+  }
+  const root = previewRootFor(workspaceRoot);
+  await writeWireframePreviews(workspaceRoot, root);
+  WebsitePreviewPanel.currentPanel?.refresh();
 }
 
 interface GenerateRequest {
@@ -344,27 +401,16 @@ async function injectReviewOverlayIfEnabled(
  * drawing, not run a model.
  */
 export async function refreshWireframePreview(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = requireWorkspaceRoot();
-  if (!workspaceRoot) {
+  const preview = await ensureWebsitePreview(context);
+  if (!preview) {
     return;
   }
-  const root = previewRootFor(workspaceRoot);
-  await mkdir(root, { recursive: true });
-  await writeWireframePreviews(workspaceRoot, root);
-
-  if (!server?.running) {
-    await openWebsitePreview(context);
-    return;
-  }
-  // Already serving: point the existing window at the wireframe index rather
-  // than opening a second one.
-  const url = server.url;
-  const port = server.port;
-  if (url && port !== undefined) {
-    WebsitePreviewPanel.createOrShow(context, `${url}${WIREFRAME_INDEX_PATH}`, port, () => {
-      void stopWebsitePreview();
-    });
-  }
+  WebsitePreviewPanel.currentPanel?.refresh();
+  await vscode.commands.executeCommand(
+    'simpleBrowser.api.open',
+    `${preview.url}${WIREFRAME_INDEX_PATH}`,
+    { title: 'UI Studio Preview', viewColumn: vscode.ViewColumn.Beside },
+  );
 }
 
 /**

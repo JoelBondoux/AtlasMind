@@ -302,4 +302,36 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .element-count { margin:0 0 8px; font-size:.78rem; color:var(--studio-muted); }
   .structure-list { margin:0 0 12px; padding-left:18px; font-size:.84rem; }
   .structure-list small { color:var(--studio-muted); text-transform:uppercase; font-size:.66rem; letter-spacing:.07em; }
+
+  .profile-card { display:grid; grid-template-columns:minmax(0, 1fr) minmax(220px, .45fr); gap:22px; align-items:end; }
+  .profile-card h2, .profile-card p { margin-top:0; }
+  .content-screen-grid { display:grid; gap:14px; }
+  .content-screen-card {
+    border:1px solid var(--studio-border);
+    border-radius:12px;
+    padding:16px;
+    background:color-mix(in srgb, var(--studio-surface) 86%, transparent);
+  }
+  .content-screen-card h3 { margin:0; }
+  .content-screen-card .card-heading p { margin:4px 0 0; color:var(--studio-muted); }
+  .content-screen-card .content-body { min-height:260px; font-family:var(--vscode-editor-font-family, monospace); }
+  .content-editor-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; color:var(--studio-muted); font-size:.8rem; }
+  .seed-page-content, .save-page-content { background:var(--vscode-button-background); color:var(--vscode-button-foreground); }
+  .implementation-guide { margin-bottom:16px; }
+  .preview-launch-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:28px; align-items:center; border-top:4px solid var(--studio-accent); }
+  .preview-launch-card h2 { font-size:1.35rem; }
+  .preview-launch-card p { color:var(--studio-muted); max-width:76ch; }
+  .preview-primary-actions { display:grid; gap:9px; min-width:250px; }
+  .preview-freshness { font-size:.82rem; }
+  .preview-proof-list { margin:8px 0 0; padding-left:20px; color:var(--studio-muted); }
+  .preview-proof-list li { margin:7px 0; }
+  .preview-coverage-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px; }
+  .preview-coverage-item { display:grid; gap:3px; padding:11px 12px; border:1px solid var(--studio-border); border-radius:8px; }
+  .preview-coverage-item span { color:var(--studio-muted); font-size:.76rem; }
+  @media (max-width:760px) {
+    .profile-card { grid-template-columns:1fr; }
+    .content-editor-footer { align-items:flex-start; flex-direction:column; }
+    .preview-launch-card { grid-template-columns:1fr; }
+    .preview-primary-actions { min-width:0; }
+  }
 `;

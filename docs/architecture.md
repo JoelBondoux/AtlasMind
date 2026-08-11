@@ -273,14 +273,21 @@ The gate's response is **tiered by sensitivity**, because it scans the assembled
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
 
-### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
+### UI Studio workspace (`src/core/websiteWorkspaceManager.ts`)
 
-Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command id remains
+`atlasmind.openWebsiteStudio`). It owns the compatibility-named SSOT at
+`project_memory/domain/website.json` and regenerates `website.md` on every save. The shared
+`WebsiteWorkspaceConfig` types in `src/types.ts` model:
 
+- an explicit `UiSurfaceKind` profile: website, web app, mobile app, desktop app, editor extension,
+  embedded UI, or other;
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
 - per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
 - project-level UI system decisions;
+- project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
+  source-root, component-location, and handoff hints (data only, never commands);
 - the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
 - a catalog of static, managed-CMS, commerce, and custom platform targets;
 - n8n workflow maps containing event/outcome/status plus non-secret references.
@@ -291,9 +298,16 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 2**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 1 → 2 step transcribes each page's old `sections` list into stacked wireframe bands (the transcription is inlined in `schemaMigration.ts` rather than imported, because a migration must keep producing the same output forever); `designPrompt` and `links` are seeded empty rather than guessed.
+The SSOT is at **format version 5**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either.
 
-`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframe canvas, UI System, Hosting & Platforms, n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js`, read inline the way `projectDashboardPanel` reads its script. Its message guard accepts save/import, the two fixed website SSOT paths, three fixed navigation commands, and the four new data-only messages (`promptForTarget`, `generate`, `openPreview`, `stopPreview`) — none of which can name a command, a path, or a file. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`; n8n triggering is likewise deliberately outside this planning surface.
+`src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
+Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
+website-only n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in
+`media/websiteStudio.js`. Content messages carry a bounded screen id and text fields; the host resolves
+the id against the current plan and `WebsiteContentManager` owns the path. The expected body implements
+optimistic concurrency, so a disk edit is refused rather than overwritten. Other messages remain
+data-only and cannot name a command, arbitrary path, or output file. Production publishing stays in
+`PromotionRunner`; n8n triggering remains outside this planning surface.
 
 ### Website Studio design and generation modules
 
@@ -308,7 +322,8 @@ Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
 ### Website Studio content and review
 
-- **`websiteWireframePreview.ts`** — renders a wireframe straight to self-contained HTML with **no model involved**. It exists because there was no deterministic HTML renderer anywhere in `src/core/`, so a wireframe could not reach a browser without a generation, and an empty preview root served the 404 as a near-blank page. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; renders live under `_wireframe/`, never at a generated page's address.
+- **`websiteWireframePreview.ts`** — renders the canonical design draft straight to self-contained HTML with **no model involved**: wireframe geometry, safe colour/type tokens, and an escaped inert subset of the exact Markdown copy, repeated in a complete content proof. Missing copy stays explicit. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; drafts live under `_wireframe/`, never at a generated page's address. The index always owns the preview entry point and links to generated output separately.
+- **`websitePreviewHost.ts` / `websitePreviewPanel.ts`** — one guarded loopback server feeds two consumers. VS Code's built-in Simple Browser is the full-canvas primary preview; the custom sandboxed webview is only the responsive-width lab. Closing that lab does not stop a server still serving the full browser; Stop Preview, Studio disposal, and extension deactivation own shutdown.
 - **`websiteContent.ts`** / **`websiteContentManager.ts`** — markdown copy with YAML front-matter, one file per page, derived from the same `normalizeSlug` the sitemap uses. `[PLACEHOLDER: …]` is parsed and **counted**; *missing* and *empty* stay distinguishable; the file is the source of truth and a save whose file changed underneath is refused rather than merged.
 - **`websiteReviewComments.ts`** — comments against a page or element, transitioning and never deleted, with an orphaned comment kept and flagged carrying the element's remembered label. `buildCommentWorkPrompt` fences the body as REPORTED CONTENT.
 - **`websiteReviewBundle.ts`** — the overlay generated *into the site*, so it deploys to the client's own staging. The script is a **frozen constant** with configuration passed in a `data-` attribute; no endpoint is ever invented, and `connect-src` names the single declared origin or is `'none'`. Import reuses the record sanitizer and is idempotent. The decision not to host a relay is recorded in `project_memory/decisions/website-client-review-hosting.md`.

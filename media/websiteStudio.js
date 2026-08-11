@@ -770,7 +770,7 @@
         wireframeStatus: card ? value('.page-wireframeStatus', card) : page.wireframeStatus,
         designStatus: card ? value('.page-designStatus', card) : page.designStatus,
         contentStatus: card ? value('.page-contentStatus', card) : page.contentStatus,
-        seoStatus: card ? value('.page-seoStatus', card) : page.seoStatus,
+        seoStatus: card && qs('.page-seoStatus', card) ? value('.page-seoStatus', card) : page.seoStatus,
       };
     });
 
@@ -806,7 +806,8 @@
     }));
 
     return {
-      version: 2,
+      version: 5,
+      surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
       intake: {
         clientName: value('#intake-clientName'),
@@ -836,6 +837,21 @@
         cornerStyle: value('#design-cornerStyle'),
         accessibilityTarget: value('#design-accessibilityTarget'),
         componentNotes: lines(value('#design-componentNotes')),
+      },
+      contentDesign: {
+        voice: value('#content-voice'),
+        principles: lines(value('#content-principles')),
+        preferredTerms: lines(value('#content-preferredTerms')),
+        avoidedTerms: lines(value('#content-avoidedTerms')),
+        readingLevel: value('#content-readingLevel'),
+        locales: lines(value('#content-locales')),
+        accessibilityNotes: value('#content-accessibilityNotes'),
+      },
+      implementation: {
+        targetTechnologies: lines(value('#implementation-targetTechnologies')),
+        sourceRoots: lines(value('#implementation-sourceRoots')),
+        componentLocations: lines(value('#implementation-componentLocations')),
+        notes: lines(value('#implementation-notes')),
       },
       platforms,
       hostingEnvironments,
@@ -871,24 +887,56 @@
     vscode.postMessage({ type: 'importIntake', payload: qs('#clientIntakeJson')?.value ?? '' });
     notice('Importing and normalizing client intake…');
   });
+
+  document.addEventListener('click', event => {
+    const saveContent = event.target.closest('.save-page-content');
+    if (saveContent) {
+      const card = saveContent.closest('[data-content-page-id]');
+      if (!card) { return; }
+      vscode.postMessage({
+        type: 'savePageContent',
+        payload: {
+          pageId: card.dataset.contentPageId,
+          title: value('.content-title', card),
+          metaDescription: value('.content-metaDescription', card),
+          status: value('.content-status', card),
+          body: value('.content-body', card),
+          expectedBody: value('.content-expectedBody', card),
+        },
+      });
+      notice('Saving the Markdown content file…');
+      return;
+    }
+    const seedContent = event.target.closest('.seed-page-content');
+    if (seedContent) {
+      const card = seedContent.closest('[data-content-page-id]');
+      if (!card) { return; }
+      vscode.postMessage({ type: 'seedPageContent', payload: { pageId: card.dataset.contentPageId } });
+      notice('Creating a placeholder-only content outline…');
+    }
+  });
   qs('#stopPreview')?.addEventListener('click', () => vscode.postMessage({ type: 'stopPreview' }));
   qs('#openPreview')?.addEventListener('click', () => vscode.postMessage({ type: 'openPreview' }));
+  qs('#openFullPreview')?.addEventListener('click', () => vscode.postMessage({ type: 'openPreview' }));
+  qs('#refreshFullPreview')?.addEventListener('click', () => vscode.postMessage({ type: 'refreshPreview' }));
+  qs('#openResponsivePreview')?.addEventListener('click', () => vscode.postMessage({ type: 'openResponsivePreview' }));
 
   qs('#addWebsitePage')?.addEventListener('click', () => {
     if (state.readOnly) { return; }
     const id = makeId('page');
-    const title = 'New page';
+    const isWebsite = (value('#surfaceKind') || state.surfaceKind) === 'website';
+    const title = isWebsite ? 'New page' : 'New screen';
     // Added to the model first, so the canvas and the sitemap agree without a
     // round trip to the panel.
     state.pages.push({
-      id, title, slug: '/new-page', purpose: '', template: 'Standard page',
+      id, title, slug: isWebsite ? '/new-page' : 'screen/new', purpose: '', template: isWebsite ? 'Standard page' : 'Standard screen',
       sections: [], wireframeNotes: '', designNotes: '',
       wireframeStatus: 'not-started', designStatus: 'not-started',
       contentStatus: 'not-started', seoStatus: 'not-started',
       order: state.pages.length, designPrompt: '', links: [],
       wireframe: { breakpoint: 'desktop', elements: [] },
     });
-    qs('#sitemapRows')?.insertAdjacentHTML('beforeend', sitemapRowMarkup(id, title));
+    qs('#sitemapRows')?.insertAdjacentHTML('beforeend', sitemapRowMarkup(id, title, isWebsite));
     const select = qs('#wireframePageSelect');
     if (select) {
       select.insertAdjacentHTML('beforeend', '<option value="' + escapeAttribute(id) + '">' + escapeText(title) + '</option>');
@@ -897,12 +945,12 @@
     notice('New page added. Save Website Studio to persist it and redraw the hierarchy map.');
   });
 
-  function sitemapRowMarkup(id, title) {
+  function sitemapRowMarkup(id, title, isWebsite) {
     return '<tr data-page-id="' + escapeAttribute(id) + '">'
       + '<td><input class="page-title" aria-label="Page title" value="' + escapeAttribute(title) + '" /></td>'
-      + '<td><input class="page-slug" aria-label="Page slug" value="/new-page" /></td>'
+      + '<td><input class="page-slug" aria-label="Route or view id" value="' + (isWebsite ? '/new-page' : 'screen/new') + '" /></td>'
       + '<td><textarea class="page-purpose" aria-label="Page purpose" rows="2"></textarea></td>'
-      + '<td><input class="page-template" aria-label="Page template" value="Standard page" /></td>'
+      + '<td><input class="page-template" aria-label="Screen template" value="' + (isWebsite ? 'Standard page' : 'Standard screen') + '" /></td>'
       + '<td class="links-cell">—</td>'
       + '<td><button type="button" class="danger subtle remove-page" data-remove-id="' + escapeAttribute(id) + '">Remove</button></td>'
       + '</tr>';

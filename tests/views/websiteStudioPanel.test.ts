@@ -12,6 +12,8 @@ import {
 describe('Website Studio webview boundary', () => {
   it('accepts only known dashboard deep links', () => {
     expect(isWebsiteStudioPage('wireframes')).toBe(true);
+    expect(isWebsiteStudioPage('content')).toBe(true);
+    expect(isWebsiteStudioPage('preview')).toBe(true);
     expect(isWebsiteStudioPage('automations')).toBe(true);
     expect(isWebsiteStudioPage('../../settings')).toBe(false);
   });
@@ -22,12 +24,21 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'importIntake', payload: '{"clientName":"Northstar"}' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'openSsot', payload: 'json' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'savePageContent',
+      payload: { pageId: 'page-home', title: 'Home', metaDescription: '', status: 'draft', body: '# Home', expectedBody: '' },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'seedPageContent', payload: { pageId: 'page-home' } })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'openPreview' })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'openResponsivePreview' })).toBe(true);
+    expect(isWebsiteStudioMessage({ type: 'refreshPreview' })).toBe(true);
 
     expect(isWebsiteStudioMessage({ type: 'importIntake', payload: 'x'.repeat(128_001) })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'openSsot', payload: '../../package.json' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'openCommand', payload: 'workbench.action.terminal.sendSequence' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'saveConfig', payload: 'erase everything' })).toBe(false);
     expect(isWebsiteStudioMessage({ type: 'deploy', payload: 'production' })).toBe(false);
+    expect(isWebsiteStudioMessage({ type: 'savePageContent', payload: { pageId: '../outside', status: 'draft', body: 'x'.repeat(200_001) } })).toBe(false);
   });
 
   it('keeps the old platforms page id working as a deep link', () => {
@@ -106,6 +117,62 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('Production');
     expect(html).toContain('SecretStorage:website.staging.password');
     expect(html).toContain('Production promotion protected');
+  });
+
+  it('uses the generalized screen workflow and hides website delivery for a native UI', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.surfaceKind = 'mobile-app';
+    config.implementation.targetTechnologies = ['SwiftUI'];
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+    });
+
+    expect(html).toContain('UI Studio');
+    expect(html).toContain('Screens &amp; flows');
+    expect(html).toContain('Implementation handoff');
+    expect(html).toContain('SwiftUI');
+    expect(html).not.toContain('Three deliberate hosting stages');
+    expect(html).not.toContain('n8n automations');
+  });
+
+  it('renders content design rules and real Markdown-backed screen copy', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.contentDesign.voice = 'Calm and direct';
+    const home = config.pages[0]!;
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'content', {
+      scriptContent: '/* canvas */',
+      contentDirectory: 'product-copy',
+      pageContent: [{
+        pageId: home.id,
+        filePath: 'product-copy/index.md',
+        title: 'Home',
+        metaDescription: 'A useful product',
+        status: 'review',
+        body: '# Welcome\n\n[PLACEHOLDER: proof point]',
+        placeholders: [{ need: 'proof point', line: 3 }],
+        missing: false,
+        extraFrontMatter: {},
+      }],
+    });
+
+    expect(html).toContain('Content design');
+    expect(html).toContain('Calm and direct');
+    expect(html).toContain('product-copy/index.md');
+    expect(html).toContain('1 unresolved placeholder');
+    expect(html).toContain('save-page-content');
+  });
+
+  it('makes the built-in browser preview a numbered design step', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'preview', {
+      scriptContent: '/* canvas */',
+    });
+
+    expect(html).toContain('data-page-target="preview"');
+    expect(html).toContain('Canonical review surface');
+    expect(html).toContain('built-in browser');
+    expect(html).toContain('id="refreshFullPreview"');
+    expect(html).toContain('id="openResponsivePreview"');
   });
 });
 

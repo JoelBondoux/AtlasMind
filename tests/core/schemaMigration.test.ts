@@ -143,7 +143,7 @@ describe('migrateDocument', () => {
     it('climbs a v1 file all the way to the current version in one pass', () => {
       const outcome = migrateDocument('website', v1());
       expect(outcome.status).toBe('migrated');
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(4);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(5);
     });
   });
 
@@ -162,7 +162,7 @@ describe('migrateDocument', () => {
       const value = (outcome as { value: Record<string, unknown> }).value;
       // migrateDocument climbs the whole ladder, so a v2 file lands on the
       // current version rather than stopping at the next step.
-      expect(value['version']).toBe(4);
+      expect(value['version']).toBe(5);
       // No stack is invented. Absent means nobody has chosen one, and a wrong
       // guess here decides what gets scaffolded.
       expect(value).not.toHaveProperty('stack');
@@ -177,7 +177,7 @@ describe('migrateDocument', () => {
 
     it('climbs on past v3 to the current version', () => {
       const outcome = migrateDocument('website', v2());
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(4);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(5);
     });
   });
 
@@ -198,7 +198,7 @@ describe('migrateDocument', () => {
       const outcome = migrateDocument('website', v3());
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
-      expect(value['version']).toBe(4);
+      expect(value['version']).toBe(5);
       expect(value).not.toHaveProperty('content');
     });
 
@@ -208,8 +208,20 @@ describe('migrateDocument', () => {
       expect((value['stack'] as Record<string, unknown>)['frameworkId']).toBe('astro');
     });
 
-    it('does not re-run on a file already at v4', () => {
-      expect(migrateDocument('website', { ...v3(), version: 4 }).status).toBe('current');
+    it('moves a v4 website into the generalized UI profile without inventing guidance', () => {
+      const outcome = migrateDocument('website', { ...v3(), version: 4 });
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value).toMatchObject({
+        version: 5,
+        surfaceKind: 'website',
+        contentDesign: { principles: [], preferredTerms: [], avoidedTerms: [] },
+        implementation: { targetTechnologies: [], sourceRoots: [], componentLocations: [], notes: [] },
+      });
+    });
+
+    it('does not re-run on a file already at v5', () => {
+      expect(migrateDocument('website', { ...v3(), version: 5 }).status).toBe('current');
     });
   });
 });

@@ -162,9 +162,25 @@ listed, and entries you wrote yourself win every collision.
 ### The panels
 
 Chat, Settings, Project Dashboard, Project Ideation, Mission Control, Project Run Center, Cost
-Dashboard, Model Providers, Agent Manager, Website Studio, Personality Profile, and the Lens surfaces —
+Dashboard, Model Providers, Agent Manager, UI Studio, Personality Profile, and the Lens surfaces —
 plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
 Skills, MCP Servers and Resource Discovery.
+
+UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
+`project_memory/domain/website.json` path for compatibility, but format v5 adds an explicit interface
+profile. Website, web-app, mobile, desktop, editor-extension, embedded and other profiles share screens,
+flows, content design, Markdown copy, wireframes, design-system decisions and an implementation guide.
+Only a website profile renders SEO, stack setup, hosting, Delivery comparison and n8n. Content writes
+carry no path: the host resolves a bounded screen id through `WebsiteContentManager`, derives the file,
+and refuses a save when its expected body no longer matches disk. Missing files are create-only and
+placeholder-only.
+
+Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
+wireframe geometry, sanitized colour/type tokens, and escaped Markdown content under the preview server's
+script-free policy. `websitePreviewHost.ts` keeps one tokenized `127.0.0.1` server: VS Code's built-in
+Simple Browser is the full-canvas primary surface, while `websitePreviewPanel.ts` is a sandboxed
+desktop/tablet/mobile inspection lab. Generated visual guides remain at separate paths and are linked
+from the draft index rather than taking over its entry point.
 
 The Project Dashboard's Delivery panel presents two related but deliberately separate views. The stage
 pipeline says **where versions move** and owns guarded promotion. The detected shipping guide says **what

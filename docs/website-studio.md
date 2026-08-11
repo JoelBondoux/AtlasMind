@@ -1,17 +1,44 @@
-# Website Studio
+# UI Studio
 
-Website Studio is AtlasMind's project-scoped workspace for taking a client website from intake to delivery readiness. Open it from **Project Dashboard → Delivery**, from the Project Ideation board, with the **AtlasMind: Open Website Studio** command, or by choosing **Website / Marketing Site** during guided bootstrap. (Until v0.234.0 the command was the only way in — the Studio linked out to the Dashboard and the Ideation board, and neither linked back.)
+UI Studio is AtlasMind's project-scoped workspace for designing an interface and carrying that design
+into the implementation. Choose a website, web app, mobile app, desktop app, editor extension,
+embedded UI, or another interface profile. Open it from **Project Dashboard → Delivery**, from the
+Project Ideation board, or with **AtlasMind: Open UI Studio**. The command id and the
+`project_memory/domain/website.json` path remain stable for extension and repository compatibility.
+
+Website is a profile, not the product boundary. Every profile shares project brief, screens and flows,
+content design, Markdown screen copy, wireframes, UI system, and implementation guidance. The website
+profile additionally exposes sitemap/SEO language, stack setup,
+Develop → Staging → Production hosting, Delivery comparison, and n8n mapping.
+
+Every profile may generate a sandboxed static HTML/CSS **visual reference** beside the Studio. For a
+SwiftUI, React Native, XAML, game-engine, or other non-web project, that preview communicates layout,
+content, states and tokens; it never claims HTML is the implementation target. The Implementation guide
+is what points subsequent project work at the real technology and source locations.
 
 ## Dashboards
 
 | Dashboard | Purpose |
 |---|---|
-| Client Brief | Capture the client, project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, launch target, and budget — plus the whole-site design prompt |
-| Sitemap | Page title, slug, purpose, template, and the auto-drawn hierarchy map with each page's outbound links and inbound count |
+| Project Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
+| Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
 | UI System | Record brand direction, tone, palette, typography, spacing, corner style, accessibility target, and component notes |
-| Stack & hosting | Pick the framework and the platform (one decision — the pairing sets the build command, output directory and deploy config), configure Develop/Staging/Production, run automatic setup, and cross-check against the Delivery pipeline |
-| n8n Automations | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+| Implementation | Record target technologies, source roots, component locations, and handoff notes for any implementation target. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
+| n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+
+## Content is part of the design
+
+Project-wide content rules live in the versioned UI Studio SSOT. Actual screen copy remains in the
+configured Markdown content directory (default `content/`) so a copywriter, developer, static-site
+generator, and the Studio all work on the same source. The editor includes headings, labels,
+instructions, empty/loading/error/success states, validation, and recovery actions—not only prose.
+
+Creating a missing content file writes explicit `[PLACEHOLDER: …]` markers derived from the current
+wireframe and never plausible filler. When saving, the host compares the body with the version that
+was opened. If another process changed it, the save is refused and the user reloads; prose is never
+auto-merged into something nobody authored.
 
 ## The wireframe canvas
 
@@ -83,7 +110,27 @@ not become one. The user's own sentence is deliberately *not* fenced — it is t
 fencing it would be theatre that also breaks the feature. Every prompt ends by saying the answer is a
 proposal and that nothing should be written to `website.json`.
 
-## Generate and preview
+## Full preview: the design feedback loop
+
+**Full Preview is a numbered Studio step**, not an output utility. Save the current design, then choose
+**Rebuild and open** to render one deterministic draft from three sources of truth:
+
+- wireframe geometry and hierarchy from the canvas;
+- primary, secondary, and accent colours plus safe heading/body font tokens from the UI system; and
+- the exact Markdown file for each page or screen, including visible `[PLACEHOLDER: …]` gaps.
+
+The primary surface is VS Code's built-in Simple Browser, giving the design a full browser canvas without
+leaving the editor. Each screen repeats all copy in a **Content proof** below the spatial canvas: fixed
+wireframe boxes can clip during layout exploration, but clipped copy must never disappear from review.
+The companion **Responsive lab** uses the same URL and server with Fit, Desktop 1280, Tablet 834, and
+Mobile 390 widths.
+
+The preview index always opens the deterministic Studio draft. If model-generated output exists it is
+linked separately, one click away; generation cannot take over the meaning of “show my current design”.
+Saving structure, content, or UI-system changes rebuilds the draft whenever the preview server is already
+running. Refresh the built-in browser to see that saved revision, or use **Rebuild and open**.
+
+## Generate
 
 **Generate** works from four places, each knowing a different amount:
 
@@ -112,11 +159,11 @@ Four properties hold:
 A model that returns a file that was not in the approved plan has it **reported, not written** — the
 defence is not that the path is malformed, it is that the user did not agree to it.
 
-The preview renders in a window beside the Studio, served by a small static server. It binds
-`127.0.0.1` and nothing else, serves only the preview folder, re-checks every request path against
-that folder, offers no directory listing, and carries a random per-session token in its URL so another
-process on the machine cannot enumerate the site. It starts when you open the preview and stops when
-you close it or close the Studio.
+The preview is served by a small static server. It binds `127.0.0.1` and nothing else, serves only the
+preview folder, re-checks every request path against that folder, offers no directory listing, and
+carries a random per-session token in its URL so another process on the machine cannot enumerate the
+design. It starts when you open a preview and stops through **Stop Preview**, when the Studio closes,
+or when the extension deactivates.
 
 Both switches are off by default and are two switches on purpose: writing model-authored files and
 opening a local port are different decisions.
@@ -224,14 +271,15 @@ preview root served the 404 as a near-blank page.
 Renders live under `_wireframe/`, deliberately **not** at the address a generated page occupies.
 Sharing an address would mean either the create-only rule blocking a later Generate, or a Generate
 silently replacing the wireframe — and in both cases somebody looks at the wrong thing believing it is
-the other. Opening the preview shows the generated site when there is one and the wireframe index when
-there is not.
+the other. Opening the preview always shows the live design index. A generated visual guide, when
+present, is a separate link and never silently replaces the deterministic draft.
 
-Every block is unmistakably unfinished: hatched fill, dashed border, its own label. A `text` block
-renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than a stock
-photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
-rather than filler. The output carries no script and no external request, so it satisfies the preview
-server's existing strict CSP without that policy being widened.
+Without content, every block is unmistakably unfinished: hatched fill, dashed border, its own label. A
+`text` block renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than
+a stock photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
+rather than filler. With content, an inert Markdown subset renders exact copy into eligible blocks and
+the full content proof; input is escaped before formatting. The output carries no script and no external
+request, so it satisfies the preview server's existing strict CSP without widening policy.
 
 ## Page content
 
@@ -311,7 +359,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 2**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 5**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -329,6 +377,15 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
 - `designPrompt` and `links` are seeded **empty rather than guessed**. A migration has no standing to
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
+
+### Formats v2 → v5
+
+- v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
+- v4 moved actual copy into separately managed Markdown files; migration created no files because
+  missing content is a meaningful state.
+- v5 adds `surfaceKind`, project-wide content design and implementation guidance. A v4 workspace
+  becomes `website`, the only profile the old format could represent, and both new guidance records
+  start empty rather than inventing product or source-code decisions.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

@@ -233,7 +233,7 @@ describe('package manifest', () => {
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
-    expect(websiteStudio?.title).toBe('AtlasMind: Open Website Studio');
+    expect(websiteStudio?.title).toBe('AtlasMind: Open UI Studio');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {

@@ -370,4 +370,4 @@ ordinary chat and reasoning and are simply excluded from tool-backed routes.
 - [[Project Planner]] — multi-step runs and Mission Control
 - [[Tool Execution]] — approvals and safety
 - [[Security]] — the boundaries agents work inside
-- [[Website Studio]] — the client-website workspace
+- [[Website Studio|UI Studio]] — the visual interface, content-design, and implementation-handoff workspace

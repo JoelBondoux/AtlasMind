@@ -183,6 +183,38 @@ describe('websiteWireframePreview', () => {
       expect(html).not.toContain('display:none');
       expect(html).toContain('--accent: #2563eb');
     });
+
+    it('renders exact Markdown copy inertly and makes content gaps conspicuous', () => {
+      const html = renderWireframePreview({
+        page: withElements(['hero', 'text']),
+        designSystem,
+        content: {
+          pageId: 'home', filePath: 'content/index.md', title: 'Home', metaDescription: '',
+          status: 'review', body: '# Real heading\n\nExact client copy.\n\n[PLACEHOLDER: proof point]\n\n<img src=x onerror=alert(1)>',
+          placeholders: [{ need: 'proof point', line: 5 }], missing: false, extraFrontMatter: {},
+        },
+      });
+      expect(html).toContain('Real heading');
+      expect(html).toContain('Exact client copy.');
+      expect(html).toContain('<span class="content-gap">Gap: proof point</span>');
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      expect(html).not.toContain('<img src=x');
+      expect(html).toContain('Content proof');
+    });
+
+    it('applies safe font tokens and refuses stylesheet injection through them', () => {
+      const html = renderWireframePreview({
+        page: withElements(['hero']),
+        designSystem: {
+          ...designSystem,
+          headingFont: 'Georgia, serif',
+          bodyFont: 'Arial; } body { display:none',
+        },
+      });
+      expect(html).toContain('--heading-font: Georgia, serif');
+      expect(html).toContain('--body-font: ui-sans-serif, system-ui, sans-serif');
+      expect(html).not.toContain('display:none');
+    });
   });
 
   describe('an undrawn page', () => {
@@ -194,6 +226,13 @@ describe('websiteWireframePreview', () => {
 
     it('is marked as undrawn in the index', () => {
       expect(renderWireframeIndex([page()], designSystem)).toContain('not drawn yet');
+    });
+
+    it('keeps model-generated output separate and one click away', () => {
+      const html = renderWireframeIndex([page()], designSystem, 'Northstar', { generatedAvailable: true });
+      expect(html).toContain('Live design previews');
+      expect(html).toContain('href="../index.html"');
+      expect(html).toContain('kept separate from the live Studio draft');
     });
   });
 

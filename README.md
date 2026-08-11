@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.271.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.273.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -67,10 +67,14 @@ evidence, argue with yourself visually, and then turn the cards that survived in
 **Ship properly.** A guided eight-stage GitHub workflow takes you from an idea to a released version —
 issues, branches, pull requests, review, CI, release — with a clear explanation at every step.
 
-**Deliver a client website.** Website Studio carries a site from the client brief through a sitemap
-that draws its own hierarchy, a wireframe canvas you actually draw on, a shared design system, and a
-protected path to production. Select any block and say what you want in plain English; press
-**Generate** at any stage and watch it render in a preview beside you.
+**Design an interface, then carry it into the project.** UI Studio works with websites, web and mobile
+apps, desktop tools, editor extensions, embedded interfaces, and custom surfaces. It keeps screens,
+flows, wireframes, content rules, real Markdown copy, UI-system decisions, and source-code handoff
+guidance together. Its full preview opens in VS Code's built-in browser and combines the saved
+wireframe, UI tokens, and exact Markdown copy; a separate responsive lab checks fixed device widths.
+Website projects additionally retain the guarded sitemap, stack, hosting, and delivery workflow.
+Select any block and describe it in plain English; every profile can generate a reviewable HTML visual
+guide even when the eventual implementation is native rather than HTML.
 
 ---
 
@@ -123,10 +127,28 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.271.6
+## What's new in 0.273.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first nine items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Preview is now the centre of UI Studio's design loop.** Full-canvas review opens in VS Code's
+  built-in browser and always starts from a deterministic index built from saved structure, visual
+  tokens, and exact Markdown content. Content gaps remain visibly unfinished, all copy appears again
+  in a complete content proof, model-generated output stays linked but separate, and the guarded
+  companion view remains available for desktop/tablet/mobile inspection.
+
+- **Website Studio has become UI Studio.** Choose a website, web app, mobile app, desktop app, editor
+  extension, embedded UI, or another interface profile. Non-web projects use screens, flows, content,
+  wireframes, design tokens, components, and a technology/source-location handoff without being forced
+  through HTML, SEO, hosting, or n8n concepts. Any profile may render an implementation-independent
+  HTML visual guide; website projects additionally keep the delivery tools intact.
+
+- **Content is now designed beside the interface.** Project voice, principles, terminology, reading
+  level, locales, and accessibility notes live in the reviewable SSOT. Each screen also has a real
+  Markdown content editor for headings, labels, instructions, empty/loading/error/success states, and
+  recovery copy. Missing files can be seeded with explicit placeholders only; concurrent disk edits
+  are refused rather than overwritten.
 
 - **Branch Dashboard choices now stay chosen.** Saved view, sort, order, grouping, and SCM-colour
   preferences survive closing and reopening the dashboard for this workspace. Recent activity also
@@ -203,7 +225,7 @@ items recap recently shipped capabilities. The full history is in [CHANGELOG.md]
   draft for that exact item.
 
 - **“Ask AtlasMind” is now one visual language everywhere.** Dashboard fixes, Lens explanations, MCP
-  setup help, Website Studio design questions, and Project Run draft refinement all use the AtlasMind
+  setup help, UI Studio design questions, and Project Run draft refinement all use the AtlasMind
   logo alone. Hovering names the exact action, while `aria-label` text keeps the control explicit for
   assistive technology.
 
@@ -297,14 +319,14 @@ items recap recently shipped capabilities. The full history is in [CHANGELOG.md]
   prompt, so a site can reach first-draft design from the sitemap alone without a box being drawn.
 
   **Generate works from wherever you are** — brief, sitemap, a wireframe, or one selected element — and
-  the result renders in a preview window beside the Studio. The file list is decided before any model
+  its result remains linked from the full built-in-browser preview. The file list is decided before any model
   runs, so the confirmation dialog names every file you are agreeing to. Both switches are **off by
   default**, and they are two switches because writing files and opening a port are different
   decisions. Files land only in `.atlasmind/website-preview/`, never in your source tree; the preview
-  server binds `127.0.0.1` only and stops when you close the window.
+  server binds `127.0.0.1` only and stops through Stop Preview, Studio disposal, or extension deactivation.
 
 - **Every panel now looks like the Project Dashboard.** Settings, MCP, Model Providers, Agent Manager,
-  Mission Control, Run Center, Cost Dashboard, Model Comparison, Website Studio, Ideation, Vision,
+  Mission Control, Run Center, Cost Dashboard, Model Comparison, UI Studio, Ideation, Vision,
   Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the ten Lens surfaces draw the same card,
   the same header, the same tab and the same input.
 
@@ -457,7 +479,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
-| **Website Studio** | Draw the site on a wireframe canvas, watch the sitemap build its own hierarchy, select any element and describe it in words, then Generate into a live preview beside you — through to a protected Develop → Staging → Production path. |
+| **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |
@@ -548,7 +570,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Start here:** [Getting Started](wiki/Getting-Started.md) · [FAQ](wiki/FAQ.md) · [Chat Commands](wiki/Chat-Commands.md) · [Configuration](wiki/Configuration.md)
 
-**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [Website Studio](wiki/Website-Studio.md) · [CLI](wiki/CLI.md)
+**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [CLI](wiki/CLI.md)
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 

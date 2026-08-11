@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 4,
+  website: 5,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -163,6 +163,36 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
     // business creating, and an absent content file is a meaningful state —
     // "nobody has written this yet" — which seeding would destroy.
     migrate: document => ({ ...document, version: 4 }),
+  },
+  {
+    kind: 'website',
+    from: 4,
+    to: 5,
+    summary: 'Website Studio is now a UI-design workspace with an explicit interface profile, content rules, and implementation handoff.',
+    // Existing work was necessarily a website because v4 could represent no
+    // other surface. The new design and handoff records start empty: a
+    // migration can preserve a fact, but it must not invent a product voice or
+    // claim where components live in the source tree.
+    migrate: document => ({
+      ...document,
+      version: 5,
+      surfaceKind: 'website',
+      contentDesign: {
+        voice: '',
+        principles: [],
+        preferredTerms: [],
+        avoidedTerms: [],
+        readingLevel: '',
+        locales: [],
+        accessibilityNotes: '',
+      },
+      implementation: {
+        targetTechnologies: [],
+        sourceRoots: [],
+        componentLocations: [],
+        notes: [],
+      },
+    }),
   },
 ];
 

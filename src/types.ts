@@ -1178,6 +1178,44 @@ export type WebsiteWorkStatus = 'not-started' | 'draft' | 'review' | 'approved' 
 export type WebsitePlatformStatus = 'not-planned' | 'planned' | 'configured' | 'live' | 'blocked';
 export type WebsiteAutomationStatus = 'idea' | 'mapped' | 'configured' | 'verified' | 'paused';
 
+/**
+ * The kind of interface being designed.
+ *
+ * `website` preserves the full sitemap/SEO/hosting workflow. The other kinds
+ * use the same screen, content, wireframe and UI-system core without pretending
+ * that their eventual implementation is HTML or that it has a public URL.
+ */
+export type UiSurfaceKind =
+  | 'website'
+  | 'web-app'
+  | 'mobile-app'
+  | 'desktop-app'
+  | 'editor-extension'
+  | 'embedded-ui'
+  | 'other';
+
+/** Project-wide content rules applied to every screen and implementation. */
+export interface UiContentDesign {
+  voice: string;
+  principles: string[];
+  preferredTerms: string[];
+  avoidedTerms: string[];
+  readingLevel: string;
+  locales: string[];
+  accessibilityNotes: string;
+}
+
+/**
+ * A design-to-code handoff that remains useful for React Native, SwiftUI,
+ * native desktop, game-engine UI, and other non-HTML targets.
+ */
+export interface UiImplementationGuide {
+  targetTechnologies: string[];
+  sourceRoots: string[];
+  componentLocations: string[];
+  notes: string[];
+}
+
 /** Normalized, deliberately bounded client brief imported into Website Studio. */
 export interface ClientWebsiteIntake {
   clientName: string;
@@ -1415,10 +1453,16 @@ export interface WebsiteStackChoice {
  * Version 3 added `stack`. The 2 → 3 step adds nothing but the version number:
  * an absent stack means nobody has chosen one, and a migration has no standing
  * to infer it.
+ * Version 4 moved page copy into separately managed Markdown files. Version 5
+ * generalizes the design core beyond websites with `surfaceKind`,
+ * `contentDesign`, and `implementation`; existing projects migrate explicitly
+ * to `website`, the only surface the older format could describe.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 4;
+  version: 5;
   updatedAt: string;
+  /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
+  surfaceKind: UiSurfaceKind;
   intake: ClientWebsiteIntake;
   /**
    * Natural-language design intent for the site as a whole — the sentence every
@@ -1427,6 +1471,8 @@ export interface WebsiteWorkspaceConfig {
   designPrompt: string;
   pages: WebsitePagePlan[];
   designSystem: WebsiteDesignSystem;
+  contentDesign: UiContentDesign;
+  implementation: UiImplementationGuide;
   platforms: WebsitePlatformTarget[];
   hostingEnvironments: WebsiteHostingEnvironment[];
   automations: WebsiteAutomation[];

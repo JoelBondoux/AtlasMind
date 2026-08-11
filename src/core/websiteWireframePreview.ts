@@ -36,6 +36,7 @@ import type {
   WebsiteWireframeElement,
   WireframeElementKind,
 } from '../types.js';
+import type { WebsitePageContent } from './websiteContent.js';
 import {
   WIREFRAME_CANVAS_WIDTH,
   orderedWireframeElements,
@@ -50,6 +51,15 @@ export interface WireframePreviewOptions {
   siblings?: readonly WebsitePagePlan[];
   /** Site or project name for the header strip. */
   siteName?: string;
+  /** Exact Markdown copy for this page. Missing copy remains visibly unfinished. */
+  content?: WebsitePageContent;
+}
+
+export interface WireframeIndexOptions {
+  /** Content records keyed by page id, used for honest readiness labels. */
+  contents?: ReadonlyMap<string, WebsitePageContent>;
+  /** A model-generated visual guide exists beside the deterministic draft. */
+  generatedAvailable?: boolean;
 }
 
 /**
@@ -69,16 +79,16 @@ function contentHeight(wireframe: WebsiteWireframe): number {
 export function renderWireframePreview(options: WireframePreviewOptions): string {
   const { page, designSystem } = options;
   const wireframe = page.wireframe;
-  const title = `${page.title} — wireframe`;
+  const title = `${page.title} — design preview`;
 
   if (!wireframe || wireframe.elements.length === 0) {
     return renderShell({
       title,
       designSystem,
-      banner: bannerMarkup(page, options.siteName, 'Not drawn yet'),
+      banner: bannerMarkup(page, options.siteName, 'Not drawn yet', options.content),
       body: `<div class="wf-empty">
         <p><strong>This page has not been drawn yet.</strong></p>
-        <p>Open Website Studio → Wireframe canvas, choose <em>${escapeHtml(page.title)}</em>,
+        <p>Open UI Studio → Wireframe canvas, choose <em>${escapeHtml(page.title)}</em>,
         and drag a block onto the grid. This preview updates from the drawing — no model is involved.</p>
       </div>`,
     });
@@ -87,6 +97,8 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
   const height = contentHeight(wireframe);
   const ordered = orderedWireframeElements(wireframe);
   const byId = new Map(ordered.map(element => [element.id, element]));
+  const contentSections = splitContentSections(options.content?.body ?? '');
+  let nextContentSection = 0;
 
   const blocks = ordered.map(element => {
     const spec = wireframeKindSpec(element.kind);
@@ -108,16 +120,42 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     return `<div class="wf-block" data-kind="${escapeHtml(element.kind)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
       <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span></div>
-      ${placeholderBody(element, options)}
+      ${previewBody(
+        element,
+        options,
+        consumesContent(element.kind) ? contentSections[nextContentSection++] : undefined,
+      )}
     </div>`;
   }).join('\n');
+
+  const contentProof = renderContentProof(options.content);
 
   return renderShell({
     title,
     designSystem,
-    banner: bannerMarkup(page, options.siteName, `${ordered.length} element${ordered.length === 1 ? '' : 's'}`),
-    body: `<div class="wf-stage" style="aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height}">${blocks}</div>`,
+    banner: bannerMarkup(
+      page,
+      options.siteName,
+      `${ordered.length} element${ordered.length === 1 ? '' : 's'}`,
+      options.content,
+    ),
+    body: `<div class="wf-stage" style="aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height}">${blocks}</div>${contentProof}`,
   });
+}
+
+function consumesContent(kind: WireframeElementKind): boolean {
+  return kind === 'hero' || kind === 'text' || kind === 'section' || kind === 'custom';
+}
+
+function previewBody(
+  element: WebsiteWireframeElement,
+  options: WireframePreviewOptions,
+  contentSection: string | undefined,
+): string {
+  if (contentSection?.trim()) {
+    return `<div class="wf-real-content">${renderMarkdownPreview(contentSection)}</div>`;
+  }
+  return placeholderBody(element, options);
 }
 
 /**
@@ -160,14 +198,26 @@ function placeholderBody(element: WebsiteWireframeElement, options: WireframePre
   }
 }
 
-function bannerMarkup(page: WebsitePagePlan, siteName: string | undefined, detail: string): string {
+function bannerMarkup(
+  page: WebsitePagePlan,
+  siteName: string | undefined,
+  detail: string,
+  content: WebsitePageContent | undefined,
+): string {
+  const contentState = !content || content.missing
+    ? 'content missing'
+    : content.placeholders.length > 0
+      ? `${content.placeholders.length} content gap${content.placeholders.length === 1 ? '' : 's'}`
+      : `${content.status} content`;
   return `<header class="wf-banner">
     <div>
-      <p class="wf-eyebrow">${escapeHtml(siteName ?? 'Website Studio')} · wireframe preview</p>
+      <p class="wf-eyebrow">${escapeHtml(siteName ?? 'UI Studio')} · live design preview</p>
       <h1>${escapeHtml(page.title)}</h1>
-      <p class="wf-slug">${escapeHtml(normalizeSlug(page.slug))} · ${escapeHtml(detail)}</p>
+      <p class="wf-slug">${escapeHtml(normalizeSlug(page.slug))} · ${escapeHtml(detail)} · ${escapeHtml(contentState)}</p>
     </div>
-    <p class="wf-note">Structure only. Every block below is a placeholder — nothing here is real content.</p>
+    <p class="wf-note">${content && !content.missing
+      ? 'A deterministic draft of the current layout, UI tokens, and exact Markdown copy. No model call is involved.'
+      : 'Structure only. Every block below is a placeholder — nothing here is real content.'}</p>
   </header>`;
 }
 
@@ -188,6 +238,9 @@ interface ShellOptions {
 function renderShell(options: ShellOptions): string {
   const accent = safeColour(options.designSystem.primaryColor, '#2563eb');
   const secondary = safeColour(options.designSystem.secondaryColor, '#0f172a');
+  const highlight = safeColour(options.designSystem.accentColor, '#14b8a6');
+  const headingFont = safeFontFamily(options.designSystem.headingFont, 'ui-sans-serif, system-ui, sans-serif');
+  const bodyFont = safeFontFamily(options.designSystem.bodyFont, 'ui-sans-serif, system-ui, sans-serif');
 
   return `<!doctype html>
 <html lang="en">
@@ -196,11 +249,11 @@ function renderShell(options: ShellOptions): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(options.title)}</title>
 <style>
-  :root { --accent: ${accent}; --ink: ${secondary}; --line: rgba(15, 23, 42, .28); }
+  :root { --accent: ${accent}; --highlight: ${highlight}; --ink: ${secondary}; --line: rgba(15, 23, 42, .28); --heading-font: ${headingFont}; --body-font: ${bodyFont}; }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0 0 48px;
-    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.5 var(--body-font);
     color: var(--ink); background: #f6f7f9;
   }
   .wf-banner {
@@ -208,6 +261,7 @@ function renderShell(options: ShellOptions): string {
     padding: 20px 24px; background: #fff; border-bottom: 2px solid var(--accent);
   }
   .wf-banner h1 { margin: 2px 0; font-size: 1.35rem; }
+  h1, h2, h3, h4, .wf-tag { font-family: var(--heading-font); }
   .wf-eyebrow { margin: 0; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; font-weight: 700; }
   .wf-slug { margin: 0; font-size: .8rem; opacity: .65; font-family: ui-monospace, monospace; }
   .wf-note { margin: 0; font-size: .78rem; opacity: .7; max-width: 34ch; text-align: right; }
@@ -258,6 +312,32 @@ function renderShell(options: ShellOptions): string {
   .wf-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
   .wf-form i { display: block; width: 100%; max-width: 320px; height: 26px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
 
+  .wf-real-content { margin-top: 8px; max-height: calc(100% - 28px); overflow: hidden; }
+  .wf-real-content h1, .wf-real-content h2, .wf-real-content h3 { margin: 0 0 6px; line-height: 1.15; }
+  .wf-real-content h1 { font-size: clamp(1.1rem, 2.4vw, 2.2rem); }
+  .wf-real-content h2 { font-size: clamp(1rem, 1.8vw, 1.55rem); }
+  .wf-real-content h3 { font-size: 1rem; }
+  .wf-real-content p, .wf-real-content ul, .wf-real-content ol { margin: 5px 0; }
+  .wf-real-content .content-gap, .content-proof .content-gap {
+    display: inline-block; padding: 2px 6px; border: 1px dashed #b45309; border-radius: 4px;
+    color: #92400e; background: #fffbeb; font-weight: 700;
+  }
+
+  .content-proof {
+    width: min(920px, calc(100% - 32px)); margin: 24px auto 0; padding: clamp(20px, 4vw, 44px);
+    border: 1px solid var(--line); border-top: 4px solid var(--highlight); border-radius: 10px; background: #fff;
+  }
+  .content-proof > header { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; flex-wrap: wrap; margin-bottom: 24px; }
+  .content-proof > header h2 { margin: 0; font-size: 1.35rem; }
+  .content-proof > header p { margin: 0; opacity: .62; font-size: .78rem; }
+  .content-copy { max-width: 72ch; }
+  .content-copy h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1.05; margin: 0 0 24px; }
+  .content-copy h2 { font-size: clamp(1.45rem, 3vw, 2.25rem); margin: 36px 0 12px; }
+  .content-copy h3 { font-size: 1.2rem; margin: 28px 0 10px; }
+  .content-copy p, .content-copy li { font-size: 1.02rem; line-height: 1.7; }
+  .content-copy blockquote { margin: 20px 0; padding-left: 18px; border-left: 3px solid var(--highlight); opacity: .82; }
+  .content-missing { margin: 0; padding: 20px; border: 1px dashed var(--line); border-radius: 8px; opacity: .72; }
+
   .wf-empty {
     width: min(620px, calc(100% - 32px)); margin: 48px auto; padding: 28px;
     background: #fff; border: 1px dashed var(--line); border-radius: 10px;
@@ -278,36 +358,50 @@ export function renderWireframeIndex(
   pages: readonly WebsitePagePlan[],
   designSystem: WebsiteDesignSystem,
   siteName?: string,
+  options: WireframeIndexOptions = {},
 ): string {
   const rows = pages.length === 0
     ? '<p>No pages yet. Add one on the Sitemap tab.</p>'
     : `<ul class="wf-index">${pages.map(page => {
         const drawn = page.wireframe?.elements.length ?? 0;
+        const content = options.contents?.get(page.id);
+        const contentState = !content || content.missing
+          ? 'content missing'
+          : content.placeholders.length > 0
+            ? `${content.placeholders.length} gap${content.placeholders.length === 1 ? '' : 's'}`
+            : content.status;
         return `<li>
           <a href="${escapeHtml(previewPathFor(page))}">${escapeHtml(page.title)}</a>
           <span>${escapeHtml(normalizeSlug(page.slug))}</span>
-          <em>${drawn === 0 ? 'not drawn yet' : `${drawn} element${drawn === 1 ? '' : 's'}`}</em>
+          <em>${drawn === 0 ? 'not drawn yet' : `${drawn} element${drawn === 1 ? '' : 's'}`} · ${escapeHtml(contentState)}</em>
         </li>`;
       }).join('')}</ul>`;
 
+  const generated = options.generatedAvailable
+    ? '<p class="wf-generated"><a href="../index.html">Open the generated visual guide</a><span>Model-authored output, kept separate from the live Studio draft.</span></p>'
+    : '';
+
   return renderShell({
-    title: `${siteName ?? 'Website'} — wireframes`,
+    title: `${siteName ?? 'UI'} — design previews`,
     designSystem,
     banner: `<header class="wf-banner">
       <div>
-        <p class="wf-eyebrow">${escapeHtml(siteName ?? 'Website Studio')}</p>
-        <h1>Wireframes</h1>
+        <p class="wf-eyebrow">${escapeHtml(siteName ?? 'UI Studio')}</p>
+        <h1>Live design previews</h1>
         <p class="wf-slug">${pages.length} page${pages.length === 1 ? '' : 's'}</p>
       </div>
-      <p class="wf-note">Structure only, rendered from the canvas. No model has run — press Generate for a real page.</p>
+      <p class="wf-note">Rendered directly from structure, UI tokens, and Markdown content. Refresh after a Studio edit; no model run is required.</p>
     </header>`,
-    body: `<div class="wf-empty">${rows}
+    body: `<div class="wf-empty">${generated}${rows}
       <style>
         .wf-index { list-style: none; margin: 0; padding: 0; }
         .wf-index li { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .wf-index a { font-weight: 700; color: var(--accent); }
         .wf-index span { font-family: ui-monospace, monospace; font-size: .78rem; opacity: .6; }
         .wf-index em { margin-left: auto; font-size: .75rem; opacity: .6; font-style: normal; }
+        .wf-generated { display:grid; gap:3px; margin:0 0 20px; padding:12px; border:1px solid var(--line); border-radius:8px; }
+        .wf-generated a { color:var(--accent); font-weight:700; }
+        .wf-generated span { font-size:.76rem; opacity:.65; }
       </style>
     </div>`,
   });
@@ -346,6 +440,86 @@ function percent(fraction: number): string {
  */
 function safeColour(value: string, fallback: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(value.trim()) ? value.trim() : fallback;
+}
+
+function safeFontFamily(value: string, fallback: string): string {
+  const candidate = value.trim();
+  if (candidate.length === 0 || candidate.length > 120 || !/^[A-Za-z0-9 ,_'"-]+$/.test(candidate)) {
+    return fallback;
+  }
+  return candidate;
+}
+
+function splitContentSections(body: string): string[] {
+  const sections: string[] = [];
+  let current: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (/^#{1,4}\s+/.test(line) && current.some(item => item.trim().length > 0)) {
+      sections.push(current.join('\n').trim());
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.some(item => item.trim().length > 0)) {
+    sections.push(current.join('\n').trim());
+  }
+  return sections;
+}
+
+function renderContentProof(content: WebsitePageContent | undefined): string {
+  if (!content || content.missing || content.body.trim().length === 0) {
+    return `<section class="content-proof"><header><h2>Content proof</h2><p>Exact copy, not generated copy</p></header>
+      <p class="content-missing">No Markdown content exists for this screen yet. Create it in UI Studio → Content design; gaps remain explicit until then.</p></section>`;
+  }
+  return `<section class="content-proof"><header><h2>Content proof</h2><p>${escapeHtml(content.status)} · ${content.placeholders.length} unresolved gap${content.placeholders.length === 1 ? '' : 's'}</p></header>
+    <article class="content-copy">${renderMarkdownPreview(content.body)}</article></section>`;
+}
+
+/** Render a deliberately small, inert Markdown subset. All input is escaped first. */
+function renderMarkdownPreview(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const output: string[] = [];
+  let list: 'ul' | 'ol' | undefined;
+  const closeList = () => {
+    if (list) {
+      output.push(`</${list}>`);
+      list = undefined;
+    }
+  };
+
+  for (const raw of lines) {
+    const heading = /^(#{1,4})\s+(.*)$/.exec(raw);
+    const unordered = /^\s*[-*+]\s+(.*)$/.exec(raw);
+    const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(raw);
+    if (heading) {
+      closeList();
+      const level = Math.min(4, heading[1]!.length);
+      output.push(`<h${level}>${renderInline(heading[2] ?? '')}</h${level}>`);
+    } else if (unordered || ordered) {
+      const next = unordered ? 'ul' : 'ol';
+      if (list !== next) {
+        closeList();
+        list = next;
+        output.push(`<${next}>`);
+      }
+      output.push(`<li>${renderInline((unordered?.[1] ?? ordered?.[1]) ?? '')}</li>`);
+    } else if (/^\s*>\s?/.test(raw)) {
+      closeList();
+      output.push(`<blockquote>${renderInline(raw.replace(/^\s*>\s?/, ''))}</blockquote>`);
+    } else if (raw.trim().length === 0) {
+      closeList();
+    } else {
+      closeList();
+      output.push(`<p>${renderInline(raw)}</p>`);
+    }
+  }
+  closeList();
+  return output.join('\n');
+}
+
+function renderInline(text: string): string {
+  return escapeHtml(text)
+    .replace(/\[PLACEHOLDER:\s*([^\]]*)\]/gi, '<span class="content-gap">Gap: $1</span>');
 }
 
 function escapeHtml(text: string): string {

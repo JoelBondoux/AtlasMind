@@ -30,6 +30,9 @@ describe('WebsiteWorkspaceManager', () => {
     });
 
     expect(config.intake.projectName).toBe('Northstar');
+    expect(config.surfaceKind).toBe('website');
+    expect(config.contentDesign).toMatchObject({ principles: [], preferredTerms: [], avoidedTerms: [] });
+    expect(config.implementation).toMatchObject({ targetTechnologies: [], sourceRoots: [] });
     expect(config.pages.map(page => page.slug)).toEqual(['/', '/about', '/services', '/contact']);
     expect(config.platforms).toHaveLength(WEBSITE_PLATFORM_CATALOG.length);
     expect(config.platforms.find(platform => platform.primary)).toMatchObject({
@@ -214,8 +217,10 @@ describe('WebsiteWorkspaceManager', () => {
 
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
-    expect(JSON.parse(json)).toMatchObject({ version: 4, intake: { projectName: 'Client Site' } });
-    expect(markdown).toContain('# Website Studio');
+    expect(JSON.parse(json)).toMatchObject({ version: 5, surfaceKind: 'website', intake: { projectName: 'Client Site' } });
+    expect(markdown).toContain('# UI Studio');
+    expect(markdown).toContain('## Content Design');
+    expect(markdown).toContain('## Implementation Guide');
     expect(markdown).toContain('## Hosting Environments');
     expect(markdown).toContain('| Develop | local | local-only |');
     expect(markdown).toContain('| Staging | hosted | password-protected |');
