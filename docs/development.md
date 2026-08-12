@@ -311,7 +311,7 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
-Format v9 adds optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
+Format v10 adds bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
 tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
 present it derives page wireframes for older renderers, and when the current canvas submits its temporary
 wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
@@ -343,7 +343,15 @@ Short empty/loading/error/success copy uses `set-node-content-state`; selecting 
 review uses `set-node-preview-content-state`. Do not move long-form screen copy out of its Markdown file or
 infer state copy during migration. A non-default preview state requires an authored presentation, and approved
 state copy must remain impossible while it contains `[PLACEHOLDER: …]`. Data bindings may select these states
-later but must not silently author them.
+for review but must not silently author them.
+
+Preview fixture changes use `add-content-collection`, `set-content-collection`, or
+`delete-content-collection`; node assignments use `set-node-data-binding`. Keep these records explicitly
+sample-only: no production response import, credential, connector, query, or template language belongs in the
+graph. A collection edit must refuse to remove a sample or field used by a binding. Sanitization deliberately
+retains a well-shaped stale reference from a hand edit so `diagnoseUiContentBindings()` can report the missing
+collection, record, field, value, or interface state at its owning node. Full Preview may render only declared
+fixture values and must not make a network request.
 
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized

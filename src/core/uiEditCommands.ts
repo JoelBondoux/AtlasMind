@@ -11,8 +11,10 @@ import type {
   UiComponentInstance,
   UiComponentPropertyValue,
   UiComponentState,
+  UiContentCollection,
   UiNodeContentState,
   UiNodeStatePresentation,
+  UiNodeDataBinding,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -40,6 +42,7 @@ import {
 } from './websiteWireframe.js';
 import {
   UI_DESIGN_GRAPH_MAX_COMPONENTS,
+  UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS,
   UI_DESIGN_GRAPH_MAX_REVISION,
   UI_DESIGN_GRAPH_MAX_TOKENS,
   UI_LAYOUT_MAX_COLUMNS,
@@ -50,6 +53,8 @@ import {
   sanitizeUiComponentInstance,
   sanitizeUiDesignTokens,
   sanitizeNodeStatePresentations,
+  sanitizeUiContentCollections,
+  sanitizeUiNodeDataBinding,
 } from './uiDesignGraph.js';
 
 export const UI_EDIT_HISTORY_LIMIT = 100;
@@ -110,6 +115,9 @@ export type UiEditCommand =
   | (UiEditCommandBase & { type: 'add-component'; component: UiComponentDefinition })
   | (UiEditCommandBase & { type: 'set-component'; componentId: string; component: UiComponentDefinition })
   | (UiEditCommandBase & { type: 'delete-component'; componentId: string })
+  | (UiEditCommandBase & { type: 'add-content-collection'; collection: UiContentCollection })
+  | (UiEditCommandBase & { type: 'set-content-collection'; collectionId: string; collection: UiContentCollection })
+  | (UiEditCommandBase & { type: 'delete-content-collection'; collectionId: string })
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
   | (UiNodeCommandBase & { type: 'delete-node' })
   | (UiNodeCommandBase & {
@@ -137,6 +145,7 @@ export type UiEditCommand =
     presentation: UiNodeStatePresentation | null;
   })
   | (UiNodeCommandBase & { type: 'set-node-preview-content-state'; state: UiNodeContentState })
+  | (UiNodeCommandBase & { type: 'set-node-data-binding'; binding: UiNodeDataBinding | null })
   | (UiNodeCommandBase & {
     type: 'set-node-layout';
     layout: UiNodeLayoutEdit;
@@ -179,6 +188,10 @@ export type UiEditRefusalReason =
   | 'component-exists'
   | 'component-in-use'
   | 'component-limit'
+  | 'content-collection-not-found'
+  | 'content-collection-exists'
+  | 'content-collection-in-use'
+  | 'content-collection-limit'
   | 'component-slot-invalid'
   | 'parent-not-found'
   | 'parent-cannot-contain'
@@ -241,6 +254,25 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
     return validIdentifier(input['componentId'])
       && exactKeys(input, ['type', 'expectedRevision', 'componentId'])
       ? { type: 'delete-component', expectedRevision, componentId: input['componentId'] }
+      : undefined;
+  }
+  if (input['type'] === 'add-content-collection') {
+    const collection = parseContentCollection(input['collection']);
+    return collection && exactKeys(input, ['type', 'expectedRevision', 'collection'])
+      ? { type: 'add-content-collection', expectedRevision, collection }
+      : undefined;
+  }
+  if (input['type'] === 'set-content-collection') {
+    const collection = parseContentCollection(input['collection']);
+    return collection && validIdentifier(input['collectionId']) && collection.id === input['collectionId']
+      && exactKeys(input, ['type', 'expectedRevision', 'collectionId', 'collection'])
+      ? { type: 'set-content-collection', expectedRevision, collectionId: input['collectionId'], collection }
+      : undefined;
+  }
+  if (input['type'] === 'delete-content-collection') {
+    return validIdentifier(input['collectionId'])
+      && exactKeys(input, ['type', 'expectedRevision', 'collectionId'])
+      ? { type: 'delete-content-collection', expectedRevision, collectionId: input['collectionId'] }
       : undefined;
   }
   if (!validIdentifier(input['screenId'])) {
@@ -346,6 +378,13 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
       const state = parseNodeContentState(input['state'], true);
       return state && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'state'])
         ? { type: 'set-node-preview-content-state', ...base, state }
+        : undefined;
+    }
+    case 'set-node-data-binding': {
+      const binding = input['binding'] === null ? null : parseNodeDataBinding(input['binding']);
+      return binding !== undefined
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'binding'])
+        ? { type: 'set-node-data-binding', ...base, binding }
         : undefined;
     }
     case 'set-node-layout': {
@@ -507,6 +546,16 @@ function parseComponentDefinition(input: unknown): UiComponentDefinition | undef
   return component;
 }
 
+function parseContentCollection(input: unknown): UiContentCollection | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, ['id', 'label', 'description', 'fields', 'samples'])
+      || !Array.isArray(input['fields']) || !Array.isArray(input['samples'])) {
+    return undefined;
+  }
+  const collection = sanitizeUiContentCollections([input])[0];
+  return collection && JSON.stringify(collection) === JSON.stringify(input) ? collection : undefined;
+}
+
 function exactComponentNestedShape(
   input: Record<string, unknown>,
   component: UiComponentDefinition,
@@ -597,6 +646,16 @@ function parseNodeStatePresentation(input: unknown): UiNodeStatePresentation | u
   const checked = sanitizeNodeStatePresentations({ empty: input }).empty;
   if (!checked || JSON.stringify(checked) !== JSON.stringify(input)) { return undefined; }
   return checked;
+}
+
+function parseNodeDataBinding(input: unknown): UiNodeDataBinding | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, ['collectionId', 'sampleRecordId', 'fieldMappings'])
+      || !isRecord(input['fieldMappings'])) {
+    return undefined;
+  }
+  const binding = sanitizeUiNodeDataBinding(input);
+  return binding && JSON.stringify(binding) === JSON.stringify(input) ? binding : undefined;
 }
 
 function isTokenKind(input: unknown): input is UiDesignTokenKind {
@@ -711,6 +770,10 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   if (command.type === 'add-component' || command.type === 'set-component' || command.type === 'delete-component') {
     return applyComponentCommand(session, command);
   }
+  if (command.type === 'add-content-collection' || command.type === 'set-content-collection'
+      || command.type === 'delete-content-collection') {
+    return applyContentCollectionCommand(session, command);
+  }
 
   const screenIndex = session.graph.screens.findIndex(screen => screen.id === command.screenId);
   if (screenIndex < 0) {
@@ -739,6 +802,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   }
   if (command.type === 'set-node-component' || command.type === 'set-node-component-slot') {
     return applyNodeComponentCommand(session, screenIndex, nodeIndex, screen, node, command);
+  }
+  if (command.type === 'set-node-data-binding') {
+    return applyNodeDataBindingCommand(session, screenIndex, nodeIndex, node, command);
   }
   if (command.type === 'set-node-kind' && node.componentInstance) {
     const definition = session.graph.components.find(candidate => candidate.id === node.componentInstance?.definitionId);
@@ -810,6 +876,86 @@ function applyComponentCommand(
   if (command.type === 'set-component') {
     reconcileComponentConsumers(nextGraph, command.component);
   }
+  return commitGraph(session, nextGraph);
+}
+
+function applyContentCollectionCommand(
+  session: UiEditSession,
+  command: Extract<UiEditCommand, {
+    type: 'add-content-collection' | 'set-content-collection' | 'delete-content-collection';
+  }>,
+): UiEditResult {
+  const id = command.type === 'add-content-collection' ? command.collection.id : command.collectionId;
+  const currentIndex = session.graph.contentCollections.findIndex(collection => collection.id === id);
+  if (command.type === 'add-content-collection') {
+    if (currentIndex >= 0) { return refused(session, 'content-collection-exists'); }
+    if (session.graph.contentCollections.length >= UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS) {
+      return refused(session, 'content-collection-limit');
+    }
+  } else if (currentIndex < 0) {
+    return refused(session, 'content-collection-not-found');
+  }
+
+  const consumers = session.graph.screens.flatMap(screen => screen.nodes)
+    .filter(node => node.dataBinding?.collectionId === id);
+  if (command.type === 'delete-content-collection' && consumers.length > 0) {
+    return refused(session, 'content-collection-in-use');
+  }
+  if (command.type === 'set-content-collection'
+      && consumers.some(node => !bindingFitsCollection(node.dataBinding!, command.collection))) {
+    return refused(session, 'content-collection-in-use');
+  }
+
+  const proposed = command.type === 'add-content-collection'
+    ? [...session.graph.contentCollections, command.collection]
+    : command.type === 'set-content-collection'
+      ? session.graph.contentCollections.map((collection, index) => index === currentIndex ? command.collection : collection)
+      : session.graph.contentCollections.filter((_, index) => index !== currentIndex);
+  const collections = sanitizeUiContentCollections(proposed);
+  if (collections.length !== proposed.length
+      || JSON.stringify(collections) !== JSON.stringify(proposed)) {
+    return refused(session, 'invalid-command');
+  }
+  if (JSON.stringify(collections) === JSON.stringify(session.graph.contentCollections)) {
+    return refused(session, 'no-change');
+  }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.contentCollections = collections;
+  return commitGraph(session, nextGraph);
+}
+
+function bindingFitsCollection(binding: UiNodeDataBinding, collection: UiContentCollection): boolean {
+  return binding.collectionId === collection.id
+    && collection.samples.some(sample => sample.id === binding.sampleRecordId)
+    && Object.values(binding.fieldMappings).every(fieldId =>
+      collection.fields.some(field => field.id === fieldId));
+}
+
+function applyNodeDataBindingCommand(
+  session: UiEditSession,
+  screenIndex: number,
+  nodeIndex: number,
+  node: UiDesignNode,
+  command: Extract<UiEditCommand, { type: 'set-node-data-binding' }>,
+): UiEditResult {
+  let nextNode: UiDesignNode;
+  if (command.binding === null) {
+    if (!node.dataBinding) { return refused(session, 'no-change'); }
+    nextNode = { ...node, dataBinding: undefined };
+  } else {
+    const sanitized = sanitizeUiNodeDataBinding(command.binding);
+    const collection = session.graph.contentCollections.find(candidate => candidate.id === command.binding?.collectionId);
+    if (!sanitized || JSON.stringify(sanitized) !== JSON.stringify(command.binding)
+        || !collection || !bindingFitsCollection(command.binding, collection)) {
+      return refused(session, collection ? 'invalid-command' : 'content-collection-not-found');
+    }
+    nextNode = { ...node, dataBinding: sanitized };
+  }
+  if (sameNode(node, nextNode)) { return refused(session, 'no-change'); }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.screens[screenIndex]!.nodes[nodeIndex] = nextNode;
   return commitGraph(session, nextGraph);
 }
 
@@ -965,8 +1111,9 @@ function applyNodeCommand(
   command: Exclude<UiEditCommand, {
     type: 'undo' | 'redo' | 'add-token' | 'set-token' | 'delete-token'
       | 'add-component' | 'set-component' | 'delete-component'
+      | 'add-content-collection' | 'set-content-collection' | 'delete-content-collection'
       | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames'
-      | 'set-node-component' | 'set-node-component-slot';
+      | 'set-node-component' | 'set-node-component-slot' | 'set-node-data-binding';
   }>,
 ): NodeCommandResult {
   switch (command.type) {
@@ -1578,6 +1725,7 @@ function cloneGraph(graph: UiDesignGraph): UiDesignGraph {
     revision: graph.revision,
     tokens: graph.tokens.map(cloneToken),
     components: structuredClone(graph.components),
+    contentCollections: structuredClone(graph.contentCollections),
     screens: graph.screens.map(screen => ({
       ...screen,
       nodes: screen.nodes.map(node => ({

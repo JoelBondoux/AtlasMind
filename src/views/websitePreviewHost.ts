@@ -266,6 +266,7 @@ async function writeWireframePreviews(
             content: contents.get(page.id),
             tokens: config.designGraph.tokens,
             components: config.designGraph.components,
+            contentCollections: config.designGraph.contentCollections,
             ...(responsiveScreen ? { responsiveScreen } : {}),
             ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
           }),

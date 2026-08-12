@@ -193,6 +193,12 @@ label, and visible maturity. One declared state may be selected for design revie
 screen Markdown file and remain separate from component interaction appearance. The 8 → 9 migration changes
 only the version and invents no copy; approved copy containing an unresolved placeholder is refused/downgraded.
 
+Format v10 adds bounded preview-only content collections and explicit node bindings for title, body, and action
+slots. Field schemas and sample records are target-independent graph facts, never production data or connector
+configuration. Safe editor commands refuse removing a collection, record, or field used by a node; sanitation
+retains well-shaped stale references so owning-node diagnostics can report missing collections, records, fields,
+values, and empty/loading/error/success designs. The 9 → 10 migration adds an empty authority and invents no data.
+
 `websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
 colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
 resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or
@@ -209,7 +215,8 @@ uses it. Component definition add/set/delete and node instance/slot assignment u
 refuses in-use deletion and incompatible root-kind changes, bounds property/slot/state vocabularies, and
 reconciles removed values deterministically. Node content-state add/update/remove and preview selection are
 also exact revisioned commands; an absent presentation cannot be previewed. UI System sends definitions,
-never graph patches. Responsive resolution applies desktop →
+never graph patches. Collection add/set/delete and node-binding assignment use that same exact revision/history
+boundary; Full Preview renders declared fixtures without a network request. Responsive resolution applies desktop →
 tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
 override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
 through an exact override, so the resolver does not turn absent intent into a design decision.

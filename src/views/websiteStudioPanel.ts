@@ -11,10 +11,12 @@ import {
 } from '../core/websiteWorkspaceManager.js';
 import {
   applyDesignGraphToPages,
+  diagnoseUiContentBindings,
   diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiComponentInstance,
   resolveUiNodeLayout,
+  resolveUiNodeContent,
   resolveUiScreenLayout,
   UI_DESIGN_GRAPH_MAX_REVISION,
 } from '../core/uiDesignGraph.js';
@@ -396,6 +398,7 @@ export class WebsiteStudioPanel {
       pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
       tokens: this.editSession.graph.tokens,
       components: this.editSession.graph.components,
+      contentCollections: this.editSession.graph.contentCollections,
       responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
     });
   }
@@ -852,6 +855,8 @@ export interface WebsiteStudioResponsiveNodeState {
   componentSlot?: string;
   previewContentState?: UiDesignGraph['screens'][number]['nodes'][number]['previewContentState'];
   contentStatePresentations?: UiDesignGraph['screens'][number]['nodes'][number]['contentStatePresentations'];
+  dataBinding?: UiDesignGraph['screens'][number]['nodes'][number]['dataBinding'];
+  boundContent?: ReturnType<typeof resolveUiNodeContent>;
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
   overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
@@ -862,6 +867,7 @@ export interface WebsiteStudioResponsiveScreenState {
   baseBreakpoint: WireframeBreakpoint;
   nodes: WebsiteStudioResponsiveNodeState[];
   diagnostics: Record<WireframeBreakpoint, ReturnType<typeof diagnoseUiScreenLayout>>;
+  contentDiagnostics: ReturnType<typeof diagnoseUiContentBindings>;
 }
 
 /** Host-resolved responsive state; the webview never reimplements inheritance. */
@@ -881,6 +887,7 @@ export function buildWebsiteStudioResponsiveScreens(
       breakpoint,
       diagnoseUiScreenLayout(screen, breakpoint),
     ])) as WebsiteStudioResponsiveScreenState['diagnostics'],
+    contentDiagnostics: diagnoseUiContentBindings(graph, screen),
     nodes: screen.nodes.map(node => ({
       id: node.id,
       locked: node.locked,
@@ -893,6 +900,8 @@ export function buildWebsiteStudioResponsiveScreens(
       ...(node.contentStatePresentations
         ? { contentStatePresentations: structuredClone(node.contentStatePresentations) }
         : {}),
+      ...(node.dataBinding ? { dataBinding: structuredClone(node.dataBinding) } : {}),
+      ...(resolveUiNodeContent(graph, node) ? { boundContent: resolveUiNodeContent(graph, node) } : {}),
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),
@@ -950,6 +959,7 @@ export function getWebsiteStudioHtml(
     pages: config.pages,
     tokens: config.designGraph.tokens,
     components: config.designGraph.components,
+    contentCollections: config.designGraph.contentCollections,
     responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
@@ -1481,6 +1491,20 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
         </div>
         <p class="token-help">Property rows use <code>id | label | text/number/boolean/choice | default | comma-separated choices</code>. Slots use <code>id | label | required/optional | allowed kinds | max children</code>. Variants use <code>id | label | property=value;…</code>.</p>
         <div id="designComponentEditor" class="component-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card content-collection-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Preview-only sample data · no credentials or production records</p>
+          <h2>Structured content collections</h2>
+        </div></div>
+        <p class="token-help">Collections define bounded fields and deliberate sample records for design review. Canvas nodes bind title, body, and action slots explicitly; broken bindings and missing interface states are reported at the node.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newCollectionId', 'products', 'products')}
+          ${field('Label', 'newCollectionLabel', 'Products', 'Products')}
+          <button type="button" id="addContentCollection"${config.designGraph.contentCollections.length >= 50 ? ' disabled' : ''}>Add collection</button>
+        </div>
+        <p class="token-help">Field rows use <code>id | label | text/number/boolean/url/date | required/optional</code>. Each sample row is one JSON object with <code>id</code>, <code>label</code>, and <code>values</code>, so punctuation in real copy is preserved. URLs must be HTTPS; these are review fixtures, not live data.</p>
+        <div id="contentCollectionEditor" class="component-editor content-collection-editor" aria-live="polite"></div>
       </article>
     </section>
   `;

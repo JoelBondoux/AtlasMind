@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.294.0 — The approval gate works, and privacy sees the whole conversation
+## v0.295.0 — The approval gate works, and privacy sees the whole conversation
 
 Two safety boundaries in chat were not doing their job.
 
@@ -38,6 +38,17 @@ The gate also used to be a dead end — it asked you to retype the goal with a `
 offered no control that could do it, so the obvious retry stopped in the same place every time. It now
 shows the plan and offers **Approve and run**: a followup chip in `@atlas`, a quick-reply pill in the
 chat panel.
+
+## v0.294.0 — Structured sample data and explicit bindings
+
+UI Studio format v10 adds bounded preview-only content collections with typed fields and deliberate sample
+records. UI System edits the schema and fixtures; a canvas node explicitly maps title, body, and action slots
+to one sample. Studio, Full Preview, and the Markdown mirror consume the same graph facts without a live-data
+connector or network request.
+
+The canvas now reports missing collections, records, fields, values, and empty/loading/error/success designs at
+the node that owns them. Exact revisioned commands protect collection and binding changes, used facts cannot be
+removed underneath a binding, and migration adds only an empty collection authority—never invented data.
 
 ## v0.293.1 — One command for a branch's version-marker conflicts
 

@@ -1385,6 +1385,8 @@ export interface UiDesignNode {
   previewContentState?: UiNodeContentState;
   /** Node-owned short interface copy; long-form screen copy remains in Markdown. */
   contentStatePresentations?: Partial<Record<Exclude<UiNodeContentState, 'default'>, UiNodeStatePresentation>>;
+  /** Explicit sample-data projection for design review; never a production data source. */
+  dataBinding?: UiNodeDataBinding;
 }
 
 export type UiNodeContentState = 'default' | 'empty' | 'loading' | 'error' | 'success';
@@ -1395,6 +1397,52 @@ export interface UiNodeStatePresentation {
   body: string;
   actionLabel: string;
   maturity: UiContentMaturity;
+}
+
+export type UiContentFieldKind = 'text' | 'number' | 'boolean' | 'url' | 'date';
+export type UiContentSampleValue = string | number | boolean;
+export type UiNodeContentSlot = 'title' | 'body' | 'action';
+
+export interface UiContentFieldDefinition {
+  id: string;
+  label: string;
+  kind: UiContentFieldKind;
+  required: boolean;
+}
+
+/** Bounded preview-only record. Production records and credentials never enter the design graph. */
+export interface UiContentSampleRecord {
+  id: string;
+  label: string;
+  values: Record<string, UiContentSampleValue>;
+}
+
+export interface UiContentCollection {
+  id: string;
+  label: string;
+  description: string;
+  fields: UiContentFieldDefinition[];
+  samples: UiContentSampleRecord[];
+}
+
+export interface UiNodeDataBinding {
+  collectionId: string;
+  sampleRecordId: string;
+  fieldMappings: Partial<Record<UiNodeContentSlot, string>>;
+}
+
+export type UiContentDiagnosticCode =
+  | 'collection-not-found'
+  | 'sample-record-not-found'
+  | 'field-not-found'
+  | 'sample-value-missing'
+  | 'content-state-missing';
+
+export interface UiContentDiagnostic {
+  code: UiContentDiagnosticCode;
+  severity: 'error' | 'warning';
+  nodeIds: [string];
+  message: string;
 }
 
 /** A page/screen projection in the shared design graph. */
@@ -1518,6 +1566,7 @@ export interface UiDesignGraph {
   revision: number;
   tokens: UiDesignToken[];
   components: UiComponentDefinition[];
+  contentCollections: UiContentCollection[];
   screens: UiDesignScreen[];
 }
 
@@ -1690,9 +1739,11 @@ export interface WebsiteStackChoice {
  * migration again adds only empty authority, never an inferred component.
  * Version 9 adds optional node-owned content-state presentations and changes
  * only the format number during migration so no interface copy is invented.
+ * Version 10 adds bounded preview-only content collections and explicit node
+ * bindings; migration adds an empty collection authority and invents no data.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 9;
+  version: 10;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

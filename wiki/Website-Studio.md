@@ -26,7 +26,7 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
 | **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
-| **UI System** | Brand direction and legacy defaults plus editable typed tokens and reusable component definitions, properties, variants, slots and states |
+| **UI System** | Brand direction and legacy defaults plus editable typed tokens, reusable component definitions, and bounded sample-data collections |
 | **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
@@ -57,6 +57,13 @@ The canvas inspector separately designs short empty/loading/error/success messag
 Each presentation records title, body, action label, and visible maturity, and an authored state can be selected
 for in-context Studio/Full Preview review. This does not replace long-form Markdown, and placeholder-marked copy
 cannot be approved. Format v9 adds no state copy during migration.
+
+Format v10 adds structured preview-only collections with bounded text, number, boolean, HTTPS URL, and date
+fields plus deliberate sample records. Select a canvas node to map title, body, and action slots to one sample.
+Studio and Full Preview render the same declared values and show their collection/sample provenance. Used
+fields, samples, and collections cannot be removed underneath a binding; a stale hand-edited reference is
+reported at its owning node together with any missing empty/loading/error/success design. Production records,
+credentials, and live connectors stay outside this authority, and migration invents no sample data.
 
 ---
 

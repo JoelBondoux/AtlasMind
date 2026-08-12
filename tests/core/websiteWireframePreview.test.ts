@@ -377,6 +377,34 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('Clear filters');
       expect(html).toContain('empty · reviewed');
     });
+
+    it('renders only explicitly bound sample values in the full preview', () => {
+      const subject = withElements(['text']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.dataBinding = {
+        collectionId: 'articles', sampleRecordId: 'launch',
+        fieldMappings: { title: 'headline', body: 'summary', action: 'cta' },
+      };
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        contentCollections: [{
+          id: 'articles', label: 'Articles', description: 'Fixtures',
+          fields: [
+            { id: 'headline', label: 'Headline', kind: 'text', required: true },
+            { id: 'summary', label: 'Summary', kind: 'text', required: true },
+            { id: 'cta', label: 'CTA', kind: 'text', required: false },
+          ],
+          samples: [{ id: 'launch', label: 'Launch story', values: {
+            headline: 'Atlas launches', summary: 'A deliberate sample summary.', cta: 'Read story',
+          } }],
+        }],
+      });
+      expect(html).toContain('Articles · Launch story');
+      expect(html).toContain('Atlas launches');
+      expect(html).toContain('A deliberate sample summary.');
+      expect(html).toContain('Read story');
+      expect(html).not.toContain('<script');
+    });
   });
 
   describe('an undrawn page', () => {

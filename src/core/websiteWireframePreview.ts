@@ -31,6 +31,7 @@
 
 import type {
   UiComponentDefinition,
+  UiContentCollection,
   UiDesignScreen,
   UiDesignToken,
   WebsiteDesignSystem,
@@ -46,7 +47,12 @@ import {
   wireframeKindSpec,
 } from './websiteWireframe.js';
 import { normalizeSlug } from './websiteSitemap.js';
-import { resolveUiComponentInstance, resolveUiDesignToken, resolveUiScreenLayout } from './uiDesignGraph.js';
+import {
+  resolveUiComponentInstance,
+  resolveUiDesignToken,
+  resolveUiNodeContent,
+  resolveUiScreenLayout,
+} from './uiDesignGraph.js';
 
 /** Fixed until breakpoint tokens become part of the design system in Phase 3. */
 export const UI_PREVIEW_TABLET_MAX_WIDTH = 1_023;
@@ -66,6 +72,8 @@ export interface WireframePreviewOptions {
   /** Typed system definitions projected through this target adapter. */
   tokens?: readonly UiDesignToken[];
   components?: readonly UiComponentDefinition[];
+  /** Bounded sample records used only for deterministic design review. */
+  contentCollections?: readonly UiContentCollection[];
 }
 
 export interface WireframeIndexOptions {
@@ -146,7 +154,9 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     const component = graphNode && options.responsiveScreen
       ? resolveUiComponentInstance({
         revision: 0, tokens: options.tokens ? [...options.tokens] : [],
-        components: options.components ? [...options.components] : [], screens: [options.responsiveScreen],
+        components: options.components ? [...options.components] : [],
+        contentCollections: options.contentCollections ? [...options.contentCollections] : [],
+        screens: [options.responsiveScreen],
       }, options.responsiveScreen, graphNode)
       : undefined;
     const componentTag = component
@@ -159,9 +169,23 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     const contentStateTag = statePresentation
       ? `<span class="wf-content-state ${escapeHtml(statePresentation.maturity)}">${escapeHtml(contentState)} · ${escapeHtml(statePresentation.maturity)}</span>`
       : '';
+    const boundContent = graphNode && options.responsiveScreen
+      ? resolveUiNodeContent({
+        revision: 0,
+        tokens: options.tokens ? [...options.tokens] : [],
+        components: options.components ? [...options.components] : [],
+        contentCollections: options.contentCollections ? [...options.contentCollections] : [],
+        screens: [options.responsiveScreen],
+      }, graphNode)
+      : undefined;
+    const dataTag = boundContent
+      ? `<span class="wf-data-tag">${escapeHtml(boundContent.collectionLabel)} · ${escapeHtml(boundContent.sampleRecordLabel)}</span>`
+      : '';
     const contentSection = consumesContent(element.kind) ? contentSections[nextContentSection++] : undefined;
     const renderedBody = statePresentation
       ? `<div class="wf-state-presentation"><strong>${escapeHtml(statePresentation.title || `${contentState} state`)}</strong>${statePresentation.body ? `<p>${escapeHtml(statePresentation.body)}</p>` : ''}${statePresentation.actionLabel ? `<span class="wf-button">${escapeHtml(statePresentation.actionLabel)}</span>` : ''}</div>`
+      : boundContent && Object.keys(boundContent.values).length > 0
+        ? `<div class="wf-bound-content">${boundContent.values.title ? `<strong>${escapeHtml(boundContent.values.title)}</strong>` : ''}${boundContent.values.body ? `<p>${escapeHtml(boundContent.values.body)}</p>` : ''}${boundContent.values.action ? `<span class="wf-button">${escapeHtml(boundContent.values.action)}</span>` : ''}</div>`
       : previewBody(
         element,
         options,
@@ -173,7 +197,7 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
       ${statePresentation ? `data-content-state="${escapeHtml(contentState)}" data-content-maturity="${escapeHtml(statePresentation.maturity)}"` : ''}
       data-atlas-screen-id="${escapeHtml(page.id)}" data-atlas-node-id="${escapeHtml(element.id)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
-      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}${contentStateTag}</div>
+      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}${contentStateTag}${dataTag}</div>
       ${renderedBody}
     </div>`;
   }).join('\n');
@@ -403,8 +427,11 @@ function renderShell(options: ShellOptions): string {
   .wf-content-state.draft { color:#854d0e; background:#fef9c3; }
   .wf-content-state.reviewed { color:#1d4ed8; background:#dbeafe; }
   .wf-content-state.approved { color:#166534; background:#dcfce7; }
+  .wf-data-tag { display:inline-block; padding:2px 5px; border-radius:999px; font-size:.62rem; color:#5b21b6; background:#ede9fe; }
   .wf-state-presentation { display:grid; gap:7px; margin-top:10px; }
   .wf-state-presentation p { margin:0; font-size:.82rem; }
+  .wf-bound-content { display:grid; gap:7px; margin-top:10px; }
+  .wf-bound-content p { margin:0; font-size:.82rem; }
   .wf-block[data-component-state="disabled"] { opacity:.5; filter:grayscale(.45); }
   .wf-block[data-component-state="loading"] { border-style:dotted; }
   .wf-block[data-component-state="error"], .wf-block[data-component-state="validation"] { border-color:#b42318; }

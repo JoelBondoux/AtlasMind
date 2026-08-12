@@ -37,11 +37,13 @@
   const MAX_ELEMENTS = 60;
   const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
   const DIAGNOSTIC_CODES = ['viewport-overflow', 'parent-clipping', 'node-overlap', 'touch-target'];
+  const CONTENT_DIAGNOSTIC_CODES = ['collection-not-found', 'sample-record-not-found', 'field-not-found', 'sample-value-missing', 'content-state-missing'];
   const TOKEN_KINDS = [
     'color', 'font-family', 'font-size', 'font-weight', 'line-height',
     'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
   ];
   const COMPONENT_STATES = ['default', 'hover', 'focus', 'active', 'disabled', 'loading', 'empty', 'error', 'success', 'validation'];
+  const CONTENT_FIELD_KINDS = ['text', 'number', 'boolean', 'url', 'date'];
   const validNullableConstraint = (candidate, maximum) => candidate === null
     || (Number.isFinite(candidate) && candidate >= 1 && candidate <= maximum);
   const orderedConstraint = (minimum, maximum) => minimum === null || maximum === null || minimum <= maximum;
@@ -49,17 +51,18 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, tokens: Array, components: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], tokens: [], components: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, tokens: Array, components: Array, contentCollections: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], tokens: [], components: [], contentCollections: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], tokens: [], components: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], tokens: [], components: [], contentCollections: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
   state.tokens = normalizeTokens(state.tokens);
   state.components = normalizeComponents(state.components);
+  state.contentCollections = normalizeContentCollections(state.contentCollections);
   state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
     ? state.designRevision
@@ -133,6 +136,14 @@
               && item.nodeIds.length >= 1 && item.nodeIds.length <= 2
               && item.nodeIds.every(id => /^[a-zA-Z0-9._-]{1,120}$/.test(id))
               && typeof item.message === 'string' && item.message.length <= 500)))))
+      && (!screen.contentDiagnostics || (Array.isArray(screen.contentDiagnostics)
+        && screen.contentDiagnostics.length <= 2_000
+        && screen.contentDiagnostics.every(item => item
+          && CONTENT_DIAGNOSTIC_CODES.includes(item.code)
+          && (item.severity === 'error' || item.severity === 'warning')
+          && Array.isArray(item.nodeIds) && item.nodeIds.length === 1
+          && /^[a-zA-Z0-9._-]{1,120}$/.test(item.nodeIds[0])
+          && typeof item.message === 'string' && item.message.length <= 500)))
       && Array.isArray(screen.nodes)
       && screen.nodes.length <= MAX_ELEMENTS
       && screen.nodes.every(node => node
@@ -191,6 +202,23 @@
       && Array.isArray(component.variants) && component.variants.length <= 30
       && Array.isArray(component.states) && component.states.includes('default')
       && component.states.every(candidate => COMPONENT_STATES.includes(candidate)));
+  }
+
+  function normalizeContentCollections(input) {
+    if (!Array.isArray(input) || input.length > 50) { return []; }
+    const identifier = /^[a-zA-Z0-9._-]{1,120}$/;
+    return input.filter(collection => collection && typeof collection === 'object'
+      && identifier.test(collection.id)
+      && typeof collection.label === 'string' && collection.label.length > 0 && collection.label.length <= 120
+      && typeof collection.description === 'string' && collection.description.length <= 500
+      && Array.isArray(collection.fields) && collection.fields.length <= 20
+      && collection.fields.every(field => field && identifier.test(field.id)
+        && typeof field.label === 'string' && field.label.length > 0 && field.label.length <= 120
+        && CONTENT_FIELD_KINDS.includes(field.kind) && typeof field.required === 'boolean')
+      && Array.isArray(collection.samples) && collection.samples.length <= 50
+      && collection.samples.every(sample => sample && identifier.test(sample.id)
+        && typeof sample.label === 'string' && sample.label.length > 0 && sample.label.length <= 120
+        && sample.values && typeof sample.values === 'object' && !Array.isArray(sample.values)));
   }
 
   function responsiveView(element) {
@@ -478,6 +506,9 @@
           + (component.state !== 'default' ? ' · ' + escapeText(component.state) : '') + '</span>' : '')
         + (responsiveNode(element.id)?.componentSlot ? '<span class="wf-box-component">slot: '
           + escapeText(responsiveNode(element.id).componentSlot) + '</span>' : '')
+        + (responsiveNode(element.id)?.boundContent ? '<span class="wf-box-component data">data: '
+          + escapeText(responsiveNode(element.id).boundContent.collectionLabel) + ' · '
+          + escapeText(responsiveNode(element.id).boundContent.sampleRecordLabel) + '</span>' : '')
         + (isLocked(element.id) ? '<span class="wf-box-visibility">Locked</span>' : '')
         + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
         + (primary ? handlesMarkup() : '')
@@ -492,31 +523,37 @@
   function renderCanvasDiagnostics() {
     const panel = qs('#canvasDiagnostics');
     if (!panel) { return; }
-    const diagnostics = activeResponsiveScreen()?.diagnostics?.[activeBreakpoint];
-    if (!Array.isArray(diagnostics)) {
+    const layoutDiagnostics = activeResponsiveScreen()?.diagnostics?.[activeBreakpoint];
+    const contentDiagnostics = activeResponsiveScreen()?.contentDiagnostics;
+    if (!Array.isArray(layoutDiagnostics) || !Array.isArray(contentDiagnostics)) {
       panel.className = 'canvas-diagnostics warning';
-      panel.innerHTML = '<strong>Layout checks unavailable at ' + escapeText(activeBreakpoint) + '.</strong>'
+      panel.innerHTML = '<strong>Layout or content checks unavailable at ' + escapeText(activeBreakpoint) + '.</strong>'
         + '<span>Unknown is not treated as a pass.</span>';
       return;
     }
+    const diagnostics = [...layoutDiagnostics, ...contentDiagnostics];
     if (diagnostics.length === 0) {
       panel.className = 'canvas-diagnostics clear';
-      panel.innerHTML = '<strong>No layout findings at ' + escapeText(activeBreakpoint) + '.</strong>'
-        + '<span>Overflow, clipping, overlap, and 44px touch targets were checked.</span>';
+      panel.innerHTML = '<strong>No layout or content-binding findings at ' + escapeText(activeBreakpoint) + '.</strong>'
+        + '<span>Responsive geometry, sample bindings, and required interface states were checked.</span>';
       return;
     }
     const errors = diagnostics.filter(item => item.severity === 'error').length;
-    const counts = Object.fromEntries(DIAGNOSTIC_CODES.map(code => [
+    const diagnosticCodes = [...DIAGNOSTIC_CODES, ...CONTENT_DIAGNOSTIC_CODES];
+    const counts = Object.fromEntries(diagnosticCodes.map(code => [
       code, diagnostics.filter(item => item.code === code).length,
     ]));
     const labels = {
       'viewport-overflow': 'overflow', 'parent-clipping': 'clipping',
       'node-overlap': 'overlap', 'touch-target': 'touch target',
+      'collection-not-found': 'missing collection', 'sample-record-not-found': 'missing sample',
+      'field-not-found': 'missing field', 'sample-value-missing': 'missing value',
+      'content-state-missing': 'missing state',
     };
     panel.className = 'canvas-diagnostics' + (errors > 0 ? ' error' : ' warning');
-    panel.innerHTML = '<div class="diagnostic-summary"><strong>' + diagnostics.length + ' layout finding'
+    panel.innerHTML = '<div class="diagnostic-summary"><strong>' + diagnostics.length + ' design finding'
       + (diagnostics.length === 1 ? '' : 's') + ' at ' + escapeText(activeBreakpoint) + '</strong><span>'
-      + DIAGNOSTIC_CODES.filter(code => counts[code] > 0)
+      + diagnosticCodes.filter(code => counts[code] > 0)
         .map(code => counts[code] + ' ' + labels[code] + (counts[code] === 1 ? '' : 's')).join(' · ')
       + '</span></div><div class="diagnostic-list">'
       + diagnostics.slice(0, 6).map(item => '<button type="button" class="diagnostic-item '
@@ -754,6 +791,24 @@
         <div class="responsive-actions"><button type="button" class="secondary" id="applyComponentInstance"${readOnly}>Apply instance</button></div>
       </div>`;
     const contentStateNode = responsiveNode(element.id);
+    const binding = contentStateNode?.dataBinding;
+    const bindingFields = `
+      <div class="data-binding-inspector">
+        <div class="responsive-head"><p class="responsive-title">Sample data binding</p><span class="source-chip">preview only</span></div>
+        <label class="field"><span>Collection</span><select id="bindingCollection"${readOnly}><option value="">No binding</option>${state.contentCollections.map(collection => `<option value="${escapeAttribute(collection.id)}"${collection.id === binding?.collectionId ? ' selected' : ''}>${escapeText(collection.label)}</option>`).join('')}</select></label>
+        ${state.contentCollections.map(collection => {
+          const active = collection.id === binding?.collectionId;
+          const mapping = active ? binding.fieldMappings ?? {} : {};
+          const fieldOptions = slot => `<option value="">Not mapped</option>${collection.fields.map(field => `<option value="${escapeAttribute(field.id)}"${field.id === mapping[slot] ? ' selected' : ''}>${escapeText(field.label)} · ${escapeText(field.kind)}</option>`).join('')}`;
+          return `<div class="binding-collection-fields" data-binding-collection="${escapeAttribute(collection.id)}"${active ? '' : ' hidden'}>
+            ${collection.samples.length > 0 ? `<label class="field"><span>Sample record</span><select class="binding-sample"${readOnly}>${collection.samples.map(sample => `<option value="${escapeAttribute(sample.id)}"${sample.id === binding?.sampleRecordId ? ' selected' : ''}>${escapeText(sample.label)}</option>`).join('')}</select></label>` : '<p class="responsive-copy">Add a sample record before binding this collection.</p>'}
+            <div class="field-pair"><label class="field"><span>Title field</span><select class="binding-title"${readOnly}>${fieldOptions('title')}</select></label><label class="field"><span>Body field</span><select class="binding-body"${readOnly}>${fieldOptions('body')}</select></label></div>
+            <label class="field"><span>Action field</span><select class="binding-action"${readOnly}>${fieldOptions('action')}</select></label>
+          </div>`;
+        }).join('')}
+        <div class="responsive-actions"><button type="button" class="secondary" id="applyDataBinding"${readOnly}>Apply binding</button>${binding ? `<button type="button" class="danger subtle" id="removeDataBinding"${readOnly}>Remove</button>` : ''}</div>
+        <p class="responsive-copy">Only declared sample values render. Missing collections, records, values, or empty/loading/error/success designs stay visible as node findings.</p>
+      </div>`;
     const presentations = contentStateNode?.contentStatePresentations ?? {};
     const contentStateFields = `
       <div class="content-state-inspector">
@@ -784,6 +839,7 @@
       + layoutFields
       + responsiveFields
       + componentFields
+      + bindingFields
       + contentStateFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
@@ -1457,6 +1513,10 @@
         type: 'set-node-preview-content-state', screenId: activePageId, nodeId: selectedElementId,
         state: event.target.value,
       });
+    } else if (event.target.id === 'bindingCollection') {
+      qsa('[data-binding-collection]').forEach(panel => {
+        panel.hidden = panel.dataset.bindingCollection !== event.target.value;
+      });
     }
   });
 
@@ -1498,6 +1558,33 @@
       notice(activeBreakpoint === activeBaseBreakpoint()
         ? 'Showing the base layout. Direct manipulation changes the shared structure.'
         : 'Showing the resolved ' + activeBreakpoint + ' layout. Dragging, resizing, and nudging create an override; structure stays shared.');
+      return;
+    }
+
+    if (event.target.id === 'applyDataBinding' || event.target.id === 'removeDataBinding') {
+      if (event.target.id === 'removeDataBinding') {
+        submitDesignEdit({
+          type: 'set-node-data-binding', screenId: activePageId, nodeId: selectedElementId, binding: null,
+        });
+        notice('Removing the sample-data binding…');
+        return;
+      }
+      const collectionId = value('#bindingCollection');
+      const panel = collectionId ? qs('[data-binding-collection="' + cssEscape(collectionId) + '"]') : undefined;
+      const fieldMappings = {};
+      if (panel && value('.binding-title', panel)) { fieldMappings.title = value('.binding-title', panel); }
+      if (panel && value('.binding-body', panel)) { fieldMappings.body = value('.binding-body', panel); }
+      if (panel && value('.binding-action', panel)) { fieldMappings.action = value('.binding-action', panel); }
+      const sampleRecordId = panel ? value('.binding-sample', panel) : '';
+      if (!collectionId || !sampleRecordId || Object.keys(fieldMappings).length === 0) {
+        notice('Choose a collection, a sample record, and at least one title/body/action mapping.', 'error');
+        return;
+      }
+      submitDesignEdit({
+        type: 'set-node-data-binding', screenId: activePageId, nodeId: selectedElementId,
+        binding: { collectionId, sampleRecordId, fieldMappings },
+      });
+      notice('Applying the bounded preview-data binding…');
       return;
     }
 
@@ -1849,7 +1936,7 @@
     }));
 
     return {
-      version: 9,
+      version: 10,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -2314,6 +2401,106 @@
     });
   }
 
+  function contentFieldLines(collection) {
+    return collection.fields.map(field => [
+      field.id, field.label, field.kind, field.required ? 'required' : 'optional',
+    ].join(' | ')).join('\n');
+  }
+
+  function contentSampleLines(collection) {
+    return collection.samples.map(sample => JSON.stringify(sample)).join('\n');
+  }
+
+  function parseContentSampleValue(kind, raw) {
+    if (kind === 'boolean') { return typeof raw === 'boolean' ? raw : undefined; }
+    if (kind === 'number') { return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined; }
+    if (typeof raw !== 'string') { return undefined; }
+    if (kind === 'url') { return /^https:\/\/[^\s]+$/i.test(raw) ? raw : undefined; }
+    if (kind === 'date') { return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined; }
+    return raw.length <= 2000 ? raw : undefined;
+  }
+
+  function collectContentCollection(row) {
+    const fields = lines(value('.collection-fields', row)).map(line => {
+      const [id = '', label = '', kind = '', requirement = 'optional'] = line.split('|').map(part => part.trim());
+      return { id, label, kind, required: requirement === 'required' };
+    });
+    const fieldById = new Map(fields.map(field => [field.id, field]));
+    let samples;
+    try {
+      samples = lines(value('.collection-samples', row)).map(line => {
+        const parsed = JSON.parse(line);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+            || typeof parsed.id !== 'string' || typeof parsed.label !== 'string'
+            || !parsed.values || typeof parsed.values !== 'object' || Array.isArray(parsed.values)) {
+          throw new Error('Invalid sample row');
+        }
+        const values = {};
+        Object.entries(parsed.values).forEach(([fieldId, raw]) => {
+          const field = fieldById.get(fieldId);
+          const checked = field ? parseContentSampleValue(field.kind, raw) : undefined;
+          if (checked !== undefined) { values[fieldId] = checked; }
+        });
+        return { id: parsed.id.trim(), label: parsed.label.trim(), values };
+      });
+    } catch {
+      return undefined;
+    }
+    return {
+      id: row.dataset.collectionId,
+      label: value('.collection-label', row),
+      description: value('.collection-description', row),
+      fields,
+      samples,
+    };
+  }
+
+  function renderContentCollectionEditor() {
+    const editor = qs('#contentCollectionEditor');
+    if (!editor) { return; }
+    if (state.contentCollections.length === 0) {
+      editor.innerHTML = '<div class="token-empty">No structured collections yet. Add one to design with deliberate sample data.</div>';
+      return;
+    }
+    editor.innerHTML = state.contentCollections.map(collection => '<details class="component-row collection-row" data-collection-id="' + escapeAttribute(collection.id) + '">'
+      + '<summary><strong>' + escapeText(collection.label) + '</strong><span>' + collection.fields.length + ' fields · ' + collection.samples.length + ' samples</span></summary>'
+      + '<div class="component-fields"><label class="field"><span>Label</span><input class="collection-label" value="' + escapeAttribute(collection.label) + '" /></label>'
+      + '<label class="field"><span>Description</span><textarea class="collection-description" rows="2">' + escapeText(collection.description) + '</textarea></label>'
+      + '<label class="field"><span>Fields</span><textarea class="collection-fields" rows="' + Math.max(2, collection.fields.length) + '">' + escapeText(contentFieldLines(collection)) + '</textarea></label>'
+      + '<label class="field"><span>Sample records</span><textarea class="collection-samples" rows="' + Math.max(2, collection.samples.length) + '">' + escapeText(contentSampleLines(collection)) + '</textarea></label>'
+      + '<div class="token-row-actions"><button type="button" class="secondary save-collection">Apply collection</button><button type="button" class="danger subtle delete-collection">Delete</button></div></div></details>').join('');
+  }
+
+  function wireContentCollections() {
+    renderContentCollectionEditor();
+    qs('#addContentCollection')?.addEventListener('click', () => {
+      const collection = {
+        id: value('#newCollectionId'), label: value('#newCollectionLabel'), description: '', fields: [], samples: [],
+      };
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(collection.id) || !collection.label) {
+        notice('Choose a valid stable collection id and label.', 'error'); return;
+      }
+      submitDesignEdit({ type: 'add-content-collection', collection });
+      notice('Adding the structured sample-data collection…');
+    });
+    qs('#contentCollectionEditor')?.addEventListener('click', event => {
+      const row = event.target.closest('.collection-row');
+      if (!row || state.readOnly) { return; }
+      const collectionId = row.dataset.collectionId;
+      if (event.target.closest('.delete-collection')) {
+        submitDesignEdit({ type: 'delete-content-collection', collectionId });
+        notice('Deleting the collection if no node is bound to it…'); return;
+      }
+      if (!event.target.closest('.save-collection')) { return; }
+      const collection = collectContentCollection(row);
+      if (!collection || !collection.label || collection.fields.some(field => !CONTENT_FIELD_KINDS.includes(field.kind))) {
+        notice('Every field needs a valid definition and every sample line must be a JSON object with id, label, and typed values.', 'error'); return;
+      }
+      submitDesignEdit({ type: 'set-content-collection', collectionId, collection });
+      notice('Applying the collection while preserving every valid node binding…');
+    });
+  }
+
   /**
    * Ids are constrained to an identifier charset by the sanitizer, but they are
    * interpolated into selectors here, so they are escaped anyway. A selector
@@ -2358,6 +2545,10 @@
     if (message.components !== undefined) {
       state.components = normalizeComponents(message.components);
       renderComponentEditor();
+    }
+    if (message.contentCollections !== undefined) {
+      state.contentCollections = normalizeContentCollections(message.contentCollections);
+      renderContentCollectionEditor();
     }
     for (const id of [...selectedElementIds]) {
       if (!findElement(id)) { selectedElementIds.delete(id); }
@@ -2410,6 +2601,7 @@
   wireCanvas();
   wireTokens();
   wireComponents();
+  wireContentCollections();
   syncPageSelect();
   renderCanvas();
   renderPagePromptField();

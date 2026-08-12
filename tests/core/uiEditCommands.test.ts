@@ -49,7 +49,57 @@ const buttonComponent = {
   states: ['default', 'hover', 'disabled'] as const,
 };
 
+const productsCollection = {
+  id: 'products', label: 'Products', description: 'Review fixtures',
+  fields: [
+    { id: 'name', label: 'Name', kind: 'text' as const, required: true },
+    { id: 'summary', label: 'Summary', kind: 'text' as const, required: false },
+  ],
+  samples: [{ id: 'starter', label: 'Starter', values: { name: 'Starter', summary: 'For small teams' } }],
+};
+
 describe('UI edit commands', () => {
+  it('adds collections and binds nodes through exact revisioned commands without permitting broken edits', () => {
+    const add = {
+      type: 'add-content-collection' as const, expectedRevision: 0, collection: productsCollection,
+    };
+    expect(parseUiEditCommand(add)).toEqual(add);
+    expect(parseUiEditCommand({ ...add, collection: { ...productsCollection, network: 'fetch' } })).toBeUndefined();
+    const added = applyUiEditCommand(createUiEditSession(graph()), add);
+    expect(added.ok).toBe(true);
+    if (!added.ok) { return; }
+
+    const binding = {
+      collectionId: 'products', sampleRecordId: 'starter',
+      fieldMappings: { title: 'name', body: 'summary' },
+    };
+    const bind = applyUiEditCommand(added.session, {
+      type: 'set-node-data-binding', expectedRevision: 1,
+      screenId: 'page-home', nodeId: 'child', binding,
+    });
+    expect(bind.ok).toBe(true);
+    if (!bind.ok) { return; }
+    expect(bind.session.graph.screens[0]!.nodes.find(node => node.id === 'child')?.dataBinding).toEqual(binding);
+    expect(applyUiEditCommand(bind.session, {
+      type: 'delete-content-collection', expectedRevision: 2, collectionId: 'products',
+    })).toMatchObject({ ok: false, reason: 'content-collection-in-use' });
+    expect(applyUiEditCommand(bind.session, {
+      type: 'set-content-collection', expectedRevision: 2, collectionId: 'products',
+      collection: { ...productsCollection, samples: [] },
+    })).toMatchObject({ ok: false, reason: 'content-collection-in-use' });
+
+    const unbound = applyUiEditCommand(bind.session, {
+      type: 'set-node-data-binding', expectedRevision: 2,
+      screenId: 'page-home', nodeId: 'child', binding: null,
+    });
+    expect(unbound.ok).toBe(true);
+    if (!unbound.ok) { return; }
+    const undone = applyUiEditCommand(unbound.session, { type: 'undo', expectedRevision: 3 });
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) { return; }
+    expect(undone.session.graph.screens[0]!.nodes.find(node => node.id === 'child')?.dataBinding).toEqual(binding);
+  });
+
   it('adds, changes, aliases, deletes, and restores tokens through the same revision history', () => {
     let session = createUiEditSession(graph());
     const added = applyUiEditCommand(session, {
