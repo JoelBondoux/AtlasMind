@@ -854,6 +854,9 @@ export class ModelRouter {
     if (!info || !info.enabled) {
       return undefined;
     }
+    if (!isRoutableChatModel(info)) {
+      return undefined;
+    }
     const provider = this.providers.get(info.provider);
     if (!provider || !provider.enabled || !this.isProviderHealthy(info.provider)) {
       return undefined;
@@ -905,6 +908,9 @@ export class ModelRouter {
 
       for (const model of provider.models) {
         if (!model.enabled) {
+          continue;
+        }
+        if (!isRoutableChatModel(model)) {
           continue;
         }
         // Skip models past their deprecation date.
@@ -1439,6 +1445,21 @@ function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
  * allowed to do. Keeping both prevents a discovered ACP agent from widening
  * authority merely by existing.
  */
+/**
+ * Whether this model can be asked a question at all.
+ *
+ * Nothing in `requiredCapabilities` ever names `chat` — it is assumed, which is
+ * what let a local safety classifier registered with no usable capabilities
+ * remain a candidate and win a failover on price. A model that cannot hold a
+ * conversation is not a cheap model; it is not a model this router has any use
+ * for, and the check belongs here rather than at each of the three call sites
+ * that could otherwise drift apart. `localModelRole` decides *which* models
+ * those are; this decides what follows from it.
+ */
+export function isRoutableChatModel(model: ModelInfo): boolean {
+  return model.capabilities.includes('chat');
+}
+
 function modelSatisfiesRequiredCapability(
   model: ModelInfo,
   capability: ModelCapability,

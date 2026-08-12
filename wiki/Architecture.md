@@ -439,7 +439,7 @@ never accepted.
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, project services |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
-| `src/providers/` | Provider adapters, catalogues, health, local model discovery |
+| `src/providers/` | Provider adapters, catalogues, health, local model discovery, and `modelRole.ts` — what a model is *for*, which keeps embedding, reranking, transcription and safety-classifier models out of routing |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |

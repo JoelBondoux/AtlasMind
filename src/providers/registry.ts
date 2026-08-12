@@ -1,6 +1,7 @@
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 import type { DiscoveredModel, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { isConversationalModel } from './modelRole.js';
 import { coerceOpenAiContentText } from './openai-compatible.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
@@ -77,7 +78,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       const perEndpointModels = await Promise.all(endpoints.map(async endpoint => {
         try {
           const ids = await this.listEndpointModels(endpoint);
-          return ids.filter(modelId => !isBuiltinLocalEchoModel(modelId));
+          return ids.filter(modelId => isRoutableLocalModel(modelId));
         } catch {
           return [];
         }
@@ -105,7 +106,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       try {
         const ids = await this.listEndpointModels(endpoint);
         return ids
-          .filter(id => !isBuiltinLocalEchoModel(id))
+          .filter(id => isRoutableLocalModel(id))
           .map(id => {
             const rawModelId = decodeLocalEndpointModelId(id).rawModelId;
             const entry = lookupCatalog(this.providerId, ensureProviderPrefix(this.providerId, rawModelId));
@@ -335,6 +336,20 @@ function ensureProviderPrefix(providerId: string, modelId: string): string {
 
 function isBuiltinLocalEchoModel(modelId: string): boolean {
   return stripProviderPrefix(modelId).trim() === 'echo-1';
+}
+
+/**
+ * Whether a model listed by a local endpoint belongs in the routable catalogue.
+ *
+ * `/v1/models` enumerates loaded weights, so the list routinely contains
+ * embedding, reranking, transcription and safety-classifier models alongside the
+ * chat ones. Excluding them here is the cheapest of the three gates — a model
+ * that is never registered cannot be failed over to — and the only one that also
+ * keeps them out of the model picker, where selecting one produced a provider
+ * error rather than an explanation.
+ */
+function isRoutableLocalModel(modelId: string): boolean {
+  return !isBuiltinLocalEchoModel(modelId) && isConversationalModel(modelId);
 }
 
 function stripProviderPrefix(modelId: string): string {

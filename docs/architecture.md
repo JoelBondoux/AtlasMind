@@ -1237,6 +1237,14 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `acp`, and `local`) before executing completions.
 
+### ModelRole (`src/providers/modelRole.ts`)
+
+What a model is *for*, decided before it can be routed to. A provider's `/v1/models` list is an inventory of what it serves, not a list of things that can hold a conversation: a local runtime enumerates every set of weights it has loaded, and OpenAI's own list carries `text-embedding-3-large`, `whisper-1` and `dall-e-3`. Nothing distinguished them, so `inferCapabilities` granted `chat`, `code` and — on a bare `llama` substring, or on any non-local provider — `function_calling` to all of them. A local Llama Guard model reached the router at zero cost, survived to the last failover of a turn, and answered with a chat-template error.
+
+The module publishes `MODEL_ROLE_RULES`, a short table of declared families (safety classifier, reranker, embedding, transcription, speech synthesis, image generation), and `classifyModelRole` returns the role together with the rule that decided so an exclusion is explainable. Three properties: **absence of a marker is not evidence of a non-chat role** (an unrecognised model is always conversational — a false positive silently hides capacity the user installed, so a miss is the designed failure mode); **markers match name segments, never bare substrings** (`bge` and `sdxl` are short enough that substring matching would sweep up ordinary chat models); and **rules are evaluated in declaration order**, which is load-bearing for `bge-reranker-v2-m3`, an id carrying both an embedding marker and a reranker one.
+
+Enforced at three layers: discovery drops these models in `registry.ts` and `openai-compatible.ts` so they are never registered; `inferCapabilities` and `inferLocalCapabilities` return **no capabilities at all** for them; and `ModelRouter.isRoutableChatModel` refuses any model that does not declare `chat`, in both the preferred-model and candidate paths. The router gate is the enforcement rather than the documentation — `requiredCapabilities` never names `chat` because it is assumed, which is exactly why a model with no usable capabilities remained an ordinary candidate.
+
 The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid. Each recommendation card offers one-click install into **Ollama** (via the streaming `/api/pull` API — surfaced as live progress in a shared output channel and a cancellable notification, with a daemon-reachability preflight — translating `hf:owner/repo` candidates to the `hf.co/owner/repo` pull syntax) and **LM Studio** (via `lms get <model> --yes` run as a direct child process). Both stream into the shared **"AtlasMind: Local Model Install"** output channel. Cards whose model is already present in a local runtime — matched on a normalized identity key (`localModelMatchKey`) so HuggingFace- and Ollama-style ids reconcile — show an installed badge instead of install buttons.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
@@ -1530,6 +1538,7 @@ extension.ts
               │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
               │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
+              ├── providers/modelRole.ts             (what a model is for; non-chat exclusion, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 native/acp-private-desktop/

@@ -19,6 +19,7 @@ import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import { LOCAL_ECHO_RESPONSE_PREFIX } from '../providers/registry.js';
+import { inferParametersBillions } from '../providers/modelMetadataInference.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
@@ -39,6 +40,10 @@ import {
   TOOL_EXECUTION_TIMEOUT_MS,
   PROVIDER_TIMEOUT_MS,
   ACP_PROVIDER_TIMEOUT_MS,
+  LOCAL_TIMEOUT_MS_PER_BILLION_PARAMS,
+  LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS,
+  LOCAL_COLD_START_TIMEOUT_MS,
+  LOCAL_PROVIDER_MAX_TIMEOUT_MS,
   MAX_PROVIDER_RETRIES,
   MAX_TASK_MODEL_ATTEMPTS,
   MAX_TASK_FAILOVER_ATTEMPTS,
@@ -533,6 +538,17 @@ export class Orchestrator {
    * persisting it would outlive the restart that fixes it.
    */
   private readonly endpointFailures = new Map<string, { failures: number; lastFailedAt: number }>();
+  /**
+   * Local models that have answered at least once in this session, and whose
+   * weights are therefore already resident.
+   *
+   * Only the *first* attempt against a local model pays for loading it, and that
+   * cost is the largest single term in a cold local call. In-memory by design,
+   * for the same reason `endpointFailures` is: whether a model is loaded is a
+   * fact about this editor session, and a persisted answer would be wrong from
+   * the moment the runtime restarts.
+   */
+  private readonly warmLocalModels = new Set<string>();
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
@@ -2035,18 +2051,22 @@ export class Orchestrator {
           }
 
           if (!failoverModel) {
-            // Name the limit that actually stopped the turn. "The safety ceiling
-            // is 3" was reported even when the real cause was that no other
-            // provider could serve the task, which sends the reader to the wrong
-            // fix.
-            const budgetSpent = failoverAttempts >= MAX_TASK_FAILOVER_ATTEMPTS
-              ? ` (the failover budget of ${MAX_TASK_FAILOVER_ATTEMPTS} is spent)`
-              : modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS
-                ? ` (the safety ceiling is ${MAX_TASK_MODEL_ATTEMPTS} attempts)`
-                : ' (no other configured provider could serve this request)';
+            // Lead with what failed, not with the limit that stopped the search.
+            // Reporting the budget first — and quoting only the last provider's
+            // error — described a turn that lost three endpoints to three
+            // unrelated causes as one provider problem, and sent the reader to
+            // check availability when nothing was unavailable.
+            const summary = summarizeAttemptFailures(modelAttempts);
+            const exhausted = describeExhaustedSearch(failoverAttempts, modelAttempts.length);
             const noFallbackContent = autoDisabledProvider
               ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-              : `AtlasMind stopped after ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'}${budgetSpent}. Provider "${selectedProvider}" failed: ${failureMessage}.\n\nNo additional recovery model was invoked. Retry after checking provider availability or enable a different provider in **AtlasMind: Model Providers**.`;
+              : [
+                  `AtlasMind could not complete this turn. All ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'} failed:`,
+                  summary.lines.join('\n'),
+                  summary.diagnosis,
+                  exhausted,
+                  summary.remedy,
+                ].filter(Boolean).join('\n\n');
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -3424,12 +3444,41 @@ export class Orchestrator {
     return skill;
   }
 
+  /**
+   * Size this attempt's timeout from what it actually has to do.
+   *
+   * The prompt size is measured rather than assumed, and the model's warmth is
+   * read from what this session has observed — a model that has answered once
+   * has its weights resident, and charging every later turn the cold-start
+   * allowance would leave a genuinely stalled endpoint holding the turn open for
+   * a minute longer than it needs to.
+   */
+  private resolveAttemptTimeoutMs(providerId: string, request: ProviderCompletionRequest): number {
+    return getProviderTimeoutMs(providerId, this.cfg.providerTimeoutMs, request.model, {
+      promptTokens: estimateCompletionRequestInputTokens(request.messages, request.tools),
+      warmedUp: this.warmLocalModels.has(request.model),
+    });
+  }
+
+  /**
+   * Record that a model has answered, so the next attempt is not charged for a
+   * model load that has already happened.
+   *
+   * Only local models are tracked: nothing else pays a cold-start cost, and a
+   * set that grew with every hosted model would be a leak with no reader.
+   */
+  private markModelWarm(providerId: string, modelId: string): void {
+    if (providerId === 'local') {
+      this.warmLocalModels.add(modelId);
+    }
+  }
+
   private async completeWithRetry(
     provider: ProviderAdapter,
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
+    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
     // An ACP prompt is stateful and can continue running after a transport
     // timeout. Retrying it on a fresh session can spend twice and execute tools
     // twice, so uncertainty is terminal for this attempt. The adapter still
@@ -3442,11 +3491,13 @@ export class Orchestrator {
         const execute = onTextChunk && provider.streamComplete
           ? provider.streamComplete(scoped.request, onTextChunk)
           : provider.complete(scoped.request);
-        return await withTimeout(
+        const completion = await withTimeout(
           execute,
           timeoutMs,
           `Provider timed out after ${timeoutMs}ms.`,
         );
+        this.markModelWarm(provider.providerId, request.model);
+        return completion;
       } catch (err) {
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= maxRetries) {
@@ -3471,16 +3522,18 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
+    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
     const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
       try {
-        return await withTimeout(
+        const completion = await withTimeout(
           provider.streamComplete!(scoped.request, onTextChunk),
           timeoutMs,
           `Provider timed out after ${timeoutMs}ms.`,
         );
+        this.markModelWarm(provider.providerId, request.model);
+        return completion;
       } catch (err) {
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= maxRetries) {
@@ -5901,10 +5954,159 @@ function boundedAttemptReason(reason: string | undefined): string | undefined {
   return normalized ? normalized.slice(0, 300) : undefined;
 }
 
-export function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): number {
-  return providerId === 'acp'
-    ? Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS)
-    : defaultTimeoutMs;
+/** What the failed attempts of a turn had in common, and what to do about it. */
+export interface AttemptFailureSummary {
+  /** One line per failed attempt: the model, what happened, and how long it took. */
+  lines: string[];
+  /** The pattern across attempts, stated only when there is one. */
+  diagnosis?: string;
+  /** Where to look next, derived from the diagnosis rather than boilerplate. */
+  remedy: string;
+}
+
+const DEFAULT_FAILURE_REMEDY =
+  'Check provider health in **AtlasMind: Model Providers**, or enable a different provider.';
+
+/**
+ * Turn a turn's failed attempts into something that names the cause.
+ *
+ * The message this replaces led with the limit that stopped the turn — "the
+ * failover budget of 3 is spent" — and then quoted only the *last* provider's
+ * error. A turn that lost two ACP agents to a handshake timeout, a local model
+ * to an undersized budget, and a fourth attempt to a model that could never chat
+ * reported one 400 from the fourth and sent the reader to check availability.
+ * Three defects, one misleading sentence.
+ *
+ * Two rules keep it honest:
+ *
+ * **A diagnosis is offered only when the attempts agree.** Mixed failures get
+ * the per-attempt list and nothing more — inventing a common cause across
+ * unrelated failures is how a report sends somebody to the wrong fix, which is
+ * the thing being repaired here.
+ *
+ * **The budget is reported, never led with.** It explains why nothing else was
+ * tried; it is not why anything failed.
+ *
+ * Pure + total: any attempt list, including an empty one, yields a summary.
+ */
+export function summarizeAttemptFailures(attempts: TaskModelAttempt[]): AttemptFailureSummary {
+  const failed = attempts.filter(attempt => attempt.status === 'timeout' || attempt.status === 'error');
+  const lines = failed.map(attempt => {
+    const seconds = Math.max(1, Math.round(attempt.durationMs / 1000));
+    if (attempt.status === 'timeout') {
+      return `- \`${attempt.model}\` — timed out after ${seconds}s`;
+    }
+    const reason = attempt.reason ? `: ${attempt.reason}` : '';
+    return `- \`${attempt.model}\` — failed after ${seconds}s${reason}`;
+  });
+
+  if (failed.length === 0) {
+    return { lines, remedy: DEFAULT_FAILURE_REMEDY };
+  }
+
+  if (failed.every(attempt => attempt.status === 'timeout')) {
+    const endpoints = [...new Set(failed.map(attempt => attempt.endpointScope))];
+    const scope = endpoints.length === 1
+      ? `The endpoint \`${endpoints[0]}\` never answered.`
+      : `No endpoint answered (${endpoints.length} tried).`;
+    return {
+      lines,
+      diagnosis: `Every attempt timed out before producing any output, so no model reported a fault. ${scope} That usually means an endpoint is unreachable, an agent is not signed in, or a local model is still loading — not that any of these models is unsuitable.`,
+      remedy: 'Check that the endpoints are running and signed in, then retry. **AtlasMind: Model Providers** shows the health of each.',
+    };
+  }
+
+  const uniqueEndpoints = new Set(failed.map(attempt => attempt.endpointScope));
+  if (uniqueEndpoints.size === 1 && failed.length > 1) {
+    return {
+      lines,
+      diagnosis: `Every attempt went to the same endpoint (\`${[...uniqueEndpoints][0]}\`), so this says nothing about the models themselves.`,
+      remedy: DEFAULT_FAILURE_REMEDY,
+    };
+  }
+
+  return { lines, remedy: DEFAULT_FAILURE_REMEDY };
+}
+
+/**
+ * Why no further model was tried.
+ *
+ * Reported after the failures, not instead of them. `undefined` when the search
+ * simply ran out of candidates and no budget was reached — there is no limit to
+ * name in that case, and naming one would be false.
+ */
+export function describeExhaustedSearch(
+  failoverAttempts: number,
+  attemptCount: number,
+): string | undefined {
+  if (failoverAttempts >= MAX_TASK_FAILOVER_ATTEMPTS) {
+    return `No further model was tried: the failover budget of ${MAX_TASK_FAILOVER_ATTEMPTS} is spent.`;
+  }
+  if (attemptCount >= MAX_TASK_MODEL_ATTEMPTS) {
+    return `No further model was tried: the safety ceiling of ${MAX_TASK_MODEL_ATTEMPTS} attempts is reached.`;
+  }
+  return 'No further model was tried: no other configured provider could serve this request.';
+}
+
+/**
+ * What is known about the attempt a timeout is being sized for.
+ *
+ * Both fields are optional and absent means "not known", never a zero: a prompt
+ * whose size was not measured must not shrink the budget, and a model whose
+ * warmth is unknown is charged the cold-start allowance rather than assumed
+ * ready. Guessing downward here produces a timeout on a working model, which is
+ * the failure this sizing exists to stop.
+ */
+export interface ProviderTimeoutInputs {
+  /** Estimated prompt size for this attempt, in tokens. */
+  promptTokens?: number;
+  /** Whether this model has already answered once in this session. */
+  warmedUp?: boolean;
+}
+
+/**
+ * How long this attempt may take before it is treated as a stall.
+ *
+ * Three provider shapes, three answers:
+ *
+ * - **ACP** encloses a spawn, a handshake and a prompt, so it gets the adapter's
+ *   per-request budget plus handshake headroom (`ACP_PROVIDER_TIMEOUT_MS`).
+ * - **Local** does the model loading and the prompt evaluation on this machine,
+ *   so the flat 30s written for a hosted endpoint is scaled by what the attempt
+ *   actually has to do: model size, prompt size, and whether the weights are
+ *   already resident. A 14B model on a 5k-token cold prompt was being called a
+ *   timeout at 30s and costing a failover.
+ * - **Everything else** is a hosted HTTP call and keeps the flat default.
+ *
+ * Pure and total: unknown inputs widen the budget or leave it alone, never
+ * narrow it, and the result is clamped to `LOCAL_PROVIDER_MAX_TIMEOUT_MS` so a
+ * malformed model id cannot produce an unbounded wait.
+ */
+export function getProviderTimeoutMs(
+  providerId: string,
+  defaultTimeoutMs: number,
+  modelId?: string,
+  inputs?: ProviderTimeoutInputs,
+): number {
+  if (providerId === 'acp') {
+    return Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS);
+  }
+  if (providerId !== 'local') {
+    return defaultTimeoutMs;
+  }
+
+  const parametersBillions = modelId ? inferParametersBillions(modelId) : undefined;
+  const sizeAllowance = parametersBillions === undefined
+    ? 0
+    : Math.round(parametersBillions * LOCAL_TIMEOUT_MS_PER_BILLION_PARAMS);
+  const promptTokens = Math.max(0, inputs?.promptTokens ?? 0);
+  const promptAllowance = Math.round((promptTokens / 1000) * LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS);
+  const coldStartAllowance = inputs?.warmedUp === true ? 0 : LOCAL_COLD_START_TIMEOUT_MS;
+
+  return Math.min(
+    LOCAL_PROVIDER_MAX_TIMEOUT_MS,
+    defaultTimeoutMs + sizeAllowance + promptAllowance + coldStartAllowance,
+  );
 }
 
 function buildPromptBudget(

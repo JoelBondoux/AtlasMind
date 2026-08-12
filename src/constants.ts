@@ -1731,8 +1731,66 @@ export const TOOL_EXECUTION_TIMEOUT_MS = 15_000;
 /** Provider call timeout in milliseconds. */
 export const PROVIDER_TIMEOUT_MS = 30_000;
 
-/** ACP agents run a stateful subprocess and may legitimately spend time using tools. */
-export const ACP_PROVIDER_TIMEOUT_MS = 180_000;
+/**
+ * How long a single ACP JSON-RPC request may take. Consumed by the adapter as
+ * its per-request budget; exported so the enclosing budget can be derived from
+ * it rather than restated.
+ */
+export const ACP_REQUEST_TIMEOUT_MS = 180_000;
+
+/**
+ * Time allowed for everything an ACP prompt needs before the prompt itself:
+ * spawning the agent process, `initialize`, and `session/new`.
+ *
+ * Generous because the first turn after an editor restart pays for a cold
+ * process launch — an `npx`-resolved agent on Windows can spend tens of seconds
+ * before it answers a single frame.
+ */
+export const ACP_HANDSHAKE_HEADROOM_MS = 60_000;
+
+/**
+ * ACP agents run a stateful subprocess and may legitimately spend time using
+ * tools.
+ *
+ * **Derived, not restated.** This budget encloses spawn → `initialize` →
+ * `session/new` → `session/prompt`, while the adapter's budget covers one frame
+ * of that sequence. When the two were both 180_000 the outer timer always fired
+ * first on a cold start, so a slow handshake surfaced as a bare "Provider timed
+ * out after 180000ms" naming no phase, and the adapter's own message — which
+ * names the method that stalled — was never the one the user saw. `acp.ts` makes
+ * exactly this argument for `ACP_PROBE_TIMEOUT_MS` and the prompt path never got
+ * the same treatment.
+ */
+export const ACP_PROVIDER_TIMEOUT_MS = ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS;
+
+/**
+ * Extra time a local model gets per billion parameters.
+ *
+ * `PROVIDER_TIMEOUT_MS` is a flat 30s written for a hosted endpoint, where the
+ * weights are already resident and somebody else owns the GPU. A local 14B model
+ * answering a 5k-token prompt does the loading and the prompt evaluation on this
+ * machine, and 30s covers neither — the attempt was recorded as a timeout, the
+ * endpoint quarantined, and a failover spent, for a model that was working.
+ */
+export const LOCAL_TIMEOUT_MS_PER_BILLION_PARAMS = 4_000;
+
+/** Extra time a local model gets per 1,000 prompt tokens, for prompt evaluation. */
+export const LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS = 6_000;
+
+/**
+ * Extra time for the first attempt against a local model in this session.
+ *
+ * Loading weights into VRAM is a one-off cost paid by whichever turn arrives
+ * first, and it is the single largest term in a cold local call. Charged only
+ * until that model has answered once — see `Orchestrator.warmLocalModels`.
+ */
+export const LOCAL_COLD_START_TIMEOUT_MS = 60_000;
+
+/**
+ * Ceiling on a derived local timeout. A local call that has produced nothing in
+ * five minutes is a stall worth failing over from, whatever the model's size.
+ */
+export const LOCAL_PROVIDER_MAX_TIMEOUT_MS = 300_000;
 
 /** Number of retries for transient provider failures. */
 export const MAX_PROVIDER_RETRIES = 2;

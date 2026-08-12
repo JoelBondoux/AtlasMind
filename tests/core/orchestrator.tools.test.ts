@@ -4,8 +4,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
-import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
+import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { buildAgentSynthesisPrompt, validateSynthesizedAgent } from '../../src/core/agentDrafting.ts';
@@ -1402,7 +1403,10 @@ describe('Orchestrator agentic loop', () => {
       allowedModels: ['google/gemini-2.5-pro'],
     });
 
-    expect(result.response).toContain('Provider "google" failed: upstream outage');
+    // The report names the failed model and the reason it gave, rather than
+    // leading with the limit that stopped the search.
+    expect(result.response).toContain('upstream outage');
+    expect(result.response).toContain('google/gemini-2.5-pro');
     expect(result.modelUsed).not.toContain('local/echo-1');
   });
 
@@ -2891,7 +2895,12 @@ describe('Orchestrator agentic loop', () => {
     });
 
     expect(provider.complete).toHaveBeenCalledTimes(1);
-    expect(result.response).toContain('Provider "local" failed: Provider timed out after 30000ms.');
+    // A timeout is not transient, so it is never retried — and the report says
+    // the attempt timed out rather than quoting a provider error, because a
+    // timeout is the absence of an answer, not one.
+    expect(result.response).toContain('local/echo-1');
+    expect(result.response).toContain('timed out');
+    expect(result.response).toContain('no model reported a fault');
   });
 
   it('records a model-struggle signal when a provider times out mid-turn', async () => {
@@ -4774,8 +4783,132 @@ describe('bounded reply sanitation and turn capabilities', () => {
   });
 
   it('gives stateful ACP turns the adapter-aligned timeout floor', () => {
-    expect(getProviderTimeoutMs('acp', 30_000)).toBe(180_000);
+    expect(getProviderTimeoutMs('acp', 30_000)).toBe(ACP_PROVIDER_TIMEOUT_MS);
     expect(getProviderTimeoutMs('mistral', 30_000)).toBe(30_000);
+  });
+
+  it('encloses the ACP per-request budget rather than matching it', () => {
+    // The defect this pins: both were 180_000, so on a cold start the outer
+    // timer fired first and reported "Provider timed out after 180000ms" while
+    // the adapter's own message — which names the stalled method — never
+    // surfaced. The enclosing budget covers spawn + initialize + session/new +
+    // session/prompt; the inner one covers a single frame of that.
+    expect(ACP_PROVIDER_TIMEOUT_MS).toBeGreaterThan(ACP_REQUEST_TIMEOUT_MS);
+    expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS);
+  });
+});
+
+describe('getProviderTimeoutMs — local scaling', () => {
+  it('keeps the flat default for a hosted provider whatever the prompt', () => {
+    expect(getProviderTimeoutMs('openai', 30_000, 'openai/gpt-5.1', { promptTokens: 90_000 })).toBe(30_000);
+  });
+
+  it('charges a cold local model for loading its weights', () => {
+    // 30s base + 60s cold start; no size in the id, no prompt measured.
+    expect(getProviderTimeoutMs('local', 30_000, 'local/ollama@@mystery')).toBe(90_000);
+  });
+
+  it('stops charging cold start once the model has answered', () => {
+    expect(getProviderTimeoutMs('local', 30_000, 'local/ollama@@mystery', { warmedUp: true })).toBe(30_000);
+  });
+
+  it('sizes the budget from the parameter count and the prompt', () => {
+    // The attempt that failed in v0.300.0: qwen3:14b, 4,819 prompt tokens, cold.
+    // 30s base + 56s (14B × 4s) + 29s (4.8k × 6s/1k) + 60s cold = 175s, where a
+    // flat 30s recorded a working model as a timeout and spent a failover.
+    const budget = getProviderTimeoutMs('local', 30_000, 'local/ollama@@qwen3:14b', {
+      promptTokens: 4_819,
+    });
+    expect(budget).toBe(30_000 + 56_000 + 28_914 + 60_000);
+    expect(budget).toBeGreaterThan(30_000);
+  });
+
+  it('never narrows the budget on unknown inputs', () => {
+    // Absent is not zero. A prompt nobody measured and a warmth nobody knows
+    // must widen the budget or leave it alone — guessing downward reproduces the
+    // exact failure this sizing exists to stop.
+    const unknown = getProviderTimeoutMs('local', 30_000, 'local/ollama@@qwen3:14b');
+    const measured = getProviderTimeoutMs('local', 30_000, 'local/ollama@@qwen3:14b', {
+      promptTokens: 0,
+      warmedUp: false,
+    });
+    expect(unknown).toBe(measured);
+    expect(unknown).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it('clamps a very large derived budget', () => {
+    const budget = getProviderTimeoutMs('local', 30_000, 'local/ollama@@llama3.1:405b', {
+      promptTokens: 200_000,
+    });
+    expect(budget).toBe(LOCAL_PROVIDER_MAX_TIMEOUT_MS);
+  });
+});
+
+describe('summarizeAttemptFailures', () => {
+  const attempt = (over: Partial<TaskModelAttempt>): TaskModelAttempt => ({
+    model: 'local/a@@m',
+    providerId: 'local',
+    endpointScope: 'local:a',
+    status: 'error',
+    durationMs: 1_000,
+    inputTokens: 0,
+    outputTokens: 0,
+    ...over,
+  });
+
+  it('diagnoses an all-timeout turn as an endpoint problem, not a model one', () => {
+    const summary = summarizeAttemptFailures([
+      attempt({ model: 'acp/codex@gpt-5.3', providerId: 'acp', endpointScope: 'acp:codex', status: 'timeout', durationMs: 240_000 }),
+      attempt({ model: 'local/ollama@@qwen3:14b', endpointScope: 'local:ollama', status: 'timeout', durationMs: 175_000 }),
+      attempt({ model: 'acp/claude', providerId: 'acp', endpointScope: 'acp:claude', status: 'timeout', durationMs: 240_000 }),
+    ]);
+
+    expect(summary.lines).toHaveLength(3);
+    expect(summary.lines[0]).toContain('timed out after 240s');
+    expect(summary.diagnosis).toContain('no model reported a fault');
+    expect(summary.remedy).toContain('signed in');
+  });
+
+  it('offers no diagnosis when the failures do not agree', () => {
+    // Inventing a common cause across unrelated failures is exactly the error
+    // being repaired: it sends the reader to one fix when three are needed.
+    const summary = summarizeAttemptFailures([
+      attempt({ endpointScope: 'acp:codex', status: 'timeout', durationMs: 240_000 }),
+      attempt({ endpointScope: 'local:x', status: 'error', reason: 'Local endpoint request failed (400)' }),
+    ]);
+
+    expect(summary.diagnosis).toBeUndefined();
+    expect(summary.lines[1]).toContain('Local endpoint request failed (400)');
+  });
+
+  it('names a single endpoint when every attempt went to it', () => {
+    const summary = summarizeAttemptFailures([
+      attempt({ status: 'error', reason: 'boom' }),
+      attempt({ status: 'error', reason: 'boom again' }),
+    ]);
+    expect(summary.diagnosis).toContain('local:a');
+    expect(summary.diagnosis).toContain('says nothing about the models');
+  });
+
+  it('is total on an empty list and ignores successful attempts', () => {
+    expect(summarizeAttemptFailures([]).lines).toEqual([]);
+    expect(summarizeAttemptFailures([attempt({ status: 'completed' })]).lines).toEqual([]);
+  });
+});
+
+describe('describeExhaustedSearch', () => {
+  it('names the failover budget when that is what stopped the search', () => {
+    expect(describeExhaustedSearch(3, 4)).toContain('failover budget of 3');
+  });
+
+  it('names the safety ceiling when the budget was not reached', () => {
+    expect(describeExhaustedSearch(1, 5)).toContain('safety ceiling of 5');
+  });
+
+  it('says no provider could serve it when no limit was hit', () => {
+    const described = describeExhaustedSearch(1, 2);
+    expect(described).toContain('no other configured provider');
+    expect(described).not.toContain('budget');
   });
 
   it('treats a JSON-RPC error from a stdio agent as an endpoint fault', () => {

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.300.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.300.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,27 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.300.0
+## What's new in 0.300.1
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A turn no longer fails on models that were never going to answer.** Your provider's model list is an
+  inventory of everything it serves, and most of it can't chat — embedding models, rerankers, Whisper,
+  safety classifiers. AtlasMind treated them all as chat models. Local ones are free, so they looked like
+  the *best* option exactly when everything else had failed, and a safety classifier cannot answer a
+  question at all. They are now recognised by family and kept out of routing entirely.
+
+- **AtlasMind waits long enough for the model to answer.** A local 14B model loading its weights and
+  reading a long prompt was being called a timeout at 30 seconds — a limit written for a hosted API call —
+  then dropped as unhealthy while it was working. The wait now scales with the model's size, your prompt,
+  and whether the model has already answered once this session. Subscription agents get room for the
+  process start and handshake that happen before your prompt is even seen.
+
+- **When a turn fails, you're told what failed.** The old message led with the limit it hit and quoted one
+  error from the last model tried. You now get every model attempted, what happened to each, and how long
+  it took — and if everything timed out, it says plainly that nothing reported a fault, so this is an
+  endpoint not answering rather than a model at fault.
 
 - **Chat can do GitHub work.** `gh` was missing from the terminal allow-list, so asking about issues,
   pull requests or CI hit a refusal you never saw — the error went to the model, not to you, and looked
@@ -712,7 +729,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
-| `src/providers/` | Model provider adapters, catalogs and health |
+| `src/providers/` | Model provider adapters, catalogs, health, and `modelRole.ts` — what a model is *for*, which keeps embedding, reranking, transcription and safety-classifier models out of routing |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |

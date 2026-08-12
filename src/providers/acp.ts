@@ -39,6 +39,7 @@ import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+import { ACP_REQUEST_TIMEOUT_MS } from '../constants.js';
 import { createAcpLaunchProbe, resolveAcpLaunch } from './acpLaunch.js';
 import {
   ACP_HOST_DEFAULTS,
@@ -99,7 +100,16 @@ import {
 export const ACP_PROVIDER_ID = 'acp';
 export const ACP_SETUP_URL = 'https://agentclientprotocol.com/get-started/agents';
 
-const DEFAULT_TIMEOUT_MS = 180_000;
+/**
+ * The budget for one JSON-RPC request to the agent.
+ *
+ * Read from `constants.ts` rather than declared here so the orchestrator's
+ * enclosing budget can be derived from it. Two independent 180_000s meant the
+ * outer timer fired first on any cold start and the phase that actually stalled
+ * was never named — the failure mode `ACP_PROBE_TIMEOUT_MS` below already
+ * documents for the probe path.
+ */
+const DEFAULT_TIMEOUT_MS = ACP_REQUEST_TIMEOUT_MS;
 
 /**
  * How long a single agent's probe may take.

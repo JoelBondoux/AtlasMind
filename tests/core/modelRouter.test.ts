@@ -28,6 +28,100 @@ describe('ModelRouter', () => {
     expect(selected).toBe('local/echo-1');
   });
 
+  describe('models that cannot hold a conversation', () => {
+    // v0.300.0: a local Llama Guard model reached the router with a full
+    // capability set at zero cost, survived to the last failover of a turn, and
+    // answered with a chat-template error. `requiredCapabilities` never names
+    // `chat` — it is assumed — so without an explicit gate a non-chat model is
+    // an ordinary candidate.
+    //
+    // The exercised paths are the two the failover actually uses: an allow-list
+    // narrowed to what has not been tried yet, and an explicitly named model.
+    // Both return the guard model when it declares capabilities, which is what
+    // makes these tests non-vacuous.
+    function registerWithLocalModel(router: ModelRouter, capabilities: string[]): void {
+      router.registerProvider({
+        id: 'openai',
+        displayName: 'OpenAI',
+        apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+        enabled: true,
+        pricingModel: 'pay-per-token',
+        models: [{
+          id: 'openai/gpt-4o-mini',
+          provider: 'openai',
+          name: 'GPT-4o mini',
+          contextWindow: 128000,
+          inputPricePer1k: 0.00015,
+          outputPricePer1k: 0.0006,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        }],
+      });
+      router.registerProvider({
+        id: 'local',
+        displayName: 'Local',
+        apiKeySettingKey: 'atlasmind.provider.local.apiKey',
+        enabled: true,
+        pricingModel: 'pay-per-token',
+        models: [{
+          id: 'local/endpoint-a@@llama-guard-3-1b',
+          provider: 'local',
+          name: 'Llama Guard 3 1B',
+          contextWindow: 8000,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities: capabilities as ProviderConfig['models'][number]['capabilities'],
+          enabled: true,
+        }],
+      });
+    }
+
+    it('would select it if it declared chat capabilities (the defect)', () => {
+      const router = new ModelRouter();
+      registerWithLocalModel(router, ['chat', 'code', 'function_calling']);
+
+      expect(router.selectModel(
+        { budget: 'balanced', speed: 'balanced' },
+        ['local/endpoint-a@@llama-guard-3-1b'],
+      )).toBe('local/endpoint-a@@llama-guard-3-1b');
+    });
+
+    it('excludes it once discovery withholds chat', () => {
+      const router = new ModelRouter();
+      registerWithLocalModel(router, []);
+
+      // Narrowed to it alone, the router has nowhere to go rather than sending
+      // a prompt a guard model cannot parse.
+      expect(router.selectModel(
+        { budget: 'balanced', speed: 'balanced' },
+        ['local/endpoint-a@@llama-guard-3-1b'],
+      )).toBe('local/echo-1');
+    });
+
+    it('ignores it even when it is named explicitly', () => {
+      const router = new ModelRouter();
+      registerWithLocalModel(router, []);
+
+      expect(router.selectModel({
+        budget: 'balanced',
+        speed: 'balanced',
+        preferredModel: 'local/endpoint-a@@llama-guard-3-1b',
+      })).toBe('openai/gpt-4o-mini');
+    });
+
+    it('still routes to a model that declares chat and nothing else', () => {
+      // The gate asks one question. A minimal chat model must stay eligible, or
+      // the fix would quietly remove capacity it was never aimed at.
+      const router = new ModelRouter();
+      registerWithLocalModel(router, ['chat']);
+
+      expect(router.selectModel(
+        { budget: 'balanced', speed: 'balanced' },
+        ['local/endpoint-a@@llama-guard-3-1b'],
+      )).toBe('local/endpoint-a@@llama-guard-3-1b');
+    });
+  });
+
   it('returns model metadata with getModelInfo', () => {
     const router = new ModelRouter();
     registerProviders(router);

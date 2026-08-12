@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.300.1] - 2026-08-12
+
+### Fixed
+
+- **A model that cannot hold a conversation is no longer a routing candidate.** A turn spent four attempts
+  and six minutes before stopping, and the attempt that ended it was `local/<endpoint>@@llama-guard-3-1b` —
+  a safety classifier, which answered with a chat-template error because Llama Guard's template accepts
+  neither a system message nor a multi-turn transcript. It could never have worked, no matter how long
+  anybody waited.
+
+  The cause was that AtlasMind had no concept of what a model is *for*. A provider's model list is an
+  inventory of what it serves, not a list of things that can chat: a local runtime enumerates every set of
+  weights it has loaded, and OpenAI's own list carries `text-embedding-3-large`, `whisper-1` and
+  `dall-e-3`. `inferCapabilities` granted `chat`, `code` and — on a bare `llama` substring, or on any
+  non-local provider — `function_calling` to all of them. Local ones cost nothing, which is exactly the
+  profile the router prefers when it is failing over and out of options.
+
+  New `src/providers/modelRole.ts` publishes a short rule table of declared families (safety classifier,
+  reranker, embedding, transcription, speech synthesis, image generation) and returns the rule that
+  decided, so an exclusion is explainable rather than looking like a discovery bug. Three properties:
+  **absence of a marker is not evidence of a non-chat role** — an unrecognised model is always
+  conversational, because wrongly hiding capacity somebody installed is worse than the occasional miss;
+  **markers match name segments, never bare substrings**, since `bge` and `sdxl` would otherwise sweep up
+  ordinary chat models; and **rules are evaluated in declaration order**, which decides `bge-reranker-v2-m3`,
+  an id carrying both an embedding marker and a reranker one.
+
+  Enforced at three layers: discovery drops these models in `registry.ts` and `openai-compatible.ts`;
+  `inferCapabilities` and `inferLocalCapabilities` return no capabilities at all for them; and
+  `ModelRouter.isRoutableChatModel` refuses any model that does not declare `chat`, in both the
+  preferred-model and candidate paths. That last gate is the enforcement rather than the documentation —
+  `requiredCapabilities` never names `chat` because it is assumed, which is precisely why a model with no
+  usable capabilities remained an ordinary candidate.
+
+- **The ACP deadline now encloses the handshake instead of matching it.** `ACP_PROVIDER_TIMEOUT_MS` and the
+  adapter's per-request budget were independently both 180,000 ms. The orchestrator's timer covers spawn →
+  `initialize` → `session/new` → `session/prompt`; the adapter's covers one frame of that sequence. Two
+  numbers that happen to be equal are not a relationship, and on a cold start the outer one always fired
+  first: a slow handshake surfaced as a bare "Provider timed out after 180000ms" naming no phase, while the
+  adapter's own message — which names the method that stalled — was never the one anybody saw. The
+  enclosing budget is now derived as `ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS`, and `acp.ts`
+  reads its budget from the same constant. `acp.ts` had already made this argument for `ACP_PROBE_TIMEOUT_MS`;
+  the prompt path never got the same treatment.
+
+- **A local model's deadline is sized to what the attempt has to do.** The flat 30-second budget is written
+  for a hosted endpoint, where the weights are resident and somebody else owns the GPU. A local 14B model
+  answering a 4,819-token prompt does the loading and the prompt evaluation on this machine — the attempt
+  was recorded as a timeout, the endpoint quarantined, and a failover spent, for a model that was working.
+  `getProviderTimeoutMs` now scales the local budget by the parameter count read from the model id, the
+  measured prompt size, and whether the model has already answered once this session (only the first
+  attempt pays for loading weights). Unknown inputs widen the budget or leave it alone and never narrow it:
+  a prompt nobody measured must not shrink a deadline. Clamped to five minutes.
+
+### Changed
+
+- **A failed turn reports what failed, not which limit stopped it.** The message led with "the failover
+  budget of 3 is spent" and quoted only the last provider's error, so a turn that lost two subscription
+  agents to a handshake timeout, a local model to an undersized budget, and a fourth attempt to a model
+  that could never chat was reported as one provider returning a 400 — three defects in one misleading
+  sentence, pointing at the wrong fix. `summarizeAttemptFailures` now lists every attempt with its outcome
+  and duration, and offers a diagnosis **only when the attempts agree**: an all-timeout turn is stated as an
+  endpoint problem, because no model reported a fault. Mixed failures get the list and nothing more —
+  inventing a common cause across unrelated failures is the error being repaired. The exhausted limit is
+  reported after the failures rather than instead of them; it explains why nothing else was tried, and is
+  not why anything failed.
+
+  The failover budget itself is unchanged at 3. Raising it buys exactly one more attempt before the
+  `MAX_TASK_MODEL_ATTEMPTS` ceiling of 5 binds instead, at the cost of another full timeout window — it
+  would have made that turn slower, not more likely to succeed.
+
 ## [0.300.0] - 2026-08-12
 
 ### Added

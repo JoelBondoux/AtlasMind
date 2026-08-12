@@ -1,5 +1,6 @@
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { isConversationalModel } from './modelRole.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
 // ── OpenAI response shapes ────────────────────────────────────────
@@ -328,8 +329,16 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       throw fetchError;
     }
 
+    // `/v1/models` is an inventory of what the provider serves, and for OpenAI
+    // that includes `text-embedding-3-large`, `whisper-1`, `tts-1` and
+    // `dall-e-3`. Every one of them reached the router as a chat model with
+    // `function_calling`, because the capability heuristic grants tool calling
+    // unconditionally off-local. `staticModels` and `modelListProvider` entries
+    // are filtered too: a curated list is not a guarantee, and the check costs
+    // nothing on ids that carry no marker.
     return [...new Set(discoveredIds)]
-      .map(id => ensureProviderPrefix(this.config.providerId, id));
+      .map(id => ensureProviderPrefix(this.config.providerId, id))
+      .filter(id => isConversationalModel(id));
   }
 
   async discoverModels(): Promise<DiscoveredModel[]> {
