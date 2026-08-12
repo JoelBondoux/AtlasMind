@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.295.1] - 2026-08-12
+## [0.296.1] - 2026-08-12
 
 ### Fixed
 
@@ -42,6 +42,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   was ten lines pinning one trivial assertion, and `SessionContextManager` had no test file. That absence
   is how all four defects above survived. The `\z` tests were confirmed to fail against the old anchor
   before being kept.
+
+## [0.296.0] - 2026-08-12
+
+### Security
+
+- **The data-privacy scan now inspects the session context bundle.** The scan read
+  `requestContext['sessionContext']`, but that string and the structured bundle are alternatives, never
+  both: once a session has a `context.md` the chat panel sets the string to `''` and passes the bundle
+  instead. The scan therefore inspected nothing on the ordinary panel path while the model still
+  received every word of the conversation — a redaction boundary that silently stopped applying the
+  moment a session grew a context file. Each bundle field is scanned separately and labelled with the
+  heading it is rendered under, so a notice still names *where* a detector fired. The slice list is now
+  `buildPrivacyScanSlices`, exported and unit-tested, because a boundary nothing can check is a
+  boundary that drifts.
+
+- **The project-run approval gate is no longer inverted, and is no longer a dead end.** Both chat
+  surfaces had it backwards. An explicit "Proceed" arrived *unapproved* and stopped at the file-count
+  threshold, while a raw prompt merely matching the project-request pattern had the approval token
+  appended for it and went straight past — so the request with the least review behind it was the one
+  skipping a gate whose own message says it "exists to prevent unreviewed large-scale changes". Nothing
+  is auto-approved now, on either surface: no prompt has been shown a plan or a file estimate at the
+  moment it is typed.
+
+  The gate previously ended the turn asking the operator to retype the goal with `--approve` while
+  offering no control that could do it — so the natural retry re-entered unapproved and stopped in the
+  same place, forever. It now carries the exact approving prompt on the run outcome and renders it as
+  an **Approve and run** control: a followup chip in the `@atlas` view, a quick-reply pill in the chat
+  panel. A gate whose only exit is a magic token is one people learn to route around, which costs the
+  gate its purpose.
 
 ## [0.295.0] - 2026-08-12
 
