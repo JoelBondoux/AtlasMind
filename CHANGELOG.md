@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.270.4] - 2026-08-12
+## [0.290.1] - 2026-08-12
 
 ### Added
 
@@ -21,6 +21,525 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   substring or keyword match (the false-positive class). Tool output itself is never logged, only the
   trigger token, because the log persists and tool results can carry secrets. Diagnostic only: nothing
   branches on it and the substitution behaviour is unchanged.
+
+### Fixed
+
+- **The test suite no longer times out intermittently under load.** `vitest.config.ts` had no
+  `testTimeout`, so all 5,000-plus tests ran on Vitest's 5s default. Much of the suite drives the
+  `fs`-only managers against a real `mkdtemp` project tree rather than a mocked filesystem, so a
+  test's duration tracks the host's disk — and a checkout on a synced folder is far slower than CI.
+  The margin was thin enough that a filesystem-heavy test passed alone and timed out under full-suite
+  load, which at the moment it blocks a commit is indistinguishable from a real failure and teaches
+  whoever hits it to reach for `--no-verify`, skipping compile and lint too. Raised to 20s, which
+  hides no hang: a genuinely stuck test still fails, just later.
+
+## [0.290.0] - 2026-08-12
+
+### Added
+
+- **Phase 3 begins with typed design tokens in UI Studio's authoritative graph.** Format v7 stores bounded
+  colour, font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint definitions.
+- **Token aliases resolve through one pure target-independent path.** A resolved value retains its source and
+  ordered alias chain, so base-token changes propagate without interpreting definitions as CSS or target code.
+- **The architecture decision is durable.** `project_memory/decisions/ui-studio-system-definitions.md`
+  records why tokens live in the graph initially, why v7 is required, and what remains for components.
+
+### Security
+
+- **The graph sanitizer validates every token value and dependency.** It caps collections, normalizes colour
+  values, bounds numeric and structured values, rejects unsafe font-family syntax, and removes duplicate,
+  missing, cross-kind, cyclic, and invalid definitions before use.
+
+### Changed
+
+- **Website workspace format advances from v6 to v7.** The frozen migration preserves every v6 graph fact and
+  adds an empty token collection rather than inventing a design system. Older-format chains reach v7 in one pass.
+
+## [0.289.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now reports responsive layout diagnostics at desktop, tablet, and mobile.** The host checks
+  viewport overflow, children that extend outside a clipping parent, unintended visible-node overlap, and
+  interactive nav/form/CTA/footer nodes that render below a 44px touch target.
+- **Findings are actionable on the canvas.** The active breakpoint shows a clear/check state or deterministic
+  counts by category, followed by bounded finding buttons that select and synchronize the owning node with
+  Full Preview.
+
+### Security
+
+- **Diagnostics are pure host projections, not browser assertions.** They consume the same resolved graph as
+  Studio and Full Preview, never execute content, and send only closed codes, severities, breakpoint values,
+  bounded node identities, and escaped messages. The webview validates the diagnostic envelope before use.
+
+### Changed
+
+- **Phase 2 responsive layout is complete.** Intentional parent/child overlap and siblings in an overlay
+  container are excluded from overlap warnings. Touch-target thresholds convert the fixed 44px requirement
+  into canvas units using the actual 1280/834/390 preview widths.
+
+## [0.288.0] - 2026-08-12
+
+### Added
+
+- **A multi-selection can now be dragged as one gesture.** Drag any selected block to move the complete
+  selection while preserving relative spacing. The gesture works at the base breakpoint and creates explicit
+  tablet/mobile overrides when used in a responsive view.
+
+### Security
+
+- **Group drag crosses the webview boundary as one closed command.** Pointer-up sends one bounded
+  `set-node-frames` payload; the reducer validates every identity, lock, rectangle, breakpoint, and revision
+  before committing. It cannot partially move a selection or change hierarchy.
+
+### Changed
+
+- **Group bounds and snapping are deterministic.** Movement is clamped using the complete selection bounds,
+  and the primary block snaps only against the grid and unselected blocks. Selected blocks cannot attract one
+  another during the gesture, so their spacing remains exact.
+
+## [0.287.0] - 2026-08-12
+
+### Added
+
+- **UI Studio can duplicate a complete node subtree as one edit.** The host validates a complete mapping
+  from every source identity to a fresh identity, remaps child parents, offsets base and explicitly authored
+  responsive rectangles, selects the new root, and records one revision and one undo entry.
+- **Nodes can be locked from the inspector.** A locked block remains selectable and inspectable while drag,
+  resize, nudge, form edits, alignment, distribution, deletion, and duplication are disabled. Unlock is the
+  only mutation the reducer admits for that node.
+
+### Security
+
+- **Duplication and locking are reducer guarantees, not browser conventions.** Duplicate commands refuse
+  incomplete/duplicate/colliding identity maps, locked descendants, invalid offsets, and the 60-node limit
+  without partial mutation. Batch edits containing a locked node refuse atomically, and deleting an unlocked
+  wrapper is refused when it would implicitly reparent a locked direct child.
+
+### Changed
+
+- **A duplicated subtree stays coherent at every authored breakpoint.** Explicit responsive rectangles move
+  by the same bounded offset as base geometry; inherited layout, content/style/component references, and
+  descendant labels remain intact. Only the duplicate root receives a `copy` suffix, and clones start unlocked.
+
+## [0.286.0] - 2026-08-12
+
+### Added
+
+- **Stack containers now support deterministic wrapping.** `nowrap` preserves the existing single run;
+  `wrap` packs fixed/hug children until the next would exceed the main axis and then starts the next row or
+  column. A fill child claims its line. The shared host projection drives both Studio and Full Preview.
+- **Every node now has responsive sibling order.** Container children sort by a bounded `-1000…1000` order
+  before the existing geometry/id tie-breakers, so grid and stack sequences can change by breakpoint without
+  rewriting hierarchy or rectangles.
+
+### Security
+
+- **Wrap/order remain closed layout data.** Wrap accepts only `nowrap` or `wrap`; order accepts only a safe
+  integer from -1000 to 1000. Both travel through the exact `set-node-layout` payload and the graph sanitizer,
+  never through CSS, DOM order, a style object, or arbitrary reordering instructions.
+
+### Changed
+
+- **Flow ordering is a projection.** Stored node array order and geometry remain untouched. Reset, free mode,
+  or undo therefore recovers the prior drawing exactly, while responsive overrides can alter only the
+  breakpoint's projected sequence.
+
+## [0.285.0] - 2026-08-12
+
+### Added
+
+- **Nodes now have responsive min/max width and height constraints.** Each optional bound inherits from base
+  through tablet/mobile with its own provenance. Free, stack, grid, overlay, fixed, fill, and hug all pass
+  through the same deterministic constraint projection used by the Studio and full built-in-browser preview.
+- **The layout inspector exposes all four bounds without magic sentinel values.** An empty field means no
+  constraint; the responsive provenance panel names where each active or empty value came from.
+
+### Security
+
+- **Constraints remain closed canvas data.** Width limits accept only `null` or finite 1–1000 canvas-unit
+  values; height limits accept only `null` or finite 1–4000 values. The parser and reducer refuse inverted
+  pairs, unknown keys, and non-finite values before graph mutation. The graph sanitizer drops a contradictory
+  maximum from hand-edited input instead of persisting an impossible pair.
+
+### Changed
+
+- **Constraint application is non-destructive.** The resolver clamps the displayed rectangle while retaining
+  its stored geometry. Removing/resetting a constraint or undoing its edit therefore restores the exact prior
+  drawn or intrinsic size. A constrained free-layout node remains movable; only container-positioned children
+  refuse direct move/alignment/nudge operations.
+
+## [0.284.0] - 2026-08-12
+
+### Added
+
+- **Stack, grid, and overlay are now real container layouts.** A container can set direction, gap, padding,
+  columns, cross-axis alignment, main-axis distribution, and fixed/fill/hug sizing. The extension host
+  deterministically projects direct children for the Studio canvas and full built-in-browser preview; modes
+  are no longer dormant enum values or inspector-only labels.
+- **Container behaviour participates in responsive inheritance.** Tablet/mobile layout settings report
+  base, override, or computed-container provenance and can be applied or reset as one property family without
+  discarding geometry or visibility overrides.
+
+### Security
+
+- **Layout editing stays a closed bounded command.** `set-node-layout` accepts only named enums, gap/padding
+  from 0–500, and 1–12 columns. Non-container nodes cannot become layout containers, non-base overrides name
+  one closed breakpoint, and the webview never sends CSS, a style object, or a graph fragment.
+
+### Changed
+
+- **Container layout is a projection, not a destructive rearrangement.** Stored child rectangles remain the
+  free-layout fallback. Switching a parent to stack/grid/overlay computes displayed rectangles with explicit
+  provenance; resetting or undoing the parent restores the previous positions exactly.
+- **Fill and hug now have deterministic initial semantics.** Fill claims the available axis in a stack/grid/
+  overlay cell. Hug retains the stored intrinsic rectangle until the later content-measurement phase; the
+  inspector says so rather than implying browser content measurement already exists.
+
+## [0.283.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now supports multi-selection alignment and distribution.** Shift, Ctrl, or Cmd toggles
+  elements into the current selection. The inspector aligns left/centre/right/top/middle/bottom, distributes
+  three or more rectangles across/down, clears back to the primary element, and nudges a selected group.
+  The same tools work on base geometry and responsive overrides.
+- **Multi-node transforms are atomic graph edits.** `set-node-frames` validates a bounded unique identity/
+  rectangle list, refuses the whole request if any target is missing or invalid, advances one revision, and
+  creates one undo entry rather than a fragile series of independent edits.
+
+### Security
+
+- **Batch geometry remains a closed data command.** The webview cannot submit a graph fragment, parent
+  change, source path, style object, or executable value. Responsive batches additionally name one closed
+  non-base breakpoint, and the host sanitizes every rectangle against its node kind before mutation.
+
+### Changed
+
+- **Group deletion remains explicit rather than implied.** Delete is refused while multiple elements are
+  selected; operators narrow to the primary selection first. This avoids a new multi-select affordance
+  silently turning the existing single-node delete into a cascade.
+
+## [0.282.0] - 2026-08-12
+
+### Added
+
+- **Responsive layouts can now be manipulated directly on the Studio canvas.** Dragging, resizing, or
+  nudging a node at any non-base breakpoint creates an explicit geometry override from the resolved
+  rectangle. Snapping, bounded geometry, keyboard steps, undo/redo, provenance, and independent reset all
+  remain available without making a duplicate drawing.
+
+### Security
+
+- **A responsive gesture is an optimistic projection, never browser authority.** The webview temporarily
+  paints the resolved rectangle for feedback, then submits the existing exact revisioned viewport command.
+  The extension host validates it and replaces the projection after every accepted or refused result.
+
+### Changed
+
+- **Responsive geometry editing cannot change shared structure.** Drawing, deletion, and nesting remain
+  confined to the declared base breakpoint; a responsive gesture can name only an existing node, the active
+  closed breakpoint, and a bounded rectangle.
+
+## [0.281.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now has a host-resolved responsive inspector.** Desktop, tablet, and mobile controls project
+  the selected screen in the canvas without duplicating inheritance logic in the browser. Each selected node
+  shows computed geometry, visibility, layout mode, width mode, height mode, and the source breakpoint for
+  every property; hidden nodes remain visible as inspectable design decisions.
+- **Tablet/mobile geometry and visibility can be applied or reset independently.** Numeric layout controls
+  and an explicit visibility choice use the existing revisioned reducer. Resetting geometry preserves an
+  intentional visibility override and vice versa; undo/redo continues to cover both.
+
+### Security
+
+- **The webview receives resolved presentation data and never becomes a layout authority.** Responsive state
+  is built from the host-owned graph, bounded again on receipt, and reconciled after every accepted/refused
+  edit. The browser can name only a saved node, closed breakpoint, bounded rectangle/Boolean, and the exact
+  property to reset.
+
+### Changed
+
+- **Structural direct manipulation is confined to the screen's base breakpoint for now.** Responsive views
+  allow selection and explicit inspector overrides, while drawing, deletion, nesting, nudging, and drag/
+  resize remain base-only so an early responsive tool cannot silently change all viewports.
+
+## [0.280.0] - 2026-08-11
+
+### Added
+
+- **The full built-in-browser preview now shows inherited responsive layouts.** Deterministic draft pages
+  project the authoritative screen at tablet and mobile widths through static media rules; geometry cascades
+  in breakpoint order, visibility can change independently, and the canvas height follows visible content.
+- **Responsive preview projection runs across all three reference products.** Website, web-app, and native
+  desktop fixtures now render the same script-free desktop/tablet/mobile contract.
+
+### Security
+
+- **Responsive rendering adds no browser capability.** The pure renderer emits inline static CSS only,
+  escapes graph identities used in selectors, ignores a screen that does not own the rendered page, and
+  leaves the frozen live runtime as the sole injected script.
+
+## [0.279.0] - 2026-08-11
+
+### Added
+
+- **UI Studio now resolves responsive layout through explicit inheritance.** A desktop base flows through
+  tablet into mobile, while a migrated tablet/mobile base remains honest about wider layouts and changes
+  them only through exact overrides. Resolution returns per-property provenance for mode, geometry, sizing,
+  and visibility, so an inspector can explain every computed value.
+- **Viewport overrides use the same revisioned edit boundary as canvas changes.** Exact set/clear commands
+  support bounded geometry and visibility, reject the base breakpoint and malformed/empty payloads, advance
+  history once, and remain undoable. Clearing an override deterministically restores its inherited value.
+- **All three reference projects now exercise responsive inheritance.** Website, web-app, and desktop
+  fixtures prove tablet-to-mobile inheritance, property provenance, and reset-to-base behaviour.
+
+### Security
+
+- **Responsive messages cannot smuggle style or execution data.** The parser accepts only a closed
+  breakpoint plus bounded rectangle and/or Boolean visibility; unknown fields and breakpoint names refuse
+  before the reducer sees them.
+
+## [0.278.0] - 2026-08-11
+
+### Added
+
+- **UI Studio's foundation now has three executable reference projects.** A marketing website, dense
+  operations web app, and native desktop control room each exercise v5 → v6 migration, save/reopen,
+  revisioned edit, undo/redo, stale-event refusal, two-way selection identity, deterministic real-content
+  preview, and frozen live-runtime injection.
+- **Target independence is an asserted graph invariant.** The scenarios walk every graph level against the
+  shared screen/node/layout vocabulary, reject website delivery or implementation fields in the graph, and
+  confirm that Astro, React, and SwiftUI remain handoff facts rather than design-document fields.
+
+### Changed
+
+- **Phase 1 of the UI Studio builder plan is complete.** Its reference-project exit gate is now repeatable
+  test evidence, and responsive layout is the next recorded delivery phase.
+
+## [0.277.0] - 2026-08-11
+
+### Added
+
+- **UI Studio canvas gestures now run through the authoritative graph reducer.** Draw, move, resize/reparent,
+  delete-with-child-promotion, kind, label, and design-intent changes use the same revision-checked command
+  path as undo and redo. Pointer and form interactions remain responsive locally, then reconcile to the
+  host-owned graph projection.
+- **The closed edit vocabulary now covers node lifecycle and atomic frames.** `add-node`, `delete-node`,
+  `set-node-kind`, and `set-node-frame` join the original commands; Ctrl/Cmd+Z and Shift+Ctrl/Cmd+Z expose
+  the existing monotonic history from the canvas.
+
+### Security
+
+- **The Studio webview cannot submit graph patches or bypass command validation on save.** Every design edit
+  is parsed against exact fields, bounded identifiers/text/geometry, a closed kind catalog, and the expected
+  revision before the pure reducer sees it. Save names only the revision it observed; the extension supplies
+  the graph from its edit session and refuses a mismatch.
+
+## [0.276.0] - 2026-08-11
+
+### Added
+
+- **UI Studio and its full built-in-browser preview now share a two-way selection.** Clicking a deterministic
+  preview block focuses the same saved graph node in the Studio; selecting or creating a saved canvas node
+  highlights it in every connected full preview. Selection is ephemeral and never changes the design graph.
+- **The frozen preview protocol now has one closed selection endpoint and event.** A browser request contains
+  exactly the current render revision, screen ID, and node ID. Server-to-browser selection events carry the
+  same three fields so multiple open previews remain aligned without creating another source of truth.
+
+### Security
+
+- **Preview selection is revision-checked and resolved twice.** The loopback server refuses stale, malformed,
+  oversized, unknown-field, invalid-identifier, wrong-method, wrong-media-type, and wrong-token requests; the
+  host then resolves accepted identities against the current saved design graph before notifying the Studio.
+  The endpoint cannot name edits, commands, paths, graph fragments, source text, or filesystem mutations.
+- **Wrong-token POST requests no longer disclose that a preview method exists.** Token/path resolution happens
+  before the static method response, preserving the existing indistinguishable 404 boundary for every method.
+
+## [0.275.0] - 2026-08-11
+
+### Added
+
+- **The built-in-browser UI Studio draft now has a frozen live runtime.** Deterministic `_wireframe/`
+  pages subscribe to one exact token-scoped server-sent-events endpoint and reload when a newer render
+  revision is available. Structure, UI-system, and Markdown content saves therefore reach an already-open
+  full preview without reopening Simple Browser or granting the page edit authority.
+- **The revision channel has a bounded, transport-independent hub.** Every connection immediately receives
+  the current revision, reconnects resume from current state rather than replaying a backlog, stale/equal/
+  invalid revisions are ignored, broken clients are removed, and eight listeners is the hard cap.
+
+### Security
+
+- **Live preview adds two exact resources, not general JavaScript or API serving.** The random per-session
+  path token protects `_atlas/runtime.js` and `_atlas/events`; the runtime is a byte-stable AtlasMind
+  constant, static `.js` files remain refused, the browser sends no request body or design data, and CSP
+  widens only to same-origin script/connect for the Studio draft server.
+- **Stopping preview closes event streams and idle keep-alive sockets immediately.** The loopback port no
+  longer waits on browser connection reuse after the explicit lifecycle boundary.
+
+### Fixed
+
+- **The deterministic preview index can no longer be overwritten by the `/` screen.** The screen inventory
+  retains `_wireframe/index.html`, the home screen now uses `_wireframe/home.html`, and inventory links are
+  correctly relative to their own folder instead of resolving through `_wireframe/_wireframe/`.
+
+## [0.274.0] - 2026-08-11
+
+### Added
+
+- **UI Studio's class-leading visual-builder roadmap is now a repository-owned product contract.** The
+  PRD defines goals, non-goals, P0/P1/P2 requirements and acceptance criteria, phased delivery, reference
+  projects, metrics, risks, and open questions. Three accepted decisions pin design authority, the bounded
+  built-in-browser preview protocol, and v6 compatibility semantics.
+- **Format v6 introduces the authoritative target-independent design graph.** Stable screens and nodes carry
+  base layout, viewport overrides, content/style/component references, and a monotonic revision. The 5 → 6
+  migration transcribes existing wireframes without inventing responsive or component intent, including the
+  distinction between an untouched screen and an intentionally empty drawing.
+- **A pure closed edit-command reducer establishes the future canvas mutation boundary.** Initial label,
+  design-intent, move, resize, reparent, visibility, undo, and redo commands validate the revision and target
+  before mutation. Stale edits are refused, geometry remains bounded, hierarchy is checked, redo branches are
+  explicit, and history is capped at 100 snapshots.
+
+### Changed
+
+- **Legacy page wireframes are now compatibility projections of the graph when v6 data is present.** Current
+  renderers keep working while graph consumers move incrementally, but there is one declared winner rather
+  than silent last-write-wins drift.
+
+## [0.273.0] - 2026-08-11
+
+### Added
+
+- **Full Preview is now a first-class UI Studio step.** The canonical review canvas opens in VS Code's
+  built-in browser and is rebuilt deterministically from the saved wireframe, UI colours and typography,
+  and exact Markdown content. Every screen also carries a complete content proof so copy cannot disappear
+  behind a fixed wireframe box, while `[PLACEHOLDER: …]` gaps remain visually explicit.
+- **Responsive inspection remains available as a companion lab.** Desktop, tablet, mobile, and fluid
+  widths share the same loopback server and preview URL as the full browser instead of creating a second
+  version of the design.
+
+### Changed
+
+- **The live Studio draft now always owns the preview entry point.** Model-generated visual guides remain
+  one click away but cannot replace the deterministic content/style/structure index. Studio saves rebuild
+  preview artefacts when the guarded server is already running, and the responsive lab's full-preview
+  action opens inside VS Code rather than the operating-system browser.
+
+## [0.272.0] - 2026-08-11
+
+### Added
+
+- **Website Studio is now UI Studio, with website as one profile rather than the product boundary.**
+  Projects can identify a website, web app, mobile app, desktop app, editor extension, embedded UI, or
+  another interface. Every profile shares screens/flows, wireframes, UI system, content and an
+  implementation guide for target technologies, source roots, component locations and handoff notes.
+  Non-web profiles do not pretend their target is HTML or that they need SEO, hosting or n8n; every
+  profile can render a sandboxed HTML/CSS visual reference, while website projects retain stack,
+  hosting, Delivery and automation workflow.
+- **Content Design is a real Studio step.** Project voice, principles, preferred and avoided terms,
+  comprehension target, locales and accessibility notes are stored in the reviewable SSOT. Per-screen
+  Markdown copy is editable in the Studio, including labels and empty/loading/error/success/recovery
+  states. Missing files seed only explicit placeholders, and optimistic concurrency refuses to
+  overwrite copy changed on disk since the page opened.
+
+### Changed
+
+- **The UI workspace format is v5.** Existing v4 projects migrate explicitly to the `website` profile
+  and receive empty content-design and implementation records; the migration invents no voice,
+  technology or source location. The command id and `project_memory/domain/website.*` paths remain
+  stable for compatibility while the visible command and panel are named UI Studio.
+
+## [0.271.6] - 2026-08-11
+
+### Fixed
+
+- **Branch Dashboard presentation choices now survive closing and reopening the panel.** The selected
+  saved view, sort field, direction, grouping, and SCM-colour preference are validated and retained in
+  workspace state as well as the live webview state. Recent-activity ordering now uses the newest commit
+  visible across both the local and upstream refs of a folded logical branch, so a behind or diverged
+  local ref no longer makes the branch appear artificially old.
+
+## [0.271.5] - 2026-08-11
+
+### Added
+
+- **Project Director now mirrors personal dashboard attention.** Its **Follow-ups** group includes
+  due/overdue Director reminders and every active dashboard, run, or manual assignment owned by
+  `selfContactId`. The same total drives a dynamic `Project Director · N follow-ups` title that remains
+  visible when collapsed, the AtlasMind activity badge, and a coloured numeric Follow-ups row badge.
+
+### Fixed
+
+- **Project State and Director links now reach their real destination and focus the exact record.** The
+  `atlasmind.openProjectDashboard` command previously discarded every page target except `ideation`, so
+  assignment rows silently reopened whichever page was already active. It now accepts a host-validated
+  `{ page, focus: { kind, id } }` target. Assignments and individual due follow-ups carry stable ids;
+  the dashboard clears filters that could hide a target, scrolls it into view, focuses it accessibly,
+  and outlines it. Director's **Open work** controls use the same contract. Invalid/stale focus data
+  degrades to the validated owning page and never becomes an arbitrary selector.
+
+## [0.271.4] - 2026-08-11
+
+### Fixed
+
+- **The Project State attention indicator now survives collapsing the panel.** VS Code hides a view's
+  title description together with its body, which made `7 waiting` disappear from the exact closed
+  state where an indicator matters most. The live count now forms part of the dynamic native title—
+  `Project State · N waiting`—and resets to `Project State` when the count reaches zero. The activity
+  badge and the coloured **Waiting on you** row badge remain unchanged.
+
+## [0.271.3] - 2026-08-11
+
+### Fixed
+
+- **Project State now shows attention inside the open panel, not only on AtlasMind's activity-bar
+  icon.** VS Code implements `TreeView.badge` as container activity and does not render it in an
+  expanded native view header. AtlasMind now uses the view's title-description channel for the live
+  `N waiting` header signal and a synthetic-URI `FileDecorationProvider` for a real coloured numeric
+  badge on **Waiting on you**. The existing activity badge remains the source for the AtlasMind logo,
+  and all three surfaces update from the same count.
+
+## [0.271.2] - 2026-08-11
+
+### Fixed
+
+- **Assigning dashboard work to yourself now updates Project State immediately.** Active Director
+  assignments owned by `selfContactId` appear individually under **Waiting on you**, with their status,
+  priority, and a link back to the owning dashboard surface. Each assignment counts toward the Project
+  State view badge, which VS Code also propagates to the AtlasMind activity-bar icon; the section shows
+  the same count beside its label. Owner saves trigger the refresh directly, while Project Director file
+  changes now recalculate Project State as well. Done, cancelled, or other people's assignments do not
+  raise the badge.
+
+## [0.271.1] - 2026-08-11
+
+### Fixed
+
+- **Branch Work controls stay compact at narrow dashboard widths.** The owner picker and actions now
+  occupy one flexible content column instead of making the action row fall into the 52-pixel label
+  column. Daily work actions are fixed-size icons with descriptive native tooltips and `aria-label`s,
+  preserving the full safety explanation without turning a branch card into a column of wrapped words.
+
+## [0.271.0] - 2026-08-11
+
+### Added
+
+- **Branch cards now cover the common daily write workflow.** Their expanded state separates **Work**
+  from **Review** actions and can switch or bring a branch local, open Source Control for a reviewed
+  commit, pull only when Git can fast-forward, push or publish with an explicit non-force refspec,
+  create a local branch at the selected commit, and open GitHub's pull-request form without submitting
+  it. Every operation re-resolves an opaque card id against live host-side Git state; commits remain in
+  Source Control, divergent pulls are refused, protected branches keep their remote enforcement, and
+  merge, rebase, force-push, and automatic commit are intentionally excluded.
+- **Director ownership now follows work across the Project Dashboard.** Branches, active roadmap
+  items, open issues and pull requests, unresolved gaps, risks and debt, and documents needing
+  attention share one human-owner picker backed by `ProjectDirectorConfig.assignments`. The Director
+  Assignments view lists active work so it can initiate or change those owners too. Webview messages
+  carry only a short-lived host token;
+  stored links are kind/id pairs from a closed allowlist, and branch assignments are re-resolved
+  against live Git state before they are saved.
 
 ## [0.270.3] - 2026-08-09
 

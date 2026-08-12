@@ -379,11 +379,11 @@ describe('website studio step order', () => {
     // `platforms` became `stack` when the page grew the framework half: the
     // framework and the hosting platform are one decision, and the pairing
     // determines the build command and output directory together.
-    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'ui-system', 'wireframes', 'stack', 'automations']);
+    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'content', 'ui-system', 'wireframes', 'preview', 'stack', 'automations']);
   });
 
   it('numbers the steps consecutively from 1', () => {
-    expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
   });
 });
 

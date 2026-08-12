@@ -181,13 +181,17 @@ function draftFor(request: WebsiteGenerationRequest): WebsiteGenerationPlanResul
  * sitemap would then contradict.
  */
 function planFromBrief(config: WebsiteWorkspaceConfig, request: WebsiteGenerationRequest): WebsiteGenerationPlanResult {
+  const isWebsite = config.surfaceKind === 'website';
+  const noun = isWebsite ? 'page' : 'screen';
   const prompt = buildGenerationPrompt(config, {
-    heading: 'Generate a single-page visual concept for this site from the brief below.',
+    heading: `Generate a single-${noun} visual concept for this ${isWebsite ? 'site' : 'interface'} from the brief below.`,
     scope: 'site',
     instruction: [
       'Produce one self-contained HTML page and one stylesheet that show the visual direction:',
-      'a nav, a hero, two or three content bands, and a footer, using the design system given.',
-      'This is a concept, not the finished site — no page has been planned in detail yet.',
+      isWebsite
+        ? 'a nav, a hero, two or three content bands, and a footer, using the design system given.'
+        : 'the primary navigation, main task, important content states, and a clear exit or next action, using the design system given.',
+      `This is an implementation-independent HTML visual guide, not the finished ${isWebsite ? 'site' : 'application'} — no ${noun} has been planned in detail yet.`,
     ].join(' '),
     ...(request.reviewMode ? { reviewMode: true } : {}),
   });
@@ -205,8 +209,8 @@ function planFromBrief(config: WebsiteWorkspaceConfig, request: WebsiteGeneratio
       omitted: [
         'No wireframe exists yet, so the layout is the model\'s proposal rather than yours.',
         config.pages.length > 0
-          ? `The ${config.pages.length} planned pages are not generated at this stage — use Generate on the Sitemap tab for those.`
-          : 'No pages have been planned yet.',
+          ? `The ${config.pages.length} planned ${noun}s are not generated at this stage — use Generate on the ${isWebsite ? 'Sitemap' : 'Screens & flows'} tab for those.`
+          : `No ${noun}s have been planned yet.`,
       ],
     },
   };
@@ -220,6 +224,8 @@ function planFromBrief(config: WebsiteWorkspaceConfig, request: WebsiteGeneratio
  * real page out of it.
  */
 function planFromSitemap(config: WebsiteWorkspaceConfig, request: WebsiteGenerationRequest): WebsiteGenerationPlanResult {
+  const isWebsite = config.surfaceKind === 'website';
+  const noun = isWebsite ? 'page' : 'screen';
   const tree = buildSitemapTree(config.pages);
   const ordered = flattenSitemap(tree).map(node => node.page);
 
@@ -237,12 +243,12 @@ function planFromSitemap(config: WebsiteWorkspaceConfig, request: WebsiteGenerat
   const unprompted = ordered.filter(page => page.designPrompt.trim().length === 0);
 
   const prompt = buildGenerationPrompt(config, {
-    heading: `Generate ${ordered.length} linked page${ordered.length === 1 ? '' : 's'} for this site.`,
+    heading: `Generate ${ordered.length} linked ${noun}${ordered.length === 1 ? '' : 's'} for this ${isWebsite ? 'site' : 'interface'} as an HTML visual guide.`,
     scope: 'site',
     instruction: [
-      'Produce one HTML file per page listed below plus one shared stylesheet.',
-      'Follow each page\'s own design prompt where it has one. Wire the navigation using the',
-      'sitemap hierarchy and the recorded links so the pages actually reach each other.',
+      `Produce one HTML visual-reference file per ${noun} listed below plus one shared stylesheet.`,
+      `Follow each ${noun}'s own design prompt where it has one. Wire the navigation using the`,
+      `${isWebsite ? 'sitemap' : 'screen'} hierarchy and the recorded links so the ${noun}s actually reach each other.`,
     ].join(' '),
     includeSitemap: true,
     contentPages: ordered,
@@ -254,7 +260,7 @@ function planFromSitemap(config: WebsiteWorkspaceConfig, request: WebsiteGenerat
     ok: true,
     plan: {
       stage: 'sitemap',
-      targetLabel: `all ${ordered.length} page${ordered.length === 1 ? '' : 's'}`,
+      targetLabel: `all ${ordered.length} ${noun}${ordered.length === 1 ? '' : 's'}`,
       files,
       prompt,
       omitted: [
@@ -275,14 +281,15 @@ function planFromWireframe(
   pageId: string | undefined,
   request: WebsiteGenerationRequest,
 ): WebsiteGenerationPlanResult {
+  const noun = config.surfaceKind === 'website' ? 'page' : 'screen';
   const page = config.pages.find(candidate => candidate.id === pageId);
   if (!page) {
-    return { ok: false, reason: 'That page is no longer in the sitemap.' };
+    return { ok: false, reason: `That ${noun} is no longer in the ${config.surfaceKind === 'website' ? 'sitemap' : 'interface map'}.` };
   }
 
   const elements = page.wireframe ? orderedWireframeElements(page.wireframe) : [];
   const prompt = buildGenerationPrompt(config, {
-    heading: `Generate the ${page.title} page from its wireframe.`,
+    heading: `Generate the ${page.title} ${noun} from its wireframe as an HTML visual guide.`,
     scope: 'page',
     pageId: page.id,
     instruction: [
@@ -300,7 +307,7 @@ function planFromWireframe(
     ok: true,
     plan: {
       stage: 'wireframe',
-      targetLabel: `the ${page.title} page`,
+      targetLabel: `the ${page.title} ${noun}`,
       files: [
         { relativePath: pagePath(page), purpose: `${page.title} — generated from ${elements.length} drawn element${elements.length === 1 ? '' : 's'}` },
         { relativePath: 'assets/site.css', purpose: 'Shared stylesheet from the design system' },
@@ -308,9 +315,9 @@ function planFromWireframe(
       prompt,
       omitted: [
         ...(elements.length === 0
-          ? ['This page has no drawn elements, so the layout is entirely the model\'s proposal.']
+          ? [`This ${noun} has no drawn elements, so the layout is entirely the model's proposal.`]
           : []),
-        'Only this page is generated. Links to other pages will not resolve until those are generated too.',
+        `Only this ${noun} is generated. Links to other ${noun}s will not resolve until those are generated too.`,
       ],
     },
   };
@@ -331,9 +338,10 @@ function planFromElement(
   elementId: string | undefined,
   request: WebsiteGenerationRequest,
 ): WebsiteGenerationPlanResult {
+  const noun = config.surfaceKind === 'website' ? 'page' : 'screen';
   const page = config.pages.find(candidate => candidate.id === pageId);
   if (!page) {
-    return { ok: false, reason: 'That page is no longer in the sitemap.' };
+    return { ok: false, reason: `That ${noun} is no longer in the ${config.surfaceKind === 'website' ? 'sitemap' : 'interface map'}.` };
   }
   const element = page.wireframe?.elements.find(candidate => candidate.id === elementId);
   if (!element) {
@@ -343,12 +351,12 @@ function planFromElement(
   const spec = wireframeKindSpec(element.kind);
   const label = element.label || spec.label;
   const prompt = buildGenerationPrompt(config, {
-    heading: `Regenerate the ${page.title} page, changing the "${label}" element.`,
+    heading: `Regenerate the ${page.title} ${noun}, changing the "${label}" element.`,
     scope: 'element',
     pageId: page.id,
     elementId: element.id,
     instruction: [
-      `Rewrite the whole page, but change only the "${label}" element and whatever must move`,
+      `Rewrite the whole ${noun}, but change only the "${label}" element and whatever must move`,
       'to accommodate it. Every other element keeps its current structure and styling.',
     ].join(' '),
     contentPages: [page],
@@ -360,14 +368,14 @@ function planFromElement(
     ok: true,
     plan: {
       stage: 'element',
-      targetLabel: `"${label}" on the ${page.title} page`,
+      targetLabel: `"${label}" on the ${page.title} ${noun}`,
       files: [
         { relativePath: pagePath(page), purpose: `${page.title} — regenerated around the "${label}" element` },
         { relativePath: 'assets/site.css', purpose: 'Shared stylesheet from the design system' },
       ],
       prompt,
       omitted: [
-        `The whole ${page.title} page is rewritten, not just this element — hand-edits made to the generated file since the last run will be lost.`,
+        `The whole ${page.title} ${noun} is rewritten, not just this element — hand-edits made to the generated file since the last run will be lost.`,
       ],
     },
   };

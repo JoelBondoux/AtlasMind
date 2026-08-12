@@ -1,6 +1,7 @@
 # Website Studio — a plan to lead the category
 
-**Status:** proposal, for argument. Nothing here is committed to a roadmap.
+**Status:** superseded as the active roadmap by `docs/ui-studio-builder-plan.md`; retained as the strategy
+and competitive rationale that led to the approved plan.
 **Written:** 2026-08-06, against v0.265.0.
 **Audience decision:** agencies *and* developers — the agency workflow as the frame, a real
 repository as the artefact.
@@ -243,3 +244,18 @@ The gap to class-leading is not the canvas and it is not the model. It is §3.2 
 content, and real client feedback.** Those two are what turn a generator into a product an agency
 runs their business on, and neither is primarily an AI problem — which is precisely why the
 competitors optimising for AI quality have not closed them.
+
+---
+
+## 8. Direction after UI Studio v0.273.0
+
+The preview is now the product's feedback loop rather than a side utility. A numbered Full Preview step
+opens a canonical deterministic draft in VS Code's built-in browser, combining structure, safe visual
+tokens, and exact Markdown copy; a separate lab inspects fixed responsive widths. Generated output is
+kept one click away but cannot replace the draft. This closes the first half of the “real content” gap:
+copy can now be authored and judged in context without asking a model to invent the missing words.
+
+The competitive bar from here is interaction depth, not another gallery of generated pages: responsive
+layout editing rather than width-only inspection, state and variant previews, reusable component
+instances, asset treatment, accessibility checks on the composed result, and client review on this same
+canonical surface. Each should strengthen the one design loop rather than create another preview mode.

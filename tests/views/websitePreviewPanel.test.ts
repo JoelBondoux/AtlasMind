@@ -96,6 +96,12 @@ describe('websitePreviewPanel', () => {
       const html = getWebsitePreviewHtml(CSP_SOURCE, 'http://127.0.0.1:1234/t/', 1234);
       expect(html).toMatch(/src="http:\/\/127\.0\.0\.1:1234\/t\/\?t=\d+"/);
     });
+
+    it('opens the full canvas in VS Code rather than the operating-system browser', () => {
+      const source = readFileSync(path.join(process.cwd(), 'src/views/websitePreviewPanel.ts'), 'utf8');
+      expect(source).toContain("'simpleBrowser.api.open'");
+      expect(source).not.toContain('vscode.env.openExternal');
+    });
   });
 
   describe('messages', () => {

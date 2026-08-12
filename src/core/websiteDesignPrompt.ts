@@ -105,15 +105,16 @@ export function buildScopedDesignPrompt(request: DesignPromptRequest): DesignPro
 // ── Scopes ───────────────────────────────────────────────────────
 
 function buildSitePrompt(config: WebsiteWorkspaceConfig, instruction: string): DesignPromptResult {
-  const siteName = safe(config.intake.projectName) || safe(config.intake.clientName) || 'this website';
+  const isWebsite = config.surfaceKind === 'website';
+  const siteName = surfaceName(config);
   const lines = [
-    `You are helping design ${siteName}. The request below concerns the site as a whole.`,
+    `You are helping design ${siteName}. The request below concerns the ${isWebsite ? 'site' : 'interface'} as a whole.`,
     '',
     requestBlock(instruction),
     '',
     fenceHeader(),
     '',
-    fenced('site brief', [
+    fenced(isWebsite ? 'site brief' : 'interface brief', [
       `Client: ${safe(config.intake.clientName) || '(not recorded)'}`,
       `Project: ${safe(config.intake.projectName) || '(not recorded)'}`,
       `Summary: ${safe(config.intake.summary) || '(not recorded)'}`,
@@ -121,12 +122,16 @@ function buildSitePrompt(config: WebsiteWorkspaceConfig, instruction: string): D
       list('Audiences', config.intake.audiences),
       list('Required features', config.intake.requiredFeatures),
       list('Constraints', config.intake.constraints),
-      `Site design prompt: ${safe(config.designPrompt) || '(none written yet)'}`,
+      `${isWebsite ? 'Site' : 'Interface'} design prompt: ${safe(config.designPrompt) || '(none written yet)'}`,
     ]),
     '',
     designSystemBlock(config),
     '',
-    fenced('pages', config.pages.map(page => `- ${safe(page.title)} (${normalizeSlug(page.slug)}) — ${safe(page.purpose) || 'no stated purpose'}`)),
+    contentDesignBlock(config),
+    '',
+    implementationBlock(config),
+    '',
+    fenced(isWebsite ? 'pages' : 'screens', config.pages.map(page => `- ${safe(page.title)} (${normalizeSlug(page.slug)}) — ${safe(page.purpose) || 'no stated purpose'}`)),
     '',
     closingRules(),
   ];
@@ -138,25 +143,26 @@ function buildPagePrompt(
   page: WebsitePagePlan,
   instruction: string,
 ): DesignPromptResult {
+  const noun = config.surfaceKind === 'website' ? 'page' : 'screen';
   const label = `${safe(page.title)} (${normalizeSlug(page.slug)})`;
   const structure = page.wireframe
     ? page.wireframe.elements.map(element => `- ${describeElement(element)}`)
-    : ['(this page has not been drawn on the canvas yet)'];
+    : [`(this ${noun} has not been drawn on the canvas yet)`];
 
   const lines = [
-    `You are helping design one page of ${siteName(config)}: ${label}.`,
-    'The request below concerns this page only. Do not redesign other pages.',
+    `You are helping design one ${noun} of ${surfaceName(config)}: ${label}.`,
+    `The request below concerns this ${noun} only. Do not redesign other ${noun}s.`,
     '',
     requestBlock(instruction),
     '',
     fenceHeader(),
     '',
-    fenced('page', [
+    fenced(noun, [
       `Title: ${safe(page.title)}`,
-      `Slug: ${normalizeSlug(page.slug)}`,
+      `${config.surfaceKind === 'website' ? 'Slug' : 'Route / view id'}: ${normalizeSlug(page.slug)}`,
       `Purpose: ${safe(page.purpose) || '(not recorded)'}`,
       `Template: ${safe(page.template) || '(not recorded)'}`,
-      `Page design prompt: ${safe(page.designPrompt) || '(none written yet)'}`,
+      `${config.surfaceKind === 'website' ? 'Page' : 'Screen'} design prompt: ${safe(page.designPrompt) || '(none written yet)'}`,
       `Design notes: ${safe(page.designNotes) || '(none)'}`,
       '',
       'Current structure:',
@@ -164,6 +170,10 @@ function buildPagePrompt(
     ]),
     '',
     designSystemBlock(config),
+    '',
+    contentDesignBlock(config),
+    '',
+    implementationBlock(config),
     '',
     closingRules(),
   ];
@@ -176,6 +186,7 @@ function buildElementPrompt(
   element: WebsiteWireframeElement,
   instruction: string,
 ): DesignPromptResult {
+  const noun = config.surfaceKind === 'website' ? 'page' : 'screen';
   const spec = wireframeKindSpec(element.kind);
   const label = `${safe(element.label) || spec.label} on ${safe(page.title)}`;
 
@@ -191,7 +202,7 @@ function buildElementPrompt(
     .map(candidate => `- ${describeElement(candidate)}`);
 
   const lines = [
-    `You are helping design one element on the ${safe(page.title)} page of ${siteName(config)}.`,
+    `You are helping design one element on the ${safe(page.title)} ${noun} of ${surfaceName(config)}.`,
     '',
     'THE SELECTED ELEMENT — this is what "this", "it", and "here" refer to in the request:',
     `  Kind: ${element.kind} (${spec.description})`,
@@ -212,12 +223,16 @@ function buildElementPrompt(
       ? fenced('elements beside it', siblings)
       : fenced('elements beside it', ['(none — it is the only element at this level)']),
     '',
-    fenced('page context', [
-      `Page purpose: ${safe(page.purpose) || '(not recorded)'}`,
-      `Page design prompt: ${safe(page.designPrompt) || '(none written yet)'}`,
+    fenced(`${noun} context`, [
+      `${noun === 'page' ? 'Page' : 'Screen'} purpose: ${safe(page.purpose) || '(not recorded)'}`,
+      `${noun === 'page' ? 'Page' : 'Screen'} design prompt: ${safe(page.designPrompt) || '(none written yet)'}`,
     ]),
     '',
     designSystemBlock(config),
+    '',
+    contentDesignBlock(config),
+    '',
+    implementationBlock(config),
     '',
     `Answer about this element only. Coordinates are in canvas units on a ${WIREFRAME_CANVAS_WIDTH}-wide grid, not pixels.`,
     closingRules(),
@@ -265,6 +280,30 @@ function designSystemBlock(config: WebsiteWorkspaceConfig): string {
     `Corner style: ${safe(design.cornerStyle)}`,
     `Accessibility target: ${safe(design.accessibilityTarget)}`,
     list('Component notes', design.componentNotes),
+  ]);
+}
+
+function contentDesignBlock(config: WebsiteWorkspaceConfig): string {
+  const content = config.contentDesign;
+  return fenced('shared content design', [
+    `Voice: ${safe(content.voice) || '(not recorded)'}`,
+    list('Principles', content.principles),
+    list('Preferred terms', content.preferredTerms),
+    list('Avoided terms', content.avoidedTerms),
+    `Reading level: ${safe(content.readingLevel) || '(not recorded)'}`,
+    list('Locales', content.locales),
+    `Accessibility notes: ${safe(content.accessibilityNotes) || '(not recorded)'}`,
+  ]);
+}
+
+function implementationBlock(config: WebsiteWorkspaceConfig): string {
+  const implementation = config.implementation;
+  return fenced('implementation guide', [
+    `Interface profile: ${config.surfaceKind}`,
+    list('Target technologies', implementation.targetTechnologies),
+    list('UI source roots', implementation.sourceRoots),
+    list('Component locations', implementation.componentLocations),
+    list('Handoff notes', implementation.notes),
   ]);
 }
 
@@ -318,8 +357,10 @@ function list(name: string, values: readonly string[]): string {
   return cleaned.length > 0 ? `${name}: ${cleaned.join('; ')}` : '';
 }
 
-function siteName(config: WebsiteWorkspaceConfig): string {
-  return safe(config.intake.projectName) || safe(config.intake.clientName) || 'this website';
+function surfaceName(config: WebsiteWorkspaceConfig): string {
+  return safe(config.intake.projectName)
+    || safe(config.intake.clientName)
+    || (config.surfaceKind === 'website' ? 'this website' : 'this interface');
 }
 
 /**

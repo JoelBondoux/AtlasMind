@@ -201,6 +201,29 @@ describe('sanitizeProjectDirectorConfig — webview→disk boundary', () => {
     expect(out.assignments[0]).toMatchObject({ kind: 'task', status: 'todo', priority: 'medium', source: 'manual' });
   });
 
+  it('keeps only bounded, declared dashboard work links', () => {
+    const input = base();
+    input.assignments = [
+      {
+        id: 'a1', title: 'Own develop', kind: 'task', status: 'in-progress', priority: 'medium', source: 'dashboard',
+        linkedWork: { kind: 'branch', id: 'develop' },
+        createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      },
+      {
+        id: 'a2', title: 'Forged work', kind: 'task', status: 'todo', priority: 'medium', source: 'dashboard',
+        linkedWork: { kind: 'terminal-command', id: 'rm -rf .' },
+        createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      },
+    ];
+
+    const out = sanitizeProjectDirectorConfig(input)!;
+    expect(out.assignments[0]).toMatchObject({
+      source: 'dashboard',
+      linkedWork: { kind: 'branch', id: 'develop' },
+    });
+    expect(out.assignments[1].linkedWork).toBeUndefined();
+  });
+
   it('strips deep-links whose scheme is not allowlisted, keeps safe ones', () => {
     const input = base();
     input.contacts = [{

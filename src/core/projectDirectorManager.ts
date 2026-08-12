@@ -30,6 +30,7 @@ import type {
   AssignmentKind,
   AssignmentPriority,
   AssignmentStatus,
+  DashboardWorkKind,
   CommunicationLink,
   DirectorContact,
   DirectorLevel,
@@ -310,6 +311,9 @@ const LEVELS: DirectorLevel[] = ['high', 'medium', 'low'];
 const ASSIGNMENT_KINDS: AssignmentKind[] = ['task', 'responsibility', 'review', 'decision', 'other'];
 const ASSIGNMENT_STATUSES: AssignmentStatus[] = ['todo', 'in-progress', 'blocked', 'done', 'cancelled'];
 const ASSIGNMENT_PRIORITIES: AssignmentPriority[] = ['high', 'medium', 'low'];
+const DASHBOARD_WORK_KINDS: DashboardWorkKind[] = [
+  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
+];
 const FOLLOWUP_STATUSES: FollowUpStatus[] = ['open', 'done', 'snoozed', 'cancelled'];
 const FOLLOWUP_CADENCES: FollowUpCadence[] = ['once', 'daily', 'weekly', 'biweekly', 'monthly'];
 const TEAM_MODES: ProjectTeamMode[] = ['solo', 'team', 'auto'];
@@ -556,7 +560,8 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
   }
   const respIds = new Set(responsibilities.map(r => r.id));
 
-  // Assignments (clear dangling contact/responsibility refs; keep run refs as-is).
+  // Assignments (clear dangling contact/responsibility refs; keep bounded links
+  // to host-resolved runs and dashboard work as-is).
   const usedAssignmentIds = new Set<string>();
   const assignments: Assignment[] = [];
   for (const item of raw['assignments'] as unknown[]) {
@@ -567,6 +572,9 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
     while (usedAssignmentIds.has(id)) { id = `${id}-${usedAssignmentIds.size}`; }
     usedAssignmentIds.add(id);
     const linkedRespRaw = clampStr(a['linkedResponsibilityId'], 80);
+    const linkedWorkRaw = asObject(a['linkedWork']);
+    const linkedWorkKind = whitelist(linkedWorkRaw['kind'], DASHBOARD_WORK_KINDS, '' as DashboardWorkKind);
+    const linkedWorkId = clampStr(linkedWorkRaw['id'], 600);
     assignments.push({
       id,
       title,
@@ -577,7 +585,8 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
       due: optStr(a['due'], 40),
       linkedRunId: optStr(a['linkedRunId'], 120),
       linkedResponsibilityId: respIds.has(linkedRespRaw) ? linkedRespRaw : undefined,
-      source: whitelist(a['source'], ['manual', 'imported', 'run'], 'manual'),
+      ...(linkedWorkKind && linkedWorkId ? { linkedWork: { kind: linkedWorkKind, id: linkedWorkId } } : {}),
+      source: whitelist(a['source'], ['manual', 'imported', 'run', 'dashboard'], 'manual'),
       createdAt: isoOrNow(a['createdAt']),
       updatedAt: isoOrNow(a['updatedAt']),
       notes: optStr(a['notes'], MAX_LONG),
@@ -852,10 +861,11 @@ export function renderProjectDirectorMarkdown(config: ProjectDirectorConfig): st
   if (config.assignments.length === 0) {
     lines.push('_None recorded yet._');
   } else {
-    lines.push('| Title | Assignee | Status | Priority | Due |');
-    lines.push('| --- | --- | --- | --- | --- |');
+    lines.push('| Title | Linked work | Assignee | Status | Priority | Due |');
+    lines.push('| --- | --- | --- | --- | --- | --- |');
     for (const a of config.assignments) {
-      lines.push(`| ${describe(a.title)} | ${a.assigneeContactId ? nameOf(a.assigneeContactId) : '—'} | ${a.status} | ${a.priority} | ${describe(a.due)} |`);
+      const linked = a.linkedWork ? `${a.linkedWork.kind}: ${a.linkedWork.id}` : a.linkedRunId ? `run: ${a.linkedRunId}` : '—';
+      lines.push(`| ${describe(a.title)} | ${describe(linked)} | ${a.assigneeContactId ? nameOf(a.assigneeContactId) : '—'} | ${a.status} | ${a.priority} | ${describe(a.due)} |`);
     }
   }
   lines.push('');

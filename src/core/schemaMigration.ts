@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 4,
+  website: 7,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -164,7 +164,124 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
     // "nobody has written this yet" — which seeding would destroy.
     migrate: document => ({ ...document, version: 4 }),
   },
+  {
+    kind: 'website',
+    from: 4,
+    to: 5,
+    summary: 'Website Studio is now a UI-design workspace with an explicit interface profile, content rules, and implementation handoff.',
+    // Existing work was necessarily a website because v4 could represent no
+    // other surface. The new design and handoff records start empty: a
+    // migration can preserve a fact, but it must not invent a product voice or
+    // claim where components live in the source tree.
+    migrate: document => ({
+      ...document,
+      version: 5,
+      surfaceKind: 'website',
+      contentDesign: {
+        voice: '',
+        principles: [],
+        preferredTerms: [],
+        avoidedTerms: [],
+        readingLevel: '',
+        locales: [],
+        accessibilityNotes: '',
+      },
+      implementation: {
+        targetTechnologies: [],
+        sourceRoots: [],
+        componentLocations: [],
+        notes: [],
+      },
+    }),
+  },
+  {
+    kind: 'website',
+    from: 5,
+    to: 6,
+    summary: 'UI Studio now stores a revisioned target-independent design graph while retaining page wireframes as a compatibility projection.',
+    // The graph says only what v5 already said. Layout defaults name the old
+    // canvas semantics; responsive overrides, references, components, tokens,
+    // and states remain empty because a migration has no standing to invent
+    // them. `initialized` preserves the distinction between an untouched page
+    // and a deliberately empty canvas.
+    migrate: document => {
+      const pages = Array.isArray(document['pages']) ? document['pages'] : [];
+      return {
+        ...document,
+        version: 6,
+        designGraph: {
+          revision: 0,
+          screens: pages.map(page => {
+            const pageRecord = asMigrationRecord(page);
+            const wireframe = asMigrationRecord(pageRecord['wireframe']);
+            const elements = Array.isArray(wireframe['elements']) ? wireframe['elements'] : [];
+            const pageId = typeof pageRecord['id'] === 'string' ? pageRecord['id'] : '';
+            return {
+              id: pageId,
+              pageId,
+              initialized: pageRecord['wireframe'] !== undefined,
+              baseBreakpoint: typeof wireframe['breakpoint'] === 'string'
+                ? wireframe['breakpoint']
+                : 'desktop',
+              nodes: elements.map(element => {
+                const record = asMigrationRecord(element);
+                return {
+                  id: record['id'],
+                  kind: record['kind'],
+                  label: record['label'],
+                  locked: false,
+                  ...(record['parentId'] !== undefined ? { parentId: record['parentId'] } : {}),
+                  layout: {
+                    mode: 'free',
+                    rect: record['rect'],
+                    widthMode: 'fixed',
+                    heightMode: 'fixed',
+                    hidden: false,
+                    direction: 'vertical',
+                    gap: 16,
+                    padding: 16,
+              columns: 2,
+              align: 'start',
+              distribute: 'start',
+              minWidth: null,
+              maxWidth: null,
+              minHeight: null,
+              maxHeight: null,
+              wrap: 'nowrap',
+              order: 0,
+            },
+                  viewportOverrides: {},
+                  designPrompt: record['designPrompt'],
+                  notes: record['notes'],
+                };
+              }),
+            };
+          }),
+        },
+      };
+    },
+  },
+  {
+    kind: 'website',
+    from: 6,
+    to: 7,
+    summary: 'UI Studio now stores typed design-token definitions inside the authoritative graph.',
+    migrate: document => ({
+      ...document,
+      version: 7,
+      designGraph: {
+        ...asMigrationRecord(document['designGraph']),
+        tokens: [],
+      },
+    }),
+  },
 ];
+
+function asMigrationRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
 
 /**
  * The `sections` → wireframe transcription used by the website 1 → 2 step.

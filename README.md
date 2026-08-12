@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.270.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.290.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -67,10 +67,14 @@ evidence, argue with yourself visually, and then turn the cards that survived in
 **Ship properly.** A guided eight-stage GitHub workflow takes you from an idea to a released version —
 issues, branches, pull requests, review, CI, release — with a clear explanation at every step.
 
-**Deliver a client website.** Website Studio carries a site from the client brief through a sitemap
-that draws its own hierarchy, a wireframe canvas you actually draw on, a shared design system, and a
-protected path to production. Select any block and say what you want in plain English; press
-**Generate** at any stage and watch it render in a preview beside you.
+**Design an interface, then carry it into the project.** UI Studio works with websites, web and mobile
+apps, desktop tools, editor extensions, embedded interfaces, and custom surfaces. It keeps screens,
+flows, wireframes, content rules, real Markdown copy, UI-system decisions, and source-code handoff
+guidance together. Its full preview opens in VS Code's built-in browser and combines the saved
+wireframe, UI tokens, and exact Markdown copy; a separate responsive lab checks fixed device widths.
+Website projects additionally retain the guarded sitemap, stack, hosting, and delivery workflow.
+Select any block and describe it in plain English; every profile can generate a reviewable HTML visual
+guide even when the eventual implementation is native rather than HTML.
 
 ---
 
@@ -123,10 +127,10 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.270.4
+## What's new in 0.290.1
 
-Since the last Marketplace publication, **v0.270.3**, source builds have added the following. The full
-history is in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
+capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **The orchestrator now records when it discards a model's answer.** If every tool result in an
   agentic loop's final round tests as failed, AtlasMind replaces the model's reply with a summary of
@@ -135,6 +139,154 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   the token that triggered each verdict, so a tool that genuinely failed can be told apart from one
   whose output merely mentioned failure. Trigger tokens only, never tool output, which can carry
   secrets. Behaviour is unchanged; this is measurement ahead of a fix.
+
+- **Phase 3 starts with typed design tokens in the authoritative graph.** Colour, typography, spacing,
+  radius, shadow, motion, and breakpoint values now have bounded target-independent definitions. Aliases
+  propagate deterministically and are refused when missing, cyclic, or linked across token kinds.
+
+- **Responsive diagnostics now complete the layout loop.** Desktop, tablet, and mobile each report viewport
+  overflow, parent clipping, unintended overlap, and undersized 44px touch targets from the same projection
+  shown in Studio and Full Preview. Click a finding to select its owning block.
+
+- **Multi-selection now supports real pointer drag.** Drag any selected block to move the whole selection
+  without changing its spacing or hierarchy. Base and responsive gestures are each one validated revision
+  and one undo step; locked or container-positioned members keep the operation closed.
+
+- **Duplicate and lock are now safe canvas operations.** Duplicate copies a selected block and its complete
+  nested subtree as one undoable edit, preserving hierarchy and moving authored responsive rectangles too.
+  Lock keeps a block selectable for review while the host reducer refuses every edit except Unlock.
+
+- **Stacks now wrap and container children have responsive order.** A stack can continue on another row or
+  column when its main axis fills, while a bounded order value deterministically sorts stack/grid children
+  before placement. Both properties inherit, reset, and render identically in Studio and Full Preview.
+
+- **Responsive min/max sizing is now part of the real layout engine.** Set optional width and height bounds
+  in canvas units; free, stack, grid, overlay, fixed, fill, and hug all obey the same inherited constraints in
+  the Studio and full built-in-browser preview. Clearing a bound recovers the retained drawn/intrinsic size.
+
+- **Stack, grid, overlay, fill, and hug now drive the actual layout.** Configure direction, gap, padding,
+  columns, alignment, and distribution in the inspector; the same deterministic projection appears in the
+  Studio and full built-in-browser preview at desktop, tablet, and mobile. Resetting a responsive behaviour
+  restores inheritance without losing geometry or visibility decisions.
+
+- **The Studio now has atomic multi-selection layout tools.** Shift/Ctrl/Cmd-select several blocks, then
+  align edges or centres, distribute spacing, or nudge the group at desktop, tablet, or mobile. The complete
+  transform is one validated revision and one undo step; it never changes hierarchy or broadens deletion.
+
+- **Responsive layouts now support direct manipulation.** At tablet or mobile, drag, resize, or use the
+  arrow keys to turn the inherited rectangle into a deliberate breakpoint override. Drawing, deletion, and
+  nesting remain base-only, so responsive work cannot accidentally change the shared structure.
+
+- **Responsive design is now inspectable and editable in the Studio.** Switch the canvas among desktop,
+  tablet, and mobile; select even a hidden node; see exactly which breakpoint supplied its geometry,
+  visibility, layout mode, and sizing; then apply or independently reset tablet/mobile layout and visibility
+  through the same revisioned undo/redo path as other canvas edits.
+
+- **Full Preview now reflects responsive design intent.** The deterministic Studio draft projects inherited
+  tablet and mobile geometry/visibility as the built-in browser or Responsive lab changes width. The result
+  remains static, script-free renderer output with content and style together; only AtlasMind's existing
+  frozen live-reload/selection runtime is injected by the host.
+
+- **Responsive layout now has a deterministic inheritance engine.** Desktop values flow through tablet
+  into mobile, each computed property reports whether it came from the base or a named override, and
+  clearing an override restores the inherited result. Setting and clearing responsive geometry/visibility
+  uses the same exact revisioned, undoable command boundary as direct canvas editing.
+
+- **The UI Studio foundation is proven across three kinds of product.** Committed executable fixtures for a
+  marketing website, data-rich web app, and native desktop UI now verify lossless migration and reopening,
+  the shared edit/history/selection contract, deterministic full-browser content previews, and the absence
+  of target technology or website-delivery fields from the authoritative graph.
+
+- **Canvas edits now use the authoritative revisioned graph.** Drawing, moving, resizing, nesting, deleting,
+  changing kind, label, or design intent, plus undo/redo, all pass through one exact command parser and pure
+  reducer. Each accepted gesture advances revision once; stale or invalid gestures restore host-owned state,
+  and Save can no longer replace the graph with an arbitrary webview payload.
+
+- **The Studio canvas and full browser preview now share selection.** Selecting a saved block in either
+  surface highlights and focuses the same graph node in the other. The browser can submit only the current
+  render revision plus bounded screen/node IDs; the host resolves those IDs against the saved graph, and
+  stale, malformed, oversized, extra-field, or wrong-token requests are refused.
+
+- **The full browser preview now follows saved design and content changes live.** A frozen Studio-only
+  runtime listens for revision numbers on the token-protected loopback server and reloads when the
+  deterministic draft changes. It cannot submit edits, graph fragments, paths, commands, or source code;
+  generated/exported output remains independent.
+
+- **UI Studio now has a durable plan to compete as a complete visual builder.** The repository records the
+  product contract, delivery phases, acceptance criteria, reference projects, quality measures, and the
+  design/source/preview authority decisions. See the [full builder plan](docs/ui-studio-builder-plan.md).
+
+- **The visual design now has one revisioned graph underneath it.** Format v6 preserves every existing
+  wireframe fact while giving screens and nodes stable identities, bounded layout, responsive override slots,
+  and content/style/component references. Existing renderers receive a derived compatibility wireframe, so
+  this foundation can land without disconnecting today's Studio.
+
+- **Future canvas and preview edits now share a safe mutation protocol.** A pure closed command reducer checks
+  the graph revision, node, geometry, and parent relationship before changing anything. Undo and redo restore
+  design content while revisions keep moving forward, so an old browser or webview event never becomes current
+  again by accident.
+
+- **Preview is now the centre of UI Studio's design loop.** Full-canvas review opens in VS Code's
+  built-in browser and always starts from a deterministic index built from saved structure, visual
+  tokens, and exact Markdown content. Content gaps remain visibly unfinished, all copy appears again
+  in a complete content proof, model-generated output stays linked but separate, and the guarded
+  companion view remains available for desktop/tablet/mobile inspection.
+
+- **Website Studio has become UI Studio.** Choose a website, web app, mobile app, desktop app, editor
+  extension, embedded UI, or another interface profile. Non-web projects use screens, flows, content,
+  wireframes, design tokens, components, and a technology/source-location handoff without being forced
+  through HTML, SEO, hosting, or n8n concepts. Any profile may render an implementation-independent
+  HTML visual guide; website projects additionally keep the delivery tools intact.
+
+- **Content is now designed beside the interface.** Project voice, principles, terminology, reading
+  level, locales, and accessibility notes live in the reviewable SSOT. Each screen also has a real
+  Markdown content editor for headings, labels, instructions, empty/loading/error/success states, and
+  recovery copy. Missing files can be seeded with explicit placeholders only; concurrent disk edits
+  are refused rather than overwritten.
+
+- **Branch Dashboard choices now stay chosen.** Saved view, sort, order, grouping, and SCM-colour
+  preferences survive closing and reopening the dashboard for this workspace. Recent activity also
+  reflects the newest commit across a folded local/upstream pair, keeping newest-first and oldest-first
+  ordering faithful when the two refs differ.
+
+- **Project Director now carries the same live attention signal as Project State.** Active dashboard
+  work assigned to your Director identity joins due and overdue reminders under **Follow-ups**. The
+  Project Director title, Follow-ups row, and AtlasMind activity icon all carry the same count—even
+  while the view is collapsed.
+
+- **Sidebar ToDos now open the record they name.** Dashboard links carry a validated page, work kind,
+  and stable item id. The dashboard opens the owning page, clears any presentation filter hiding the
+  target, scrolls it into view, and gives it a visible focus outline. Director's **Open work** links use
+  the same route; removed or not-yet-loaded records still fall back safely to the correct page.
+
+- **A closed Project State panel still tells you what is waiting.** Its live title now reads
+  **Project State · N waiting**, so collapsing the ToDo list no longer removes the only local indicator.
+
+- **Project State carries its attention count on all three visible surfaces.** AtlasMind's activity-bar
+  logo keeps the container badge, the open Project State header says how many items are waiting, and
+  **Waiting on you** carries a coloured numeric row badge instead of an unstyled trailing number.
+
+- **Your assigned work now reaches Project State.** Choosing your own Director identity on a branch,
+  roadmap item, issue, pull request, gap, risk, debt item, document, or run adds that active work under
+  **Waiting on you** immediately. The same count badges the Project State title and AtlasMind activity
+  icon, while completed, cancelled, and other people's work stay quiet.
+
+- **Branch Work actions are compact and resilient.** The owner picker and icon toolbar now share one
+  flexible content column, so narrow cards no longer squeeze action labels into vertical word stacks.
+  Each icon keeps the complete action and safety explanation in its tooltip and accessible label.
+
+- **Branch cards now carry the daily workflow.** Expand any card to work on that branch, prepare a
+  commit in Source Control, pull with a fast-forward-only guard, push or publish without force, create
+  a new local branch from its current commit, and open GitHub's pull-request form. Each action sends
+  only an opaque card id to the extension host, which rebuilds live Git state before it enables or runs
+  anything; merge, rebase, force-push, and automatic commit remain deliberate workflows elsewhere.
+
+- **The Director can assign people where the work appears.** Branches, roadmap items, open issues and
+  pull requests, gaps, risks, debt, and documents needing attention now expose the same owner picker.
+  Those owners are stored once in Project Director; its Assignments view lists active work so an owner
+  can be assigned there first or changed later. Each work page and the people view therefore report
+  the same responsibility.
+
 
 - **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
   preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,
@@ -168,7 +320,7 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   draft for that exact item.
 
 - **“Ask AtlasMind” is now one visual language everywhere.** Dashboard fixes, Lens explanations, MCP
-  setup help, Website Studio design questions, and Project Run draft refinement all use the AtlasMind
+  setup help, UI Studio design questions, and Project Run draft refinement all use the AtlasMind
   logo alone. Hovering names the exact action, while `aria-label` text keeps the control explicit for
   assistive technology.
 
@@ -262,14 +414,14 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   prompt, so a site can reach first-draft design from the sitemap alone without a box being drawn.
 
   **Generate works from wherever you are** — brief, sitemap, a wireframe, or one selected element — and
-  the result renders in a preview window beside the Studio. The file list is decided before any model
+  its result remains linked from the full built-in-browser preview. The file list is decided before any model
   runs, so the confirmation dialog names every file you are agreeing to. Both switches are **off by
   default**, and they are two switches because writing files and opening a port are different
   decisions. Files land only in `.atlasmind/website-preview/`, never in your source tree; the preview
-  server binds `127.0.0.1` only and stops when you close the window.
+  server binds `127.0.0.1` only and stops through Stop Preview, Studio disposal, or extension deactivation.
 
 - **Every panel now looks like the Project Dashboard.** Settings, MCP, Model Providers, Agent Manager,
-  Mission Control, Run Center, Cost Dashboard, Model Comparison, Website Studio, Ideation, Vision,
+  Mission Control, Run Center, Cost Dashboard, Model Comparison, UI Studio, Ideation, Vision,
   Voice, Specialists, Tool Webhooks, Skill Scanner, Chat and the ten Lens surfaces draw the same card,
   the same header, the same tab and the same input.
 
@@ -422,7 +574,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
-| **Website Studio** | Draw the site on a wireframe canvas, watch the sitemap build its own hierarchy, select any element and describe it in words, then Generate into a live preview beside you — through to a protected Develop → Staging → Production path. |
+| **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |
@@ -492,7 +644,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, CI inspection/scaffolding (`ciManager.ts`), and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -503,7 +655,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security and regression coverage |
-| `docs/` and `wiki/` | Developer reference and user guides |
+| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
 
 The full service map is in [Architecture](docs/architecture.md).
 
@@ -513,7 +665,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Start here:** [Getting Started](wiki/Getting-Started.md) · [FAQ](wiki/FAQ.md) · [Chat Commands](wiki/Chat-Commands.md) · [Configuration](wiki/Configuration.md)
 
-**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [Website Studio](wiki/Website-Studio.md) · [CLI](wiki/CLI.md)
+**Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [UI Studio builder plan](wiki/UI-Studio-Builder-Plan.md) · [CLI](wiki/CLI.md)
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 

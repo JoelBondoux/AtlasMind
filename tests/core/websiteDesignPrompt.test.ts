@@ -227,5 +227,27 @@ describe('websiteDesignPrompt', () => {
       })!;
       expect(result.prompt).toContain('has not been drawn on the canvas yet');
     });
+
+    it('carries non-HTML implementation and content guidance into a screen prompt', () => {
+      const config = workspaceWithWireframe();
+      config.surfaceKind = 'mobile-app';
+      config.contentDesign.voice = 'Calm, concise, and recovery-oriented';
+      config.implementation.targetTechnologies = ['SwiftUI'];
+      config.implementation.sourceRoots = ['Northstar/Screens'];
+      const result = buildScopedDesignPrompt({
+        scope: 'page',
+        config,
+        pageId: config.pages[0]!.id,
+        instruction: 'Make the primary action clearer.',
+      })!;
+
+      expect(result.prompt).toContain('one screen');
+      expect(result.prompt).toContain('Do not redesign other screens');
+      expect(result.prompt).toContain('shared content design');
+      expect(result.prompt).toContain('Calm, concise, and recovery-oriented');
+      expect(result.prompt).toContain('implementation guide');
+      expect(result.prompt).toContain('SwiftUI');
+      expect(result.prompt).toContain('Northstar/Screens');
+    });
   });
 });

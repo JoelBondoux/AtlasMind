@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.270.4",
+  "version": "0.290.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -583,7 +583,7 @@
       },
       {
         "command": "atlasmind.openWebsiteStudio",
-        "title": "AtlasMind: Open Website Studio",
+        "title": "AtlasMind: Open UI Studio",
         "icon": "$(globe)"
       },
       {
@@ -603,17 +603,17 @@
       },
       {
         "command": "atlasmind.previewWebsiteWireframe",
-        "title": "AtlasMind: Preview Website Wireframe",
+        "title": "AtlasMind: Rebuild and Open UI Preview",
         "icon": "$(layout)"
       },
       {
         "command": "atlasmind.stopWebsitePreview",
-        "title": "AtlasMind: Stop Website Preview",
+        "title": "AtlasMind: Stop UI Preview",
         "icon": "$(debug-stop)"
       },
       {
         "command": "atlasmind.openWebsitePreview",
-        "title": "AtlasMind: Open Website Preview",
+        "title": "AtlasMind: Open UI Preview in Built-in Browser",
         "icon": "$(preview)"
       },
       {
@@ -2510,14 +2510,14 @@
         "atlasmind.website.generation.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow Website Studio to generate static HTML and CSS into .atlasmind/website-preview/. Off by default.",
-          "markdownDescription": "Allow the **Generate** buttons in Website Studio to call a model and write static\nHTML and CSS files.\n\nOff by default, and separate from `#atlasmind.website.preview.enabled#` on purpose: writing\nmodel-authored files and opening a local port are two different decisions, and one switch\ncarrying both would make the second one happen without being agreed to.\n\nEvery generation shows a modal listing **each file it will write** before anything happens,\nand the plan is deterministic — the same sitemap and the same stage always produce the same\nfile list, which is what makes that dialog worth reading.\n\nFiles only ever land in `.atlasmind/website-preview/`. Your source tree is never written to;\npromoting a generated design out of the preview folder is a separate, deliberate step."
+          "description": "Allow UI Studio to generate static HTML/CSS visual guides into .atlasmind/website-preview/. Off by default.",
+          "markdownDescription": "Allow the **Generate** buttons in UI Studio to call a model and write a static\nHTML/CSS visual guide. For non-web profiles this is explicitly a design reference, not the\ntarget implementation.\n\nOff by default, and separate from `#atlasmind.website.preview.enabled#` on purpose: writing\nmodel-authored files and opening a local port are two different decisions, and one switch\ncarrying both would make the second one happen without being agreed to.\n\nEvery generation shows a modal listing **each file it will write** before anything happens,\nand the plan is deterministic — the same screen map and the same stage always produce the same\nfile list, which is what makes that dialog worth reading.\n\nFiles only ever land in `.atlasmind/website-preview/`. Your source tree is never written to;\npromoting a generated design out of the preview folder is a separate, deliberate step."
         },
         "atlasmind.website.preview.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to serve the generated website preview from a local 127.0.0.1 port. Off by default.",
-          "markdownDescription": "Allow the website preview to run a small static web server so the generated design can be\nrendered in a window beside Website Studio.\n\nThe server binds **`127.0.0.1` only** — never `0.0.0.0` — so it is not reachable from your\nnetwork. It serves nothing but `.atlasmind/website-preview/`, refuses any path that resolves\noutside it, offers no directory listing, and its URL carries a random per-session token so\nanother process on this machine cannot simply guess the port and read your client work.\n\nIt starts only when you open the preview and stops when you close it or close Website Studio."
+          "description": "Allow AtlasMind to serve the generated UI visual guide from a local 127.0.0.1 port. Off by default.",
+          "markdownDescription": "Allow UI Studio to run a small static web server so its canonical design preview can open in\nVS Code's built-in browser, with a separate guarded responsive-width lab. The deterministic draft\ncombines saved wireframes, UI tokens, and exact Markdown content; model-generated output remains a\nseparate link rather than replacing that draft.\n\nThe server binds **`127.0.0.1` only** — never `0.0.0.0` — so it is not reachable from your\nnetwork. It serves nothing but `.atlasmind/website-preview/`, refuses any path that resolves\noutside it, offers no directory listing, and its URL carries a random per-session token so\nanother process on this machine cannot simply guess the port and read your client work.\n\nIt starts only when you open a preview and stops through **Stop Preview**, when UI Studio closes,\nor when the extension deactivates."
         },
         "atlasmind.website.preview.port": {
           "type": "number",
@@ -2574,8 +2574,8 @@
         "atlasmind.website.content.directory": {
           "type": "string",
           "default": "content",
-          "description": "Folder holding the markdown content files Website Studio reads and writes. Relative to the workspace root.",
-          "markdownDescription": "Where page copy lives, as one markdown file per page with YAML front-matter.\n\nFiles are the **source of truth**; the Studio shows an editable mirror of them. That way a\ncopywriter can work in their own editor, the copy diffs cleanly in a pull request, and every\nstatic framework in the catalog can read it natively.\n\nA path that escapes the workspace is ignored and the default is used instead."
+          "description": "Folder holding the Markdown screen/content files UI Studio reads and writes. Relative to the workspace root.",
+          "markdownDescription": "Where interface copy lives, as one Markdown file per page or screen with YAML front-matter.\n\nFiles are the **source of truth**; UI Studio shows an editable mirror of them. That lets a\ncontent designer work in their own editor, keeps copy reviewable in pull requests, and leaves\nthe eventual implementation free to consume or translate the content for HTML, native, or other targets.\n\nA path that escapes the workspace is ignored and the default is used instead."
         },
         "atlasmind.website.review.enabled": {
           "type": "boolean",

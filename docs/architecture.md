@@ -275,14 +275,23 @@ The gate's response is **tiered by sensitivity**, because it scans the assembled
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
 
-### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
+### UI Studio workspace (`src/core/websiteWorkspaceManager.ts`)
 
-Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command id remains
+`atlasmind.openWebsiteStudio`). It owns the compatibility-named SSOT at
+`project_memory/domain/website.json` and regenerates `website.md` on every save. The shared
+`WebsiteWorkspaceConfig` types in `src/types.ts` model:
 
+- an explicit `UiSurfaceKind` profile: website, web app, mobile app, desktop app, editor extension,
+  embedded UI, or other;
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
 - per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
+- a revisioned `UiDesignGraph` whose stable screens/nodes, base layout, viewport overrides, and bounded
+  content/style/component references are authoritative when present;
 - project-level UI system decisions;
+- project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
+  source-root, component-location, and handoff hints (data only, never commands);
 - the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
 - a catalog of static, managed-CMS, commerce, and custom platform targets;
 - n8n workflow maps containing event/outcome/status plus non-secret references.
@@ -293,29 +302,116 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 2**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 1 → 2 step transcribes each page's old `sections` list into stacked wireframe bands (the transcription is inlined in `schemaMigration.ts` rather than imported, because a migration must keep producing the same output forever); `designPrompt` and `links` are seeded empty rather than guessed.
+The SSOT is at **format version 7**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
-`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframe canvas, UI System, Hosting & Platforms, n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js`, read inline the way `projectDashboardPanel` reads its script. Its message guard accepts save/import, the two fixed website SSOT paths, three fixed navigation commands, and the four new data-only messages (`promptForTarget`, `generate`, `openPreview`, `stopPreview`) — none of which can name a command, a path, or a file. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`; n8n triggering is likewise deliberately outside this planning surface.
+`src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
+Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
+website-only n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in
+`media/websiteStudio.js`. Content messages carry a bounded screen id and text fields; the host resolves
+the id against the current plan and `WebsiteContentManager` owns the path. The expected body implements
+optimistic concurrency, so a disk edit is refused rather than overwritten. Other messages remain
+data-only and cannot name a command, arbitrary path, or output file. Production publishing stays in
+`PromotionRunner`; n8n triggering remains outside this planning surface.
 
 ### Website Studio design and generation modules
 
-Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v7 graph against the page inventory, preserves
+  stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
+  `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
+  a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
+  The same boundary validates at most 200 typed colour, typography, spacing, radius, shadow, motion, and
+  breakpoint tokens. A token owns a bounded structured value or aliases another token of the same kind;
+  `resolveUiDesignToken()` refuses missing targets, cross-kind links, and cycles while retaining the resolved
+  source and alias chain. Tokens are graph facts rather than CSS declarations, so every output target reads
+  the same system without becoming its authority.
+  `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
+  the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
+  viewport only through an exact override, so migration does not invent responsive intent.
+  `resolveUiScreenLayout()` then projects direct children for stack, grid, and overlay containers in parent-
+  before-child depth order. Direction, gap, padding, columns, alignment, distribution, and size modes are
+  bounded graph data. A projected child rectangle receives `computed` provenance naming its container; the
+  stored rectangle remains untouched as the reversible free-layout fallback. Fill claims an available axis;
+  hug uses the stored intrinsic size until content measurement is implemented. Nullable min/max width/height
+  constraints inherit per breakpoint, expose their own provenance, and clamp the projected rectangle without
+  changing the retained input; a constraint-derived rectangle reports `computed` with a constraint reason.
+  Direct container children sort by responsive `order`, then stable geometry/id tie-breakers. Stack `wrap`
+  forms deterministic rows/columns; neither operation changes node-array order, hierarchy, or stored geometry.
+- **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
+  events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
+  geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
+  visibility override set/reset, undo, and redo; commands carry an expected revision and never a graph
+  patch. `set-node-frames` validates every unique target before changing any, applies either base rectangles
+  or one named responsive breakpoint, and records the batch as one revision/history entry. A responsive command names only a
+  closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
+  invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
+  promotes direct children, history is capped at 100, and a fresh edit clears redo.
+  `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, nullable
+  width constraints 1–1000, nullable height constraints 1–4000, and an optional non-base breakpoint. Minimum
+  may not exceed maximum; wrap is `nowrap|wrap`; order is an integer from -1000 to 1000. A non-container may
+  use size/order properties but is refused a non-free container mode.
+  `duplicate-node` admits only a complete unique identity map for the selected subtree, checks collisions and
+  the graph cap before cloning, remaps parents, and offsets base plus explicit responsive rectangles in one
+  commit. `locked` is graph authoring state: every node edit except `set-node-locked` refuses, as do atomic
+  batches containing a locked node and wrapper deletion that would reparent a locked direct child.
+  Multi-selection pointer drag is another `set-node-frames` producer: the browser projects one shared clamped
+  delta for feedback, excludes selected identities from snapping, and submits the full frame set once on
+  pointer-up. The reducer already makes that batch all-or-nothing and hierarchy-neutral.
+  `diagnoseUiScreenLayout()` consumes that same projection for every breakpoint and deterministically reports
+  canvas overflow, parent clipping, non-ancestral/non-overlay overlap, and interactive nodes below 44px after
+  conversion through the 1280/834/390 preview widths. The host sends closed diagnostic records; the webview
+  renders and routes them to graph selection but does not decide whether layout passed.
+- **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
+  injection, and revision/selection event hub. A connection receives the current render revision immediately;
+  newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/
+  invalid values and broken clients are dropped. The browser may POST exactly a current revision plus bounded
+  screen/node IDs for selection; it has no edit, command, storage, arbitrary message, path, graph, or source API.
 
 - **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
 - **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.
 - **`websiteLinkGraph.ts`** — outbound/inbound links, orphan pages, and dangling links (reported, never dropped — a link whose target was deleted is the evidence a nav is broken). The root page is never an orphan. Nav/CTA labels suggest links by exact then case-insensitive match, never looser.
 - **`websiteDesignPrompt.ts`** — composes the selection-scoped prompt for `site`, `page` and `element`. Everything read out of the workspace is fenced as REPORTED CONTENT (labels and stored prompts are model-writable) and passed through `redactSecrets`; the user's own instruction is deliberately *not* fenced. The prompt states that the answer is a proposal.
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
+
+`websiteWireframePreview.ts` consumes the graph screen alongside its compatibility page projection. It uses
+`resolveUiScreenLayout()` to emit ordered tablet (`≤1023px`) and mobile (`≤599px`) static media rules for every
+saved node, including inherited geometry/constraints, explicit visibility, container placement, and a
+visible-content-derived stage height.
+Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
+renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
+injects only the separately audited frozen live runtime.
+
+`websiteStudioPanel.ts` builds the canvas's responsive state on the extension host with
+`buildWebsiteStudioResponsiveScreens()`: every node receives resolved desktop/tablet/mobile layout,
+per-property provenance, and Boolean flags saying which geometry/visibility overrides actually exist. The
+webview renders that projection but never computes inheritance. Its breakpoint inspector may submit exact
+set commands or clear `rect`/`hidden` independently; `uiEditCommands.ts` removes only the named property and
+drops the breakpoint record only when nothing remains. Host reconciliation returns both the compatibility
+wireframes and a fresh resolved snapshot after every result. At a non-base breakpoint, drag/resize and
+keyboard nudge optimistically change only the local resolved rectangle, then submit that rectangle as the
+same exact `set-node-viewport-override` command; the next host result replaces the projection. Drawing,
+deletion, nesting, and parent identity stay base-only, so a responsive gesture cannot change shared structure.
+Multi-selection uses a `Set` of node identities with one primary inspector target. Align, distribute, and
+group nudge submit one bounded `set-node-frames` batch at the current breakpoint; multi-delete is refused
+until the selection is narrowed, preserving the existing single-node deletion contract.
+The host responsive snapshot resolves the complete screen rather than each node in isolation. This keeps
+computed container rectangles identical in the Studio and `websiteWireframePreview.ts`; the webview displays
+the projection and provenance but never implements the layout algorithm.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review
 
-- **`websiteWireframePreview.ts`** — renders a wireframe straight to self-contained HTML with **no model involved**. It exists because there was no deterministic HTML renderer anywhere in `src/core/`, so a wireframe could not reach a browser without a generation, and an empty preview root served the 404 as a near-blank page. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; renders live under `_wireframe/`, never at a generated page's address.
+- **`websiteWireframePreview.ts`** — renders the canonical design draft straight to self-contained HTML with **no model involved**: wireframe geometry, safe colour/type tokens, and an escaped inert subset of the exact Markdown copy, repeated in a complete content proof. Missing copy stays explicit. The pure renderer still emits no script; `websitePreviewHost.ts` then injects the one frozen Studio runtime with a numeric render revision before writing `_wireframe/`. Generated/exported output is not injected. The index always owns the preview entry point and links to generated output separately.
+- **`websitePreviewHost.ts` / `websitePreviewPanel.ts`** — one guarded loopback server feeds two consumers. VS Code's built-in Simple Browser is the full-canvas primary preview; the custom sandboxed webview is only the responsive-width lab. Closing that lab does not stop a server still serving the full browser; Stop Preview, Studio disposal, and extension deactivation own shutdown.
 - **`websiteContent.ts`** / **`websiteContentManager.ts`** — markdown copy with YAML front-matter, one file per page, derived from the same `normalizeSlug` the sitemap uses. `[PLACEHOLDER: …]` is parsed and **counted**; *missing* and *empty* stay distinguishable; the file is the source of truth and a save whose file changed underneath is refused rather than merged.
 - **`websiteReviewComments.ts`** — comments against a page or element, transitioning and never deleted, with an orphaned comment kept and flagged carrying the element's remembered label. `buildCommentWorkPrompt` fences the body as REPORTED CONTENT.
 - **`websiteReviewBundle.ts`** — the overlay generated *into the site*, so it deploys to the client's own staging. The script is a **frozen constant** with configuration passed in a `data-` attribute; no endpoint is ever invented, and `connect-src` names the single declared origin or is `'none'`. Import reuses the record sanitizer and is idempotent. The decision not to host a relay is recorded in `project_memory/decisions/website-client-review-hosting.md`.
 
-The preview server's `.js` exception is **one named file** (`REVIEW_OVERLAY_SERVED_NAME`), not a widened extension class, and `script-src 'self'` is added to the served policy only when `allowOverlayScript` is set — which the host ties to the same setting that injects the overlay.
+The preview server still never serves a general `.js` extension class. It has two independently gated exact
+exceptions: the optional on-disk `REVIEW_OVERLAY_SERVED_NAME`, and the Studio-only `_atlas/runtime.js`
+response whose bytes come from `UI_PREVIEW_RUNTIME_SCRIPT`, not the workspace. Live Studio mode adds only
+same-origin `script-src`/`connect-src`; review mode separately adds its declared HTTPS connection capability.
 
 ### Website Studio stack setup
 
@@ -328,7 +424,7 @@ Four more modules cover the framework half, all pure and unit-tested except the 
 
 `src/views/websiteStackSetupHost.ts` is the impure half: probe the machine and workspace, show the modal (every command with its purpose, every file with its full contents, openable as documents before confirming), execute with a real `execFile` — argument array, no shell, `cwd` set to the workspace — then **re-probe the filesystem** rather than trusting exit codes.
 
-`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
+`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. Its three exact live resources deliver the frozen runtime, a server-sent revision/selection stream, and one identity-only selection POST. That POST is capped at 512 bytes, accepts exact JSON fields only, requires the current render revision, and never mutates the graph or filesystem; wrong-token requests remain 404 before method disclosure. The `http` module is injected for unit tests, and an ephemeral-port integration test pins headers, token isolation, reconnect state, stale/hostile selection refusal, and event delivery. `src/views/websitePreviewHost.ts` owns the lifetime, resolves accepted IDs against the current saved graph before notifying UI Studio, injects only deterministic drafts, publishes only after render succeeds, and closes streams plus keep-alive sockets on stop. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; that sandbox omits scripts and continues to refresh through its host, while Simple Browser uses the live runtime.
 
 ### CiManager (`src/core/ciManager.ts`)
 
@@ -406,19 +502,19 @@ The panel (`projectDashboardPanel.ts`) drives this through two webview messages 
 
 Models the **people** a project runs on — its stakeholders, delivery team, responsibilities (who owns what), human task assignments, and follow-ups — the data backbone of the Project Director dashboard (Project Dashboard → Director page). A `ProjectDirectorConfig` (`contacts`, `stakeholders`, `teamMembers`, `responsibilities`, `assignments`, `followUps`, `settings`) is persisted as the source of truth at `project_memory/operations/project-director.json`, with a human-readable `project-director.md` mirror regenerated on every write (`renderProjectDirectorMarkdown`) and a capped `project-director-history.json` audit trail. Like `DeliveryManager`/`DataPrivacyManager`, the persistence helpers (`readProjectDirectorConfig`/`writeProjectDirectorConfig`/`seedProjectDirectorConfig`) are `vscode`-free (node `fs` only).
 
-**Contacts are the identity layer.** A `DirectorContact` holds a person/group's name, title, communication `links`, and an optional `ref: DirectoryRef` pointing at their system of record (`m365`/`slack`/`google`/`buzz`/`local`). Each link's `kind` is a `CommunicationChannelKind` open union (`email`, `slack`, `teams`, `buzz`, `phone`, `github`, `linkedin`, …); `buzz` records a [Buzz](https://buzz.xyz) identity (npub / @handle / #channel) with an `https`-only deep link. The governing contract is **Buzz owns identity + messaging; AtlasMind owns reasoning + execution** — so `DirectoryRef.source: 'buzz'` *references* a Buzz-owned Nostr identity; AtlasMind never mints or mirrors a directory (see `project_memory/roadmap/buzz-integration.md`). `Stakeholder` and `TeamMember` are thin role records referencing a contact by id, so one human can be both without duplicating their channels. `Assignment` is the human-owner overlay that `ProjectRunRecord`/`SubTask` (assigned to *agent roles*) lack; `Assignment.linkedRunId` binds an autonomous run to a human owner **without mutating the run record**.
+**Contacts are the identity layer.** A `DirectorContact` holds a person/group's name, title, communication `links`, and an optional `ref: DirectoryRef` pointing at their system of record (`m365`/`slack`/`google`/`buzz`/`local`). Each link's `kind` is a `CommunicationChannelKind` open union (`email`, `slack`, `teams`, `buzz`, `phone`, `github`, `linkedin`, …); `buzz` records a [Buzz](https://buzz.xyz) identity (npub / @handle / #channel) with an `https`-only deep link. The governing contract is **Buzz owns identity + messaging; AtlasMind owns reasoning + execution** — so `DirectoryRef.source: 'buzz'` *references* a Buzz-owned Nostr identity; AtlasMind never mints or mirrors a directory (see `project_memory/roadmap/buzz-integration.md`). `Stakeholder` and `TeamMember` are thin role records referencing a contact by id, so one human can be both without duplicating their channels. `Assignment` is the human-owner overlay that `ProjectRunRecord`/`SubTask` (assigned to *agent roles*) lack; `Assignment.linkedRunId` binds an autonomous run to a human owner **without mutating the run record**. `Assignment.linkedWork` extends that same ownership record to a closed `DashboardWorkKind` set (branch, roadmap, issue, pull request, gap, risk, debt, document), so no dashboard page owns a parallel assignee field.
 
 **Solo dev, not just teams.** `ProjectDirectorConfig.selfContactId` marks "me" (seeded from the git user), so assignments/follow-ups default to you and the UI can address you as "you". `settings.teamMode` (`solo`/`team`/`auto`) with `resolveTeamMode`/`isSoloProject` infers **solo** when there is no team member other than yourself — a one-person project is never asked to fill in team ceremony, the dashboard foregrounds self-management (your follow-ups and the areas you own), and external stakeholders (a client, end-users, an app-store reviewer) are still first-class when they exist.
 
 **GDPR-first, deny-by-default.** AtlasMind prefers to *reference* people in their GDPR-compliant system of record (Microsoft 365 / Entra, Slack, Google Workspace — each carries a `providerDataGovernance` entry with DSAR/retention links) and resolve details on demand, rather than hoarding raw personal data locally. A contact that stores raw PII is flagged `piiStored` so the extension layer can gate it behind a one-time consent notice and the existing `gdpr-pii` classification. Communication `handle`s are non-secret identifiers (never tokens/passwords); the markdown mirror describes channels by *kind/label only* so raw addresses never land in git-tracked prose. `sanitizeProjectDirectorConfig` is the webview→disk boundary: it clamps string lengths, whitelists every enum (unknown → safe fallback), regenerates duplicate/missing ids, **drops role records referencing a non-existent contact**, clears dangling optional references, and strips any `deepLink` whose scheme is not allowlisted (`mailto:`/`tel:`/`sms:`/`slack:`/`msteams:`/`zoommtg:`/`https:` — bare `http:`, `javascript:`, and `data:` are rejected). Pure derivations `deriveFollowUpUrgency`/`countOverdueFollowUps` classify follow-ups (`overdue`/`due-soon`/`upcoming`/`snoozed`/`done`) for the dashboard, tree badge, and (later) scheduler. A `vscode` file watcher on `project-director.json` (registered in `extension.ts`) reloads the manager and fires `projectDirectorRefresh` on external edits.
 
-**Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments (+ an "assign a human owner" overlay on autonomous `ProjectRunRecord`s via `Assignment.linkedRunId`), and Follow-ups sub-sections. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
+**Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments, autonomous-run owners, and Follow-ups. `buildDashboardWorkTargets` derives assignable work from the same assembled snapshot that renders branches, roadmap, issues, pull requests, gaps, risks, debt and documents. Each surface uses `renderDirectorOwnerControl`; the Director Assignments view reads the identical records. A change message contains only a short-lived random `work-<uuid>` token, which `ProjectDashboardPanel` resolves from its latest host-issued map; an older render's token therefore cannot be rebound to a different item. The host validates the selected contact, persists only the closed `{ kind, id }` link, and re-resolves branch tokens against a fresh Git inventory before saving. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
 
 **Guarded connectors (Phase 3).** With outbound messaging enabled (`settings.outboundEnabled`, default off) and a matching MCP connector connected, the Director tab can email / schedule / message a contact. `DirectorCommsRunner` (`src/core/directorCommsRunner.ts`, pure/vscode-free) detects which connected MCP tool can perform each intent — matching tool names (`outlook_send_mail`, `create_event`, `post_message`, …) across `mcpServerRegistry.listServers()`, preferring real send/create tools over drafts — and best-effort maps a composed draft onto that tool's declared input-schema fields (inventing nothing). Capabilities stay partitioned by contact channel kind (`email`/`slack`/`teams`/`buzz`) and delivery shape, so a Buzz recipient can never fall through to another connected messaging provider; Buzz channel UUIDs select `buzz_post_message`, while 64-character Nostr pubkeys select `buzz_send_dm`. Dispatch is deny-by-default in the panel: it requires the toggle, a connected connector, and an explicit `{ modal: true }` confirmation showing the exact action (connector, tool, recipient, subject/body, classified risk via `classifyToolInvocation`) before running the tool through its `mcp:<serverId>:<toolName>` skill wrapper (`skillsRegistry.get(...).execute(args, atlas.skillContext)`). No connector for the exact channel kind → non-destructive fallback to the deep-link. The webview only supplies the draft; the tool comes from the connected server, credentials stay in SecretStorage, and successful sends are recorded to `project-director-history.json`.
 
 **Buzz Tier 1b bridge.** `src/mcp/buzzCommsServer.ts` is an extension-bundled stdio MCP server backed by the pure `BuzzCliBridge` in `src/mcp/buzzCliBridge.ts`. It wraps official `buzz-cli` source tag v0.4.26 and exposes only bounded channel listing, channel posting, bounded thread reading, and DM sending. Upstream v0.4.26 has no working `--version` flag, so the bridge probes the exact required root/channel/message/thread/DM help contracts before the MCP handshake; reads the agent private key and optional NIP-OA authorization tag from SecretStorage-backed env; converts the WS/WSS relay setting to the HTTP/HTTPS base the CLI expects; rejects remote relays without `atlasmind.buzz.allowRemoteRelay` and rejects non-TLS remote URLs; invokes the CLI without a shell; passes message bodies over stdin; validates identifiers; caps input, output, and duration; and redacts credentials from failures. It exposes none of `buzz-dev-mcp`'s shell/file-edit surface and none of Buzz's workflow/repository/admin commands. The boundary remains: **Buzz owns identity + messaging; AtlasMind owns reasoning + execution.**
 
-**Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups with an overdue badge refreshed on `projectDirectorRefresh`; `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
+**Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups. Follow-ups is the personal Director attention projection: due/overdue reminders plus active assignments owned by `selfContactId`, including dashboard-linked and run-linked work. One total drives its dynamic collapsed title, activity badge, and synthetic-URI row decoration; the same `projectDirectorRefresh` event updates it and Project State. `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
 
 ### DocumentsManager (`src/core/documentsManager.ts`)
 
@@ -567,9 +663,13 @@ The project state worth a glance without opening a panel, backing the sidebar's 
 
 The sidebar carried ten views before this and they were almost entirely *inventory* — lists of agents, skills, models, servers, sessions. Nothing said where you are in the workflow, and nothing said what AtlasMind is currently permitted to do. The second gap was the sharper one: safety-critical, genuinely computed, and visible only by opening the dashboard or reading four settings across two scopes.
 
-Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. No commits, branches, diffs or issue lists; only facts that exist because AtlasMind exists.
+Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. It carries no repository inventory of its own; only facts that exist because AtlasMind exists. A Director assignment is therefore eligible even when it points at a branch or issue: the row reports AtlasMind's human-ownership decision and links back to the surface that owns the work, rather than reproducing that surface's data.
 
 Three rules carry over from the dashboard and matter more here, because a tree row is glanced at rather than studied. **A section whose input is absent is omitted entirely** rather than rendered empty, so the tree never implies AtlasMind looked at something it did not — and "waiting on you" is the one section that *does* say "nothing waiting", because it was genuinely assessed. **The badge counts only `needsAttention` rows**: one counting everything would be permanently non-zero and therefore ignored. And **unbuilt capability is absent, not zero** — the tech-debt register does not exist, so its row is omitted rather than claiming a store with nothing in it.
+
+The **Waiting on you** gather reads Project Director's in-memory source of truth and selects active assignments whose `assigneeContactId` equals `selfContactId`; `done`, `cancelled`, unassigned, and colleague-owned records are excluded. Due and overdue follow-ups are also projected individually rather than collapsed into a count. Each row carries an opening-only destination and a stable target id: dashboard work uses `ProjectDashboardOpenTarget`, runs use `ProjectRunCenterOpenTarget.runId`, and manual assignments/follow-ups point to their exact Director record. VS Code's `TreeView.badge` is container activity—it decorates the AtlasMind activity-bar icon but not a native view header—and VS Code also hides `TreeView.description` when the view collapses. The one count is therefore projected through three APIs: `TreeView.badge` for the container, a dynamic `TreeView.title` (`Project State · N waiting`) that survives both expanded and collapsed states, and a synthetic-URI `FileDecorationProvider` for the coloured numeric badge on **Waiting on you**. Project Director applies the identical three-channel pattern to its Follow-ups projection. Owner saves invoke the Project State refresh command immediately, and `projectDirectorRefresh` covers both trees and external file edits.
+
+`ProjectDashboardOpenTarget` is the shared cross-surface deep-link type: `{ page, focus?: { kind, id } }`. `normalizeProjectDashboardOpenTarget` allowlists the page and focus kind and bounds the opaque id before the host posts it to the webview; the webview validates it again. Every assignable dashboard record exposes a matching `data-dashboard-focus-kind/id` pair. Navigation clears presentation filters that could hide the requested record, then scrolls, keyboard-focuses, and outlines it. If the record disappeared or remote data has not loaded, focus remains optional and navigation still lands on the validated owning page.
 
 A *classified* CI failure deliberately does not raise the badge: it already has an owner and a suggested fix, so flagging it would leave the badge lit on any project with a red build. Only `unknown` needs a person. Every row's command opens a surface and never mutates, the same rule the setup guides follow.
 
@@ -1015,6 +1115,27 @@ Desktop-only localhost WebSocket server that lets the AtlasMind web build remote
 
 ## Key Interfaces
 
+`WebsiteWorkspaceConfig` v6 keeps the compatibility page model and adds the authoritative design core:
+
+```typescript
+interface UiDesignGraph {
+  revision: number;
+  screens: UiDesignScreen[];
+}
+
+interface UiDesignScreen {
+  id: string;
+  pageId: string;
+  initialized: boolean;
+  baseBreakpoint: 'desktop' | 'tablet' | 'mobile';
+  nodes: UiDesignNode[];
+}
+```
+
+Each `UiDesignNode` owns a bounded base layout, optional per-viewport overrides, stable parent identity,
+and non-executable content/style/component references. `initialized` is required because “never drawn” and
+“drawn, intentionally empty” are different facts. Revision is monotonic even across undo/redo.
+
 `VoiceSettings` carries both synthesis controls and capability-sensitive device preferences:
 
 ```typescript
@@ -1287,6 +1408,9 @@ extension.ts
   │     ├── views/skillScannerPanel.ts
   │     ├── views/websiteStudioPanel.ts (+ views/websiteStudioStyles.ts, media/websiteStudio.js)
   │     │     ├── core/websiteWorkspaceManager.ts
+  │     │     ├── core/uiDesignGraph.ts
+  │     │     ├── core/uiEditCommands.ts
+  │     │     ├── core/uiPreviewRuntime.ts
   │     │     ├── core/websiteWireframe.ts
   │     │     ├── core/websiteSitemap.ts
   │     │     ├── core/websiteLinkGraph.ts
@@ -1353,6 +1477,9 @@ tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   ├── websiteWorkspaceManager.test.ts
+  ├── uiDesignGraph.test.ts
+  ├── uiEditCommands.test.ts
+  ├── uiPreviewRuntime.test.ts
   ├── websiteWireframe.test.ts
   ├── websiteSitemap.test.ts
   ├── websiteLinkGraph.test.ts

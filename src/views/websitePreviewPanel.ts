@@ -70,7 +70,7 @@ export class WebsitePreviewPanel {
 
     const panel = vscode.window.createWebviewPanel(
       WebsitePreviewPanel.viewType,
-      'Website preview',
+      'UI responsive preview',
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       {
         enableScripts: true,
@@ -99,9 +99,8 @@ export class WebsitePreviewPanel {
     this.render();
     this.panel.onDidDispose(() => {
       WebsitePreviewPanel.currentPanel = undefined;
-      // Closing the window stops the server. A port left listening after the
-      // only thing that could show it has gone is a port nobody remembers.
-      this.onStop();
+      // This lab is not the server owner: the full preview may still be open in
+      // Simple Browser. The explicit Stop button below still stops both.
     });
     this.panel.webview.onDidReceiveMessage(message => {
       if (!isWebsitePreviewMessage(message)) {
@@ -112,12 +111,17 @@ export class WebsitePreviewPanel {
           this.render();
           return;
         case 'stop':
+          this.onStop();
           this.panel.dispose();
           return;
         case 'openExternal':
           // The panel holds the URL; the webview only asks. It cannot name an
           // address for the editor to open.
-          void vscode.env.openExternal(vscode.Uri.parse(this.previewUrl));
+          void vscode.commands.executeCommand(
+            'simpleBrowser.api.open',
+            this.previewUrl,
+            { title: 'UI Studio Preview', viewColumn: vscode.ViewColumn.Beside },
+          );
           return;
       }
     });
@@ -163,7 +167,7 @@ export function getWebsitePreviewHtml(cspSource: string, previewUrl: string, por
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src http://127.0.0.1:${port} http://localhost:${port}; base-uri 'none'; form-action 'none';" />
-  <title>Website preview</title>
+  <title>UI responsive preview</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -228,7 +232,7 @@ export function getWebsitePreviewHtml(cspSource: string, previewUrl: string, por
     </select>
     <span class="spacer"></span>
     <span class="origin">${escapeHtml(`127.0.0.1:${port}`)}</span>
-    <button type="button" id="external" title="Open in your normal browser">Open in browser</button>
+    <button type="button" id="external" title="Open the full preview in VS Code's built-in browser">Open full preview</button>
     <button type="button" id="stop" title="Stop the local preview server">Stop</button>
   </div>
   <div class="stage">

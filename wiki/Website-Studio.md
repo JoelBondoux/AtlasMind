@@ -1,12 +1,19 @@
-# Website Studio
+# UI Studio
 
-**A workspace for taking a client website from the first conversation to launch.**
+The approved multi-phase path from today's Studio to a complete visual builder is in
+[[UI Studio Builder Plan]]. It records requirements and acceptance criteria for the design graph, live
+built-in-browser editing loop, responsive layout, components, content/assets/data, repository mappings,
+quality gates, agency review, and imports.
 
-If you build sites for clients, the hard part usually isn't the code — it's keeping the brief, the
-sitemap, the design decisions, the hosting choice and the sign-offs in one place that everyone can see.
-Website Studio is that place.
+**A visual guide for designing an interface and continuing it in the real project.**
 
-**Open it from:** Project Dashboard → Delivery · the Ideation board · **AtlasMind: Open Website Studio** ·
+Choose website, web app, mobile app, desktop app, editor extension, embedded UI, or another interface.
+The shared workflow keeps the brief, screens and flows, words, wireframes, UI-system choices, and
+implementation locations together. A website is one richer profile, with its sitemap, SEO, generated
+stack, hosting, delivery comparison, and n8n workflow intact. Every profile can generate a sandboxed
+HTML/CSS visual guide; for a native target it is explicitly a reference, not the implementation.
+
+**Open it from:** Project Dashboard → Delivery · the Ideation board · **AtlasMind: Open UI Studio** ·
 or by choosing **Website / Marketing Site** during `/bootstrap`.
 
 ---
@@ -15,12 +22,29 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 
 | Dashboard | What you use it for |
 |---|---|
-| **Client Brief** | The client, the goals, the audiences, the features, where the content is coming from, brand notes, constraints, success metrics, stakeholders, launch date and budget — and one sentence describing how the whole site should look |
-| **Sitemap** | Every page — title, slug, what it's for, which template it uses, where it links to, and a hierarchy map that draws itself |
+| **Project Brief** | The interface profile, client/project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and one whole-interface prompt |
+| **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
+| **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
 | **UI System** | Brand direction, tone, palette, typography, spacing, corner style, accessibility target and component notes |
-| **Stack & hosting** | What the site is built with and where it ships — and a button that actually sets it up. Plus Develop, Staging and Production, and a cross-check against the Delivery pipeline |
-| **n8n Automations** | Which workflow handles which event, what it should do, whether it's ready, and any data or privacy notes |
+| **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
+| **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
+
+Format v7 starts the next UI System foundation inside the authoritative graph: bounded typed colour,
+typography, spacing, radius, shadow, motion, and breakpoint definitions with same-kind acyclic aliases.
+These values are target-independent rather than CSS declarations. The visible token editor and preview
+consumption are still Phase 3 work; the existing UI System controls remain the current authoring surface.
+
+## Design the words too
+
+Content design is now a first-class Studio step. The project-level rules are stored in the reviewable
+UI SSOT; actual screen copy stays in the configured Markdown directory so the Studio edits the same
+files the project uses. Capture labels, help, validation, empty/loading/error/success states, and
+recovery actions beside the main prose.
+
+A missing file can be seeded from the wireframe, but only as loud `[PLACEHOLDER: …]` gaps—never
+fictional copy that looks reviewed. Saving checks that the file body still matches the version opened;
+an external edit causes a refusal and reload instead of an automatic merge.
 
 ---
 
@@ -29,11 +53,39 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 Pick a block — nav, hero, section, grid, card, image, text, form, call to action, sidebar, footer —
 and drag on the grid to draw it. Resize from any of the eight handles. Drop a card inside a grid and
 it nests. Arrow keys nudge the selection, Shift moves it a whole column, Delete removes it.
+Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. Drawing, movement, resizing, nesting, deletion, kind, label,
+and intent edits all use the same revision-checked graph command path; the webview never submits a graph patch.
+
+Shift/Ctrl/Cmd-click builds a multi-selection with one primary inspector target. Align six ways, distribute
+three or more blocks across or down, nudge the group, or drag the complete selection by any selected block at
+any breakpoint; the whole transform is one validated revision and undo step. Group drag preserves spacing,
+clamps the complete bounds, and never reparents. Multi-delete is deliberately unavailable until the selection
+is narrowed.
+
+The active breakpoint also shows deterministic layout findings: viewport overflow, child/parent clipping,
+unintended overlap, and interactive blocks below a 44px touch target. A clear state means every check ran.
+Clicking a finding selects its owning block and shares that selection with Full Preview. Parent/child overlap
+and overlay siblings are treated as intentional rather than noisy warnings.
+
+Selecting a container exposes free, stack, grid, and overlay behaviour plus direction, gap, padding, columns,
+alignment, distribution, and fixed/fill/hug sizing. The host projects direct children identically in the
+canvas and full preview. Stored rectangles remain intact underneath, so reset, free mode, and undo restore
+the drawn arrangement. The same behaviour can inherit or be deliberately overridden at tablet/mobile.
+Any node can also set optional min/max width and height in canvas units. These bounds inherit and reset with
+layout behaviour, clamp only the projected size, and never erase the retained drawn/intrinsic rectangle.
+Stacks can wrap, and a bounded responsive order determines the sequence of container children before stable
+geometry/id tie-breakers. These remain projections too: they never reorder stored nodes or alter hierarchy.
+
+Duplicate copies the selected block and its complete nested subtree as one undoable base-breakpoint edit,
+remapping identities and offsetting explicitly authored responsive rectangles too. Lock keeps a block
+selectable and inspectable while preventing gestures, inspector changes, group transforms, deletion, and
+duplication until Unlock is chosen.
 
 A few things behave the way they do on purpose:
 
 - **Delete a wrapper and what was inside it moves up a level** rather than disappearing with it. The
-  obvious implementation takes six cards with the container and gives you no undo.
+  obvious implementation takes six cards with the container and gives you no undo. A locked direct child
+  holds that structural edit closed, so the wrapper cannot be deleted until the child is unlocked.
 - **Sizes are proportions, not pixels.** The canvas is a 1000-unit grid, so a block that is "most of
   the width" stays that on any screen. Storing pixels would bake your monitor into a file your whole
   team reads.
@@ -98,10 +150,11 @@ Files go **only** to `.atlasmind/website-preview/`. Your source tree is never to
 approved design out of the preview folder is a separate, deliberate step. Nothing executable is
 generated at all.
 
-The result renders in a window beside the Studio. The little server behind it listens on `127.0.0.1`
-only, serves nothing but the preview folder, has no directory listing, and puts a random one-time token
-in its address so nothing else running on your machine can guess the port and read your client's
-unfinished work. It stops when you close the window.
+The full result renders in VS Code's built-in browser; a guarded companion window provides fixed
+responsive widths. The little server behind both listens on `127.0.0.1` only, serves nothing but the
+preview folder, has no directory listing, and puts a random one-time token in its address so nothing
+else running on your machine can guess the port and read your client's unfinished work. Stop it with
+**Stop Preview**, by closing UI Studio, or by deactivating the extension.
 
 Both switches — generating files, and opening the preview port — are **off until you turn them on**,
 and they're two switches rather than one because they're genuinely two different decisions.
@@ -170,6 +223,37 @@ a guard the promotion runner depends on.
 
 ---
 
+## Full preview
+
+Full Preview is step 6 of UI Studio and the main place to judge the design as a whole. **Rebuild and
+open** launches VS Code's built-in browser with a deterministic index built from the saved wireframe,
+UI colours and heading/body typography, and exact Markdown content. Each screen includes a complete
+content proof below its spatial canvas, so copy clipped by a fixed wireframe box cannot disappear from
+review. `[PLACEHOLDER: …]` markers remain visibly unfinished.
+
+Use the separate **Responsive lab** for Fit, Desktop 1280, Tablet 834, and Mobile 390 widths. It shares
+the same guarded loopback server and URL as the full browser. If a model-generated visual guide exists,
+the index links to it separately; it never replaces the live Studio draft.
+
+The deterministic draft now projects the saved responsive graph at those widths. Desktop values inherit
+through tablet into mobile; explicit geometry and visibility overrides replace only the properties they
+name, and clearing one restores inheritance. The projection is static CSS, so responsive review adds no
+new browser command, storage, or write capability.
+
+The Studio canvas now offers the same Desktop, Tablet, and Mobile views. Its inspector shows computed
+geometry, visibility, layout and sizing together with the breakpoint each property came from. Apply or reset
+responsive geometry and visibility independently; hidden nodes stay faintly selectable in the editor while
+remaining absent from the full preview. Dragging, resizing, or arrow-key nudging at a non-base breakpoint
+creates a deliberate geometry override with normal undo/reset. Drawing, nesting, deletion, and parent changes
+stay on the base breakpoint because they alter shared structure.
+
+Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
+The built-in browser receives the new render revision and reloads automatically. Select a saved block in
+Studio to highlight it in the full preview; click a preview block to focus it back in Studio. The frozen
+runtime may submit only the current revision and bounded screen/node IDs, which the host resolves against
+the saved graph. It cannot submit edits, paths, commands, graph fragments, or source code. The Responsive
+lab remains scriptless and is refreshed by AtlasMind itself.
+
 ## Seeing the wireframe
 
 Open the preview and you see your drawing — immediately, with no model call and no waiting. Every block
@@ -180,8 +264,8 @@ sitemap because those are actual facts.
 The banner says outright that nothing on the page is real content, which matters more than it sounds:
 the whole failure mode here is a page that *looks* finished getting signed off.
 
-Generated pages and wireframes live side by side, so pressing Generate never overwrites your drawing
-and looking at your drawing never hides the generated site.
+Generated pages and wireframes live side by side, so pressing Generate never overwrites your drawing.
+The deterministic design index stays the preview entry point, with generated output one click away.
 
 ## Writing the copy
 

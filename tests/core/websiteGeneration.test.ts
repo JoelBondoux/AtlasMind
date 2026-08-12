@@ -152,6 +152,20 @@ describe('websiteGeneration', () => {
       expect(result.plan.files.map(file => file.relativePath)).toContain('about/index.html');
     });
 
+    it('renders a non-web interface as an implementation-independent HTML visual guide', () => {
+      const config = workspace();
+      config.surfaceKind = 'desktop-app';
+      config.implementation.targetTechnologies = ['XAML'];
+      const result = planWebsiteGeneration({ config, stage: 'wireframe', pageId: config.pages[0]!.id });
+      expect(result.ok).toBe(true);
+      if (!result.ok) { return; }
+      expect(result.plan.targetLabel).toContain('screen');
+      expect(result.plan.prompt).toContain('HTML visual guide');
+      expect(result.plan.prompt).toContain('Interface profile: desktop-app');
+      expect(result.plan.prompt).toContain('XAML');
+      expect(result.plan.prompt).not.toContain('finished application');
+    });
+
     it('states which pages had no wireframe and which had no prompt', () => {
       // A partial answer stored as a whole one lies by omission.
       const result = planWebsiteGeneration({ config: workspace(), stage: 'sitemap' });

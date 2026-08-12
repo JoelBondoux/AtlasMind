@@ -175,6 +175,72 @@ describe('waiting on you', () => {
     expect(nodes.every(n => n.needsAttention)).toBe(true);
   });
 
+  it('lists each active self-assignment as a counted ToDo with its work destination', () => {
+    const input: ProjectStateInput = {
+      attention: {
+        assignedWork: [
+          { id: 'a1', title: 'Finish develop', status: 'in-progress', priority: 'medium', destination: 'branch', targetId: 'develop' },
+          { id: 'a2', title: 'Review #42', status: 'todo', priority: 'high', destination: 'pull-request', targetId: '42' },
+        ],
+      },
+    };
+    const attention = section(input, 'attention')!;
+
+    expect(attention.description).toBe('2');
+    expect(attention.nodes.map(node => node.label)).toEqual(['Finish develop', 'Review #42']);
+    expect(attention.nodes[0]).toMatchObject({
+      description: 'in progress · medium',
+      icon: 'sync',
+      needsAttention: true,
+      command: {
+        command: 'atlasmind.openProjectDashboard',
+        args: [{ page: 'branches', focus: { kind: 'branch', id: 'develop' } }],
+      },
+    });
+    expect(attention.nodes[1]!.command?.args).toEqual([
+      { page: 'pullRequests', focus: { kind: 'pull-request', id: '42' } },
+    ]);
+    expect(countAttentionItems(build(input))).toBe(2);
+  });
+
+  it('routes manual and run assignments to their owning surfaces', () => {
+    const nodes = section({
+      attention: {
+        assignedWork: [
+          { id: 'manual', title: 'Manual task', status: 'todo', priority: 'low', destination: 'director', targetId: 'manual' },
+          { id: 'run', title: 'Owned run', status: 'blocked', priority: 'high', destination: 'run', targetId: 'run-1' },
+        ],
+      },
+    }, 'attention')!.nodes;
+
+    expect(nodes[0]!.command).toMatchObject({
+      command: 'atlasmind.openProjectDashboard',
+      args: [{ page: 'director', focus: { kind: 'assignment', id: 'manual' } }],
+    });
+    expect(nodes[1]).toMatchObject({
+      icon: 'circle-slash',
+      command: { command: 'atlasmind.openProjectRunCenter', args: [{ runId: 'run-1' }] },
+    });
+  });
+
+  it('lists due follow-ups individually and deep-links to the exact Director record', () => {
+    const nodes = section({
+      attention: {
+        followUps: [{ id: 'fu-1', title: 'Check sponsor reply', dueDate: '2026-08-11', urgency: 'overdue' }],
+      },
+    }, 'attention')!.nodes;
+
+    expect(nodes[0]).toMatchObject({
+      id: 'attention.followup.fu-1',
+      label: 'Check sponsor reply',
+      description: 'overdue · 2026-08-11',
+      command: {
+        command: 'atlasmind.openProjectDashboard',
+        args: [{ page: 'director', focus: { kind: 'follow-up', id: 'fu-1' } }],
+      },
+    });
+  });
+
   it('explains that an unanswered checkpoint denies rather than proceeds', () => {
     const node = section({ attention: { awaitingCheckpoint: 1 } }, 'attention')!.nodes[0]!;
     expect(node.tooltip).toContain('denies rather than proceeding');
