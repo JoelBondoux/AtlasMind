@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.303.0 — Fixing what stopped the release
+
+Promoting to production and watching the tests fail used to leave you looking at a wall of output with
+nothing to click. You could see what broke; you couldn't do anything about it without copying it
+somewhere else by hand.
+
+Every failed step now carries **Ask Atlas to fix this**. It opens a new chat with the step that failed,
+the command it ran, and its output — with anything secret-shaped redacted first, and the tail kept,
+because that's where the failure is.
+
+Atlas will find the cause and propose the smallest fix. It will **not re-run the promotion**. Promoting
+to a protected stage asks you to type the stage name and approve it, and a model that re-ran it to check
+its own work would walk straight past that. It tells you when it thinks the step would pass now, and
+leaves the decision with you.
+
+If the step that failed was a deploy or a health check, it's also told the target may be half-changed,
+and to find out what actually happened before proposing anything.
+
+---
+
 ## v0.302.0 — Making room, without taking yours
 
 The previous release stopped AtlasMind over-filling your graphics card. It could measure what was free

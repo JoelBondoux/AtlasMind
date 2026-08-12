@@ -1113,6 +1113,12 @@
       vscode.postMessage({ type: 'workOnIssue', payload: payload });
       return;
     }
+    if (action === 'fix-promotion-step') {
+      // Only the step id travels. The host rebuilds the prompt from the run it
+      // retained, so this message can name a step but never supply its text.
+      vscode.postMessage({ type: 'fixPromotionStep', payload: payload });
+      return;
+    }
     if (action === 'issues-new') {
       state.issueDraftOpen = true;
       render();
@@ -7978,7 +7984,7 @@
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
           ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
             <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
-            <ul class="promo-progress-list">${p.result.steps.map(s => `<li class="promo-step ${s.skipped ? 'skipped' : (s.ok ? 'done' : 'failed')}">${s.skipped ? '•' : (s.ok ? '✓' : '✗')} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul>
+            <ul class="promo-progress-list">${p.result.steps.map(s => `<li class="promo-step ${s.skipped ? 'skipped' : (s.ok ? 'done' : 'failed')}">${s.skipped ? '•' : (s.ok ? '✓' : '✗')} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}${(!s.ok && !s.skipped) ? `<div class="promo-step-fix"><button type="button" class="action-link" data-action="fix-promotion-step" data-payload="${escapeAttr(s.id)}">Ask Atlas to fix this</button></div>` : ''}</li>`).join('')}</ul>
             ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
           </div>` : ''}
           ${p.error ? `<p class="promotion-block-note">⚠ ${escapeHtml(p.error)}</p>` : ''}
