@@ -340,8 +340,10 @@ The Studio's CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/w
 - **The responsive canvas consumes a host projection, not a JavaScript resolver.** Add computed fields to
   `buildWebsiteStudioResponsiveScreens()` and its bounded webview snapshot; do not copy inheritance rules
   into `media/websiteStudio.js`. Geometry and visibility reset independently via
-  `clear-node-viewport-override.property`. Until responsive drag/resize ships deliberately, keep drawing,
-  deletion, nesting, nudge, and pointer transforms confined to the declared base breakpoint.
+  `clear-node-viewport-override.property`. Responsive drag/resize/nudge may optimistically project the
+  host-resolved rectangle for immediate feedback, but pointer-up must submit the existing exact viewport
+  command and accept the next host snapshot as authoritative. Keep drawing, deletion, nesting, and all
+  parent changes confined to the declared base breakpoint.
 - **Generation is gated twice and confirmed once.** `atlasmind.website.generation.enabled` and `atlasmind.website.preview.enabled` are separate and both default off; every Generate shows a `{modal:true}` dialog naming each file. The plan is built by `planWebsiteGeneration()` before any model call, which is what lets the dialog be specific.
 - **Nothing is written outside `.atlasmind/website-preview/`.** Paths are validated at plan time, again when the model's reply is parsed, and again immediately before each write in `websiteGenerationRunner.ts`. Do not remove any of the three: the runner's writer is injected precisely so a test can fail the run if an escaping path is ever passed.
 - **Preview has one canonical draft and two consumers.** `writeWireframePreviews()` rebuilds the `_wireframe/` index from saved geometry, safe UI tokens, and Markdown content; generated output may be linked but never becomes the entry point. Each page receives its matching graph screen, and the pure renderer emits inherited tablet/mobile geometry and visibility as static media rules before the host injects `UI_PREVIEW_RUNTIME_SCRIPT`. Simple Browser receives revision and selection SSE events, reloads after a successful render, and can send a clicked saved identity back; the responsive lab remains a scriptless iframe and is refreshed by its extension host. Both consume the same tokenized loopback URL.

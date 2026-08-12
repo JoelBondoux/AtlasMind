@@ -212,8 +212,9 @@ new browser command, storage, or write capability.
 The Studio canvas now offers the same Desktop, Tablet, and Mobile views. Its inspector shows computed
 geometry, visibility, layout and sizing together with the breakpoint each property came from. Apply or reset
 responsive geometry and visibility independently; hidden nodes stay faintly selectable in the editor while
-remaining absent from the full preview. Structural drawing, drag/resize, nesting, nudging, and deletion stay
-on the base breakpoint until responsive direct manipulation is completed.
+remaining absent from the full preview. Dragging, resizing, or arrow-key nudging at a non-base breakpoint
+creates a deliberate geometry override with normal undo/reset. Drawing, nesting, deletion, and parent changes
+stay on the base breakpoint because they alter shared structure.
 
 Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
 The built-in browser receives the new render revision and reloads automatically. Select a saved block in

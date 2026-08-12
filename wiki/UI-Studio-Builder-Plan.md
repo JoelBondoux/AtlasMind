@@ -48,8 +48,9 @@ of every computed layout property. Revisioned set/clear commands now manage view
 clearing an override restores inheritance, and the same behaviour runs across all three reference projects.
 In v0.280.0 the deterministic full preview began projecting that inherited layout at tablet/mobile browser
 widths with static media rules. v0.281.0 adds host-resolved Studio breakpoint controls and a provenance-aware
-inspector that applies or independently resets geometry and visibility. Responsive pointer manipulation,
-richer layout properties, multi-selection tools, and diagnostics remain to complete the phase.
+inspector that applies or independently resets geometry and visibility. v0.282.0 adds direct breakpoint
+drag, resize, and keyboard nudge without granting responsive gestures authority over structure. Richer
+layout properties, multi-selection tools, and diagnostics remain to complete the phase.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

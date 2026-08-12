@@ -402,7 +402,7 @@
     if (context) {
       context.textContent = activeBreakpoint === base
         ? 'Base layout · structural editing'
-        : 'Responsive view · inherited values may be overridden in the inspector';
+        : 'Responsive view · drag, resize, nudge, or use the inspector to create overrides';
     }
     qsa('.palette-button').forEach(button => {
       button.disabled = state.readOnly || activeBreakpoint !== base;
@@ -485,14 +485,43 @@
       + '</div>'
       + '<p class="inspector-hint">' + (isBase
         ? 'Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.'
-        : 'Responsive changes are explicit overrides. Reset either property to resume inheritance. Ctrl/Cmd+Z still undoes.')
+        : 'Drag, resize, or use arrow keys to create a layout override. Structure stays shared. Reset either property to resume inheritance.')
       + '</p>';
   }
 
   // ── Drawing, moving, resizing ──────────────────────────────────
 
-  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object, parentId?: string}} */
+  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object, parentId?: string, responsive?: boolean}} */
   let drag = null;
+
+  /**
+   * Optimistically project a responsive rectangle while a gesture is active.
+   *
+   * The host remains authoritative: pointer-up submits the closed reducer
+   * command and the next host message replaces this temporary projection.
+   */
+  function projectResponsiveRect(elementId, rect) {
+    const node = responsiveNode(elementId);
+    const view = node?.views?.[activeBreakpoint];
+    if (!node || !view?.layout || activeBreakpoint === activeBaseBreakpoint()) { return; }
+    view.layout.rect = { ...rect };
+    view.provenance = {
+      ...view.provenance,
+      rect: { kind: 'override', breakpoint: activeBreakpoint },
+    };
+    node.overrides[activeBreakpoint] = {
+      ...(node.overrides[activeBreakpoint] ?? { rect: false, hidden: false }),
+      rect: true,
+    };
+  }
+
+  function projectGestureRect(element, rect, responsive) {
+    if (responsive) {
+      projectResponsiveRect(element.id, rect);
+    } else {
+      element.rect = { ...rect };
+    }
+  }
 
   function beginCanvasPointer(event) {
     const surface = canvasSurface();
@@ -502,39 +531,41 @@
     const handle = event.target.closest('.wf-handle');
     const box = event.target.closest('.wf-box');
 
-    if (activeBreakpoint !== activeBaseBreakpoint()) {
-      if (box) {
-        selectedElementId = box.dataset.elementId;
-        notifyPreviewSelection();
-        renderCanvas();
-      }
-      notice('This is an inherited responsive view. Use the inspector to override layout or visibility, or switch to the base breakpoint for direct manipulation.');
-      event.preventDefault();
-      return;
-    }
+    const responsive = activeBreakpoint !== activeBaseBreakpoint();
 
     if (handle && box) {
+      const element = findElement(box.dataset.elementId);
+      if (!element) { return; }
       drag = {
         mode: 'resize',
         id: box.dataset.elementId,
         handle: handle.dataset.handle,
         origin: point,
-        start: { ...findElement(box.dataset.elementId).rect },
-        parentId: findElement(box.dataset.elementId).parentId,
+        start: { ...responsiveView(element).layout.rect },
+        parentId: element.parentId,
+        responsive,
       };
     } else if (box) {
       selectedElementId = box.dataset.elementId;
       notifyPreviewSelection();
+      const element = findElement(selectedElementId);
+      if (!element) { return; }
       drag = {
         mode: 'move',
         id: selectedElementId,
         handle: '',
         origin: point,
-        start: { ...findElement(selectedElementId).rect },
-        parentId: findElement(selectedElementId).parentId,
+        start: { ...responsiveView(element).layout.rect },
+        parentId: element.parentId,
+        responsive,
       };
       renderCanvas();
     } else {
+      if (responsive) {
+        notice('Responsive views override existing nodes. Switch to the base breakpoint to draw new structure.');
+        event.preventDefault();
+        return;
+      }
       if (elementsOf(activePage()).length >= MAX_ELEMENTS) {
         notice('This page already has ' + MAX_ELEMENTS + ' elements, the maximum for one wireframe.', 'error');
         return;
@@ -570,15 +601,18 @@
       if (snappedX !== null) { x = clamp(snappedX, 0, CANVAS_WIDTH - drag.start.width); }
       const snappedY = snapY(y, element.id);
       if (snappedY !== null) { y = clamp(snappedY, 0, CANVAS_MAX_HEIGHT - drag.start.height); }
-      element.rect.x = round(x);
-      element.rect.y = round(y);
+      projectGestureRect(element, {
+        ...drag.start,
+        x: round(x),
+        y: round(y),
+      }, drag.responsive === true);
     } else if (drag.mode === 'resize') {
-      applyResize(element, drag, dx, dy);
+      projectGestureRect(element, resizedRect(element, drag, dx, dy), drag.responsive === true);
     }
     renderCanvas();
   }
 
-  function applyResize(element, session, dx, dy) {
+  function resizedRect(element, session, dx, dy) {
     const start = session.start;
     let { x, y, width, height } = start;
 
@@ -607,10 +641,7 @@
       if (snapped !== null && snapped - start.y >= MIN_HEIGHT) { height = snapped - start.y; }
     }
 
-    element.rect.x = round(x);
-    element.rect.y = round(y);
-    element.rect.width = round(width);
-    element.rect.height = round(height);
+    return { x: round(x), y: round(y), width: round(width), height: round(height) };
   }
 
   function normalizeDrawn(origin, point, height) {
@@ -675,7 +706,7 @@
       return;
     }
 
-    if (session.mode === 'move') {
+    if (session.mode === 'move' && !session.responsive) {
       const element = findElement(session.id);
       if (element) {
         const container = containerAt(element.rect, element.id);
@@ -689,7 +720,17 @@
       }
     }
     const changed = findElement(session.id);
-    if (changed && (JSON.stringify(changed.rect) !== JSON.stringify(session.start)
+    const changedRect = changed ? responsiveView(changed).layout.rect : undefined;
+    if (changed && session.responsive && JSON.stringify(changedRect) !== JSON.stringify(session.start)) {
+      submitDesignEdit({
+        type: 'set-node-viewport-override',
+        screenId: activePageId,
+        nodeId: changed.id,
+        breakpoint: activeBreakpoint,
+        rect: { ...changedRect },
+      });
+      notice('Created a ' + activeBreakpoint + ' layout override. Undo or reset it to resume inheritance.');
+    } else if (changed && (JSON.stringify(changed.rect) !== JSON.stringify(session.start)
         || (changed.parentId ?? null) !== (session.parentId ?? null))) {
       submitDesignEdit({
         type: 'set-node-frame',
@@ -732,18 +773,25 @@
   }
 
   function nudgeSelected(dx, dy) {
-    if (activeBreakpoint !== activeBaseBreakpoint()) {
-      notice('Use the responsive inspector for breakpoint-specific geometry, or switch to the base breakpoint to nudge directly.');
-      return;
-    }
     const element = findElement(selectedElementId);
     if (!element) { return; }
-    element.rect.x = round(clamp(element.rect.x + dx, 0, CANVAS_WIDTH - element.rect.width));
-    element.rect.y = round(clamp(element.rect.y + dy, 0, CANVAS_MAX_HEIGHT - element.rect.height));
-    submitDesignEdit({
-      type: 'set-node-frame', screenId: activePageId, nodeId: element.id,
-      rect: { ...element.rect }, parentId: element.parentId ?? null,
-    });
+    const responsive = activeBreakpoint !== activeBaseBreakpoint();
+    const current = responsiveView(element).layout.rect;
+    const rect = {
+      ...current,
+      x: round(clamp(current.x + dx, 0, CANVAS_WIDTH - current.width)),
+      y: round(clamp(current.y + dy, 0, CANVAS_MAX_HEIGHT - current.height)),
+    };
+    projectGestureRect(element, rect, responsive);
+    submitDesignEdit(responsive
+      ? {
+        type: 'set-node-viewport-override', screenId: activePageId, nodeId: element.id,
+        breakpoint: activeBreakpoint, rect,
+      }
+      : {
+        type: 'set-node-frame', screenId: activePageId, nodeId: element.id,
+        rect, parentId: element.parentId ?? null,
+      });
     renderCanvas();
   }
 
@@ -844,7 +892,7 @@
       renderCanvas();
       notice(activeBreakpoint === activeBaseBreakpoint()
         ? 'Showing the base layout. Direct manipulation changes the shared structure.'
-        : 'Showing the resolved ' + activeBreakpoint + ' layout. The inspector identifies inherited and overridden values.');
+        : 'Showing the resolved ' + activeBreakpoint + ' layout. Dragging, resizing, and nudging create an override; structure stays shared.');
       return;
     }
 

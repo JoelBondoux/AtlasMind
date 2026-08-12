@@ -5,11 +5,12 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.281.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.282.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
-deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset, and
-responsive projection in both the Studio canvas and full built-in-browser preview.
+deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
+responsive projection in both the Studio canvas and full built-in-browser preview, and direct breakpoint
+drag/resize/nudge that cannot change shared structure.
 
 ## Problem
 
@@ -160,7 +161,8 @@ Progress: v0.279.0 delivered the pure inheritance/provenance resolver and exact 
 viewport geometry and visibility. v0.280.0 projects those results into the deterministic full preview at
 tablet/mobile widths. v0.281.0 adds host-resolved breakpoint controls, computed-property provenance, and
 independent geometry/visibility apply/reset in the Studio inspector. The three reference projects exercise
-inheritance, reset, and preview. Responsive direct manipulation, the remaining layout properties,
+inheritance, reset, and preview. v0.282.0 routes breakpoint drag, resize, and keyboard nudge through the same
+exact geometry-override command while leaving structure base-only. The remaining layout properties,
 multi-selection tools, and diagnostics remain in this phase.
 
 - Stack, grid, free, and overlay layout modes.

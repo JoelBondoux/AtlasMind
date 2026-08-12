@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.282.0 — Responsive layouts support direct manipulation
+
+Tablet and mobile nodes can now be dragged, resized from all eight handles, and nudged with the keyboard.
+The gesture begins from the host-resolved rectangle, becomes an explicit override at pointer-up, and remains
+revision-checked, undoable, resettable, snapped, and bounded like base editing.
+
+The browser only paints an optimistic rectangle while the gesture is active; the extension host validates
+the existing closed command and returns the authoritative projection. Drawing, deletion, nesting, and parent
+changes remain base-only so a responsive adjustment cannot silently alter shared structure.
+
 ## v0.281.0 — Responsive layout is visible and editable in the Studio
 
 The Wireframe canvas now switches among Desktop, Tablet, and Mobile using layouts resolved by the extension

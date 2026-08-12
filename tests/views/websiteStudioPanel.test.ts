@@ -305,6 +305,9 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('designRevision,');
     expect(source).not.toContain('designGraph: state');
     expect(source).toContain('applyResponsiveRect');
+    expect(source).toContain('projectResponsiveRect');
+    expect(source).toContain('const responsive = activeBreakpoint !== activeBaseBreakpoint();');
+    expect(source).toContain("type: 'set-node-viewport-override', screenId: activePageId, nodeId: element.id");
     expect(source).toContain("property: 'hidden'");
     expect(source).toContain('sourceLabel(view.provenance.rect)');
   });

@@ -138,9 +138,10 @@ The Wireframe canvas has the same **Desktop / Tablet / Mobile** selector. Select
 breakpoint shows its resolved X/Y/width/height, visibility, layout mode, sizing modes, and the base/override
 breakpoint that supplied each value. Apply layout and visibility separately, or choose **Use inherited** for
 either property without discarding the other. Hidden nodes remain faintly visible in the editor so they can
-be selected and restored; they remain hidden in the full preview. Direct drawing, drag/resize, nesting,
-nudging, and deletion currently stay on the screen's base breakpoint while responsive direct manipulation
-is completed.
+be selected and restored; they remain hidden in the full preview. At a non-base breakpoint, dragging,
+resizing, or arrow-key nudging creates an explicit geometry override and retains normal snapping, bounds,
+undo, and reset. Drawing, nesting, deletion, and parent changes stay on the screen's base breakpoint because
+they alter shared structure rather than responsive presentation.
 
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.

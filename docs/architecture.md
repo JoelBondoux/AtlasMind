@@ -354,8 +354,10 @@ per-property provenance, and Boolean flags saying which geometry/visibility over
 webview renders that projection but never computes inheritance. Its breakpoint inspector may submit exact
 set commands or clear `rect`/`hidden` independently; `uiEditCommands.ts` removes only the named property and
 drops the breakpoint record only when nothing remains. Host reconciliation returns both the compatibility
-wireframes and a fresh resolved snapshot after every result. Structural pointer editing stays base-only in
-this increment; responsive views remain selection plus explicit property editing.
+wireframes and a fresh resolved snapshot after every result. At a non-base breakpoint, drag/resize and
+keyboard nudge optimistically change only the local resolved rectangle, then submit that rectangle as the
+same exact `set-node-viewport-override` command; the next host result replaces the projection. Drawing,
+deletion, nesting, and parent identity stay base-only, so a responsive gesture cannot change shared structure.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review

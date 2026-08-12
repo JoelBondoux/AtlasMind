@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.281.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.282.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.281.0
+## What's new in 0.282.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Responsive layouts now support direct manipulation.** At tablet or mobile, drag, resize, or use the
+  arrow keys to turn the inherited rectangle into a deliberate breakpoint override. Drawing, deletion, and
+  nesting remain base-only, so responsive work cannot accidentally change the shared structure.
 
 - **Responsive design is now inspectable and editable in the Studio.** Switch the canvas among desktop,
   tablet, and mobile; select even a hidden node; see exactly which breakpoint supplied its geometry,

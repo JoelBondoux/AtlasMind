@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.282.0] - 2026-08-12
+
+### Added
+
+- **Responsive layouts can now be manipulated directly on the Studio canvas.** Dragging, resizing, or
+  nudging a node at any non-base breakpoint creates an explicit geometry override from the resolved
+  rectangle. Snapping, bounded geometry, keyboard steps, undo/redo, provenance, and independent reset all
+  remain available without making a duplicate drawing.
+
+### Security
+
+- **A responsive gesture is an optimistic projection, never browser authority.** The webview temporarily
+  paints the resolved rectangle for feedback, then submits the existing exact revisioned viewport command.
+  The extension host validates it and replaces the projection after every accepted or refused result.
+
+### Changed
+
+- **Responsive geometry editing cannot change shared structure.** Drawing, deletion, and nesting remain
+  confined to the declared base breakpoint; a responsive gesture can name only an existing node, the active
+  closed breakpoint, and a bounded rectangle.
+
 ## [0.281.0] - 2026-08-12
 
 ### Added

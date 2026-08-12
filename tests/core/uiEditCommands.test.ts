@@ -250,6 +250,8 @@ describe('UI edit commands', () => {
     if (!mobile.ok) { return; }
     const screen = mobile.session.graph.screens[0]!;
     const node = screen.nodes.find(candidate => candidate.id === 'child')!;
+    expect(node.layout.rect).toEqual({ x: 100, y: 100, width: 400, height: 120 });
+    expect(node.parentId).toBeUndefined();
     const resolved = resolveUiNodeLayout(screen, node, 'mobile');
     expect(resolved.layout).toMatchObject({ rect: tabletRect, hidden: true });
     expect(resolved.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });

@@ -192,8 +192,9 @@ The Studio webview does not reproduce responsive inheritance. `websiteStudioPane
 at all three breakpoints on the extension host and sends bounded layout/provenance plus flags for the two
 override properties. The canvas can select hidden nodes and submit exact geometry/visibility set or reset
 requests. Reset names `rect` or `hidden`, so the reducer preserves the other property and removes an empty
-breakpoint record. Every result returns a fresh host projection. Structural pointer editing remains confined
-to the screen's base breakpoint until responsive direct manipulation is delivered as its own audited slice.
+breakpoint record. Every result returns a fresh host projection. Drag, resize, and keyboard nudge at a
+non-base breakpoint project the resolved rectangle optimistically, then submit it through the same exact
+override command. Drawing, deletion, nesting, and parent changes remain confined to the base breakpoint.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains
