@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.303.2] - 2026-08-12
+
+### Changed
+
+- **Dependabot no longer proposes TypeScript 7.** `@typescript-eslint/parser` declares
+  `typescript: ">=4.8.4 <6.1.0"`, so a 7.x bump does not merely warn — it breaks `npm run lint` on
+  every platform. PR #176 bundled `typescript@7.0.2` into the developer-tooling group and failed CI on
+  all three runners in under 25 seconds, taking five harmless updates down with it, and Dependabot
+  re-proposed it daily.
+
+  `.github/dependabot.yml` now ignores major TypeScript updates, scoped to the npm ecosystem entry. The
+  rule states the peer range that causes it, the PR it broke, and how to check whether it can be
+  removed — `npm info @typescript-eslint/parser peerDependencies`, rather than assuming some release
+  has widened it.
+
+- **`ws` 8.21.1 → 8.21.3** and **`azure/login` v2 → v3** in both Marketplace credential workflows,
+  the latter verified against the live federated credential by the `Marketplace — verify publishing
+  identity` workflow, which tests the sign-in without consuming a version number.
+
+
 ## [0.303.1] - 2026-08-12
 
 ### Fixed

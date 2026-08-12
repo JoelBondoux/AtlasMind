@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.303.2 — Dependency housekeeping
+
+Maintenance only; nothing changes in how AtlasMind behaves.
+
+`ws` and the Azure sign-in action used by Marketplace publishing were updated, the latter checked
+against the real credential without publishing anything.
+
+Dependabot has also been told to stop offering TypeScript 7. The linter's parser only supports
+TypeScript up to 6.0, so the upgrade breaks the build outright — and because it was bundled with five
+harmless updates, it was blocking those too, every day.
+
+---
+
 ## v0.303.1 — A stale instruction that would have broken releases
 
 Internal documentation fix, with no change to how AtlasMind behaves.

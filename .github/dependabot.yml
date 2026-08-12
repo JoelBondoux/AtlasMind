@@ -19,6 +19,21 @@ updates:
           - "@types/vscode"
       developer-tooling:
         dependency-type: development
+    ignore:
+      # TypeScript is held at 6.x because typescript-eslint pins it.
+      #
+      # `@typescript-eslint/parser` declares `typescript: ">=4.8.4 <6.1.0"`, so a
+      # 7.x bump does not merely warn — it breaks `npm run lint` on every
+      # platform, which is what happened to PR #176 (failed CI on all three
+      # runners in under 25 seconds). Without this rule Dependabot re-proposes
+      # the same bump daily, bundled into the developer-tooling group, which
+      # blocks the five harmless updates travelling with it.
+      #
+      # Remove this entry once typescript-eslint widens its peer range to admit
+      # TypeScript 7 — check `npm info @typescript-eslint/parser peerDependencies`
+      # rather than assuming a release has done it.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "security"
       include: scope
