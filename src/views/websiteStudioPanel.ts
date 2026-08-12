@@ -392,6 +392,7 @@ export class WebsiteStudioPanel {
       revision: this.editSession.graph.revision,
       ...(reason ? { reason } : {}),
       pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
+      tokens: this.editSession.graph.tokens,
       responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
     });
   }
@@ -930,6 +931,7 @@ export function getWebsiteStudioHtml(
     surfaceKind: config.surfaceKind,
     designRevision: config.designGraph.revision,
     pages: config.pages,
+    tokens: config.designGraph.tokens,
     responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
@@ -1409,7 +1411,7 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           ${field('Accessibility target', 'design-accessibilityTarget', design.accessibilityTarget)}
         </article>
         <article class="panel-card">
-          <h2>Tokens and components</h2>
+          <h2>Legacy visual defaults</h2>
           <div class="color-grid">
             ${colorField('Primary', 'design-primaryColor', design.primaryColor)}
             ${colorField('Secondary', 'design-secondaryColor', design.secondaryColor)}
@@ -1426,6 +1428,27 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           </div>
         </article>
       </div>
+      <article class="panel-card token-authority-card">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Authoritative graph · revision ${config.designGraph.revision}</p>
+            <h2>Typed design tokens</h2>
+          </div>
+        </div>
+        <p class="token-help">Tokens are structured, target-independent definitions. Reserved ids such as <code>color-primary</code>, <code>font-heading</code>, <code>spacing-base</code>, and <code>radius-base</code> drive Studio and Full Preview; every valid token is also exposed to preview adapters.</p>
+        <p class="token-help">Use plain numbers for numeric kinds, <code>x y blur spread #RRGGBB</code> for shadow, and <code>durationMs easing</code> for motion.</p>
+        <div class="token-create-row">
+          ${field('Stable id', 'newTokenId', 'color-primary', 'color-primary')}
+          ${field('Label', 'newTokenLabel', 'Primary', 'Primary')}
+          <label class="field"><span>Kind</span><select id="newTokenKind">${[
+            'color', 'font-family', 'font-size', 'font-weight', 'line-height',
+            'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
+          ].map(kind => `<option value="${kind}">${kind}</option>`).join('')}</select></label>
+          ${field('Initial value', 'newTokenValue', '#2563EB', '#2563EB')}
+          <button type="button" id="addDesignToken"${config.designGraph.tokens.length >= 200 ? ' disabled' : ''}>Add token</button>
+        </div>
+        <div id="designTokenEditor" class="token-editor" aria-live="polite"></div>
+      </article>
     </section>
   `;
 }

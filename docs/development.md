@@ -320,6 +320,13 @@ and bounded in `uiDesignGraph.ts`; aliases must remain same-kind, acyclic, and r
 Format migrations must seed no visual choices. Reusable components will join this v7 authority in later
 Phase 3 slices and must use the same revisioned command path.
 
+UI System token changes must use `add-token`, `set-token`, or `delete-token`; the ordinary save form must not
+carry a replacement graph. Preview conversion belongs in `websiteWireframePreview.ts`: semantic roles are a
+small reserved-id allowlist, while all resolved definitions use hex-encoded-id custom properties so graph
+identities cannot become CSS syntax or collide after punctuation normalization. Keep Studio canvas and Full
+Preview on those same reserved roles. A running Full Preview remains a saved-design review surface and is
+rebuilt after Save/Refresh; do not render unsaved webview-only token state into it.
+
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized
 plan, and `WebsiteContentManager` derives the path. Save includes the body originally opened and is

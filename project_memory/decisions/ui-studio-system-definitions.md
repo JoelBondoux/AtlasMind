@@ -47,6 +47,6 @@ separate UI actions; neither will be inferred from which object happened to be s
 ## Action items
 
 - [x] Add v7 token types, sanitation, alias resolution, migration, and adversarial tests. Shipped in v0.290.0.
-- [ ] Add closed token edit commands and UI System definition editing.
-- [ ] Apply resolved tokens through the shared Studio/Full Preview projection.
+- [x] Add closed token edit commands and UI System definition editing. Shipped in v0.291.0.
+- [x] Apply resolved tokens through the shared Studio/Full Preview projection. Shipped in v0.291.0.
 - [ ] Add component definitions, instances, variants, slots, and states on the same authority boundary.

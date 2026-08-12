@@ -323,7 +323,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   breakpoint tokens. A token owns a bounded structured value or aliases another token of the same kind;
   `resolveUiDesignToken()` refuses missing targets, cross-kind links, and cycles while retaining the resolved
   source and alias chain. Tokens are graph facts rather than CSS declarations, so every output target reads
-  the same system without becoming its authority.
+  the same system without becoming its authority. `websiteWireframePreview.ts` is the HTML adapter: a closed
+  semantic-id map supplies colour, typography, spacing, radius and breakpoint roles to preview and canvas,
+  while every resolved token receives a hex-encoded-id custom property that cannot collide or become syntax.
   `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
   the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
   viewport only through an exact override, so migration does not invent responsive intent.
@@ -340,7 +342,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
   geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
   visibility override set/reset, undo, and redo; commands carry an expected revision and never a graph
-  patch. `set-node-frames` validates every unique target before changing any, applies either base rectangles
+  patch. Typed token add/set/delete commands share that revision and history, validate the complete dependency
+  graph before committing, refuse duplicate ids and broken/cyclic/cross-kind aliases, and protect a direct
+  token while another token aliases it. `set-node-frames` validates every unique target before changing any, applies either base rectangles
   or one named responsive breakpoint, and records the batch as one revision/history entry. A responsive command names only a
   closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
   invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion

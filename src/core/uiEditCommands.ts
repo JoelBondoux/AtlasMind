@@ -11,6 +11,7 @@ import type {
   UiDesignNode,
   UiDesignScreen,
   UiDesignToken,
+  UiDesignTokenKind,
   UiLayoutAlignment,
   UiLayoutDirection,
   UiLayoutDistribution,
@@ -33,10 +34,12 @@ import {
 } from './websiteWireframe.js';
 import {
   UI_DESIGN_GRAPH_MAX_REVISION,
+  UI_DESIGN_GRAPH_MAX_TOKENS,
   UI_LAYOUT_MAX_COLUMNS,
   UI_LAYOUT_MAX_GAP,
   UI_LAYOUT_MAX_PADDING,
   UI_LAYOUT_MAX_ORDER,
+  sanitizeUiDesignTokens,
 } from './uiDesignGraph.js';
 
 export const UI_EDIT_HISTORY_LIMIT = 100;
@@ -91,6 +94,9 @@ export interface UiNodeLayoutEdit {
 export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
 
 export type UiEditCommand =
+  | (UiEditCommandBase & { type: 'add-token'; token: UiDesignToken })
+  | (UiEditCommandBase & { type: 'set-token'; tokenId: string; token: UiDesignToken })
+  | (UiEditCommandBase & { type: 'delete-token'; tokenId: string })
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
   | (UiNodeCommandBase & { type: 'delete-node' })
   | (UiNodeCommandBase & {
@@ -144,6 +150,10 @@ export type UiEditRefusalReason =
   | 'revision-exhausted'
   | 'screen-not-found'
   | 'node-not-found'
+  | 'token-not-found'
+  | 'token-exists'
+  | 'token-in-use'
+  | 'token-limit'
   | 'parent-not-found'
   | 'parent-cannot-contain'
   | 'parent-cycle'
@@ -167,6 +177,25 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
   if (input['type'] === 'undo' || input['type'] === 'redo') {
     return exactKeys(input, ['type', 'expectedRevision'])
       ? { type: input['type'], expectedRevision }
+      : undefined;
+  }
+  if (input['type'] === 'add-token') {
+    const token = parseDesignToken(input['token']);
+    return token && exactKeys(input, ['type', 'expectedRevision', 'token'])
+      ? { type: 'add-token', expectedRevision, token }
+      : undefined;
+  }
+  if (input['type'] === 'set-token') {
+    const token = parseDesignToken(input['token']);
+    return token && validIdentifier(input['tokenId']) && token.id === input['tokenId']
+      && exactKeys(input, ['type', 'expectedRevision', 'tokenId', 'token'])
+      ? { type: 'set-token', expectedRevision, tokenId: input['tokenId'], token }
+      : undefined;
+  }
+  if (input['type'] === 'delete-token') {
+    return validIdentifier(input['tokenId'])
+      && exactKeys(input, ['type', 'expectedRevision', 'tokenId'])
+      ? { type: 'delete-token', expectedRevision, tokenId: input['tokenId'] }
       : undefined;
   }
   if (!validIdentifier(input['screenId'])) {
@@ -349,6 +378,45 @@ function parseNewNode(input: unknown): UiNewNode | undefined {
   };
 }
 
+function parseDesignToken(input: unknown): UiDesignToken | undefined {
+  if (!isRecord(input)
+      || !validIdentifier(input['id'])
+      || typeof input['label'] !== 'string'
+      || input['label'].trim().length === 0
+      || input['label'].length > 120
+      || !isTokenKind(input['kind'])) {
+    return undefined;
+  }
+  if (input['aliasOf'] !== undefined) {
+    return validIdentifier(input['aliasOf'])
+      && exactKeys(input, ['id', 'label', 'kind', 'aliasOf'])
+      ? {
+          id: input['id'],
+          label: input['label'].trim(),
+          kind: input['kind'],
+          aliasOf: input['aliasOf'],
+        }
+      : undefined;
+  }
+  if (!exactKeys(input, ['id', 'label', 'kind', 'value'])) {
+    return undefined;
+  }
+  return sanitizeUiDesignTokens([input])[0];
+}
+
+function isTokenKind(input: unknown): input is UiDesignTokenKind {
+  return input === 'color'
+    || input === 'font-family'
+    || input === 'font-size'
+    || input === 'font-weight'
+    || input === 'line-height'
+    || input === 'spacing'
+    || input === 'radius'
+    || input === 'shadow'
+    || input === 'motion'
+    || input === 'breakpoint';
+}
+
 function parseNodeFrames(input: unknown): UiNodeFrameEdit[] | undefined {
   if (!Array.isArray(input) || input.length < 1 || input.length > MAX_WIREFRAME_ELEMENTS) {
     return undefined;
@@ -442,6 +510,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   if (command.type === 'redo') {
     return restoreHistory(session, 'redo');
   }
+  if (command.type === 'add-token' || command.type === 'set-token' || command.type === 'delete-token') {
+    return applyTokenCommand(session, command);
+  }
 
   const screenIndex = session.graph.screens.findIndex(screen => screen.id === command.screenId);
   if (screenIndex < 0) {
@@ -489,6 +560,52 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   };
 }
 
+function applyTokenCommand(
+  session: UiEditSession,
+  command: Extract<UiEditCommand, { type: 'add-token' | 'set-token' | 'delete-token' }>,
+): UiEditResult {
+  const currentIndex = command.type === 'add-token'
+    ? session.graph.tokens.findIndex(token => token.id === command.token.id)
+    : session.graph.tokens.findIndex(token => token.id === command.tokenId);
+  if (command.type === 'add-token') {
+    if (currentIndex >= 0) { return refused(session, 'token-exists'); }
+    if (session.graph.tokens.length >= UI_DESIGN_GRAPH_MAX_TOKENS) { return refused(session, 'token-limit'); }
+  } else if (currentIndex < 0) {
+    return refused(session, 'token-not-found');
+  }
+
+  let proposed: UiDesignToken[];
+  if (command.type === 'add-token') {
+    proposed = [...session.graph.tokens, command.token];
+  } else if (command.type === 'set-token') {
+    proposed = session.graph.tokens.map((token, index) => index === currentIndex ? command.token : token);
+  } else {
+    if (session.graph.tokens.some(token => token.aliasOf === command.tokenId)) {
+      return refused(session, 'token-in-use');
+    }
+    proposed = session.graph.tokens.filter((_, index) => index !== currentIndex);
+  }
+
+  const tokens = sanitizeUiDesignTokens(proposed);
+  if (tokens.length !== proposed.length) {
+    return refused(session, 'invalid-command');
+  }
+  if (JSON.stringify(tokens) === JSON.stringify(session.graph.tokens)) {
+    return refused(session, 'no-change');
+  }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.tokens = tokens;
+  return {
+    ok: true,
+    session: {
+      graph: nextGraph,
+      undo: [...session.undo, cloneGraph(session.graph)].slice(-UI_EDIT_HISTORY_LIMIT),
+      redo: [],
+    },
+  };
+}
+
 type NodeCommandResult =
   | { ok: true; node: UiDesignNode }
   | { ok: false; reason: UiEditRefusalReason };
@@ -497,7 +614,8 @@ function applyNodeCommand(
   screen: UiDesignScreen,
   node: UiDesignNode,
   command: Exclude<UiEditCommand, {
-    type: 'undo' | 'redo' | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames';
+    type: 'undo' | 'redo' | 'add-token' | 'set-token' | 'delete-token'
+      | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames';
   }>,
 ): NodeCommandResult {
   switch (command.type) {

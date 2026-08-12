@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.291.0 — Visual typed-token editing and preview projection
+
+UI System now edits the v7 token authority directly: add typed values, make same-kind aliases, change a
+definition, and delete an unused token. Every operation crosses the exact graph command boundary, advances
+one revision, and participates in undo/redo. The host refuses broken dependency graphs and protects tokens
+that still have aliases.
+
+Reserved semantic ids now drive colour, typography, spacing, radius, and responsive breakpoints in both the
+Studio canvas and Full Preview. The adapter additionally publishes every resolved token under a uniquely
+encoded CSS custom property without turning graph ids into raw CSS. The Markdown mirror lists definitions
+and aliases for review outside the Studio.
+
 ## v0.290.0 — Typed UI Studio token authority
 
 Phase 3 begins with bounded typed token definitions inside the same authoritative graph as screens and

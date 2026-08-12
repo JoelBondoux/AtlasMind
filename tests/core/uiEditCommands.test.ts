@@ -39,6 +39,67 @@ function graph() {
 }
 
 describe('UI edit commands', () => {
+  it('adds, changes, aliases, deletes, and restores tokens through the same revision history', () => {
+    let session = createUiEditSession(graph());
+    const added = applyUiEditCommand(session, {
+      type: 'add-token', expectedRevision: 0,
+      token: { id: 'color-primary', label: 'Primary', kind: 'color', value: '#2563eb' },
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) { return; }
+    session = added.session;
+    expect(session.graph.tokens[0]).toEqual({
+      id: 'color-primary', label: 'Primary', kind: 'color', value: '#2563EB',
+    });
+
+    const alias = applyUiEditCommand(session, {
+      type: 'add-token', expectedRevision: 1,
+      token: { id: 'color-action', label: 'Action', kind: 'color', aliasOf: 'color-primary' },
+    });
+    expect(alias.ok).toBe(true);
+    if (!alias.ok) { return; }
+    const changed = applyUiEditCommand(alias.session, {
+      type: 'set-token', expectedRevision: 2, tokenId: 'color-primary',
+      token: { id: 'color-primary', label: 'Primary brand', kind: 'color', value: '#123456' },
+    });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) { return; }
+    expect(changed.session.graph.tokens[0]).toMatchObject({ label: 'Primary brand', value: '#123456' });
+    expect(applyUiEditCommand(changed.session, {
+      type: 'delete-token', expectedRevision: 3, tokenId: 'color-primary',
+    })).toMatchObject({ ok: false, reason: 'token-in-use' });
+
+    const removedAlias = applyUiEditCommand(changed.session, {
+      type: 'delete-token', expectedRevision: 3, tokenId: 'color-action',
+    });
+    expect(removedAlias.ok).toBe(true);
+    if (!removedAlias.ok) { return; }
+    const undone = applyUiEditCommand(removedAlias.session, { type: 'undo', expectedRevision: 4 });
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) { return; }
+    expect(undone.session.graph.tokens.some(token => token.id === 'color-action')).toBe(true);
+    expect(undone.session.graph.revision).toBe(5);
+  });
+
+  it('parses only exact bounded token commands and refuses invalid dependency graphs', () => {
+    const direct = {
+      type: 'add-token' as const, expectedRevision: 0,
+      token: { id: 'space-md', label: 'Medium', kind: 'spacing' as const, value: 16 },
+    };
+    expect(parseUiEditCommand(direct)).toEqual(direct);
+    expect(parseUiEditCommand({ ...direct, command: 'write-file' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...direct, token: { ...direct.token, value: -1 } })).toBeUndefined();
+    expect(parseUiEditCommand({
+      type: 'set-token', expectedRevision: 0, tokenId: 'other', token: direct.token,
+    })).toBeUndefined();
+
+    const session = createUiEditSession(graph());
+    expect(applyUiEditCommand(session, {
+      type: 'add-token', expectedRevision: 0,
+      token: { id: 'space-alias', label: 'Alias', kind: 'spacing', aliasOf: 'missing' },
+    })).toMatchObject({ ok: false, reason: 'invalid-command' });
+  });
+
   it('applies a closed node edit and advances the revision once', () => {
     const session = createUiEditSession(graph());
     const result = applyUiEditCommand(session, {

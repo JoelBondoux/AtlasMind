@@ -73,8 +73,14 @@ intentional exclusions; touch sizing converts through the responsive lab's actua
 Phase 3 started in v0.290.0 with format v7 and typed target-independent token definitions for colour,
 typography, spacing, radius, shadow, motion, and breakpoints. The host bounds every value and permits an
 alias only when its same-kind path reaches a direct definition without a cycle. The v6 → v7 migration adds
-an empty collection rather than inventing a design system. Token editing and preview consumption come next,
-followed by component definitions/instances, variants, slots, properties, and interaction states.
+an empty collection rather than inventing a design system. Component definitions/instances, variants,
+slots, properties, and interaction states follow the token editing and preview work delivered in v0.291.0.
+
+v0.291.0 makes those definitions editable in UI System through exact revisioned add/set/delete commands and
+the existing undo/redo history. Reserved semantic ids drive colour, fonts, spacing, radius, and breakpoint
+behaviour in both the Studio canvas and Full Preview; every resolved definition is also available to the
+preview adapter under a uniquely encoded custom property. Components, variants, slots, properties, and
+interaction states are the remaining Phase 3 work.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

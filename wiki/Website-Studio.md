@@ -26,14 +26,15 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
 | **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
-| **UI System** | Brand direction, tone, palette, typography, spacing, corner style, accessibility target and component notes |
+| **UI System** | Brand direction and legacy defaults plus directly editable typed colour, typography, spacing, radius, shadow, motion and breakpoint tokens |
 | **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
-Format v7 starts the next UI System foundation inside the authoritative graph: bounded typed colour,
-typography, spacing, radius, shadow, motion, and breakpoint definitions with same-kind acyclic aliases.
-These values are target-independent rather than CSS declarations. The visible token editor and preview
-consumption are still Phase 3 work; the existing UI System controls remain the current authoring surface.
+Format v7 stores bounded typed colour, typography, spacing, radius, shadow, motion, and breakpoint definitions
+with same-kind acyclic aliases. UI System now edits them directly through the same revision and undo history as
+the canvas. Reserved semantic ids apply to Studio and Full Preview; all resolved definitions remain available
+to adapters under uniquely encoded custom properties. The values are target-independent structured data,
+not CSS declarations, so native and non-HTML projects retain the same design authority.
 
 ## Design the words too
 

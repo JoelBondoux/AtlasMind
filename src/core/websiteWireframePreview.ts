@@ -31,6 +31,7 @@
 
 import type {
   UiDesignScreen,
+  UiDesignToken,
   WebsiteDesignSystem,
   WebsitePagePlan,
   WebsiteWireframe,
@@ -44,7 +45,7 @@ import {
   wireframeKindSpec,
 } from './websiteWireframe.js';
 import { normalizeSlug } from './websiteSitemap.js';
-import { resolveUiScreenLayout } from './uiDesignGraph.js';
+import { resolveUiDesignToken, resolveUiScreenLayout } from './uiDesignGraph.js';
 
 /** Fixed until breakpoint tokens become part of the design system in Phase 3. */
 export const UI_PREVIEW_TABLET_MAX_WIDTH = 1_023;
@@ -61,6 +62,8 @@ export interface WireframePreviewOptions {
   content?: WebsitePageContent;
   /** Authoritative screen used to project inherited tablet/mobile layout. */
   responsiveScreen?: UiDesignScreen;
+  /** Typed system definitions projected through this target adapter. */
+  tokens?: readonly UiDesignToken[];
 }
 
 export interface WireframeIndexOptions {
@@ -68,6 +71,7 @@ export interface WireframeIndexOptions {
   contents?: ReadonlyMap<string, WebsitePageContent>;
   /** A model-generated visual guide exists beside the deterministic draft. */
   generatedAvailable?: boolean;
+  tokens?: readonly UiDesignToken[];
 }
 
 /**
@@ -93,6 +97,7 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     return renderShell({
       title,
       designSystem,
+      tokens: options.tokens,
       banner: bannerMarkup(page, options.siteName, 'Not drawn yet', options.content),
       body: `<div class="wf-empty">
         <p><strong>This page has not been drawn yet.</strong></p>
@@ -150,12 +155,13 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
 
   const contentProof = renderContentProof(options.content);
   const responsiveStyles = options.responsiveScreen?.pageId === page.id
-    ? renderResponsiveStyles(options.responsiveScreen)
+    ? renderResponsiveStyles(options.responsiveScreen, options.tokens ?? [])
     : '';
 
   return renderShell({
     title,
     designSystem,
+    tokens: options.tokens,
     banner: bannerMarkup(
       page,
       options.siteName,
@@ -166,12 +172,14 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
   });
 }
 
-function renderResponsiveStyles(screen: UiDesignScreen): string {
+function renderResponsiveStyles(screen: UiDesignScreen, tokens: readonly UiDesignToken[]): string {
   if (!screen.initialized || screen.nodes.length === 0) {
     return '';
   }
-  const tablet = renderResponsiveBreakpoint(screen, 'tablet', UI_PREVIEW_TABLET_MAX_WIDTH);
-  const mobile = renderResponsiveBreakpoint(screen, 'mobile', UI_PREVIEW_MOBILE_MAX_WIDTH);
+  const tabletWidth = numericToken(tokens, 'breakpoint-tablet', UI_PREVIEW_TABLET_MAX_WIDTH);
+  const mobileWidth = numericToken(tokens, 'breakpoint-mobile', UI_PREVIEW_MOBILE_MAX_WIDTH);
+  const tablet = renderResponsiveBreakpoint(screen, 'tablet', tabletWidth);
+  const mobile = renderResponsiveBreakpoint(screen, 'mobile', mobileWidth);
   return `<style data-atlas-responsive-layout>\n${tablet}\n${mobile}\n</style>`;
 }
 
@@ -296,6 +304,7 @@ interface ShellOptions {
   designSystem: WebsiteDesignSystem;
   banner: string;
   body: string;
+  tokens?: readonly UiDesignToken[];
 }
 
 /**
@@ -306,11 +315,15 @@ interface ShellOptions {
  * could render would weaken every generated page served alongside it.
  */
 function renderShell(options: ShellOptions): string {
-  const accent = safeColour(options.designSystem.primaryColor, '#2563eb');
-  const secondary = safeColour(options.designSystem.secondaryColor, '#0f172a');
-  const highlight = safeColour(options.designSystem.accentColor, '#14b8a6');
-  const headingFont = safeFontFamily(options.designSystem.headingFont, 'ui-sans-serif, system-ui, sans-serif');
-  const bodyFont = safeFontFamily(options.designSystem.bodyFont, 'ui-sans-serif, system-ui, sans-serif');
+  const tokens = options.tokens ?? [];
+  const accent = colourToken(tokens, 'color-primary', safeColour(options.designSystem.primaryColor, '#2563eb'));
+  const secondary = colourToken(tokens, 'color-secondary', safeColour(options.designSystem.secondaryColor, '#0f172a'));
+  const highlight = colourToken(tokens, 'color-accent', safeColour(options.designSystem.accentColor, '#14b8a6'));
+  const headingFont = fontToken(tokens, 'font-heading', safeFontFamily(options.designSystem.headingFont, 'ui-sans-serif, system-ui, sans-serif'));
+  const bodyFont = fontToken(tokens, 'font-body', safeFontFamily(options.designSystem.bodyFont, 'ui-sans-serif, system-ui, sans-serif'));
+  const spacing = numericToken(tokens, 'spacing-base', 12);
+  const radius = numericToken(tokens, 'radius-base', 8);
+  const tokenDeclarations = renderTokenDeclarations(tokens);
 
   return `<!doctype html>
 <html lang="en">
@@ -319,7 +332,7 @@ function renderShell(options: ShellOptions): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(options.title)}</title>
 <style>
-  :root { --accent: ${accent}; --highlight: ${highlight}; --ink: ${secondary}; --line: rgba(15, 23, 42, .28); --heading-font: ${headingFont}; --body-font: ${bodyFont}; }
+  :root { --accent: ${accent}; --highlight: ${highlight}; --ink: ${secondary}; --line: rgba(15, 23, 42, .28); --heading-font: ${headingFont}; --body-font: ${bodyFont}; --atlas-spacing-base: ${spacing}px; --atlas-radius-base: ${radius}px; ${tokenDeclarations} }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0 0 48px;
@@ -343,7 +356,7 @@ function renderShell(options: ShellOptions): string {
 
   .wf-block {
     position: absolute; overflow: hidden; padding: 10px 12px;
-    border: 1.5px dashed var(--line); border-radius: 6px;
+    border: 1.5px dashed var(--line); border-radius: var(--atlas-radius-base);
     background-color: rgba(148, 163, 184, .10);
     background-image: repeating-linear-gradient(135deg,
       rgba(148, 163, 184, .16) 0 8px, transparent 8px 16px);
@@ -457,6 +470,7 @@ export function renderWireframeIndex(
   return renderShell({
     title: `${siteName ?? 'UI'} — design previews`,
     designSystem,
+    tokens: options.tokens,
     banner: `<header class="wf-banner">
       <div>
         <p class="wf-eyebrow">${escapeHtml(siteName ?? 'UI Studio')}</p>
@@ -529,6 +543,51 @@ function safeFontFamily(value: string, fallback: string): string {
     return fallback;
   }
   return candidate;
+}
+
+function resolvedToken(tokens: readonly UiDesignToken[], id: string) {
+  return resolveUiDesignToken(tokens, id)?.value;
+}
+
+function colourToken(tokens: readonly UiDesignToken[], id: string, fallback: string): string {
+  const value = resolvedToken(tokens, id);
+  return typeof value === 'string' ? safeColour(value, fallback) : fallback;
+}
+
+function fontToken(tokens: readonly UiDesignToken[], id: string, fallback: string): string {
+  const value = resolvedToken(tokens, id);
+  return typeof value === 'string' ? safeFontFamily(value, fallback) : fallback;
+}
+
+function numericToken(tokens: readonly UiDesignToken[], id: string, fallback: number): number {
+  const value = resolvedToken(tokens, id);
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function renderTokenDeclarations(tokens: readonly UiDesignToken[]): string {
+  return tokens.flatMap(token => {
+    const resolved = resolveUiDesignToken(tokens, token.id);
+    if (!resolved) { return []; }
+    const name = token.id.split('').map(character => character.codePointAt(0)!.toString(16)).join('-');
+    const value = resolved.value;
+    if (typeof value === 'string') {
+      const safe = token.kind === 'color'
+        ? safeColour(value, '#000000')
+        : safeFontFamily(value, 'ui-sans-serif, system-ui, sans-serif');
+      return [`--atlas-token-${name}: ${safe};`];
+    }
+    if (typeof value === 'number') {
+      const unit = token.kind === 'font-weight' || token.kind === 'line-height' ? '' : 'px';
+      return [`--atlas-token-${name}: ${value}${unit};`];
+    }
+    if ('durationMs' in value) {
+      return [
+        `--atlas-token-${name}-duration: ${value.durationMs}ms;`,
+        `--atlas-token-${name}-easing: ${value.easing};`,
+      ];
+    }
+    return [`--atlas-token-${name}: ${value.x}px ${value.y}px ${value.blur}px ${value.spread}px ${value.color};`];
+  }).join(' ');
 }
 
 function splitContentSections(body: string): string[] {

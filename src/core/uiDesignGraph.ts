@@ -682,7 +682,7 @@ export function sanitizeUiDesignGraph(
 
   return {
     revision: sanitizeRevision(source['revision']),
-    tokens: sanitizeDesignTokens(source['tokens']),
+    tokens: sanitizeUiDesignTokens(source['tokens']),
     screens: pages.map(page => {
       const candidate = byPageId.get(page.id);
       return candidate ? sanitizeScreen(candidate, page) : screenFromPage(page);
@@ -690,7 +690,8 @@ export function sanitizeUiDesignGraph(
   };
 }
 
-function sanitizeDesignTokens(input: unknown): UiDesignToken[] {
+/** Sanitize the complete token collection at every persisted or command boundary. */
+export function sanitizeUiDesignTokens(input: unknown): UiDesignToken[] {
   const rawTokens = Array.isArray(input) ? input.slice(0, UI_DESIGN_GRAPH_MAX_TOKENS) : [];
   const candidates: UiDesignToken[] = [];
   const ids = new Set<string>();
