@@ -888,7 +888,9 @@ export function buildWebsiteStudioResponsiveScreens(
             || node.viewportOverrides[breakpoint]?.minWidth !== undefined
             || node.viewportOverrides[breakpoint]?.maxWidth !== undefined
             || node.viewportOverrides[breakpoint]?.minHeight !== undefined
-            || node.viewportOverrides[breakpoint]?.maxHeight !== undefined,
+            || node.viewportOverrides[breakpoint]?.maxHeight !== undefined
+            || node.viewportOverrides[breakpoint]?.wrap !== undefined
+            || node.viewportOverrides[breakpoint]?.order !== undefined,
         },
       ])) as WebsiteStudioResponsiveNodeState['overrides'],
     })),

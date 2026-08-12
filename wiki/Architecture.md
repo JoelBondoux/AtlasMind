@@ -207,6 +207,9 @@ bounds 1–1000, nullable height bounds 1–4000, ordered min/max pairs, and an 
 The Studio and Full Preview consume the same complete-screen projection; the webview can request settings
 but cannot submit CSS or implement placement. Constraints retain the original rectangle and report their own
 responsive provenance, so reset/undo reveals the prior drawn or intrinsic size.
+Wrap is a closed `nowrap|wrap` value and sibling order is a bounded -1000…1000 integer. The resolver sorts
+container children by order plus stable geometry/id tie-breakers and wraps stack runs without changing stored
+array order, hierarchy, or rectangles.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

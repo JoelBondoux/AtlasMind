@@ -66,6 +66,9 @@ the change restores the exact rectangles that were drawn. Non-container blocks c
 Optional min/max width and height apply to free and container layouts in the same 1000 × 4000 canvas units.
 An empty bound means none. Constraints clamp only the displayed projection, so clearing/resetting one restores
 the retained drawn or intrinsic size; a constrained free node remains movable.
+Stacks may wrap onto another row/column. Each node also has an order from -1000 to 1000; container children
+sort by that value before their stable position/id order. Both can vary by breakpoint without changing the
+stored node array, hierarchy, or rectangles. A fill item claims one wrapped line.
 
 Three rules are worth knowing because they are deliberate:
 

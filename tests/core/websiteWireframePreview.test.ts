@@ -191,6 +191,24 @@ describe('websiteWireframePreview', () => {
       expect(screen.nodes[1]!.layout.rect.x).toBe(0);
     });
 
+    it('renders ordered wrapped stack lines through the shared full-preview projection', () => {
+      const subject = withElements(['section', 'text', 'text']);
+      subject.wireframe!.elements[0]!.rect = { x: 0, y: 0, width: 1_000, height: 500 };
+      for (const child of subject.wireframe!.elements.slice(1)) {
+        child.parentId = 'e0';
+        child.rect = { ...child.rect, width: 600, height: 100 };
+      }
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      Object.assign(screen.nodes[0]!.layout, {
+        mode: 'stack', direction: 'horizontal', wrap: 'wrap', padding: 20, gap: 20, align: 'start',
+      });
+      screen.nodes[2]!.layout.order = -1;
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-node-id="e1" style="left:2.000%;top:23.333%');
+      expect(html).toContain('data-atlas-node-id="e2" style="left:2.000%;top:3.333%');
+    });
+
     it('ignores a responsive screen that does not own the rendered page', () => {
       const subject = withElements(['hero']);
       const screen = designGraphFromPages([subject]).screens[0]!;

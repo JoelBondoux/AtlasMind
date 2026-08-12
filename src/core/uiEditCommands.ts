@@ -14,6 +14,7 @@ import type {
   UiLayoutDirection,
   UiLayoutDistribution,
   UiLayoutMode,
+  UiLayoutWrap,
   UiSizeMode,
   WireframeBreakpoint,
   WireframeElementKind,
@@ -34,6 +35,7 @@ import {
   UI_LAYOUT_MAX_COLUMNS,
   UI_LAYOUT_MAX_GAP,
   UI_LAYOUT_MAX_PADDING,
+  UI_LAYOUT_MAX_ORDER,
 } from './uiDesignGraph.js';
 
 export const UI_EDIT_HISTORY_LIMIT = 100;
@@ -76,6 +78,8 @@ export interface UiNodeLayoutEdit {
   maxWidth: number | null;
   minHeight: number | null;
   maxHeight: number | null;
+  wrap: UiLayoutWrap;
+  order: number;
 }
 
 export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
@@ -344,6 +348,7 @@ function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
       || !exactKeys(input, [
         'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
         'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
+        'wrap', 'order',
       ])
       || !isLayoutMode(input['mode'])
       || !isSizeMode(input['widthMode'])
@@ -359,7 +364,9 @@ function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
       || !nullableConstraint(input['minHeight'], WIREFRAME_CANVAS_HEIGHT)
       || !nullableConstraint(input['maxHeight'], WIREFRAME_CANVAS_HEIGHT)
       || !orderedConstraints(input['minWidth'], input['maxWidth'])
-      || !orderedConstraints(input['minHeight'], input['maxHeight'])) {
+      || !orderedConstraints(input['minHeight'], input['maxHeight'])
+      || !isLayoutWrap(input['wrap'])
+      || !boundedInteger(input['order'], -UI_LAYOUT_MAX_ORDER, UI_LAYOUT_MAX_ORDER)) {
     return undefined;
   }
   return input as unknown as UiNodeLayoutEdit;
@@ -563,6 +570,7 @@ function applyNodeCommand(
           for (const layoutProperty of [
             'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
             'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
+            'wrap', 'order',
           ] as const) {
             delete remaining[layoutProperty];
           }
@@ -683,6 +691,8 @@ function addNode(
       maxWidth: null,
       minHeight: null,
       maxHeight: null,
+      wrap: 'nowrap',
+      order: 0,
     },
     viewportOverrides: {},
     designPrompt: input.designPrompt.trim(),
@@ -867,7 +877,9 @@ function validLayoutEdit(value: UiNodeLayoutEdit): boolean {
     && nullableConstraint(value.minHeight, WIREFRAME_CANVAS_HEIGHT)
     && nullableConstraint(value.maxHeight, WIREFRAME_CANVAS_HEIGHT)
     && orderedConstraints(value.minWidth, value.maxWidth)
-    && orderedConstraints(value.minHeight, value.maxHeight);
+    && orderedConstraints(value.minHeight, value.maxHeight)
+    && isLayoutWrap(value.wrap)
+    && boundedInteger(value.order, -UI_LAYOUT_MAX_ORDER, UI_LAYOUT_MAX_ORDER);
 }
 
 function isLayoutMode(value: unknown): value is UiLayoutMode {
@@ -888,6 +900,10 @@ function isLayoutAlignment(value: unknown): value is UiLayoutAlignment {
 
 function isLayoutDistribution(value: unknown): value is UiLayoutDistribution {
   return value === 'start' || value === 'center' || value === 'end' || value === 'space-between';
+}
+
+function isLayoutWrap(value: unknown): value is UiLayoutWrap {
+  return value === 'nowrap' || value === 'wrap';
 }
 
 function boundedNumber(value: unknown, maximum: number): value is number {

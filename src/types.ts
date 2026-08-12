@@ -1310,6 +1310,9 @@ export type UiLayoutAlignment = 'start' | 'center' | 'end' | 'stretch';
 /** Main-axis placement for the complete child run. */
 export type UiLayoutDistribution = 'start' | 'center' | 'end' | 'space-between';
 
+/** Whether a stack may continue its run on another row/column. */
+export type UiLayoutWrap = 'nowrap' | 'wrap';
+
 /** The base layout claim for one design node. */
 export interface UiNodeLayout {
   mode: UiLayoutMode;
@@ -1327,6 +1330,8 @@ export interface UiNodeLayout {
   maxWidth: number | null;
   minHeight: number | null;
   maxHeight: number | null;
+  wrap: UiLayoutWrap;
+  order: number;
 }
 
 /**
@@ -1350,6 +1355,8 @@ export interface UiNodeViewportOverride {
   maxWidth?: number | null;
   minHeight?: number | null;
   maxHeight?: number | null;
+  wrap?: UiLayoutWrap;
+  order?: number;
 }
 
 /**

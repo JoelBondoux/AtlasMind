@@ -15,6 +15,7 @@ import type {
   UiLayoutDirection,
   UiLayoutDistribution,
   UiLayoutMode,
+  UiLayoutWrap,
   UiNodeViewportOverride,
   UiSizeMode,
   WebsitePagePlan,
@@ -39,10 +40,12 @@ const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
 const LAYOUT_DIRECTIONS = new Set<UiLayoutDirection>(['vertical', 'horizontal']);
 const LAYOUT_ALIGNMENTS = new Set<UiLayoutAlignment>(['start', 'center', 'end', 'stretch']);
 const LAYOUT_DISTRIBUTIONS = new Set<UiLayoutDistribution>(['start', 'center', 'end', 'space-between']);
+const LAYOUT_WRAPS = new Set<UiLayoutWrap>(['nowrap', 'wrap']);
 const BREAKPOINTS = new Set<WireframeBreakpoint>(WIREFRAME_BREAKPOINTS);
 export const UI_LAYOUT_MAX_GAP = 500;
 export const UI_LAYOUT_MAX_PADDING = 500;
 export const UI_LAYOUT_MAX_COLUMNS = 12;
+export const UI_LAYOUT_MAX_ORDER = 1_000;
 
 export interface UiLayoutPropertySource {
   kind: 'base' | 'override' | 'computed';
@@ -69,6 +72,8 @@ export interface ResolvedUiNodeLayout {
     maxWidth: UiLayoutPropertySource;
     minHeight: UiLayoutPropertySource;
     maxHeight: UiLayoutPropertySource;
+    wrap: UiLayoutPropertySource;
+    order: UiLayoutPropertySource;
   };
 }
 
@@ -107,6 +112,8 @@ export function resolveUiNodeLayout(
     maxWidth: baseSource(),
     minHeight: baseSource(),
     maxHeight: baseSource(),
+    wrap: baseSource(),
+    order: baseSource(),
   };
   const baseIndex = WIREFRAME_BREAKPOINTS.indexOf(screen.baseBreakpoint);
   const targetIndex = WIREFRAME_BREAKPOINTS.indexOf(breakpoint);
@@ -128,6 +135,7 @@ export function resolveUiNodeLayout(
     for (const property of [
       'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
       'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
+      'wrap', 'order',
     ] as const) {
       if (override[property] !== undefined) {
         Object.assign(layout, { [property]: override[property] });
@@ -188,7 +196,8 @@ export function resolveUiScreenLayout(
       .filter(node => node.parentId === parent.id)
       .map(node => ({ source: node, view: byId.get(node.id)! }))
       .filter(candidate => candidate.view && !candidate.view.layout.hidden)
-      .sort((left, right) => left.view.layout.rect.y - right.view.layout.rect.y
+      .sort((left, right) => left.view.layout.order - right.view.layout.order
+        || left.view.layout.rect.y - right.view.layout.rect.y
         || left.view.layout.rect.x - right.view.layout.rect.x
         || left.source.id.localeCompare(right.source.id));
     if (children.length === 0) {
@@ -238,6 +247,55 @@ function arrangeStack(
   children: readonly UiDesignNode['layout'][],
   inner: WireframeRect,
 ): WireframeRect[] {
+  if (parent.wrap === 'wrap' && children.length > 1) {
+    return arrangeWrappedStack(parent, children, inner);
+  }
+  return arrangeStackRun(parent, children, inner);
+}
+
+function arrangeWrappedStack(
+  parent: UiDesignNode['layout'],
+  children: readonly UiDesignNode['layout'][],
+  inner: WireframeRect,
+): WireframeRect[] {
+  const horizontal = parent.direction === 'horizontal';
+  const mainAvailable = horizontal ? inner.width : inner.height;
+  const crossAvailable = horizontal ? inner.height : inner.width;
+  const lines: UiDesignNode['layout'][][] = [];
+  let current: UiDesignNode['layout'][] = [];
+  let occupied = 0;
+  for (const child of children) {
+    const main = intrinsicMain(child, horizontal, mainAvailable);
+    const next = current.length === 0 ? main : occupied + parent.gap + main;
+    if (current.length > 0 && next > mainAvailable) {
+      lines.push(current);
+      current = [];
+      occupied = 0;
+    }
+    occupied = current.length === 0 ? main : occupied + parent.gap + main;
+    current.push(child);
+  }
+  if (current.length > 0) {
+    lines.push(current);
+  }
+
+  let crossCursor = crossStart(horizontal, inner);
+  return lines.flatMap(line => {
+    const lineCross = Math.min(crossAvailable, Math.max(...line.map(child =>
+      intrinsicCross(child, horizontal, crossAvailable))));
+    const lineRect = horizontal
+      ? { x: inner.x, y: crossCursor, width: inner.width, height: lineCross }
+      : { x: crossCursor, y: inner.y, width: lineCross, height: inner.height };
+    crossCursor += lineCross + parent.gap;
+    return arrangeStackRun(parent, line, lineRect);
+  });
+}
+
+function arrangeStackRun(
+  parent: UiDesignNode['layout'],
+  children: readonly UiDesignNode['layout'][],
+  inner: WireframeRect,
+): WireframeRect[] {
   const horizontal = parent.direction === 'horizontal';
   const mainAvailable = horizontal ? inner.width : inner.height;
   const crossAvailable = horizontal ? inner.height : inner.width;
@@ -279,6 +337,21 @@ function arrangeStack(
     cursor += size.main + placement.gap;
     return rect;
   });
+}
+
+function intrinsicMain(child: UiDesignNode['layout'], horizontal: boolean, available: number): number {
+  const fill = (horizontal ? child.widthMode : child.heightMode) === 'fill';
+  const size = fill ? available : (horizontal ? child.rect.width : child.rect.height);
+  return horizontal
+    ? constrainAxis(size, child.minWidth, child.maxWidth, available)
+    : constrainAxis(size, child.minHeight, child.maxHeight, available);
+}
+
+function intrinsicCross(child: UiDesignNode['layout'], horizontal: boolean, available: number): number {
+  const size = horizontal ? child.rect.height : child.rect.width;
+  return horizontal
+    ? constrainAxis(size, child.minHeight, child.maxHeight, available)
+    : constrainAxis(size, child.minWidth, child.maxWidth, available);
 }
 
 function arrangeGrid(
@@ -502,6 +575,8 @@ function screenFromPage(page: WebsitePagePlan): UiDesignScreen {
         maxWidth: null,
         minHeight: null,
         maxHeight: null,
+        wrap: 'nowrap',
+        order: 0,
       },
       viewportOverrides: {},
       designPrompt: element.designPrompt,
@@ -575,6 +650,10 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
             ? layout['distribute'] as UiLayoutDistribution
             : 'start',
           ...constraints,
+          wrap: LAYOUT_WRAPS.has(layout['wrap'] as UiLayoutWrap)
+            ? layout['wrap'] as UiLayoutWrap
+            : 'nowrap',
+          order: boundedLayoutInteger(layout['order'], 0, -UI_LAYOUT_MAX_ORDER, UI_LAYOUT_MAX_ORDER),
         },
         viewportOverrides: sanitizeOverrides(raw['viewportOverrides'], element.kind, breakpoint),
         designPrompt: element.designPrompt,
@@ -611,9 +690,11 @@ function sanitizeOverrides(
     const hasAlign = LAYOUT_ALIGNMENTS.has(raw['align'] as UiLayoutAlignment);
     const hasDistribute = LAYOUT_DISTRIBUTIONS.has(raw['distribute'] as UiLayoutDistribution);
     const constraintFields = sanitizeConstraintOverride(raw);
+    const hasWrap = LAYOUT_WRAPS.has(raw['wrap'] as UiLayoutWrap);
+    const hasOrder = validBoundedLayoutInteger(raw['order'], -UI_LAYOUT_MAX_ORDER, UI_LAYOUT_MAX_ORDER);
     if (!hasRect && !hasHidden && !hasMode && !hasWidthMode && !hasHeightMode && !hasDirection
         && !hasGap && !hasPadding && !hasColumns && !hasAlign && !hasDistribute
-        && Object.keys(constraintFields).length === 0) {
+        && Object.keys(constraintFields).length === 0 && !hasWrap && !hasOrder) {
       continue;
     }
     overrides[breakpoint] = {
@@ -629,6 +710,8 @@ function sanitizeOverrides(
       ...(hasAlign ? { align: raw['align'] as UiLayoutAlignment } : {}),
       ...(hasDistribute ? { distribute: raw['distribute'] as UiLayoutDistribution } : {}),
       ...constraintFields,
+      ...(hasWrap ? { wrap: raw['wrap'] as UiLayoutWrap } : {}),
+      ...(hasOrder ? { order: raw['order'] as number } : {}),
     };
   }
   return overrides;

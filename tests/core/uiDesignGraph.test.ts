@@ -103,6 +103,7 @@ describe('UI design graph', () => {
     node.layout.rect = { x: -100, y: -10, width: 50_000, height: Number.POSITIVE_INFINITY };
     node.layout.minWidth = 800;
     node.layout.maxWidth = 200;
+    Object.assign(node.layout as unknown as Record<string, unknown>, { wrap: 'reverse', order: 2_000 });
     node.contentRef = '../content/<script>';
     node.viewportOverrides.mobile = {
       rect: { x: -100, y: 9_000, width: 0, height: 0 },
@@ -112,6 +113,8 @@ describe('UI design graph', () => {
       gap: 24,
       minHeight: 500,
       maxHeight: 100,
+      wrap: 'wrap',
+      order: -20,
     };
 
     const sanitized = sanitizeUiDesignGraph(raw, pages);
@@ -122,10 +125,12 @@ describe('UI design graph', () => {
     expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
     expect(result.contentRef).toBe('content-script');
     expect(result.layout).toMatchObject({ minWidth: 800, maxWidth: null });
+    expect(result.layout).toMatchObject({ wrap: 'nowrap', order: 0 });
     expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true, mode: 'grid', gap: 24 });
     expect(result.viewportOverrides.mobile?.columns).toBeUndefined();
     expect(result.viewportOverrides.mobile?.minHeight).toBe(500);
     expect(result.viewportOverrides.mobile?.maxHeight).toBeUndefined();
+    expect(result.viewportOverrides.mobile).toMatchObject({ wrap: 'wrap', order: -20 });
   });
 
   it('inherits responsive properties in order and reports the source of every computed value', () => {
@@ -162,6 +167,8 @@ describe('UI design graph', () => {
       maxWidth: { kind: 'base', breakpoint: 'tablet' },
       minHeight: { kind: 'base', breakpoint: 'tablet' },
       maxHeight: { kind: 'base', breakpoint: 'tablet' },
+      wrap: { kind: 'base', breakpoint: 'tablet' },
+      order: { kind: 'base', breakpoint: 'tablet' },
     });
 
     const desktopBase = { ...screen, baseBreakpoint: 'desktop' as const };
@@ -221,6 +228,31 @@ describe('UI design graph', () => {
     expect(mobile.provenance.maxWidth).toEqual({ kind: 'override', breakpoint: 'mobile' });
     expect(mobile.provenance.minWidth).toEqual({ kind: 'base', breakpoint: 'tablet' });
     expect(node.layout.rect).toEqual(stored);
+  });
+
+  it('orders container children before wrapping a stack into deterministic lines', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const screen = graph.screens[0]!;
+    const parent = screen.nodes[0]!;
+    const first = screen.nodes[1]!;
+    const second = structuredClone(first);
+    second.id = 'copy-2';
+    second.layout.rect = { x: 500, y: 100, width: 500, height: 120 };
+    second.layout.order = -1;
+    screen.nodes.push(second);
+    Object.assign(parent.layout, {
+      mode: 'stack', direction: 'horizontal', wrap: 'wrap', padding: 20, gap: 20, align: 'start',
+    });
+
+    const wrapped = new Map(resolveUiScreenLayout(screen, 'tablet').map(node => [node.id, node]));
+    expect(wrapped.get('copy-2')?.layout.rect).toEqual({ x: 30, y: 40, width: 500, height: 120 });
+    expect(wrapped.get('copy')?.layout.rect).toEqual({ x: 30, y: 180, width: 480, height: 160 });
+
+    first.viewportOverrides.mobile = { order: -2 };
+    const reordered = new Map(resolveUiScreenLayout(screen, 'mobile').map(node => [node.id, node]));
+    expect(reordered.get('copy')?.layout.rect).toEqual({ x: 30, y: 40, width: 480, height: 160 });
+    expect(reordered.get('copy-2')?.layout.rect).toEqual({ x: 30, y: 220, width: 500, height: 120 });
+    expect(reordered.get('copy')?.provenance.order).toEqual({ kind: 'override', breakpoint: 'mobile' });
   });
 
   it('is total for arbitrary untrusted graph input', () => {

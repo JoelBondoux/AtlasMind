@@ -329,6 +329,8 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   hug uses the stored intrinsic size until content measurement is implemented. Nullable min/max width/height
   constraints inherit per breakpoint, expose their own provenance, and clamp the projected rectangle without
   changing the retained input; a constraint-derived rectangle reports `computed` with a constraint reason.
+  Direct container children sort by responsive `order`, then stable geometry/id tie-breakers. Stack `wrap`
+  forms deterministic rows/columns; neither operation changes node-array order, hierarchy, or stored geometry.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
   geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
@@ -340,7 +342,8 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   promotes direct children, history is capped at 100, and a fresh edit clears redo.
   `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, nullable
   width constraints 1–1000, nullable height constraints 1–4000, and an optional non-base breakpoint. Minimum
-  may not exceed maximum. A non-container may use size modes but is refused a non-free container mode.
+  may not exceed maximum; wrap is `nowrap|wrap`; order is an integer from -1000 to 1000. A non-container may
+  use size/order properties but is refused a non-free container mode.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/

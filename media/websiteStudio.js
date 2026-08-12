@@ -129,6 +129,7 @@
           rect: element.rect, hidden: false, mode: 'free', widthMode: 'fixed', heightMode: 'fixed',
           direction: 'vertical', gap: 16, padding: 16, columns: 2, align: 'start', distribute: 'start',
           minWidth: null, maxWidth: null, minHeight: null, maxHeight: null,
+          wrap: 'nowrap', order: 0,
         },
         provenance: {
           rect: { kind: 'base', breakpoint: activeBaseBreakpoint() },
@@ -514,11 +515,15 @@
           <label><span>Distribute</span><select id="layoutDistribute"${readOnly}>
             ${['start', 'center', 'end', 'space-between'].map(distribute => `<option value="${distribute}"${view.layout.distribute === distribute ? ' selected' : ''}>${distribute}</option>`).join('')}
           </select></label>
+          <label><span>Wrap</span><select id="layoutWrap"${readOnly}>
+            ${['nowrap', 'wrap'].map(wrap => `<option value="${wrap}"${view.layout.wrap === wrap ? ' selected' : ''}>${wrap}</option>`).join('')}
+          </select></label>
         </div>
         <div class="geometry-grid layout-numbers">
           <label><span>Gap</span><input id="layoutGap" type="number" min="0" max="500" step="1" value="${escapeAttribute(String(view.layout.gap))}"${readOnly} /></label>
           <label><span>Padding</span><input id="layoutPadding" type="number" min="0" max="500" step="1" value="${escapeAttribute(String(view.layout.padding))}"${readOnly} /></label>
           <label><span>Columns</span><input id="layoutColumns" type="number" min="1" max="12" step="1" value="${escapeAttribute(String(view.layout.columns))}"${readOnly} /></label>
+          <label><span>Order</span><input id="layoutOrder" type="number" min="-1000" max="1000" step="1" value="${escapeAttribute(String(view.layout.order))}"${readOnly} /></label>
         </div>
         <div class="geometry-grid layout-constraints">
           <label><span>Min W</span><input id="layoutMinWidth" type="number" min="1" max="1000" step="1" placeholder="None" value="${view.layout.minWidth === null ? '' : escapeAttribute(String(view.layout.minWidth))}"${readOnly} /></label>
@@ -526,7 +531,7 @@
           <label><span>Min H</span><input id="layoutMinHeight" type="number" min="1" max="4000" step="1" placeholder="None" value="${view.layout.minHeight === null ? '' : escapeAttribute(String(view.layout.minHeight))}"${readOnly} /></label>
           <label><span>Max H</span><input id="layoutMaxHeight" type="number" min="1" max="4000" step="1" placeholder="None" value="${view.layout.maxHeight === null ? '' : escapeAttribute(String(view.layout.maxHeight))}"${readOnly} /></label>
         </div>
-        <p class="responsive-copy">Mode arranges direct children. Fill stretches in the available axis; hug keeps the stored intrinsic rectangle until content measurement lands. Empty constraints mean no extra limit.</p>
+        <p class="responsive-copy">Mode arranges direct children. Stack can wrap; order sorts siblings before geometry. Fill stretches in the available axis; hug keeps the stored intrinsic rectangle until content measurement lands. Empty constraints mean no extra limit.</p>
         <div class="responsive-actions">
           <button type="button" class="secondary" id="applyNodeLayout"${readOnly}>Apply behaviour</button>
           ${isBase ? '' : `<button type="button" class="secondary subtle" id="resetNodeLayout"${override.layout && !state.readOnly ? '' : ' disabled'}>Use inherited behaviour</button>`}
@@ -571,6 +576,8 @@
           <div><dt>Max width</dt><dd>${view.layout.maxWidth ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxWidth))}</dd></div>
           <div><dt>Min height</dt><dd>${view.layout.minHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.minHeight))}</dd></div>
           <div><dt>Max height</dt><dd>${view.layout.maxHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxHeight))}</dd></div>
+          <div><dt>Wrap</dt><dd>${escapeText(view.layout.wrap)} · ${escapeText(sourceLabel(view.provenance.wrap))}</dd></div>
+          <div><dt>Order</dt><dd>${view.layout.order} · ${escapeText(sourceLabel(view.provenance.order))}</dd></div>
         </dl>
       </div>`;
     inspector.innerHTML = ''
@@ -1164,6 +1171,8 @@
         columns: Number(value('#layoutColumns')),
         align: value('#layoutAlign'),
         distribute: value('#layoutDistribute'),
+        wrap: value('#layoutWrap'),
+        order: Number(value('#layoutOrder')),
         minWidth: constraint('#layoutMinWidth'),
         maxWidth: constraint('#layoutMaxWidth'),
         minHeight: constraint('#layoutMinHeight'),
@@ -1172,6 +1181,7 @@
       if (!Number.isFinite(layout.gap) || layout.gap < 0 || layout.gap > 500
           || !Number.isFinite(layout.padding) || layout.padding < 0 || layout.padding > 500
           || !Number.isInteger(layout.columns) || layout.columns < 1 || layout.columns > 12
+          || !Number.isInteger(layout.order) || layout.order < -1000 || layout.order > 1000
           || !validNullableConstraint(layout.minWidth, CANVAS_WIDTH)
           || !validNullableConstraint(layout.maxWidth, CANVAS_WIDTH)
           || !validNullableConstraint(layout.minHeight, CANVAS_MAX_HEIGHT)

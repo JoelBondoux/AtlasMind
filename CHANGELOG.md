@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.286.0] - 2026-08-12
+
+### Added
+
+- **Stack containers now support deterministic wrapping.** `nowrap` preserves the existing single run;
+  `wrap` packs fixed/hug children until the next would exceed the main axis and then starts the next row or
+  column. A fill child claims its line. The shared host projection drives both Studio and Full Preview.
+- **Every node now has responsive sibling order.** Container children sort by a bounded `-1000…1000` order
+  before the existing geometry/id tie-breakers, so grid and stack sequences can change by breakpoint without
+  rewriting hierarchy or rectangles.
+
+### Security
+
+- **Wrap/order remain closed layout data.** Wrap accepts only `nowrap` or `wrap`; order accepts only a safe
+  integer from -1000 to 1000. Both travel through the exact `set-node-layout` payload and the graph sanitizer,
+  never through CSS, DOM order, a style object, or arbitrary reordering instructions.
+
+### Changed
+
+- **Flow ordering is a projection.** Stored node array order and geometry remain untouched. Reset, free mode,
+  or undo therefore recovers the prior drawing exactly, while responsive overrides can alter only the
+  breakpoint's projected sequence.
+
 ## [0.285.0] - 2026-08-12
 
 ### Added

@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.286.0 — Stack wrapping and responsive child order
+
+Stack containers can now continue onto another row/column, and every node carries a bounded responsive order
+used before geometry/id tie-breakers in container flow. Fill claims its own wrapped line; fixed and hug items
+pack until the next item no longer fits.
+
+The same deterministic projection drives Studio and Full Preview. Neither wrap nor order rewrites stored
+geometry, node-array order, or hierarchy. The closed edit boundary accepts only `nowrap`/`wrap` and integer
+orders from -1000 to 1000.
+
 ## v0.285.0 — Responsive min/max constraints
 
 Every node can now declare optional minimum and maximum width/height in canvas units. The bounds inherit and

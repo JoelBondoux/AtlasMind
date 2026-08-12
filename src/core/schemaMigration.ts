@@ -246,6 +246,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
               maxWidth: null,
               minHeight: null,
               maxHeight: null,
+              wrap: 'nowrap',
+              order: 0,
             },
                   viewportOverrides: {},
                   designPrompt: record['designPrompt'],

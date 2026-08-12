@@ -288,7 +288,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .layout-select-grid label { display:grid; gap:3px; min-width:0; }
   .layout-select-grid label > span, .layout-numbers label > span, .layout-constraints label > span { color:var(--studio-muted); font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; }
   .layout-select-grid select { min-width:0; width:100%; text-transform:capitalize; }
-  .layout-numbers { grid-template-columns:repeat(3, minmax(0, 1fr)); margin-top:7px; }
+  .layout-numbers { grid-template-columns:repeat(4, minmax(0, 1fr)); margin-top:7px; }
   .layout-constraints { margin-top:7px; }
   .page-prompt-block h3 { margin:2px 0 8px; font-size:1rem; }
 
