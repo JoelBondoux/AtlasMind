@@ -41,5 +41,5 @@ never silently treated as a complete content design.
 
 - [x] Add bounded collections, sample records, exact collection commands, and migration. Shipped in v0.294.0.
 - [x] Add explicit node bindings, deterministic preview projection, and owning-node diagnostics. Shipped in v0.294.0.
-- [ ] Add asset metadata, focal/crop intent, alt-text checks, and validated references.
+- [x] Add asset metadata, focal/crop intent, alt-text checks, and validated references (format v11; see `ui-studio-asset-authority.md`).
 - [ ] Add repository/runtime data adapters without importing production records into the design graph.

@@ -28,7 +28,7 @@ is what points subsequent project work at the real technology and source locatio
 | Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
 | Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases, reusable component definitions, and bounded sample-data collections |
+| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases, reusable component definitions, bounded sample-data collections, and validated assets |
 | Implementation | Record target technologies, source roots, component locations, and handoff notes for any implementation target. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
 | n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
 
@@ -81,6 +81,12 @@ The selected-node inspector maps title, body, and action slots to one collection
 Preview render those exact values and label the fixture they came from. Collection edits cannot remove a field
 or sample used by a node, while stale references introduced by a hand edit remain visible as diagnostics.
 
+Format v11 adds **validated asset metadata**. UI System records a stable id, media kind, normalized
+workspace-relative or credential-free HTTPS source, intrinsic dimensions, crop/focal intent, alt/decorative
+intent, and maturity. A canvas node assigns one asset by id. Missing references and missing alt text are
+owning-node errors. Full Preview projects aspect ratio, crop, focal point, provenance, and alt status as inert
+markup; it does not fetch media or weaken the no-network CSP.
+
 ## The wireframe canvas
 
 A page's structure is a set of drawn boxes, not a list of strings. Pick a block from the palette,
@@ -99,7 +105,8 @@ so selecting several blocks never changes the meaning of the existing single-ele
 Above the canvas, the active breakpoint reports viewport overflow, children that extend outside a clipping
 parent, unintended overlap, interactive blocks below a 44px touch target, broken sample-data bindings, missing
 fixture values, and absent empty/loading/error/success designs for bound nodes. A clear state says the layout
-and content-binding checks ran; it does not infer success from missing data. Click a finding to select its owning block. Ancestor
+and content/asset checks ran; it does not infer success from missing data. Missing asset ids and alt text point
+to the assigning node. Click a finding to select its owning block. Ancestor
 overlap and siblings in an overlay container are intentional and therefore excluded.
 
 Select a container to choose **free**, **stack**, **grid**, or **overlay** layout. Stack/grid/overlay arrange
@@ -458,7 +465,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 10**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 11**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -477,7 +484,7 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
 
-### Formats v2 → v10
+### Formats v2 → v11
 
 - v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
 - v4 moved actual copy into separately managed Markdown files; migration created no files because
@@ -498,6 +505,8 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   only the format number and invents no interface copy.
 - v10 adds bounded preview-only content collections and explicit node bindings. Migration adds an empty
   collection authority and invents no schema, sample record, value, binding, or production-data claim.
+- v11 adds validated asset metadata and stable node assignments. Migration adds an empty asset library and
+  never scans files, fetches a source, or invents an assignment or alternative text.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.295.0] - 2026-08-12
+## [0.296.0] - 2026-08-12
 
 ### Security
 
@@ -34,6 +34,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   an **Approve and run** control: a followup chip in the `@atlas` view, a quick-reply pill in the chat
   panel. A gate whose only exit is a magic token is one people learn to route around, which costs the
   gate its purpose.
+
+## [0.295.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now owns target-independent asset metadata.** Format v11 adds a bounded asset library containing
+  stable ids, closed media kinds, intrinsic dimensions, crop mode, 0–100 focal point, alt/decorative intent,
+  maturity, and either a normalized workspace-relative source or credential-free HTTPS reference.
+- **Canvas nodes assign assets by stable id.** UI System visually creates and edits assets; the selected-node
+  inspector assigns them; canvas labels, JSON, and the Markdown mirror expose the same authority and consumers.
+- **Full Preview projects asset intent without fetching media.** Aspect ratio, crop, focal point, source
+  provenance, and alt status render as inert static markup under the existing no-network CSP.
+- **Asset completeness is diagnosed at the owning node.** Missing asset ids and non-decorative assets without
+  alternative text appear beside responsive and sample-data findings.
+- **The asset authority decision is recorded.** The v11 ADR separates design metadata from binary resolution,
+  repository imports, signed URLs, credentials, and later framework-specific mappings.
+
+### Security
+
+- **Asset edits use exact revision-checked commands.** Workspace paths cannot be absolute or escape with `..`;
+  HTTPS references cannot contain credentials, queries, or fragments; data URLs and raw binaries have no graph
+  field. In-use assets cannot be deleted, while stale hand-edited references remain visible diagnostics.
+
+### Changed
+
+- **Website workspace format advances from v10 to v11.** Migration adds only an empty asset library and never
+  scans files, infers assignments, fetches sources, or invents alt text.
+- **Phase 4 of the recorded class-leading UI Studio plan is complete.** Structured screen copy, explicit states,
+  sample collections/bindings, assets, owning-node diagnostics, and Full Preview projection now share one
+  target-independent authority; Phase 5 repository mappings and divergence detection are next.
 
 ## [0.294.0] - 2026-08-12
 

@@ -32,6 +32,7 @@
 import type {
   UiComponentDefinition,
   UiContentCollection,
+  UiDesignAsset,
   UiDesignScreen,
   UiDesignToken,
   WebsiteDesignSystem,
@@ -49,6 +50,7 @@ import {
 import { normalizeSlug } from './websiteSitemap.js';
 import {
   resolveUiComponentInstance,
+  resolveUiDesignAsset,
   resolveUiDesignToken,
   resolveUiNodeContent,
   resolveUiScreenLayout,
@@ -74,6 +76,8 @@ export interface WireframePreviewOptions {
   components?: readonly UiComponentDefinition[];
   /** Bounded sample records used only for deterministic design review. */
   contentCollections?: readonly UiContentCollection[];
+  /** Validated metadata only; this deterministic renderer never fetches media. */
+  assets?: readonly UiDesignAsset[];
 }
 
 export interface WireframeIndexOptions {
@@ -156,6 +160,7 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
         revision: 0, tokens: options.tokens ? [...options.tokens] : [],
         components: options.components ? [...options.components] : [],
         contentCollections: options.contentCollections ? [...options.contentCollections] : [],
+        assets: options.assets ? [...options.assets] : [],
         screens: [options.responsiveScreen],
       }, options.responsiveScreen, graphNode)
       : undefined;
@@ -175,17 +180,36 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
         tokens: options.tokens ? [...options.tokens] : [],
         components: options.components ? [...options.components] : [],
         contentCollections: options.contentCollections ? [...options.contentCollections] : [],
+        assets: options.assets ? [...options.assets] : [],
         screens: [options.responsiveScreen],
       }, graphNode)
       : undefined;
     const dataTag = boundContent
       ? `<span class="wf-data-tag">${escapeHtml(boundContent.collectionLabel)} · ${escapeHtml(boundContent.sampleRecordLabel)}</span>`
       : '';
+    const asset = graphNode && options.responsiveScreen
+      ? resolveUiDesignAsset({
+        revision: 0,
+        tokens: options.tokens ? [...options.tokens] : [],
+        components: options.components ? [...options.components] : [],
+        contentCollections: options.contentCollections ? [...options.contentCollections] : [],
+        assets: options.assets ? [...options.assets] : [],
+        screens: [options.responsiveScreen],
+      }, graphNode)
+      : undefined;
+    const assetTag = asset
+      ? `<span class="wf-asset-tag">${escapeHtml(asset.label)} · ${escapeHtml(asset.crop)}</span>`
+      : '';
+    const assetPreview = asset && !statePresentation
+      ? renderAssetPreview(asset)
+      : '';
     const contentSection = consumesContent(element.kind) ? contentSections[nextContentSection++] : undefined;
     const renderedBody = statePresentation
       ? `<div class="wf-state-presentation"><strong>${escapeHtml(statePresentation.title || `${contentState} state`)}</strong>${statePresentation.body ? `<p>${escapeHtml(statePresentation.body)}</p>` : ''}${statePresentation.actionLabel ? `<span class="wf-button">${escapeHtml(statePresentation.actionLabel)}</span>` : ''}</div>`
       : boundContent && Object.keys(boundContent.values).length > 0
         ? `<div class="wf-bound-content">${boundContent.values.title ? `<strong>${escapeHtml(boundContent.values.title)}</strong>` : ''}${boundContent.values.body ? `<p>${escapeHtml(boundContent.values.body)}</p>` : ''}${boundContent.values.action ? `<span class="wf-button">${escapeHtml(boundContent.values.action)}</span>` : ''}</div>`
+      : asset && element.kind === 'media'
+        ? ''
       : previewBody(
         element,
         options,
@@ -197,8 +221,8 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
       ${statePresentation ? `data-content-state="${escapeHtml(contentState)}" data-content-maturity="${escapeHtml(statePresentation.maturity)}"` : ''}
       data-atlas-screen-id="${escapeHtml(page.id)}" data-atlas-node-id="${escapeHtml(element.id)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
-      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}${contentStateTag}${dataTag}</div>
-      ${renderedBody}
+      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}${contentStateTag}${dataTag}${assetTag}</div>
+      ${assetPreview}${renderedBody}
     </div>`;
   }).join('\n');
 
@@ -219,6 +243,21 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     ),
     body: `<div class="wf-stage" style="aspect-ratio:${WIREFRAME_CANVAS_WIDTH} / ${height}">${blocks}</div>${contentProof}${responsiveStyles}`,
   });
+}
+
+function renderAssetPreview(asset: UiDesignAsset): string {
+  const sourceLabel = asset.source.kind === 'workspace'
+    ? asset.source.reference.split('/').at(-1) ?? asset.source.reference
+    : new URL(asset.source.reference).hostname;
+  const altStatus = asset.decorative ? 'decorative' : asset.altText ? 'alt text provided' : 'alt text missing';
+  const accessibility = asset.decorative
+    ? 'aria-hidden="true"'
+    : `role="img" aria-label="${escapeHtml(asset.altText)}"`;
+  return `<div class="wf-asset-preview" style="--asset-ratio:${asset.width} / ${asset.height};--asset-focus-x:${asset.focalPoint.x}%;--asset-focus-y:${asset.focalPoint.y}%" ${accessibility}>
+    <span class="wf-asset-focus" aria-hidden="true"></span>
+    <strong>${escapeHtml(sourceLabel)}</strong>
+    <small>${asset.width} × ${asset.height} · ${escapeHtml(asset.crop)} · focus ${asset.focalPoint.x}%, ${asset.focalPoint.y}% · ${escapeHtml(altStatus)}</small>
+  </div>`;
 }
 
 function renderResponsiveStyles(screen: UiDesignScreen, tokens: readonly UiDesignToken[]): string {
@@ -428,6 +467,11 @@ function renderShell(options: ShellOptions): string {
   .wf-content-state.reviewed { color:#1d4ed8; background:#dbeafe; }
   .wf-content-state.approved { color:#166534; background:#dcfce7; }
   .wf-data-tag { display:inline-block; padding:2px 5px; border-radius:999px; font-size:.62rem; color:#5b21b6; background:#ede9fe; }
+  .wf-asset-tag { display:inline-block; padding:2px 5px; border-radius:999px; font-size:.62rem; color:#075985; background:#e0f2fe; }
+  .wf-asset-preview { position:relative; display:grid; place-content:center; gap:3px; width:min(100%, 420px); max-height:calc(100% - 38px); aspect-ratio:var(--asset-ratio); margin-top:9px; overflow:hidden; border:1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius:calc(var(--atlas-radius-base) * .75); background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, #fff), rgba(148,163,184,.16)); text-align:center; }
+  .wf-asset-preview strong { font-size:.75rem; }
+  .wf-asset-preview small { font-size:.62rem; opacity:.7; }
+  .wf-asset-focus { position:absolute; left:var(--asset-focus-x); top:var(--asset-focus-y); width:12px; height:12px; border:2px solid var(--accent); border-radius:50%; transform:translate(-50%,-50%); box-shadow:0 0 0 2px #fff; }
   .wf-state-presentation { display:grid; gap:7px; margin-top:10px; }
   .wf-state-presentation p { margin:0; font-size:.82rem; }
   .wf-bound-content { display:grid; gap:7px; margin-top:10px; }

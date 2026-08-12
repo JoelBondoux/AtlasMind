@@ -54,7 +54,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 10;
+const WEBSITE_SCHEMA_VERSION = 11;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -473,6 +473,18 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '| Screen / node | Collection | Sample | Field mappings |',
     '|---|---|---|---|',
     ...renderContentBindingRows(config.designGraph.screens),
+    '',
+    '### Asset library',
+    '',
+    '| Asset | Kind | Source | Dimensions | Crop / focal point | Alt status | Maturity | Assigned nodes |',
+    '|---|---|---|---|---|---|---|---:|',
+    ...renderAssetRows(config.designGraph.assets, config.designGraph.screens),
+    '',
+    '### Node asset assignments',
+    '',
+    '| Screen / node | Asset id |',
+    '|---|---|',
+    ...renderAssetBindingRows(config.designGraph.screens),
     '',
     '## Implementation Guide',
     '',
@@ -1356,6 +1368,28 @@ function renderContentBindingRows(screens: readonly UiDesignScreen[]): string[] 
     ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.dataBinding.collectionId} | ${node.dataBinding.sampleRecordId} | ${Object.entries(node.dataBinding.fieldMappings).map(([slot, field]) => `${slot} → ${field}`).join(', ')} |`]
     : []));
   return rows.length > 0 ? rows : ['| _None bound_ | — | — | — |'];
+}
+
+function renderAssetRows(
+  assets: readonly import('../types.js').UiDesignAsset[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (assets.length === 0) { return ['| _None defined_ | — | — | — | — | — | — | — |']; }
+  return assets.map(asset => {
+    const consumers = screens.flatMap(screen => screen.nodes).filter(node => node.assetRef === asset.id).length;
+    const source = asset.source.kind === 'workspace'
+      ? `workspace:${asset.source.reference}`
+      : asset.source.reference;
+    const alt = asset.decorative ? 'Decorative' : asset.altText ? 'Provided' : 'Missing';
+    return `| ${escapeMarkdownCell(asset.label)} (${asset.id}) | ${asset.kind} | ${escapeMarkdownCell(source)} | ${asset.width} × ${asset.height} | ${asset.crop} / ${asset.focalPoint.x}%, ${asset.focalPoint.y}% | ${alt} | ${asset.maturity} | ${consumers} |`;
+  });
+}
+
+function renderAssetBindingRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => node.assetRef
+    ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.assetRef} |`]
+    : []));
+  return rows.length > 0 ? rows : ['| _None assigned_ | — |'];
 }
 
 function markdownValue(value: string | undefined): string {

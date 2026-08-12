@@ -95,8 +95,13 @@ invents no copy, and placeholder-marked copy cannot claim approval.
 v0.294.0 adds format-v10 bounded sample-data collections with typed fields and deliberate review fixtures.
 Nodes explicitly map title, body, and action slots to one sample; Studio, Full Preview, and the Markdown mirror
 consume the same values without a production connector. Missing collections, samples, fields, values, and
-empty/loading/error/success designs are reported at the owning node. Asset metadata remains the next Phase 4
-slice.
+empty/loading/error/success designs are reported at the owning node.
+
+v0.295.0 completes Phase 4 with format-v11 validated asset metadata and stable node assignments. Workspace
+paths cannot escape the project; HTTPS references cannot carry credentials, queries, or fragments. Dimensions,
+crop/focal intent, alt/decorative intent, and maturity project into Studio, Full Preview, and the Markdown
+mirror. Missing ids and alt text are owning-node errors, and Full Preview remains no-network. Phase 5
+repository mappings and divergence detection are next.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

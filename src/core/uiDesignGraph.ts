@@ -14,12 +14,16 @@ import type {
   UiComponentPropertyKind,
   UiComponentPropertyValue,
   UiComponentState,
+  UiAssetDiagnostic,
   UiContentCollection,
   UiContentDiagnostic,
   UiContentFieldKind,
   UiContentMaturity,
   UiContentSampleValue,
   UiDesignGraph,
+  UiDesignAsset,
+  UiDesignAssetCrop,
+  UiDesignAssetKind,
   UiDesignNode,
   UiDesignScreen,
   UiDesignToken,
@@ -55,6 +59,7 @@ const MAX_REFERENCE_LENGTH = 160;
 export const UI_DESIGN_GRAPH_MAX_TOKENS = 200;
 export const UI_DESIGN_GRAPH_MAX_COMPONENTS = 100;
 export const UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS = 50;
+export const UI_DESIGN_GRAPH_MAX_ASSETS = 200;
 export const UI_CONTENT_COLLECTION_MAX_FIELDS = 20;
 export const UI_CONTENT_COLLECTION_MAX_SAMPLES = 50;
 export const UI_COMPONENT_MAX_PROPERTIES = 30;
@@ -74,6 +79,10 @@ const COMPONENT_STATES = new Set<UiComponentState>([
 const NODE_CONTENT_STATES = new Set<UiNodeContentState>(['default', 'empty', 'loading', 'error', 'success']);
 const CONTENT_MATURITIES = new Set<UiContentMaturity>(['placeholder', 'draft', 'reviewed', 'approved']);
 const CONTENT_FIELD_KINDS = new Set<UiContentFieldKind>(['text', 'number', 'boolean', 'url', 'date']);
+const ASSET_KINDS = new Set<UiDesignAssetKind>(['image', 'illustration', 'icon', 'video-poster']);
+const ASSET_CROPS = new Set<UiDesignAssetCrop>(['cover', 'contain', 'none']);
+const MAX_ASSET_REFERENCE_LENGTH = 1_000;
+const MAX_ASSET_DIMENSION = 100_000;
 const NODE_CONTENT_SLOTS = new Set(['title', 'body', 'action']);
 const MOTION_EASINGS = new Set(['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']);
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
@@ -750,6 +759,7 @@ export function designGraphFromPages(
     tokens: [],
     components: [],
     contentCollections: [],
+    assets: [],
     screens: pages.map(page => screenFromPage(page)),
   };
 }
@@ -778,11 +788,13 @@ export function sanitizeUiDesignGraph(
 
   const components = sanitizeUiComponentDefinitions(source['components']);
   const contentCollections = sanitizeUiContentCollections(source['contentCollections']);
+  const assets = sanitizeUiDesignAssets(source['assets']);
   return {
     revision: sanitizeRevision(source['revision']),
     tokens: sanitizeUiDesignTokens(source['tokens']),
     components,
     contentCollections,
+    assets,
     screens: pages.map(page => {
       const candidate = byPageId.get(page.id);
       return candidate ? sanitizeScreen(candidate, page, components) : screenFromPage(page);
@@ -1240,6 +1252,7 @@ function sanitizeScreen(
         ...(previewContentState !== 'default' ? { previewContentState } : {}),
         ...(Object.keys(contentStatePresentations).length > 0 ? { contentStatePresentations } : {}),
         ...(dataBinding ? { dataBinding } : {}),
+        ...optionalReference('assetRef', raw['assetRef']),
       };
     }) : [];
   sanitizeComponentSlotsOnNodes(nodes, components);
@@ -1355,6 +1368,115 @@ export function diagnoseUiContentBindings(
     }
   }
   return diagnostics;
+}
+
+/** Resolve one stable node reference without fetching or interpreting its source. */
+export function resolveUiDesignAsset(
+  graph: UiDesignGraph,
+  node: UiDesignNode,
+): UiDesignAsset | undefined {
+  return node.assetRef ? graph.assets.find(asset => asset.id === node.assetRef) : undefined;
+}
+
+/** Report missing asset authority and alternative text at the assigning node. */
+export function diagnoseUiAssets(
+  graph: UiDesignGraph,
+  screen: UiDesignScreen,
+): UiAssetDiagnostic[] {
+  const diagnostics: UiAssetDiagnostic[] = [];
+  for (const node of screen.nodes) {
+    if (!node.assetRef) { continue; }
+    const asset = resolveUiDesignAsset(graph, node);
+    if (!asset) {
+      diagnostics.push({
+        code: 'asset-not-found', severity: 'error', nodeIds: [node.id],
+        message: `${node.label} references missing asset ${node.assetRef}.`,
+      });
+    } else if (!asset.decorative && asset.altText.length === 0) {
+      diagnostics.push({
+        code: 'asset-alt-missing', severity: 'error', nodeIds: [node.id],
+        message: `${node.label}'s ${asset.label} asset needs alternative text or an explicit decorative decision.`,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+/** Sanitize bounded metadata and syntactically validated source references. */
+export function sanitizeUiDesignAssets(input: unknown): UiDesignAsset[] {
+  const rawAssets = Array.isArray(input) ? input.slice(0, UI_DESIGN_GRAPH_MAX_ASSETS) : [];
+  const assets: UiDesignAsset[] = [];
+  const ids = new Set<string>();
+  for (const candidate of rawAssets) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    const kind = ASSET_KINDS.has(source['kind'] as UiDesignAssetKind)
+      ? source['kind'] as UiDesignAssetKind : undefined;
+    const assetSource = sanitizeAssetSource(source['source']);
+    const width = validAssetDimension(source['width']) ? source['width'] : undefined;
+    const height = validAssetDimension(source['height']) ? source['height'] : undefined;
+    const crop = ASSET_CROPS.has(source['crop'] as UiDesignAssetCrop)
+      ? source['crop'] as UiDesignAssetCrop : undefined;
+    const rawFocalPoint = asRecord(source['focalPoint']);
+    const focalX = validPercentage(rawFocalPoint['x']) ? rawFocalPoint['x'] : undefined;
+    const focalY = validPercentage(rawFocalPoint['y']) ? rawFocalPoint['y'] : undefined;
+    const decorative = source['decorative'] === true;
+    const altText = cleanComponentText(source['altText'], 500, true);
+    const maturity = CONTENT_MATURITIES.has(source['maturity'] as UiContentMaturity)
+      ? source['maturity'] as UiContentMaturity : undefined;
+    if (!id || !label || !kind || !assetSource || width === undefined || height === undefined
+        || !crop || focalX === undefined || focalY === undefined || altText === undefined
+        || !maturity || ids.has(id)) {
+      continue;
+    }
+    assets.push({
+      id, label, kind, source: assetSource, width, height, crop,
+      focalPoint: { x: focalX, y: focalY },
+      altText: decorative ? '' : altText,
+      decorative,
+      maturity,
+    });
+    ids.add(id);
+  }
+  return assets;
+}
+
+function sanitizeAssetSource(input: unknown): UiDesignAsset['source'] | undefined {
+  const source = asRecord(input);
+  if ((source['kind'] !== 'workspace' && source['kind'] !== 'https')
+      || typeof source['reference'] !== 'string') {
+    return undefined;
+  }
+  const reference = source['reference'].trim().replace(/\\/g, '/');
+  if (reference.length === 0 || reference.length > MAX_ASSET_REFERENCE_LENGTH
+      || /[\u0000-\u001f\u007f]/.test(reference)) {
+    return undefined;
+  }
+  if (source['kind'] === 'workspace') {
+    const segments = reference.split('/');
+    return reference.startsWith('/') || reference.startsWith('//') || /^[a-zA-Z]:/.test(reference)
+      || segments.some(segment => segment.length === 0 || segment === '.' || segment === '..' || segment.includes(':'))
+      ? undefined
+      : { kind: 'workspace', reference };
+  }
+  try {
+    const parsed = new URL(reference);
+    return parsed.protocol === 'https:' && parsed.username === '' && parsed.password === ''
+      && parsed.search === '' && parsed.hash === '' && parsed.href === reference
+      ? { kind: 'https', reference }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function validAssetDimension(input: unknown): input is number {
+  return Number.isSafeInteger(input) && (input as number) >= 1 && (input as number) <= MAX_ASSET_DIMENSION;
+}
+
+function validPercentage(input: unknown): input is number {
+  return typeof input === 'number' && Number.isFinite(input) && input >= 0 && input <= 100;
 }
 
 /** Sanitize one binding structurally while retaining stale references for owning-node diagnostics. */
@@ -1538,7 +1660,7 @@ function sanitizeOverrides(
 }
 
 function optionalReference(
-  key: 'contentRef' | 'styleRef' | 'componentRef',
+  key: 'contentRef' | 'styleRef' | 'componentRef' | 'assetRef',
   value: unknown,
 ): Partial<Record<typeof key, string>> {
   const cleaned = cleanIdentifier(value, MAX_REFERENCE_LENGTH);

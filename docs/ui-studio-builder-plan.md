@@ -5,9 +5,12 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.294.0:** Phases 1, 2, and 3 are complete. Phase 4 now includes format-v9 node-owned
+**Progress through v0.295.0:** Phases 1, 2, 3, and 4 are complete. Phase 4 includes format-v9 node-owned
 empty/loading/error/success presentations plus format-v10 bounded sample-data collections, explicit
 title/body/action bindings, owning-node completeness diagnostics, and shared Studio/Full Preview rendering.
+Format v11 adds validated asset metadata, stable node assignments, crop/focal and alt/decorative intent,
+owning-node asset diagnostics, and inert preview projection without widening the no-network CSP. Phase 5
+repository mappings and divergence detection are next.
 Format v8 combines typed tokens with reusable
 component definitions, explicit canvas instances, typed properties, variants, bounded slots, closed states,
 and provenance-preserving default → variant → instance resolution. Definition and instance editors use
@@ -189,6 +192,12 @@ rectangles remain the free-layout fallback, so switching or resetting a parent c
 somebody drew. Hug currently retains that stored intrinsic rectangle; content-derived measurement belongs
 with Phase 4 content/assets/data rather than being guessed from placeholder markup.
 
+The completed Phase 4 asset slice is format v11 asset authority: bounded metadata, stable node references,
+workspace-relative or credential-free HTTPS sources, crop/focal intent, alt-text diagnostics, and inert Full
+Preview projection. The accepted boundary is recorded in
+`project_memory/decisions/ui-studio-asset-authority.md`; preview media resolution remains a later guarded host
+capability and must not weaken the no-network CSP.
+
 Implementation note: v0.285.0 applies constraints in that same projection. `null` means no bound; width is
 bounded to 1–1000 and height to 1–4000 canvas units. Closed edits refuse an inverted pair. Removing a bound
 therefore reveals the retained rectangle instead of trying to reconstruct a size the constraint overwrote.
@@ -247,11 +256,13 @@ Acceptance criteria:
 
 #### P1.3 Content, assets, and data
 
-Progress: v0.293.0 adds bounded node-owned empty/loading/error/success title, body, action, and maturity facts,
+Progress: complete. v0.293.0 adds bounded node-owned empty/loading/error/success title, body, action, and maturity facts,
 plus one explicit preview state. v0.294.0 adds bounded typed sample-data collections, explicit node mappings
 for title/body/action, deterministic preview projection, and owning-node diagnostics for missing collection,
 record, field, value, or state facts. Screen Markdown remains the long-form source; production data never
-enters this fixture path. Asset metadata remains.
+enters this fixture path. v0.295.0 adds validated asset metadata, stable node assignments, dimensions,
+crop/focal intent, alt/decorative intent, maturity, owning-node diagnostics, and deterministic Full Preview
+projection without fetching referenced media.
 
 - Structured content fields and collections complement the existing Markdown source.
 - Asset metadata records source, dimensions, crop/focal intent, and alt text without embedding secrets.
