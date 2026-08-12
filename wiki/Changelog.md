@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.305.0 — Every agent gets the rules, not just the ones already set up
+
+If someone opened this project in Cursor, or an agent arrived through Antigravity, they worked without
+your testing policy, your technical-debt markers and your workflow rules — because AtlasMind only wrote
+into instruction files that already existed. Nothing warned you. It looked exactly like being covered.
+
+AtlasMind now creates those files. Open the repo in any supported tool and the rules are already there.
+
+Two of the paths were also wrong, which is worse than missing — the tool looks covered and reads
+somewhere else entirely. Cursor moved from `.cursorrules` to a `.cursor/rules/` folder, and Windsurf
+from a single file to `.windsurf/rules/`. Both old paths are kept for projects that still use them, and
+the current ones are now written too. The Cursor rule carries the frontmatter that makes it always
+apply — without it the file exists, looks right, and is quietly ignored.
+
+Antigravity turned out to need nothing new: it reads `AGENTS.md`, which AtlasMind already wrote for
+Codex.
+
+Only paths that were actually verified were added. A few other tools were considered and deliberately
+left out rather than guessed at.
+
+---
+
 ## v0.304.0 — Asking whether tests were written
 
 AtlasMind has always checked that your tests *pass*. It never asked whether any were *added*.

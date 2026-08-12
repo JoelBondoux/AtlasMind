@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.0] - 2026-08-12
+
+### Changed
+
+- **Every agent that opens this repository now finds the project's rules already there.** The
+  instruction sync wrote only into files that *already existed* — so a developer starting with Cursor,
+  or an agent arriving via Antigravity, worked without the testing policy, the debt markers or the
+  workflow rules, and nothing said so. Silent non-coverage, which is the failure mode worth engineering
+  against: it looks identical to being covered.
+
+  Paths marked `seed` are now created when absent. One spelling per tool is ever seeded; superseded
+  spellings are updated where a project already carries one and never created, or the same rules would
+  land in two files a tool might read twice.
+
+- **Corrected two stale paths and added three verified ones.** `.cursorrules` is deprecated in favour of
+  a `.cursor/rules/*.mdc` directory, and `WINDSURF.md` matches no Windsurf convention. Both are kept as
+  fallbacks for projects that still carry them; the current paths are now seeded alongside.
+
+  Added: `.cursor/rules/atlasmind.mdc`, `.windsurf/rules/atlasmind.md`, and `.agents/rules/atlasmind.md`
+  for Antigravity's workspace rules. The Cursor rule carries `alwaysApply: true` frontmatter, without
+  which Cursor loads it only when it judges it relevant — meaning the file would exist, look correct,
+  and do nothing.
+
+  **Only verified paths were added.** Amp, JetBrains Junie, Zed and Kiro were considered and left out
+  because their contracts were not confirmed in this pass; a guessed path is worse than a missing one,
+  since it looks like coverage in the list while the tool reads somewhere else.
+
+- **Antigravity needed no new mechanism.** It reads `AGENTS.md`, the cross-tool format already synced
+  for OpenAI Codex, so it was covered before this change — the target is now labelled for both.
+
+
 ## [0.304.0] - 2026-08-12
 
 ### Added
