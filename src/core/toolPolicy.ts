@@ -1,4 +1,5 @@
 import type { ToolApprovalMode, ToolInvocationPolicy } from '../types.js';
+import { parseGhInvocation } from '../skills/terminalRun.js';
 
 export function getToolApprovalMode(value: string | undefined): ToolApprovalMode {
   switch (value) {
@@ -122,6 +123,10 @@ function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocati
     return { category: 'terminal-write', risk: 'high', summary: `run git ${gitSubcommand || 'command'}` };
   }
 
+  if (command === 'gh') {
+    return classifyGhInvocation(rawArgs);
+  }
+
   if (['npm', 'npm.cmd', 'pnpm', 'pnpm.cmd', 'yarn', 'yarn.cmd', 'npx', 'npx.cmd'].includes(command)) {
     const script = rawArgs[0] ?? '';
     const action = rawArgs[1] ?? '';
@@ -146,6 +151,50 @@ function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocati
   }
 
   return { category: 'terminal-write', risk: 'high', summary: `run ${command || 'a subprocess'}` };
+}
+
+/**
+ * `gh <namespace> <verb>` graded read or write, as `git` is.
+ *
+ * The verb decides, not the namespace: `gh pr list` and `gh pr merge` differ by
+ * everything that matters. Grading by namespace would have put reading a pull
+ * request behind the same gate as merging one, which is the kind of friction
+ * that gets a gate switched off wholesale.
+ *
+ * **Unrecognised is write.** A `gh` release adds subcommands regularly, and an
+ * unknown verb is exactly the case where guessing "probably a read" is the
+ * expensive mistake. `gh api` is always a write for the same reason — it is
+ * arbitrary, and `gh api -X DELETE …` is a perfectly ordinary invocation of it.
+ *
+ * Note this only decides *friction*, never permission: the genuinely dangerous
+ * subcommands never reach here, having been refused outright in `terminalRun`.
+ */
+const GH_READ_VERBS: ReadonlyArray<string> = ['list', 'view', 'status', 'diff', 'checks', 'download'];
+
+/** Namespaces whose bare form (`gh <namespace>`, no verb) is a listing. */
+const GH_BARE_READ_NAMESPACES: ReadonlyArray<string> = ['status', 'browse'];
+
+function classifyGhInvocation(rawArgs: ReadonlyArray<string>): ToolInvocationPolicy {
+  // Located by namespace rather than by index, for the reason given on
+  // `parseGhInvocation`: a global flag taking a value shifts every positional
+  // along, and reading the namespace out of slot 0 would then grade the wrong
+  // thing — in the permissive direction, which is the direction that matters.
+  const { namespace, verb } = parseGhInvocation(rawArgs);
+  const label = [namespace, verb].filter(Boolean).join(' ') || 'command';
+
+  if (namespace === 'api') {
+    return { category: 'terminal-write', risk: 'high', summary: `run gh api (arbitrary request)` };
+  }
+
+  if (!verb && GH_BARE_READ_NAMESPACES.includes(namespace)) {
+    return { category: 'terminal-read', risk: 'medium', summary: `run gh ${namespace}` };
+  }
+
+  if (GH_READ_VERBS.includes(verb)) {
+    return { category: 'terminal-read', risk: 'medium', summary: `run gh ${label}` };
+  }
+
+  return { category: 'terminal-write', risk: 'high', summary: `run gh ${label}` };
 }
 
 function classifyDockerInvocation(args: Record<string, unknown>): ToolInvocationPolicy {

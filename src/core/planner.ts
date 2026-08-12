@@ -41,8 +41,9 @@ Dependency governance platform knowledge:
 - Dependabot, Renovate, Snyk, and Azure DevOps Pipelines dependency scanning all raise PULL REQUESTS, not GitHub Issues.
 - To list open dependency-update PRs use: terminal-run with command "gh pr list --author app/dependabot" (or "app/renovate" / "snyk-bot" / the relevant bot author). Do NOT use an issues API or issues-assigned-to-me tool.
 - To read the diff and advisory for a specific PR: "gh pr view <number>" then "gh pr diff <number>".
-- To merge a safe dependency PR: "gh pr merge <number> --merge --admin".
-- When a goal mentions "dependabot issues", "renovate issues", "snyk alerts", "dependency alerts", or similar, always map that to PR-based fetch steps using terminal-run, not issue-fetch steps.`;
+- To merge a safe dependency PR: "gh pr merge <number> --merge --admin". This is a write and goes through the approval gate, so plan it as its own step rather than folding it into a read.
+- When a goal mentions "dependabot issues", "renovate issues", "snyk alerts", "dependency alerts", or similar, always map that to PR-based fetch steps using terminal-run, not issue-fetch steps.
+- "gh auth token", "gh secret", "gh variable", "gh ssh-key", "gh gpg-key", "gh alias" and "gh repo delete" are refused outright and always will be. Do not plan a step around them; if a goal genuinely needs one, say so and leave it to the operator.`;
 
 function buildPlannerSystemPrompt(skillCatalog: string): string {
   return `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.

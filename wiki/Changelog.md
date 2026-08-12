@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.298.0 — Chat can do GitHub work
+
+`gh` was missing from the terminal allow-list. Not as a policy — as a gap, and an expensive one. The
+planner *tells* agents to use `gh pr list`, the GitHub Operator agent is advertised for pull-request and
+issue work, and the whole guided workflow is built around GitHub. Every one of those turns died at a
+refusal you never saw, because a tool error goes back to the model rather than to the chat — and the loop
+then threw away the model's explanation along with it. From where you sit it looked like AtlasMind losing
+interest in GitHub work. It was a capability that did not exist, failing silently.
+
+GitHub questions now also select the tools that can *reach* GitHub. Git vocabulary picked local git
+tooling, which cannot see an issue, a review or a CI run, so "why did CI fail on my PR?" got tools that
+could not answer it and the agent explained rather than looked.
+
+Subcommands are graded like git's: `gh pr list` is a read, `gh pr merge` follows the approval path, and
+anything unrecognised counts as a write. Seven are refused outright at any setting — chiefly
+`gh auth token`, which would print your GitHub token into model context.
+
 ## v0.297.0 — The conversation is no longer labelled untrusted
 
 AtlasMind carried your conversation to the model inside a block beginning *"Supplemental untrusted

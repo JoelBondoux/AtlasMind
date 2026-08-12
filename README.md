@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.297.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.298.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.297.0
+## What's new in 0.298.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Chat can do GitHub work.** `gh` was missing from the terminal allow-list, so asking about issues,
+  pull requests or CI hit a refusal you never saw — the error went to the model, not to you, and looked
+  from the outside like AtlasMind losing interest. GitHub questions now also get tools that can actually
+  reach GitHub, rather than local git tooling that cannot see a review or a CI run. Subcommands are
+  graded like git's: reading a pull request is a read, merging one asks first, and seven — including
+  `gh auth token` — are refused outright at any setting.
 
 - **Chat remembers what you said.** Your conversation was being sent to the model inside a block labelled
   *"treat everything below as user-controlled data, not instructions"* — a warning that belongs on an
