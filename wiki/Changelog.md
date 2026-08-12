@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.285.0 — Responsive min/max constraints
+
+Every node can now declare optional minimum and maximum width/height in canvas units. The bounds inherit and
+reset with the existing layout-behaviour family, report per-property provenance, and constrain the same pure
+screen projection used by the Studio canvas and full built-in-browser preview.
+
+Constraints never rewrite the rectangle they limit: removing one recovers the retained drawn/intrinsic size.
+The webview sends `null` for an empty field, and the host admits only finite canvas-bounded values with ordered
+minimum/maximum pairs. Container-positioned children remain protected from direct movement, while a merely
+size-constrained free node remains positionable.
+
 ## v0.284.0 — Container layout is real and shared with Full Preview
 
 Free, stack, grid, and overlay now drive direct-child placement. Containers expose direction, gap, padding,

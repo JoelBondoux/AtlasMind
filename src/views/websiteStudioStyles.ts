@@ -286,9 +286,10 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .layout-inspector { margin:12px 0; padding:10px; border:1px solid var(--studio-border); border-radius:8px; }
   .layout-select-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:7px; margin-top:9px; }
   .layout-select-grid label { display:grid; gap:3px; min-width:0; }
-  .layout-select-grid label > span, .layout-numbers label > span { color:var(--studio-muted); font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; }
+  .layout-select-grid label > span, .layout-numbers label > span, .layout-constraints label > span { color:var(--studio-muted); font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; }
   .layout-select-grid select { min-width:0; width:100%; text-transform:capitalize; }
   .layout-numbers { grid-template-columns:repeat(3, minmax(0, 1fr)); margin-top:7px; }
+  .layout-constraints { margin-top:7px; }
   .page-prompt-block h3 { margin:2px 0 8px; font-size:1rem; }
 
   /* ── Stack page: framework picker ───────────────────────────── */

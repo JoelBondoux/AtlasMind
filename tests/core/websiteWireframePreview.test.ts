@@ -176,11 +176,15 @@ describe('websiteWireframePreview', () => {
       });
       screen.nodes[1]!.layout.widthMode = 'fill';
       screen.nodes[2]!.layout.widthMode = 'fill';
+      screen.nodes[1]!.layout.maxWidth = 300;
+      screen.nodes[2]!.layout.minHeight = 220;
       screen.nodes[0]!.viewportOverrides.mobile = { mode: 'stack', direction: 'vertical', gap: 8 };
 
       const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
       expect(html).toContain('data-atlas-node-id="e1" style="left:2.000%');
       expect(html).toContain('data-atlas-node-id="e2" style="left:51.000%');
+      expect(html).toContain('width:30.000%');
+      expect(html).toContain('height:36.667%');
       expect(html).toContain('@media (max-width: 599px)');
       expect(html).toContain('left:2.000% !important');
       expect(html).toContain('width:96.000% !important');

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.284.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.285.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.284.0
+## What's new in 0.285.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Responsive min/max sizing is now part of the real layout engine.** Set optional width and height bounds
+  in canvas units; free, stack, grid, overlay, fixed, fill, and hug all obey the same inherited constraints in
+  the Studio and full built-in-browser preview. Clearing a bound recovers the retained drawn/intrinsic size.
 
 - **Stack, grid, overlay, fill, and hug now drive the actual layout.** Configure direction, gap, padding,
   columns, alignment, and distribution in the inspector; the same deterministic projection appears in the

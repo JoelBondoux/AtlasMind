@@ -101,6 +101,8 @@ describe('UI design graph', () => {
     const node = raw.screens[0]!.nodes[1]!;
     node.parentId = 'missing';
     node.layout.rect = { x: -100, y: -10, width: 50_000, height: Number.POSITIVE_INFINITY };
+    node.layout.minWidth = 800;
+    node.layout.maxWidth = 200;
     node.contentRef = '../content/<script>';
     node.viewportOverrides.mobile = {
       rect: { x: -100, y: 9_000, width: 0, height: 0 },
@@ -108,6 +110,8 @@ describe('UI design graph', () => {
       mode: 'grid',
       columns: 50,
       gap: 24,
+      minHeight: 500,
+      maxHeight: 100,
     };
 
     const sanitized = sanitizeUiDesignGraph(raw, pages);
@@ -117,8 +121,11 @@ describe('UI design graph', () => {
     expect(result.layout.rect.x).toBeGreaterThanOrEqual(0);
     expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
     expect(result.contentRef).toBe('content-script');
+    expect(result.layout).toMatchObject({ minWidth: 800, maxWidth: null });
     expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true, mode: 'grid', gap: 24 });
     expect(result.viewportOverrides.mobile?.columns).toBeUndefined();
+    expect(result.viewportOverrides.mobile?.minHeight).toBe(500);
+    expect(result.viewportOverrides.mobile?.maxHeight).toBeUndefined();
   });
 
   it('inherits responsive properties in order and reports the source of every computed value', () => {
@@ -151,6 +158,10 @@ describe('UI design graph', () => {
       columns: { kind: 'base', breakpoint: 'tablet' },
       align: { kind: 'base', breakpoint: 'tablet' },
       distribute: { kind: 'base', breakpoint: 'tablet' },
+      minWidth: { kind: 'base', breakpoint: 'tablet' },
+      maxWidth: { kind: 'base', breakpoint: 'tablet' },
+      minHeight: { kind: 'base', breakpoint: 'tablet' },
+      maxHeight: { kind: 'base', breakpoint: 'tablet' },
     });
 
     const desktopBase = { ...screen, baseBreakpoint: 'desktop' as const };
@@ -181,7 +192,7 @@ describe('UI design graph', () => {
     expect(grid.get('copy')?.layout.rect).toEqual({ x: 30, y: 40, width: 420, height: 160 });
     expect(grid.get('copy-2')?.layout.rect).toEqual({ x: 470, y: 40, width: 420, height: 120 });
     expect(grid.get('copy')?.provenance.rect).toEqual({
-      kind: 'computed', breakpoint: 'tablet', containerId: 'hero',
+      kind: 'computed', breakpoint: 'tablet', containerId: 'hero', reason: 'container',
     });
 
     parent.viewportOverrides.mobile = { mode: 'stack', gap: 10, direction: 'vertical' };
@@ -190,6 +201,26 @@ describe('UI design graph', () => {
     expect(mobile.get('copy-2')?.layout.rect).toEqual({ x: 30, y: 210, width: 860, height: 120 });
     expect(parent.layout.mode).toBe('grid');
     expect(screen.nodes.slice(1).map(node => node.layout.rect)).toEqual(stored);
+  });
+
+  it('projects inherited min/max constraints without replacing stored geometry', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const screen = graph.screens[0]!;
+    const node = screen.nodes[0]!;
+    const stored = { ...node.layout.rect };
+    node.layout.maxWidth = 600;
+    node.layout.minHeight = 420;
+    node.viewportOverrides.mobile = { maxWidth: 320, minHeight: 240, maxHeight: 300 };
+
+    const tablet = resolveUiScreenLayout(screen, 'tablet').find(candidate => candidate.id === node.id)!;
+    expect(tablet.layout.rect).toEqual({ x: 10, y: 20, width: 600, height: 420 });
+    expect(tablet.provenance.rect).toEqual({ kind: 'computed', breakpoint: 'tablet', reason: 'constraints' });
+
+    const mobile = resolveUiScreenLayout(screen, 'mobile').find(candidate => candidate.id === node.id)!;
+    expect(mobile.layout.rect).toEqual({ x: 10, y: 20, width: 320, height: 300 });
+    expect(mobile.provenance.maxWidth).toEqual({ kind: 'override', breakpoint: 'mobile' });
+    expect(mobile.provenance.minWidth).toEqual({ kind: 'base', breakpoint: 'tablet' });
+    expect(node.layout.rect).toEqual(stored);
   });
 
   it('is total for arbitrary untrusted graph input', () => {

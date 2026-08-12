@@ -306,6 +306,10 @@ describe('UI edit commands', () => {
       columns: 3,
       align: 'stretch' as const,
       distribute: 'space-between' as const,
+      minWidth: 240,
+      maxWidth: 900,
+      minHeight: null,
+      maxHeight: 600,
     };
     const base = applyUiEditCommand(createUiEditSession(graph()), {
       type: 'set-node-layout', expectedRevision: 0, screenId: 'page-home', nodeId: 'container', layout,
@@ -352,11 +356,14 @@ describe('UI edit commands', () => {
       layout: {
         mode: 'stack', widthMode: 'fixed', heightMode: 'hug', direction: 'vertical',
         gap: 16, padding: 24, columns: 2, align: 'center', distribute: 'space-between',
+        minWidth: 200, maxWidth: 800, minHeight: null, maxHeight: 600,
       },
     };
     expect(parseUiEditCommand(command)).toEqual(command);
     expect(parseUiEditCommand({ ...command, layout: { ...command.layout, gap: 501 } })).toBeUndefined();
     expect(parseUiEditCommand({ ...command, layout: { ...command.layout, columns: 2.5 } })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, minWidth: 900 } })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, maxHeight: 4_001 } })).toBeUndefined();
     expect(parseUiEditCommand({ ...command, layout: { ...command.layout, mode: 'flex' } })).toBeUndefined();
     expect(parseUiEditCommand({ ...command, layout: { ...command.layout, command: 'run' } })).toBeUndefined();
   });

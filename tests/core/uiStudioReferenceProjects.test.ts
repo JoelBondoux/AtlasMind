@@ -39,8 +39,8 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
         'designPrompt', 'notes', 'contentRef', 'styleRef', 'componentRef',
       ].includes(key))).toBe(true);
       expect(Object.keys(node.layout).sort()).toEqual([
-        'align', 'columns', 'direction', 'distribute', 'gap', 'heightMode', 'hidden', 'mode',
-        'padding', 'rect', 'widthMode',
+        'align', 'columns', 'direction', 'distribute', 'gap', 'heightMode', 'hidden', 'maxHeight',
+        'maxWidth', 'minHeight', 'minWidth', 'mode', 'padding', 'rect', 'widthMode',
       ]);
       expect(Object.keys(node.layout.rect).sort()).toEqual(['height', 'width', 'x', 'y']);
     }

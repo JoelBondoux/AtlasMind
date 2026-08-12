@@ -36,6 +36,9 @@
   const SNAP_TOLERANCE = 14;
   const MAX_ELEMENTS = 60;
   const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
+  const validNullableConstraint = (candidate, maximum) => candidate === null
+    || (Number.isFinite(candidate) && candidate >= 1 && candidate <= maximum);
+  const orderedConstraint = (minimum, maximum) => minimum === null || maximum === null || minimum <= maximum;
 
   // ── State ──────────────────────────────────────────────────────
 
@@ -122,7 +125,11 @@
     const rect = candidate?.layout?.rect;
     if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
       return {
-        layout: { rect: element.rect, hidden: false, mode: 'free', widthMode: 'fixed', heightMode: 'fixed' },
+        layout: {
+          rect: element.rect, hidden: false, mode: 'free', widthMode: 'fixed', heightMode: 'fixed',
+          direction: 'vertical', gap: 16, padding: 16, columns: 2, align: 'start', distribute: 'start',
+          minWidth: null, maxWidth: null, minHeight: null, maxHeight: null,
+        },
         provenance: {
           rect: { kind: 'base', breakpoint: activeBaseBreakpoint() },
           hidden: { kind: 'base', breakpoint: activeBaseBreakpoint() },
@@ -353,7 +360,7 @@
       // classed button has a background of its own.
       return '<button type="button" class="wf-box' + (selected ? ' selected' : '')
         + (primary && selectedElementIds.size > 1 ? ' primary' : '')
-        + (view.provenance.rect?.kind === 'computed' ? ' container-positioned' : '')
+        + (view.provenance.rect?.containerId ? ' container-positioned' : '')
         + (view.layout.hidden ? ' viewport-hidden' : '') + '"'
         + ' data-kind="' + escapeAttribute(element.kind) + '"'
         + ' style="' + style + '" data-element-id="' + escapeAttribute(element.id) + '"'
@@ -418,6 +425,9 @@
   function sourceLabel(source) {
     const breakpoint = BREAKPOINTS.includes(source?.breakpoint) ? source.breakpoint : activeBaseBreakpoint();
     if (source?.kind === 'computed') {
+      if (source.reason === 'constraints') {
+        return 'Constrained · ' + breakpoint;
+      }
       const container = findElement(source.containerId);
       return 'Computed by ' + (container?.label || 'container') + ' · ' + breakpoint;
     }
@@ -510,7 +520,13 @@
           <label><span>Padding</span><input id="layoutPadding" type="number" min="0" max="500" step="1" value="${escapeAttribute(String(view.layout.padding))}"${readOnly} /></label>
           <label><span>Columns</span><input id="layoutColumns" type="number" min="1" max="12" step="1" value="${escapeAttribute(String(view.layout.columns))}"${readOnly} /></label>
         </div>
-        <p class="responsive-copy">Mode arranges direct children. Fill stretches in the available axis; hug keeps the stored intrinsic rectangle until content measurement lands.</p>
+        <div class="geometry-grid layout-constraints">
+          <label><span>Min W</span><input id="layoutMinWidth" type="number" min="1" max="1000" step="1" placeholder="None" value="${view.layout.minWidth === null ? '' : escapeAttribute(String(view.layout.minWidth))}"${readOnly} /></label>
+          <label><span>Max W</span><input id="layoutMaxWidth" type="number" min="1" max="1000" step="1" placeholder="None" value="${view.layout.maxWidth === null ? '' : escapeAttribute(String(view.layout.maxWidth))}"${readOnly} /></label>
+          <label><span>Min H</span><input id="layoutMinHeight" type="number" min="1" max="4000" step="1" placeholder="None" value="${view.layout.minHeight === null ? '' : escapeAttribute(String(view.layout.minHeight))}"${readOnly} /></label>
+          <label><span>Max H</span><input id="layoutMaxHeight" type="number" min="1" max="4000" step="1" placeholder="None" value="${view.layout.maxHeight === null ? '' : escapeAttribute(String(view.layout.maxHeight))}"${readOnly} /></label>
+        </div>
+        <p class="responsive-copy">Mode arranges direct children. Fill stretches in the available axis; hug keeps the stored intrinsic rectangle until content measurement lands. Empty constraints mean no extra limit.</p>
         <div class="responsive-actions">
           <button type="button" class="secondary" id="applyNodeLayout"${readOnly}>Apply behaviour</button>
           ${isBase ? '' : `<button type="button" class="secondary subtle" id="resetNodeLayout"${override.layout && !state.readOnly ? '' : ' disabled'}>Use inherited behaviour</button>`}
@@ -524,9 +540,11 @@
       <div class="responsive-inspector">
         <div class="responsive-head"><p class="responsive-title">${escapeText(activeBreakpoint)} layout</p>
           <span class="source-chip">${escapeText(sourceLabel(view.provenance.rect))}</span></div>
-        <p class="responsive-copy">${view.provenance.rect?.kind === 'computed'
+        <p class="responsive-copy">${view.provenance.rect?.containerId
           ? 'Its container computes position. Stored width/height remain intrinsic inputs; edit the container or use free mode to position directly.'
-          : 'Only layout and visibility are breakpoint-specific. Label, type, hierarchy, and design intent remain shared.'}</p>
+          : view.provenance.rect?.reason === 'constraints'
+            ? 'Min/max constraints adjust the displayed size without replacing the stored rectangle. Position remains directly editable.'
+            : 'Only layout and visibility are breakpoint-specific. Label, type, hierarchy, and design intent remain shared.'}</p>
         <div class="geometry-grid">
           <label><span>X</span><input id="responsiveX" type="number" step="1" value="${escapeAttribute(String(rect.x))}"${readOnly} /></label>
           <label><span>Y</span><input id="responsiveY" type="number" step="1" value="${escapeAttribute(String(rect.y))}"${readOnly} /></label>
@@ -549,6 +567,10 @@
           <div><dt>Mode</dt><dd>${escapeText(view.layout.mode)} · ${escapeText(sourceLabel(view.provenance.mode))}</dd></div>
           <div><dt>Width</dt><dd>${escapeText(view.layout.widthMode)} · ${escapeText(sourceLabel(view.provenance.widthMode))}</dd></div>
           <div><dt>Height</dt><dd>${escapeText(view.layout.heightMode)} · ${escapeText(sourceLabel(view.provenance.heightMode))}</dd></div>
+          <div><dt>Min width</dt><dd>${view.layout.minWidth ?? 'none'} · ${escapeText(sourceLabel(view.provenance.minWidth))}</dd></div>
+          <div><dt>Max width</dt><dd>${view.layout.maxWidth ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxWidth))}</dd></div>
+          <div><dt>Min height</dt><dd>${view.layout.minHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.minHeight))}</dd></div>
+          <div><dt>Max height</dt><dd>${view.layout.maxHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxHeight))}</dd></div>
         </dl>
       </div>`;
     inspector.innerHTML = ''
@@ -621,7 +643,7 @@
       notice('Select at least two elements with Shift, Ctrl, or Cmd before aligning them.');
       return;
     }
-    if (selected.some(item => responsiveView(item.element).provenance.rect?.kind === 'computed')) {
+    if (selected.some(item => responsiveView(item.element).provenance.rect?.containerId)) {
       notice('A selected element is positioned by its container. Align the container, or switch it to free layout first.');
       return;
     }
@@ -702,7 +724,7 @@
 
     if (box && !handle) {
       const positioned = findElement(box.dataset.elementId);
-      if (positioned && responsiveView(positioned).provenance.rect?.kind === 'computed') {
+      if (positioned && responsiveView(positioned).provenance.rect?.containerId) {
         selectOnly(positioned.id);
         notifyPreviewSelection();
         renderCanvas();
@@ -963,7 +985,7 @@
     if (!element) { return; }
     if ([...selectedElementIds].some(id => {
       const candidate = findElement(id);
-      return candidate && responsiveView(candidate).provenance.rect?.kind === 'computed';
+      return candidate && responsiveView(candidate).provenance.rect?.containerId;
     })) {
       notice('Container-positioned elements cannot be nudged. Edit the container or switch it to free layout.');
       return;
@@ -1128,6 +1150,10 @@
     }
 
     if (event.target.id === 'applyNodeLayout') {
+      const constraint = selector => {
+        const raw = value(selector);
+        return raw === '' ? null : Number(raw);
+      };
       const layout = {
         mode: value('#layoutMode'),
         widthMode: value('#layoutWidthMode'),
@@ -1138,11 +1164,21 @@
         columns: Number(value('#layoutColumns')),
         align: value('#layoutAlign'),
         distribute: value('#layoutDistribute'),
+        minWidth: constraint('#layoutMinWidth'),
+        maxWidth: constraint('#layoutMaxWidth'),
+        minHeight: constraint('#layoutMinHeight'),
+        maxHeight: constraint('#layoutMaxHeight'),
       };
       if (!Number.isFinite(layout.gap) || layout.gap < 0 || layout.gap > 500
           || !Number.isFinite(layout.padding) || layout.padding < 0 || layout.padding > 500
-          || !Number.isInteger(layout.columns) || layout.columns < 1 || layout.columns > 12) {
-        notice('Layout needs gap/padding from 0–500 and whole-number columns from 1–12.', 'error');
+          || !Number.isInteger(layout.columns) || layout.columns < 1 || layout.columns > 12
+          || !validNullableConstraint(layout.minWidth, CANVAS_WIDTH)
+          || !validNullableConstraint(layout.maxWidth, CANVAS_WIDTH)
+          || !validNullableConstraint(layout.minHeight, CANVAS_MAX_HEIGHT)
+          || !validNullableConstraint(layout.maxHeight, CANVAS_MAX_HEIGHT)
+          || !orderedConstraint(layout.minWidth, layout.maxWidth)
+          || !orderedConstraint(layout.minHeight, layout.maxHeight)) {
+        notice('Layout needs bounded spacing/columns and each minimum must not exceed its maximum.', 'error');
         return;
       }
       submitDesignEdit({

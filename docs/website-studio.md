@@ -63,6 +63,9 @@ direct children using direction, gap, padding, alignment, distribution, and (for
 and height can be fixed, fill, or hug: fill claims the available axis; hug keeps the stored intrinsic box
 until content measurement is added. The arrangement is a projection, so switching back to free or undoing
 the change restores the exact rectangles that were drawn. Non-container blocks cannot claim a container mode.
+Optional min/max width and height apply to free and container layouts in the same 1000 × 4000 canvas units.
+An empty bound means none. Constraints clamp only the displayed projection, so clearing/resetting one restores
+the retained drawn or intrinsic size; a constrained free node remains movable.
 
 Three rules are worth knowing because they are deliberate:
 
@@ -157,8 +160,9 @@ they alter shared structure rather than responsive presentation.
 
 Layout behaviour also inherits by breakpoint. Applying a tablet/mobile container behaviour creates a closed
 responsive override; **Use inherited behaviour** removes only mode/direction/gap/padding/columns/alignment/
-distribution/sizing while preserving geometry and visibility choices. A child positioned by its container
-shows computed provenance naming that container.
+distribution/sizing/constraints while preserving geometry and visibility choices. A child positioned by its
+container shows computed provenance naming that container; a free node whose size is limited reports the
+constraint separately and remains directly positionable.
 
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.

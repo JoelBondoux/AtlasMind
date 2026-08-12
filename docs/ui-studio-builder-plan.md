@@ -5,7 +5,7 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.284.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.285.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
@@ -13,7 +13,8 @@ responsive projection in both the Studio canvas and full built-in-browser previe
 drag/resize/nudge that cannot change shared structure. Multi-selection alignment, distribution, and group
 nudge run as one validated revision and undo step. Stack/grid/overlay container modes now deterministically
 project direction, gap, padding, columns, alignment, distribution, and fill/hug sizing in both canvas and
-full preview, with responsive inheritance and computed-container provenance.
+full preview, with responsive inheritance and computed-container provenance. Optional min/max width and
+height now constrain every layout/size mode without replacing retained geometry.
 
 ## Problem
 
@@ -167,13 +168,18 @@ independent geometry/visibility apply/reset in the Studio inspector. The three r
 inheritance, reset, and preview. v0.282.0 routes breakpoint drag, resize, and keyboard nudge through the same
 exact geometry-override command while leaving structure base-only. v0.283.0 adds atomic multi-selection,
 six-axis alignment, two-axis distribution, and group nudge. v0.284.0 turns stack/grid/overlay and fill/hug
-into a shared deterministic canvas/preview engine with explicit container settings. Min/max constraints,
-wrapping/ordering, duplicate, lock, group drag, and diagnostics remain in this phase.
+into a shared deterministic canvas/preview engine with explicit container settings. v0.285.0 adds inherited,
+nullable min/max width/height constraints with per-property provenance and non-destructive projection.
+Wrapping/ordering, duplicate, lock, group drag, and diagnostics remain in this phase.
 
 Implementation note: v0.284.0 deliberately makes container layout a non-destructive projection. Stored child
 rectangles remain the free-layout fallback, so switching or resetting a parent cannot lose the arrangement
 somebody drew. Hug currently retains that stored intrinsic rectangle; content-derived measurement belongs
 with Phase 4 content/assets/data rather than being guessed from placeholder markup.
+
+Implementation note: v0.285.0 applies constraints in that same projection. `null` means no bound; width is
+bounded to 1–1000 and height to 1–4000 canvas units. Closed edits refuse an inverted pair. Removing a bound
+therefore reveals the retained rectangle instead of trying to reconstruct a size the constraint overwrote.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

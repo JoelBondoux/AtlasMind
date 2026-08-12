@@ -52,11 +52,13 @@ inspector that applies or independently resets geometry and visibility. v0.282.0
 drag, resize, and keyboard nudge without granting responsive gestures authority over structure. v0.283.0
 adds atomic multi-selection, six-axis alignment, two-axis distribution, and group nudge at every breakpoint.
 v0.284.0 makes stack/grid/overlay real deterministic container layouts with direction, gap, padding, columns,
-alignment, distribution, fill/hug sizing, responsive inheritance, and one canvas/preview projection. Min/max
-constraints, wrapping/ordering, duplicate, lock, group drag, and diagnostics remain to complete the phase.
+alignment, distribution, fill/hug sizing, responsive inheritance, and one canvas/preview projection. v0.285.0
+adds nullable min/max width/height constraints to that projection with responsive inheritance and provenance.
+Wrapping/ordering, duplicate, lock, group drag, and diagnostics remain to complete the phase.
 
 Container layout is deliberately a projection over retained child rectangles. Free mode and undo therefore
 restore what somebody drew; hug uses that stored intrinsic box until the content phase adds measurement.
+Constraints follow the same rule: they bound the displayed size while retaining the drawn/intrinsic rectangle.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

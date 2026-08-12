@@ -28,6 +28,8 @@ import {
   sanitizeWireframe,
   wireframeKindSpec,
   WIREFRAME_BREAKPOINTS,
+  WIREFRAME_CANVAS_HEIGHT,
+  WIREFRAME_CANVAS_WIDTH,
 } from './websiteWireframe.js';
 
 export const UI_DESIGN_GRAPH_MAX_REVISION = 2_147_483_647;
@@ -46,6 +48,7 @@ export interface UiLayoutPropertySource {
   kind: 'base' | 'override' | 'computed';
   breakpoint: WireframeBreakpoint;
   containerId?: string;
+  reason?: 'container' | 'constraints';
 }
 
 export interface ResolvedUiNodeLayout {
@@ -62,6 +65,10 @@ export interface ResolvedUiNodeLayout {
     columns: UiLayoutPropertySource;
     align: UiLayoutPropertySource;
     distribute: UiLayoutPropertySource;
+    minWidth: UiLayoutPropertySource;
+    maxWidth: UiLayoutPropertySource;
+    minHeight: UiLayoutPropertySource;
+    maxHeight: UiLayoutPropertySource;
   };
 }
 
@@ -96,6 +103,10 @@ export function resolveUiNodeLayout(
     columns: baseSource(),
     align: baseSource(),
     distribute: baseSource(),
+    minWidth: baseSource(),
+    maxWidth: baseSource(),
+    minHeight: baseSource(),
+    maxHeight: baseSource(),
   };
   const baseIndex = WIREFRAME_BREAKPOINTS.indexOf(screen.baseBreakpoint);
   const targetIndex = WIREFRAME_BREAKPOINTS.indexOf(breakpoint);
@@ -116,6 +127,7 @@ export function resolveUiNodeLayout(
     }
     for (const property of [
       'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+      'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
     ] as const) {
       if (override[property] !== undefined) {
         Object.assign(layout, { [property]: override[property] });
@@ -144,7 +156,15 @@ export function resolveUiScreenLayout(
   screen: UiDesignScreen,
   breakpoint: WireframeBreakpoint,
 ): ResolvedUiScreenNode[] {
-  const resolved = screen.nodes.map(node => ({ id: node.id, ...resolveUiNodeLayout(screen, node, breakpoint) }));
+  const resolved = screen.nodes.map(node => {
+    const view = { id: node.id, ...resolveUiNodeLayout(screen, node, breakpoint) };
+    const constrained = constrainRect(view.layout, WIREFRAME_CANVAS_WIDTH, WIREFRAME_CANVAS_HEIGHT);
+    if (!sameRect(view.layout.rect, constrained)) {
+      view.layout.rect = constrained;
+      view.provenance.rect = { kind: 'computed', breakpoint, reason: 'constraints' };
+    }
+    return view;
+  });
   const byId = new Map(resolved.map(node => [node.id, node]));
   const sourceById = new Map(screen.nodes.map(node => [node.id, node]));
   const depth = (node: UiDesignNode): number => {
@@ -177,7 +197,7 @@ export function resolveUiScreenLayout(
     const projected = arrangeContainerChildren(parentView.layout, children.map(child => child.view.layout));
     children.forEach((child, index) => {
       child.view.layout.rect = projected[index]!;
-      child.view.provenance.rect = { kind: 'computed', breakpoint, containerId: parent.id };
+      child.view.provenance.rect = { kind: 'computed', breakpoint, containerId: parent.id, reason: 'container' };
     });
   }
   return resolved;
@@ -196,10 +216,12 @@ function arrangeContainerChildren(
   };
   if (parent.mode === 'overlay') {
     return children.map(child => {
-      const width = child.widthMode === 'fill' || parent.align === 'stretch'
+      const desiredWidth = child.widthMode === 'fill' || parent.align === 'stretch'
         ? inner.width : Math.min(child.rect.width, inner.width);
-      const height = child.heightMode === 'fill'
+      const desiredHeight = child.heightMode === 'fill'
         ? inner.height : Math.min(child.rect.height, inner.height);
+      const width = constrainAxis(desiredWidth, child.minWidth, child.maxWidth, inner.width);
+      const height = constrainAxis(desiredHeight, child.minHeight, child.maxHeight, inner.height);
       const x = crossPosition(inner.x, inner.width, width, parent.align);
       const y = mainPosition(inner.y, inner.height, height, parent.distribute);
       return roundedRect(x, y, width, height);
@@ -221,15 +243,28 @@ function arrangeStack(
   const crossAvailable = horizontal ? inner.height : inner.width;
   const fillChildren = children.filter(child => horizontal
     ? child.widthMode === 'fill' : child.heightMode === 'fill').length;
-  const fixedTotal = children.reduce((sum, child) => sum + ((horizontal
-    ? child.widthMode : child.heightMode) === 'fill' ? 0 : (horizontal ? child.rect.width : child.rect.height)), 0);
+  const fixedTotal = children.reduce((sum, child) => {
+    if ((horizontal ? child.widthMode : child.heightMode) === 'fill') {
+      return sum;
+    }
+    const size = horizontal ? child.rect.width : child.rect.height;
+    return sum + (horizontal
+      ? constrainAxis(size, child.minWidth, child.maxWidth, mainAvailable)
+      : constrainAxis(size, child.minHeight, child.maxHeight, mainAvailable));
+  }, 0);
   const baseGaps = parent.gap * Math.max(0, children.length - 1);
   const fillSize = fillChildren > 0 ? Math.max(1, (mainAvailable - fixedTotal - baseGaps) / fillChildren) : 0;
   const sizes = children.map(child => {
-    const main = (horizontal ? child.widthMode : child.heightMode) === 'fill'
+    const desiredMain = (horizontal ? child.widthMode : child.heightMode) === 'fill'
       ? fillSize : Math.min(horizontal ? child.rect.width : child.rect.height, mainAvailable);
-    const cross = (horizontal ? child.heightMode : child.widthMode) === 'fill' || parent.align === 'stretch'
+    const desiredCross = (horizontal ? child.heightMode : child.widthMode) === 'fill' || parent.align === 'stretch'
       ? crossAvailable : Math.min(horizontal ? child.rect.height : child.rect.width, crossAvailable);
+    const main = horizontal
+      ? constrainAxis(desiredMain, child.minWidth, child.maxWidth, mainAvailable)
+      : constrainAxis(desiredMain, child.minHeight, child.maxHeight, mainAvailable);
+    const cross = horizontal
+      ? constrainAxis(desiredCross, child.minHeight, child.maxHeight, crossAvailable)
+      : constrainAxis(desiredCross, child.minWidth, child.maxWidth, crossAvailable);
     return { main, cross };
   });
   const contentSize = sizes.reduce((sum, size) => sum + size.main, 0) + baseGaps;
@@ -256,7 +291,8 @@ function arrangeGrid(
   const cellWidth = Math.max(1, (inner.width - parent.gap * (columns - 1)) / columns);
   const rowHeights = Array.from({ length: rows }, (_, row) => children
     .filter((_, index) => gridPosition(index, columns, rows, parent.direction).row === row)
-    .reduce((height, child) => Math.max(height, Math.min(child.rect.height, inner.height)), 1));
+    .reduce((height, child) => Math.max(height,
+      constrainAxis(child.rect.height, child.minHeight, child.maxHeight, inner.height)), 1));
   const contentHeight = rowHeights.reduce((sum, height) => sum + height, 0) + parent.gap * (rows - 1);
   const placement = distributedRun(inner.y, inner.height, contentHeight, parent.gap, rows, parent.distribute);
   const rowStarts: number[] = [];
@@ -269,9 +305,11 @@ function arrangeGrid(
     const position = gridPosition(index, columns, rows, parent.direction);
     const cellX = inner.x + position.column * (cellWidth + parent.gap);
     const cellHeight = rowHeights[position.row]!;
-    const width = child.widthMode === 'fill' || parent.align === 'stretch'
+    const desiredWidth = child.widthMode === 'fill' || parent.align === 'stretch'
       ? cellWidth : Math.min(child.rect.width, cellWidth);
-    const height = child.heightMode === 'fill' ? cellHeight : Math.min(child.rect.height, cellHeight);
+    const desiredHeight = child.heightMode === 'fill' ? cellHeight : Math.min(child.rect.height, cellHeight);
+    const width = constrainAxis(desiredWidth, child.minWidth, child.maxWidth, cellWidth);
+    const height = constrainAxis(desiredHeight, child.minHeight, child.maxHeight, cellHeight);
     return roundedRect(
       crossPosition(cellX, cellWidth, width, parent.align),
       rowStarts[position.row]!,
@@ -331,6 +369,27 @@ function roundedRect(x: number, y: number, width: number, height: number): Wiref
     width: Math.max(1, Math.round(width * 1_000) / 1_000),
     height: Math.max(1, Math.round(height * 1_000) / 1_000),
   };
+}
+
+function constrainRect(layout: UiDesignNode['layout'], availableWidth: number, availableHeight: number): WireframeRect {
+  const width = constrainAxis(layout.rect.width, layout.minWidth, layout.maxWidth, availableWidth);
+  const height = constrainAxis(layout.rect.height, layout.minHeight, layout.maxHeight, availableHeight);
+  return roundedRect(
+    Math.min(layout.rect.x, Math.max(0, availableWidth - width)),
+    Math.min(layout.rect.y, Math.max(0, availableHeight - height)),
+    width,
+    height,
+  );
+}
+
+function constrainAxis(size: number, minimum: number | null, maximum: number | null, available: number): number {
+  const safeMinimum = Math.min(minimum ?? 1, available);
+  const safeMaximum = Math.max(safeMinimum, Math.min(maximum ?? available, available));
+  return Math.max(safeMinimum, Math.min(size, safeMaximum));
+}
+
+function sameRect(left: WireframeRect, right: WireframeRect): boolean {
+  return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
 }
 
 /** Transcribe every compatible page fact into the v6 graph without guessing. */
@@ -439,6 +498,10 @@ function screenFromPage(page: WebsitePagePlan): UiDesignScreen {
         columns: 2,
         align: 'start',
         distribute: 'start',
+        minWidth: null,
+        maxWidth: null,
+        minHeight: null,
+        maxHeight: null,
       },
       viewportOverrides: {},
       designPrompt: element.designPrompt,
@@ -481,6 +544,7 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
     nodes: initialized ? (wireframe?.elements ?? []).map(element => {
       const raw = rawById.get(element.id) ?? {};
       const layout = asRecord(raw['layout']);
+      const constraints = sanitizeConstraintSet(layout);
       return {
         id: element.id,
         kind: element.kind,
@@ -510,6 +574,7 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
           distribute: LAYOUT_DISTRIBUTIONS.has(layout['distribute'] as UiLayoutDistribution)
             ? layout['distribute'] as UiLayoutDistribution
             : 'start',
+          ...constraints,
         },
         viewportOverrides: sanitizeOverrides(raw['viewportOverrides'], element.kind, breakpoint),
         designPrompt: element.designPrompt,
@@ -545,8 +610,10 @@ function sanitizeOverrides(
     const hasColumns = validBoundedLayoutInteger(raw['columns'], 1, UI_LAYOUT_MAX_COLUMNS);
     const hasAlign = LAYOUT_ALIGNMENTS.has(raw['align'] as UiLayoutAlignment);
     const hasDistribute = LAYOUT_DISTRIBUTIONS.has(raw['distribute'] as UiLayoutDistribution);
+    const constraintFields = sanitizeConstraintOverride(raw);
     if (!hasRect && !hasHidden && !hasMode && !hasWidthMode && !hasHeightMode && !hasDirection
-        && !hasGap && !hasPadding && !hasColumns && !hasAlign && !hasDistribute) {
+        && !hasGap && !hasPadding && !hasColumns && !hasAlign && !hasDistribute
+        && Object.keys(constraintFields).length === 0) {
       continue;
     }
     overrides[breakpoint] = {
@@ -561,6 +628,7 @@ function sanitizeOverrides(
       ...(hasColumns ? { columns: raw['columns'] as number } : {}),
       ...(hasAlign ? { align: raw['align'] as UiLayoutAlignment } : {}),
       ...(hasDistribute ? { distribute: raw['distribute'] as UiLayoutDistribution } : {}),
+      ...constraintFields,
     };
   }
   return overrides;
@@ -595,6 +663,53 @@ function validBoundedLayoutNumber(value: unknown, maximum: number): value is num
 
 function validBoundedLayoutInteger(value: unknown, minimum: number, maximum: number): value is number {
   return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
+}
+
+function sanitizeConstraintSet(source: Record<string, unknown>): Pick<UiDesignNode['layout'],
+  'minWidth' | 'maxWidth' | 'minHeight' | 'maxHeight'> {
+  const minWidth = constraintValue(source['minWidth'], WIREFRAME_CANVAS_WIDTH);
+  const maxWidth = constraintValue(source['maxWidth'], WIREFRAME_CANVAS_WIDTH);
+  const minHeight = constraintValue(source['minHeight'], WIREFRAME_CANVAS_HEIGHT);
+  const maxHeight = constraintValue(source['maxHeight'], WIREFRAME_CANVAS_HEIGHT);
+  return {
+    minWidth,
+    maxWidth: minWidth !== null && maxWidth !== null && maxWidth < minWidth ? null : maxWidth,
+    minHeight,
+    maxHeight: minHeight !== null && maxHeight !== null && maxHeight < minHeight ? null : maxHeight,
+  };
+}
+
+function sanitizeConstraintOverride(source: Record<string, unknown>): Partial<Pick<UiNodeViewportOverride,
+  'minWidth' | 'maxWidth' | 'minHeight' | 'maxHeight'>> {
+  const result: Partial<Pick<UiNodeViewportOverride, 'minWidth' | 'maxWidth' | 'minHeight' | 'maxHeight'>> = {};
+  for (const [property, maximum] of [
+    ['minWidth', WIREFRAME_CANVAS_WIDTH],
+    ['maxWidth', WIREFRAME_CANVAS_WIDTH],
+    ['minHeight', WIREFRAME_CANVAS_HEIGHT],
+    ['maxHeight', WIREFRAME_CANVAS_HEIGHT],
+  ] as const) {
+    const value = source[property];
+    if (value === null || validConstraint(value, maximum)) {
+      Object.assign(result, { [property]: value });
+    }
+  }
+  if (typeof result.minWidth === 'number' && typeof result.maxWidth === 'number'
+      && result.maxWidth < result.minWidth) {
+    delete result.maxWidth;
+  }
+  if (typeof result.minHeight === 'number' && typeof result.maxHeight === 'number'
+      && result.maxHeight < result.minHeight) {
+    delete result.maxHeight;
+  }
+  return result;
+}
+
+function constraintValue(value: unknown, maximum: number): number | null {
+  return validConstraint(value, maximum) ? value : null;
+}
+
+function validConstraint(value: unknown, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= maximum;
 }
 
 function cleanIdentifier(value: unknown, maxLength = 120): string | undefined {

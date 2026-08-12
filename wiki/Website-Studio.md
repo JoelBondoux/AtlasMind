@@ -59,6 +59,8 @@ Selecting a container exposes free, stack, grid, and overlay behaviour plus dire
 alignment, distribution, and fixed/fill/hug sizing. The host projects direct children identically in the
 canvas and full preview. Stored rectangles remain intact underneath, so reset, free mode, and undo restore
 the drawn arrangement. The same behaviour can inherit or be deliberately overridden at tablet/mobile.
+Any node can also set optional min/max width and height in canvas units. These bounds inherit and reset with
+layout behaviour, clamp only the projected size, and never erase the retained drawn/intrinsic rectangle.
 
 A few things behave the way they do on purpose:
 

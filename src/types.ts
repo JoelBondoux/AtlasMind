@@ -1323,6 +1323,10 @@ export interface UiNodeLayout {
   columns: number;
   align: UiLayoutAlignment;
   distribute: UiLayoutDistribution;
+  minWidth: number | null;
+  maxWidth: number | null;
+  minHeight: number | null;
+  maxHeight: number | null;
 }
 
 /**
@@ -1342,6 +1346,10 @@ export interface UiNodeViewportOverride {
   columns?: number;
   align?: UiLayoutAlignment;
   distribute?: UiLayoutDistribution;
+  minWidth?: number | null;
+  maxWidth?: number | null;
+  minHeight?: number | null;
+  maxHeight?: number | null;
 }
 
 /**

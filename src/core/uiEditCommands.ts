@@ -72,6 +72,10 @@ export interface UiNodeLayoutEdit {
   columns: number;
   align: UiLayoutAlignment;
   distribute: UiLayoutDistribution;
+  minWidth: number | null;
+  maxWidth: number | null;
+  minHeight: number | null;
+  maxHeight: number | null;
 }
 
 export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
@@ -339,6 +343,7 @@ function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
   if (!isRecord(input)
       || !exactKeys(input, [
         'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+        'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
       ])
       || !isLayoutMode(input['mode'])
       || !isSizeMode(input['widthMode'])
@@ -348,7 +353,13 @@ function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
       || !boundedNumber(input['padding'], UI_LAYOUT_MAX_PADDING)
       || !boundedInteger(input['columns'], 1, UI_LAYOUT_MAX_COLUMNS)
       || !isLayoutAlignment(input['align'])
-      || !isLayoutDistribution(input['distribute'])) {
+      || !isLayoutDistribution(input['distribute'])
+      || !nullableConstraint(input['minWidth'], WIREFRAME_CANVAS_WIDTH)
+      || !nullableConstraint(input['maxWidth'], WIREFRAME_CANVAS_WIDTH)
+      || !nullableConstraint(input['minHeight'], WIREFRAME_CANVAS_HEIGHT)
+      || !nullableConstraint(input['maxHeight'], WIREFRAME_CANVAS_HEIGHT)
+      || !orderedConstraints(input['minWidth'], input['maxWidth'])
+      || !orderedConstraints(input['minHeight'], input['maxHeight'])) {
     return undefined;
   }
   return input as unknown as UiNodeLayoutEdit;
@@ -551,6 +562,7 @@ function applyNodeCommand(
         if (property === 'layout') {
           for (const layoutProperty of [
             'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+            'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
           ] as const) {
             delete remaining[layoutProperty];
           }
@@ -667,6 +679,10 @@ function addNode(
       columns: 2,
       align: 'start',
       distribute: 'start',
+      minWidth: null,
+      maxWidth: null,
+      minHeight: null,
+      maxHeight: null,
     },
     viewportOverrides: {},
     designPrompt: input.designPrompt.trim(),
@@ -845,7 +861,13 @@ function validLayoutEdit(value: UiNodeLayoutEdit): boolean {
     && boundedNumber(value.padding, UI_LAYOUT_MAX_PADDING)
     && boundedInteger(value.columns, 1, UI_LAYOUT_MAX_COLUMNS)
     && isLayoutAlignment(value.align)
-    && isLayoutDistribution(value.distribute);
+    && isLayoutDistribution(value.distribute)
+    && nullableConstraint(value.minWidth, WIREFRAME_CANVAS_WIDTH)
+    && nullableConstraint(value.maxWidth, WIREFRAME_CANVAS_WIDTH)
+    && nullableConstraint(value.minHeight, WIREFRAME_CANVAS_HEIGHT)
+    && nullableConstraint(value.maxHeight, WIREFRAME_CANVAS_HEIGHT)
+    && orderedConstraints(value.minWidth, value.maxWidth)
+    && orderedConstraints(value.minHeight, value.maxHeight);
 }
 
 function isLayoutMode(value: unknown): value is UiLayoutMode {
@@ -874,6 +896,16 @@ function boundedNumber(value: unknown, maximum: number): value is number {
 
 function boundedInteger(value: unknown, minimum: number, maximum: number): value is number {
   return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
+}
+
+function nullableConstraint(value: unknown, maximum: number): value is number | null {
+  return value === null
+    || (typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= maximum);
+}
+
+function orderedConstraints(minimum: unknown, maximum: unknown): boolean {
+  return minimum === null || maximum === null
+    || (typeof minimum === 'number' && typeof maximum === 'number' && minimum <= maximum);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

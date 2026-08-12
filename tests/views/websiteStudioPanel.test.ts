@@ -53,6 +53,7 @@ describe('Website Studio webview boundary', () => {
         layout: {
           mode: 'stack', widthMode: 'fill', heightMode: 'hug', direction: 'vertical', gap: 16,
           padding: 24, columns: 2, align: 'stretch', distribute: 'space-between',
+          minWidth: 200, maxWidth: 800, minHeight: null, maxHeight: 600,
         },
       },
     })).toBe(true);
@@ -115,6 +116,7 @@ describe('Website Studio webview boundary', () => {
         layout: {
           mode: 'flex', widthMode: 'fill', heightMode: 'hug', direction: 'vertical', gap: 16,
           padding: 24, columns: 2, align: 'stretch', distribute: 'space-between',
+          minWidth: null, maxWidth: null, minHeight: null, maxHeight: null,
         },
       },
     })).toBe(false);
@@ -342,8 +344,9 @@ describe('UI Studio canvas command wiring', () => {
     ]) {
       expect(source).toContain(`'${command}'`);
     }
-    expect(source).toContain("provenance.rect?.kind === 'computed'");
+    expect(source).toContain('provenance.rect?.containerId');
     expect(source).toContain('container-positioned');
+    expect(source).toContain('layoutMinWidth');
     expect(source).toContain('designRevision,');
     expect(source).not.toContain('designGraph: state');
     expect(source).toContain('applyResponsiveRect');

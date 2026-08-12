@@ -326,7 +326,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   before-child depth order. Direction, gap, padding, columns, alignment, distribution, and size modes are
   bounded graph data. A projected child rectangle receives `computed` provenance naming its container; the
   stored rectangle remains untouched as the reversible free-layout fallback. Fill claims an available axis;
-  hug uses the stored intrinsic size until content measurement is implemented.
+  hug uses the stored intrinsic size until content measurement is implemented. Nullable min/max width/height
+  constraints inherit per breakpoint, expose their own provenance, and clamp the projected rectangle without
+  changing the retained input; a constraint-derived rectangle reports `computed` with a constraint reason.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
   geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
@@ -336,8 +338,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
   invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
   promotes direct children, history is capped at 100, and a fresh edit clears redo.
-  `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, and an
-  optional non-base breakpoint. A non-container may use size modes but is refused a non-free container mode.
+  `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, nullable
+  width constraints 1–1000, nullable height constraints 1–4000, and an optional non-base breakpoint. Minimum
+  may not exceed maximum. A non-container may use size modes but is refused a non-free container mode.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/
@@ -351,8 +354,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
 
 `websiteWireframePreview.ts` consumes the graph screen alongside its compatibility page projection. It uses
-`resolveUiNodeLayout()` to emit ordered tablet (`≤1023px`) and mobile (`≤599px`) static media rules for every
-saved node, including inherited geometry, explicit visibility, and a visible-content-derived stage height.
+`resolveUiScreenLayout()` to emit ordered tablet (`≤1023px`) and mobile (`≤599px`) static media rules for every
+saved node, including inherited geometry/constraints, explicit visibility, container placement, and a
+visible-content-derived stage height.
 Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
 renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
 injects only the separately audited frozen live runtime.

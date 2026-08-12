@@ -202,9 +202,11 @@ override command. Drawing, deletion, nesting, and parent changes remain confined
 Multi-selection alignment, distribution, and group nudge use one `set-node-frames` command containing only
 bounded unique node ids and rectangles. The reducer validates the whole batch first, then advances one
 revision and undo entry; multi-delete remains refused rather than inheriting new cascade semantics.
-Container behaviour uses `set-node-layout`: closed enums, gap/padding 0–500, columns 1–12, and an optional
-non-base breakpoint. The Studio and Full Preview consume the same complete-screen projection; the webview
-can request settings but cannot submit CSS or implement placement.
+Container behaviour uses `set-node-layout`: closed enums, gap/padding 0–500, columns 1–12, nullable width
+bounds 1–1000, nullable height bounds 1–4000, ordered min/max pairs, and an optional non-base breakpoint.
+The Studio and Full Preview consume the same complete-screen projection; the webview can request settings
+but cannot submit CSS or implement placement. Constraints retain the original rectangle and report their own
+responsive provenance, so reset/undo reveals the prior drawn or intrinsic size.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

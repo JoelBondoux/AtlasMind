@@ -884,7 +884,11 @@ export function buildWebsiteStudioResponsiveScreens(
             || node.viewportOverrides[breakpoint]?.padding !== undefined
             || node.viewportOverrides[breakpoint]?.columns !== undefined
             || node.viewportOverrides[breakpoint]?.align !== undefined
-            || node.viewportOverrides[breakpoint]?.distribute !== undefined,
+            || node.viewportOverrides[breakpoint]?.distribute !== undefined
+            || node.viewportOverrides[breakpoint]?.minWidth !== undefined
+            || node.viewportOverrides[breakpoint]?.maxWidth !== undefined
+            || node.viewportOverrides[breakpoint]?.minHeight !== undefined
+            || node.viewportOverrides[breakpoint]?.maxHeight !== undefined,
         },
       ])) as WebsiteStudioResponsiveNodeState['overrides'],
     })),

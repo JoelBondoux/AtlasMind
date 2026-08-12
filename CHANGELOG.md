@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.285.0] - 2026-08-12
+
+### Added
+
+- **Nodes now have responsive min/max width and height constraints.** Each optional bound inherits from base
+  through tablet/mobile with its own provenance. Free, stack, grid, overlay, fixed, fill, and hug all pass
+  through the same deterministic constraint projection used by the Studio and full built-in-browser preview.
+- **The layout inspector exposes all four bounds without magic sentinel values.** An empty field means no
+  constraint; the responsive provenance panel names where each active or empty value came from.
+
+### Security
+
+- **Constraints remain closed canvas data.** Width limits accept only `null` or finite 1–1000 canvas-unit
+  values; height limits accept only `null` or finite 1–4000 values. The parser and reducer refuse inverted
+  pairs, unknown keys, and non-finite values before graph mutation. The graph sanitizer drops a contradictory
+  maximum from hand-edited input instead of persisting an impossible pair.
+
+### Changed
+
+- **Constraint application is non-destructive.** The resolver clamps the displayed rectangle while retaining
+  its stored geometry. Removing/resetting a constraint or undoing its edit therefore restores the exact prior
+  drawn or intrinsic size. A constrained free-layout node remains movable; only container-positioned children
+  refuse direct move/alignment/nudge operations.
+
 ## [0.284.0] - 2026-08-12
 
 ### Added
