@@ -1,34 +1,39 @@
 ## Goal
-Resume the interrupted release workflow for `fix/lens-acp-hidden-launch`. Preserve the verified commit/push baseline, keep the session-only context edit out of the release path, and complete promotion/publication once the branch target and release policy are reconciled.
+Turn The User's Project Dashboard recommendation into a managed operating metric: link roadmap completion, shipped capabilities, and run telemetry, starting with the smallest useful improvement that can be shipped quickly.
 
 ## Approach
-Treat `810ae2ba` on `origin/fix/lens-acp-hidden-launch` as the known-good baseline. Continue with the repo’s release workflow unless the user overrides it: separate the context-file edit from branch work, then promote through the documented branch path before marketplace publication.
+Collect a durable “turn completion completeness” signal from existing sources already present in the project memory and run record paths, then map it to a dashboard metric with minimal schema changes. Define the current metric as “roadmap completion rate with telemetry-represented delivery confirmation,” and record the next step needed to make it operationally enforceable over time.
 
 ## Findings
-- Commit `810ae2ba` (`chore: commit staged changes`) was created from the staged files and pushed to `origin/fix/lens-acp-hidden-launch`.
-- The working tree was clean at that handoff; no source edits were left behind from the prior turn.
-- The current release continuation hit a sandbox boundary while trying to stash the session-only `context.md` change; `.git/index.lock` blocked the stash step.
-- Repo policy in `AGENTS.md` says the normal release route is `develop` first, then promotion to `main`, so the user’s literal “main” wording still needs reconciliation with the documented workflow.
-- No branch promotion, tag, build, package, or marketplace publish step has started in this resumed thread.
+- The User's objective and product context were established: VS Code Extension for novice/small-team software engineers, with no fixed timeline, using VS Code tech stack.
+- Roadmap visibility currently shows 28/582 completed items, 550 outstanding items, and 4 unresolved recommendation follow-up questions.
+- The `project_memory/roadmap/acp-integration.md` roadmap includes extensive unresolved ACP integration items (including provider adapter work, streaming, delegated execution boundaries, telemetry/routing constraints, and real-ACP validation), indicating the largest remaining backlog is in that area.
+- A recent run stopped at the end of failure handling after 4 model attempts (failover budget exhausted). The underlying provider error was:
+  `Invalid_request_error 400` from local provider: `Conversation roles must alternate user/assistant/user/assistant` from template/Jinja validation while parsing the generated prompt.
+- No additional recovery model was invoked after the local provider failure, leaving provider-switching uncompleted.
+- The User explicitly asked for next-step summary: “address this recommendation: turn completion into a managed operating metric” and wants a practical, smallest-first implementation.
 
 ## Concluded
-- Preserved the verified commit/push state for `810ae2ba`.
-- Kept the interruption boundary explicit so the release can resume from a known-good point.
-- Isolated the session context update from product code changes.
+- Dashboard baseline was captured from the latest state: completion counts and backlog were confirmed from the prior turn data.
+- The User's project profile inputs were confirmed and recorded as: VS Code Extension, novice/solo/small team audience, and VS Code stack.
+- The latest blocking condition was captured concretely: local provider prompt-shape failure, plus exhausted local/provider fallback budget before recovery.
+- ~~Project basics were accepted and persisted for follow-up planning.~~
+- ~~Local-provider failure root cause (conversation role alternation/Jinja parse failure) was identified and confirmed as the immediate remediation target.~~
 
 ## Open Threads
-- ~~Re-establish the interrupted release context.~~
-- Resolve the `.git/index.lock` / stash issue so the session-only `context.md` change stays out of the release path.
-- Decide whether to follow the repo release path (`develop` → `main`) or honor the user’s literal “promote to main” wording.
-- Confirm whether marketplace publication should happen only after branch promotion under the repo workflow.
+- Decide the exact schema for “turn completion” (count-based metric, weighted metric, or both) and whether it is persisted in roadmap, memory, or telemetry-only stores.
+- Clarify whether “shipped capabilities” should count only merged/compiled features or also validated staged run outcomes.
+- Decide if the next metric improvement should be hard-pinned to one roadmap area (ACP-first) or computed globally across all roadmap lines.
+- Specify owner/guardrails for the next durable step (which component owns metric updates and where threshold alerts are enforced).
+- Decide whether dashboard completeness should also include a “risk-adjusted completion” dimension for blocked or unassessed items.
 
 ## SSOT Links
 AGENTS.md
-docs/guided-github-workflow.md
-docs/github-workflow.md
-package.json
-CHANGELOG.md
-context.md
+project_memory/roadmap/acp-integration.md
+project_memory/roadmap/acp-readiness-notes.md
+project_memory/roadmap/README.md
+docs/model-routing.md
+wiki/Architecture.md
 
 ## Current State
-The most recent turn refreshed the rolling context for the interrupted release handoff. Branch promotion is still paused; no tag, build, or publish action has run in this turn.
+The latest turn did not implement code changes; it consolidated the session objective, constraints, and immediate technical state into the rolling context. The unresolved next action is to implement the minimum metric bridge between roadmap completion and run telemetry, then harden it into a durable operational measure with alerting and reconciliation.

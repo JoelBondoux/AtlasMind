@@ -13,15 +13,22 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmind-lens.md`.
-- [ ] Clarify the next highest-value user or business outcome.
-- [ ] Address the highest-risk security, reliability, or correctness gap first.
-- [ ] Capture or implement the next architectural decision that reduces future churn.
-- [ ] Confirm the most leverage-heavy technical slice and keep the stack intentional.
-- [ ] Add or update the tests needed to prove the next change safely.
-- [ ] Sequence the next milestone so delivery remains measurable.
-- [ ] Review the operational or third-party dependencies before scaling scope.
+- [ ] This error needs addressing: Model diagnostic: Exceeded skills context budget of 2%. All skill descriptions were removed and 180 additional skills were not included in the model-visible skills list. #mvp #critical
+- [ ] When a chat is in progress in the View Window and I close the window to catch up with the chat in the AM chat bar, the request is automatically closed down when it should stay running in the background. #mvp #critical
+- [ ] When AtlasMind Chat is opened from links in dashboards they always open in the view window and not in the AtlasMind side chat bar (on the right by default). I'd rather the AM chatbar be used. #mvp
+- [ ] The name of the project should also be in the AtlasMind Titlebar (on the left) just after the name Atlasmind. #mvp
+- [ ] The Editable Queue in the Roadmap Dash shows Release: MVP in grey, so it actually reads is if it is active. Perhaps have that tag outlined in red when disabled and in blue (as it currently is) when active. #mvp
+- [ ] Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmind-lens.md`. #mvp
+- [ ] Change the Dashboard Refresh keybind to something that is not by default used in VS Code (as Ctrl+R is). #mvp
+- [ ] Do we have a local GPU arbiter built already to manage multiple Lolal LLM providers without exceeding the max VRAM capacity (considering we need approx 3GB for Windows and applications to run smoothly) #mvp
 <!-- atlasmind:roadmap-items:end -->
+
+### Release gates
+<!-- atlasmind:roadmap-gates:start -->
+- `#mvp` — MVP
+- `#critical` — Critical
+<!-- atlasmind:roadmap-gates:end -->
+
 
 ## Prioritisation Notes
 Atlas should weigh the roadmap in this order:
