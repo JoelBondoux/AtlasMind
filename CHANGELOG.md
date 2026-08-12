@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.292.1] - 2026-08-12
+## [0.292.2] - 2026-08-12
 
 ### Added
 
@@ -28,6 +28,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   diagnostic that mis-reports the branch it exists to measure is worse than none, because the
   measurement looks complete; deriving both from one classifier makes that unrepresentable rather than
   merely fixed, and a test walks every alternative.
+
+- **`npm run resolve:release-conflicts` settles a long-lived branch's version-marker conflicts.**
+  Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the
+  version always names an exact state of the code — but it means two branches doing entirely unrelated
+  work conflict on the same five files *every time*, with no semantic overlap between the changes, so a
+  branch open while another stream is pushing re-conflicts within hours.
+  `scripts/resolve-release-conflicts.mjs` encodes the resolution: version files take the incoming
+  version patch-bumped — a feature branch is a PATCH on top of wherever the integration branch reached,
+  never a revert of it, which is what taking "ours" silently does — and notes files keep **both** sides
+  with this branch's entry relabelled and placed above, since taking either alone deletes release notes
+  for work that shipped. It runs only mid-merge, resolves nothing outside those five files (a conflict
+  in source, tests or docs is a real disagreement and wants a human), and refuses to report success
+  while any marker survives. The hazard is specific: hand-resolving identical-looking hunks repeatedly
+  is how a changelog entry quietly loses a paragraph while attention is on the version numbers.
 
 ### Fixed
 
