@@ -307,12 +307,18 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
-Format v6 adds `UiDesignGraph`. `uiDesignGraph.ts` is the only compatibility converter: when a graph is
+Format v7 extends `UiDesignGraph` with typed tokens; v6 introduced its screens and nodes. `uiDesignGraph.ts`
+is the only compatibility converter and token sanitizer: when a graph is
 present it derives page wireframes for older renderers, and when the current canvas submits its temporary
 wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
 graph/wireframe converter. New design mutations belong in `uiEditCommands.ts`; its expected-revision check,
 closed command union, bounded geometry/hierarchy, and monotonic history are the contract the live preview
 will use too.
+
+Token definitions are structured target-independent data, not CSS fragments. Keep new token kinds closed
+and bounded in `uiDesignGraph.ts`; aliases must remain same-kind, acyclic, and resolvable to a direct value.
+Format migrations must seed no visual choices. Reusable components will join this v7 authority in later
+Phase 3 slices and must use the same revisioned command path.
 
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized

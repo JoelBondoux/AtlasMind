@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.290.0 — Typed UI Studio token authority
+
+Phase 3 begins with bounded typed token definitions inside the same authoritative graph as screens and
+nodes. Colour, typography, spacing, radius, shadow, motion, and breakpoint values stay independent of CSS
+or any implementation target. Same-kind aliases resolve deterministically and retain their source chain;
+missing targets, cross-kind links, cycles, malformed values, duplicates, and oversized collections are
+refused by the host sanitizer.
+
+Website workspace format v7 adds an empty token collection to v6 graphs without inventing visual decisions
+or changing any existing screen fact. The architecture record also fixes this boundary before reusable
+component definitions and instances are added in the next Phase 3 slices.
+
 ## v0.289.0 — Responsive layout diagnostics
 
 Every Studio breakpoint now reports viewport overflow, a child extending outside its clipping parent,

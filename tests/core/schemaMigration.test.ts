@@ -143,7 +143,7 @@ describe('migrateDocument', () => {
     it('climbs a v1 file all the way to the current version in one pass', () => {
       const outcome = migrateDocument('website', v1());
       expect(outcome.status).toBe('migrated');
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(6);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(7);
     });
   });
 
@@ -162,7 +162,7 @@ describe('migrateDocument', () => {
       const value = (outcome as { value: Record<string, unknown> }).value;
       // migrateDocument climbs the whole ladder, so a v2 file lands on the
       // current version rather than stopping at the next step.
-      expect(value['version']).toBe(6);
+      expect(value['version']).toBe(7);
       // No stack is invented. Absent means nobody has chosen one, and a wrong
       // guess here decides what gets scaffolded.
       expect(value).not.toHaveProperty('stack');
@@ -177,7 +177,7 @@ describe('migrateDocument', () => {
 
     it('climbs on past v3 to the current version', () => {
       const outcome = migrateDocument('website', v2());
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(6);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(7);
     });
   });
 
@@ -198,7 +198,7 @@ describe('migrateDocument', () => {
       const outcome = migrateDocument('website', v3());
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
-      expect(value['version']).toBe(6);
+      expect(value['version']).toBe(7);
       expect(value).not.toHaveProperty('content');
     });
 
@@ -213,7 +213,7 @@ describe('migrateDocument', () => {
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
       expect(value).toMatchObject({
-        version: 6,
+        version: 7,
         surfaceKind: 'website',
         contentDesign: { principles: [], preferredTerms: [], avoidedTerms: [] },
         implementation: { targetTechnologies: [], sourceRoots: [], componentLocations: [], notes: [] },
@@ -236,6 +236,7 @@ describe('migrateDocument', () => {
       const value = (outcome as { value: Record<string, unknown> }).value;
       expect(value['designGraph']).toMatchObject({
         revision: 0,
+        tokens: [],
         screens: [{
           id: 'page-home',
           pageId: 'page-home',
@@ -270,8 +271,22 @@ describe('migrateDocument', () => {
       });
     });
 
-    it('does not re-run on a file already at v6', () => {
-      expect(migrateDocument('website', { ...v3(), version: 6 }).status).toBe('current');
+    it('adds an empty token collection to a v6 graph without changing graph facts', () => {
+      const designGraph = {
+        revision: 9,
+        screens: [{ id: 'page-home', pageId: 'page-home', initialized: false, baseBreakpoint: 'desktop', nodes: [] }],
+      };
+      const outcome = migrateDocument('website', { ...v3(), version: 6, designGraph });
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value).toMatchObject({
+        version: 7,
+        designGraph: { ...designGraph, tokens: [] },
+      });
+    });
+
+    it('does not re-run on a file already at v7', () => {
+      expect(migrateDocument('website', { ...v3(), version: 7 }).status).toBe('current');
     });
   });
 });

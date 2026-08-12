@@ -5,9 +5,11 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.289.0:** Phases 1 and 2 are complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.290.0:** Phases 1 and 2 are complete. Phase 3 has started with the v7 typed-token
+authority, bounded value sanitation, same-kind acyclic aliases, deterministic resolution, and a frozen v6 →
+v7 migration that invents no design decisions. The contract, v6 screen/node graph, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
-gestures, and executable validation across all three reference projects pass. Phase 2 has started with
+gestures, and executable validation across all three reference projects pass. Phase 2 delivered
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
 responsive projection in both the Studio canvas and full built-in-browser preview, and direct breakpoint
 drag/resize/nudge that cannot change shared structure. Multi-selection alignment, distribution, and group
@@ -107,12 +109,13 @@ deterministic projection of the saved design, not a second source of truth.
 
 #### P0.1 Versioned design graph
 
-The workspace stores a v6 graph with stable screen and node IDs, parent relationships, base geometry,
-viewport overrides, content/style/component references, and a monotonic revision.
+The workspace stores a v7 graph with stable screen and node IDs, parent relationships, base geometry,
+viewport overrides, content/style/component references, typed tokens, and a monotonic revision.
 
 Acceptance criteria:
 
-- Opening a v5 workspace produces a v6 graph without changing any existing page or element fact.
+- Opening a v5 workspace produces a v7 graph without changing any existing page or element fact or
+  inventing a token.
 - Saving and reopening preserves IDs, hierarchy, labels, prompts, notes, breakpoint, and geometry.
 - Duplicate, unknown, cyclic, oversized, and out-of-bounds input is sanitized deterministically.
 - Newer-format documents are refused and never overwritten.
@@ -218,6 +221,11 @@ Acceptance criteria:
 
 #### P1.2 Tokens, components, variants, and states
 
+Progress: v0.290.0 establishes the typed token authority and frozen format migration. It bounds colour,
+font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint values; same-kind
+aliases resolve to one direct source with an auditable chain. Token editing, preview consumption, reusable
+component definitions/instances, variants, slots, properties, and interaction states remain to deliver.
+
 - Typed colour, type, spacing, radius, shadow, motion, and breakpoint tokens with aliases.
 - Component definitions and instances, slots, properties, variants, and bounded instance overrides.
 - Hover, focus, active, disabled, loading, empty, error, success, and validation states.
@@ -272,7 +280,7 @@ Acceptance criteria:
 ## Architecture
 
 ```text
-website.json v6 + content/ + assets + source mappings
+website.json v7 + content/ + assets + source mappings
                     |
             bounded sanitization
                     |

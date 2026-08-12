@@ -419,7 +419,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 6**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 7**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -438,7 +438,7 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
 
-### Formats v2 → v6
+### Formats v2 → v7
 
 - v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
 - v4 moved actual copy into separately managed Markdown files; migration created no files because
@@ -450,6 +450,9 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   existing node, parent, label, prompt, note, breakpoint, and rectangle. It records whether a screen had
   never been drawn, creates no responsive override or component claim, and keeps page wireframes as a
   derived compatibility projection while current renderers move to the graph.
+- v7 adds typed colour, font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint
+  token definitions to that graph. Values are bounded structured data, not CSS. Aliases must resolve through
+  the same kind without a cycle. Migration adds an empty token collection rather than guessing a system.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

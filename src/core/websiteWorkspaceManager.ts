@@ -50,7 +50,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 6;
+const WEBSITE_SCHEMA_VERSION = 7;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -406,7 +406,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '|---|---|---|---:|---:|---:|---:|',
     ...renderPageRows(config),
     '',
-    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}.`,
+    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}. Tokens: ${config.designGraph.tokens.length}.`,
     '',
     ...renderLinkFindings(config),
     '## Page Design Prompts',

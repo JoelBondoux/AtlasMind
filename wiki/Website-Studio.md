@@ -30,6 +30,11 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
+Format v7 starts the next UI System foundation inside the authoritative graph: bounded typed colour,
+typography, spacing, radius, shadow, motion, and breakpoint definitions with same-kind acyclic aliases.
+These values are target-independent rather than CSS declarations. The visible token editor and preview
+consumption are still Phase 3 work; the existing UI System controls remain the current authoring surface.
+
 ## Design the words too
 
 Content design is now a first-class Studio step. The project-level rules are stored in the reviewable

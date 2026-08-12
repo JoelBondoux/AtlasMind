@@ -10,6 +10,7 @@ import type {
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
+  UiDesignToken,
   UiLayoutAlignment,
   UiLayoutDirection,
   UiLayoutDistribution,
@@ -1075,6 +1076,7 @@ function exactKeys(
 function cloneGraph(graph: UiDesignGraph): UiDesignGraph {
   return {
     revision: graph.revision,
+    tokens: graph.tokens.map(cloneToken),
     screens: graph.screens.map(screen => ({
       ...screen,
       nodes: screen.nodes.map(node => ({
@@ -1088,5 +1090,17 @@ function cloneGraph(graph: UiDesignGraph): UiDesignGraph {
         ),
       })),
     })),
+  };
+}
+
+function cloneToken(token: UiDesignToken): UiDesignToken {
+  if (token.aliasOf !== undefined) {
+    return { id: token.id, label: token.label, kind: token.kind, aliasOf: token.aliasOf };
+  }
+  return {
+    id: token.id,
+    label: token.label,
+    kind: token.kind,
+    value: typeof token.value === 'object' ? { ...token.value } : token.value,
   };
 }

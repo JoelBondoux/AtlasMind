@@ -1390,6 +1390,44 @@ export interface UiDesignScreen {
   nodes: UiDesignNode[];
 }
 
+export type UiDesignTokenKind =
+  | 'color'
+  | 'font-family'
+  | 'font-size'
+  | 'font-weight'
+  | 'line-height'
+  | 'spacing'
+  | 'radius'
+  | 'shadow'
+  | 'motion'
+  | 'breakpoint';
+
+export interface UiShadowTokenValue {
+  x: number;
+  y: number;
+  blur: number;
+  spread: number;
+  color: string;
+}
+
+export interface UiMotionTokenValue {
+  durationMs: number;
+  easing: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
+export type UiDesignTokenValue = string | number | UiShadowTokenValue | UiMotionTokenValue;
+
+interface UiDesignTokenBase {
+  id: string;
+  label: string;
+  kind: UiDesignTokenKind;
+}
+
+/** A token owns one typed value or aliases another token of the same kind. */
+export type UiDesignToken =
+  | (UiDesignTokenBase & { value: UiDesignTokenValue; aliasOf?: never })
+  | (UiDesignTokenBase & { aliasOf: string; value?: never });
+
 /**
  * UI Studio's authoritative visual-design document. `revision` is monotonic:
  * undo restores content from history but still advances this value so a stale
@@ -1397,6 +1435,7 @@ export interface UiDesignScreen {
  */
 export interface UiDesignGraph {
   revision: number;
+  tokens: UiDesignToken[];
   screens: UiDesignScreen[];
 }
 
@@ -1563,10 +1602,11 @@ export interface WebsiteStackChoice {
  * `contentDesign`, and `implementation`; existing projects migrate explicitly
  * to `website`, the only surface the older format could describe. Version 6
  * adds the revisioned target-independent design graph; the page wireframe is a
- * compatibility projection while existing readers move to that graph.
+ * compatibility projection while existing readers move to that graph. Version
+ * 7 adds typed token definitions without inventing any during migration.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 6;
+  version: 7;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

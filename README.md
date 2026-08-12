@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.289.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.290.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.289.0
+## What's new in 0.290.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Phase 3 starts with typed design tokens in the authoritative graph.** Colour, typography, spacing,
+  radius, shadow, motion, and breakpoint values now have bounded target-independent definitions. Aliases
+  propagate deterministically and are refused when missing, cyclic, or linked across token kinds.
 
 - **Responsive diagnostics now complete the layout loop.** Desktop, tablet, and mobile each report viewport
   overflow, parent clipping, unintended overlap, and undersized 44px touch targets from the same projection

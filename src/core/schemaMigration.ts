@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 6,
+  website: 7,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -260,6 +260,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
         },
       };
     },
+  },
+  {
+    kind: 'website',
+    from: 6,
+    to: 7,
+    summary: 'UI Studio now stores typed design-token definitions inside the authoritative graph.',
+    migrate: document => ({
+      ...document,
+      version: 7,
+      designGraph: {
+        ...asMigrationRecord(document['designGraph']),
+        tokens: [],
+      },
+    }),
   },
 ];
 

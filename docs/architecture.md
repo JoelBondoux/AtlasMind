@@ -300,7 +300,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 6**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
+The SSOT is at **format version 7**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
 `src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
 Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
@@ -315,10 +315,15 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
-- **`uiDesignGraph.ts`** — sanitizes the target-independent v6 graph against the page inventory, preserves
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v7 graph against the page inventory, preserves
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
+  The same boundary validates at most 200 typed colour, typography, spacing, radius, shadow, motion, and
+  breakpoint tokens. A token owns a bounded structured value or aliases another token of the same kind;
+  `resolveUiDesignToken()` refuses missing targets, cross-kind links, and cycles while retaining the resolved
+  source and alias chain. Tokens are graph facts rather than CSS declarations, so every output target reads
+  the same system without becoming its authority.
   `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
   the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
   viewport only through an exact override, so migration does not invent responsive intent.

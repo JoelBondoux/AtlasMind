@@ -70,5 +70,11 @@ and never changes hierarchy.
 Diagnostics consume the same resolved screen as Studio and Full Preview. Ancestor and overlay overlap are
 intentional exclusions; touch sizing converts through the responsive lab's actual fixed viewport widths.
 
+Phase 3 started in v0.290.0 with format v7 and typed target-independent token definitions for colour,
+typography, spacing, radius, shadow, motion, and breakpoints. The host bounds every value and permits an
+alias only when its same-kind path reaches a direct definition without a cycle. The v6 → v7 migration adds
+an empty collection rather than inventing a design system. Token editing and preview consumption come next,
+followed by component definitions/instances, variants, slots, properties, and interaction states.
+
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

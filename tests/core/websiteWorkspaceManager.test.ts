@@ -218,14 +218,15 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 6,
+      version: 7,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
-      designGraph: { revision: 0, screens: expect.any(Array) },
+      designGraph: { revision: 0, tokens: [], screens: expect.any(Array) },
     });
     expect(markdown).toContain('# UI Studio');
     expect(markdown).toContain('## Content Design');
     expect(markdown).toContain('## Implementation Guide');
+    expect(markdown).toContain('Screens: 4. Tokens: 0.');
     expect(markdown).toContain('## Hosting Environments');
     expect(markdown).toContain('| Develop | local | local-only |');
     expect(markdown).toContain('| Staging | hosted | password-protected |');

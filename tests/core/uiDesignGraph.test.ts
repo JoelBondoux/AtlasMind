@@ -4,10 +4,12 @@ import {
   applyDesignGraphToPages,
   diagnoseUiScreenLayout,
   designGraphFromPages,
+  resolveUiDesignToken,
   resolveUiNodeLayout,
   resolveUiScreenLayout,
   sanitizeUiDesignGraph,
   UI_DESIGN_GRAPH_MAX_REVISION,
+  UI_DESIGN_GRAPH_MAX_TOKENS,
   wireframeFromScreen,
 } from '../../src/core/uiDesignGraph.ts';
 import { createDefaultWebsiteWorkspace } from '../../src/core/websiteWorkspaceManager.ts';
@@ -94,6 +96,79 @@ describe('UI design graph', () => {
     expect(sanitized.revision).toBe(7);
     expect(projected[0]?.wireframe?.elements[0]?.label).toBe('Graph wins');
     expect(projected[0]?.sections[0]).toBe('Graph wins');
+  });
+
+  it('sanitizes typed tokens and resolves same-kind aliases without target assumptions', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    graph.tokens = [
+      { id: 'color-brand', label: 'Brand', kind: 'color', value: '#12abEF' },
+      { id: 'color-action', label: 'Action', kind: 'color', aliasOf: 'color-brand' },
+      { id: 'space-md', label: 'Medium', kind: 'spacing', value: 16 },
+      { id: 'shadow-card', label: 'Card', kind: 'shadow', value: {
+        x: 0, y: 8, blur: 24, spread: 0, color: '#000000',
+      } },
+      { id: 'motion-fast', label: 'Fast', kind: 'motion', value: {
+        durationMs: 160, easing: 'ease-out',
+      } },
+    ];
+
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    expect(sanitized.tokens).toEqual([
+      { id: 'color-brand', label: 'Brand', kind: 'color', value: '#12ABEF' },
+      { id: 'color-action', label: 'Action', kind: 'color', aliasOf: 'color-brand' },
+      { id: 'space-md', label: 'Medium', kind: 'spacing', value: 16 },
+      { id: 'shadow-card', label: 'Card', kind: 'shadow', value: {
+        x: 0, y: 8, blur: 24, spread: 0, color: '#000000',
+      } },
+      { id: 'motion-fast', label: 'Fast', kind: 'motion', value: {
+        durationMs: 160, easing: 'ease-out',
+      } },
+    ]);
+    expect(resolveUiDesignToken(sanitized.tokens, 'color-action')).toEqual({
+      id: 'color-action',
+      label: 'Action',
+      kind: 'color',
+      value: '#12ABEF',
+      sourceTokenId: 'color-brand',
+      aliasChain: ['color-action', 'color-brand'],
+    });
+
+    const changed = structuredClone(sanitized.tokens);
+    const brand = changed.find(token => token.id === 'color-brand')!;
+    if ('value' in brand) { brand.value = '#654321'; }
+    expect(resolveUiDesignToken(changed, 'color-action')?.value).toBe('#654321');
+  });
+
+  it('refuses malformed token values, broken aliases, cross-kind aliases, cycles, and excess entries', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    graph.tokens = [
+      { id: 'valid', label: 'Valid', kind: 'spacing', value: 8 },
+      { id: 'broken', label: 'Broken', kind: 'spacing', aliasOf: 'missing' },
+      { id: 'cross-kind', label: 'Cross kind', kind: 'color', aliasOf: 'valid' },
+      { id: 'cycle-a', label: 'Cycle A', kind: 'spacing', aliasOf: 'cycle-b' },
+      { id: 'cycle-b', label: 'Cycle B', kind: 'spacing', aliasOf: 'cycle-a' },
+      { id: 'unsafe-font', label: 'Unsafe', kind: 'font-family', value: 'Inter; color: red' },
+      { id: 'invalid-shadow', label: 'Invalid shadow', kind: 'shadow', value: {
+        x: 0, y: 0, blur: -1, spread: 0, color: '#000000',
+      } },
+      ...Array.from({ length: UI_DESIGN_GRAPH_MAX_TOKENS }, (_, index) => ({
+        id: `extra-${index}`,
+        label: `Extra ${index}`,
+        kind: 'radius' as const,
+        value: index,
+      })),
+    ];
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    expect(sanitized.tokens).toHaveLength(UI_DESIGN_GRAPH_MAX_TOKENS - 6);
+    expect(sanitized.tokens[0]).toMatchObject({ id: 'valid' });
+    expect(sanitized.tokens.some(token => token.id === 'broken')).toBe(false);
+    expect(sanitized.tokens.some(token => token.id === 'cross-kind')).toBe(false);
+    expect(sanitized.tokens.some(token => token.id.startsWith('cycle-'))).toBe(false);
+    expect(resolveUiDesignToken(graph.tokens, 'broken')).toBeUndefined();
+    expect(resolveUiDesignToken(graph.tokens, 'cross-kind')).toBeUndefined();
+    expect(resolveUiDesignToken(graph.tokens, 'cycle-a')).toBeUndefined();
   });
 
   it('bounds layout, refs, viewport overrides, and invalid hierarchy through one sanitizer', () => {
@@ -305,6 +380,7 @@ describe('UI design graph', () => {
     fc.assert(fc.property(fc.anything(), input => {
       const graph = sanitizeUiDesignGraph(input, pages);
       expect(graph.screens).toHaveLength(pages.length);
+      expect(graph.tokens.length).toBeLessThanOrEqual(UI_DESIGN_GRAPH_MAX_TOKENS);
       expect(Number.isSafeInteger(graph.revision)).toBe(true);
       for (const screen of graph.screens) {
         expect(pages.some(page => page.id === screen.pageId)).toBe(true);

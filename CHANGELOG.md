@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.290.0] - 2026-08-12
+
+### Added
+
+- **Phase 3 begins with typed design tokens in UI Studio's authoritative graph.** Format v7 stores bounded
+  colour, font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint definitions.
+- **Token aliases resolve through one pure target-independent path.** A resolved value retains its source and
+  ordered alias chain, so base-token changes propagate without interpreting definitions as CSS or target code.
+- **The architecture decision is durable.** `project_memory/decisions/ui-studio-system-definitions.md`
+  records why tokens live in the graph initially, why v7 is required, and what remains for components.
+
+### Security
+
+- **The graph sanitizer validates every token value and dependency.** It caps collections, normalizes colour
+  values, bounds numeric and structured values, rejects unsafe font-family syntax, and removes duplicate,
+  missing, cross-kind, cyclic, and invalid definitions before use.
+
+### Changed
+
+- **Website workspace format advances from v6 to v7.** The frozen migration preserves every v6 graph fact and
+  adds an empty token collection rather than inventing a design system. Older-format chains reach v7 in one pass.
+
 ## [0.289.0] - 2026-08-12
 
 ### Added

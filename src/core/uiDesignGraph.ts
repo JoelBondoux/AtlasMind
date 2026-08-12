@@ -1,7 +1,7 @@
 /**
  * UI Studio's target-independent design graph and its compatibility projection.
  *
- * The graph is authoritative when it is present in a v6 workspace. Existing
+ * The graph is authoritative when it is present in a v7 workspace. Existing
  * readers still consume `WebsitePagePlan.wireframe`, so save/load derives that
  * projection from the graph rather than asking two structures to agree. Pure,
  * total at the untrusted-input boundary, and `vscode`-free.
@@ -11,6 +11,9 @@ import type {
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
+  UiDesignToken,
+  UiDesignTokenKind,
+  UiDesignTokenValue,
   UiLayoutAlignment,
   UiLayoutDirection,
   UiLayoutDistribution,
@@ -35,6 +38,13 @@ import {
 
 export const UI_DESIGN_GRAPH_MAX_REVISION = 2_147_483_647;
 const MAX_REFERENCE_LENGTH = 160;
+export const UI_DESIGN_GRAPH_MAX_TOKENS = 200;
+const MAX_TOKEN_LABEL_LENGTH = 120;
+const TOKEN_KINDS = new Set<UiDesignTokenKind>([
+  'color', 'font-family', 'font-size', 'font-weight', 'line-height',
+  'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
+]);
+const MOTION_EASINGS = new Set(['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']);
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
 const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
 const LAYOUT_DIRECTIONS = new Set<UiLayoutDirection>(['vertical', 'horizontal']);
@@ -153,6 +163,57 @@ export function resolveUiNodeLayout(
 
 export interface ResolvedUiScreenNode extends ResolvedUiNodeLayout {
   id: string;
+}
+
+export interface ResolvedUiDesignToken {
+  id: string;
+  label: string;
+  kind: UiDesignTokenKind;
+  value: UiDesignTokenValue;
+  /** The direct-value token at the end of this alias chain. */
+  sourceTokenId: string;
+  /** Ordered from the requested token to the direct-value token. */
+  aliasChain: string[];
+}
+
+/**
+ * Resolve one typed token without interpreting it as CSS or target code.
+ * Missing targets, cross-kind aliases, and cycles are refused deterministically.
+ */
+export function resolveUiDesignToken(
+  tokens: readonly UiDesignToken[],
+  tokenId: string,
+): ResolvedUiDesignToken | undefined {
+  const byId = new Map(tokens.map(token => [token.id, token]));
+  const requested = byId.get(tokenId);
+  if (!requested) {
+    return undefined;
+  }
+  const visited = new Set<string>();
+  const aliasChain: string[] = [];
+  let current = requested;
+  while (true) {
+    if (visited.has(current.id) || current.kind !== requested.kind) {
+      return undefined;
+    }
+    visited.add(current.id);
+    aliasChain.push(current.id);
+    if ('value' in current && current.value !== undefined) {
+      return {
+        id: requested.id,
+        label: requested.label,
+        kind: requested.kind,
+        value: cloneTokenValue(current.value),
+        sourceTokenId: current.id,
+        aliasChain,
+      };
+    }
+    const next = byId.get(current.aliasOf);
+    if (!next) {
+      return undefined;
+    }
+    current = next;
+  }
 }
 
 export type UiResponsiveDiagnosticCode =
@@ -585,13 +646,14 @@ function sameRect(left: WireframeRect, right: WireframeRect): boolean {
   return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
 }
 
-/** Transcribe every compatible page fact into the v6 graph without guessing. */
+/** Transcribe every compatible page fact into the v7 graph without guessing. */
 export function designGraphFromPages(
   pages: readonly WebsitePagePlan[],
   revision = 0,
 ): UiDesignGraph {
   return {
     revision: sanitizeRevision(revision),
+    tokens: [],
     screens: pages.map(page => screenFromPage(page)),
   };
 }
@@ -620,11 +682,116 @@ export function sanitizeUiDesignGraph(
 
   return {
     revision: sanitizeRevision(source['revision']),
+    tokens: sanitizeDesignTokens(source['tokens']),
     screens: pages.map(page => {
       const candidate = byPageId.get(page.id);
       return candidate ? sanitizeScreen(candidate, page) : screenFromPage(page);
     }),
   };
+}
+
+function sanitizeDesignTokens(input: unknown): UiDesignToken[] {
+  const rawTokens = Array.isArray(input) ? input.slice(0, UI_DESIGN_GRAPH_MAX_TOKENS) : [];
+  const candidates: UiDesignToken[] = [];
+  const ids = new Set<string>();
+  for (const candidate of rawTokens) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanTokenLabel(source['label']);
+    const kind = TOKEN_KINDS.has(source['kind'] as UiDesignTokenKind)
+      ? source['kind'] as UiDesignTokenKind
+      : undefined;
+    if (!id || !label || !kind || ids.has(id)) {
+      continue;
+    }
+    const aliasOf = cleanIdentifier(source['aliasOf']);
+    if (aliasOf) {
+      candidates.push({ id, label, kind, aliasOf });
+      ids.add(id);
+      continue;
+    }
+    const value = sanitizeTokenValue(kind, source['value']);
+    if (value !== undefined) {
+      candidates.push({ id, label, kind, value });
+      ids.add(id);
+    }
+  }
+
+  // An alias is only retained if its entire same-kind path reaches a direct
+  // value. This one rule removes missing targets, cross-kind links and cycles.
+  return candidates.filter(token => 'value' in token
+    || resolveUiDesignToken(candidates, token.id) !== undefined);
+}
+
+function sanitizeTokenValue(kind: UiDesignTokenKind, input: unknown): UiDesignTokenValue | undefined {
+  switch (kind) {
+    case 'color':
+      return cleanHexColor(input);
+    case 'font-family':
+      return typeof input === 'string' && /^[a-zA-Z0-9 _,-]{1,120}$/.test(input.trim())
+        ? input.trim()
+        : undefined;
+    case 'font-size':
+      return boundedNumber(input, 1, 256);
+    case 'font-weight':
+      return boundedInteger(input, 100, 900);
+    case 'line-height':
+      return boundedNumber(input, 0.5, 3);
+    case 'spacing':
+    case 'radius':
+      return boundedNumber(input, 0, 1_000);
+    case 'breakpoint':
+      return boundedInteger(input, 240, 2_560);
+    case 'shadow': {
+      const source = asRecord(input);
+      const x = boundedNumber(source['x'], -1_000, 1_000);
+      const y = boundedNumber(source['y'], -1_000, 1_000);
+      const blur = boundedNumber(source['blur'], 0, 1_000);
+      const spread = boundedNumber(source['spread'], 0, 1_000);
+      const color = cleanHexColor(source['color']);
+      return x !== undefined && y !== undefined && blur !== undefined && spread !== undefined && color
+        ? { x, y, blur, spread, color }
+        : undefined;
+    }
+    case 'motion': {
+      const source = asRecord(input);
+      const durationMs = boundedInteger(source['durationMs'], 0, 60_000);
+      const easing = typeof source['easing'] === 'string' && MOTION_EASINGS.has(source['easing'])
+        ? source['easing'] as 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
+        : undefined;
+      return durationMs !== undefined && easing ? { durationMs, easing } : undefined;
+    }
+  }
+}
+
+function cleanTokenLabel(input: unknown): string | undefined {
+  if (typeof input !== 'string') {
+    return undefined;
+  }
+  const label = input.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, MAX_TOKEN_LABEL_LENGTH);
+  return label || undefined;
+}
+
+function cleanHexColor(input: unknown): string | undefined {
+  return typeof input === 'string' && /^#[0-9a-fA-F]{6}$/.test(input)
+    ? input.toUpperCase()
+    : undefined;
+}
+
+function boundedNumber(input: unknown, minimum: number, maximum: number): number | undefined {
+  return typeof input === 'number' && Number.isFinite(input) && input >= minimum && input <= maximum
+    ? input
+    : undefined;
+}
+
+function boundedInteger(input: unknown, minimum: number, maximum: number): number | undefined {
+  return Number.isSafeInteger(input) && (input as number) >= minimum && (input as number) <= maximum
+    ? input as number
+    : undefined;
+}
+
+function cloneTokenValue(value: UiDesignTokenValue): UiDesignTokenValue {
+  return typeof value === 'object' ? { ...value } : value;
 }
 
 /** Rebuild the compatibility wireframes from the authoritative graph. */

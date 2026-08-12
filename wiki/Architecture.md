@@ -167,7 +167,7 @@ plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, 
 Skills, MCP Servers and Resource Discovery.
 
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
-`project_memory/domain/website.json` path for compatibility, but format v6 adds a revisioned,
+`project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
 target-independent `UiDesignGraph` behind the explicit interface profile. Website, web-app, mobile,
 desktop, editor-extension, embedded and other profiles share screens,
 flows, content design, Markdown copy, wireframes, design-system decisions and an implementation guide.
@@ -175,6 +175,12 @@ Only a website profile renders SEO, stack setup, hosting, Delivery comparison an
 carry no path: the host resolves a bounded screen id through `WebsiteContentManager`, derives the file,
 and refuses a save when its expected body no longer matches disk. Missing files are create-only and
 placeholder-only.
+
+Format v7 adds bounded typed colour, typography, spacing, radius, shadow, motion, and breakpoint tokens to
+that graph. Definitions remain target-independent structured values. Aliases may only resolve through the
+same kind to a direct value; the host refuses missing targets, cross-kind links, cycles, invalid values,
+duplicates, and excess definitions. The v6 → v7 migration adds an empty collection and never invents a
+design system.
 
 `uiDesignGraph.ts` is the graph's untrusted-input boundary and derives the legacy page wireframe while
 existing readers migrate; a valid graph is the declared winner. `uiEditCommands.ts` is the pure closed
