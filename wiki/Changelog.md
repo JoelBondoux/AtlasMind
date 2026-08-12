@@ -19,6 +19,91 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.301.0 — Sharing one graphics card
+
+If you run local models, AtlasMind can ask for several at once from places that don't know about each
+other: the subtask scheduler, project bootstrap, background maintenance, and your chat turn. Ollama and
+LM Studio each work out what fits without knowing the other exists — and neither leaves anything for
+your desktop. On a 24 GB card with **no model loaded at all**, Windows, a browser and antivirus were
+already using 9.2 GB.
+
+AtlasMind now measures what's actually free before sending a local request. If there's no room it
+waits, and if there's still no room it moves the turn to another provider rather than over-filling the
+card.
+
+Some of the details are worth knowing, because they're what stop this being annoying:
+
+- **Several requests to a model that's already loaded are nearly free**, and mostly run together. Only
+  requests needing a *different* model queue. Project bootstrap fires four requests at once and they all
+  want the same model — charging each one for a full copy of the weights would have turned a one-minute
+  step into four.
+- **A model you loaded by hand is never unloaded.** AtlasMind only ever releases models it loaded
+  itself, and anything already in memory when it started is treated as yours.
+- **A busy card is not a broken model.** Being turned away for lack of room used to look identical to
+  failing, which would have sidelined the endpoint for ten minutes and taught the router that a
+  perfectly good model was unreliable — for being popular. It's now recorded as what it is.
+- **On a machine where free memory can't be read** — AMD, Intel, Apple Silicon, or no `nvidia-smi` —
+  AtlasMind limits how many models it keeps loaded instead. Limiting requests wouldn't help: Ollama
+  keeps a model in memory for minutes after a request finishes, so three requests in a row to three
+  models still leave all three loaded.
+
+Routing also now leans towards a model that's already in memory when two would do the job equally well,
+since loading one costs tens of seconds. Only when they're genuinely close — it won't send a hard task
+to a smaller model just because it happens to be loaded.
+
+Five new settings under `atlasmind.localGpu.*`, and you can switch the whole thing off.
+
+---
+
+## v0.300.2 — Stopping a model you stopped waiting for
+
+When a local model ran past its deadline, AtlasMind stopped waiting and moved on — but never told the
+model to stop. It carried on generating an answer nobody would ever read, holding your GPU and its
+memory the whole time, while the retry queued up behind it.
+
+Subscription agents were already stopped properly, because a timed-out agent there can keep *using
+tools*. The same reasoning applies to anything running on your own machine, which is the case that
+was missed. Local requests are now cancelled the moment AtlasMind gives up on them.
+
+---
+
+## v0.300.1 — Models that were never going to answer
+
+A simple request failed after four attempts and six minutes. Three separate faults, none of them the
+model's.
+
+**A safety classifier was routed as a chat model.** Your provider's model list is an inventory of
+everything it serves, and most of it can't chat: embedding models, rerankers, Whisper, image generators,
+safety classifiers. AtlasMind treated them all as chat models. Local ones cost nothing, so they looked
+like the *best* option exactly when everything else had failed — and a safety classifier cannot answer a
+question at all, so the turn ended on an error no amount of waiting would have fixed. These are now
+recognised by family and kept out of routing entirely: out of the picker, and unreachable by failover.
+
+The rule is deliberately cautious in one direction. A model AtlasMind doesn't recognise is always treated
+as a chat model, because wrongly hiding something you installed is worse than the occasional one slipping
+through.
+
+**A working local model was called a timeout.** 30 seconds is a limit written for a hosted API call, where
+the weights are loaded and somebody else owns the GPU. A local 14B model loading itself and reading a long
+prompt does all of that on your machine. It was cut off, marked unhealthy and dropped — while working. The
+wait now scales with the model's size, your prompt, and whether that model has already answered once this
+session; the first request after a restart pays for loading.
+
+**Subscription agents were cut off before they started.** An agent has to launch a process and shake hands
+before it ever sees your prompt. The outer limit and the agent's own limit were the same number, so the
+outer one always tripped first on a cold start and you got "timed out" with no clue which part was slow.
+
+**And when a turn does fail, you're told what failed.** The old message led with the limit it hit and
+quoted one error from the last model tried. You now get every model attempted, what happened to each, and
+how long it took. If everything timed out, it says so plainly: nothing reported a fault, so this is an
+endpoint that isn't answering or an agent that isn't signed in — not a model that's unsuitable. If the
+failures don't agree, it gives you the list and stops there rather than guessing at a single cause.
+
+The retry budget is unchanged at three. Raising it would have bought one more attempt before the overall
+ceiling stopped things anyway, at the cost of another full timeout — slower, not more likely to work.
+
+---
+
 ## v0.300.0 — Chat can do GitHub work
 
 `gh` was missing from the terminal allow-list. Not as a policy — as a gap, and an expensive one. The

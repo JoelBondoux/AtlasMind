@@ -1,5 +1,6 @@
 import type { ModelInfo } from '../types.js';
 import { LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW } from '../constants.js';
+import { classifyModelRole } from './modelRole.js';
 
 export const LOCAL_MODEL_SYNC_CACHE_KEY = 'atlasmind.localModelSync';
 export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
@@ -42,11 +43,21 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
  * false-negative that causes the router to exclude a capable model.
  *
  * Calibration date: 2026-06-08 — revisit when new naming conventions emerge.
+ *
+ * The inclusion bias below is right for grading a chat model and wrong for
+ * deciding whether something is one: a guard, embedding or reranker model given
+ * a false-positive `chat` is not over-graded, it is unusable, and it is free, so
+ * the router prefers it under exactly the conditions where nothing else is
+ * working. Role is therefore settled first and separately, in
+ * `modelRole.ts`, where the bias runs the other way.
  */
 function inferLocalCapabilities(
   modelName: string,
   parametersBillions?: number,
 ): ModelInfo['capabilities'] {
+  if (!classifyModelRole(modelName).conversational) {
+    return [];
+  }
   const n = modelName.toLowerCase();
 
   // Parameter-count thresholds: tiny (<4B) usually lacks tool-calling;

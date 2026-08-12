@@ -1237,6 +1237,28 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `acp`, and `local`) before executing completions.
 
+### LocalModelArbiter (`src/core/localModelArbiter.ts`)
+
+Who gets the GPU, and who waits. AtlasMind can issue a local model call from at least six places that never meet — the scheduler's five-way subtask fan-out, the bootstrapper's four unbounded parallel completions, the skill auto-assigner's unbounded sweep, two background timers, and every ordinary chat turn — and all of them land on one graphics card. Both runtimes do arbitrate internally (Ollama queues and evicts, LM Studio auto-evicts) but each does so against whatever free memory it sees at that instant and neither can see the other. Neither reserves anything for the desktop: measured on a 24 GB card with no model loaded, 9.2 GB was already committed to Windows, a browser and antivirus.
+
+Five properties, in the order they matter. **A slot wraps one HTTP call and nothing else** — a leaf operation that awaits nothing which could itself need a slot, which is what makes deadlock structurally impossible rather than merely unobserved. **The scarce resource is residency, not requests**: two calls to a resident model cost one context cache each, so weights are charged once per distinct model with a refcount and each request charges only its own cache — charging per request would serialise a same-model fan-out while still permitting three different models to become resident. **Cold loads run one at a time, globally**, which is what makes a load *attributable*: poll before, poll after, and a model that appeared with no other cold load in flight was caused by this arbiter — the only mechanism available, since Windows cannot attribute VRAM per process at all (`nvidia-smi --query-compute-apps` returns `[N/A]` under WDDM). **A wait is bounded and expiry refuses**, throwing a typed capacity error so the turn fails over rather than wedging. **Unknown is never unlimited**: with no free-memory reading the arbiter caps *distinct resident models* rather than concurrency, because Ollama holds a model for five minutes after a request and capping concurrency alone would bound nothing.
+
+The gate lives in `LocalEchoAdapter.completeWithLocalEndpoint` rather than the Orchestrator, because most of those six call sites bypass the Orchestrator's retry path entirely. It is taken as an optional structural dependency (`LocalAdmissionGate`, declared in `registry.ts` — the `BuzzPresenceLock` idiom), so an adapter built without one behaves exactly as it did before.
+
+Supporting modules: `vramBudget.ts` (pure headroom and admission policy with a published rule table), `providers/gpuProbe.ts` + `providers/gpuProbeParse.ts` (the probe chain and its parsers), `providers/localFootprint.ts` (footprint estimation calibrated against real blob sizes), `providers/localRuntimeClient.ts` (Ollama `/api/ps`, LM Studio `/api/v1/models`).
+
+**The budget's second limb is a ceiling on AtlasMind's own share, not an OS reserve.** The obvious `min(free − margin, total − reserve)` looks like two protections and is one: `total − reserve` is a constant, so once anything is loaded the measured limb is always lower and the reserve never binds again. It has to be `total − reserve − whatAtlasMindHolds`, and that held figure comes from the residency poll rather than from local bookkeeping — if the user restarts Ollama, the poll self-corrects.
+
+**A capacity refusal is not a model failure.** It travels the ordinary failover path, so `isCapacityDeferral` guards all three punishments the catch block would otherwise apply: the endpoint circuit, `recordModelFailure`, and struggle memory. The check is structural rather than message-based, because all three of those guards are wording-based and a reworded message would silently re-arm them.
+
+### ModelRole (`src/providers/modelRole.ts`)
+
+What a model is *for*, decided before it can be routed to. A provider's `/v1/models` list is an inventory of what it serves, not a list of things that can hold a conversation: a local runtime enumerates every set of weights it has loaded, and OpenAI's own list carries `text-embedding-3-large`, `whisper-1` and `dall-e-3`. Nothing distinguished them, so `inferCapabilities` granted `chat`, `code` and — on a bare `llama` substring, or on any non-local provider — `function_calling` to all of them. A local Llama Guard model reached the router at zero cost, survived to the last failover of a turn, and answered with a chat-template error.
+
+The module publishes `MODEL_ROLE_RULES`, a short table of declared families (safety classifier, reranker, embedding, transcription, speech synthesis, image generation), and `classifyModelRole` returns the role together with the rule that decided so an exclusion is explainable. Three properties: **absence of a marker is not evidence of a non-chat role** (an unrecognised model is always conversational — a false positive silently hides capacity the user installed, so a miss is the designed failure mode); **markers match name segments, never bare substrings** (`bge` and `sdxl` are short enough that substring matching would sweep up ordinary chat models); and **rules are evaluated in declaration order**, which is load-bearing for `bge-reranker-v2-m3`, an id carrying both an embedding marker and a reranker one.
+
+Enforced at three layers: discovery drops these models in `registry.ts` and `openai-compatible.ts` so they are never registered; `inferCapabilities` and `inferLocalCapabilities` return **no capabilities at all** for them; and `ModelRouter.isRoutableChatModel` refuses any model that does not declare `chat`, in both the preferred-model and candidate paths. The router gate is the enforcement rather than the documentation — `requiredCapabilities` never names `chat` because it is assumed, which is exactly why a model with no usable capabilities remained an ordinary candidate.
+
 The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid. Each recommendation card offers one-click install into **Ollama** (via the streaming `/api/pull` API — surfaced as live progress in a shared output channel and a cancellable notification, with a daemon-reachability preflight — translating `hf:owner/repo` candidates to the `hf.co/owner/repo` pull syntax) and **LM Studio** (via `lms get <model> --yes` run as a direct child process). Both stream into the shared **"AtlasMind: Local Model Install"** output channel. Cards whose model is already present in a local runtime — matched on a normalized identity key (`localModelMatchKey`) so HuggingFace- and Ollama-style ids reconcile — show an installed badge instead of install buttons.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
@@ -1530,6 +1552,11 @@ extension.ts
               │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
               │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
+              ├── providers/modelRole.ts             (what a model is for; non-chat exclusion, pure)
+              ├── providers/gpuProbe.ts              (GPU probe chain, injected execFile)
+              │     └── providers/gpuProbeParse.ts   (probe output parsers, pure)
+              ├── providers/localFootprint.ts        (VRAM footprint estimation, pure)
+              ├── providers/localRuntimeClient.ts    (Ollama/LM Studio residency + unload)
               └── providers/localModelRecommendationRegistry.ts
 
 native/acp-private-desktop/

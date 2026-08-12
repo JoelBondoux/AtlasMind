@@ -6,6 +6,172 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.301.0] - 2026-08-12
+
+### Added
+
+- **A local GPU arbiter, so several local model requests cannot over-commit one graphics card.**
+  AtlasMind can issue a local call from at least six places that never meet: the scheduler's five-way
+  subtask fan-out, the bootstrapper's four *unbounded* parallel completions, the skill auto-assigner's
+  unbounded sweep, two background timers, the model comparison panel, and every ordinary chat turn.
+  Ollama and LM Studio each arbitrate internally, but each does so against whatever free memory it sees
+  at that instant and neither can see the other — and neither reserves anything for the desktop.
+  Measured on the reference machine: 9.2 GB of a 24 GB card was already committed to Windows, a browser
+  and antivirus with **no model loaded at all**.
+
+  New `LocalModelArbiter` (`src/core/localModelArbiter.ts`) with five supporting modules —
+  `vramBudget.ts` (headroom and admission policy, pure, published rule table), `gpuProbe.ts` +
+  `gpuProbeParse.ts` (the probe chain and its parsers), `localFootprint.ts` (footprint estimation), and
+  `localRuntimeClient.ts` (Ollama `/api/ps`, LM Studio `/api/v1/models`).
+
+  Five properties, in the order they matter:
+
+  - **A slot wraps one HTTP call and nothing else** — a leaf operation awaiting nothing that could
+    itself need a slot, which is what makes deadlock structurally impossible rather than merely
+    unobserved.
+  - **The scarce resource is residency, not requests.** Two calls to a resident model cost one context
+    cache each, not a second copy of the weights, so weights are charged once per distinct model with a
+    refcount. Charging per request would have serialised the bootstrapper's four same-model completions
+    — turning a one-minute step into four — while still permitting three different models to load.
+  - **Cold loads run one at a time, globally**, which is what makes a load *attributable*: poll before,
+    poll after, and a model that appeared with no other cold load in flight was caused by AtlasMind.
+    That is the only mechanism available, because Windows cannot attribute VRAM per process at all
+    (`nvidia-smi --query-compute-apps` returns `[N/A]` under WDDM).
+  - **A wait is bounded and expiry refuses**, failing the turn over to another provider rather than
+    wedging or over-committing.
+  - **Unknown is never unlimited.** With no free-memory reading the arbiter caps *distinct resident
+    models* rather than concurrency — capping concurrency alone would bound nothing, since Ollama holds
+    a model for five minutes after a request and three sequential calls to three models leave all three
+    resident.
+
+  **AtlasMind only unloads models it loaded itself.** A model already resident when the session started
+  is recorded as the user's and is never a candidate for eviction.
+
+  The gate lives in `LocalEchoAdapter.completeWithLocalEndpoint` rather than the Orchestrator, because
+  most of those six call sites bypass the Orchestrator's retry path entirely. It is an optional
+  structural dependency (`LocalAdmissionGate`, declared in `registry.ts` — the `BuzzPresenceLock`
+  idiom), so an adapter built without one behaves exactly as before, which is what the CLI relies on.
+
+  Five settings under `atlasmind.localGpu.*`.
+
+- **Routing prefers a local model that is already loaded**, when two candidates both suit the task.
+  `LOCAL_RESIDENT_MODEL_BONUS` is 0.5 — deliberately below the quality-bearing bonuses (both 1.25) and
+  just above the outcome-bias band (±0.3). Residency is a latency property, not a quality one: it
+  decides a near-tie and nothing else, and a reasoning-depth floor mirroring
+  `scoreZeroMarginalCostAdequacy` stops it buying a shallow model a deep task.
+
+### Fixed
+
+- **A busy GPU is no longer recorded as a failing model.** A capacity refusal travels the ordinary
+  failover path, where the catch block would otherwise open the endpoint circuit for ten minutes, call
+  `recordModelFailure` for `MODEL_FAILURE_TTL_MS`, and feed struggle memory — teaching the router that a
+  perfectly good local model is unreliable because it was popular. `isCapacityDeferral` guards all
+  three. The check is **structural, not message-based**: every one of those three guards matches on
+  wording, so a reworded message would silently re-arm them.
+
+- **Queue time no longer eats the completion budget.** The local timeout is armed before
+  `provider.complete()` is entered, so a request that waited politely for the GPU would have been
+  reported as a model that was too slow. `getProviderTimeoutMs` takes an `admissionBudgetMs` allowance,
+  absent by default so unarbitrated timeout arithmetic is unchanged.
+
+### Changed
+
+- GPU detection moved out of `settingsPanel.ts`, where it was module-private inside an 8,000-line view
+  that imports `vscode` — so nothing in `src/core/` could read a VRAM figure. It now queries
+  `memory.used` and `memory.free` as well as the total, and caches briefly so an admission check does
+  not spawn a process per call.
+
+## [0.300.2] - 2026-08-12
+
+### Fixed
+
+- **A timed-out local request is now aborted instead of being left to run.**
+  `createProviderAttemptRequest` was called with `abortOnDispose: provider.providerId === 'acp'`, so
+  only ACP got an attempt-scoped cancellation signal. `withTimeout` rejects the race it loses but
+  cannot stop the work behind it, and for a local provider that work is a model generating on this
+  machine's GPU: the orchestrator failed over while Ollama carried on producing an answer nobody
+  would read, holding VRAM and compute the failover attempt then had to contend with.
+
+  ACP was singled out because a timed-out prompt there can keep *executing tools*. The reasoning
+  applies to any provider whose work runs locally, and `local` is the other one — so the predicate is
+  now a named `shouldAbortSupersededRequest`, stating why hosted providers are deliberately left to
+  their own adapters (an orphaned request there costs somebody else's capacity, not this machine's).
+  `LocalEchoAdapter` already forwards `request.signal` to `fetch`, so aborting the scope is
+  sufficient.
+
+  This lands ahead of the local GPU arbiter, which it is a prerequisite for: once local calls are
+  admitted against a VRAM budget, a zombie generation holds capacity the next attempt is waiting on,
+  turning one timeout into a stall.
+
+## [0.300.1] - 2026-08-12
+
+### Fixed
+
+- **A model that cannot hold a conversation is no longer a routing candidate.** A turn spent four attempts
+  and six minutes before stopping, and the attempt that ended it was `local/<endpoint>@@llama-guard-3-1b` —
+  a safety classifier, which answered with a chat-template error because Llama Guard's template accepts
+  neither a system message nor a multi-turn transcript. It could never have worked, no matter how long
+  anybody waited.
+
+  The cause was that AtlasMind had no concept of what a model is *for*. A provider's model list is an
+  inventory of what it serves, not a list of things that can chat: a local runtime enumerates every set of
+  weights it has loaded, and OpenAI's own list carries `text-embedding-3-large`, `whisper-1` and
+  `dall-e-3`. `inferCapabilities` granted `chat`, `code` and — on a bare `llama` substring, or on any
+  non-local provider — `function_calling` to all of them. Local ones cost nothing, which is exactly the
+  profile the router prefers when it is failing over and out of options.
+
+  New `src/providers/modelRole.ts` publishes a short rule table of declared families (safety classifier,
+  reranker, embedding, transcription, speech synthesis, image generation) and returns the rule that
+  decided, so an exclusion is explainable rather than looking like a discovery bug. Three properties:
+  **absence of a marker is not evidence of a non-chat role** — an unrecognised model is always
+  conversational, because wrongly hiding capacity somebody installed is worse than the occasional miss;
+  **markers match name segments, never bare substrings**, since `bge` and `sdxl` would otherwise sweep up
+  ordinary chat models; and **rules are evaluated in declaration order**, which decides `bge-reranker-v2-m3`,
+  an id carrying both an embedding marker and a reranker one.
+
+  Enforced at three layers: discovery drops these models in `registry.ts` and `openai-compatible.ts`;
+  `inferCapabilities` and `inferLocalCapabilities` return no capabilities at all for them; and
+  `ModelRouter.isRoutableChatModel` refuses any model that does not declare `chat`, in both the
+  preferred-model and candidate paths. That last gate is the enforcement rather than the documentation —
+  `requiredCapabilities` never names `chat` because it is assumed, which is precisely why a model with no
+  usable capabilities remained an ordinary candidate.
+
+- **The ACP deadline now encloses the handshake instead of matching it.** `ACP_PROVIDER_TIMEOUT_MS` and the
+  adapter's per-request budget were independently both 180,000 ms. The orchestrator's timer covers spawn →
+  `initialize` → `session/new` → `session/prompt`; the adapter's covers one frame of that sequence. Two
+  numbers that happen to be equal are not a relationship, and on a cold start the outer one always fired
+  first: a slow handshake surfaced as a bare "Provider timed out after 180000ms" naming no phase, while the
+  adapter's own message — which names the method that stalled — was never the one anybody saw. The
+  enclosing budget is now derived as `ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS`, and `acp.ts`
+  reads its budget from the same constant. `acp.ts` had already made this argument for `ACP_PROBE_TIMEOUT_MS`;
+  the prompt path never got the same treatment.
+
+- **A local model's deadline is sized to what the attempt has to do.** The flat 30-second budget is written
+  for a hosted endpoint, where the weights are resident and somebody else owns the GPU. A local 14B model
+  answering a 4,819-token prompt does the loading and the prompt evaluation on this machine — the attempt
+  was recorded as a timeout, the endpoint quarantined, and a failover spent, for a model that was working.
+  `getProviderTimeoutMs` now scales the local budget by the parameter count read from the model id, the
+  measured prompt size, and whether the model has already answered once this session (only the first
+  attempt pays for loading weights). Unknown inputs widen the budget or leave it alone and never narrow it:
+  a prompt nobody measured must not shrink a deadline. Clamped to five minutes.
+
+### Changed
+
+- **A failed turn reports what failed, not which limit stopped it.** The message led with "the failover
+  budget of 3 is spent" and quoted only the last provider's error, so a turn that lost two subscription
+  agents to a handshake timeout, a local model to an undersized budget, and a fourth attempt to a model
+  that could never chat was reported as one provider returning a 400 — three defects in one misleading
+  sentence, pointing at the wrong fix. `summarizeAttemptFailures` now lists every attempt with its outcome
+  and duration, and offers a diagnosis **only when the attempts agree**: an all-timeout turn is stated as an
+  endpoint problem, because no model reported a fault. Mixed failures get the list and nothing more —
+  inventing a common cause across unrelated failures is the error being repaired. The exhausted limit is
+  reported after the failures rather than instead of them; it explains why nothing else was tried, and is
+  not why anything failed.
+
+  The failover budget itself is unchanged at 3. Raising it buys exactly one more attempt before the
+  `MAX_TASK_MODEL_ATTEMPTS` ceiling of 5 binds instead, at the cost of another full timeout window — it
+  would have made that turn slower, not more likely to succeed.
+
 ## [0.300.0] - 2026-08-12
 
 ### Added

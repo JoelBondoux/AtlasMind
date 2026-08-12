@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { decodeLocalEndpointModelId, getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
+import { probeGpuDevices } from '../providers/gpuProbe.js';
 import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkloadTag } from '../providers/localModelRecommendationRegistry.js';
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
@@ -7831,210 +7832,24 @@ async function detectLocalHardwareSnapshot(): Promise<LocalHardwareSnapshot> {
   };
 }
 
+/**
+ * GPU names and sizes for the hardware card.
+ *
+ * Delegates to `providers/gpuProbe.ts`. These probes used to live here as
+ * module-private functions, which meant nothing in `src/core/` could read a VRAM
+ * figure — so the router could pick a local model with no idea whether it would
+ * fit. The probe now also reports used and free memory, which the local GPU
+ * arbiter needs and this card does not; the extra fields are simply dropped
+ * here.
+ */
 async function detectGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
-  try {
-    switch (process.platform) {
-      case 'win32':
-        return await detectWindowsGpuInfo();
-      case 'darwin':
-        return await detectMacGpuInfo();
-      default:
-        return await detectLinuxGpuInfo();
-    }
-  } catch {
-    return [];
-  }
-}
-
-async function detectWindowsGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
-  // Try nvidia-smi first — Win32_VideoController.AdapterRAM is a 32-bit DWORD
-  // capped at ~4 GB, which gives wrong results for high-VRAM cards (e.g. RTX 4090 = 24 GB).
-  try {
-    const { stdout } = await execFileAsync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], {
-      windowsHide: true,
-      maxBuffer: 512 * 1024,
-    });
-    const gpus = stdout
-      .split(/\r?\n/g)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [namePart, memoryPart] = line.split(',').map(part => part.trim());
-        const memoryMb = Number.parseFloat(memoryPart ?? '');
-        return {
-          name: namePart ?? '',
-          vramGb: Number.isFinite(memoryMb) && memoryMb > 0 ? Math.round((memoryMb / 1024) * 10) / 10 : undefined,
-        };
-      })
-      .filter(item => item.name.length > 0);
-    if (gpus.length > 0) {
-      return dedupeGpuList(gpus);
-    }
-  } catch {
-    // nvidia-smi not available — fall through to WMI.
-  }
-
-  try {
-    const { stdout } = await execFileAsync('wmic', ['path', 'win32_VideoController', 'get', 'Name,AdapterRAM', '/format:csv'], {
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-
-    const lines = stdout.split(/\r?\n/g).map(line => line.trim()).filter(Boolean);
-    const parsed = lines
-      .filter(line => !line.toLowerCase().startsWith('node,'))
-      .map(line => {
-        const parts = line.split(',');
-        const adapterRam = Number.parseFloat(parts[1] ?? '');
-        const name = (parts[2] ?? '').trim();
-        if (!name) {
-          return undefined;
-        }
-        return {
-          name,
-          vramGb: Number.isFinite(adapterRam) && adapterRam > 0
-            ? Math.round((adapterRam / 1024 / 1024 / 1024) * 10) / 10
-            : undefined,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== undefined);
-
-    if (parsed.length > 0) {
-      return dedupeGpuList(parsed);
-    }
-  } catch {
-    // Fall through to PowerShell fallback.
-  }
-
-  try {
-    const { stdout } = await execFileAsync('powershell', [
-      '-NoProfile',
-      '-Command',
-      'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress',
-    ], {
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-    const parsed = JSON.parse(stdout) as unknown;
-    const entries = Array.isArray(parsed) ? parsed : [parsed];
-    const gpus = entries
-      .map(entry => {
-        if (typeof entry !== 'object' || entry === null) {
-          return undefined;
-        }
-        const record = entry as Record<string, unknown>;
-        const name = typeof record['Name'] === 'string' ? record['Name'].trim() : '';
-        const adapterRam = typeof record['AdapterRAM'] === 'number'
-          ? record['AdapterRAM']
-          : Number.parseFloat(String(record['AdapterRAM'] ?? ''));
-        if (!name) {
-          return undefined;
-        }
-        return {
-          name,
-          vramGb: Number.isFinite(adapterRam) && adapterRam > 0
-            ? Math.round((adapterRam / 1024 / 1024 / 1024) * 10) / 10
-            : undefined,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== undefined);
-
-    return dedupeGpuList(gpus);
-  } catch {
-    return [];
-  }
-}
-
-async function detectMacGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
-  try {
-    const { stdout } = await execFileAsync('system_profiler', ['SPDisplaysDataType', '-json'], {
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    const parsed = JSON.parse(stdout) as Record<string, unknown>;
-    const list = Array.isArray(parsed['SPDisplaysDataType']) ? parsed['SPDisplaysDataType'] : [];
-    const gpus = list
-      .map(entry => {
-        if (typeof entry !== 'object' || entry === null) {
-          return undefined;
-        }
-        const record = entry as Record<string, unknown>;
-        const name = typeof record['sppci_model'] === 'string'
-          ? record['sppci_model'].trim()
-          : typeof record['_name'] === 'string'
-            ? record['_name'].trim()
-            : '';
-        const vramText = typeof record['spdisplays_vram'] === 'string'
-          ? record['spdisplays_vram']
-          : typeof record['spdisplays_vram_shared'] === 'string'
-            ? record['spdisplays_vram_shared']
-            : '';
-        const vramMatch = /(\d+(?:\.\d+)?)\s*GB/i.exec(vramText);
-        const vramGb = vramMatch ? Number.parseFloat(vramMatch[1]) : undefined;
-        if (!name) {
-          return undefined;
-        }
-        return { name, vramGb };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== undefined);
-    return dedupeGpuList(gpus);
-  } catch {
-    return [];
-  }
-}
-
-async function detectLinuxGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
-  try {
-    const { stdout } = await execFileAsync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], {
-      maxBuffer: 512 * 1024,
-    });
-    const gpus = stdout
-      .split(/\r?\n/g)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [namePart, memoryPart] = line.split(',').map(part => part.trim());
-        const memoryMb = Number.parseFloat(memoryPart ?? '');
-        return {
-          name: namePart,
-          vramGb: Number.isFinite(memoryMb) ? Math.round((memoryMb / 1024) * 10) / 10 : undefined,
-        };
-      })
-      .filter(item => item.name.length > 0);
-    if (gpus.length > 0) {
-      return dedupeGpuList(gpus);
-    }
-  } catch {
-    // Fall through to generic lspci probe.
-  }
-
-  try {
-    const { stdout } = await execFileAsync('lspci', [], { maxBuffer: 512 * 1024 });
-    const gpus = stdout
-      .split(/\r?\n/g)
-      .filter(line => /(vga|3d|display)/i.test(line))
-      .map(line => {
-        const cleaned = line.replace(/^\S+\s+/, '').trim();
-        return { name: cleaned };
-      });
-    return dedupeGpuList(gpus);
-  } catch {
-    return [];
-  }
-}
-
-function dedupeGpuList(list: ReadonlyArray<{ name: string; vramGb?: number }>): Array<{ name: string; vramGb?: number }> {
-  const map = new Map<string, { name: string; vramGb?: number }>();
-  for (const gpu of list) {
-    const key = gpu.name.trim().toLowerCase();
-    if (!key) {
-      continue;
-    }
-    const existing = map.get(key);
-    if (!existing || (gpu.vramGb ?? 0) > (existing.vramGb ?? 0)) {
-      map.set(key, { name: gpu.name.trim(), ...(gpu.vramGb !== undefined ? { vramGb: gpu.vramGb } : {}) });
-    }
-  }
-  return [...map.values()];
+  const devices = await probeGpuDevices();
+  return devices.map(device => {
+    const vramGb = device.totalBytes !== undefined
+      ? Math.round((device.totalBytes / 1024 / 1024 / 1024) * 10) / 10
+      : undefined;
+    return { name: device.name, ...(vramGb !== undefined ? { vramGb } : {}) };
+  });
 }
 
 function serializeForInlineScript(value: unknown): string {

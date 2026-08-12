@@ -9,6 +9,26 @@
  * `inferModelMetadata()`.
  */
 import type { ModelCapability, ModelInfo, SpecialistDomain } from '../types.js';
+import { classifyModelRole } from './modelRole.js';
+
+/**
+ * Parameter count in billions, read from the model id (`qwen3:14b` → 14).
+ *
+ * Local model ids carry their size by convention and `ModelInfo` has nowhere to
+ * put it, so this is the only source available at routing time. Returns
+ * `undefined` when the id says nothing — the callers treat that as "no size
+ * information", never as "small".
+ *
+ * The pattern requires a delimiter or a string boundary on both sides so `4b`
+ * in `gpt-4b-preview` is read the same way `14b` in `qwen3:14b` is, while `b`
+ * inside a word is never mistaken for a unit.
+ */
+export function inferParametersBillions(shortId: string): number | undefined {
+  const match = shortId.toLowerCase().match(/(?:^|[/:_.@-])(\d+(?:\.\d+)?)b(?:$|[/:_.@-])/);
+  if (!match) { return undefined; }
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
 
 /** Heuristic context-window inference from model name substrings. */
 export function inferContextWindow(shortId: string): number {
@@ -25,8 +45,24 @@ export function inferContextWindow(shortId: string): number {
   return 128_000;
 }
 
-/** Heuristic capability inference from model name substrings. */
+/**
+ * Heuristic capability inference from model name substrings.
+ *
+ * A provider lists everything it can serve, not everything that can answer a
+ * question. A model whose role is not conversational gets **no capabilities at
+ * all** rather than a reduced set: `chat` is the one the router treats as the
+ * licence to route (`isRoutableChatModel`), and granting anything here would
+ * leave a guard or embedding model in the candidate pool — at zero cost for a
+ * local one, which is exactly where it wins. Checked for every provider, not
+ * just local: `hasToolCalling` below is unconditionally true off-local, so
+ * `dall-e-3` was reaching the router as a tool-capable chat model. See
+ * `modelRole.ts` for the rule table and why an unrecognised model is always
+ * conversational.
+ */
 export function inferCapabilities(shortId: string, isLocal = false): ModelInfo['capabilities'] {
+  if (!classifyModelRole(shortId).conversational) {
+    return [];
+  }
   const normalized = shortId.toLowerCase();
 
   const isReasoning =

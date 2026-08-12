@@ -120,9 +120,46 @@ record.
 
 A model that fails is marked failed for the session and dropped from future selection, with a warning in
 the Models sidebar. If a task genuinely needs tools and no capable model is left, **AtlasMind says so**
-rather than quietly falling back to a model that can only write text. When it does give up, it tells you
-which limit it actually hit — the failover budget, the overall ceiling, or simply that no other provider
-you've configured could serve the request.
+rather than quietly falling back to a model that can only write text.
+
+**When it gives up, it tells you what failed — not which limit it hit.** You get every model it tried,
+what happened to each, and how long each one took, and only then which limit ended the search. If every
+attempt timed out, it says so plainly: nothing reported a fault, so this is an endpoint that isn't
+answering or an agent that isn't signed in, not a model that's unsuitable. If the failures don't agree, it
+gives you the list and stops there, because guessing at a single cause when there were several sends you
+to the wrong fix.
+
+---
+
+## Models that can't hold a conversation
+
+Your provider's model list is an inventory of everything it serves, and most of it can't chat. A local
+runtime lists every set of weights loaded — embedding models, rerankers, safety classifiers, Whisper.
+OpenAI's own list carries `text-embedding-3-large` and `dall-e-3` right alongside its chat models.
+
+AtlasMind used to treat all of them as chat models. Local ones are free, so they looked like the *best*
+option precisely when everything else had failed — and a safety classifier can't answer a question at all,
+so the turn ended on an error that no amount of waiting would have fixed.
+
+These are now recognised by family name and kept out of routing entirely: they don't appear in the model
+picker and can't be failed over to. The rule is deliberately cautious in one direction — a model AtlasMind
+doesn't recognise is always treated as a chat model, because wrongly hiding something you installed is
+worse than the occasional one slipping through.
+
+---
+
+## How long AtlasMind waits
+
+A hosted API call gets 30 seconds. Two cases need more, and both used to fail for the wrong reason:
+
+- **Subscription agents (ACP)** have to start a process and shake hands before they see your prompt.
+  Their deadline now covers all of that plus the prompt itself. Previously the outer limit and the
+  agent's own limit were the same number, so a slow start always tripped the outer one first and you got
+  "timed out" with no clue which part was slow.
+- **Local models** load their weights and read your prompt on your own machine. The wait now scales with
+  the model's size, the length of your prompt, and whether the model has already answered once this
+  session — the first request after a restart pays for loading. A 14B model on a long prompt was being
+  called a timeout at 30 seconds and dropped, while it was working.
 
 ---
 
