@@ -109,5 +109,11 @@ verification stores target/source hashes only and reports in-sync, design-only, 
 unassessed, or unsupported. Source import, capability/loss reports, and approval-gated proposed diffs remain
 later Phase 5 slices.
 
+v0.299.0 adds format-v13 adapter evidence imports. React, literal HTML/CSS, VS Code webview, and custom
+recognizers publish bounded facts, exact-match prop/slot suggestions, provenance, and explicit loss/
+unsupported findings. Suggestions remain a visible form proposal until a separate mapping edit; source is
+never executed, stored, model-sent, or changed. Proposed source diffs and approval/post-change verification
+remain the next Phase 5 slice.
+
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

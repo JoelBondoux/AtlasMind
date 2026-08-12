@@ -56,7 +56,7 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
 }
 
 describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', reference => {
-  it('migrates every legacy wireframe fact to v12 and preserves it through save/reopen', async () => {
+  it('migrates every legacy wireframe fact to v13 and preserves it through save/reopen', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), `atlasmind-${reference.id}-`));
     temporaryRoots.push(root);
     const filePath = path.join(root, WEBSITE_WORKSPACE_SSOT_PATH);
@@ -69,7 +69,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
 
     expect(read.preserveExisting).toBe(false);
     expect(read.config).toMatchObject({
-      version: 12,
+      version: 13,
       surfaceKind: reference.surfaceKind,
       implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
     });

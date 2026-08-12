@@ -1221,6 +1221,48 @@ export interface UiRepositoryMappingBaseline {
   verifiedAt: string;
 }
 
+export type UiRepositoryImportCapability = 'partial' | 'unsupported';
+export type UiRepositoryImportFactKind = 'export' | 'property' | 'slot' | 'token' | 'selector';
+export type UiRepositoryImportFindingSeverity = 'info' | 'loss' | 'unsupported';
+export type UiRepositoryImportFindingCode =
+  | 'react-static-only'
+  | 'react-source-extension-unsupported'
+  | 'react-props-not-found'
+  | 'html-css-static-only'
+  | 'html-css-source-extension-unsupported'
+  | 'vscode-static-only'
+  | 'vscode-source-extension-unsupported'
+  | 'custom-adapter-unsupported'
+  | 'source-symbol-not-found'
+  | 'source-not-utf8'
+  | 'no-structural-facts'
+  | 'exact-relations-suggested';
+
+export interface UiRepositoryImportFact {
+  kind: UiRepositoryImportFactKind;
+  name: string;
+}
+
+export interface UiRepositoryImportFinding {
+  code: UiRepositoryImportFindingCode;
+  severity: UiRepositoryImportFindingSeverity;
+  message: string;
+}
+
+/** Host-created adapter evidence. It deliberately has no source-content field. */
+export interface UiRepositoryImportReport {
+  adapterId: UiRepositoryAdapterId;
+  capability: UiRepositoryImportCapability;
+  graphRevision: number;
+  designFingerprint: string;
+  sourceFingerprint: string;
+  importedAt: string;
+  facts: UiRepositoryImportFact[];
+  suggestedPropertyMappings: Record<string, string>;
+  suggestedSlotMappings: Record<string, string>;
+  findings: UiRepositoryImportFinding[];
+}
+
 /** A declared bridge between one graph fact and one repository source location. */
 export interface UiRepositoryMapping {
   id: string;
@@ -1237,6 +1279,8 @@ export interface UiRepositoryMapping {
   limitations: string[];
   /** Host-created fingerprints only. Mapping definition edits clear this baseline. */
   lastVerified: UiRepositoryMappingBaseline | null;
+  /** Host-created structural evidence only. Mapping definition edits clear this report. */
+  lastImport: UiRepositoryImportReport | null;
 }
 
 /**
@@ -1817,10 +1861,10 @@ export interface WebsiteStackChoice {
  * bindings; migration adds an empty collection authority and invents no data.
  * Version 11 adds validated asset metadata and stable node references; migration
  * adds an empty asset authority rather than inspecting or guessing from files.
- * Version 12 adds revisioned repository mappings and no inferred source links.
+ * Version 13 adds bounded adapter evidence reports to revisioned repository mappings.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 12;
+  version: 13;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

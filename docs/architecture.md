@@ -297,7 +297,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 - project-level UI system decisions;
 - project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
   source-root, component-location, and handoff hints plus revisioned component/token/node repository mappings
-  (data only, never commands or source content);
+  and bounded adapter capability/loss reports (data only, never commands or source content);
 - the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
 - a catalog of static, managed-CMS, commerce, and custom platform targets;
 - n8n workflow maps containing event/outcome/status plus non-secret references.
@@ -308,7 +308,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 12**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. The 9 → 10 step adds an empty sample-data collection authority and invents no schema, record, value, or binding. The 10 → 11 step adds an empty asset library and does not inspect files, infer node assignments, or invent alt text. The 11 → 12 step adds mapping revision zero and an empty repository-mapping collection; it does not scan source, infer a path/symbol, parse code, or invent a relationship. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
+The SSOT is at **format version 13**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. The 9 → 10 step adds an empty sample-data collection authority and invents no schema, record, value, or binding. The 10 → 11 step adds an empty asset library and does not inspect files, infer node assignments, or invent alt text. The 11 → 12 step adds mapping revision zero and an empty repository-mapping collection; it does not scan source, infer a path/symbol, parse code, or invent a relationship. The 12 → 13 step adds `lastImport: null` to each existing mapping and preserves its definition/baseline without inspecting source or inventing evidence. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
 `src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
 Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
@@ -323,7 +323,7 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 The Studio's pure core modules are `vscode`-free and unit-tested:
 
-- **`uiDesignGraph.ts`** — sanitizes the target-independent v12 graph against the page inventory, preserves
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v13 graph against the page inventory, preserves
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
@@ -407,7 +407,17 @@ The Studio's pure core modules are `vscode`-free and unit-tested:
   workspace and candidate, refuses non-files and files over 2 MiB, and retains only SHA-256 design/source
   fingerprints, graph revision, and time. Target-scoped canonical design hashes prevent an unrelated graph
   edit from marking every mapping changed. Assessments report in-sync/design-only/code-only/conflict/
-  unassessed/unsupported and never parse, execute, import, reconcile, or write source.
+  unassessed/unsupported and never execute, automatically reconcile, or write source; adapter inspection is
+  delegated to the separately bounded import module below.
+
+- **`uiRepositoryImport.ts`** — conservative, deterministic adapter recognizers. React finds named exports and
+  simple object-shaped/destructured props; static HTML/CSS finds literal ids/classes/selectors and custom
+  properties; VS Code webview finds host exports plus literal web facts; custom returns unsupported. Every
+  built-in result is `partial` and carries at least one closed loss finding. Output is capped at 200 unique,
+  sorted facts and 40 findings, with exact graph/source-name suggestions only. The host supplies source and
+  fingerprints; the module returns no graph command, mapping mutation, source excerpt, executable value, or
+  dependency request. `uiRepositoryMapping.ts` persists that report only after its exact revisioned import
+  command and a separate mapping edit is required to accept any suggestion.
 
 - **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
 - **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.

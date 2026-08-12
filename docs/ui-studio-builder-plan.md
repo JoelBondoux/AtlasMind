@@ -280,7 +280,10 @@ Acceptance criteria:
 Progress: v0.298.0 starts Phase 5 with format-v12 revisioned component/token/node mappings, a closed
 React/static-HTML/VS Code webview/custom adapter catalog, bounded workspace-relative source locations,
 read-only source and design-target fingerprints, and explicit in-sync/design-only/code-only/conflict/
-unassessed/unsupported reporting. Import and proposed source diffs remain later Phase 5 slices.
+unassessed/unsupported reporting. v0.299.0 adds format-v13 adapter evidence imports: conservative React,
+literal HTML/CSS, VS Code webview, and custom recognizers retain bounded facts, exact-match suggestions,
+provenance, and explicit losses without changing graph/mapping/source authority. Proposed source diffs remain
+the next Phase 5 slice.
 
 - Framework adapters map graph components to repository components, props, slots, tokens, and source roots.
 - Import is adapter-based and reports unsupported or lossy constructs.
@@ -311,7 +314,7 @@ Acceptance criteria:
 ## Architecture
 
 ```text
-website.json v12 + content/ + assets + source mappings
+website.json v13 + content/ + assets + source mappings/reports
                     |
             bounded sanitization
                     |
@@ -339,6 +342,7 @@ Detailed decisions live in:
 - `project_memory/decisions/ui-studio-preview-protocol.md`
 - `project_memory/decisions/ui-studio-v6-schema.md`
 - `project_memory/decisions/ui-studio-repository-mappings.md`
+- `project_memory/decisions/ui-studio-adapter-imports.md`
 
 ## Delivery sequence
 

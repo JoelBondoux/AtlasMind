@@ -46,6 +46,6 @@ Mapping create/update/delete commands are exact and mapping-revision checked. De
 
 ## Action items
 
-- [ ] Add adapter-backed import with an explicit capability/loss report.
+- [x] Add adapter-backed import with an explicit capability/loss report (format v13; see `ui-studio-adapter-imports.md`).
 - [ ] Add proposed source diffs carrying mapping and graph-revision provenance.
 - [ ] Route applying a proposed diff through normal tool approval and post-change verification.

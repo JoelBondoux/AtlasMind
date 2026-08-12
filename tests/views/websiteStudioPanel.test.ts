@@ -55,6 +55,10 @@ describe('Website Studio webview boundary', () => {
       },
     })).toBe(true);
     expect(isWebsiteStudioMessage({
+      type: 'editRepositoryMapping',
+      payload: { type: 'import-mapping-evidence', expectedRevision: 4, mappingId: 'button-source' },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
         type: 'set-node-locked', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1', locked: true,
@@ -174,6 +178,10 @@ describe('Website Studio webview boundary', () => {
         sourceFingerprint: `sha256:${'a'.repeat(64)}`,
       },
     })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editRepositoryMapping',
+      payload: { type: 'import-mapping-evidence', expectedRevision: 4, mappingId: 'button-source', source: 'send me' },
+    })).toBe(false);
   });
 
   it('keeps the old platforms page id working as a deep link', () => {
@@ -230,6 +238,15 @@ describe('Website Studio webview boundary', () => {
       id: 'button-source', label: 'Button source', adapterId: 'react',
       target: { kind: 'component', id: 'button' }, sourcePath: 'src/components/Button.tsx', sourceSymbol: 'Button',
       propertyMappings: {}, slotMappings: {}, coverage: 'declared', limitations: [], lastVerified: null,
+      lastImport: {
+        adapterId: 'react', capability: 'partial', graphRevision: 3,
+        designFingerprint: `sha256:${'a'.repeat(64)}`,
+        sourceFingerprint: `sha256:${'b'.repeat(64)}`,
+        importedAt: '2026-08-12T12:00:00.000Z',
+        facts: [{ kind: 'export', name: 'Button' }],
+        suggestedPropertyMappings: {}, suggestedSlotMappings: {},
+        findings: [{ code: 'react-static-only', severity: 'loss', message: 'Runtime behavior was not evaluated.' }],
+      },
     }];
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
       scriptContent: '/* canvas */',
@@ -243,6 +260,8 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('id="addRepositoryMapping"');
     expect(html).toContain('&quot;status&quot;:&quot;code-only&quot;');
     expect(html).toContain('&quot;sourcePath&quot;:&quot;src/components/Button.tsx&quot;');
+    expect(html).toContain('&quot;capability&quot;:&quot;partial&quot;');
+    expect(html).toContain('&quot;code&quot;:&quot;react-static-only&quot;');
   });
 
   it('shows an incompatible framework with its reason rather than hiding it', () => {

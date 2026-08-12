@@ -218,7 +218,7 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 12,
+      version: 13,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
       designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], assets: [], screens: expect.any(Array) },
@@ -295,6 +295,31 @@ describe('WebsiteWorkspaceManager', () => {
     expect(markdown).toContain('### Asset library');
     expect(markdown).toContain('| Action icon (action-icon) | icon | workspace:assets/action.svg | 24 × 24 | contain / 50%, 50% | Decorative | reviewed | 1 |');
     expect(markdown).toContain('### Node asset assignments');
+  });
+
+  it('renders adapter provenance, suggestions, and losses without source content', () => {
+    const config = createDefaultWebsiteWorkspace();
+    config.designGraph.tokens = [{ id: 'color-primary', label: 'Primary', kind: 'color', value: '#2563eb' }];
+    config.implementation.repositoryMappingRevision = 2;
+    config.implementation.repositoryMappings = [{
+      id: 'primary-token', label: 'Primary token', adapterId: 'static-html-css',
+      target: { kind: 'token', id: 'color-primary' }, sourcePath: 'src/tokens.css', sourceSymbol: '--color-primary',
+      propertyMappings: {}, slotMappings: {}, coverage: 'partial', limitations: ['CSS cascade is not evaluated.'],
+      lastVerified: null,
+      lastImport: {
+        adapterId: 'static-html-css', capability: 'partial', graphRevision: 3,
+        designFingerprint: `sha256:${'a'.repeat(64)}`, sourceFingerprint: `sha256:${'b'.repeat(64)}`,
+        importedAt: '2026-08-12T12:00:00.000Z',
+        facts: [{ kind: 'token', name: '--color-primary' }],
+        suggestedPropertyMappings: {}, suggestedSlotMappings: {},
+        findings: [{ code: 'html-css-static-only', severity: 'loss', message: 'CSS cascade is not evaluated.' }],
+      },
+    }];
+    const markdown = renderWebsiteWorkspaceMarkdown(config);
+    expect(markdown).toContain('### Adapter import evidence');
+    expect(markdown).toContain('token:--color-primary');
+    expect(markdown).toContain('html-css-static-only: CSS cascade is not evaluated.');
+    expect(markdown).not.toContain('body { color: red; }');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {
