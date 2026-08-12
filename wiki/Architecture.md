@@ -119,8 +119,9 @@ already using 9.2 GB.
 
 The arbiter measures what's actually free, charges a model's weights once however many requests share
 it, loads one new model at a time, and moves a turn to another provider rather than over-filling the
-card. Two rules keep it honest: it **only unloads models it loaded itself**, so a model you loaded by
-hand is never taken away from you; and a request refused for lack of room is recorded as *the GPU was
+card. Two rules keep it honest: it **only unloads models it loaded itself** — and only when idle, out of
+cooldown, and when releasing it would actually free enough — so a model you loaded by hand is never
+taken away from you; and a request refused for lack of room is recorded as *the GPU was
 busy*, never as *the model failed* — otherwise a working model would be marked unreliable for being
 popular.
 

@@ -284,6 +284,57 @@ describe('dispose', () => {
   });
 });
 
+describe('eviction', () => {
+  /** A runtime whose resident list changes when a model is unloaded. */
+  function evictableRuntime(initial: ResidentModel[]) {
+    let models = [...initial];
+    const unloaded: string[] = [];
+    const client: LocalRuntimeClient = {
+      kind: 'ollama',
+      origin: 'http://x',
+      listResident: async () => ({ kind: 'ollama' as const, models: [...models], reachable: true }),
+      unload: async model => {
+        unloaded.push(model.modelKey);
+        models = models.filter(m => m.modelKey !== model.modelKey);
+        return true;
+      },
+    };
+    return { client, unloaded };
+  }
+
+  it('never unloads a model the user loaded by hand, however tight the card', async () => {
+    // The acceptance test for the one rule that must never break. `gemma3:27b`
+    // was resident before AtlasMind did anything, so it is the user's.
+    const timers = controllableTimers();
+    const runtime = evictableRuntime([{ modelKey: 'gemma3:27b', vramBytes: 18 * GIB }]);
+    const arbiter = makeArbiter({ devices: TIGHT, runtime: runtime.client, timers });
+    arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0, evictionCooldownMs: 0 });
+
+    const pending = arbiter.acquire(request({ modelKey: 'qwen3:14b' }));
+    await settle();
+    timers.fireAll();
+    await expect(pending).rejects.toThrow(LocalGpuCapacityError);
+
+    // It waited and then refused, rather than taking the user's model away.
+    expect(runtime.unloaded).toEqual([]);
+  });
+
+  it('does nothing when eviction is switched off', async () => {
+    const timers = controllableTimers();
+    const runtime = evictableRuntime([{ modelKey: 'ours', vramBytes: 18 * GIB }]);
+    const arbiter = makeArbiter({ devices: TIGHT, runtime: runtime.client, timers });
+    arbiter.applyConfig({
+      safetyMarginBytes: 2 * GIB, reserveBytes: 0, evictOwnModels: false, evictionCooldownMs: 0,
+    });
+
+    const pending = arbiter.acquire(request({ modelKey: 'qwen3:14b' }));
+    await settle();
+    timers.fireAll();
+    await expect(pending).rejects.toThrow(LocalGpuCapacityError);
+    expect(runtime.unloaded).toEqual([]);
+  });
+});
+
 describe('robustness', () => {
   it('never leaks a slot across any interleaving of acquire and release', async () => {
     await fc.assert(fc.asyncProperty(

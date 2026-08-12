@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.302.0 — Making room, without taking yours
+
+The previous release stopped AtlasMind over-filling your graphics card. It could measure what was free
+and wait — but it couldn't tidy up after itself. A full card meant waiting and then quietly moving your
+work to a paid cloud model, while AtlasMind's own finished model sat holding 11 GB doing nothing.
+
+It now releases its own models to make room. Four things keep that safe:
+
+- **A model you loaded by hand is never unloaded.** Not when the card is full, not ever. AtlasMind
+  tracks which models it caused to load and only releases those — anything already in memory when it
+  started is yours.
+- **Nothing in use is touched**, and nothing used in the last thirty seconds, because a model you just
+  used is probably about to be used again and swapping it out would be slower than waiting.
+- **It won't half-clear the card.** If releasing everything available still wouldn't leave enough room,
+  it releases nothing and waits instead — unloading two models and still not fitting just costs you
+  both reloads.
+- **It checks rather than assumes.** Every unload is confirmed by the runtime, and AtlasMind re-reads
+  what's loaded afterwards rather than trusting that it worked.
+
+New setting `atlasmind.localGpu.evictOwnModels`, on by default. Turn it off to leave every loaded model
+alone.
+
+---
+
 ## v0.301.0 — Sharing one graphics card
 
 If you run local models, AtlasMind can ask for several at once from places that don't know about each
