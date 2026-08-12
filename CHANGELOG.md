@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.292.1] - 2026-08-12
+
+### Added
+
+- **The orchestrator now records when it replaces a model's answer with a tool-failure summary.**
+  When every tool result in an agentic loop's final round tests as failed, the model's completion is
+  discarded and a canned failure summary is substituted. That decision rests on `looksLikeToolFailure`,
+  which matches substrings — `failed`, `cannot`, `not found` — against **raw** tool output, and
+  `file-read` returns file contents verbatim, so reading an ordinary source file can satisfy it. With a
+  single tool call in the round the `every()` check is then trivially true and a good answer is lost.
+  The substitution now logs the tool names and which token triggered each verdict, distinguishing a
+  tool that **declared** its own failure (`Error:` prefix — almost always genuine) from a bare
+  substring or keyword match (the false-positive class). Tool output itself is never logged, only the
+  trigger token, because the log persists and tool results can carry secrets. Diagnostic only: nothing
+  branches on it and the substitution behaviour is unchanged.
+
+  The predicate and the diagnostic are now **one function**, `classifyToolFailure`. Written as two
+  they drifted immediately — the diagnostic was missing the predicate's `requires .*true` alternative,
+  so a result matching only that was discarded as a failure while the log called it `unclassified`. A
+  diagnostic that mis-reports the branch it exists to measure is worse than none, because the
+  measurement looks complete; deriving both from one classifier makes that unrepresentable rather than
+  merely fixed, and a test walks every alternative.
+
+### Fixed
+
+- **The test suite no longer times out intermittently under load.** `vitest.config.ts` had no
+  `testTimeout`, so all 5,000-plus tests ran on Vitest's 5s default. Much of the suite drives the
+  `fs`-only managers against a real `mkdtemp` project tree rather than a mocked filesystem, so a
+  test's duration tracks the host's disk — and a checkout on a synced folder is far slower than CI.
+  The margin was thin enough that a filesystem-heavy test passed alone and timed out under full-suite
+  load, which at the moment it blocks a commit is indistinguishable from a real failure and teaches
+  whoever hits it to reach for `--no-verify`, skipping compile and lint too. Raised to 20s, which
+  hides no hang: a genuinely stuck test still fails, just later.
+
 ## [0.292.0] - 2026-08-12
 
 ### Added

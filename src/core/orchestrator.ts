@@ -2923,6 +2923,20 @@ export class Orchestrator {
           };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
+          // Instrumentation, not a guard: this branch DISCARDS the model's answer, and
+          // `looksLikeToolFailure` decides on a substring of raw tool output — so a
+          // `file-read` returning source that merely contains "cannot" or "failed" is
+          // enough to trip it. Logging which tool and which token matched is the only
+          // way to tell a genuine failure from a false positive after the fact, because
+          // the answer that would have shown the difference is gone by then.
+          // Names and trigger tokens only — never tool output, which can carry secrets.
+          console.warn(
+            `[AtlasMind] Replaced the model's answer with a tool-failure summary `
+            + `(${lastToolResults.length} tool result(s), discarded ${completion.content.trim().length} chars): `
+            + lastToolResults
+              .map(entry => `${entry.toolCall.name} → ${describeToolFailureTrigger(entry)}`)
+              .join('; '),
+          );
           completion = {
             ...completion,
             content: summarizeFailedToolResults(lastToolResults),
@@ -4661,14 +4675,84 @@ function isFailedToolEntry(entry: { result: string; isFailure?: boolean }): bool
   return entry.isFailure ?? looksLikeToolFailure(entry.result);
 }
 
-function looksLikeToolFailure(result: string): boolean {
+/**
+ * Why {@link looksLikeToolFailure} judged this entry a failure, as a short token — never
+ * the tool output itself, which reaches a log file and can carry secrets.
+ *
+ * Diagnostic only; nothing branches on the result. A `declared` match is a tool stating
+ * its own failure and is almost always genuine; a bare-substring match on `failed` or a
+ * keyword like `cannot` is the false-positive class, since the predicate runs against RAW
+ * output and `file-read` returns file contents verbatim. Naming which of the two fired is
+ * the whole point — the counts are not comparable otherwise.
+ *
+ * Falls through to the entry's own `isFailure` flag only when the text matches nothing:
+ * that flag was captured on the raw output before verification text was appended, so it
+ * can outlive the evidence that produced it.
+ */
+function describeToolFailureTrigger(entry: { result: string; isFailure?: boolean }): string {
+  return classifyToolFailure(entry.result)
+    ?? (entry.isFailure ? 'flagged at execution' : 'unclassified');
+}
+
+/**
+ * Prefixes a tool uses to declare its *own* failure, each with the label the
+ * diagnostic reports.
+ *
+ * The label is written out rather than derived from the prefix because one of
+ * the prefixes contains a quote (`skill "`), and echoing it into a quoted log
+ * field renders as `declared ("skill "")`.
+ */
+const TOOL_FAILURE_DECLARED_PREFIXES: ReadonlyArray<{ prefix: string; label: string }> = [
+  { prefix: 'error:', label: 'declared (error:)' },
+  { prefix: 'skill "', label: 'declared (skill refusal)' },
+  { prefix: 'unknown tool:', label: 'declared (unknown tool:)' },
+  { prefix: 'invalid arguments', label: 'declared (invalid arguments)' },
+];
+
+/**
+ * Capturing so {@link classifyToolFailure} can name the keyword that fired.
+ * Non-capturing previously; `.test()` is unaffected by the change.
+ */
+const TOOL_FAILURE_KEYWORD_PATTERN =
+  /\b(not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/;
+
+/**
+ * Why this output reads as a tool failure, or `undefined` if it does not.
+ *
+ * **The predicate and the diagnostic are the same function on purpose.** They
+ * began as two — a boolean test and a separate description of which branch
+ * fired — and drifted immediately: the description was missing the regex's
+ * `requires .*true` alternative, so a result matching only that was replaced as
+ * a failure while the log called it `unclassified`. A diagnostic that
+ * mis-reports the branch it exists to measure is worse than none, because the
+ * measurement looks complete. Deriving both from here makes that drift
+ * unrepresentable rather than merely fixed.
+ */
+export function classifyToolFailure(result: string): string | undefined {
   const normalized = result.trim().toLowerCase();
-  return normalized.startsWith('error:')
-    || normalized.startsWith('skill "')
-    || normalized.startsWith('unknown tool:')
-    || normalized.startsWith('invalid arguments')
-    || normalized.includes('failed')
-    || /\b(?:not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/.test(normalized);
+
+  for (const { prefix, label } of TOOL_FAILURE_DECLARED_PREFIXES) {
+    if (normalized.startsWith(prefix)) {
+      return label;
+    }
+  }
+
+  if (normalized.includes('failed')) {
+    return 'substring ("failed")';
+  }
+
+  const keyword = TOOL_FAILURE_KEYWORD_PATTERN.exec(normalized);
+  if (keyword) {
+    // `requires .*true` spans arbitrary text, so the capture is clamped: this
+    // reaches a log line, not a decision.
+    return `keyword ("${truncateToChars(keyword[1], 40)}")`;
+  }
+
+  return undefined;
+}
+
+function looksLikeToolFailure(result: string): boolean {
+  return classifyToolFailure(result) !== undefined;
 }
 
 /** Leading line of {@link summarizeFailedToolResults}; also used to detect, at the

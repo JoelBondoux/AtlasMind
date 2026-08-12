@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.292.1 — The orchestrator says when it discards an answer
+
+When every tool result in an agentic loop's final round tests as failed, AtlasMind throws away the
+model's completion and substitutes a summary of the failures. That test matches substrings such as
+`failed`, `cannot` and `not found` against **raw** tool output — and reading a file returns its
+contents verbatim, so an ordinary source file can satisfy it. With one tool call in the round, a
+perfectly good answer can be replaced by a failure notice.
+
+The substitution now logs which tools were involved and what triggered each verdict, separating a tool
+that declared its own failure from a bare keyword match on its output. The trigger token is recorded,
+never the output itself, because the log persists and tool results can carry secrets.
+
+Nothing branches on the new record and the substitution itself is unchanged — this is measurement,
+added before any fix, so the size of the problem is known rather than assumed.
+
 ## v0.292.0 — Reusable component definitions and instances
 
 UI Studio format v8 adds target-independent reusable components to the same revisioned graph as screens and

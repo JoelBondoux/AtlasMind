@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.292.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.292.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.292.0
+## What's new in 0.292.1
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The orchestrator now records when it discards a model's answer.** If every tool result in an
+  agentic loop's final round tests as failed, AtlasMind replaces the model's reply with a summary of
+  those failures — and that test matches substrings like `failed` or `cannot` against raw tool output,
+  which reading a file returns verbatim. The substitution is now logged with the tools involved and
+  the token that triggered each verdict, so a tool that genuinely failed can be told apart from one
+  whose output merely mentioned failure. Trigger tokens only, never tool output, which can carry
+  secrets. Behaviour is unchanged; this is measurement ahead of a fix.
 
 - **Reusable components are now first-class design data.** UI System owns bounded definitions with typed
   properties, variants, slots, and interaction states; the canvas inspector creates explicit instances and
@@ -286,6 +294,7 @@ capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
   Those owners are stored once in Project Director; its Assignments view lists active work so an owner
   can be assigned there first or changed later. Each work page and the people view therefore report
   the same responsibility.
+
 
 - **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
   preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,
