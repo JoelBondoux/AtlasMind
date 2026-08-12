@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.300.2] - 2026-08-12
+
+### Fixed
+
+- **A timed-out local request is now aborted instead of being left to run.**
+  `createProviderAttemptRequest` was called with `abortOnDispose: provider.providerId === 'acp'`, so
+  only ACP got an attempt-scoped cancellation signal. `withTimeout` rejects the race it loses but
+  cannot stop the work behind it, and for a local provider that work is a model generating on this
+  machine's GPU: the orchestrator failed over while Ollama carried on producing an answer nobody
+  would read, holding VRAM and compute the failover attempt then had to contend with.
+
+  ACP was singled out because a timed-out prompt there can keep *executing tools*. The reasoning
+  applies to any provider whose work runs locally, and `local` is the other one — so the predicate is
+  now a named `shouldAbortSupersededRequest`, stating why hosted providers are deliberately left to
+  their own adapters (an orphaned request there costs somebody else's capacity, not this machine's).
+  `LocalEchoAdapter` already forwards `request.signal` to `fetch`, so aborting the scope is
+  sufficient.
+
+  This lands ahead of the local GPU arbiter, which it is a prerequisite for: once local calls are
+  admitted against a VRAM budget, a zombie generation holds capacity the next attempt is waiting on,
+  turning one timeout into a stall.
+
 ## [0.300.1] - 2026-08-12
 
 ### Fixed

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -4795,6 +4795,57 @@ describe('bounded reply sanitation and turn capabilities', () => {
     // session/prompt; the inner one covers a single frame of that.
     expect(ACP_PROVIDER_TIMEOUT_MS).toBeGreaterThan(ACP_REQUEST_TIMEOUT_MS);
     expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS);
+  });
+});
+
+describe('shouldAbortSupersededRequest', () => {
+  it('aborts the two providers whose work runs on this machine', () => {
+    // A timed-out local generation keeps a model resident and the GPU busy while
+    // the orchestrator fails over, so the failover attempt contends with a
+    // request whose result nobody will ever read.
+    expect(shouldAbortSupersededRequest('acp')).toBe(true);
+    expect(shouldAbortSupersededRequest('local')).toBe(true);
+  });
+
+  it('leaves hosted providers to their adapter', () => {
+    for (const providerId of ['anthropic', 'openai', 'google', 'copilot', 'bedrock', 'openrouter']) {
+      expect(shouldAbortSupersededRequest(providerId), providerId).toBe(false);
+    }
+  });
+});
+
+describe('local attempt cancellation', () => {
+  it('hands the local adapter a signal that fires when the attempt is superseded', async () => {
+    // Regression: local requests were created with `abortOnDispose: false`, so
+    // `withTimeout` rejected the race and left the fetch running.
+    let observed: AbortSignal | undefined;
+    let abortedDuringCall = false;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockImplementation(async (request: CompletionRequest) => {
+        observed = request.signal;
+        await new Promise(resolve => setTimeout(resolve, 5));
+        abortedDuringCall = request.signal?.aborted === true;
+        return { content: 'ok', model: request.model, inputTokens: 1, outputTokens: 1, finishReason: 'stop' };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    await orchestrator.processTask({
+      id: 'task-local-abort-signal',
+      userMessage: 'Say hello.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(observed).toBeDefined();
+    // Not aborted while the call was in flight...
+    expect(abortedDuringCall).toBe(false);
+    // ...and aborted once the attempt scope was disposed.
+    expect(observed?.aborted).toBe(true);
   });
 });
 

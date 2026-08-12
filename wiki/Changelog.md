@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.300.2 — Stopping a model you stopped waiting for
+
+When a local model ran past its deadline, AtlasMind stopped waiting and moved on — but never told the
+model to stop. It carried on generating an answer nobody would ever read, holding your GPU and its
+memory the whole time, while the retry queued up behind it.
+
+Subscription agents were already stopped properly, because a timed-out agent there can keep *using
+tools*. The same reasoning applies to anything running on your own machine, which is the case that
+was missed. Local requests are now cancelled the moment AtlasMind gives up on them.
+
+---
+
 ## v0.300.1 — Models that were never going to answer
 
 A simple request failed after four attempts and six minutes. Three separate faults, none of them the

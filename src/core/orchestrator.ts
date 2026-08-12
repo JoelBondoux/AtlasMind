@@ -3486,7 +3486,7 @@ export class Orchestrator {
     // original promise is in flight.
     const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
+      const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
         const execute = onTextChunk && provider.streamComplete
           ? provider.streamComplete(scoped.request, onTextChunk)
@@ -3525,7 +3525,7 @@ export class Orchestrator {
     const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
     const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
+      const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
         const completion = await withTimeout(
           provider.streamComplete!(scoped.request, onTextChunk),
@@ -7212,13 +7212,34 @@ async function withTimeout<T>(
 }
 
 /**
+ * Whether a superseded attempt must actively abort its in-flight request.
+ *
+ * `withTimeout` rejects the race but cannot stop the work behind it. For a
+ * hosted HTTP provider an orphaned request costs somebody else's capacity and
+ * the adapter's own connection handling is enough. Two providers are different
+ * because the work runs on *this machine*:
+ *
+ * - **ACP**, because a timed-out prompt can keep executing tools while the
+ *   orchestrator fails over.
+ * - **local**, because a timed-out generation keeps a model resident and keeps
+ *   the GPU busy. The failover attempt then contends with a request whose result
+ *   nobody will ever read — and once local calls are admitted against a VRAM
+ *   budget, that zombie holds capacity the next attempt is waiting for, turning
+ *   one timeout into a stall.
+ *
+ * `LocalEchoAdapter` already forwards `request.signal` to `fetch`, so aborting
+ * the scope is sufficient to end the HTTP request.
+ */
+export function shouldAbortSupersededRequest(providerId: string): boolean {
+  return providerId === 'acp' || providerId === 'local';
+}
+
+/**
  * Give a stateful provider an attempt-scoped cancellation signal.
  *
- * `withTimeout` cannot stop the promise it races. For ordinary stateless HTTP
- * providers that is existing adapter territory; for ACP it is unsafe because a
- * timed-out prompt can keep acting while the orchestrator fails over. Disposing
- * this scope aborts ACP on timeout, error, or success (a post-success abort is a
- * no-op because the adapter has already removed its listener).
+ * Disposing this scope aborts the request on timeout, error, or success (a
+ * post-success abort is a no-op because the adapter has already removed its
+ * listener). See `shouldAbortSupersededRequest` for which providers need it.
  */
 function createProviderAttemptRequest(
   request: ProviderCompletionRequest,

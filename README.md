@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.300.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.300.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.300.1
+## What's new in 0.300.2
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A timed-out local model is now actually stopped.** When a local request ran past its deadline
+  AtlasMind gave up waiting but never told the model to stop, so it carried on generating — holding your
+  GPU and its memory for an answer nobody would ever read, while the retry queued up behind it.
 
 - **A turn no longer fails on models that were never going to answer.** Your provider's model list is an
   inventory of everything it serves, and most of it can't chat — embedding models, rerankers, Whisper,
