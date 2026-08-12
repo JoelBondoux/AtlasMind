@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.303.3] - 2026-08-12
+
+### Changed
+
+- **The five developer-tooling updates from PR #176, applied without the TypeScript 7 bump that made
+  it unmergeable.** `@types/node` 26.2.0, `@typescript-eslint/eslint-plugin` 8.66.0,
+  `@typescript-eslint/parser` 8.67.0, `esbuild` 0.28.2, `eslint` 10.8.1. TypeScript stays at 6.0.3,
+  verified installed rather than assumed from the manifest.
+
+  Applied by hand because the ignore rule added in 0.303.2 **cannot take effect yet**: Dependabot
+  reads `.github/dependabot.yml` from the *default* branch, and this repository's default branch is
+  `main`. The rule is on `develop`, so `@dependabot recreate` regenerated #176 with TypeScript 7 still
+  in it — the config it consulted has no ignore entry. The rule starts working only once it reaches
+  `main` on the next promotion; until then Dependabot will keep re-proposing the bump daily.
+
+  Verified against the installed tree: compile, lint and 5,549 tests clean.
+
+
 ## [0.303.2] - 2026-08-12
 
 ### Changed

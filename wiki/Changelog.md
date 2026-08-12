@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.303.3 — Toolchain updates
+
+Maintenance only. Linter, bundler and type definitions updated; TypeScript deliberately held at 6,
+because the linter's parser does not support 7 and the upgrade breaks the build.
+
+---
+
 ## v0.303.2 — Dependency housekeeping
 
 Maintenance only; nothing changes in how AtlasMind behaves.
