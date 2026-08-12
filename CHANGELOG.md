@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.303.1] - 2026-08-12
+
+### Fixed
+
+- **The publishing routine said the release workflow squashes. It does not, and must not.** CLAUDE.md
+  described step 5 as enabling "squash auto-merge", while `release.yml` passes `--merge` and carries a
+  comment explaining why: squashing rewrites develop's commits into one new commit on `main`, so `main`
+  immediately holds a commit that is not an ancestor of `develop`. The next promotion's merge base is
+  then two releases back, and every file both branches touched since — `CHANGELOG.md`, `package.json`,
+  `README.md`, `wiki/Changelog.md`, exactly the four every release touches — conflicts. It works once
+  and conflicts forever after, which is what happened between 0.208.0 and 0.208.1.
+
+  A stale instruction is worse here than a missing one: it reads as a specification, so the correction
+  somebody makes is to change the workflow to match it, reintroducing the bug the comment was written
+  to prevent. The document now states the merge method, the reason, and that the workflow wins if the
+  two ever disagree.
+
+
 ## [0.303.0] - 2026-08-12
 
 ### Added
