@@ -24,6 +24,31 @@ export interface LocalEndpointConfig {
   baseUrl: string;
 }
 
+/**
+ * The GPU admission gate, declared here rather than imported.
+ *
+ * Structural typing keeps the provider layer free of a dependency on
+ * `localModelArbiter` — the `BuzzPresenceLock` idiom. An adapter constructed
+ * without one behaves exactly as it did before the arbiter existed, which is
+ * what the CLI and every existing test rely on.
+ *
+ * **This is the one place a local call can be gated.** Six unrelated code paths
+ * reach a local model without passing through the Orchestrator's retry loop —
+ * the bootstrapper's four unbounded parallel completions, the skill
+ * auto-assigner's unbounded sweep, two background timers, the model comparison
+ * panel, and the orchestrator's own one-shot helpers. A gate anywhere else
+ * would miss most of them.
+ */
+export interface LocalAdmissionGate {
+  acquire(request: {
+    endpointId: string;
+    baseUrl: string;
+    modelKey: string;
+    routedModelId: string;
+    signal?: AbortSignal;
+  }): Promise<{ rule: string; release(): void }>;
+}
+
 export class ProviderRegistry {
   private readonly adapters = new Map<string, ProviderAdapter>();
 
@@ -48,6 +73,8 @@ export class LocalEchoAdapter implements ProviderAdapter {
       secrets?: SecretStore;
       getEndpoints?: () => unknown;
       getBaseUrl?: () => string | undefined;
+      /** Absent means unarbitrated, exactly as before this existed. */
+      arbiter?: LocalAdmissionGate;
     },
   ) {}
 
@@ -157,6 +184,24 @@ export class LocalEchoAdapter implements ProviderAdapter {
   }
 
   private async completeWithLocalEndpoint(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
+    // The admission slot wraps the HTTP call and nothing else. Holding it across
+    // anything wider would make deadlock possible; as a leaf operation it awaits
+    // nothing that could itself need a slot.
+    const admission = await this.options?.arbiter?.acquire({
+      endpointId: endpoint.id,
+      baseUrl: endpoint.baseUrl,
+      modelKey: decodeLocalEndpointModelId(request.model).rawModelId,
+      routedModelId: request.model,
+      ...(request.signal ? { signal: request.signal } : {}),
+    });
+    try {
+      return await this.sendLocalCompletion(endpoint, request);
+    } finally {
+      admission?.release();
+    }
+  }
+
+  private async sendLocalCompletion(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
     const response = await fetch(`${endpoint.baseUrl}/chat/completions`, {
       method: 'POST',
       signal: request.signal,

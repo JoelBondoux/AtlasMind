@@ -109,6 +109,20 @@ path — you don't have to retype it.
 | **MCP registry** | Connects external tool servers and dispatches their tools |
 | **Resource discovery** | Finds new servers, agents and skills |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
+| **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
+
+**About that last one.** If you run local models, AtlasMind can ask for several at once from places
+that don't know about each other — the subtask scheduler, project bootstrap, background maintenance.
+Ollama and LM Studio each decide what fits without knowing the other exists, and neither leaves
+anything for your desktop; on a 24 GB card with no model loaded at all, Windows and a browser were
+already using 9.2 GB.
+
+The arbiter measures what's actually free, charges a model's weights once however many requests share
+it, loads one new model at a time, and moves a turn to another provider rather than over-filling the
+card. Two rules keep it honest: it **only unloads models it loaded itself**, so a model you loaded by
+hand is never taken away from you; and a request refused for lack of room is recorded as *the GPU was
+busy*, never as *the model failed* — otherwise a working model would be marked unreliable for being
+popular.
 
 ### Reading your code — Lens
 
@@ -439,7 +453,7 @@ never accepted.
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, project services |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
-| `src/providers/` | Provider adapters, catalogues, health, local model discovery, and `modelRole.ts` — what a model is *for*, which keeps embedding, reranking, transcription and safety-classifier models out of routing |
+| `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |

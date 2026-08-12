@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.300.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.301.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.300.2
+## What's new in 0.301.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Local models no longer fight over your graphics card.** If you run Ollama and LM Studio, they each
+  decide what fits without knowing the other exists — and neither leaves room for your desktop. On a
+  24 GB card with no model loaded at all, Windows and a browser were already using 9.2 GB. AtlasMind now
+  measures what's actually free before sending a local request, queues what won't fit, and moves the turn
+  to another provider rather than over-filling the card. A model you loaded by hand is never unloaded.
 
 - **A timed-out local model is now actually stopped.** When a local request ran past its deadline
   AtlasMind gave up waiting but never told the model to stop, so it carried on generating — holding your
@@ -733,7 +739,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
-| `src/providers/` | Model provider adapters, catalogs, health, and `modelRole.ts` — what a model is *for*, which keeps embedding, reranking, transcription and safety-classifier models out of routing |
+| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |

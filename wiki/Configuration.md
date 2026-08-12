@@ -361,6 +361,28 @@ never remove it.
 
 ---
 
+## Sharing one graphics card
+
+If you run local models — Ollama, LM Studio, or both — AtlasMind can ask for several at once from
+places that don't know about each other: the subtask scheduler, project bootstrap, background
+maintenance. Each runtime decides what fits without knowing the other exists, and neither leaves
+anything for your desktop. On a 24 GB card with **no model loaded at all**, Windows, a browser and
+antivirus were already using 9.2 GB.
+
+AtlasMind now measures what's actually free, queues local requests that won't fit, and moves the turn
+to another provider rather than over-filling the card. If you loaded a model by hand, it stays —
+AtlasMind only ever unloads models it loaded itself.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.localGpu.enabled` | `true` | Check there's room before sending a local request. Off sends everything immediately, as before |
+| `atlasmind.localGpu.maxConcurrentRequests` | `2` | Local requests at once. Several requests to the *same* loaded model are cheap and mostly run together; different models queue regardless |
+| `atlasmind.localGpu.safetyMarginMb` | `2048` | Free memory to leave alone, for whatever your desktop grabs while a model is loading |
+| `atlasmind.localGpu.reserveMb` | `3072` | How much of the card AtlasMind will never take. A limit on *its* share — your desktop is already protected by measuring free memory. `0` removes it |
+| `atlasmind.localGpu.maxResidentModelsWhenUnmeasured` | `1` | Models kept loaded per runtime when free memory can't be read (AMD, Intel, Apple Silicon, or no `nvidia-smi`). Raise it if you have memory to spare |
+
+---
+
 ## Keeping the machine awake
 
 For long runs, a live connection, or a gateway session.

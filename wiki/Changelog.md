@@ -19,6 +19,42 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.301.0 — Sharing one graphics card
+
+If you run local models, AtlasMind can ask for several at once from places that don't know about each
+other: the subtask scheduler, project bootstrap, background maintenance, and your chat turn. Ollama and
+LM Studio each work out what fits without knowing the other exists — and neither leaves anything for
+your desktop. On a 24 GB card with **no model loaded at all**, Windows, a browser and antivirus were
+already using 9.2 GB.
+
+AtlasMind now measures what's actually free before sending a local request. If there's no room it
+waits, and if there's still no room it moves the turn to another provider rather than over-filling the
+card.
+
+Some of the details are worth knowing, because they're what stop this being annoying:
+
+- **Several requests to a model that's already loaded are nearly free**, and mostly run together. Only
+  requests needing a *different* model queue. Project bootstrap fires four requests at once and they all
+  want the same model — charging each one for a full copy of the weights would have turned a one-minute
+  step into four.
+- **A model you loaded by hand is never unloaded.** AtlasMind only ever releases models it loaded
+  itself, and anything already in memory when it started is treated as yours.
+- **A busy card is not a broken model.** Being turned away for lack of room used to look identical to
+  failing, which would have sidelined the endpoint for ten minutes and taught the router that a
+  perfectly good model was unreliable — for being popular. It's now recorded as what it is.
+- **On a machine where free memory can't be read** — AMD, Intel, Apple Silicon, or no `nvidia-smi` —
+  AtlasMind limits how many models it keeps loaded instead. Limiting requests wouldn't help: Ollama
+  keeps a model in memory for minutes after a request finishes, so three requests in a row to three
+  models still leave all three loaded.
+
+Routing also now leans towards a model that's already in memory when two would do the job equally well,
+since loading one costs tens of seconds. Only when they're genuinely close — it won't send a hard task
+to a smaller model just because it happens to be loaded.
+
+Five new settings under `atlasmind.localGpu.*`, and you can switch the whole thing off.
+
+---
+
 ## v0.300.2 — Stopping a model you stopped waiting for
 
 When a local model ran past its deadline, AtlasMind stopped waiting and moved on — but never told the

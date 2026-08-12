@@ -9,6 +9,12 @@ import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
 import { PresenceManager } from './core/presenceManager.js';
+import {
+  LOCAL_GPU_ADMISSION_WAIT_MS,
+  LOCAL_GPU_MAX_CONCURRENT_REQUESTS,
+  LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS,
+  LOCAL_GPU_RESIDENCY_POLL_MS,
+} from './constants.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
@@ -1682,6 +1688,9 @@ async function bootstrapAtlasMind(
       ardClientModule,
       ardRegistryModule,
       ardInstallerModule,
+      localModelArbiterModule,
+      gpuProbeModule,
+      localRuntimeClientModule
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1719,6 +1728,9 @@ async function bootstrapAtlasMind(
       import('./ard/ardClient.js'),
       import('./ard/ardRegistry.js'),
       import('./ard/ardInstaller.js'),
+      import('./core/localModelArbiter.js'),
+      import('./providers/gpuProbe.js'),
+      import('./providers/localRuntimeClient.js'),
     ]);
 
     return {
@@ -1740,6 +1752,9 @@ async function bootstrapAtlasMind(
       getConfiguredLocalBaseUrl: providersModule.getConfiguredLocalBaseUrl,
       getConfiguredLocalEndpoints: providersModule.getConfiguredLocalEndpoints,
       LocalEchoAdapter: providersModule.LocalEchoAdapter,
+      LocalModelArbiter: localModelArbiterModule.LocalModelArbiter,
+      createCachedGpuProbe: gpuProbeModule.createCachedGpuProbe,
+      createRuntimeClientForEndpoint: localRuntimeClientModule.createRuntimeClientForEndpoint,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
       OpenRouterAdapter: providersModule.OpenRouterAdapter,
       ProviderRegistry: providersModule.ProviderRegistry,
@@ -1949,11 +1964,35 @@ async function bootstrapAtlasMind(
       acpPrivateDesktopStatusBar.show();
     };
 
+    // ── Local GPU arbiter ──────────────────────────────────────────────────
+    // Two local runtimes can share one graphics card, and neither can see the
+    // other's loads or reserve anything for the desktop. The arbiter admits
+    // AtlasMind's own local calls against a measured budget. The adapter takes
+    // it as an optional dependency, so absent means exactly today's behaviour.
+    const localModelArbiter = new startupModules.LocalModelArbiter({
+      probeGpu: startupModules.createCachedGpuProbe(),
+      runtimeClientFor: (_endpointId: string, baseUrl: string) =>
+        startupModules.createRuntimeClientForEndpoint(baseUrl),
+      onLog: (message: string) => outputChannel.appendLine(`[local-gpu] ${message}`),
+    });
+    localModelArbiter.applyConfig(readLocalGpuConfig());
+    context.subscriptions.push(
+      { dispose: () => localModelArbiter.dispose() },
+      // Dedicated listener, matching the presence pattern: the arbiter exists
+      // before the full context does, so its settings must apply without it.
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('atlasmind.localGpu')) {
+          localModelArbiter.applyConfig(readLocalGpuConfig());
+        }
+      }),
+    );
+
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
         getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+        arbiter: localModelArbiter,
       }),
       // ACP agents are user-authored and deny-by-default: with no configured
       // agent the adapter reports no models and never spawns anything.
@@ -2377,6 +2416,18 @@ async function bootstrapAtlasMind(
     }
 
     const orchestrator = runtime.orchestrator;
+
+    // The arbiter is the single source of truth for what is loaded. The router
+    // uses it to prefer a resident model over an equally suitable cold one, and
+    // the orchestrator adds the gate's bounded wait to a local timeout so a
+    // request that queued politely is not then reported as a slow model.
+    modelRouter.setResidentLocalModels(localModelArbiter.getState().residentModelIds);
+    orchestrator.setLocalAdmissionBudgetMs(LOCAL_GPU_ADMISSION_WAIT_MS);
+    context.subscriptions.push(
+      localModelArbiter.onDidChange(state => {
+        modelRouter.setResidentLocalModels(state.residentModelIds);
+      }),
+    );
 
     // Wire the memory agent executor now that runtime is available.
     // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
@@ -3887,6 +3938,26 @@ async function bootstrapAtlasMind(
     })();
   }, COPILOT_PERIODIC_REFRESH_MS);
   context.subscriptions.push({ dispose: () => clearInterval(copilotRefreshTimer) });
+}
+
+/**
+ * The local GPU arbiter's settings, read fresh on every call.
+ *
+ * Module-level so the construction site and the configuration-change listener
+ * share one definition; a second copy would drift the moment a default changed.
+ */
+function readLocalGpuConfig() {
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  const mib = 1024 * 1024;
+  return {
+    enabled: cfg.get<boolean>('localGpu.enabled', true),
+    maxConcurrentRequests: cfg.get<number>('localGpu.maxConcurrentRequests', LOCAL_GPU_MAX_CONCURRENT_REQUESTS),
+    maxAdmissionWaitMs: LOCAL_GPU_ADMISSION_WAIT_MS,
+    safetyMarginBytes: Math.max(0, cfg.get<number>('localGpu.safetyMarginMb', 2048)) * mib,
+    reserveBytes: Math.max(0, cfg.get<number>('localGpu.reserveMb', 3072)) * mib,
+    maxOwnedResidentModels: cfg.get<number>('localGpu.maxResidentModelsWhenUnmeasured', LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS),
+    residencyPollIntervalMs: LOCAL_GPU_RESIDENCY_POLL_MS,
+  };
 }
 
 export function activate(context: vscode.ExtensionContext): void {

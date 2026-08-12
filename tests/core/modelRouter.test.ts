@@ -122,6 +122,96 @@ describe('ModelRouter', () => {
     });
   });
 
+  describe('residency affinity', () => {
+    function routerWithTwoLocalModels(): ModelRouter {
+      const router = new ModelRouter();
+      router.registerProvider({
+        id: 'local',
+        displayName: 'Local',
+        apiKeySettingKey: 'atlasmind.provider.local.apiKey',
+        enabled: true,
+        pricingModel: 'pay-per-token',
+        models: [
+          {
+            id: 'local/ollama@@qwen3:14b',
+            provider: 'local', name: 'Qwen3 14B', contextWindow: 128000,
+            inputPricePer1k: 0, outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'function_calling'], reasoningDepth: 2, enabled: true,
+          },
+          {
+            id: 'local/ollama@@qwen3:30b',
+            provider: 'local', name: 'Qwen3 30B', contextWindow: 128000,
+            inputPricePer1k: 0, outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'function_calling'], reasoningDepth: 2, enabled: true,
+          },
+        ],
+      });
+      return router;
+    }
+
+    it('breaks a tie towards the model already in VRAM', () => {
+      // Loading a 14B costs tens of seconds and may evict whatever is there —
+      // a real cost the pricing model cannot see, since both are free.
+      const router = routerWithTwoLocalModels();
+      router.setResidentLocalModels(new Set(['local/ollama@@qwen3:30b']));
+      expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('local/ollama@@qwen3:30b');
+
+      router.setResidentLocalModels(new Set(['local/ollama@@qwen3:14b']));
+      expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('local/ollama@@qwen3:14b');
+    });
+
+    it('never lets residency outrank a reasoning-depth gap', () => {
+      // The floor that matters: a resident shallow model must not take a task
+      // that needs a deep one.
+      const router = new ModelRouter();
+      router.registerProvider({
+        id: 'local',
+        displayName: 'Local',
+        apiKeySettingKey: 'atlasmind.provider.local.apiKey',
+        enabled: true,
+        pricingModel: 'pay-per-token',
+        models: [
+          {
+            id: 'local/ollama@@shallow', provider: 'local', name: 'Shallow', contextWindow: 128000,
+            inputPricePer1k: 0, outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'function_calling'], reasoningDepth: 0, enabled: true,
+          },
+          {
+            id: 'local/ollama@@deep', provider: 'local', name: 'Deep', contextWindow: 128000,
+            inputPricePer1k: 0, outputPricePer1k: 0,
+            capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 3, enabled: true,
+          },
+        ],
+      });
+      router.setResidentLocalModels(new Set(['local/ollama@@shallow']));
+
+      const profile: TaskProfile = {
+        phase: 'synthesis',
+        modality: 'text',
+        reasoning: 'high',
+        requiresTools: false,
+        requiredCapabilities: [],
+        preferredCapabilities: [],
+      };
+      expect(router.selectModel({ budget: 'expensive', speed: 'considered' }, undefined, profile))
+        .toBe('local/ollama@@deep');
+    });
+
+    it('ignores residency for models that are not local', () => {
+      const router = routerWithTwoLocalModels();
+      router.setResidentLocalModels(new Set(['openai/gpt-5.1']));
+      // No throw, no effect — a hosted model has no residency to prefer.
+      expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }).startsWith('local/')).toBe(true);
+    });
+
+    it('is inert until the arbiter reports anything', () => {
+      const router = routerWithTwoLocalModels();
+      const before = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+      router.setResidentLocalModels(new Set());
+      expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe(before);
+    });
+  });
+
   it('returns model metadata with getModelInfo', () => {
     const router = new ModelRouter();
     registerProviders(router);

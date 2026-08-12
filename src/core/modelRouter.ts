@@ -64,6 +64,18 @@ const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
  */
 const ZERO_MARGINAL_COST_ADEQUACY_BONUS = 1.25;
 /**
+ * Preference for a local model already resident in VRAM.
+ *
+ * Sized to decide a near-tie and nothing more. Loading a model costs tens of
+ * seconds and may evict another, which the cost model cannot see — but that is
+ * a latency fact, not a quality one, so it sits well below the quality-bearing
+ * bonuses (1.25) and just above the outcome-bias band (±0.3) that it should be
+ * able to outweigh. The rejected alternative was 1.25, matching
+ * `ZERO_MARGINAL_COST_ADEQUACY_BONUS`, which would have let residency override
+ * a genuine reasoning-depth gap.
+ */
+const LOCAL_RESIDENT_MODEL_BONUS = 0.5;
+/**
  * Providers that support prompt caching (a stable prompt prefix is billed at a
  * reduced cache-read rate on subsequent turns). A model is treated as
  * cache-capable if its `supportsPromptCaching` flag is set or its provider is
@@ -208,6 +220,8 @@ export class ModelRouter {
   private executionOutcomes = new Map<string, ModelOutcomeState>();
   private struggleSignals = new Map<string, ModelStruggleState>();
   private modelFailures = new Map<string, ModelFailureState>();
+  /** Local models currently in VRAM, pushed in by the GPU arbiter. */
+  private residentLocalModels: ReadonlySet<string> = new Set();
   private feedbackWeight = 1;
   /** Providers paused automatically this session (e.g. billing failure). ProviderId → reason string. */
   private sessionAutoDisabledProviders = new Map<string, string>();
@@ -968,12 +982,13 @@ export class ModelRouter {
     const preferenceBias = this.scorePreferenceBias(model.id);
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
+    const residencyBonus = this.scoreResidencyAffinity(model, taskProfile);
     const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
     const zeroMarginalCostBonus = this.scoreZeroMarginalCostAdequacy(model, taskProfile);
     const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
     const strugglePenalty = this.scoreStrugglePenalty(model.id, taskProfile);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + zeroMarginalCostBonus + outcomeBias - strugglePenalty;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + residencyBonus + subscriptionBonus + zeroMarginalCostBonus + outcomeBias - strugglePenalty;
   }
 
   /**
@@ -1024,6 +1039,54 @@ export class ModelRouter {
    * this additional reasoning floor prevents "free" from becoming a quality
    * override on broad review, planning, and synthesis work.
    */
+  /**
+   * Replace the set of local models currently loaded in VRAM.
+   *
+   * Pushed in by the GPU arbiter rather than read, so the router stays
+   * synchronous and does no I/O — the same shape as `executionOutcomes` and
+   * `struggleSignals`. Ids are the routed form (`local/<endpoint>@@<model>`) so
+   * they compare directly against `ModelInfo.id`.
+   */
+  setResidentLocalModels(modelIds: ReadonlySet<string>): void {
+    this.residentLocalModels = new Set(modelIds);
+  }
+
+  /**
+   * A small preference for a local model whose weights are already in VRAM.
+   *
+   * Loading a 14B model costs tens of seconds and, on a full card, evicts
+   * whatever was there — so when two candidates both suit the task, the resident
+   * one is meaningfully cheaper for reasons the cost model cannot see.
+   *
+   * **Residency is a latency property, not a quality one**, so the bonus is
+   * deliberately smaller than every signal that carries quality:
+   * `PROVIDER_HEALTH_BONUS` and `ZERO_MARGINAL_COST_ADEQUACY_BONUS` are both
+   * 1.25 and `LOCAL_MAINTENANCE_LARGE_BONUS` is 2.0, while the local preference
+   * tiers this *should* be able to break sit at 0.15-0.4. At 0.5 it decides a
+   * near-tie and nothing else — it cannot outrank a reasoning-depth gap, and a
+   * sustained struggle penalty still wins.
+   *
+   * The depth floor mirrors `scoreZeroMarginalCostAdequacy` exactly: residency
+   * never buys a shallow model a deep task. Hard capability requirements are
+   * already enforced upstream in `getCandidateModels`, so only depth needs
+   * restating here.
+   */
+  private scoreResidencyAffinity(model: ModelInfo, taskProfile?: TaskProfile): number {
+    if (model.provider !== 'local' || isBuiltinLocalEchoModel(model)) {
+      return 0;
+    }
+    if (!this.residentLocalModels.has(model.id)) {
+      return 0;
+    }
+    const needsReasoningDepth = taskProfile?.reasoning === 'high'
+      || taskProfile?.phase === 'planning'
+      || taskProfile?.phase === 'synthesis';
+    if (needsReasoningDepth && getReasoningDepth(model) < 2) {
+      return 0;
+    }
+    return LOCAL_RESIDENT_MODEL_BONUS;
+  }
+
   private scoreZeroMarginalCostAdequacy(model: ModelInfo, taskProfile?: TaskProfile): number {
     const provider = this.providers.get(model.provider);
     const pricing = provider?.pricingModel ?? 'pay-per-token';

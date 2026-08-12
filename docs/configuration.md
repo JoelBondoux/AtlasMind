@@ -217,6 +217,34 @@ Keep this computer awake so an AtlasMind activity that must stay online — a lo
 
 A status-bar indicator shows when the machine is being held awake (and when it is paused on battery); click it, or run **AtlasMind: Toggle Keep Computer Awake** (`atlasmind.togglePresence`), to stop. A VS Code extension cannot use Electron's `powerSaveBlocker`, so the lock is a spawned OS helper tied to the extension-host lifetime; no untrusted input is ever passed to it.
 
+## Local GPU arbiter
+
+Admits local model requests against a measured VRAM budget, so several AtlasMind code paths and
+several local runtimes cannot over-commit one graphics card between them. Backed by the
+`LocalModelArbiter` core service.
+
+The problem is specific. AtlasMind can issue a local call from at least six places that never meet —
+the subtask scheduler's fan-out, project bootstrap's parallel completions, the skill auto-assigner,
+two background timers, and every chat turn. Ollama and LM Studio each decide what fits against
+whatever free memory they see at that instant, and neither can see the other. Neither reserves
+anything for the desktop: on a 24 GB card measured with no model loaded at all, 9.2 GB was already
+committed to Windows, a browser and antivirus.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.localGpu.enabled` | `boolean` | `true` | Admit local model requests against a VRAM budget. Off restores the previous behaviour, where every local request was sent immediately. |
+| `atlasmind.localGpu.maxConcurrentRequests` | `number` | `2` | Concurrent local requests allowed regardless of available VRAM (1–8). Requests against an already-loaded model cost only their own context cache, so a burst against one model mostly runs in parallel; requests needing different models are serialised by the budget whatever this is set to. |
+| `atlasmind.localGpu.safetyMarginMb` | `number` | `2048` | Megabytes of free VRAM left unclaimed (0–32768). Covers what the desktop will allocate *while* a model is loading. Because free memory is measured rather than assumed, this does not need to account for what Windows and your applications already hold. |
+| `atlasmind.localGpu.reserveMb` | `number` | `3072` | Megabytes of the card AtlasMind will never occupy (0–131072). **A ceiling on AtlasMind's own share, not an OS reserve** — the desktop is protected by measuring free memory. `0` lets the free-memory measurement govern alone. |
+| `atlasmind.localGpu.maxResidentModelsWhenUnmeasured` | `number` | `1` | Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured (1–8), i.e. on AMD, Intel, Apple Silicon, or without `nvidia-smi`. Limiting *distinct resident models* is the only bound available without a memory reading; limiting concurrent requests would not help, because Ollama keeps a model in memory for minutes after a request finishes. |
+
+Two behaviours are worth knowing. When the budget stays committed past a bounded wait the request is
+**refused and the turn fails over to another provider** — the local GPU is busy, so AtlasMind uses
+something that is not. That refusal is classified as a capacity deferral rather than a model failure,
+so a busy GPU never quarantines the endpoint or teaches the router that a working model is
+unreliable. And AtlasMind **only ever unloads models it loaded itself**; a model you loaded by hand
+is tracked as resident and never evicted.
+
 ## Orchestrator Tunables
 
 | Setting | Type | Default | Description |

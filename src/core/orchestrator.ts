@@ -20,6 +20,7 @@ import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import { LOCAL_ECHO_RESPONSE_PREFIX } from '../providers/registry.js';
 import { inferParametersBillions } from '../providers/modelMetadataInference.js';
+import { isCapacityDeferral } from './localModelArbiter.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
@@ -549,6 +550,7 @@ export class Orchestrator {
    * the moment the runtime restarts.
    */
   private readonly warmLocalModels = new Set<string>();
+  private localAdmissionBudgetMs: number | undefined;
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
@@ -1996,7 +1998,14 @@ export class Orchestrator {
             outputTokens: 0,
             reason: boundedAttemptReason(failureMessage),
           });
-          if (shouldOpenEndpointCircuit(failureMessage, selectedProvider)) {
+          // A capacity deferral means the local GPU budget was committed and the
+          // request was never sent. The model did not fail — it was not asked —
+          // so none of the three punishments below may apply to it. Checked
+          // structurally rather than by message, because all three of the guards
+          // it has to clear are wording-based and a reworded message would
+          // silently re-arm them.
+          const capacityDeferral = isCapacityDeferral(error);
+          if (!capacityDeferral && shouldOpenEndpointCircuit(failureMessage, selectedProvider)) {
             blockedEndpointScopes.add(endpointScope);
             this.recordEndpointFailure(endpointScope);
             onProgress?.(`Paused endpoint "${endpointScope}" for this turn after a transport failure.`);
@@ -2004,14 +2013,18 @@ export class Orchestrator {
           const modelWasRetired = isModelDeprecatedError(error);
           if (modelWasRetired) {
             this.router.recordModelRetirement(currentModel, `Model deprecated or not found: ${failureMessage}`);
-          } else {
+          } else if (!capacityDeferral) {
             this.router.recordModelFailure(currentModel, failureMessage);
           }
           // Feed struggle memory — but only for genuine model/provider failures,
-          // not a billing pause (provider out of credits) or a deprecated-model
-          // signal, which say nothing about how this model performs on the task.
-          if (!isBillingError(error) && !modelWasRetired) {
+          // not a billing pause (provider out of credits), a deprecated-model
+          // signal, or a busy GPU, none of which say anything about how this
+          // model performs on the task.
+          if (!isBillingError(error) && !modelWasRetired && !capacityDeferral) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
+          }
+          if (capacityDeferral) {
+            onProgress?.('The local GPU budget is committed; trying another provider for this turn.');
           }
 
           if (isBillingError(error)) {
@@ -3457,7 +3470,20 @@ export class Orchestrator {
     return getProviderTimeoutMs(providerId, this.cfg.providerTimeoutMs, request.model, {
       promptTokens: estimateCompletionRequestInputTokens(request.messages, request.tools),
       warmedUp: this.warmLocalModels.has(request.model),
+      ...(providerId === 'local' && this.localAdmissionBudgetMs !== undefined
+        ? { admissionBudgetMs: this.localAdmissionBudgetMs }
+        : {}),
     });
+  }
+
+  /**
+   * How long the local GPU gate may hold a request before its HTTP call starts.
+   *
+   * Set by the host when an arbiter is wired in; `undefined` when there is none,
+   * which is what keeps the unarbitrated timeout arithmetic byte-identical.
+   */
+  public setLocalAdmissionBudgetMs(budgetMs: number | undefined): void {
+    this.localAdmissionBudgetMs = budgetMs;
   }
 
   /**
@@ -6062,6 +6088,17 @@ export interface ProviderTimeoutInputs {
   promptTokens?: number;
   /** Whether this model has already answered once in this session. */
   warmedUp?: boolean;
+  /**
+   * Bounded time the local GPU admission gate may hold this request before the
+   * HTTP call even starts.
+   *
+   * The timeout is armed before `provider.complete()` is entered, so without
+   * this the queue wait eats the completion budget and a request that waited
+   * politely for the GPU is then reported as a model that was too slow. Absent
+   * means no arbiter, which is `0` — preserving the contract that unknown
+   * inputs widen the budget or leave it alone.
+   */
+  admissionBudgetMs?: number;
 }
 
 /**
@@ -6102,10 +6139,11 @@ export function getProviderTimeoutMs(
   const promptTokens = Math.max(0, inputs?.promptTokens ?? 0);
   const promptAllowance = Math.round((promptTokens / 1000) * LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS);
   const coldStartAllowance = inputs?.warmedUp === true ? 0 : LOCAL_COLD_START_TIMEOUT_MS;
+  const admissionAllowance = Math.max(0, inputs?.admissionBudgetMs ?? 0);
 
   return Math.min(
     LOCAL_PROVIDER_MAX_TIMEOUT_MS,
-    defaultTimeoutMs + sizeAllowance + promptAllowance + coldStartAllowance,
+    defaultTimeoutMs + sizeAllowance + promptAllowance + coldStartAllowance + admissionAllowance,
   );
 }
 

@@ -1792,6 +1792,71 @@ export const LOCAL_COLD_START_TIMEOUT_MS = 60_000;
  */
 export const LOCAL_PROVIDER_MAX_TIMEOUT_MS = 300_000;
 
+// ── Local GPU arbiter ────────────────────────────────────────────
+
+/**
+ * How long a local request may wait for GPU headroom before it is refused.
+ *
+ * A bound rather than an unbounded queue, because a request that never resolves
+ * is a wedged editor. On expiry the turn fails over to another provider, which
+ * is the right answer: the GPU is committed, so use something that is not.
+ *
+ * Long enough to outlast a cold model load — the commonest reason the budget is
+ * briefly committed — and short enough that the turn has not already been
+ * abandoned by whoever asked for it.
+ */
+export const LOCAL_GPU_ADMISSION_WAIT_MS = 45_000;
+
+/**
+ * Concurrent local HTTP calls allowed regardless of measured headroom.
+ *
+ * Two rather than one: with the residency accounting charging weights once per
+ * distinct model, a same-model fan-out is nearly free, and a cap of one would
+ * serialise the bootstrapper's four parallel completions — all of which route to
+ * the same model — turning a one-minute step into four. Two rather than five,
+ * because concurrent *generation* on one card is slower per request than
+ * sequential and the scheduler's fan-out is already bounded elsewhere.
+ */
+export const LOCAL_GPU_MAX_CONCURRENT_REQUESTS = 2;
+
+/**
+ * Subtracted from measured free VRAM before anything is admitted.
+ *
+ * The limb that normally binds. Covers what the desktop will allocate while a
+ * model is loading — a browser tab opening mid-load is ordinary, and a driver
+ * reporting free memory a moment before something else claims it is the common
+ * case rather than the pathological one.
+ */
+export const LOCAL_GPU_SAFETY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * VRAM reserved from the card total, defining AtlasMind's own ceiling.
+ *
+ * **Not an OS reserve.** The desktop is protected by measuring *free* memory,
+ * which already accounts for it — on the reference machine, 9.2 GB of a 24 GB
+ * card was in use with no model loaded. This is the second limb: a cap on how
+ * much of the card AtlasMind may occupy at once, which keeps binding as its own
+ * footprint grows.
+ *
+ * The naive form of that limb, `total − reserve`, is a constant and therefore
+ * inert the moment anything is loaded: the measured limb is always lower. It has
+ * to be `total − reserve − whatAtlasMindHolds` to mean anything.
+ */
+export const LOCAL_GPU_RESERVE_BYTES = 3 * 1024 * 1024 * 1024;
+
+/**
+ * Distinct models AtlasMind may hold per endpoint when VRAM is unmeasurable.
+ *
+ * The degraded mode, on AMD, Intel, Apple, or any machine without `nvidia-smi`.
+ * Capping *residency* rather than concurrency is the whole point: Ollama holds a
+ * model for five minutes after a request, so serialising requests alone would
+ * leave three sequential calls to three models with all three resident.
+ */
+export const LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS = 1;
+
+/** How long a residency reading is reused before the runtimes are asked again. */
+export const LOCAL_GPU_RESIDENCY_POLL_MS = 5_000;
+
 /** Number of retries for transient provider failures. */
 export const MAX_PROVIDER_RETRIES = 2;
 
