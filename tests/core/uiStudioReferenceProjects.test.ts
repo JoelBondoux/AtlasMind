@@ -35,7 +35,7 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
     ]);
     for (const node of screen.nodes) {
       expect(Object.keys(node).every(key => [
-        'id', 'kind', 'label', 'parentId', 'layout', 'viewportOverrides',
+        'id', 'kind', 'label', 'locked', 'parentId', 'layout', 'viewportOverrides',
         'designPrompt', 'notes', 'contentRef', 'styleRef', 'componentRef',
       ].includes(key))).toBe(true);
       expect(Object.keys(node.layout).sort()).toEqual([

@@ -210,6 +210,10 @@ responsive provenance, so reset/undo reveals the prior drawn or intrinsic size.
 Wrap is a closed `nowrap|wrap` value and sibling order is a bounded -1000…1000 integer. The resolver sorts
 container children by order plus stable geometry/id tie-breakers and wraps stack runs without changing stored
 array order, hierarchy, or rectangles.
+Subtree duplication is one reducer command with a complete host-validated old→new identity map; it remaps
+parents and offsets base plus explicit responsive rectangles before one commit. Node locks live in the graph
+and are enforced by the reducer, including atomic frame batches and structural deletion that would otherwise
+reparent a locked child. The browser's disabled controls are only feedback for that host-owned rule.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

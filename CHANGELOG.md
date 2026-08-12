@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.287.0] - 2026-08-12
+
+### Added
+
+- **UI Studio can duplicate a complete node subtree as one edit.** The host validates a complete mapping
+  from every source identity to a fresh identity, remaps child parents, offsets base and explicitly authored
+  responsive rectangles, selects the new root, and records one revision and one undo entry.
+- **Nodes can be locked from the inspector.** A locked block remains selectable and inspectable while drag,
+  resize, nudge, form edits, alignment, distribution, deletion, and duplication are disabled. Unlock is the
+  only mutation the reducer admits for that node.
+
+### Security
+
+- **Duplication and locking are reducer guarantees, not browser conventions.** Duplicate commands refuse
+  incomplete/duplicate/colliding identity maps, locked descendants, invalid offsets, and the 60-node limit
+  without partial mutation. Batch edits containing a locked node refuse atomically, and deleting an unlocked
+  wrapper is refused when it would implicitly reparent a locked direct child.
+
+### Changed
+
+- **A duplicated subtree stays coherent at every authored breakpoint.** Explicit responsive rectangles move
+  by the same bounded offset as base geometry; inherited layout, content/style/component references, and
+  descendant labels remain intact. Only the duplicate root receives a `copy` suffix, and clones start unlocked.
+
 ## [0.286.0] - 2026-08-12
 
 ### Added

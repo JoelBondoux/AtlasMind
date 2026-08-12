@@ -38,6 +38,19 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
+        type: 'set-node-locked', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1', locked: true,
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'duplicate-node', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        identities: [{ sourceId: 'hero-1', newId: 'hero-copy' }], offsetX: 24, offsetY: 24,
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
         type: 'set-node-frames', expectedRevision: 2, screenId: 'page-home', breakpoint: 'mobile',
         frames: [
           { nodeId: 'hero-1', rect: { x: 0, y: 0, width: 1_000, height: 300 } },
@@ -94,6 +107,19 @@ describe('Website Studio webview boundary', () => {
       payload: {
         type: 'set-node-frame', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
         rect: { x: 0, y: 0, width: 1_000, height: 300 }, parentId: null, command: 'run',
+      },
+    })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'duplicate-node', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        identities: [{ sourceId: 'hero-1', newId: '../outside' }], offsetX: 24, offsetY: 24,
+      },
+    })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'set-node-locked', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1', locked: 'yes',
       },
     })).toBe(false);
     expect(isWebsiteStudioMessage({
@@ -340,7 +366,7 @@ describe('UI Studio canvas command wiring', () => {
   it('routes every current canvas mutation family through the closed command message', () => {
     expect(source).toContain("type: 'editDesignGraph'");
     for (const command of [
-      'add-node', 'delete-node', 'set-node-frame', 'set-node-frames', 'set-node-kind',
+      'add-node', 'delete-node', 'duplicate-node', 'set-node-locked', 'set-node-frame', 'set-node-frames', 'set-node-kind',
       'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
       'set-node-layout', 'clear-node-viewport-override', 'undo', 'redo',
     ]) {
@@ -363,5 +389,8 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('data-multi-layout="distribute-x"');
     expect(source).toContain('id="applyNodeLayout"');
     expect(source).toContain("property: 'layout'");
+    expect(source).toContain('function duplicateSelected()');
+    expect(source).toContain('id="toggleElementLock"');
+    expect(source).toContain('isLocked(element.id)');
   });
 });

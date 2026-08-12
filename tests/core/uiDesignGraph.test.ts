@@ -99,6 +99,7 @@ describe('UI design graph', () => {
     const pages = pagesWithWireframe();
     const raw = designGraphFromPages(pages);
     const node = raw.screens[0]!.nodes[1]!;
+    (node as unknown as Record<string, unknown>)['locked'] = 'yes';
     node.parentId = 'missing';
     node.layout.rect = { x: -100, y: -10, width: 50_000, height: Number.POSITIVE_INFINITY };
     node.layout.minWidth = 800;
@@ -121,6 +122,7 @@ describe('UI design graph', () => {
     const result = sanitized.screens[0]!.nodes[1]!;
 
     expect(result.parentId).toBeUndefined();
+    expect(result.locked).toBe(false);
     expect(result.layout.rect.x).toBeGreaterThanOrEqual(0);
     expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
     expect(result.contentRef).toBe('content-script');
@@ -131,6 +133,9 @@ describe('UI design graph', () => {
     expect(result.viewportOverrides.mobile?.minHeight).toBe(500);
     expect(result.viewportOverrides.mobile?.maxHeight).toBeUndefined();
     expect(result.viewportOverrides.mobile).toMatchObject({ wrap: 'wrap', order: -20 });
+
+    raw.screens[0]!.nodes[0]!.locked = true;
+    expect(sanitizeUiDesignGraph(raw, pages).screens[0]!.nodes[0]!.locked).toBe(true);
   });
 
   it('inherits responsive properties in order and reports the source of every computed value', () => {

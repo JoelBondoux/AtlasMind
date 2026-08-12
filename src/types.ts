@@ -1367,6 +1367,8 @@ export interface UiDesignNode {
   id: string;
   kind: WireframeElementKind;
   label: string;
+  /** Authoring guard enforced by the reducer; it does not alter rendered output. */
+  locked: boolean;
   parentId?: string;
   layout: UiNodeLayout;
   viewportOverrides: Partial<Record<WireframeBreakpoint, UiNodeViewportOverride>>;

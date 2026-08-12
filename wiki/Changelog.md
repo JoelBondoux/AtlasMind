@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.287.0 — Atomic subtree duplication and node locking
+
+UI Studio can now duplicate a block together with everything nested inside it. The operation remaps every
+identity and parent reference, offsets base and explicitly authored responsive rectangles, selects the new
+root, and creates one revision and one undo step. The original remains untouched.
+
+Lock keeps a node selectable and inspectable but disables canvas gestures, inspector edits, multi-selection
+transforms, delete, and duplicate. This is enforced again in the host reducer: incomplete or colliding copy
+maps, locked descendants, over-limit copies, atomic batches containing a locked node, and deletion that would
+implicitly reparent a locked direct child all refuse without partial mutation.
+
 ## v0.286.0 — Stack wrapping and responsive child order
 
 Stack containers can now continue onto another row/column, and every node carries a bounded responsive order

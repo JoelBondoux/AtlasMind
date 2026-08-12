@@ -224,6 +224,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .wf-box:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:1px; }
   .wf-box.viewport-hidden { opacity:.52; border-style:dotted; }
   .wf-box.container-positioned { cursor:default; }
+  .wf-box.locked { cursor:not-allowed; border-style:double; }
   .wf-box-label { font-weight:650; font-size:.82rem; line-height:1.2; }
   .wf-box-kind { font-size:.68rem; color:var(--studio-muted); text-transform:uppercase; letter-spacing:.08em; }
   .wf-box-visibility { font-size:.62rem; font-weight:700; color:var(--vscode-testing-iconSkipped, #d29922); }

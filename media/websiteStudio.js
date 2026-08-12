@@ -82,6 +82,7 @@
     ?? activePage()?.wireframe?.breakpoint
     ?? 'desktop';
   const responsiveNode = id => activeResponsiveScreen()?.nodes?.find(node => node?.id === id);
+  const isLocked = id => responsiveNode(id)?.locked === true;
 
   function clearCanvasSelection() {
     selectedElementId = '';
@@ -362,6 +363,7 @@
       return '<button type="button" class="wf-box' + (selected ? ' selected' : '')
         + (primary && selectedElementIds.size > 1 ? ' primary' : '')
         + (view.provenance.rect?.containerId ? ' container-positioned' : '')
+        + (isLocked(element.id) ? ' locked' : '')
         + (view.layout.hidden ? ' viewport-hidden' : '') + '"'
         + ' data-kind="' + escapeAttribute(element.kind) + '"'
         + ' style="' + style + '" data-element-id="' + escapeAttribute(element.id) + '"'
@@ -369,6 +371,7 @@
         + ' aria-label="' + escapeAttribute(describeForScreenReader(element, spec)) + '">'
         + '<span class="wf-box-label">' + escapeText(element.label || spec.label) + '</span>'
         + '<span class="wf-box-kind">' + escapeText(spec.label) + '</span>'
+        + (isLocked(element.id) ? '<span class="wf-box-visibility">Locked</span>' : '')
         + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
         + (primary ? handlesMarkup() : '')
         + '</button>';
@@ -474,7 +477,8 @@
     const base = activeBaseBreakpoint();
     const isBase = activeBreakpoint === base;
     const override = responsiveNode(element.id)?.overrides?.[activeBreakpoint] ?? { rect: false, hidden: false, layout: false };
-    const readOnly = state.readOnly ? ' disabled' : '';
+    const locked = responsiveNode(element.id)?.locked === true;
+    const readOnly = state.readOnly || locked ? ' disabled' : '';
     const selectionCount = selectedElementIds.size;
     const multiFields = selectionCount > 1 ? `
       <div class="multi-inspector">
@@ -599,10 +603,12 @@
       + '<div class="inspector-actions">'
       + '<button type="button" id="askAboutElement" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this wireframe element and its design prompt" aria-label="Ask AtlasMind about this wireframe element"><img src="' + escapeAttribute(state.atlasIcon || '') + '" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this wireframe element</span></button>'
       + (state.canGenerate ? '<button type="button" class="secondary" id="generateElement">Generate</button>' : '')
-      + (isBase ? '<button type="button" class="danger subtle" id="deleteElement">Delete</button>' : '')
+      + (isBase ? '<button type="button" class="secondary" id="duplicateElement"' + (state.readOnly || locked ? ' disabled' : '') + '>Duplicate</button>' : '')
+      + '<button type="button" class="secondary subtle" id="toggleElementLock"' + (state.readOnly ? ' disabled' : '') + '>' + (locked ? 'Unlock' : 'Lock') + '</button>'
+      + (isBase ? '<button type="button" class="danger subtle" id="deleteElement"' + (state.readOnly || locked ? ' disabled' : '') + '>Delete</button>' : '')
       + '</div>'
       + '<p class="inspector-hint">' + (isBase
-        ? 'Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.'
+        ? (locked ? 'Locked nodes can be selected and inspected, but only Unlock can change them.' : 'Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.')
         : 'Drag, resize, or use arrow keys to create a layout override. Structure stays shared. Reset either property to resume inheritance.')
       + '</p>';
   }
@@ -652,6 +658,10 @@
     }
     if (selected.some(item => responsiveView(item.element).provenance.rect?.containerId)) {
       notice('A selected element is positioned by its container. Align the container, or switch it to free layout first.');
+      return;
+    }
+    if (selected.some(item => isLocked(item.element.id))) {
+      notice('A selected element is locked. Unlock it before aligning or distributing the selection.');
       return;
     }
     if ((action === 'distribute-x' || action === 'distribute-y') && selected.length < 3) {
@@ -731,6 +741,14 @@
 
     if (box && !handle) {
       const positioned = findElement(box.dataset.elementId);
+      if (positioned && isLocked(positioned.id)) {
+        selectOnly(positioned.id);
+        notifyPreviewSelection();
+        renderCanvas();
+        notice('This element is locked. Use Unlock in the inspector before editing it.');
+        event.preventDefault();
+        return;
+      }
       if (positioned && responsiveView(positioned).provenance.rect?.containerId) {
         selectOnly(positioned.id);
         notifyPreviewSelection();
@@ -973,6 +991,10 @@
     }
     const element = findElement(selectedElementId);
     if (!element) { return; }
+    if (isLocked(element.id)) {
+      notice('This element is locked. Unlock it before deleting.');
+      return;
+    }
     const elements = elementsOf(activePage());
     const promoted = elements.filter(candidate => candidate.parentId === element.id);
     for (const child of promoted) {
@@ -990,6 +1012,10 @@
   function nudgeSelected(dx, dy) {
     const element = findElement(selectedElementId);
     if (!element) { return; }
+    if ([...selectedElementIds].some(isLocked)) {
+      notice('A selected element is locked. Unlock it before nudging the selection.');
+      return;
+    }
     if ([...selectedElementIds].some(id => {
       const candidate = findElement(id);
       return candidate && responsiveView(candidate).provenance.rect?.containerId;
@@ -1042,6 +1068,43 @@
         rect, parentId: element.parentId ?? null,
       });
     renderCanvas();
+  }
+
+  function duplicateSelected() {
+    if (activeBreakpoint !== activeBaseBreakpoint()) {
+      notice('Switch to the base breakpoint before duplicating structure.');
+      return;
+    }
+    const root = findElement(selectedElementId);
+    if (!root || isLocked(root.id)) { return; }
+    const elements = elementsOf(activePage());
+    const sourceIds = new Set([root.id]);
+    let found = true;
+    while (found) {
+      found = false;
+      for (const element of elements) {
+        if (element.parentId && sourceIds.has(element.parentId) && !sourceIds.has(element.id)) {
+          sourceIds.add(element.id);
+          found = true;
+        }
+      }
+    }
+    if ([...sourceIds].some(isLocked)) {
+      notice('The subtree contains a locked element. Unlock it before duplicating.');
+      return;
+    }
+    if (elements.length + sourceIds.size > MAX_ELEMENTS) {
+      notice('Duplicating this subtree would exceed the 60-element canvas limit.', 'error');
+      return;
+    }
+    const identities = [...sourceIds].map(sourceId => ({ sourceId, newId: makeId('copy') }));
+    const newRootId = identities.find(identity => identity.sourceId === root.id).newId;
+    submitDesignEdit({
+      type: 'duplicate-node', screenId: activePageId, nodeId: root.id,
+      identities, offsetX: 24, offsetY: 24,
+    });
+    selectOnly(newRootId);
+    notice('Duplicating ' + sourceIds.size + ' element' + (sourceIds.size === 1 ? '' : 's') + ' as one undoable edit.');
   }
 
   let dirty = false;
@@ -1245,6 +1308,14 @@
     }
 
     if (event.target.id === 'deleteElement') { deleteSelected(); return; }
+    if (event.target.id === 'duplicateElement') { duplicateSelected(); return; }
+    if (event.target.id === 'toggleElementLock') {
+      submitDesignEdit({
+        type: 'set-node-locked', screenId: activePageId, nodeId: selectedElementId,
+        locked: !isLocked(selectedElementId),
+      });
+      return;
+    }
 
     if (event.target.closest('#askAboutElement')) {
       promptFor('element', { elementId: selectedElementId });

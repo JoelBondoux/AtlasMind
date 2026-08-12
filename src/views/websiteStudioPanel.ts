@@ -841,6 +841,7 @@ export interface WebsiteStudioHtmlOptions {
 
 export interface WebsiteStudioResponsiveNodeState {
   id: string;
+  locked: boolean;
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
   overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
@@ -867,6 +868,7 @@ export function buildWebsiteStudioResponsiveScreens(
     baseBreakpoint: screen.baseBreakpoint,
     nodes: screen.nodes.map(node => ({
       id: node.id,
+      locked: node.locked,
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),

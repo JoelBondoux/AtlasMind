@@ -5,7 +5,7 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.286.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.287.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
@@ -171,8 +171,8 @@ exact geometry-override command while leaving structure base-only. v0.283.0 adds
 six-axis alignment, two-axis distribution, and group nudge. v0.284.0 turns stack/grid/overlay and fill/hug
 into a shared deterministic canvas/preview engine with explicit container settings. v0.285.0 adds inherited,
 nullable min/max width/height constraints with per-property provenance and non-destructive projection.
-v0.286.0 adds deterministic stack wrapping and responsive sibling ordering. Duplicate, lock, group drag,
-and diagnostics remain in this phase.
+v0.286.0 adds deterministic stack wrapping and responsive sibling ordering. v0.287.0 adds atomic subtree
+duplication and reducer-enforced node locking. Group drag and diagnostics remain in this phase.
 
 Implementation note: v0.284.0 deliberately makes container layout a non-destructive projection. Stored child
 rectangles remain the free-layout fallback, so switching or resetting a parent cannot lose the arrangement
@@ -186,6 +186,11 @@ therefore reveals the retained rectangle instead of trying to reconstruct a size
 Implementation note: v0.286.0 sorts direct container children by bounded `order`, then the existing geometry/
 id tie-breakers. A wrapping stack packs fixed/hug items until the next cannot fit; fill claims a line. Neither
 operation mutates the node array, hierarchy, or stored rectangles.
+
+Implementation note: v0.287.0 treats duplication as one structural command, never a sequence of browser-side
+adds. Its complete old→new identity map is validated before remapping descendants and offsetting base plus
+explicit responsive rectangles. Lock is authoring state enforced by the same reducer; an operation that would
+edit, move, copy, delete, or implicitly reparent a locked node refuses atomically.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

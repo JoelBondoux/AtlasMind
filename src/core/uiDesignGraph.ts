@@ -558,6 +558,7 @@ function screenFromPage(page: WebsitePagePlan): UiDesignScreen {
       id: element.id,
       kind: element.kind,
       label: element.label,
+      locked: false,
       ...(element.parentId ? { parentId: element.parentId } : {}),
       layout: {
         mode: 'free',
@@ -624,6 +625,7 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
         id: element.id,
         kind: element.kind,
         label: element.label,
+        locked: raw['locked'] === true,
         ...(element.parentId ? { parentId: element.parentId } : {}),
         layout: {
           mode: LAYOUT_MODES.has(layout['mode'] as UiLayoutMode)

@@ -70,6 +70,11 @@ Stacks may wrap onto another row/column. Each node also has an order from -1000 
 sort by that value before their stable position/id order. Both can vary by breakpoint without changing the
 stored node array, hierarchy, or rectangles. A fill item claims one wrapped line.
 
+At the base breakpoint, **Duplicate** copies the selected node and its complete nested subtree. Identities and
+parent references are remapped together, base and explicit responsive rectangles receive the same offset,
+and the result is one undo step. **Lock** leaves a node selectable and inspectable but prevents gestures,
+inspector edits, multi-selection transforms, deletion, and duplication until it is unlocked.
+
 Three rules are worth knowing because they are deliberate:
 
 - **Coordinates are canvas units on a fixed 1000-wide grid, never pixels.** `website.json` is
@@ -77,7 +82,7 @@ Three rules are worth knowing because they are deliberate:
   differently on a laptop and a 4K panel.
 - **Deleting a container promotes what was inside it.** Cascade delete is the obvious implementation
   and the wrong one: it silently takes six cards with the wrapper, with no undo. The children move up
-  a level and the notice says so.
+  a level and the notice says so. If a direct child is locked, deletion refuses instead of moving it.
 - **Every block is a real focusable control** that announces its kind, its width as a fraction, and
   roughly where it sits. A canvas only a mouse can use would be a step backwards from the table it
   replaces.

@@ -64,6 +64,11 @@ export interface UiNodeFrameEdit {
   rect: WireframeRect;
 }
 
+export interface UiNodeDuplicateIdentity {
+  sourceId: string;
+  newId: string;
+}
+
 export interface UiNodeLayoutEdit {
   mode: UiLayoutMode;
   widthMode: UiSizeMode;
@@ -87,6 +92,13 @@ export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
 export type UiEditCommand =
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
   | (UiNodeCommandBase & { type: 'delete-node' })
+  | (UiNodeCommandBase & {
+    type: 'duplicate-node';
+    identities: UiNodeDuplicateIdentity[];
+    offsetX: number;
+    offsetY: number;
+  })
+  | (UiNodeCommandBase & { type: 'set-node-locked'; locked: boolean })
   | (UiNodeCommandBase & { type: 'set-node-kind'; kind: WireframeElementKind })
   | (UiNodeCommandBase & { type: 'set-node-frame'; rect: WireframeRect; parentId: string | null })
   | (UiEditCommandBase & {
@@ -136,6 +148,7 @@ export type UiEditRefusalReason =
   | 'parent-cycle'
   | 'parent-depth'
   | 'invalid-command'
+  | 'node-locked'
   | 'no-change'
   | 'history-empty';
 
@@ -183,6 +196,21 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
   const nodeId = input['nodeId'];
   const base = { expectedRevision, screenId, nodeId };
   switch (input['type']) {
+    case 'duplicate-node': {
+      const identities = parseDuplicateIdentities(input['identities']);
+      return identities
+        && finite(input['offsetX']) && finite(input['offsetY'])
+        && exactKeys(input, [
+          'type', 'expectedRevision', 'screenId', 'nodeId', 'identities', 'offsetX', 'offsetY',
+        ])
+        ? { type: 'duplicate-node', ...base, identities, offsetX: input['offsetX'], offsetY: input['offsetY'] }
+        : undefined;
+    }
+    case 'set-node-locked':
+      return typeof input['locked'] === 'boolean'
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'locked'])
+        ? { type: 'set-node-locked', ...base, locked: input['locked'] }
+        : undefined;
     case 'delete-node':
       return exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId'])
         ? { type: 'delete-node', ...base }
@@ -343,6 +371,29 @@ function parseNodeFrames(input: unknown): UiNodeFrameEdit[] | undefined {
   return frames;
 }
 
+function parseDuplicateIdentities(input: unknown): UiNodeDuplicateIdentity[] | undefined {
+  if (!Array.isArray(input) || input.length < 1 || input.length > MAX_WIREFRAME_ELEMENTS) {
+    return undefined;
+  }
+  const sourceIds = new Set<string>();
+  const newIds = new Set<string>();
+  const identities: UiNodeDuplicateIdentity[] = [];
+  for (const candidate of input) {
+    if (!isRecord(candidate)
+        || !exactKeys(candidate, ['sourceId', 'newId'])
+        || !validIdentifier(candidate['sourceId'])
+        || !validIdentifier(candidate['newId'])
+        || sourceIds.has(candidate['sourceId'])
+        || newIds.has(candidate['newId'])) {
+      return undefined;
+    }
+    sourceIds.add(candidate['sourceId']);
+    newIds.add(candidate['newId']);
+    identities.push({ sourceId: candidate['sourceId'], newId: candidate['newId'] });
+  }
+  return identities;
+}
+
 function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
   if (!isRecord(input)
       || !exactKeys(input, [
@@ -407,6 +458,12 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
     return refused(session, 'node-not-found');
   }
   const node = screen.nodes[nodeIndex]!;
+  if (command.type === 'duplicate-node') {
+    return duplicateNode(session, screenIndex, screen, node, command.identities, command.offsetX, command.offsetY);
+  }
+  if (node.locked && command.type !== 'set-node-locked') {
+    return refused(session, 'node-locked');
+  }
   if (command.type === 'delete-node') {
     return deleteNode(session, screenIndex, screen, node);
   }
@@ -438,9 +495,15 @@ type NodeCommandResult =
 function applyNodeCommand(
   screen: UiDesignScreen,
   node: UiDesignNode,
-  command: Exclude<UiEditCommand, { type: 'undo' | 'redo' | 'add-node' | 'delete-node' | 'set-node-frames' }>,
+  command: Exclude<UiEditCommand, {
+    type: 'undo' | 'redo' | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames';
+  }>,
 ): NodeCommandResult {
   switch (command.type) {
+    case 'set-node-locked':
+      return typeof command.locked === 'boolean'
+        ? { ok: true, node: { ...node, locked: command.locked } }
+        : { ok: false, reason: 'invalid-command' };
     case 'set-node-kind': {
       if (!isWireframeElementKind(command.kind)) {
         return { ok: false, reason: 'invalid-command' };
@@ -616,6 +679,9 @@ function setNodeFrames(
     if (!current) {
       return refused(session, 'node-not-found');
     }
+    if (current.node.locked) {
+      return refused(session, 'node-locked');
+    }
     seen.add(frame.nodeId);
     const rect = sanitizeRect(frame.rect, wireframeKindSpec(current.node.kind));
     const node = breakpoint === undefined
@@ -650,6 +716,70 @@ function setNodeFrames(
   };
 }
 
+function duplicateNode(
+  session: UiEditSession,
+  screenIndex: number,
+  screen: UiDesignScreen,
+  root: UiDesignNode,
+  identities: readonly UiNodeDuplicateIdentity[],
+  offsetX: number,
+  offsetY: number,
+): UiEditResult {
+  if (!finite(offsetX) || !finite(offsetY)) {
+    return refused(session, 'invalid-command');
+  }
+  const descendants = new Set([root.id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of screen.nodes) {
+      if (node.parentId && descendants.has(node.parentId) && !descendants.has(node.id)) {
+        descendants.add(node.id);
+        changed = true;
+      }
+    }
+  }
+  const source = screen.nodes.filter(node => descendants.has(node.id));
+  const identityMap = new Map(identities.map(identity => [identity.sourceId, identity.newId]));
+  if (source.length !== identities.length
+      || source.some(node => !identityMap.has(node.id) || node.locked)
+      || identities.some(identity => !descendants.has(identity.sourceId))
+      || identities.some(identity => screen.nodes.some(node => node.id === identity.newId))
+      || screen.nodes.length + source.length > MAX_WIREFRAME_ELEMENTS) {
+    return refused(session, source.some(node => node.locked) ? 'node-locked' : 'invalid-command');
+  }
+  const clones = source.map(node => {
+    const newId = identityMap.get(node.id)!;
+    const parentId = node.parentId && identityMap.get(node.parentId)
+      ? identityMap.get(node.parentId)
+      : node.parentId;
+    const viewportOverrides = structuredClone(node.viewportOverrides);
+    for (const breakpoint of WIREFRAME_BREAKPOINTS) {
+      const override = viewportOverrides[breakpoint];
+      if (override?.rect) {
+        override.rect = sanitizeRect({
+          ...override.rect,
+          x: override.rect.x + offsetX,
+          y: override.rect.y + offsetY,
+        }, wireframeKindSpec(node.kind));
+      }
+    }
+    return withRect({
+      ...structuredClone(node),
+      id: newId,
+      label: node.id === root.id ? `${node.label} copy`.slice(0, 120) : node.label,
+      locked: false,
+      viewportOverrides,
+      ...(parentId ? { parentId } : { parentId: undefined }),
+    }, {
+      ...node.layout.rect,
+      x: node.layout.rect.x + offsetX,
+      y: node.layout.rect.y + offsetY,
+    });
+  });
+  return commitScreen(session, screenIndex, { ...screen, nodes: [...screen.nodes, ...clones] });
+}
+
 function addNode(
   session: UiEditSession,
   screenIndex: number,
@@ -675,6 +805,7 @@ function addNode(
     id: input.id,
     kind: input.kind,
     label: input.label.trim(),
+    locked: false,
     layout: {
       mode: 'free',
       rect: sanitizeRect(input.rect, wireframeKindSpec(input.kind)),
@@ -715,6 +846,9 @@ function deleteNode(
   screen: UiDesignScreen,
   node: UiDesignNode,
 ): UiEditResult {
+  if (screen.nodes.some(candidate => candidate.parentId === node.id && candidate.locked)) {
+    return refused(session, 'node-locked');
+  }
   const nodes = screen.nodes
     .filter(candidate => candidate.id !== node.id)
     .map(candidate => candidate.parentId === node.id

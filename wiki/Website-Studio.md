@@ -64,10 +64,16 @@ layout behaviour, clamp only the projected size, and never erase the retained dr
 Stacks can wrap, and a bounded responsive order determines the sequence of container children before stable
 geometry/id tie-breakers. These remain projections too: they never reorder stored nodes or alter hierarchy.
 
+Duplicate copies the selected block and its complete nested subtree as one undoable base-breakpoint edit,
+remapping identities and offsetting explicitly authored responsive rectangles too. Lock keeps a block
+selectable and inspectable while preventing gestures, inspector changes, group transforms, deletion, and
+duplication until Unlock is chosen.
+
 A few things behave the way they do on purpose:
 
 - **Delete a wrapper and what was inside it moves up a level** rather than disappearing with it. The
-  obvious implementation takes six cards with the container and gives you no undo.
+  obvious implementation takes six cards with the container and gives you no undo. A locked direct child
+  holds that structural edit closed, so the wrapper cannot be deleted until the child is unlocked.
 - **Sizes are proportions, not pixels.** The canvas is a 1000-unit grid, so a block that is "most of
   the width" stays that on any screen. Storing pixels would bake your monitor into a file your whole
   team reads.

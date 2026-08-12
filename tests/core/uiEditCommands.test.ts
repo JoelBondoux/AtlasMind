@@ -216,6 +216,90 @@ describe('UI edit commands', () => {
     expect(deleted.session.graph.screens[0]?.nodes.find(node => node.id === 'child')?.parentId).toBeUndefined();
   });
 
+  it('duplicates a complete subtree atomically with remapped identities and responsive geometry', () => {
+    const sourceGraph = graph();
+    const sourceScreen = sourceGraph.screens[0]!;
+    sourceScreen.nodes[1]!.parentId = 'container';
+    sourceScreen.nodes[0]!.viewportOverrides.mobile = {
+      rect: { x: 12, y: 20, width: 800, height: 420 },
+    };
+    const session = createUiEditSession(sourceGraph);
+    const duplicated = applyUiEditCommand(session, {
+      type: 'duplicate-node', expectedRevision: 0, screenId: 'page-home', nodeId: 'container',
+      identities: [
+        { sourceId: 'container', newId: 'container-copy' },
+        { sourceId: 'child', newId: 'child-copy' },
+      ],
+      offsetX: 24, offsetY: 32,
+    });
+
+    expect(duplicated.ok).toBe(true);
+    if (!duplicated.ok) { return; }
+    expect(duplicated.session.graph.revision).toBe(1);
+    expect(duplicated.session.undo).toHaveLength(1);
+    expect(duplicated.session.graph.screens[0]?.nodes).toHaveLength(4);
+    expect(duplicated.session.graph.screens[0]?.nodes.find(node => node.id === 'container-copy')).toMatchObject({
+      label: 'Container copy',
+      locked: false,
+      layout: { rect: { x: 0, y: 32, width: 1_000, height: 500 } },
+      viewportOverrides: { mobile: { rect: { x: 36, y: 52, width: 800, height: 420 } } },
+    });
+    expect(duplicated.session.graph.screens[0]?.nodes.find(node => node.id === 'child-copy')).toMatchObject({
+      label: 'Child', parentId: 'container-copy', locked: false,
+      layout: { rect: { x: 124, y: 132, width: 400, height: 120 } },
+    });
+    expect(session.graph.screens[0]?.nodes).toHaveLength(2);
+
+    expect(applyUiEditCommand(session, {
+      type: 'duplicate-node', expectedRevision: 0, screenId: 'page-home', nodeId: 'container',
+      identities: [{ sourceId: 'container', newId: 'container-copy' }], offsetX: 24, offsetY: 24,
+    })).toMatchObject({ ok: false, reason: 'invalid-command', session });
+    expect(applyUiEditCommand(session, {
+      type: 'duplicate-node', expectedRevision: 0, screenId: 'page-home', nodeId: 'container',
+      identities: [
+        { sourceId: 'container', newId: 'container' },
+        { sourceId: 'child', newId: 'child-copy' },
+      ], offsetX: 24, offsetY: 24,
+    })).toMatchObject({ ok: false, reason: 'invalid-command', session });
+  });
+
+  it('enforces locks in the reducer, including atomic batches and structural parent edits', () => {
+    const sourceGraph = graph();
+    sourceGraph.screens[0]!.nodes[1]!.parentId = 'container';
+    const initial = createUiEditSession(sourceGraph);
+    const locked = applyUiEditCommand(initial, {
+      type: 'set-node-locked', expectedRevision: 0, screenId: 'page-home', nodeId: 'child', locked: true,
+    });
+    expect(locked.ok).toBe(true);
+    if (!locked.ok) { return; }
+    expect(locked.session.graph.screens[0]?.nodes[1]?.locked).toBe(true);
+
+    expect(applyUiEditCommand(locked.session, {
+      type: 'set-node-label', expectedRevision: 1, screenId: 'page-home', nodeId: 'child', label: 'Changed',
+    })).toMatchObject({ ok: false, reason: 'node-locked', session: locked.session });
+    expect(applyUiEditCommand(locked.session, {
+      type: 'set-node-frames', expectedRevision: 1, screenId: 'page-home',
+      frames: [{ nodeId: 'child', rect: { x: 20, y: 20, width: 400, height: 120 } }],
+    })).toMatchObject({ ok: false, reason: 'node-locked', session: locked.session });
+    expect(applyUiEditCommand(locked.session, {
+      type: 'delete-node', expectedRevision: 1, screenId: 'page-home', nodeId: 'container',
+    })).toMatchObject({ ok: false, reason: 'node-locked', session: locked.session });
+    expect(applyUiEditCommand(locked.session, {
+      type: 'duplicate-node', expectedRevision: 1, screenId: 'page-home', nodeId: 'container',
+      identities: [
+        { sourceId: 'container', newId: 'container-copy' },
+        { sourceId: 'child', newId: 'child-copy' },
+      ], offsetX: 24, offsetY: 24,
+    })).toMatchObject({ ok: false, reason: 'node-locked', session: locked.session });
+
+    const unlocked = applyUiEditCommand(locked.session, {
+      type: 'set-node-locked', expectedRevision: 1, screenId: 'page-home', nodeId: 'child', locked: false,
+    });
+    expect(unlocked.ok).toBe(true);
+    if (!unlocked.ok) { return; }
+    expect(unlocked.session.graph.screens[0]?.nodes[1]?.locked).toBe(false);
+  });
+
   it('parses only exact bounded commands at an untrusted boundary', () => {
     const command = {
       type: 'set-node-frame', expectedRevision: 4, screenId: 'page-home', nodeId: 'child',
@@ -229,6 +313,28 @@ describe('UI edit commands', () => {
     expect(parseUiEditCommand({
       type: 'add-node', expectedRevision: 4, screenId: 'page-home',
       node: { id: 'new', kind: 'script', label: 'x', rect: command.rect, designPrompt: '', notes: '' },
+    })).toBeUndefined();
+
+    const duplicate = {
+      type: 'duplicate-node', expectedRevision: 4, screenId: 'page-home', nodeId: 'container',
+      identities: [
+        { sourceId: 'container', newId: 'container-copy' },
+        { sourceId: 'child', newId: 'child-copy' },
+      ], offsetX: 24, offsetY: 24,
+    } as const;
+    expect(parseUiEditCommand(duplicate)).toEqual(duplicate);
+    expect(parseUiEditCommand({ ...duplicate, identities: [duplicate.identities[0], duplicate.identities[0]] })).toBeUndefined();
+    expect(parseUiEditCommand({
+      ...duplicate,
+      identities: [{ sourceId: 'container', newId: 'container-copy', command: 'run' }],
+    })).toBeUndefined();
+    expect(parseUiEditCommand({
+      type: 'set-node-locked', expectedRevision: 4, screenId: 'page-home', nodeId: 'child', locked: true,
+    })).toEqual({
+      type: 'set-node-locked', expectedRevision: 4, screenId: 'page-home', nodeId: 'child', locked: true,
+    });
+    expect(parseUiEditCommand({
+      type: 'set-node-locked', expectedRevision: 4, screenId: 'page-home', nodeId: 'child', locked: 1,
     })).toBeUndefined();
   });
 

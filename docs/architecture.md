@@ -344,6 +344,10 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   width constraints 1–1000, nullable height constraints 1–4000, and an optional non-base breakpoint. Minimum
   may not exceed maximum; wrap is `nowrap|wrap`; order is an integer from -1000 to 1000. A non-container may
   use size/order properties but is refused a non-free container mode.
+  `duplicate-node` admits only a complete unique identity map for the selected subtree, checks collisions and
+  the graph cap before cloning, remaps parents, and offsets base plus explicit responsive rectangles in one
+  commit. `locked` is graph authoring state: every node edit except `set-node-locked` refuses, as do atomic
+  batches containing a locked node and wrapper deletion that would reparent a locked direct child.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/

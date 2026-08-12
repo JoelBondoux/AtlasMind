@@ -229,6 +229,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
                   id: record['id'],
                   kind: record['kind'],
                   label: record['label'],
+                  locked: false,
                   ...(record['parentId'] !== undefined ? { parentId: record['parentId'] } : {}),
                   layout: {
                     mode: 'free',

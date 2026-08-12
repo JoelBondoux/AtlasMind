@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.286.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.287.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.286.0
+## What's new in 0.287.0
 
-The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
-items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
+capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Duplicate and lock are now safe canvas operations.** Duplicate copies a selected block and its complete
+  nested subtree as one undoable edit, preserving hierarchy and moving authored responsive rectangles too.
+  Lock keeps a block selectable for review while the host reducer refuses every edit except Unlock.
 
 - **Stacks now wrap and container children have responsive order.** A stack can continue on another row or
   column when its main axis fills, while a bounded order value deterministically sorts stack/grid children
