@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldOpenEndpointCircuit, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldOpenEndpointCircuit, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -5164,5 +5164,83 @@ describe('classifyToolFailure', () => {
     for (const { result } of TRIGGERS) {
       expect(classifyToolFailure(result), result).toBeDefined();
     }
+  });
+});
+
+describe('buildPrivacyScanSlices', () => {
+  // This list IS the redaction boundary. It had drifted: the session bundle was
+  // missing, and because the panel passes the bundle *instead of* the raw string
+  // (`sessionContextBundle ? '' : buildContext(...)`), the conversation stopped
+  // being scanned entirely the moment a session grew a context.md — while the
+  // model still received every word of it.
+
+  const emptyRetrieval = { memoryEntries: [], liveEvidence: [] };
+  const bundle = {
+    goal: 'Ship the billing page',
+    summary: 'Customer ada@example.com reported a failed charge',
+    decisions: 'Card ending 4242 was declined',
+    openThreads: 'Chase the payment provider',
+    ssotExcerpts: ['Account owner: Ada Lovelace', 'Support ref #8891'],
+    loadedAt: '2026-08-12T00:00:00.000Z',
+  };
+
+  const textOf = (slices: Array<{ text: string }>) => slices.map(s => s.text).join('\n');
+
+  it('scans every text-bearing field of the session bundle', () => {
+    const scanned = textOf(buildPrivacyScanSlices(emptyRetrieval, { sessionContextBundle: bundle }));
+    expect(scanned).toContain('Ship the billing page');
+    expect(scanned).toContain('ada@example.com');
+    expect(scanned).toContain('4242');
+    expect(scanned).toContain('Chase the payment provider');
+    expect(scanned).toContain('Ada Lovelace');
+    expect(scanned).toContain('#8891');
+  });
+
+  it('scans the bundle even though the raw session string is empty', () => {
+    // The exact shape the panel produces. Before the fix this scanned nothing.
+    const slices = buildPrivacyScanSlices(emptyRetrieval, {
+      sessionContext: '',
+      sessionContextBundle: bundle,
+    });
+    expect(textOf(slices)).toContain('ada@example.com');
+  });
+
+  it('labels each bundle field so a notice can name where a detector fired', () => {
+    const labels = buildPrivacyScanSlices(emptyRetrieval, { sessionContextBundle: bundle }).map(s => s.label);
+    expect(labels).toContain('session goal');
+    expect(labels).toContain('session summary');
+    expect(labels).toContain('concluded this session');
+    expect(labels).toContain('open threads');
+    expect(labels).toContain('related project knowledge #1');
+    expect(labels).toContain('related project knowledge #2');
+  });
+
+  it('still scans the raw string for sessions that never built a bundle', () => {
+    const slices = buildPrivacyScanSlices(emptyRetrieval, { sessionContext: 'contact bob@example.com' });
+    expect(textOf(slices)).toContain('bob@example.com');
+  });
+
+  it('scans memory, live evidence, chat history, attachments and workstation context', () => {
+    const scanned = textOf(buildPrivacyScanSlices(
+      {
+        memoryEntries: [{ title: 'Billing', snippet: 'card 4242' }],
+        liveEvidence: [{ path: 'src/pay.ts', excerpt: 'const key = "sk-live"' }],
+      },
+      {
+        nativeChatContext: 'user said ssn 000-00-0000',
+        attachmentContext: 'invoice for carol@example.com',
+        workstationContext: 'host DESKTOP-1',
+      },
+    ));
+    for (const expected of ['card 4242', 'sk-live', '000-00-0000', 'carol@example.com', 'DESKTOP-1']) {
+      expect(scanned).toContain(expected);
+    }
+  });
+
+  it('tolerates a bundle with no excerpts and no goal', () => {
+    const slices = buildPrivacyScanSlices(emptyRetrieval, {
+      sessionContextBundle: { summary: 's', decisions: '', openThreads: '', ssotExcerpts: [], loadedAt: 'x' },
+    });
+    expect(slices.some(s => s.text === 's')).toBe(true);
   });
 });
