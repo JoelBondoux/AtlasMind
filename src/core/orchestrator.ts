@@ -2923,6 +2923,20 @@ export class Orchestrator {
           };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
+          // Instrumentation, not a guard: this branch DISCARDS the model's answer, and
+          // `looksLikeToolFailure` decides on a substring of raw tool output — so a
+          // `file-read` returning source that merely contains "cannot" or "failed" is
+          // enough to trip it. Logging which tool and which token matched is the only
+          // way to tell a genuine failure from a false positive after the fact, because
+          // the answer that would have shown the difference is gone by then.
+          // Names and trigger tokens only — never tool output, which can carry secrets.
+          console.warn(
+            `[AtlasMind] Replaced the model's answer with a tool-failure summary `
+            + `(${lastToolResults.length} tool result(s), discarded ${completion.content.trim().length} chars): `
+            + lastToolResults
+              .map(entry => `${entry.toolCall.name} → ${describeToolFailureTrigger(entry)}`)
+              .join('; '),
+          );
           completion = {
             ...completion,
             content: summarizeFailedToolResults(lastToolResults),
@@ -4659,6 +4673,40 @@ interface ToolExecutionEntry {
  */
 function isFailedToolEntry(entry: { result: string; isFailure?: boolean }): boolean {
   return entry.isFailure ?? looksLikeToolFailure(entry.result);
+}
+
+/**
+ * Why {@link looksLikeToolFailure} judged this entry a failure, as a short token — never
+ * the tool output itself, which reaches a log file and can carry secrets.
+ *
+ * Diagnostic only; nothing branches on the result. A `startsWith` match is a tool that
+ * declared its own failure and is almost always genuine; a bare-substring match on
+ * `failed` or a keyword like `cannot` is the false-positive class, since the predicate
+ * runs against RAW output and `file-read` returns file contents verbatim. Naming which
+ * of the two fired is the whole point — the counts are not comparable otherwise.
+ */
+function describeToolFailureTrigger(entry: { result: string; isFailure?: boolean }): string {
+  const normalized = entry.result.trim().toLowerCase();
+
+  for (const prefix of ['error:', 'skill "', 'unknown tool:', 'invalid arguments']) {
+    if (normalized.startsWith(prefix)) {
+      return `declared ("${prefix.trim()}")`;
+    }
+  }
+
+  if (normalized.includes('failed')) {
+    return 'substring ("failed")';
+  }
+
+  const keyword = /\b(not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation)\b/
+    .exec(normalized);
+  if (keyword) {
+    return `keyword ("${keyword[1]}")`;
+  }
+
+  // No predicate matched the text, so the verdict came from the entry's own `isFailure`
+  // flag — captured on the raw output before verification text was appended.
+  return entry.isFailure ? 'flagged at execution' : 'unclassified';
 }
 
 function looksLikeToolFailure(result: string): boolean {

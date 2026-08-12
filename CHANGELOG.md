@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.270.4] - 2026-08-12
+
+### Added
+
+- **The orchestrator now records when it replaces a model's answer with a tool-failure summary.**
+  When every tool result in an agentic loop's final round tests as failed, the model's completion is
+  discarded and a canned failure summary is substituted. That decision rests on `looksLikeToolFailure`,
+  which matches substrings — `failed`, `cannot`, `not found` — against **raw** tool output, and
+  `file-read` returns file contents verbatim, so reading an ordinary source file can satisfy it. With a
+  single tool call in the round the `every()` check is then trivially true and a good answer is lost.
+  The substitution now logs the tool names and which token triggered each verdict, distinguishing a
+  tool that **declared** its own failure (`Error:` prefix — almost always genuine) from a bare
+  substring or keyword match (the false-positive class). Tool output itself is never logged, only the
+  trigger token, because the log persists and tool results can carry secrets. Diagnostic only: nothing
+  branches on it and the substitution behaviour is unchanged.
+
 ## [0.270.3] - 2026-08-09
 
 ### Changed

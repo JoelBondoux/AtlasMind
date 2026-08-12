@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.270.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.270.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -123,10 +123,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.270.3
+## What's new in 0.270.4
 
-Since the last Marketplace publication, **v0.266.3**, source builds have added the following. The full
+Since the last Marketplace publication, **v0.270.3**, source builds have added the following. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The orchestrator now records when it discards a model's answer.** If every tool result in an
+  agentic loop's final round tests as failed, AtlasMind replaces the model's reply with a summary of
+  those failures — and that test matches substrings like `failed` or `cannot` against raw tool output,
+  which reading a file returns verbatim. The substitution is now logged with the tools involved and
+  the token that triggered each verdict, so a tool that genuinely failed can be told apart from one
+  whose output merely mentioned failure. Trigger tokens only, never tool output, which can carry
+  secrets. Behaviour is unchanged; this is measurement ahead of a fix.
 
 - **Resolve & run now prepares the release as one operation.** The Detected Runbook names version
   preparation explicitly. When a promotion needs a bump, AtlasMind updates the manifest, npm lockfile,
