@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.302.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.303.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.302.0
+## What's new in 0.303.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A failed promotion step can now be handed straight to Atlas.** Promoting to production and having
+  the tests fail used to leave you with a wall of output and no next move. Each failed step now carries
+  **Ask Atlas to fix this** — it opens a new chat with the step, its command and its output, secrets
+  redacted. Atlas proposes the fix; it will not re-run the promotion, because that gate is yours.
 
 - **AtlasMind tidies up after itself on a full card.** It now releases models *it* loaded to make room
   for the next one — never a model you loaded by hand, never one in use, and never half-way (if

@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.303.0] - 2026-08-12
+
+### Added
+
+- **"Ask Atlas to fix this" on a failed promotion step.** A promotion that failed at its preflight
+  tests showed the operator what broke and offered nothing to do about it — the only way forward was to
+  copy the output somewhere else by hand. Each failed, non-skipped step in the promotion result now
+  carries a button that opens a new chat session with the failure.
+
+  `buildPromotionFixPrompt` (`src/core/promotionRunner.ts`, pure + unit-tested) builds it under three
+  constraints. **The output is fenced as reported content** — it is machine output rather than a
+  stranger's prose, but a failing test's *name*, a dependency's log line or a fixture string can read as
+  an instruction, and this text reaches a model that can call tools; same fence and same reasoning as
+  `buildIssueWorkPrompt`. **It is sanitized before it is quoted**, reusing `sanitizeCiLog` so ANSI codes
+  are stripped before redaction (a secret wrapped in colour codes would not otherwise match) and the
+  *tail* is kept, bounded to `PROMOTION_FIX_LOG_CHARS` rather than the 200,000-character default sized
+  for storing a log rather than prompting with one. **It proposes and never re-runs the promotion**:
+  promotion is gated on a typed confirmation and, for a protected stage, an approval, and a model that
+  re-ran it to "verify the fix" would walk straight through that gate. A `deploy` or `verify` failure
+  additionally warns that the target may already be partly changed.
+
+  The webview posts **only the step id**; the prompt is rebuilt on the host from the run the panel
+  retained, so a crafted message can name a step that does not exist but can never supply the command or
+  the output that reaches the model. Skipped steps carry no button — a step skipped because an earlier
+  one failed would send the model after a symptom.
+
+
 ## [0.302.0] - 2026-08-12
 
 ### Added

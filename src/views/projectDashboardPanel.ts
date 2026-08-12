@@ -263,7 +263,7 @@ import {
   buildDeliveryRunConfirmation,
   buildDeliveryRunPlan,
 } from '../core/deliveryRunPlan.js';
-import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation } from '../core/promotionRunner.js';
+import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation, buildPromotionFixPrompt } from '../core/promotionRunner.js';
 import {
   PROJECT_DIRECTOR_SSOT_PATH,
   PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -310,7 +310,7 @@ import {
   sanitizeRiskFindings,
 } from '../core/riskOversightManager.js';
 import { openSecurityFindings, readSecurityReviewConfig } from '../core/securityReviewManager.js';
-import type { AssignmentPriority, AssignmentStatus, DashboardFocusKind, DashboardWorkKind, DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
+import type { AssignmentPriority, AssignmentStatus, DashboardFocusKind, DashboardWorkKind, DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionPlan, PromotionRunResult, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -613,6 +613,7 @@ type ProjectDashboardMessage =
   /** Opaque workflow filename; the host re-reads the directory before use. */
   | { type: 'reviewCiWorkflow'; payload: string }
   | { type: 'workOnIssue'; payload: string }
+  | { type: 'fixPromotionStep'; payload: string }
   | { type: 'createIssue'; payload: { title: string; body?: string; labels?: string[] } }
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
@@ -3341,6 +3342,15 @@ export class ProjectDashboardPanel {
   /** Current host-issued assignment tokens; replaced atomically on every render. */
   private dashboardWorkTargets = new Map<string, DashboardWorkTarget>();
 
+  /**
+   * The last promotion this panel ran, retained so a failed step can be handed
+   * to Atlas without the webview supplying any of the text.
+   *
+   * In-memory and last-only: a promotion result is a fact about this session,
+   * and offering to fix a step from a run two hours ago would point a model at
+   * output that no longer describes the tree.
+   */
+  private lastPromotionRun: { plan: PromotionPlan; result: PromotionRunResult; fromName: string; toName: string } | undefined;
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
     detail: 'Issues have not been loaded yet.',
@@ -3701,6 +3711,9 @@ export class ProjectDashboardPanel {
         return;
       case 'workOnIssue':
         await this.handleWorkOnIssue(message.payload);
+        return;
+      case 'fixPromotionStep':
+        await this.handleFixPromotionStep(message.payload);
         return;
       case 'createIssue':
       case 'closeIssue':
@@ -6983,6 +6996,41 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Hand an issue to chat as *reported content*, never as instructions. */
+  /**
+   * Ask Atlas to fix a promotion step that failed.
+   *
+   * The webview posts a **step id and nothing else**; the prompt is rebuilt here
+   * from the run this panel retained. That is the `addIdeationEvidence` rule: a
+   * crafted message can name a step that does not exist, but it can never supply
+   * the command or the output that reaches the model.
+   */
+  private async handleFixPromotionStep(rawStepId: unknown): Promise<void> {
+    const stepId = String(rawStepId ?? '').trim();
+    const run = this.lastPromotionRun;
+    if (!stepId || !run) {
+      return;
+    }
+    const result = run.result.steps.find(step => step.id === stepId);
+    const planStep = run.plan.steps.find(step => step.id === stepId);
+    // Only a step that actually ran and actually failed. A skipped step failed
+    // because something before it did, and handing that one over would send the
+    // model after a symptom.
+    if (!result || result.ok || result.skipped || !planStep) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildPromotionFixPrompt({
+        stepLabel: result.label,
+        stepKind: planStep.kind,
+        ...(planStep.command ? { command: planStep.command } : {}),
+        output: result.output,
+        fromName: run.fromName,
+        toName: run.toName,
+      }),
+      sendMode: 'new-session',
+    });
+  }
+
   private async handleWorkOnIssue(rawNumber: unknown): Promise<void> {
     const number = sanitizeIssueNumber(rawNumber);
     const issue = this.issuesState.issues.find(entry => entry.number === number);
@@ -8188,6 +8236,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         durationMs: result.durationMs,
         actor: await resolveGitActor(workspaceRoot),
       }).catch(() => undefined);
+      this.lastPromotionRun = { plan, result, fromName: from.name, toName: to.name };
       await this.postMessage({ type: 'promotionDone', payload: result });
     } finally {
       await releaseDeliveryLock(workspaceRoot);
@@ -8297,6 +8346,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         durationMs: result.durationMs,
         actor: await resolveGitActor(workspaceRoot),
       }).catch(() => undefined);
+      this.lastPromotionRun = { plan, result, fromName: from.name, toName: to.name };
       await this.postMessage({ type: 'promotionDone', payload: result });
     } finally {
       await releaseDeliveryLock(workspaceRoot);
@@ -19808,6 +19858,7 @@ const DASHBOARD_CSS = `
   .promo-step.failed { color: var(--vscode-errorForeground, #f14c4c); }
   .promo-step.running { color: var(--vscode-charts-blue, #4daafc); }
   .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
+  .promo-step-fix { margin: 6px 0 0 18px; }
   .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
   .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
 

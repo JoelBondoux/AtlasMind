@@ -535,6 +535,8 @@ The Delivery page hosts a full **stage editor**: stages can be added, edited, re
 
 ### PromotionRunner (`src/core/promotionRunner.ts`)
 
+**A failed step can be handed to Atlas.** `buildPromotionFixPrompt` turns one failed step into a chat prompt: the step, its command and its output, sanitized through `sanitizeCiLog` (ANSI stripped before redaction, tail kept, bounded to `PROMOTION_FIX_LOG_CHARS` rather than the 200,000-character storage default) and fenced as reported content — machine output rather than a stranger's prose, but a failing test's name or a fixture string can still read as an instruction to a model that can call tools. **It proposes and never re-runs the promotion**, which is gated on a typed confirmation and, for a protected stage, an approval; a `deploy` or `verify` failure also warns the target may be partly changed. The webview posts only the step id and the host rebuilds the prompt from the retained run, so a crafted message can name a step but never supply its text.
+
 Release remediation and the detected runbook now describe the same versioning boundary. When a target
 requires a version bump, `buildProjectDeliveryGuide` surfaces **Prepare release version** in
 Prerequisites and prefers an exact repository script (`prepare:release`, `release:prepare`,
