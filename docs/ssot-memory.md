@@ -41,6 +41,8 @@ Each session gets its own subfolder: `sessions/<session-id>/`. The Memory Agent 
 
 Total cap: 4000 characters. Older content is compressed aggressively; recency is preserved over history. This single document is designed for seamless cold resumption — loading it back into context gives the model everything needed to continue without re-establishing facts.
 
+**Section parsing** terminates on the next `## ` heading or the true end of the document, spelled `$(?![\s\S])` rather than `\z`. JavaScript has no `\z` — that is a Perl/Ruby anchor and in a JS regex it matches a literal `z` — so before v0.295.1 every section was cut at the first `z` after its heading ("Decided to analyze the payload" → "Decided to analy", with the remainder orphaned into the summary), and a trailing section containing no `z` failed to match at all. Open Threads and Current State, being last, were the usual casualties, and every prompt built from the bundle inherited the loss. `$` alone would be wrong too: under the `m` flag it matches at every line end, so the lookahead is what pins it to the end of the document.
+
 **Legacy format:** Sessions created before v0.58.0 use the old 4-file format (`summary.md`, `decisions.md`, `open_threads.md`, `ssot_links.md`). These are read transparently and migrated to `context.md` on the next maintenance run.
 
 **The Memory Agent** runs fire-and-forget after each turn using a cheap/local model (configurable via the `memory-agent` entry in the Agents panel). Setting `allowedModels` to a local Ollama model eliminates cloud API costs for all background memory operations.

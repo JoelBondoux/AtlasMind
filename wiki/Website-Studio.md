@@ -27,7 +27,7 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
 | **UI System** | Brand direction and legacy defaults plus editable typed tokens, reusable component definitions, bounded sample-data collections, and validated assets |
-| **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
+| **Implementation** | Target technologies, UI source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
 Format v7 stores bounded typed colour, typography, spacing, radius, shadow, motion, and breakpoint definitions
@@ -70,6 +70,16 @@ credential-free HTTPS source, intrinsic dimensions, crop/focal intent, alt/decor
 Assign an asset from the selected-node inspector. Missing ids and missing alt text are owning-node errors.
 Full Preview projects the aspect ratio, crop, focal point, provenance, and accessibility status as inert markup;
 it does not fetch media or widen the no-network CSP. Migration adds an empty library and invents nothing.
+
+Format v12 adds **repository mappings** in Implementation. Connect a component, token, or canvas node to a
+workspace-relative source file and optional export/selector/resource name through the React, static HTML/CSS,
+VS Code webview, or limited custom adapter. Component mappings can name prop and slot correspondences; every
+record says whether coverage is declared, partial, or unsupported and lists limitations where required.
+
+**Verify fingerprints** reads the bounded local file and stores hashes—not source—to establish a comparison
+baseline. The status then distinguishes design-only, code-only, conflict, in-sync, unassessed, and unsupported.
+It never chooses a side, parses or executes code, or writes the project. Editing a mapping clears its old
+baseline. Import and proposed source diffs are still later Phase 5 work, not implied by the mapping.
 
 ---
 

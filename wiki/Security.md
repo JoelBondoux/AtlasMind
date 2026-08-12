@@ -308,6 +308,14 @@ control carrying both would make the second happen without being agreed to.
 **Where the files go.** Only `.atlasmind/website-preview/`. Your source tree is never written to;
 moving an approved design out of the preview folder is a separate, deliberate step you take yourself.
 
+**Repository mappings are read-only declarations.** UI Studio can connect a graph component, token, or node
+to a workspace source file, but that relationship grants no write, execution, import, or model-context
+authority. Verification accepts only a normalized workspace-relative path, resolves the real workspace and
+candidate paths before containment checks, refuses symlink escape, non-files, and files over 2 MiB, and stores
+only SHA-256 fingerprints plus graph provenance. The webview cannot provide a fingerprint, and source content
+does not enter `website.json`, its Markdown mirror, webview state, or a model prompt. Divergence reports which
+side changed without selecting a winner; a future source edit must use the normal approval boundary.
+
 **Which files, decided before any model runs.** The plan is worked out from your sitemap, not by a
 model, so the confirmation dialog can name every single file — and the same sitemap always produces the
 same list, which is what makes "yes" mean something you can learn. The model writes file *contents*; it

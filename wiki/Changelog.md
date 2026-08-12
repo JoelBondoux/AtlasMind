@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.298.0 — Chat can do GitHub work
+## v0.299.0 — Chat can do GitHub work
 
 `gh` was missing from the terminal allow-list. Not as a policy — as a gap, and an expensive one. The
 planner *tells* agents to use `gh pr list`, the GitHub Operator agent is advertised for pull-request and
@@ -35,6 +35,43 @@ could not answer it and the agent explained rather than looked.
 Subcommands are graded like git's: `gh pr list` is a read, `gh pr merge` follows the approval path, and
 anything unrecognised counts as a write. Seven are refused outright at any setting — chiefly
 `gh auth token`, which would print your GitHub token into model context.
+
+## v0.298.0 — Repository mappings and honest divergence
+
+UI Studio format v12 connects a component, token, or node to a workspace source file and optional symbol through
+a named React, static HTML/CSS, VS Code webview, or deliberately limited custom adapter. Component mappings can
+declare prop and slot correspondences. Coverage is `declared`, `partial`, or `unsupported`; there is intentionally
+no lossless claim in this first Phase 5 slice.
+
+Verification reads a contained file locally, up to 2 MiB, and stores only SHA-256 fingerprints plus provenance.
+It reports whether design changed, source changed, both changed, neither changed, or the relationship is
+unassessed/unsupported. It never imports, evaluates, rewrites, or sends source to the webview/model, and ordinary
+Studio saves cannot forge a baseline. Migration adds an empty mapping authority and scans nothing. Adapter-backed
+imports and approval-gated proposed diffs remain later, explicitly recorded Phase 5 work.
+
+## v0.297.1 — Chat carries the turns you just had
+
+Four defects in how a conversation is carried between turns, all in code nothing tested.
+
+**The carried context held the oldest turns, not the newest.** Entries were ordered by relevance weight
+with the oldest first as a tiebreak, then taken from the front — and since every ordinary turn has the
+same weight, that tiebreak decided everything. Past about six turns the context froze on the opening of
+the conversation and never included what you had just said. Raising the turn or character limits bought
+more *old* turns; it could not buy recent ones.
+
+**The transcript could arrive out of order.** Any answer mentioning "failed" or "not found" is classified
+as an error and weighted lower, and while weight decided ordering, those answers were rendered after
+later turns — so the model read a conversation where replies came before the questions.
+
+**A message could be deleted by a substring match.** Typing "ignore this bit of the diff" matched a
+pattern that marked the turn permanently invisible to every future turn, regardless of who wrote it.
+Automatic classification now labels but never erases.
+
+**Session files were parsed with an anchor JavaScript does not have.** `\z` means end-of-string in Perl
+and Ruby; in JavaScript it matches a literal letter *z*. Every section of a session's `context.md` was
+cut at the first *z* after its heading — "Decided to analyze the payload" became "Decided to analy" — and
+a final section containing no *z* was lost entirely, which is why open threads and current state so often
+went missing.
 
 ## v0.297.0 — The conversation is no longer labelled untrusted
 
@@ -71,7 +108,6 @@ The gate also used to be a dead end — it asked you to retype the goal with a `
 offered no control that could do it, so the obvious retry stopped in the same place every time. It now
 shows the plan and offers **Approve and run**: a followup chip in `@atlas`, a quick-reply pill in the
 chat panel.
-
 ## v0.295.0 — Validated asset authority
 
 UI Studio format v11 adds bounded target-independent assets: stable ids, media kind, validated workspace-relative

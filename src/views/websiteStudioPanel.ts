@@ -52,6 +52,13 @@ import { parsePageContent, renderPageContent, type WebsitePageContent } from '..
 import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
 import { WIREFRAME_BREAKPOINTS, WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
+  applyUiRepositoryMappingCommand,
+  assessUiRepositoryMappings,
+  parseUiRepositoryMappingCommand,
+  UI_REPOSITORY_ADAPTERS,
+  type UiRepositoryMappingAssessment,
+} from '../core/uiRepositoryMapping.js';
+import {
   buildScopedDesignPrompt,
   type DesignPromptScope,
 } from '../core/websiteDesignPrompt.js';
@@ -144,6 +151,7 @@ export type WebsiteStudioMessage =
   | { type: 'stopPreview' }
   | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
   | { type: 'editDesignGraph'; payload: unknown }
+  | { type: 'editRepositoryMapping'; payload: unknown }
   | { type: 'selectFramework'; payload: { frameworkId: string } }
   | { type: 'planStackSetup' }
   | { type: 'compareDelivery' };
@@ -179,6 +187,8 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     }
     case 'editDesignGraph':
       return parseUiEditCommand(message['payload']) !== undefined;
+    case 'editRepositoryMapping':
+      return parseUiRepositoryMappingCommand(message['payload']) !== undefined;
     case 'selectFramework': {
       const payload = asPayload(message['payload']);
       // Checked against the catalog here, not merely for being a string: this
@@ -294,6 +304,7 @@ export class WebsiteStudioPanel {
 
   private readonly manager: WebsiteWorkspaceManager;
   private readonly contentManager: WebsiteContentManager;
+  private readonly workspaceRoot: string | undefined;
   private config: WebsiteWorkspaceConfig;
   private editSession: UiEditSession;
   private activePage: WebsiteStudioPage;
@@ -307,10 +318,10 @@ export class WebsiteStudioPanel {
     targetPage: WebsiteStudioPage,
     private readonly context: vscode.ExtensionContext,
   ) {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    this.manager = new WebsiteWorkspaceManager(workspaceRoot);
+    this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    this.manager = new WebsiteWorkspaceManager(this.workspaceRoot);
     this.contentManager = new WebsiteContentManager(
-      workspaceRoot,
+      this.workspaceRoot,
       vscode.workspace.getConfiguration('atlasmind').get<string>('website.content.directory'),
     );
     const read = this.manager.read();
@@ -365,6 +376,11 @@ export class WebsiteStudioPanel {
         canSetUpStack: isStackSetupEnabled(),
         pageContent: [...this.contentManager.read(this.config.pages).values()],
         contentDirectory: this.contentManager.contentDirectory,
+        repositoryMappingAssessments: assessUiRepositoryMappings(
+          this.config.designGraph,
+          this.config.implementation.repositoryMappings,
+          this.workspaceRoot,
+        ),
         ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         scriptContent: this.readScript(),
       },
@@ -418,6 +434,11 @@ export class WebsiteStudioPanel {
           return;
         case 'saveConfig': {
           const payload = sanitizeWebsiteWorkspace(input.payload);
+          // Repository mappings and their verification hashes are host-owned.
+          // The general form may edit the surrounding implementation hints but
+          // cannot replace mapping authority or forge a verified baseline.
+          payload.implementation.repositoryMappingRevision = this.config.implementation.repositoryMappingRevision;
+          payload.implementation.repositoryMappings = structuredClone(this.config.implementation.repositoryMappings);
           const rawPayload = input.payload as Record<string, unknown>;
           const expectedDesignRevision = rawPayload['designRevision'];
           const usesEditSession = Number.isSafeInteger(expectedDesignRevision);
@@ -484,6 +505,45 @@ export class WebsiteStudioPanel {
             pages: applyDesignGraphToPages(this.config.pages, result.session.graph),
           };
           await this.postDesignGraphState('designGraphUpdated');
+          return;
+        }
+        case 'editRepositoryMapping': {
+          if (this.readOnly) {
+            throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
+          }
+          const command = parseUiRepositoryMappingCommand(input.payload);
+          if (!command) { throw new Error('UI Studio ignored an invalid repository mapping edit.'); }
+          const result = applyUiRepositoryMappingCommand(
+            this.config.implementation.repositoryMappingRevision,
+            this.config.implementation.repositoryMappings,
+            this.editSession.graph,
+            command,
+            this.workspaceRoot,
+          );
+          if (!result.ok) {
+            this.render('stack');
+            await this.panel.webview.postMessage({
+              type: 'notice', tone: 'error',
+              message: `Repository mapping edit was refused (${result.reason}).`,
+            });
+            return;
+          }
+          this.config = await this.manager.save({
+            ...this.config,
+            designGraph: this.editSession.graph,
+            implementation: {
+              ...this.config.implementation,
+              repositoryMappingRevision: result.revision,
+              repositoryMappings: result.mappings,
+            },
+          });
+          this.render('stack');
+          await this.panel.webview.postMessage({
+            type: 'notice', tone: 'success',
+            message: command.type === 'verify-mapping'
+              ? 'Repository mapping fingerprints verified without storing source content.'
+              : 'Repository mapping updated.',
+          });
           return;
         }
         case 'savePageContent': {
@@ -844,6 +904,8 @@ export interface WebsiteStudioHtmlOptions {
   /** Screen copy read from the configured Markdown content directory. */
   pageContent?: readonly WebsitePageContent[];
   contentDirectory?: string;
+  /** Read-only host assessment; hashes only, never source content. */
+  repositoryMappingAssessments?: readonly UiRepositoryMappingAssessment[];
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
@@ -970,6 +1032,10 @@ export function getWebsiteStudioHtml(
     components: config.designGraph.components,
     contentCollections: config.designGraph.contentCollections,
     assets: config.designGraph.assets,
+    repositoryMappingRevision: config.implementation.repositoryMappingRevision,
+    repositoryMappings: config.implementation.repositoryMappings,
+    repositoryMappingAssessments: options.repositoryMappingAssessments ?? [],
+    repositoryAdapters: UI_REPOSITORY_ADAPTERS,
     responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
@@ -1776,6 +1842,13 @@ function renderStackPage(
 
 function renderImplementationGuide(config: WebsiteWorkspaceConfig): string {
   const guide = config.implementation;
+  const targets = [
+    ...config.designGraph.components.map(component => ({ value: `component:${component.id}`, label: `Component · ${component.label}` })),
+    ...config.designGraph.tokens.map(token => ({ value: `token:${token.id}`, label: `Token · ${token.label}` })),
+    ...config.designGraph.screens.flatMap(screen => screen.nodes.map(node => ({
+      value: `node:${screen.id}:${node.id}`, label: `Node · ${node.label} (${screen.pageId})`,
+    }))),
+  ];
   return `
     <article class="panel-card implementation-guide">
       <div class="card-heading">
@@ -1794,6 +1867,23 @@ function renderImplementationGuide(config: WebsiteWorkspaceConfig): string {
           ${listTextarea('Component locations', 'implementation-componentLocations', guide.componentLocations, 'src/components\nDesignSystem/Components')}
           ${listTextarea('Handoff notes', 'implementation-notes', guide.notes, 'One constraint, mapping, or continuation note per line')}
         </div>
+      </div>
+      <div class="repository-mapping-authority">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Repository boundary · mapping revision ${guide.repositoryMappingRevision}</p>
+          <h3>Source mappings and divergence</h3>
+          <p>Connect design facts to workspace source without granting write authority. Verification reads a bounded file and stores fingerprints only.</p>
+        </div></div>
+        <div class="component-create-row">
+          ${field('Stable id', 'newMappingId', 'button-source', 'button-source')}
+          ${field('Label', 'newMappingLabel', 'Button source', 'Button source')}
+          <label class="field"><span>Adapter</span><select id="newMappingAdapter">${UI_REPOSITORY_ADAPTERS.map(adapter => `<option value="${adapter.id}">${escapeHtml(adapter.label)}</option>`).join('')}</select></label>
+          <label class="field"><span>Design target</span><select id="newMappingTarget"><option value="">Choose a graph target</option>${targets.map(target => `<option value="${escapeHtml(target.value)}">${escapeHtml(target.label)}</option>`).join('')}</select></label>
+          ${field('Source file', 'newMappingSourcePath', 'src/components/Button.tsx', 'src/components/Button.tsx')}
+          <button type="button" id="addRepositoryMapping"${guide.repositoryMappings.length >= 200 || targets.length === 0 ? ' disabled' : ''}>Add mapping</button>
+        </div>
+        <p class="token-help">Component relation rows use <code>graph-id | source-name</code>. This first adapter slice records declared/partial/unsupported coverage and never claims lossless import.</p>
+        <div id="repositoryMappingEditor" class="component-editor repository-mapping-editor" aria-live="polite"></div>
       </div>
     </article>`;
 }

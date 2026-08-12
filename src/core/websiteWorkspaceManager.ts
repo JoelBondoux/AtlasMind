@@ -43,6 +43,10 @@ import { buildSitemapTree, flattenSitemap, normalizeSlug } from './websiteSitema
 import { buildLinkGraph } from './websiteLinkGraph.js';
 import { interpretVersionedDocument } from './schemaMigration.js';
 import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph } from './uiDesignGraph.js';
+import {
+  sanitizeUiRepositoryMappings,
+  UI_REPOSITORY_MAPPING_MAX_REVISION,
+} from './uiRepositoryMapping.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
 export const WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH = 'project_memory/domain/website.md';
@@ -54,7 +58,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 11;
+const WEBSITE_SCHEMA_VERSION = 12;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -494,6 +498,14 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '',
     ...markdownList(config.implementation.notes),
     '',
+    `### Repository mappings (revision ${config.implementation.repositoryMappingRevision})`,
+    '',
+    '| Mapping | Adapter | Design target | Source location | Coverage | Verified graph revision | Source fingerprint | Limitations |',
+    '|---|---|---|---|---|---:|---|---|',
+    ...renderRepositoryMappingRows(config.implementation.repositoryMappings),
+    '',
+    '> Mapping fingerprints are local read-only verification records. A mapping grants no source-write authority and does not claim lossless round-tripping.',
+    '',
     '## Hosting Environments',
     '',
     '| Environment | Hosting | Access | URL | Branch/reference | Promotion guard |',
@@ -809,6 +821,8 @@ function defaultImplementationGuide(): UiImplementationGuide {
     sourceRoots: [],
     componentLocations: [],
     notes: [],
+    repositoryMappingRevision: 0,
+    repositoryMappings: [],
   };
 }
 
@@ -1011,7 +1025,15 @@ function sanitizeImplementationGuide(input: unknown): UiImplementationGuide {
     sourceRoots: cleanStringList(source['sourceRoots'], MAX_LIST_ITEMS, 500),
     componentLocations: cleanStringList(source['componentLocations'], MAX_LIST_ITEMS, 500),
     notes: cleanStringList(source['notes'], MAX_LIST_ITEMS, 1_000),
+    repositoryMappingRevision: sanitizeMappingRevision(source['repositoryMappingRevision']),
+    repositoryMappings: sanitizeUiRepositoryMappings(source['repositoryMappings']),
   };
+}
+
+function sanitizeMappingRevision(input: unknown): number {
+  return Number.isSafeInteger(input) && (input as number) >= 0
+    ? Math.min(input as number, UI_REPOSITORY_MAPPING_MAX_REVISION)
+    : 0;
 }
 
 function sanitizePlatforms(input: unknown): WebsitePlatformTarget[] {
@@ -1390,6 +1412,21 @@ function renderAssetBindingRows(screens: readonly UiDesignScreen[]): string[] {
     ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.assetRef} |`]
     : []));
   return rows.length > 0 ? rows : ['| _None assigned_ | — |'];
+}
+
+function renderRepositoryMappingRows(
+  mappings: readonly import('../types.js').UiRepositoryMapping[],
+): string[] {
+  if (mappings.length === 0) { return ['| _None declared_ | — | — | — | — | — | — | — |']; }
+  return mappings.map(mapping => {
+    const target = mapping.target.kind === 'node'
+      ? `node:${mapping.target.screenId}/${mapping.target.id}`
+      : `${mapping.target.kind}:${mapping.target.id}`;
+    const symbol = mapping.sourceSymbol ? `#${mapping.sourceSymbol}` : '';
+    const verifiedRevision = mapping.lastVerified?.graphRevision ?? '—';
+    const fingerprint = mapping.lastVerified?.sourceFingerprint ?? 'unverified';
+    return `| ${escapeMarkdownCell(mapping.label)} (${mapping.id}) | ${mapping.adapterId} | ${escapeMarkdownCell(target)} | ${escapeMarkdownCell(mapping.sourcePath + symbol)} | ${mapping.coverage} | ${verifiedRevision} | ${fingerprint} | ${escapeMarkdownCell(mapping.limitations.join('; ') || '—')} |`;
+  });
 }
 
 function markdownValue(value: string | undefined): string {

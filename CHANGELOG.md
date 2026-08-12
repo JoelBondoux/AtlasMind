@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.298.0] - 2026-08-12
+## [0.299.0] - 2026-08-12
 
 ### Added
 
@@ -46,6 +46,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   matching read the namespace as "github.com" and waved it through, failing in the permissive direction.
   It is deliberately not a substring search either: `gh pr comment --body "see the auth token docs"` is an
   ordinary comment, and blocking it would teach whoever hit it that the refusal is noise.
+
+## [0.298.0] - 2026-08-12
+
+### Added
+
+- **UI Studio can now connect design facts to their real repository implementation.** Format v12 stores
+  revisioned component, token, and node mappings for React, static HTML/CSS, VS Code webviews, and explicitly
+  limited custom targets. Component mappings may name prop and slot correspondences; every mapping declares
+  its coverage and limitations rather than claiming an automatic lossless round trip.
+- **Verification separates design drift from source drift.** A local, read-only check records target-scoped
+  design and source SHA-256 fingerprints, then reports `in-sync`, `design-only`, `code-only`, `conflict`,
+  `unassessed`, or `unsupported` without choosing a winner or changing either side.
+- **The first Phase 5 architecture decision is durable.** The recorded ADR defines adapter vocabulary,
+  ownership, provenance, divergence semantics, and the boundary for later imports and proposed source diffs.
+
+### Security
+
+- **Source verification is bounded and hash-only.** Paths must be normalized and workspace-relative; real-path
+  containment blocks symlink escape; files over 2 MiB and non-files are refused. Source content never enters
+  the Studio SSOT, Markdown mirror, webview state, or a model prompt, and the webview cannot supply fingerprints.
+- **Mapping edits have their own exact revision boundary.** Create, replace, delete, and verify messages reject
+  extra fields and stale revisions. The ordinary Studio save form preserves host-owned mappings and baselines.
+
+### Changed
+
+- **Website workspace format advances from v11 to v12.** Migration adds only mapping revision zero and an empty
+  mapping collection; it does not scan the repository, infer a source path, parse code, or invent a relationship.
+- **Phase 5 is underway, not overstated as complete.** This slice provides explicit declarations and divergence
+  detection. Adapter-backed import, capability/loss reports, proposed diffs, normal approval, and post-change
+  verification remain recorded follow-up work.
+
+## [0.297.1] - 2026-08-12
+
+### Fixed
+
+- **Carried chat context now holds the most recent turns instead of the oldest.** `buildContext` sorted
+  by `relevanceWeight` descending with *ascending* timestamp as the tiebreak, then sliced from the front.
+  Since every ordinary turn carries weight 1, the tiebreak decided the whole order and the slice kept the
+  **oldest** entries — so past roughly six turns the carried context froze on the opening of the
+  conversation and the turn you had just taken was never in it. Raising `chatSessionTurnLimit` or
+  `chatSessionContextChars` bought more old turns; it could not buy recent ones. Selection now takes from
+  the end and the character budget is spent newest-first, with output restored to chronological order.
+
+- **The transcript is no longer emitted out of sequence.** Because weight decided ordering, a reply
+  classified `error` — which any answer mentioning "failed", "not found" or "invalid" is — was rendered
+  after later turns, so the model received a conversation whose answers preceded their questions.
+  `relevanceWeight` now filters and never orders.
+
+- **A user's own turn can no longer be deleted by a substring match.** Auto-classification matched
+  `/irrelevant|nonsense|ignore this/` against **any** role and assigned weight 0, which removes an entry
+  from every future context build permanently. "Ignore this bit of the diff" is an ordinary thing to
+  type, and its cost was that the turn ceased to exist. Auto-detection now labels but never erases; an
+  explicit caller — the Memory tree — can still mark an entry irrelevant deliberately.
+
+- **`context.md` sections are parsed correctly.** The parser used `\z` as an end-of-string anchor.
+  JavaScript has no `\z` — that is a Perl/Ruby anchor, and in a JS regex it matches a literal `z`. With a
+  lazy quantifier in front of it, every section was cut at the first `z` after its heading: *"Decided to
+  analyze the payload"* came back as *"Decided to analy"*, with *"ze the payload"* left orphaned in the
+  summary. A trailing section containing no `z` failed to match at all and came back empty, which is why
+  Open Threads and the current state were routinely lost. Every prompt built from the bundle inherited it.
+
+### Added
+
+- **Tests for the context-retention path**, which previously had none — `tests/chat/sessionConversation.test.ts`
+  was ten lines pinning one trivial assertion, and `SessionContextManager` had no test file. That absence
+  is how all four defects above survived. The `\z` tests were confirmed to fail against the old anchor
+  before being kept.
 
 ## [0.297.0] - 2026-08-12
 
@@ -99,7 +166,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   an **Approve and run** control: a followup chip in the `@atlas` view, a quick-reply pill in the chat
   panel. A gate whose only exit is a magic token is one people learn to route around, which costs the
   gate its purpose.
-
 ## [0.295.0] - 2026-08-12
 
 ### Added

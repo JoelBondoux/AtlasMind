@@ -206,6 +206,18 @@ replace, delete, and assignment use exact revisioned commands; in-use deletion i
 alt text remain owning-node diagnostics. The 10 → 11 migration adds an empty library and never scans files or
 invents assignments or copy.
 
+Format v12 adds a separate revisioned repository-mapping authority to the implementation guide. One mapping
+names a component, token, or node, a closed adapter, a normalized workspace-relative source file, an optional
+symbol, declared coverage/limitations, and—for components—bounded prop/slot correspondences. The 11 → 12
+migration adds revision zero and an empty collection; it scans no source and invents no relationship.
+
+`uiRepositoryMapping.ts` owns those declarations and their read-only divergence checks. Verification is an
+exact mapping-revision command handled by the extension host: real paths must remain inside the workspace,
+the target must be a regular file no larger than 2 MiB, and only SHA-256 target/source fingerprints plus graph
+revision/time are retained. Source content never enters `website.json`, its Markdown mirror, the webview, or a
+model prompt. Target-scoped design hashes distinguish design-only, code-only, and conflicting changes without
+making unrelated graph edits look like drift. No assessment chooses a winner or grants source-write authority.
+
 `websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
 colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
 resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or

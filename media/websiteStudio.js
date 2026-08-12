@@ -52,12 +52,12 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, tokens: Array, components: Array, contentCollections: Array, assets: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, tokens: Array, components: Array, contentCollections: Array, assets: Array, repositoryMappings: Array, repositoryMappingAssessments: Array, repositoryAdapters: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], repositoryMappings: [], repositoryMappingAssessments: [], repositoryAdapters: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], repositoryMappings: [], repositoryMappingAssessments: [], repositoryAdapters: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
@@ -65,6 +65,11 @@
   state.components = normalizeComponents(state.components);
   state.contentCollections = normalizeContentCollections(state.contentCollections);
   state.assets = normalizeAssets(state.assets);
+  state.repositoryMappings = normalizeRepositoryMappings(state.repositoryMappings);
+  state.repositoryMappingAssessments = Array.isArray(state.repositoryMappingAssessments) ? state.repositoryMappingAssessments : [];
+  state.repositoryAdapters = Array.isArray(state.repositoryAdapters) ? state.repositoryAdapters : [];
+  let repositoryMappingRevision = Number.isSafeInteger(state.repositoryMappingRevision) && state.repositoryMappingRevision >= 0
+    ? state.repositoryMappingRevision : 0;
   state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
     ? state.designRevision
@@ -248,6 +253,24 @@
       && typeof asset.altText === 'string' && asset.altText.length <= 500
       && typeof asset.decorative === 'boolean'
       && ['placeholder', 'draft', 'reviewed', 'approved'].includes(asset.maturity));
+  }
+
+  function normalizeRepositoryMappings(input) {
+    if (!Array.isArray(input) || input.length > 200) { return []; }
+    const identifier = /^[a-zA-Z0-9._-]{1,120}$/;
+    return input.filter(mapping => mapping && typeof mapping === 'object'
+      && identifier.test(mapping.id)
+      && typeof mapping.label === 'string' && mapping.label.length > 0 && mapping.label.length <= 120
+      && ['react', 'static-html-css', 'vscode-webview', 'custom'].includes(mapping.adapterId)
+      && mapping.target && ['component', 'token', 'node'].includes(mapping.target.kind)
+      && identifier.test(mapping.target.id)
+      && (mapping.target.kind !== 'node' || identifier.test(mapping.target.screenId))
+      && typeof mapping.sourcePath === 'string' && mapping.sourcePath.length > 0 && mapping.sourcePath.length <= 500
+      && typeof mapping.sourceSymbol === 'string' && mapping.sourceSymbol.length <= 160
+      && mapping.propertyMappings && typeof mapping.propertyMappings === 'object'
+      && mapping.slotMappings && typeof mapping.slotMappings === 'object'
+      && ['declared', 'partial', 'unsupported'].includes(mapping.coverage)
+      && Array.isArray(mapping.limitations) && mapping.limitations.length <= 40);
   }
 
   function responsiveView(element) {
@@ -1988,7 +2011,7 @@
     }));
 
     return {
-      version: 10,
+      version: 12,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -2035,6 +2058,8 @@
         sourceRoots: lines(value('#implementation-sourceRoots')),
         componentLocations: lines(value('#implementation-componentLocations')),
         notes: lines(value('#implementation-notes')),
+        repositoryMappingRevision,
+        repositoryMappings: state.repositoryMappings,
       },
       platforms,
       hostingEnvironments,
@@ -2619,6 +2644,148 @@
     });
   }
 
+  function mappingTargetValue(target) {
+    return target.kind === 'node'
+      ? 'node:' + target.screenId + ':' + target.id
+      : target.kind + ':' + target.id;
+  }
+
+  function mappingTargets() {
+    return [
+      ...state.components.map(component => ({ value: 'component:' + component.id, label: 'Component · ' + component.label })),
+      ...state.tokens.map(token => ({ value: 'token:' + token.id, label: 'Token · ' + token.label })),
+      ...state.responsiveScreens.flatMap(screen => (screen.nodes ?? []).map(node => {
+        const page = state.pages.find(candidate => candidate.id === screen.pageId);
+        const element = page?.wireframe?.elements?.find(candidate => candidate.id === node.id);
+        return { value: 'node:' + screen.id + ':' + node.id, label: 'Node · ' + (element?.label || node.id) + ' (' + screen.pageId + ')' };
+      })),
+    ];
+  }
+
+  function parseMappingTarget(raw) {
+    const parts = raw.split(':');
+    if ((parts[0] === 'component' || parts[0] === 'token') && parts.length === 2) {
+      return { kind: parts[0], id: parts[1] };
+    }
+    return parts[0] === 'node' && parts.length === 3
+      ? { kind: 'node', screenId: parts[1], id: parts[2] }
+      : undefined;
+  }
+
+  function mappingRelationLines(relations) {
+    return Object.entries(relations ?? {}).map(([graphId, sourceName]) => graphId + ' | ' + sourceName).join('\n');
+  }
+
+  function parseMappingRelations(raw) {
+    const relations = {};
+    for (const line of lines(raw)) {
+      const [graphId = '', sourceName = '', ...rest] = line.split('|').map(part => part.trim());
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(graphId) || !sourceName || rest.length > 0) { return undefined; }
+      relations[graphId] = sourceName;
+    }
+    return relations;
+  }
+
+  function assessmentFor(mappingId) {
+    return state.repositoryMappingAssessments.find(assessment => assessment?.mappingId === mappingId);
+  }
+
+  function mappingTargetOptions(selected) {
+    const targets = mappingTargets();
+    const missing = targets.some(target => target.value === selected)
+      ? ''
+      : '<option value="' + escapeAttribute(selected) + '" selected>Missing target · ' + escapeText(selected) + '</option>';
+    return missing + targets.map(target => '<option value="' + escapeAttribute(target.value) + '"'
+      + (target.value === selected ? ' selected' : '') + '>' + escapeText(target.label) + '</option>').join('');
+  }
+
+  function renderRepositoryMappingEditor() {
+    const editor = qs('#repositoryMappingEditor');
+    if (!editor) { return; }
+    if (state.repositoryMappings.length === 0) {
+      editor.innerHTML = '<div class="token-empty">No source mappings yet. Add one to establish an explicit design/repository boundary.</div>';
+      return;
+    }
+    editor.innerHTML = state.repositoryMappings.map(mapping => {
+      const assessment = assessmentFor(mapping.id) ?? { status: 'unassessed', message: 'No host assessment is available.' };
+      const verified = mapping.lastVerified
+        ? 'Graph r' + mapping.lastVerified.graphRevision + ' · ' + mapping.lastVerified.sourceFingerprint.slice(0, 19) + '… · ' + mapping.lastVerified.verifiedAt
+        : 'Never verified';
+      return '<details class="component-row repository-mapping-row" data-mapping-id="' + escapeAttribute(mapping.id) + '">'
+        + '<summary><strong>' + escapeText(mapping.label) + '</strong><span>' + escapeText(mapping.adapterId) + ' · ' + escapeText(assessment.status) + '</span></summary>'
+        + '<div class="component-fields"><div class="canvas-diagnostics ' + escapeAttribute(assessment.status === 'in-sync' ? 'clear' : assessment.status === 'conflict' || assessment.status === 'unsupported' ? 'error' : 'warning') + '"><strong>' + escapeText(assessment.status) + '</strong><span>' + escapeText(assessment.message) + '</span></div>'
+        + '<div class="field-pair"><label class="field"><span>Label</span><input class="mapping-label" value="' + escapeAttribute(mapping.label) + '" /></label><label class="field"><span>Adapter</span><select class="mapping-adapter">' + state.repositoryAdapters.map(adapter => '<option value="' + escapeAttribute(adapter.id) + '"' + (adapter.id === mapping.adapterId ? ' selected' : '') + '>' + escapeText(adapter.label) + '</option>').join('') + '</select></label></div>'
+        + '<label class="field"><span>Design target</span><select class="mapping-target">' + mappingTargetOptions(mappingTargetValue(mapping.target)) + '</select></label>'
+        + '<div class="field-pair"><label class="field"><span>Workspace-relative source file</span><input class="mapping-source-path" value="' + escapeAttribute(mapping.sourcePath) + '" /></label><label class="field"><span>Source symbol / selector</span><input class="mapping-source-symbol" value="' + escapeAttribute(mapping.sourceSymbol) + '" /></label></div>'
+        + '<label class="field"><span>Coverage</span><select class="mapping-coverage">' + ['declared', 'partial', 'unsupported'].map(coverage => '<option value="' + coverage + '"' + (coverage === mapping.coverage ? ' selected' : '') + '>' + coverage + '</option>').join('') + '</select></label>'
+        + '<label class="field"><span>Property mappings</span><textarea class="mapping-properties" rows="' + Math.max(2, Object.keys(mapping.propertyMappings).length) + '">' + escapeText(mappingRelationLines(mapping.propertyMappings)) + '</textarea></label>'
+        + '<label class="field"><span>Slot mappings</span><textarea class="mapping-slots" rows="' + Math.max(2, Object.keys(mapping.slotMappings).length) + '">' + escapeText(mappingRelationLines(mapping.slotMappings)) + '</textarea></label>'
+        + '<label class="field"><span>Limitations</span><textarea class="mapping-limitations" rows="' + Math.max(2, mapping.limitations.length) + '">' + escapeText(mapping.limitations.join('\n')) + '</textarea></label>'
+        + '<p class="responsive-copy">' + escapeText(verified) + '</p>'
+        + '<div class="token-row-actions"><button type="button" class="secondary save-mapping"' + (state.readOnly ? ' disabled' : '') + '>Apply mapping</button><button type="button" class="secondary verify-mapping"' + (state.readOnly ? ' disabled' : '') + '>Verify fingerprints</button><button type="button" class="danger subtle delete-mapping"' + (state.readOnly ? ' disabled' : '') + '>Delete</button></div></div></details>';
+    }).join('');
+  }
+
+  function collectRepositoryMapping(row) {
+    const target = parseMappingTarget(value('.mapping-target', row));
+    const propertyMappings = parseMappingRelations(value('.mapping-properties', row));
+    const slotMappings = parseMappingRelations(value('.mapping-slots', row));
+    if (!target || propertyMappings === undefined || slotMappings === undefined) { return undefined; }
+    return {
+      id: row.dataset.mappingId,
+      label: value('.mapping-label', row),
+      adapterId: value('.mapping-adapter', row),
+      target,
+      sourcePath: value('.mapping-source-path', row),
+      sourceSymbol: value('.mapping-source-symbol', row),
+      propertyMappings: target.kind === 'component' ? propertyMappings : {},
+      slotMappings: target.kind === 'component' ? slotMappings : {},
+      coverage: value('.mapping-coverage', row),
+      limitations: lines(value('.mapping-limitations', row)),
+    };
+  }
+
+  function submitRepositoryMappingEdit(command) {
+    const expectedRevision = repositoryMappingRevision;
+    repositoryMappingRevision += 1;
+    vscode.postMessage({ type: 'editRepositoryMapping', payload: { ...command, expectedRevision } });
+  }
+
+  function wireRepositoryMappings() {
+    renderRepositoryMappingEditor();
+    qs('#addRepositoryMapping')?.addEventListener('click', () => {
+      if (state.readOnly) { return; }
+      const target = parseMappingTarget(value('#newMappingTarget'));
+      const adapterId = value('#newMappingAdapter');
+      if (!target) { notice('Choose a design target.', 'error'); return; }
+      const mapping = {
+        id: value('#newMappingId'), label: value('#newMappingLabel'), adapterId, target,
+        sourcePath: value('#newMappingSourcePath'), sourceSymbol: '', propertyMappings: {}, slotMappings: {},
+        coverage: adapterId === 'custom' ? 'partial' : 'declared',
+        limitations: adapterId === 'custom' ? ['Custom adapter semantics have not been verified.'] : [],
+      };
+      submitRepositoryMappingEdit({ type: 'add-mapping', mapping });
+      notice('Adding the declared source mapping…');
+    });
+    qs('#repositoryMappingEditor')?.addEventListener('click', event => {
+      const row = event.target.closest('.repository-mapping-row');
+      if (!row || state.readOnly) { return; }
+      const mappingId = row.dataset.mappingId;
+      if (event.target.closest('.delete-mapping')) {
+        submitRepositoryMappingEdit({ type: 'delete-mapping', mappingId }); return;
+      }
+      if (event.target.closest('.verify-mapping')) {
+        submitRepositoryMappingEdit({ type: 'verify-mapping', mappingId });
+        notice('Verifying bounded source and design fingerprints…'); return;
+      }
+      if (!event.target.closest('.save-mapping')) { return; }
+      const mapping = collectRepositoryMapping(row);
+      if (!mapping) { notice('Use graph-id | source-name for each relation row.', 'error'); return; }
+      submitRepositoryMappingEdit({ type: 'set-mapping', mappingId, mapping });
+      notice('Applying the mapping and clearing its prior verification baseline…');
+    });
+  }
+
   /**
    * Ids are constrained to an identifier charset by the sanitizer, but they are
    * interpolated into selectors here, so they are escaped anyway. A selector
@@ -2725,6 +2892,7 @@
   wireComponents();
   wireContentCollections();
   wireAssets();
+  wireRepositoryMappings();
   syncPageSelect();
   renderCanvas();
   renderPagePromptField();

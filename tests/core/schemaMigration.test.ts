@@ -143,7 +143,7 @@ describe('migrateDocument', () => {
     it('climbs a v1 file all the way to the current version in one pass', () => {
       const outcome = migrateDocument('website', v1());
       expect(outcome.status).toBe('migrated');
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(11);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(12);
     });
   });
 
@@ -162,7 +162,7 @@ describe('migrateDocument', () => {
       const value = (outcome as { value: Record<string, unknown> }).value;
       // migrateDocument climbs the whole ladder, so a v2 file lands on the
       // current version rather than stopping at the next step.
-      expect(value['version']).toBe(11);
+      expect(value['version']).toBe(12);
       // No stack is invented. Absent means nobody has chosen one, and a wrong
       // guess here decides what gets scaffolded.
       expect(value).not.toHaveProperty('stack');
@@ -177,7 +177,7 @@ describe('migrateDocument', () => {
 
     it('climbs on past v3 to the current version', () => {
       const outcome = migrateDocument('website', v2());
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(11);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(12);
     });
   });
 
@@ -198,7 +198,7 @@ describe('migrateDocument', () => {
       const outcome = migrateDocument('website', v3());
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
-      expect(value['version']).toBe(11);
+      expect(value['version']).toBe(12);
       expect(value).not.toHaveProperty('content');
     });
 
@@ -213,7 +213,7 @@ describe('migrateDocument', () => {
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
       expect(value).toMatchObject({
-        version: 11,
+        version: 12,
         surfaceKind: 'website',
         contentDesign: { principles: [], preferredTerms: [], avoidedTerms: [] },
         implementation: { targetTechnologies: [], sourceRoots: [], componentLocations: [], notes: [] },
@@ -281,7 +281,7 @@ describe('migrateDocument', () => {
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
       expect(value).toMatchObject({
-        version: 11,
+        version: 12,
         designGraph: { ...designGraph, tokens: [], components: [], contentCollections: [], assets: [] },
       });
     });
@@ -289,25 +289,36 @@ describe('migrateDocument', () => {
     it('adds an empty component collection to v7 without inferring instances', () => {
       const designGraph = { revision: 3, tokens: [], screens: [] };
       const outcome = migrateDocument('website', { ...v3(), version: 7, designGraph });
-      expect(outcome).toMatchObject({ status: 'migrated', value: { version: 11, designGraph: { ...designGraph, components: [], contentCollections: [], assets: [] } } });
+      expect(outcome).toMatchObject({ status: 'migrated', value: { version: 12, designGraph: { ...designGraph, components: [], contentCollections: [], assets: [] } } });
     });
 
-    it('moves v8 through v11 without inventing state copy, sample data, or assets', () => {
+    it('moves v8 through v12 without inventing state copy, sample data, assets, or mappings', () => {
       const outcome = migrateDocument('website', { ...v3(), version: 8 });
       expect(outcome).toMatchObject({
-        status: 'migrated', value: { version: 11, designGraph: { contentCollections: [], assets: [] } },
+        status: 'migrated', value: {
+          version: 12,
+          designGraph: { contentCollections: [], assets: [] },
+          implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
+        },
       });
       expect((outcome as { value: Record<string, unknown> }).value).not.toHaveProperty('contentStatePresentations');
     });
 
     it('adds empty collection and asset authority on their exact migration steps', () => {
       expect(migrateDocument('website', { ...v3(), version: 9 })).toMatchObject({
-        status: 'migrated', value: { version: 11, designGraph: { contentCollections: [], assets: [] } },
+        status: 'migrated', value: { version: 12, designGraph: { contentCollections: [], assets: [] } },
       });
       expect(migrateDocument('website', { ...v3(), version: 10 })).toMatchObject({
-        status: 'migrated', value: { version: 11, designGraph: { assets: [] } },
+        status: 'migrated', value: { version: 12, designGraph: { assets: [] } },
       });
-      expect(migrateDocument('website', { ...v3(), version: 11 }).status).toBe('current');
+      expect(migrateDocument('website', { ...v3(), version: 11 })).toMatchObject({
+        status: 'migrated',
+        value: {
+          version: 12,
+          implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
+        },
+      });
+      expect(migrateDocument('website', { ...v3(), version: 12 }).status).toBe('current');
     });
   });
 });

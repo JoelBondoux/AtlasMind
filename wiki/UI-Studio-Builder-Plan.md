@@ -103,5 +103,11 @@ crop/focal intent, alt/decorative intent, and maturity project into Studio, Full
 mirror. Missing ids and alt text are owning-node errors, and Full Preview remains no-network. Phase 5
 repository mappings and divergence detection are next.
 
+v0.298.0 starts Phase 5 with format-v12 revisioned mappings from components, tokens, and nodes to contained
+workspace files through a closed adapter catalog. Exact host commands create, replace, delete, and verify;
+verification stores target/source hashes only and reports in-sync, design-only, code-only, conflict,
+unassessed, or unsupported. Source import, capability/loss reports, and approval-gated proposed diffs remain
+later Phase 5 slices.
+
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

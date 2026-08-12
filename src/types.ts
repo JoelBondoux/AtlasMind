@@ -1205,6 +1205,40 @@ export interface UiContentDesign {
   accessibilityNotes: string;
 }
 
+export type UiRepositoryAdapterId = 'react' | 'static-html-css' | 'vscode-webview' | 'custom';
+export type UiRepositoryMappingTargetKind = 'component' | 'token' | 'node';
+export type UiRepositoryMappingCoverage = 'declared' | 'partial' | 'unsupported';
+
+export type UiRepositoryMappingTarget =
+  | { kind: 'component'; id: string }
+  | { kind: 'token'; id: string }
+  | { kind: 'node'; id: string; screenId: string };
+
+export interface UiRepositoryMappingBaseline {
+  graphRevision: number;
+  designFingerprint: string;
+  sourceFingerprint: string;
+  verifiedAt: string;
+}
+
+/** A declared bridge between one graph fact and one repository source location. */
+export interface UiRepositoryMapping {
+  id: string;
+  label: string;
+  adapterId: UiRepositoryAdapterId;
+  target: UiRepositoryMappingTarget;
+  /** Normalized workspace-relative file path; never an import string or command. */
+  sourcePath: string;
+  /** Optional export, selector, class, resource key, or equivalent adapter-owned name. */
+  sourceSymbol: string;
+  propertyMappings: Record<string, string>;
+  slotMappings: Record<string, string>;
+  coverage: UiRepositoryMappingCoverage;
+  limitations: string[];
+  /** Host-created fingerprints only. Mapping definition edits clear this baseline. */
+  lastVerified: UiRepositoryMappingBaseline | null;
+}
+
 /**
  * A design-to-code handoff that remains useful for React Native, SwiftUI,
  * native desktop, game-engine UI, and other non-HTML targets.
@@ -1214,6 +1248,8 @@ export interface UiImplementationGuide {
   sourceRoots: string[];
   componentLocations: string[];
   notes: string[];
+  repositoryMappingRevision: number;
+  repositoryMappings: UiRepositoryMapping[];
 }
 
 /** Normalized, deliberately bounded client brief imported into Website Studio. */
@@ -1781,9 +1817,10 @@ export interface WebsiteStackChoice {
  * bindings; migration adds an empty collection authority and invents no data.
  * Version 11 adds validated asset metadata and stable node references; migration
  * adds an empty asset authority rather than inspecting or guessing from files.
+ * Version 12 adds revisioned repository mappings and no inferred source links.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 11;
+  version: 12;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;
