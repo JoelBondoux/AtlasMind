@@ -309,8 +309,8 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
-Format v7 extends `UiDesignGraph` with typed tokens; v6 introduced its screens and nodes. `uiDesignGraph.ts`
-is the only compatibility converter and token sanitizer: when a graph is
+Format v8 extends `UiDesignGraph` with reusable component definitions and explicit instances; v7 added typed
+tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
 present it derives page wireframes for older renderers, and when the current canvas submits its temporary
 wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
 graph/wireframe converter. New design mutations belong in `uiEditCommands.ts`; its expected-revision check,
@@ -319,8 +319,9 @@ will use too.
 
 Token definitions are structured target-independent data, not CSS fragments. Keep new token kinds closed
 and bounded in `uiDesignGraph.ts`; aliases must remain same-kind, acyclic, and resolvable to a direct value.
-Format migrations must seed no visual choices. Reusable components will join this v7 authority in later
-Phase 3 slices and must use the same revisioned command path.
+Format migrations must seed no visual choices. The v7 → v8 step adds an empty `components` collection only.
+Components store no markup, CSS, or executable/source values: root kind, typed properties, variants, slots,
+states, and bounded instance overrides remain target-independent graph data.
 
 UI System token changes must use `add-token`, `set-token`, or `delete-token`; the ordinary save form must not
 carry a replacement graph. Preview conversion belongs in `websiteWireframePreview.ts`: semantic roles are a
@@ -328,6 +329,13 @@ small reserved-id allowlist, while all resolved definitions use hex-encoded-id c
 identities cannot become CSS syntax or collide after punctuation normalization. Keep Studio canvas and Full
 Preview on those same reserved roles. A running Full Preview remains a saved-design review surface and is
 rebuilt after Save/Refresh; do not render unsaved webview-only token state into it.
+
+Component-library changes must use `add-component`, `set-component`, or `delete-component`; node assignments
+use `set-node-component` and slot claims use `set-node-component-slot`. Definition and instance actions stay
+separate in the UI and reducer. When extending the model, preserve resolution order (default → variant →
+instance), retain provenance, reconcile removed properties/variants/states/slots deterministically, and refuse
+definition deletion or incompatible root-kind changes while an instance uses it. The Full Preview adapter may
+style only the closed state vocabulary and must escape displayed definition/variant labels.
 
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized

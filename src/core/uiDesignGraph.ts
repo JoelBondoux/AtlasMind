@@ -8,6 +8,12 @@
  */
 
 import type {
+  UiComponentDefinition,
+  UiComponentInstance,
+  UiComponentPropertyDefinition,
+  UiComponentPropertyKind,
+  UiComponentPropertyValue,
+  UiComponentState,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -28,6 +34,7 @@ import type {
 } from '../types.js';
 import {
   deriveSectionLabels,
+  isWireframeElementKind,
   sanitizeRect,
   sanitizeWireframe,
   wireframeKindSpec,
@@ -39,10 +46,20 @@ import {
 export const UI_DESIGN_GRAPH_MAX_REVISION = 2_147_483_647;
 const MAX_REFERENCE_LENGTH = 160;
 export const UI_DESIGN_GRAPH_MAX_TOKENS = 200;
+export const UI_DESIGN_GRAPH_MAX_COMPONENTS = 100;
+export const UI_COMPONENT_MAX_PROPERTIES = 30;
+export const UI_COMPONENT_MAX_SLOTS = 20;
+export const UI_COMPONENT_MAX_VARIANTS = 30;
 const MAX_TOKEN_LABEL_LENGTH = 120;
+const MAX_COMPONENT_TEXT_LENGTH = 500;
+const MAX_COMPONENT_CHOICES = 40;
 const TOKEN_KINDS = new Set<UiDesignTokenKind>([
   'color', 'font-family', 'font-size', 'font-weight', 'line-height',
   'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
+]);
+const COMPONENT_PROPERTY_KINDS = new Set<UiComponentPropertyKind>(['text', 'number', 'boolean', 'choice']);
+const COMPONENT_STATES = new Set<UiComponentState>([
+  'default', 'hover', 'focus', 'active', 'disabled', 'loading', 'empty', 'error', 'success', 'validation',
 ]);
 const MOTION_EASINGS = new Set(['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']);
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
@@ -174,6 +191,69 @@ export interface ResolvedUiDesignToken {
   sourceTokenId: string;
   /** Ordered from the requested token to the direct-value token. */
   aliasChain: string[];
+}
+
+export interface ResolvedUiComponentProperty {
+  id: string;
+  label: string;
+  kind: UiComponentPropertyKind;
+  value: UiComponentPropertyValue;
+  source: 'default' | 'variant' | 'instance';
+}
+
+export interface ResolvedUiComponentInstance {
+  definitionId: string;
+  definitionLabel: string;
+  variantId?: string;
+  variantLabel?: string;
+  state: UiComponentState;
+  properties: ResolvedUiComponentProperty[];
+  slots: Array<{ slotId: string; label: string; nodeIds: string[] }>;
+}
+
+/** Resolve definition defaults, then variant values, then bounded instance overrides. */
+export function resolveUiComponentInstance(
+  graph: UiDesignGraph,
+  screen: UiDesignScreen,
+  node: UiDesignNode,
+): ResolvedUiComponentInstance | undefined {
+  const instance = node.componentInstance;
+  if (!instance) { return undefined; }
+  const definition = graph.components.find(candidate => candidate.id === instance.definitionId);
+  if (!definition || definition.rootKind !== node.kind || !definition.states.includes(instance.state)) {
+    return undefined;
+  }
+  const variant = instance.variantId
+    ? definition.variants.find(candidate => candidate.id === instance.variantId)
+    : undefined;
+  if (instance.variantId && !variant) { return undefined; }
+  const properties = definition.properties.map(property => {
+    let value = property.defaultValue;
+    let source: ResolvedUiComponentProperty['source'] = 'default';
+    if (variant && Object.prototype.hasOwnProperty.call(variant.propertyValues, property.id)) {
+      value = variant.propertyValues[property.id]!;
+      source = 'variant';
+    }
+    if (Object.prototype.hasOwnProperty.call(instance.propertyOverrides, property.id)) {
+      value = instance.propertyOverrides[property.id]!;
+      source = 'instance';
+    }
+    return { id: property.id, label: property.label, kind: property.kind, value, source };
+  });
+  return {
+    definitionId: definition.id,
+    definitionLabel: definition.label,
+    ...(variant ? { variantId: variant.id, variantLabel: variant.label } : {}),
+    state: instance.state,
+    properties,
+    slots: definition.slots.map(slot => ({
+      slotId: slot.id,
+      label: slot.label,
+      nodeIds: screen.nodes
+        .filter(candidate => candidate.parentId === node.id && candidate.componentSlot === slot.id)
+        .map(candidate => candidate.id),
+    })),
+  };
 }
 
 /**
@@ -654,6 +734,7 @@ export function designGraphFromPages(
   return {
     revision: sanitizeRevision(revision),
     tokens: [],
+    components: [],
     screens: pages.map(page => screenFromPage(page)),
   };
 }
@@ -680,12 +761,14 @@ export function sanitizeUiDesignGraph(
     }
   }
 
+  const components = sanitizeUiComponentDefinitions(source['components']);
   return {
     revision: sanitizeRevision(source['revision']),
     tokens: sanitizeUiDesignTokens(source['tokens']),
+    components,
     screens: pages.map(page => {
       const candidate = byPageId.get(page.id);
-      return candidate ? sanitizeScreen(candidate, page) : screenFromPage(page);
+      return candidate ? sanitizeScreen(candidate, page, components) : screenFromPage(page);
     }),
   };
 }
@@ -722,6 +805,185 @@ export function sanitizeUiDesignTokens(input: unknown): UiDesignToken[] {
   // value. This one rule removes missing targets, cross-kind links and cycles.
   return candidates.filter(token => 'value' in token
     || resolveUiDesignToken(candidates, token.id) !== undefined);
+}
+
+/** Sanitize the complete component library without evaluating target markup or style. */
+export function sanitizeUiComponentDefinitions(input: unknown): UiComponentDefinition[] {
+  const rawDefinitions = Array.isArray(input) ? input.slice(0, UI_DESIGN_GRAPH_MAX_COMPONENTS) : [];
+  const definitions: UiComponentDefinition[] = [];
+  const definitionIds = new Set<string>();
+  for (const candidate of rawDefinitions) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    const description = cleanComponentText(source['description'], MAX_COMPONENT_TEXT_LENGTH, true);
+    if (!id || !label || description === undefined || definitionIds.has(id)
+        || !isWireframeElementKind(source['rootKind'])) {
+      continue;
+    }
+    const properties = sanitizeComponentProperties(source['properties']);
+    const propertyById = new Map(properties.map(property => [property.id, property]));
+    const slots = sanitizeComponentSlots(source['slots']);
+    const variants = sanitizeComponentVariants(source['variants'], propertyById);
+    const states = sanitizeComponentStates(source['states']);
+    definitions.push({
+      id,
+      label,
+      description,
+      rootKind: source['rootKind'],
+      properties,
+      slots,
+      variants,
+      states,
+    });
+    definitionIds.add(id);
+  }
+  return definitions;
+}
+
+/** Validate an instance against a sanitized definition collection. */
+export function sanitizeUiComponentInstance(
+  input: unknown,
+  definitions: readonly UiComponentDefinition[],
+  nodeKind: UiDesignNode['kind'],
+): UiComponentInstance | undefined {
+  const source = asRecord(input);
+  const definitionId = cleanIdentifier(source['definitionId']);
+  const definition = definitionId
+    ? definitions.find(candidate => candidate.id === definitionId && candidate.rootKind === nodeKind)
+    : undefined;
+  if (!definition) { return undefined; }
+  const variantId = cleanIdentifier(source['variantId']);
+  if (variantId && !definition.variants.some(candidate => candidate.id === variantId)) {
+    return undefined;
+  }
+  const state = COMPONENT_STATES.has(source['state'] as UiComponentState)
+    && definition.states.includes(source['state'] as UiComponentState)
+    ? source['state'] as UiComponentState
+    : 'default';
+  const propertyById = new Map(definition.properties.map(property => [property.id, property]));
+  const propertyOverrides = sanitizeComponentPropertyValues(source['propertyOverrides'], propertyById);
+  return { definitionId: definition.id, ...(variantId ? { variantId } : {}), state, propertyOverrides };
+}
+
+function sanitizeComponentProperties(input: unknown): UiComponentPropertyDefinition[] {
+  const raw = Array.isArray(input) ? input.slice(0, UI_COMPONENT_MAX_PROPERTIES) : [];
+  const properties: UiComponentPropertyDefinition[] = [];
+  const ids = new Set<string>();
+  for (const candidate of raw) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    const kind = COMPONENT_PROPERTY_KINDS.has(source['kind'] as UiComponentPropertyKind)
+      ? source['kind'] as UiComponentPropertyKind
+      : undefined;
+    if (!id || !label || !kind || ids.has(id)) { continue; }
+    const choices = kind === 'choice' ? sanitizeComponentChoices(source['choices']) : undefined;
+    const defaultValue = sanitizeComponentPropertyValue(kind, source['defaultValue'], choices);
+    if (defaultValue === undefined || (kind === 'choice' && choices?.length === 0)) { continue; }
+    properties.push({ id, label, kind, defaultValue, ...(choices ? { choices } : {}) });
+    ids.add(id);
+  }
+  return properties;
+}
+
+function sanitizeComponentSlots(input: unknown): UiComponentDefinition['slots'] {
+  const raw = Array.isArray(input) ? input.slice(0, UI_COMPONENT_MAX_SLOTS) : [];
+  const slots: UiComponentDefinition['slots'] = [];
+  const ids = new Set<string>();
+  for (const candidate of raw) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    if (!id || !label || ids.has(id) || !Number.isSafeInteger(source['maxChildren'])
+        || (source['maxChildren'] as number) < 1 || (source['maxChildren'] as number) > 60) {
+      continue;
+    }
+    const allowedKinds = Array.isArray(source['allowedKinds'])
+      ? [...new Set(source['allowedKinds'].filter(isWireframeElementKind))]
+      : [];
+    slots.push({
+      id, label, required: source['required'] === true, allowedKinds,
+      maxChildren: source['maxChildren'] as number,
+    });
+    ids.add(id);
+  }
+  return slots;
+}
+
+function sanitizeComponentVariants(
+  input: unknown,
+  properties: ReadonlyMap<string, UiComponentPropertyDefinition>,
+): UiComponentDefinition['variants'] {
+  const raw = Array.isArray(input) ? input.slice(0, UI_COMPONENT_MAX_VARIANTS) : [];
+  const variants: UiComponentDefinition['variants'] = [];
+  const ids = new Set<string>();
+  for (const candidate of raw) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    if (!id || !label || ids.has(id)) { continue; }
+    variants.push({
+      id, label,
+      propertyValues: sanitizeComponentPropertyValues(source['propertyValues'], properties),
+    });
+    ids.add(id);
+  }
+  return variants;
+}
+
+function sanitizeComponentPropertyValues(
+  input: unknown,
+  properties: ReadonlyMap<string, UiComponentPropertyDefinition>,
+): Record<string, UiComponentPropertyValue> {
+  const source = asRecord(input);
+  const result: Record<string, UiComponentPropertyValue> = {};
+  for (const [id, candidate] of Object.entries(source).slice(0, UI_COMPONENT_MAX_PROPERTIES)) {
+    const property = properties.get(id);
+    if (!property) { continue; }
+    const value = sanitizeComponentPropertyValue(property.kind, candidate, property.choices);
+    if (value !== undefined) { result[id] = value; }
+  }
+  return result;
+}
+
+function sanitizeComponentPropertyValue(
+  kind: UiComponentPropertyKind,
+  input: unknown,
+  choices?: readonly string[],
+): UiComponentPropertyValue | undefined {
+  if (kind === 'boolean') { return typeof input === 'boolean' ? input : undefined; }
+  if (kind === 'number') {
+    return typeof input === 'number' && Number.isFinite(input) && input >= -1_000_000 && input <= 1_000_000
+      ? input : undefined;
+  }
+  if (typeof input !== 'string') { return undefined; }
+  const value = cleanComponentText(input, MAX_COMPONENT_TEXT_LENGTH, true);
+  if (value === undefined) { return undefined; }
+  return kind === 'choice' && !choices?.includes(value) ? undefined : value;
+}
+
+function sanitizeComponentChoices(input: unknown): string[] {
+  if (!Array.isArray(input)) { return []; }
+  const choices: string[] = [];
+  for (const candidate of input.slice(0, MAX_COMPONENT_CHOICES)) {
+    const choice = cleanComponentText(candidate, 120);
+    if (choice && !choices.includes(choice)) { choices.push(choice); }
+  }
+  return choices;
+}
+
+function sanitizeComponentStates(input: unknown): UiComponentState[] {
+  const supplied = Array.isArray(input)
+    ? input.filter((candidate): candidate is UiComponentState => COMPONENT_STATES.has(candidate as UiComponentState))
+    : [];
+  return ['default', ...new Set(supplied.filter(candidate => candidate !== 'default'))];
+}
+
+function cleanComponentText(input: unknown, maximum: number, allowEmpty = false): string | undefined {
+  if (typeof input !== 'string') { return undefined; }
+  const cleaned = input.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, maximum);
+  return cleaned || (allowEmpty ? '' : undefined);
 }
 
 function sanitizeTokenValue(kind: UiDesignTokenKind, input: unknown): UiDesignTokenValue | undefined {
@@ -874,7 +1136,11 @@ function screenFromPage(page: WebsitePagePlan): UiDesignScreen {
   };
 }
 
-function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): UiDesignScreen {
+function sanitizeScreen(
+  input: Record<string, unknown>,
+  page: WebsitePagePlan,
+  components: readonly UiComponentDefinition[],
+): UiDesignScreen {
   const initialized = input['initialized'] === true;
   const breakpoint = BREAKPOINTS.has(input['baseBreakpoint'] as WireframeBreakpoint)
     ? input['baseBreakpoint'] as WireframeBreakpoint
@@ -900,15 +1166,11 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
   });
   const wireframe = sanitizeWireframe({ breakpoint, elements: compatibleNodes });
 
-  return {
-    id: page.id,
-    pageId: page.id,
-    initialized,
-    baseBreakpoint: wireframe?.breakpoint ?? breakpoint,
-    nodes: initialized ? (wireframe?.elements ?? []).map(element => {
+  const nodes: UiDesignNode[] = initialized ? (wireframe?.elements ?? []).map(element => {
       const raw = rawById.get(element.id) ?? {};
       const layout = asRecord(raw['layout']);
       const constraints = sanitizeConstraintSet(layout);
+      const componentInstance = sanitizeUiComponentInstance(raw['componentInstance'], components, element.kind);
       return {
         id: element.id,
         kind: element.kind,
@@ -951,9 +1213,48 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
         ...optionalReference('contentRef', raw['contentRef']),
         ...optionalReference('styleRef', raw['styleRef']),
         ...optionalReference('componentRef', raw['componentRef']),
+        ...(componentInstance ? { componentInstance } : {}),
+        ...optionalComponentSlot(raw['componentSlot']),
       };
-    }) : [],
+    }) : [];
+  sanitizeComponentSlotsOnNodes(nodes, components);
+
+  return {
+    id: page.id,
+    pageId: page.id,
+    initialized,
+    baseBreakpoint: wireframe?.breakpoint ?? breakpoint,
+    nodes,
   };
+}
+
+function optionalComponentSlot(value: unknown): Partial<Pick<UiDesignNode, 'componentSlot'>> {
+  const cleaned = cleanIdentifier(value, MAX_REFERENCE_LENGTH);
+  return cleaned ? { componentSlot: cleaned } : {};
+}
+
+function sanitizeComponentSlotsOnNodes(
+  nodes: UiDesignNode[],
+  definitions: readonly UiComponentDefinition[],
+): void {
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const used = new Map<string, number>();
+  for (const node of nodes) {
+    if (!node.componentSlot || !node.parentId) { delete node.componentSlot; continue; }
+    const parent = byId.get(node.parentId);
+    const definition = parent?.componentInstance
+      ? definitions.find(candidate => candidate.id === parent.componentInstance?.definitionId)
+      : undefined;
+    const slot = definition?.slots.find(candidate => candidate.id === node.componentSlot);
+    const key = `${parent?.id ?? ''}:${node.componentSlot}`;
+    const count = used.get(key) ?? 0;
+    if (!slot || (slot.allowedKinds.length > 0 && !slot.allowedKinds.includes(node.kind))
+        || count >= slot.maxChildren) {
+      delete node.componentSlot;
+      continue;
+    }
+    used.set(key, count + 1);
+  }
 }
 
 function sanitizeOverrides(

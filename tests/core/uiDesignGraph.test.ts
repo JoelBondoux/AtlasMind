@@ -5,6 +5,7 @@ import {
   diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiDesignToken,
+  resolveUiComponentInstance,
   resolveUiNodeLayout,
   resolveUiScreenLayout,
   sanitizeUiDesignGraph,
@@ -169,6 +170,60 @@ describe('UI design graph', () => {
     expect(resolveUiDesignToken(graph.tokens, 'broken')).toBeUndefined();
     expect(resolveUiDesignToken(graph.tokens, 'cross-kind')).toBeUndefined();
     expect(resolveUiDesignToken(graph.tokens, 'cycle-a')).toBeUndefined();
+  });
+
+  it('sanitizes component definitions and resolves default, variant, then instance provenance', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    graph.components = [{
+      id: 'hero-card', label: 'Hero card', description: 'Reusable introduction', rootKind: 'hero',
+      properties: [
+        { id: 'title', label: 'Title', kind: 'text', defaultValue: 'Welcome' },
+        { id: 'emphasis', label: 'Emphasis', kind: 'choice', defaultValue: 'quiet', choices: ['quiet', 'strong'] },
+      ],
+      slots: [{ id: 'body', label: 'Body', required: true, allowedKinds: ['text'], maxChildren: 1 }],
+      variants: [{ id: 'campaign', label: 'Campaign', propertyValues: { emphasis: 'strong' } }],
+      states: ['default', 'focus', 'loading', 'error'],
+    }];
+    graph.screens[0]!.nodes[0]!.componentInstance = {
+      definitionId: 'hero-card', variantId: 'campaign', state: 'loading', propertyOverrides: { title: 'Summer' },
+    };
+    graph.screens[0]!.nodes[1]!.componentSlot = 'body';
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    const resolved = resolveUiComponentInstance(sanitized, sanitized.screens[0]!, sanitized.screens[0]!.nodes[0]!);
+    expect(resolved).toMatchObject({
+      definitionId: 'hero-card', variantId: 'campaign', state: 'loading',
+      properties: [
+        { id: 'title', value: 'Summer', source: 'instance' },
+        { id: 'emphasis', value: 'strong', source: 'variant' },
+      ],
+      slots: [{ slotId: 'body', nodeIds: ['copy'] }],
+    });
+  });
+
+  it('drops hostile component values, invalid instances, and impossible slot claims', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    graph.components = [{
+      id: 'hero-card', label: 'Hero card', description: '', rootKind: 'hero',
+      properties: [
+        { id: 'safe', label: 'Safe', kind: 'number', defaultValue: 2 },
+        { id: 'unsafe', label: 'Unsafe', kind: 'choice', defaultValue: 'script', choices: ['quiet'] },
+      ],
+      slots: [{ id: 'media', label: 'Media', required: false, allowedKinds: ['media'], maxChildren: 1 }],
+      variants: [{ id: 'bad', label: 'Bad', propertyValues: { missing: 'x', safe: Number.NaN } }],
+      states: ['hover'],
+    }];
+    graph.screens[0]!.nodes[0]!.componentInstance = {
+      definitionId: 'missing', state: 'error', propertyOverrides: { unsafe: '<script>' },
+    };
+    graph.screens[0]!.nodes[1]!.componentSlot = 'media';
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    expect(sanitized.components[0]).toMatchObject({
+      properties: [{ id: 'safe' }], variants: [{ id: 'bad', propertyValues: {} }], states: ['default', 'hover'],
+    });
+    expect(sanitized.screens[0]!.nodes[0]!.componentInstance).toBeUndefined();
+    expect(sanitized.screens[0]!.nodes[1]!.componentSlot).toBeUndefined();
   });
 
   it('bounds layout, refs, viewport overrides, and invalid hierarchy through one sanitizer', () => {
@@ -381,6 +436,7 @@ describe('UI design graph', () => {
       const graph = sanitizeUiDesignGraph(input, pages);
       expect(graph.screens).toHaveLength(pages.length);
       expect(graph.tokens.length).toBeLessThanOrEqual(UI_DESIGN_GRAPH_MAX_TOKENS);
+      expect(graph.components.length).toBeLessThanOrEqual(100);
       expect(Number.isSafeInteger(graph.revision)).toBe(true);
       for (const screen of graph.screens) {
         expect(pages.some(page => page.id === screen.pageId)).toBe(true);

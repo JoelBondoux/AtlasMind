@@ -7,6 +7,10 @@
  */
 
 import type {
+  UiComponentDefinition,
+  UiComponentInstance,
+  UiComponentPropertyValue,
+  UiComponentState,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -33,12 +37,15 @@ import {
   WIREFRAME_BREAKPOINTS,
 } from './websiteWireframe.js';
 import {
+  UI_DESIGN_GRAPH_MAX_COMPONENTS,
   UI_DESIGN_GRAPH_MAX_REVISION,
   UI_DESIGN_GRAPH_MAX_TOKENS,
   UI_LAYOUT_MAX_COLUMNS,
   UI_LAYOUT_MAX_GAP,
   UI_LAYOUT_MAX_PADDING,
   UI_LAYOUT_MAX_ORDER,
+  sanitizeUiComponentDefinitions,
+  sanitizeUiComponentInstance,
   sanitizeUiDesignTokens,
 } from './uiDesignGraph.js';
 
@@ -97,6 +104,9 @@ export type UiEditCommand =
   | (UiEditCommandBase & { type: 'add-token'; token: UiDesignToken })
   | (UiEditCommandBase & { type: 'set-token'; tokenId: string; token: UiDesignToken })
   | (UiEditCommandBase & { type: 'delete-token'; tokenId: string })
+  | (UiEditCommandBase & { type: 'add-component'; component: UiComponentDefinition })
+  | (UiEditCommandBase & { type: 'set-component'; componentId: string; component: UiComponentDefinition })
+  | (UiEditCommandBase & { type: 'delete-component'; componentId: string })
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
   | (UiNodeCommandBase & { type: 'delete-node' })
   | (UiNodeCommandBase & {
@@ -116,6 +126,8 @@ export type UiEditCommand =
   })
   | (UiNodeCommandBase & { type: 'set-node-label'; label: string })
   | (UiNodeCommandBase & { type: 'set-node-design-prompt'; designPrompt: string })
+  | (UiNodeCommandBase & { type: 'set-node-component'; instance: UiComponentInstance | null })
+  | (UiNodeCommandBase & { type: 'set-node-component-slot'; slotId: string | null })
   | (UiNodeCommandBase & {
     type: 'set-node-layout';
     layout: UiNodeLayoutEdit;
@@ -154,6 +166,11 @@ export type UiEditRefusalReason =
   | 'token-exists'
   | 'token-in-use'
   | 'token-limit'
+  | 'component-not-found'
+  | 'component-exists'
+  | 'component-in-use'
+  | 'component-limit'
+  | 'component-slot-invalid'
   | 'parent-not-found'
   | 'parent-cannot-contain'
   | 'parent-cycle'
@@ -196,6 +213,25 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
     return validIdentifier(input['tokenId'])
       && exactKeys(input, ['type', 'expectedRevision', 'tokenId'])
       ? { type: 'delete-token', expectedRevision, tokenId: input['tokenId'] }
+      : undefined;
+  }
+  if (input['type'] === 'add-component') {
+    const component = parseComponentDefinition(input['component']);
+    return component && exactKeys(input, ['type', 'expectedRevision', 'component'])
+      ? { type: 'add-component', expectedRevision, component }
+      : undefined;
+  }
+  if (input['type'] === 'set-component') {
+    const component = parseComponentDefinition(input['component']);
+    return component && validIdentifier(input['componentId']) && component.id === input['componentId']
+      && exactKeys(input, ['type', 'expectedRevision', 'componentId', 'component'])
+      ? { type: 'set-component', expectedRevision, componentId: input['componentId'], component }
+      : undefined;
+  }
+  if (input['type'] === 'delete-component') {
+    return validIdentifier(input['componentId'])
+      && exactKeys(input, ['type', 'expectedRevision', 'componentId'])
+      ? { type: 'delete-component', expectedRevision, componentId: input['componentId'] }
       : undefined;
   }
   if (!validIdentifier(input['screenId'])) {
@@ -271,6 +307,19 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
         && input['designPrompt'].length <= 1_000
         && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'designPrompt'])
         ? { type: 'set-node-design-prompt', ...base, designPrompt: input['designPrompt'] }
+        : undefined;
+    case 'set-node-component': {
+      const instance = input['instance'] === null ? null : parseComponentInstance(input['instance']);
+      if (instance === undefined
+          || !exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'instance'])) {
+        return undefined;
+      }
+      return { type: 'set-node-component', ...base, instance };
+    }
+    case 'set-node-component-slot':
+      return (input['slotId'] === null || validIdentifier(input['slotId']))
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'slotId'])
+        ? { type: 'set-node-component-slot', ...base, slotId: input['slotId'] }
         : undefined;
     case 'set-node-layout': {
       const layout = parseLayoutEdit(input['layout']);
@@ -404,6 +453,100 @@ function parseDesignToken(input: unknown): UiDesignToken | undefined {
   return sanitizeUiDesignTokens([input])[0];
 }
 
+function parseComponentDefinition(input: unknown): UiComponentDefinition | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, [
+        'id', 'label', 'description', 'rootKind', 'properties', 'slots', 'variants', 'states',
+      ])
+      || !validIdentifier(input['id'])
+      || typeof input['label'] !== 'string' || input['label'].trim().length < 1
+      || typeof input['description'] !== 'string'
+      || !isWireframeElementKind(input['rootKind'])
+      || !Array.isArray(input['properties'])
+      || !Array.isArray(input['slots'])
+      || !Array.isArray(input['variants'])
+      || !Array.isArray(input['states'])) {
+    return undefined;
+  }
+  const component = sanitizeUiComponentDefinitions([input])[0];
+  if (!component
+      || component.properties.length !== input['properties'].length
+      || component.slots.length !== input['slots'].length
+      || component.variants.length !== input['variants'].length
+      || component.states.length !== input['states'].length
+      || !exactComponentNestedShape(input, component)) {
+    return undefined;
+  }
+  return component;
+}
+
+function exactComponentNestedShape(
+  input: Record<string, unknown>,
+  component: UiComponentDefinition,
+): boolean {
+  const properties = input['properties'] as unknown[];
+  const slots = input['slots'] as unknown[];
+  const variants = input['variants'] as unknown[];
+  const states = input['states'] as unknown[];
+  return properties.every((candidate, index) => {
+    if (!isRecord(candidate)) { return false; }
+    const property = component.properties[index];
+    const choice = candidate['kind'] === 'choice';
+    return property !== undefined
+      && exactKeys(candidate, ['id', 'label', 'kind', 'defaultValue'], choice ? ['choices'] : [])
+      && (!choice || (Array.isArray(candidate['choices'])
+        && candidate['choices'].length === property.choices?.length));
+  }) && slots.every((candidate, index) => {
+    if (!isRecord(candidate)) { return false; }
+    const slot = component.slots[index];
+    return slot !== undefined
+      && exactKeys(candidate, ['id', 'label', 'required', 'allowedKinds', 'maxChildren'])
+      && Array.isArray(candidate['allowedKinds'])
+      && candidate['allowedKinds'].length === slot.allowedKinds.length;
+  }) && variants.every((candidate, index) => {
+    if (!isRecord(candidate) || !isRecord(candidate['propertyValues'])) { return false; }
+    const variant = component.variants[index];
+    return variant !== undefined
+      && exactKeys(candidate, ['id', 'label', 'propertyValues'])
+      && Object.keys(candidate['propertyValues']).length === Object.keys(variant.propertyValues).length;
+  }) && new Set(states).size === states.length;
+}
+
+function parseComponentInstance(input: unknown): UiComponentInstance | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, ['definitionId', 'state', 'propertyOverrides'], ['variantId'])
+      || !validIdentifier(input['definitionId'])
+      || (input['variantId'] !== undefined && !validIdentifier(input['variantId']))
+      || !isComponentState(input['state'])
+      || !isRecord(input['propertyOverrides'])
+      || Object.keys(input['propertyOverrides']).length > 30) {
+    return undefined;
+  }
+  const propertyOverrides: Record<string, UiComponentPropertyValue> = {};
+  for (const [id, candidate] of Object.entries(input['propertyOverrides'])) {
+    if (!validIdentifier(id) || !validComponentPropertyValue(candidate)) { return undefined; }
+    propertyOverrides[id] = candidate;
+  }
+  return {
+    definitionId: input['definitionId'],
+    ...(input['variantId'] ? { variantId: input['variantId'] } : {}),
+    state: input['state'],
+    propertyOverrides,
+  };
+}
+
+function validComponentPropertyValue(input: unknown): input is UiComponentPropertyValue {
+  return typeof input === 'boolean'
+    || (typeof input === 'number' && Number.isFinite(input) && input >= -1_000_000 && input <= 1_000_000)
+    || (typeof input === 'string' && input.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input));
+}
+
+function isComponentState(input: unknown): input is UiComponentState {
+  return input === 'default' || input === 'hover' || input === 'focus' || input === 'active'
+    || input === 'disabled' || input === 'loading' || input === 'empty' || input === 'error'
+    || input === 'success' || input === 'validation';
+}
+
 function isTokenKind(input: unknown): input is UiDesignTokenKind {
   return input === 'color'
     || input === 'font-family'
@@ -513,6 +656,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   if (command.type === 'add-token' || command.type === 'set-token' || command.type === 'delete-token') {
     return applyTokenCommand(session, command);
   }
+  if (command.type === 'add-component' || command.type === 'set-component' || command.type === 'delete-component') {
+    return applyComponentCommand(session, command);
+  }
 
   const screenIndex = session.graph.screens.findIndex(screen => screen.id === command.screenId);
   if (screenIndex < 0) {
@@ -539,6 +685,15 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   if (command.type === 'delete-node') {
     return deleteNode(session, screenIndex, screen, node);
   }
+  if (command.type === 'set-node-component' || command.type === 'set-node-component-slot') {
+    return applyNodeComponentCommand(session, screenIndex, nodeIndex, screen, node, command);
+  }
+  if (command.type === 'set-node-kind' && node.componentInstance) {
+    const definition = session.graph.components.find(candidate => candidate.id === node.componentInstance?.definitionId);
+    if (definition && definition.rootKind !== command.kind) {
+      return refused(session, 'component-in-use');
+    }
+  }
   const changed = applyNodeCommand(screen, node, command);
   if (!changed.ok) {
     return refused(session, changed.reason);
@@ -550,10 +705,152 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   const nextGraph = cloneGraph(session.graph);
   nextGraph.revision = session.graph.revision + 1;
   nextGraph.screens[screenIndex]!.nodes[nodeIndex] = changed.node;
+  reconcileScreenSlots(nextGraph.screens[screenIndex]!, nextGraph.components);
   return {
     ok: true,
     session: {
       graph: nextGraph,
+      undo: [...session.undo, cloneGraph(session.graph)].slice(-UI_EDIT_HISTORY_LIMIT),
+      redo: [],
+    },
+  };
+}
+
+function applyComponentCommand(
+  session: UiEditSession,
+  command: Extract<UiEditCommand, { type: 'add-component' | 'set-component' | 'delete-component' }>,
+): UiEditResult {
+  const id = command.type === 'add-component' ? command.component.id : command.componentId;
+  const currentIndex = session.graph.components.findIndex(component => component.id === id);
+  if (command.type === 'add-component') {
+    if (currentIndex >= 0) { return refused(session, 'component-exists'); }
+    if (session.graph.components.length >= UI_DESIGN_GRAPH_MAX_COMPONENTS) {
+      return refused(session, 'component-limit');
+    }
+  } else if (currentIndex < 0) {
+    return refused(session, 'component-not-found');
+  }
+
+  const consumers = session.graph.screens.flatMap(screen => screen.nodes)
+    .filter(node => node.componentInstance?.definitionId === id);
+  if (command.type === 'delete-component' && consumers.length > 0) {
+    return refused(session, 'component-in-use');
+  }
+  if (command.type === 'set-component'
+      && consumers.some(node => node.kind !== command.component.rootKind)) {
+    return refused(session, 'component-in-use');
+  }
+
+  const proposed = command.type === 'add-component'
+    ? [...session.graph.components, command.component]
+    : command.type === 'set-component'
+      ? session.graph.components.map((component, index) => index === currentIndex ? command.component : component)
+      : session.graph.components.filter((_, index) => index !== currentIndex);
+  const components = sanitizeUiComponentDefinitions(proposed);
+  if (components.length !== proposed.length) { return refused(session, 'invalid-command'); }
+  if (JSON.stringify(components) === JSON.stringify(session.graph.components)) {
+    return refused(session, 'no-change');
+  }
+
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.components = components;
+  if (command.type === 'set-component') {
+    reconcileComponentConsumers(nextGraph, command.component);
+  }
+  return commitGraph(session, nextGraph);
+}
+
+function reconcileComponentConsumers(graph: UiDesignGraph, definition: UiComponentDefinition): void {
+  for (const screen of graph.screens) {
+    for (const node of screen.nodes) {
+      const current = node.componentInstance;
+      if (current?.definitionId !== definition.id) { continue; }
+      const candidate = {
+        ...current,
+        ...(current.variantId && definition.variants.some(variant => variant.id === current.variantId)
+          ? { variantId: current.variantId }
+          : { variantId: undefined }),
+        state: definition.states.includes(current.state) ? current.state : 'default' as const,
+      };
+      const sanitized = sanitizeUiComponentInstance(candidate, graph.components, node.kind);
+      if (sanitized) { node.componentInstance = sanitized; }
+    }
+    reconcileScreenSlots(screen, graph.components);
+  }
+}
+
+function applyNodeComponentCommand(
+  session: UiEditSession,
+  screenIndex: number,
+  nodeIndex: number,
+  screen: UiDesignScreen,
+  node: UiDesignNode,
+  command: Extract<UiEditCommand, { type: 'set-node-component' | 'set-node-component-slot' }>,
+): UiEditResult {
+  let nextNode: UiDesignNode;
+  if (command.type === 'set-node-component') {
+    if (command.instance === null) {
+      if (!node.componentInstance) { return refused(session, 'no-change'); }
+      nextNode = { ...node, componentInstance: undefined };
+    } else {
+      const instance = sanitizeUiComponentInstance(command.instance, session.graph.components, node.kind);
+      if (!instance) { return refused(session, 'component-not-found'); }
+      if (JSON.stringify(instance) !== JSON.stringify(command.instance)) {
+        return refused(session, 'invalid-command');
+      }
+      nextNode = { ...node, componentInstance: instance };
+    }
+  } else {
+    if (command.slotId === null) {
+      if (!node.componentSlot) { return refused(session, 'no-change'); }
+      nextNode = { ...node, componentSlot: undefined };
+    } else {
+      if (!node.parentId || !validSlotAssignment(
+        screen, node, command.slotId, session.graph.components,
+      )) {
+        return refused(session, 'component-slot-invalid');
+      }
+      nextNode = { ...node, componentSlot: command.slotId };
+    }
+  }
+  if (sameNode(node, nextNode)) { return refused(session, 'no-change'); }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.screens[screenIndex]!.nodes[nodeIndex] = nextNode;
+  reconcileScreenSlots(nextGraph.screens[screenIndex]!, nextGraph.components);
+  return commitGraph(session, nextGraph);
+}
+
+function validSlotAssignment(
+  screen: UiDesignScreen,
+  node: UiDesignNode,
+  slotId: string,
+  components: readonly UiComponentDefinition[],
+): boolean {
+  const parent = screen.nodes.find(candidate => candidate.id === node.parentId);
+  const definition = parent?.componentInstance
+    ? components.find(candidate => candidate.id === parent.componentInstance?.definitionId)
+    : undefined;
+  const slot = definition?.slots.find(candidate => candidate.id === slotId);
+  if (!slot || (slot.allowedKinds.length > 0 && !slot.allowedKinds.includes(node.kind))) { return false; }
+  return screen.nodes.filter(candidate => candidate.id !== node.id
+    && candidate.parentId === parent?.id && candidate.componentSlot === slotId).length < slot.maxChildren;
+}
+
+function reconcileScreenSlots(screen: UiDesignScreen, components: readonly UiComponentDefinition[]): void {
+  for (const node of screen.nodes) {
+    if (node.componentSlot && !validSlotAssignment(screen, node, node.componentSlot, components)) {
+      delete node.componentSlot;
+    }
+  }
+}
+
+function commitGraph(session: UiEditSession, graph: UiDesignGraph): UiEditResult {
+  return {
+    ok: true,
+    session: {
+      graph,
       undo: [...session.undo, cloneGraph(session.graph)].slice(-UI_EDIT_HISTORY_LIMIT),
       redo: [],
     },
@@ -615,7 +912,9 @@ function applyNodeCommand(
   node: UiDesignNode,
   command: Exclude<UiEditCommand, {
     type: 'undo' | 'redo' | 'add-token' | 'set-token' | 'delete-token'
-      | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames';
+      | 'add-component' | 'set-component' | 'delete-component'
+      | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames'
+      | 'set-node-component' | 'set-node-component-slot';
   }>,
 ): NodeCommandResult {
   switch (command.type) {
@@ -990,7 +1289,8 @@ function commitScreen(
 ): UiEditResult {
   const nextGraph = cloneGraph(session.graph);
   nextGraph.revision = session.graph.revision + 1;
-  nextGraph.screens[screenIndex] = screen;
+  nextGraph.screens[screenIndex] = structuredClone(screen);
+  reconcileScreenSlots(nextGraph.screens[screenIndex]!, nextGraph.components);
   return {
     ok: true,
     session: {
@@ -1195,6 +1495,7 @@ function cloneGraph(graph: UiDesignGraph): UiDesignGraph {
   return {
     revision: graph.revision,
     tokens: graph.tokens.map(cloneToken),
+    components: structuredClone(graph.components),
     screens: graph.screens.map(screen => ({
       ...screen,
       nodes: screen.nodes.map(node => ({

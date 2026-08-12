@@ -26,7 +26,7 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
 | **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
-| **UI System** | Brand direction and legacy defaults plus directly editable typed colour, typography, spacing, radius, shadow, motion and breakpoint tokens |
+| **UI System** | Brand direction and legacy defaults plus editable typed tokens and reusable component definitions, properties, variants, slots and states |
 | **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
@@ -35,6 +35,12 @@ with same-kind acyclic aliases. UI System now edits them directly through the sa
 the canvas. Reserved semantic ids apply to Studio and Full Preview; all resolved definitions remain available
 to adapters under uniquely encoded custom properties. The values are target-independent structured data,
 not CSS declarations, so native and non-HTML projects retain the same design authority.
+
+Format v8 adds reusable components without turning the graph into HTML. UI System edits each definition's
+root type, typed properties, variants, bounded slots, and supported states. The canvas inspector separately
+assigns compatible definitions, variants, states, property overrides, and parent slots to explicit instances.
+Values resolve default → variant → instance with provenance, so changing an instance cannot quietly rewrite
+every use. The migration adds an empty component collection and invents no design decision.
 
 ## Design the words too
 
@@ -228,7 +234,7 @@ a guard the promotion runner depends on.
 
 Full Preview is step 6 of UI Studio and the main place to judge the design as a whole. **Rebuild and
 open** launches VS Code's built-in browser with a deterministic index built from the saved wireframe,
-UI colours and heading/body typography, and exact Markdown content. Each screen includes a complete
+UI tokens, resolved component variants/states, and exact Markdown content. Each screen includes a complete
 content proof below its spatial canvas, so copy clipped by a fixed wireframe box cannot disappear from
 review. `[PLACEHOLDER: …]` markers remain visibly unfinished.
 

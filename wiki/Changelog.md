@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.291.2 — The orchestrator says when it discards an answer
+## v0.292.1 — The orchestrator says when it discards an answer
 
 When every tool result in an agentic loop's final round tests as failed, AtlasMind throws away the
 model's completion and substitutes a summary of the failures. That test matches substrings such as
@@ -33,6 +33,17 @@ never the output itself, because the log persists and tool results can carry sec
 
 Nothing branches on the new record and the substitution itself is unchanged — this is measurement,
 added before any fix, so the size of the problem is known rather than assumed.
+
+## v0.292.0 — Reusable component definitions and instances
+
+UI Studio format v8 adds target-independent reusable components to the same revisioned graph as screens and
+tokens. A definition declares a root type, typed properties, variants, bounded slots, and supported states.
+The canvas creates an instance explicitly and may override only declared properties; definition edits and
+instance edits remain visibly separate actions.
+
+UI System edits definitions through exact host commands, while the canvas inspector assigns compatible
+definitions, variants, states, property overrides, and parent slots. Studio, Full Preview, and the Markdown
+mirror project the same facts. The v7 → v8 migration adds an empty collection and invents no component.
 
 ## v0.291.0 — Visual typed-token editing and preview projection
 

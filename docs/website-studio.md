@@ -28,7 +28,7 @@ is what points subsequent project work at the real technology and source locatio
 | Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
 | Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction and legacy defaults; directly edit typed colour, typography, spacing, radius, shadow, motion, and breakpoint tokens and aliases |
+| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases plus reusable component definitions, properties, variants, slots, and states |
 | Implementation | Record target technologies, source roots, component locations, and handoff notes for any implementation target. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
 | n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
 
@@ -44,6 +44,18 @@ Reserved ids—`color-primary`, `color-secondary`, `color-accent`, `font-heading
 canvas and deterministic Full Preview. Other valid tokens remain available to target adapters under uniquely
 encoded CSS custom properties. CSS is a preview projection only: the graph stores structured values and
 remains equally usable for SwiftUI, Compose, XAML, native desktop, embedded, and editor-extension targets.
+
+## Reusable components
+
+Format v8 keeps reusable definitions beside tokens in the authoritative graph. UI System creates a
+definition with a compatible root block type, typed properties (`text`, `number`, `boolean`, or bounded
+`choice`), variants, capacity/kind-constrained slots, and supported default/hover/focus/active/disabled/
+loading/empty/error/success/validation states. Definitions contain no HTML, CSS, source paths, or commands.
+
+Select a canvas block to assign a compatible definition, variant, state, and property overrides. This is an
+explicit **instance edit**; changing it cannot rewrite the shared definition. Resolution is deterministic:
+definition default, then variant value, then instance override, with the source shown in the inspector.
+Children can claim only a declared slot on their parent instance and the host enforces kind and capacity.
 
 ## Content is part of the design
 
@@ -165,6 +177,7 @@ proposal and that nothing should be written to `website.json`.
 
 - wireframe geometry and hierarchy from the canvas;
 - primary, secondary, and accent colours plus safe heading/body font tokens from the UI system; and
+- resolved component definitions, variants, and explicitly selected interaction/system states; and
 - the exact Markdown file for each page or screen, including visible `[PLACEHOLDER: …]` gaps.
 
 The primary surface is VS Code's built-in Simple Browser, giving the design a full browser canvas without
@@ -432,7 +445,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 7**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 8**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -466,6 +479,8 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
 - v7 adds typed colour, font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint
   token definitions to that graph. Values are bounded structured data, not CSS. Aliases must resolve through
   the same kind without a cycle. Migration adds an empty token collection rather than guessing a system.
+- v8 adds reusable component definitions and bounded node instances. The migration adds an empty component
+  collection and never infers a definition, variant, property, slot, state, or instance from existing nodes.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

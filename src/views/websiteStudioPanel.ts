@@ -13,6 +13,7 @@ import {
   applyDesignGraphToPages,
   diagnoseUiScreenLayout,
   designGraphFromPages,
+  resolveUiComponentInstance,
   resolveUiNodeLayout,
   resolveUiScreenLayout,
   UI_DESIGN_GRAPH_MAX_REVISION,
@@ -25,6 +26,7 @@ import {
 } from '../core/uiEditCommands.js';
 import type {
   UiDesignGraph,
+  UiComponentInstance,
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
   WebsitePagePlan,
@@ -393,6 +395,7 @@ export class WebsiteStudioPanel {
       ...(reason ? { reason } : {}),
       pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
       tokens: this.editSession.graph.tokens,
+      components: this.editSession.graph.components,
       responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
     });
   }
@@ -844,6 +847,9 @@ export interface WebsiteStudioHtmlOptions {
 export interface WebsiteStudioResponsiveNodeState {
   id: string;
   locked: boolean;
+  component?: ReturnType<typeof resolveUiComponentInstance>;
+  componentInstance?: UiComponentInstance;
+  componentSlot?: string;
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
   overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
@@ -876,6 +882,11 @@ export function buildWebsiteStudioResponsiveScreens(
     nodes: screen.nodes.map(node => ({
       id: node.id,
       locked: node.locked,
+      ...(resolveUiComponentInstance(graph, screen, node)
+        ? { component: resolveUiComponentInstance(graph, screen, node) }
+        : {}),
+      ...(node.componentInstance ? { componentInstance: structuredClone(node.componentInstance) } : {}),
+      ...(node.componentSlot ? { componentSlot: node.componentSlot } : {}),
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),
@@ -932,6 +943,7 @@ export function getWebsiteStudioHtml(
     designRevision: config.designGraph.revision,
     pages: config.pages,
     tokens: config.designGraph.tokens,
+    components: config.designGraph.components,
     responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
@@ -1448,6 +1460,21 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           <button type="button" id="addDesignToken"${config.designGraph.tokens.length >= 200 ? ' disabled' : ''}>Add token</button>
         </div>
         <div id="designTokenEditor" class="token-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card component-authority-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Definition editing · explicit instance overrides</p>
+          <h2>Reusable components</h2>
+        </div></div>
+        <p class="token-help">Definitions are structured design data, never markup. A canvas node becomes an instance only through its inspector; editing that instance cannot silently rewrite the definition.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newComponentId', 'button', 'button')}
+          ${field('Label', 'newComponentLabel', 'Button', 'Button')}
+          <label class="field"><span>Root type</span><select id="newComponentKind">${WIREFRAME_KIND_CATALOG.map(spec => `<option value="${escapeHtml(spec.kind)}">${escapeHtml(spec.label)}</option>`).join('')}</select></label>
+          <button type="button" id="addDesignComponent"${config.designGraph.components.length >= 100 ? ' disabled' : ''}>Add component</button>
+        </div>
+        <p class="token-help">Property rows use <code>id | label | text/number/boolean/choice | default | comma-separated choices</code>. Slots use <code>id | label | required/optional | allowed kinds | max children</code>. Variants use <code>id | label | property=value;…</code>.</p>
+        <div id="designComponentEditor" class="component-editor" aria-live="polite"></div>
       </article>
     </section>
   `;

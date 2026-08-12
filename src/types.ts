@@ -1377,6 +1377,10 @@ export interface UiDesignNode {
   contentRef?: string;
   styleRef?: string;
   componentRef?: string;
+  /** Explicit reusable-definition instance; never inferred from selection. */
+  componentInstance?: UiComponentInstance;
+  /** Slot claimed inside the parent component instance, when applicable. */
+  componentSlot?: string;
 }
 
 /** A page/screen projection in the shared design graph. */
@@ -1428,6 +1432,69 @@ export type UiDesignToken =
   | (UiDesignTokenBase & { value: UiDesignTokenValue; aliasOf?: never })
   | (UiDesignTokenBase & { aliasOf: string; value?: never });
 
+/** Closed, target-independent component property vocabulary. */
+export type UiComponentPropertyKind = 'text' | 'number' | 'boolean' | 'choice';
+export type UiComponentPropertyValue = string | number | boolean;
+
+/** Interaction and system states that a reusable definition may explicitly support. */
+export type UiComponentState =
+  | 'default'
+  | 'hover'
+  | 'focus'
+  | 'active'
+  | 'disabled'
+  | 'loading'
+  | 'empty'
+  | 'error'
+  | 'success'
+  | 'validation';
+
+export interface UiComponentPropertyDefinition {
+  id: string;
+  label: string;
+  kind: UiComponentPropertyKind;
+  defaultValue: UiComponentPropertyValue;
+  /** Required for `choice`; absent for every other property kind. */
+  choices?: string[];
+}
+
+export interface UiComponentSlotDefinition {
+  id: string;
+  label: string;
+  required: boolean;
+  /** Empty means any bounded wireframe kind is accepted. */
+  allowedKinds: WireframeElementKind[];
+  maxChildren: number;
+}
+
+export interface UiComponentVariantDefinition {
+  id: string;
+  label: string;
+  /** Values are checked against the definition's declared properties. */
+  propertyValues: Record<string, UiComponentPropertyValue>;
+}
+
+/** A reusable, target-independent component definition. It stores no markup or executable style. */
+export interface UiComponentDefinition {
+  id: string;
+  label: string;
+  description: string;
+  rootKind: WireframeElementKind;
+  properties: UiComponentPropertyDefinition[];
+  slots: UiComponentSlotDefinition[];
+  variants: UiComponentVariantDefinition[];
+  /** Always contains `default`; other entries are explicit design decisions. */
+  states: UiComponentState[];
+}
+
+/** Bounded per-node departures from one reusable component definition. */
+export interface UiComponentInstance {
+  definitionId: string;
+  variantId?: string;
+  state: UiComponentState;
+  propertyOverrides: Record<string, UiComponentPropertyValue>;
+}
+
 /**
  * UI Studio's authoritative visual-design document. `revision` is monotonic:
  * undo restores content from history but still advances this value so a stale
@@ -1436,6 +1503,7 @@ export type UiDesignToken =
 export interface UiDesignGraph {
   revision: number;
   tokens: UiDesignToken[];
+  components: UiComponentDefinition[];
   screens: UiDesignScreen[];
 }
 
@@ -1604,9 +1672,11 @@ export interface WebsiteStackChoice {
  * adds the revisioned target-independent design graph; the page wireframe is a
  * compatibility projection while existing readers move to that graph. Version
  * 7 adds typed token definitions without inventing any during migration.
+ * Version 8 adds reusable component definitions and bounded instances; the
+ * migration again adds only empty authority, never an inferred component.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 7;
+  version: 8;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

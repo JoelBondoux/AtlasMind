@@ -114,6 +114,18 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .token-row-actions { display:flex; gap:6px; padding-bottom:1px; }
   .token-id { display:block; margin-top:4px; color:var(--studio-muted); font:12px/1.4 var(--vscode-editor-font-family, monospace); }
   .token-empty { padding:20px; text-align:center; border:1px dashed var(--studio-border); border-radius:9px; color:var(--studio-muted); }
+  .component-authority-card { margin-top:14px; }
+  .component-create-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) minmax(130px,1fr) auto; gap:8px; align-items:end; margin:14px 0; padding:12px; background:color-mix(in srgb, var(--studio-accent) 6%, transparent); border-radius:9px; }
+  .component-create-row .field { margin:0; }
+  .component-editor { display:grid; gap:10px; }
+  .component-row { border:1px solid var(--studio-border); border-radius:9px; overflow:hidden; }
+  .component-row summary { display:flex; justify-content:space-between; gap:12px; padding:12px; cursor:pointer; background:color-mix(in srgb, var(--studio-border) 35%, transparent); }
+  .component-row summary span { color:var(--studio-muted); font-size:.8rem; }
+  .component-fields { display:grid; gap:10px; padding:12px; }
+  .component-instance-inspector { display:grid; gap:9px; margin:12px 0; padding:10px; border:1px solid var(--studio-border); border-radius:8px; }
+  .component-property-overrides { display:grid; gap:7px; }
+  .component-property { display:grid; gap:3px; }
+  .component-reset { display:flex; align-items:center; gap:5px; color:var(--studio-muted); font-size:.76rem; }
   .empty-state { grid-column:1/-1; min-height:180px; display:grid; place-content:center; text-align:center; gap:5px; border:1px dashed var(--studio-border); border-radius:12px; color:var(--studio-muted); }
   .save-bar { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; justify-content:space-between; align-items:center; gap:20px; padding:12px 22px; background:color-mix(in srgb, var(--vscode-editor-background) 94%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--studio-border); }
   .save-bar div { display:grid; }
@@ -135,6 +147,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
     .status-grid, .color-grid, .field-pair { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .token-row { grid-template-columns:1fr 1fr; }
     .token-create-row { grid-template-columns:1fr 1fr; }
+    .component-create-row { grid-template-columns:1fr 1fr; }
     .token-row-actions { grid-column:1/-1; }
     .metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .save-bar button { width:100%; }
@@ -258,6 +271,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .wf-box.locked { cursor:not-allowed; border-style:double; }
   .wf-box-label { font-family:var(--atlas-design-heading, inherit); font-weight:650; font-size:.82rem; line-height:1.2; }
   .wf-box-kind { font-size:.68rem; color:var(--studio-muted); text-transform:uppercase; letter-spacing:.08em; }
+  .wf-box-component { font-size:.62rem; color:var(--atlas-design-accent, var(--studio-accent)); font-weight:700; }
   .wf-box-visibility { font-size:.62rem; font-weight:700; color:var(--vscode-testing-iconSkipped, #d29922); }
   /* Structural kinds read as bands, content kinds as blocks. Enough of a
      difference to scan the page shape without turning the canvas into a

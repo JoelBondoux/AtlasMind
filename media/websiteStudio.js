@@ -41,6 +41,7 @@
     'color', 'font-family', 'font-size', 'font-weight', 'line-height',
     'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
   ];
+  const COMPONENT_STATES = ['default', 'hover', 'focus', 'active', 'disabled', 'loading', 'empty', 'error', 'success', 'validation'];
   const validNullableConstraint = (candidate, maximum) => candidate === null
     || (Number.isFinite(candidate) && candidate >= 1 && candidate <= maximum);
   const orderedConstraint = (minimum, maximum) => minimum === null || maximum === null || minimum <= maximum;
@@ -48,17 +49,18 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, tokens: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], tokens: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, tokens: Array, components: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], tokens: [], components: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], tokens: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], tokens: [], components: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
-  state.tokens = normalizeTokens(state.tokens);
-  state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
+  state.tokens = normalizeTokens(state.tokens);
+  state.components = normalizeComponents(state.components);
+  state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
     ? state.designRevision
     : 0;
@@ -174,6 +176,21 @@
         && ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'].includes(candidate.easing);
     }
     return Number.isFinite(candidate);
+  }
+
+  function normalizeComponents(input) {
+    if (!Array.isArray(input) || input.length > 100) { return []; }
+    const identifiers = /^[a-zA-Z0-9._-]{1,120}$/;
+    return input.filter(component => component && typeof component === 'object'
+      && identifiers.test(component.id)
+      && typeof component.label === 'string' && component.label.length > 0 && component.label.length <= 120
+      && typeof component.description === 'string' && component.description.length <= 500
+      && state.kinds.some(spec => spec.kind === component.rootKind)
+      && Array.isArray(component.properties) && component.properties.length <= 30
+      && Array.isArray(component.slots) && component.slots.length <= 20
+      && Array.isArray(component.variants) && component.variants.length <= 30
+      && Array.isArray(component.states) && component.states.includes('default')
+      && component.states.every(candidate => COMPONENT_STATES.includes(candidate)));
   }
 
   function responsiveView(element) {
@@ -436,6 +453,7 @@
         + 'height:' + (h / height * 100) + '%;';
       const selected = selectedElementIds.has(element.id);
       const primary = element.id === selectedElementId;
+      const component = responsiveNode(element.id)?.component;
       // Every box is a real button: the canvas has to be reachable by keyboard,
       // and a div with a click handler is not.
       //
@@ -455,6 +473,11 @@
         + ' aria-label="' + escapeAttribute(describeForScreenReader(element, spec)) + '">'
         + '<span class="wf-box-label">' + escapeText(element.label || spec.label) + '</span>'
         + '<span class="wf-box-kind">' + escapeText(spec.label) + '</span>'
+        + (component ? '<span class="wf-box-component">' + escapeText(component.definitionLabel)
+          + (component.variantLabel ? ' · ' + escapeText(component.variantLabel) : '')
+          + (component.state !== 'default' ? ' · ' + escapeText(component.state) : '') + '</span>' : '')
+        + (responsiveNode(element.id)?.componentSlot ? '<span class="wf-box-component">slot: '
+          + escapeText(responsiveNode(element.id).componentSlot) + '</span>' : '')
         + (isLocked(element.id) ? '<span class="wf-box-visibility">Locked</span>' : '')
         + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
         + (primary ? handlesMarkup() : '')
@@ -706,6 +729,30 @@
           <div><dt>Order</dt><dd>${view.layout.order} · ${escapeText(sourceLabel(view.provenance.order))}</dd></div>
         </dl>
       </div>`;
+    const component = responsiveNode(element.id)?.component;
+    const matchingComponents = state.components.filter(candidate => candidate.rootKind === element.kind);
+    const selectedDefinition = component
+      ? state.components.find(candidate => candidate.id === component.definitionId)
+      : undefined;
+    const parentComponent = parent ? responsiveNode(parent.id)?.component : undefined;
+    const parentDefinition = parentComponent
+      ? state.components.find(candidate => candidate.id === parentComponent.definitionId)
+      : undefined;
+    const componentFields = `
+      <div class="component-instance-inspector">
+        <div class="responsive-head"><p class="responsive-title">Component instance</p>
+          <span class="source-chip">${component ? 'explicit instance' : 'plain node'}</span></div>
+        <label class="field"><span>Definition</span><select id="componentDefinition"${readOnly}>
+          <option value="">No component</option>${matchingComponents.map(candidate => `<option value="${escapeAttribute(candidate.id)}"${candidate.id === component?.definitionId ? ' selected' : ''}>${escapeText(candidate.label)}</option>`).join('')}
+        </select></label>
+        ${selectedDefinition ? `<div class="field-pair">
+          <label class="field"><span>Variant</span><select id="componentVariant"${readOnly}><option value="">Base</option>${selectedDefinition.variants.map(variant => `<option value="${escapeAttribute(variant.id)}"${variant.id === component?.variantId ? ' selected' : ''}>${escapeText(variant.label)}</option>`).join('')}</select></label>
+          <label class="field"><span>State</span><select id="componentState"${readOnly}>${selectedDefinition.states.map(candidate => `<option value="${candidate}"${candidate === component?.state ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label>
+        </div>
+        <div class="component-property-overrides">${(component?.properties ?? []).map(property => `<div class="component-property"><label class="field"><span>${escapeText(property.label)} <small>${escapeText(property.source)}</small></span><input data-component-property="${escapeAttribute(property.id)}" data-property-kind="${escapeAttribute(property.kind)}" value="${escapeAttribute(String(property.value))}"${property.kind === 'boolean' ? ' placeholder="true or false"' : ''}${readOnly} /></label>${property.source === 'instance' ? `<label class="component-reset"><input type="checkbox" data-reset-component-property="${escapeAttribute(property.id)}"${readOnly} /> Use inherited value</label>` : ''}</div>`).join('')}</div>` : ''}
+        ${parentDefinition ? `<label class="field"><span>Parent slot</span><select id="componentSlot"${readOnly}><option value="">Unassigned</option>${parentDefinition.slots.filter(slot => slot.allowedKinds.length === 0 || slot.allowedKinds.includes(element.kind)).map(slot => `<option value="${escapeAttribute(slot.id)}"${slot.id === responsiveNode(element.id)?.componentSlot ? ' selected' : ''}>${escapeText(slot.label)}</option>`).join('')}</select></label>` : ''}
+        <div class="responsive-actions"><button type="button" class="secondary" id="applyComponentInstance"${readOnly}>Apply instance</button></div>
+      </div>`;
     inspector.innerHTML = ''
       + '<div class="inspector-head"><p class="eyebrow">Selected</p><h3>' + escapeText(element.label || spec.label) + '</h3>'
       + '<p class="inspector-meta">' + escapeText(spec.label)
@@ -719,6 +766,7 @@
       + '</select></label>'
       + layoutFields
       + responsiveFields
+      + componentFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
       + escapeText(element.designPrompt || '') + '</textarea></label>'
@@ -1377,6 +1425,15 @@
       clearCanvasSelection();
       renderCanvas();
       renderPagePromptField();
+    } else if (event.target.id === 'componentDefinition') {
+      const definitionId = event.target.value;
+      submitDesignEdit({
+        type: 'set-node-component', screenId: activePageId, nodeId: selectedElementId,
+        instance: definitionId
+          ? { definitionId, state: 'default', propertyOverrides: {} }
+          : null,
+      });
+      notice(definitionId ? 'Assigning the definition; instance controls will refresh…' : 'Removing the component instance…');
     }
   });
 
@@ -1506,6 +1563,60 @@
         type: 'clear-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
         breakpoint: activeBreakpoint, property: 'hidden',
       });
+      return;
+    }
+
+    if (event.target.id === 'applyComponentInstance') {
+      const definitionId = value('#componentDefinition');
+      if (!definitionId) {
+        if (responsiveNode(selectedElementId)?.componentInstance) {
+          submitDesignEdit({
+            type: 'set-node-component', screenId: activePageId, nodeId: selectedElementId, instance: null,
+          });
+        }
+      } else {
+        const definition = state.components.find(candidate => candidate.id === definitionId);
+        if (!definition) { notice('Choose a component definition valid for this node type.', 'error'); return; }
+        const currentInstance = responsiveNode(selectedElementId)?.componentInstance;
+        const propertyOverrides = { ...(currentInstance?.propertyOverrides ?? {}) };
+        qsa('[data-component-property]').forEach(field => {
+          const property = definition.properties.find(candidate => candidate.id === field.dataset.componentProperty);
+          const resolved = responsiveNode(selectedElementId)?.component?.properties
+            ?.find(candidate => candidate.id === field.dataset.componentProperty);
+          if (!property || !resolved) { return; }
+          if (qs('[data-reset-component-property="' + cssEscape(property.id) + '"]')?.checked) {
+            delete propertyOverrides[property.id]; return;
+          }
+          if (field.value === String(resolved.value)) { return; }
+          if (property.kind === 'boolean') {
+            if (field.value !== 'true' && field.value !== 'false') { return; }
+            propertyOverrides[property.id] = field.value === 'true';
+          } else if (property.kind === 'number') {
+            const numeric = Number(field.value);
+            if (Number.isFinite(numeric)) { propertyOverrides[property.id] = numeric; }
+          } else {
+            propertyOverrides[property.id] = field.value;
+          }
+        });
+        const instance = {
+          definitionId,
+          ...(value('#componentVariant') ? { variantId: value('#componentVariant') } : {}),
+          state: value('#componentState') || 'default', propertyOverrides,
+        };
+        if (JSON.stringify(instance) !== JSON.stringify(currentInstance)) {
+          submitDesignEdit({
+          type: 'set-node-component', screenId: activePageId, nodeId: selectedElementId,
+            instance,
+          });
+        }
+      }
+      const slotId = value('#componentSlot');
+      if (qs('#componentSlot') && slotId !== (responsiveNode(selectedElementId)?.componentSlot ?? '')) {
+        submitDesignEdit({
+          type: 'set-node-component-slot', screenId: activePageId, nodeId: selectedElementId,
+          slotId: slotId || null,
+        });
+      }
       return;
     }
 
@@ -1700,7 +1811,7 @@
     }));
 
     return {
-      version: 7,
+      version: 8,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -2055,6 +2166,116 @@
     });
   }
 
+  function componentPropertyLines(component) {
+    return component.properties.map(property => [
+      property.id, property.label, property.kind, String(property.defaultValue),
+      property.choices?.join(',') ?? '',
+    ].join(' | ')).join('\n');
+  }
+
+  function componentSlotLines(component) {
+    return component.slots.map(slot => [
+      slot.id, slot.label, slot.required ? 'required' : 'optional', slot.allowedKinds.join(','), slot.maxChildren,
+    ].join(' | ')).join('\n');
+  }
+
+  function componentVariantLines(component) {
+    return component.variants.map(variant => [
+      variant.id, variant.label,
+      Object.entries(variant.propertyValues).map(([id, candidate]) => id + '=' + String(candidate)).join(';'),
+    ].join(' | ')).join('\n');
+  }
+
+  function parseComponentPropertyValue(kind, raw, choices) {
+    if (kind === 'boolean') { return raw === 'true' ? true : raw === 'false' ? false : undefined; }
+    if (kind === 'number') { const numeric = Number(raw); return Number.isFinite(numeric) ? numeric : undefined; }
+    if (kind === 'choice') { return choices.includes(raw) ? raw : undefined; }
+    return raw.length <= 500 ? raw : undefined;
+  }
+
+  function collectComponent(row) {
+    const id = row.dataset.componentId;
+    const properties = lines(value('.component-properties', row)).map(line => {
+      const [propertyId = '', label = '', kind = '', raw = '', choiceText = ''] = line.split('|').map(part => part.trim());
+      const choices = choiceText.split(',').map(part => part.trim()).filter(Boolean);
+      const defaultValue = parseComponentPropertyValue(kind, raw, choices);
+      return { id: propertyId, label, kind, defaultValue, ...(kind === 'choice' ? { choices } : {}) };
+    });
+    if (properties.some(property => property.defaultValue === undefined)) { return undefined; }
+    const propertyById = new Map(properties.map(property => [property.id, property]));
+    const slots = lines(value('.component-slots', row)).map(line => {
+      const [slotId = '', label = '', required = '', kinds = '', maximum = '1'] = line.split('|').map(part => part.trim());
+      return { id: slotId, label, required: required === 'required', allowedKinds: kinds.split(',').map(part => part.trim()).filter(Boolean), maxChildren: Number(maximum) };
+    });
+    const variants = lines(value('.component-variants', row)).map(line => {
+      const [variantId = '', label = '', rawValues = ''] = line.split('|').map(part => part.trim());
+      const propertyValues = {};
+      rawValues.split(';').map(part => part.trim()).filter(Boolean).forEach(pair => {
+        const separator = pair.indexOf('=');
+        const propertyId = pair.slice(0, separator).trim();
+        const property = propertyById.get(propertyId);
+        if (separator < 1 || !property) { return; }
+        const parsed = parseComponentPropertyValue(property.kind, pair.slice(separator + 1).trim(), property.choices ?? []);
+        if (parsed !== undefined) { propertyValues[propertyId] = parsed; }
+      });
+      return { id: variantId, label, propertyValues };
+    });
+    return {
+      id, label: value('.component-label', row), description: value('.component-description', row),
+      rootKind: value('.component-kind', row), properties, slots, variants,
+      states: ['default', ...new Set(value('.component-states', row).split(',').map(part => part.trim()).filter(candidate => candidate && candidate !== 'default'))],
+    };
+  }
+
+  function renderComponentEditor() {
+    const editor = qs('#designComponentEditor');
+    if (!editor) { return; }
+    if (state.components.length === 0) {
+      editor.innerHTML = '<div class="token-empty">No component definitions yet. Add one, then assign instances from the canvas inspector.</div>';
+      return;
+    }
+    editor.innerHTML = state.components.map(component => '<details class="component-row" data-component-id="' + escapeAttribute(component.id) + '">'
+      + '<summary><strong>' + escapeText(component.label) + '</strong><span>' + escapeText(component.rootKind) + ' · '
+      + component.variants.length + ' variants · ' + component.states.length + ' states</span></summary>'
+      + '<div class="component-fields"><div class="field-pair"><label class="field"><span>Label</span><input class="component-label" value="' + escapeAttribute(component.label) + '" /></label>'
+      + '<label class="field"><span>Root type</span><select class="component-kind">' + state.kinds.map(spec => '<option value="' + escapeAttribute(spec.kind) + '"' + (spec.kind === component.rootKind ? ' selected' : '') + '>' + escapeText(spec.label) + '</option>').join('') + '</select></label></div>'
+      + '<label class="field"><span>Description</span><textarea class="component-description" rows="2">' + escapeText(component.description) + '</textarea></label>'
+      + '<label class="field"><span>Properties</span><textarea class="component-properties" rows="' + Math.max(2, component.properties.length) + '">' + escapeText(componentPropertyLines(component)) + '</textarea></label>'
+      + '<label class="field"><span>Slots</span><textarea class="component-slots" rows="' + Math.max(2, component.slots.length) + '">' + escapeText(componentSlotLines(component)) + '</textarea></label>'
+      + '<label class="field"><span>Variants</span><textarea class="component-variants" rows="' + Math.max(2, component.variants.length) + '">' + escapeText(componentVariantLines(component)) + '</textarea></label>'
+      + '<label class="field"><span>States (comma separated)</span><input class="component-states" value="' + escapeAttribute(component.states.join(', ')) + '" /></label>'
+      + '<div class="token-row-actions"><button type="button" class="secondary save-component">Apply definition</button><button type="button" class="danger subtle delete-component">Delete</button></div></div></details>').join('');
+  }
+
+  function wireComponents() {
+    renderComponentEditor();
+    qs('#addDesignComponent')?.addEventListener('click', () => {
+      const component = {
+        id: value('#newComponentId'), label: value('#newComponentLabel'), description: '',
+        rootKind: value('#newComponentKind'), properties: [], slots: [], variants: [], states: ['default'],
+      };
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(component.id) || !component.label) {
+        notice('Choose a valid stable component id and label.', 'error'); return;
+      }
+      submitDesignEdit({ type: 'add-component', component });
+      notice('Adding the reusable component definition…');
+    });
+    qs('#designComponentEditor')?.addEventListener('click', event => {
+      const row = event.target.closest('.component-row');
+      if (!row || state.readOnly) { return; }
+      const componentId = row.dataset.componentId;
+      if (event.target.closest('.delete-component')) {
+        submitDesignEdit({ type: 'delete-component', componentId });
+        notice('Deleting the definition if no canvas instance uses it…'); return;
+      }
+      if (!event.target.closest('.save-component')) { return; }
+      const component = collectComponent(row);
+      if (!component) { notice('A component property has an invalid typed default.', 'error'); return; }
+      submitDesignEdit({ type: 'set-component', componentId, component });
+      notice('Applying the definition to every non-overridden instance…');
+    });
+  }
+
   /**
    * Ids are constrained to an identifier charset by the sanitizer, but they are
    * interpolated into selectors here, so they are escaped anyway. A selector
@@ -2095,6 +2316,10 @@
     if (message.tokens !== undefined) {
       state.tokens = normalizeTokens(message.tokens);
       renderTokenEditor();
+    }
+    if (message.components !== undefined) {
+      state.components = normalizeComponents(message.components);
+      renderComponentEditor();
     }
     for (const id of [...selectedElementIds]) {
       if (!findElement(id)) { selectedElementIds.delete(id); }
@@ -2146,6 +2371,7 @@
 
   wireCanvas();
   wireTokens();
+  wireComponents();
   syncPageSelect();
   renderCanvas();
   renderPagePromptField();

@@ -182,6 +182,12 @@ same kind to a direct value; the host refuses missing targets, cross-kind links,
 duplicates, and excess definitions. The v6 → v7 migration adds an empty collection and never invents a
 design system.
 
+Format v8 adds reusable component definitions and explicit node instances to that same revision boundary.
+Definitions declare a closed root kind, typed properties, variants, bounded slots, and supported states; they
+contain no markup, CSS, source path, or executable value. Instance resolution applies defaults, then variant
+values, then bounded overrides and retains the source of each property. The v7 → v8 migration adds an empty
+collection and invents no component or instance.
+
 `websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
 colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
 resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or
@@ -194,7 +200,9 @@ kind, label, intent, visibility, viewport geometry/visibility override set/reset
 name the revision they read and pass an exact parser; the webview never submits a graph patch. Invalid
 targets refuse, and bounded undo/redo never rewinds revision. Typed token add/set/delete uses that same exact
 path and history: the host validates the whole dependency graph and protects a direct token while an alias
-uses it. UI System sends definitions, never graph patches. Responsive resolution applies desktop →
+uses it. Component definition add/set/delete and node instance/slot assignment use the same boundary. The host
+refuses in-use deletion and incompatible root-kind changes, bounds property/slot/state vocabularies, and
+reconciles removed values deterministically. UI System sends definitions, never graph patches. Responsive resolution applies desktop →
 tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
 override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
 through an exact override, so the resolver does not turn absent intent into a design decision.
@@ -236,7 +244,7 @@ nodes below 44px using the preview's actual fixed widths. The browser renders cl
 select their graph identities; it cannot submit or redefine a diagnostic.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
-wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains
+wireframe geometry, sanitized colour/type tokens, resolved component variant/state labels, and escaped Markdown content. The pure renderer remains
 script-free and now emits static tablet/mobile media rules by resolving the matching authoritative graph
 screen, including inherited geometry, explicit visibility, and a visible-content-derived canvas height.
 Graph identities used by selectors are escaped and a screen that does not own the page is ignored.
