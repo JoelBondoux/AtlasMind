@@ -11,6 +11,7 @@ import type {
   UiComponentInstance,
   UiComponentPropertyValue,
   UiComponentState,
+  UiDesignAsset,
   UiContentCollection,
   UiNodeContentState,
   UiNodeStatePresentation,
@@ -42,6 +43,7 @@ import {
 } from './websiteWireframe.js';
 import {
   UI_DESIGN_GRAPH_MAX_COMPONENTS,
+  UI_DESIGN_GRAPH_MAX_ASSETS,
   UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS,
   UI_DESIGN_GRAPH_MAX_REVISION,
   UI_DESIGN_GRAPH_MAX_TOKENS,
@@ -50,6 +52,7 @@ import {
   UI_LAYOUT_MAX_PADDING,
   UI_LAYOUT_MAX_ORDER,
   sanitizeUiComponentDefinitions,
+  sanitizeUiDesignAssets,
   sanitizeUiComponentInstance,
   sanitizeUiDesignTokens,
   sanitizeNodeStatePresentations,
@@ -109,6 +112,9 @@ export interface UiNodeLayoutEdit {
 export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
 
 export type UiEditCommand =
+  | (UiEditCommandBase & { type: 'add-asset'; asset: UiDesignAsset })
+  | (UiEditCommandBase & { type: 'set-asset'; assetId: string; asset: UiDesignAsset })
+  | (UiEditCommandBase & { type: 'delete-asset'; assetId: string })
   | (UiEditCommandBase & { type: 'add-token'; token: UiDesignToken })
   | (UiEditCommandBase & { type: 'set-token'; tokenId: string; token: UiDesignToken })
   | (UiEditCommandBase & { type: 'delete-token'; tokenId: string })
@@ -146,6 +152,7 @@ export type UiEditCommand =
   })
   | (UiNodeCommandBase & { type: 'set-node-preview-content-state'; state: UiNodeContentState })
   | (UiNodeCommandBase & { type: 'set-node-data-binding'; binding: UiNodeDataBinding | null })
+  | (UiNodeCommandBase & { type: 'set-node-asset'; assetId: string | null })
   | (UiNodeCommandBase & {
     type: 'set-node-layout';
     layout: UiNodeLayoutEdit;
@@ -192,6 +199,10 @@ export type UiEditRefusalReason =
   | 'content-collection-exists'
   | 'content-collection-in-use'
   | 'content-collection-limit'
+  | 'asset-not-found'
+  | 'asset-exists'
+  | 'asset-in-use'
+  | 'asset-limit'
   | 'component-slot-invalid'
   | 'parent-not-found'
   | 'parent-cannot-contain'
@@ -216,6 +227,25 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
   if (input['type'] === 'undo' || input['type'] === 'redo') {
     return exactKeys(input, ['type', 'expectedRevision'])
       ? { type: input['type'], expectedRevision }
+      : undefined;
+  }
+  if (input['type'] === 'add-asset') {
+    const asset = parseDesignAsset(input['asset']);
+    return asset && exactKeys(input, ['type', 'expectedRevision', 'asset'])
+      ? { type: 'add-asset', expectedRevision, asset }
+      : undefined;
+  }
+  if (input['type'] === 'set-asset') {
+    const asset = parseDesignAsset(input['asset']);
+    return asset && validIdentifier(input['assetId']) && asset.id === input['assetId']
+      && exactKeys(input, ['type', 'expectedRevision', 'assetId', 'asset'])
+      ? { type: 'set-asset', expectedRevision, assetId: input['assetId'], asset }
+      : undefined;
+  }
+  if (input['type'] === 'delete-asset') {
+    return validIdentifier(input['assetId'])
+      && exactKeys(input, ['type', 'expectedRevision', 'assetId'])
+      ? { type: 'delete-asset', expectedRevision, assetId: input['assetId'] }
       : undefined;
   }
   if (input['type'] === 'add-token') {
@@ -387,6 +417,11 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
         ? { type: 'set-node-data-binding', ...base, binding }
         : undefined;
     }
+    case 'set-node-asset':
+      return (input['assetId'] === null || validIdentifier(input['assetId']))
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'assetId'])
+        ? { type: 'set-node-asset', ...base, assetId: input['assetId'] }
+        : undefined;
     case 'set-node-layout': {
       const layout = parseLayoutEdit(input['layout']);
       const breakpoint = input['breakpoint'];
@@ -554,6 +589,20 @@ function parseContentCollection(input: unknown): UiContentCollection | undefined
   }
   const collection = sanitizeUiContentCollections([input])[0];
   return collection && JSON.stringify(collection) === JSON.stringify(input) ? collection : undefined;
+}
+
+function parseDesignAsset(input: unknown): UiDesignAsset | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, [
+        'id', 'label', 'kind', 'source', 'width', 'height', 'crop', 'focalPoint',
+        'altText', 'decorative', 'maturity',
+      ])
+      || !isRecord(input['source']) || !exactKeys(input['source'], ['kind', 'reference'])
+      || !isRecord(input['focalPoint']) || !exactKeys(input['focalPoint'], ['x', 'y'])) {
+    return undefined;
+  }
+  const asset = sanitizeUiDesignAssets([input])[0];
+  return asset && JSON.stringify(asset) === JSON.stringify(input) ? asset : undefined;
 }
 
 function exactComponentNestedShape(
@@ -764,6 +813,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   if (command.type === 'redo') {
     return restoreHistory(session, 'redo');
   }
+  if (command.type === 'add-asset' || command.type === 'set-asset' || command.type === 'delete-asset') {
+    return applyAssetCommand(session, command);
+  }
   if (command.type === 'add-token' || command.type === 'set-token' || command.type === 'delete-token') {
     return applyTokenCommand(session, command);
   }
@@ -805,6 +857,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   }
   if (command.type === 'set-node-data-binding') {
     return applyNodeDataBindingCommand(session, screenIndex, nodeIndex, node, command);
+  }
+  if (command.type === 'set-node-asset') {
+    return applyNodeAssetCommand(session, screenIndex, nodeIndex, node, command);
   }
   if (command.type === 'set-node-kind' && node.componentInstance) {
     const definition = session.graph.components.find(candidate => candidate.id === node.componentInstance?.definitionId);
@@ -922,6 +977,56 @@ function applyContentCollectionCommand(
   const nextGraph = cloneGraph(session.graph);
   nextGraph.revision = session.graph.revision + 1;
   nextGraph.contentCollections = collections;
+  return commitGraph(session, nextGraph);
+}
+
+function applyAssetCommand(
+  session: UiEditSession,
+  command: Extract<UiEditCommand, { type: 'add-asset' | 'set-asset' | 'delete-asset' }>,
+): UiEditResult {
+  const id = command.type === 'add-asset' ? command.asset.id : command.assetId;
+  const currentIndex = session.graph.assets.findIndex(asset => asset.id === id);
+  if (command.type === 'add-asset') {
+    if (currentIndex >= 0) { return refused(session, 'asset-exists'); }
+    if (session.graph.assets.length >= UI_DESIGN_GRAPH_MAX_ASSETS) { return refused(session, 'asset-limit'); }
+  } else if (currentIndex < 0) {
+    return refused(session, 'asset-not-found');
+  }
+  const inUse = session.graph.screens.some(screen => screen.nodes.some(node => node.assetRef === id));
+  if (command.type === 'delete-asset' && inUse) { return refused(session, 'asset-in-use'); }
+  const proposed = command.type === 'add-asset'
+    ? [...session.graph.assets, command.asset]
+    : command.type === 'set-asset'
+      ? session.graph.assets.map((asset, index) => index === currentIndex ? command.asset : asset)
+      : session.graph.assets.filter((_, index) => index !== currentIndex);
+  const assets = sanitizeUiDesignAssets(proposed);
+  if (assets.length !== proposed.length || JSON.stringify(assets) !== JSON.stringify(proposed)) {
+    return refused(session, 'invalid-command');
+  }
+  if (JSON.stringify(assets) === JSON.stringify(session.graph.assets)) { return refused(session, 'no-change'); }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.assets = assets;
+  return commitGraph(session, nextGraph);
+}
+
+function applyNodeAssetCommand(
+  session: UiEditSession,
+  screenIndex: number,
+  nodeIndex: number,
+  node: UiDesignNode,
+  command: Extract<UiEditCommand, { type: 'set-node-asset' }>,
+): UiEditResult {
+  if (command.assetId !== null && !session.graph.assets.some(asset => asset.id === command.assetId)) {
+    return refused(session, 'asset-not-found');
+  }
+  const nextNode: UiDesignNode = command.assetId === null
+    ? { ...node, assetRef: undefined }
+    : { ...node, assetRef: command.assetId };
+  if (sameNode(node, nextNode)) { return refused(session, 'no-change'); }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  nextGraph.screens[screenIndex]!.nodes[nodeIndex] = nextNode;
   return commitGraph(session, nextGraph);
 }
 
@@ -1110,10 +1215,11 @@ function applyNodeCommand(
   node: UiDesignNode,
   command: Exclude<UiEditCommand, {
     type: 'undo' | 'redo' | 'add-token' | 'set-token' | 'delete-token'
+      | 'add-asset' | 'set-asset' | 'delete-asset'
       | 'add-component' | 'set-component' | 'delete-component'
       | 'add-content-collection' | 'set-content-collection' | 'delete-content-collection'
       | 'add-node' | 'delete-node' | 'duplicate-node' | 'set-node-frames'
-      | 'set-node-component' | 'set-node-component-slot' | 'set-node-data-binding';
+      | 'set-node-component' | 'set-node-component-slot' | 'set-node-data-binding' | 'set-node-asset';
   }>,
 ): NodeCommandResult {
   switch (command.type) {
@@ -1726,6 +1832,7 @@ function cloneGraph(graph: UiDesignGraph): UiDesignGraph {
     tokens: graph.tokens.map(cloneToken),
     components: structuredClone(graph.components),
     contentCollections: structuredClone(graph.contentCollections),
+    assets: structuredClone(graph.assets),
     screens: graph.screens.map(screen => ({
       ...screen,
       nodes: screen.nodes.map(node => ({

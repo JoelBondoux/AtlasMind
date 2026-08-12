@@ -405,6 +405,28 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('Read story');
       expect(html).not.toContain('<script');
     });
+
+    it('projects asset crop, focal, provenance, and alt status without fetching media', () => {
+      const subject = withElements(['media']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.assetRef = 'hero-image';
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        assets: [{
+          id: 'hero-image', label: 'Hero image', kind: 'image',
+          source: { kind: 'https', reference: 'https://cdn.example.test/hero.webp' },
+          width: 1600, height: 900, crop: 'cover', focalPoint: { x: 35, y: 45 },
+          altText: 'Colleagues reviewing a prototype', decorative: false, maturity: 'reviewed',
+        }],
+      });
+      expect(html).toContain('Hero image · cover');
+      expect(html).toContain('cdn.example.test');
+      expect(html).toContain('focus 35%, 45%');
+      expect(html).toContain('aria-label="Colleagues reviewing a prototype"');
+      expect(html).not.toContain('<img');
+      expect(html).not.toContain('src="https://cdn.example.test');
+      expect(html).not.toContain('<script');
+    });
   });
 
   describe('an undrawn page', () => {

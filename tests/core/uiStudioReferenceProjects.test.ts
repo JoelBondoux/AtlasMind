@@ -28,7 +28,7 @@ function wireframeFacts(pages: readonly WebsitePagePlan[]): unknown {
 }
 
 function expectTargetIndependentGraph(graph: UiDesignGraph): void {
-  expect(Object.keys(graph).sort()).toEqual(['components', 'contentCollections', 'revision', 'screens', 'tokens']);
+  expect(Object.keys(graph).sort()).toEqual(['assets', 'components', 'contentCollections', 'revision', 'screens', 'tokens']);
   for (const screen of graph.screens) {
     expect(Object.keys(screen).sort()).toEqual([
       'baseBreakpoint', 'id', 'initialized', 'nodes', 'pageId',
@@ -36,7 +36,7 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
     for (const node of screen.nodes) {
       expect(Object.keys(node).every(key => [
         'id', 'kind', 'label', 'locked', 'parentId', 'layout', 'viewportOverrides',
-        'designPrompt', 'notes', 'contentRef', 'styleRef', 'componentRef',
+        'designPrompt', 'notes', 'contentRef', 'styleRef', 'componentRef', 'assetRef',
       ].includes(key))).toBe(true);
       expect(Object.keys(node.layout).sort()).toEqual([
         'align', 'columns', 'direction', 'distribute', 'gap', 'heightMode', 'hidden', 'maxHeight',
@@ -56,7 +56,7 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
 }
 
 describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', reference => {
-  it('migrates every legacy wireframe fact to v10 and preserves it through save/reopen', async () => {
+  it('migrates every legacy wireframe fact to v11 and preserves it through save/reopen', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), `atlasmind-${reference.id}-`));
     temporaryRoots.push(root);
     const filePath = path.join(root, WEBSITE_WORKSPACE_SSOT_PATH);
@@ -68,7 +68,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
     const legacyPages = reference.legacyWorkspace.pages;
 
     expect(read.preserveExisting).toBe(false);
-    expect(read.config).toMatchObject({ version: 10, surfaceKind: reference.surfaceKind });
+    expect(read.config).toMatchObject({ version: 11, surfaceKind: reference.surfaceKind });
     expect(wireframeFacts(read.config.pages)).toEqual(wireframeFacts(legacyPages));
     expectTargetIndependentGraph(read.config.designGraph);
 

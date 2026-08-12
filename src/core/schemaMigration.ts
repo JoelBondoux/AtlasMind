@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 10,
+  website: 11,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -307,6 +307,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       designGraph: {
         ...asMigrationRecord(document['designGraph']),
         contentCollections: [],
+      },
+    }),
+  },
+  {
+    kind: 'website',
+    from: 10,
+    to: 11,
+    summary: 'UI Studio now stores validated asset metadata and stable node asset references.',
+    migrate: document => ({
+      ...document,
+      version: 11,
+      designGraph: {
+        ...asMigrationRecord(document['designGraph']),
+        assets: [],
       },
     }),
   },

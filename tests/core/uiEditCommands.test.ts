@@ -58,7 +58,45 @@ const productsCollection = {
   samples: [{ id: 'starter', label: 'Starter', values: { name: 'Starter', summary: 'For small teams' } }],
 };
 
+const heroAsset = {
+  id: 'hero-image', label: 'Hero image', kind: 'image' as const,
+  source: { kind: 'workspace' as const, reference: 'assets/hero.webp' },
+  width: 1600, height: 900, crop: 'cover' as const, focalPoint: { x: 50, y: 40 },
+  altText: 'Team collaborating around a table', decorative: false, maturity: 'reviewed' as const,
+};
+
 describe('UI edit commands', () => {
+  it('creates, assigns, protects, edits, removes, and restores assets through exact commands', () => {
+    const add = { type: 'add-asset' as const, expectedRevision: 0, asset: heroAsset };
+    expect(parseUiEditCommand(add)).toEqual(add);
+    expect(parseUiEditCommand({ ...add, asset: { ...heroAsset, source: {
+      kind: 'https', reference: 'https://example.test/image.jpg?token=secret',
+    } } })).toBeUndefined();
+    const added = applyUiEditCommand(createUiEditSession(graph()), add);
+    expect(added.ok).toBe(true);
+    if (!added.ok) { return; }
+    const assigned = applyUiEditCommand(added.session, {
+      type: 'set-node-asset', expectedRevision: 1, screenId: 'page-home', nodeId: 'child', assetId: 'hero-image',
+    });
+    expect(assigned.ok).toBe(true);
+    if (!assigned.ok) { return; }
+    expect(assigned.session.graph.screens[0]!.nodes[1]!.assetRef).toBe('hero-image');
+    expect(applyUiEditCommand(assigned.session, {
+      type: 'delete-asset', expectedRevision: 2, assetId: 'hero-image',
+    })).toMatchObject({ ok: false, reason: 'asset-in-use' });
+    const changed = applyUiEditCommand(assigned.session, {
+      type: 'set-asset', expectedRevision: 2, assetId: 'hero-image',
+      asset: { ...heroAsset, focalPoint: { x: 30, y: 60 } },
+    });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) { return; }
+    expect(changed.session.graph.assets[0]!.focalPoint).toEqual({ x: 30, y: 60 });
+    const undone = applyUiEditCommand(changed.session, { type: 'undo', expectedRevision: 3 });
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) { return; }
+    expect(undone.session.graph.assets[0]!.focalPoint).toEqual({ x: 50, y: 40 });
+  });
+
   it('adds collections and binds nodes through exact revisioned commands without permitting broken edits', () => {
     const add = {
       type: 'add-content-collection' as const, expectedRevision: 0, collection: productsCollection,

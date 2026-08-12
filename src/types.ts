@@ -1387,6 +1387,8 @@ export interface UiDesignNode {
   contentStatePresentations?: Partial<Record<Exclude<UiNodeContentState, 'default'>, UiNodeStatePresentation>>;
   /** Explicit sample-data projection for design review; never a production data source. */
   dataBinding?: UiNodeDataBinding;
+  /** Stable reference to graph-owned asset metadata; never a source path or URL itself. */
+  assetRef?: string;
 }
 
 export type UiNodeContentState = 'default' | 'empty' | 'loading' | 'error' | 'success';
@@ -1425,6 +1427,32 @@ export interface UiContentCollection {
   samples: UiContentSampleRecord[];
 }
 
+export type UiDesignAssetKind = 'image' | 'illustration' | 'icon' | 'video-poster';
+export type UiDesignAssetSourceKind = 'workspace' | 'https';
+export type UiDesignAssetCrop = 'cover' | 'contain' | 'none';
+
+/** A validated reference only. Binary content and credentials never enter the design graph. */
+export interface UiDesignAssetSource {
+  kind: UiDesignAssetSourceKind;
+  reference: string;
+}
+
+/** Target-independent media intent shared by canvas, preview, and future repository adapters. */
+export interface UiDesignAsset {
+  id: string;
+  label: string;
+  kind: UiDesignAssetKind;
+  source: UiDesignAssetSource;
+  width: number;
+  height: number;
+  crop: UiDesignAssetCrop;
+  /** Percentages in the closed 0..100 range. */
+  focalPoint: { x: number; y: number };
+  altText: string;
+  decorative: boolean;
+  maturity: UiContentMaturity;
+}
+
 export interface UiNodeDataBinding {
   collectionId: string;
   sampleRecordId: string;
@@ -1440,6 +1468,15 @@ export type UiContentDiagnosticCode =
 
 export interface UiContentDiagnostic {
   code: UiContentDiagnosticCode;
+  severity: 'error' | 'warning';
+  nodeIds: [string];
+  message: string;
+}
+
+export type UiAssetDiagnosticCode = 'asset-not-found' | 'asset-alt-missing';
+
+export interface UiAssetDiagnostic {
+  code: UiAssetDiagnosticCode;
   severity: 'error' | 'warning';
   nodeIds: [string];
   message: string;
@@ -1567,6 +1604,7 @@ export interface UiDesignGraph {
   tokens: UiDesignToken[];
   components: UiComponentDefinition[];
   contentCollections: UiContentCollection[];
+  assets: UiDesignAsset[];
   screens: UiDesignScreen[];
 }
 
@@ -1741,9 +1779,11 @@ export interface WebsiteStackChoice {
  * only the format number during migration so no interface copy is invented.
  * Version 10 adds bounded preview-only content collections and explicit node
  * bindings; migration adds an empty collection authority and invents no data.
+ * Version 11 adds validated asset metadata and stable node references; migration
+ * adds an empty asset authority rather than inspecting or guessing from files.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 10;
+  version: 11;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

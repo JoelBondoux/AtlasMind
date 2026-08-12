@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.295.0 — Validated asset authority
+
+UI Studio format v11 adds bounded target-independent assets: stable ids, media kind, validated workspace-relative
+or credential-free HTTPS source, intrinsic dimensions, crop/focal intent, alt/decorative intent, and maturity.
+UI System edits the library, canvas nodes assign an asset by stable id, and the JSON/Markdown mirrors record the
+same choices and consumers.
+
+Full Preview projects aspect ratio, crop, focal point, source provenance, and accessibility status as inert static
+markup. It deliberately does not fetch referenced media, so the preview's no-network CSP does not move. Missing
+asset ids and missing alt text are errors at the assigning node; in-use deletion is refused. Migration adds only
+an empty library and never scans files or invents an assignment or description. This completes the recorded Phase
+4 content/assets/data milestone; repository mappings and divergence detection are next.
+
 ## v0.294.0 — Structured sample data and explicit bindings
 
 UI Studio format v10 adds bounded preview-only content collections with typed fields and deliberate sample

@@ -3,15 +3,18 @@ import { describe, expect, it } from 'vitest';
 import {
   applyDesignGraphToPages,
   diagnoseUiContentBindings,
+  diagnoseUiAssets,
   diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiDesignToken,
   resolveUiComponentInstance,
   resolveUiNodeLayout,
   resolveUiNodeContent,
+  resolveUiDesignAsset,
   resolveUiScreenLayout,
   sanitizeUiDesignGraph,
   sanitizeUiContentCollections,
+  sanitizeUiDesignAssets,
   UI_DESIGN_GRAPH_MAX_REVISION,
   UI_DESIGN_GRAPH_MAX_TOKENS,
   wireframeFromScreen,
@@ -495,6 +498,45 @@ describe('UI design graph', () => {
     });
   });
 
+  it('validates asset references and diagnoses missing alternative text at the assigning node', () => {
+    const assets = sanitizeUiDesignAssets([
+      {
+        id: 'hero-image', label: 'Hero image', kind: 'image',
+        source: { kind: 'workspace', reference: 'assets/hero.webp' },
+        width: 1600, height: 900, crop: 'cover', focalPoint: { x: 35, y: 45 },
+        altText: '', decorative: false, maturity: 'draft',
+      },
+      {
+        id: 'unsafe', label: 'Unsafe', kind: 'image',
+        source: { kind: 'https', reference: 'https://user:secret@example.test/image.jpg?token=secret' },
+        width: 100, height: 100, crop: 'contain', focalPoint: { x: 50, y: 50 },
+        altText: 'Unsafe', decorative: false, maturity: 'draft',
+      },
+      {
+        id: 'escape', label: 'Escape', kind: 'image',
+        source: { kind: 'workspace', reference: '../outside.png' },
+        width: 100, height: 100, crop: 'none', focalPoint: { x: 50, y: 50 },
+        altText: 'Escape', decorative: false, maturity: 'draft',
+      },
+    ]);
+    expect(assets).toHaveLength(1);
+    const graph = designGraphFromPages(pagesWithWireframe());
+    graph.assets = assets;
+    const node = graph.screens[0]!.nodes[0]!;
+    node.assetRef = 'hero-image';
+    expect(resolveUiDesignAsset(graph, node)).toEqual(assets[0]);
+    expect(diagnoseUiAssets(graph, graph.screens[0]!)).toEqual([
+      expect.objectContaining({ code: 'asset-alt-missing', severity: 'error', nodeIds: ['hero'] }),
+    ]);
+
+    node.assetRef = 'missing';
+    const sanitized = sanitizeUiDesignGraph(graph, pagesWithWireframe());
+    expect(sanitized.screens[0]!.nodes[0]!.assetRef).toBe('missing');
+    expect(diagnoseUiAssets(sanitized, sanitized.screens[0]!)[0]).toMatchObject({
+      code: 'asset-not-found', severity: 'error', nodeIds: ['hero'],
+    });
+  });
+
   it('is total for arbitrary untrusted graph input', () => {
     const pages = pagesWithWireframe();
     fc.assert(fc.property(fc.anything(), input => {
@@ -503,6 +545,7 @@ describe('UI design graph', () => {
       expect(graph.tokens.length).toBeLessThanOrEqual(UI_DESIGN_GRAPH_MAX_TOKENS);
       expect(graph.components.length).toBeLessThanOrEqual(100);
       expect(graph.contentCollections.length).toBeLessThanOrEqual(50);
+      expect(graph.assets.length).toBeLessThanOrEqual(200);
       expect(Number.isSafeInteger(graph.revision)).toBe(true);
       for (const screen of graph.screens) {
         expect(pages.some(page => page.id === screen.pageId)).toBe(true);

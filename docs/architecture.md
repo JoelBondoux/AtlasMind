@@ -288,8 +288,8 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
 - per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
 - a revisioned `UiDesignGraph` whose stable screens/nodes, base layout, viewport overrides, typed tokens,
-  reusable component definitions/instances, preview-only structured collections, explicit node bindings, and
-  bounded content/style references are authoritative when present;
+  reusable component definitions/instances, preview-only structured collections, explicit node bindings,
+  validated asset metadata/assignments, and bounded content/style references are authoritative when present;
 - project-level UI system decisions;
 - project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
   source-root, component-location, and handoff hints (data only, never commands);
@@ -303,7 +303,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 10**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. The 9 → 10 step adds an empty sample-data collection authority and invents no schema, record, value, or binding. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
+The SSOT is at **format version 11**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. The 9 → 10 step adds an empty sample-data collection authority and invents no schema, record, value, or binding. The 10 → 11 step adds an empty asset library and does not inspect files, infer node assignments, or invent alt text. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
 `src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
 Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
@@ -318,7 +318,7 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
-- **`uiDesignGraph.ts`** — sanitizes the target-independent v10 graph against the page inventory, preserves
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v11 graph against the page inventory, preserves
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
@@ -332,6 +332,10 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   The same boundary caps preview-only content collections, validates typed sample values, retains well-shaped
   stale node bindings for diagnostics, resolves declared title/body/action mappings, and reports missing
   collections, records, fields, values, and interface states at the owning node.
+  It also validates at most 200 asset records: stable ids, closed media/crop kinds, positive intrinsic pixel
+  dimensions, 0–100 focal percentages, explicit decorative/alt intent, maturity, and either a normalized
+  workspace-relative path or credential/query/fragment-free HTTPS reference. Structurally valid stale node
+  assignments remain visible to `diagnoseUiAssets()`; no source is fetched at this graph boundary.
   Component definitions remain target-independent structured data: a closed root kind, typed bounded
   properties, variants, capacity/kind-constrained slots, and declared states. `resolveUiComponentInstance()`
   applies definition defaults, variant values, then instance overrides while retaining provenance. Instance

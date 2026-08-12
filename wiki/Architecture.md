@@ -199,6 +199,13 @@ configuration. Safe editor commands refuse removing a collection, record, or fie
 retains well-shaped stale references so owning-node diagnostics can report missing collections, records, fields,
 values, and empty/loading/error/success designs. The 9 → 10 migration adds an empty authority and invents no data.
 
+Format v11 adds bounded asset metadata and stable node assignments. Each record declares a closed media kind,
+positive intrinsic dimensions, crop mode, 0–100 focal point, alt/decorative intent, maturity, and either a
+normalized workspace-relative reference or credential/query/fragment-free HTTPS reference. Asset create,
+replace, delete, and assignment use exact revisioned commands; in-use deletion is refused. Stale ids and missing
+alt text remain owning-node diagnostics. The 10 → 11 migration adds an empty library and never scans files or
+invents assignments or copy.
+
 `websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
 colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
 resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or
@@ -216,7 +223,10 @@ refuses in-use deletion and incompatible root-kind changes, bounds property/slot
 reconciles removed values deterministically. Node content-state add/update/remove and preview selection are
 also exact revisioned commands; an absent presentation cannot be previewed. UI System sends definitions,
 never graph patches. Collection add/set/delete and node-binding assignment use that same exact revision/history
-boundary; Full Preview renders declared fixtures without a network request. Responsive resolution applies desktop →
+boundary; Full Preview renders declared fixtures without a network request. Asset edits and assignments use
+the same exact boundary; Full Preview projects
+aspect ratio, crop, focal point, source provenance, and alt status as inert markup without fetching media or
+widening its CSP. Responsive resolution applies desktop →
 tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
 override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
 through an exact override, so the resolver does not turn absent intent into a design decision.

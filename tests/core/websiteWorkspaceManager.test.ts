@@ -218,10 +218,10 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 10,
+      version: 11,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
-      designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], screens: expect.any(Array) },
+      designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], assets: [], screens: expect.any(Array) },
     });
     expect(markdown).toContain('# UI Studio');
     expect(markdown).toContain('## Content Design');
@@ -262,6 +262,12 @@ describe('WebsiteWorkspaceManager', () => {
         fields: [{ id: 'label', label: 'Label', kind: 'text', required: true }],
         samples: [{ id: 'retry', label: 'Retry sample', values: { label: 'Retry now' } }],
       }],
+      assets: [{
+        id: 'action-icon', label: 'Action icon', kind: 'icon',
+        source: { kind: 'workspace', reference: 'assets/action.svg' },
+        width: 24, height: 24, crop: 'contain', focalPoint: { x: 50, y: 50 },
+        altText: '', decorative: true, maturity: 'reviewed',
+      }],
       screens: config.designGraph.screens.map((screen, index) => index === 0 ? {
         ...screen, initialized: true, nodes: [{
           id: 'action', kind: 'cta', label: 'Action', locked: false,
@@ -273,6 +279,7 @@ describe('WebsiteWorkspaceManager', () => {
             error: { title: 'Unavailable', body: 'Try again.', actionLabel: 'Retry', maturity: 'reviewed' },
           },
           dataBinding: { collectionId: 'actions', sampleRecordId: 'retry', fieldMappings: { action: 'label' } },
+          assetRef: 'action-icon',
         }],
       } : screen),
     };
@@ -284,6 +291,9 @@ describe('WebsiteWorkspaceManager', () => {
     expect(markdown).toContain('### Structured sample-data collections');
     expect(markdown).toContain('| Actions (actions) | 1 | 1 | 1 |');
     expect(markdown).toContain('action → label');
+    expect(markdown).toContain('### Asset library');
+    expect(markdown).toContain('| Action icon (action-icon) | icon | workspace:assets/action.svg | 24 × 24 | contain / 50%, 50% | Decorative | reviewed | 1 |');
+    expect(markdown).toContain('### Node asset assignments');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {

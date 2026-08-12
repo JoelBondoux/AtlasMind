@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.294.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.295.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.294.0
+## What's new in 0.295.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Assets are now first-class design data.** UI System owns validated workspace-relative or credential-free
+  HTTPS references, dimensions, crop/focal intent, alt/decorative intent, and maturity; canvas nodes assign one
+  by stable id. Studio, Full Preview, JSON, and the Markdown mirror consume the same authority.
+- **Full Preview preserves its no-network boundary.** It projects asset aspect ratio, crop, focal point,
+  provenance, and accessibility status as inert markup rather than fetching remote content. Missing asset ids
+  and missing alt text are errors at the assigning node.
 
 - **Structured sample data is now first-class design material.** UI System defines bounded collection schemas and
   deliberate preview fixtures; canvas nodes bind title, body, and action slots to one record. Studio and Full

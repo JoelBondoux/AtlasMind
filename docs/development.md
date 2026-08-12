@@ -311,7 +311,7 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
-Format v10 adds bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
+Format v11 adds validated asset metadata and stable node assignments; v10 added bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
 tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
 present it derives page wireframes for older renderers, and when the current canvas submits its temporary
 wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
@@ -352,6 +352,14 @@ graph. A collection edit must refuse to remove a sample or field used by a bindi
 retains a well-shaped stale reference from a hand edit so `diagnoseUiContentBindings()` can report the missing
 collection, record, field, value, or interface state at its owning node. Full Preview may render only declared
 fixture values and must not make a network request.
+
+Asset-library changes use `add-asset`, `set-asset`, or `delete-asset`; node assignment uses
+`set-node-asset`. Keep sources as validated references only: normalized workspace-relative paths or HTTPS
+URLs with no credentials, query, or fragment. Do not store binaries, data URLs, signed URLs, or secrets in
+the graph. In-use deletion is refused, stale hand-edited ids remain owning-node diagnostics, and a
+non-decorative assigned asset without alt text is an error. Full Preview may project dimensions, crop, focal
+point, provenance, and alt status as inert markup; resolving a binary requires a separate guarded host path
+and must not weaken the preview's no-network CSP.
 
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized

@@ -38,6 +38,7 @@
   const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
   const DIAGNOSTIC_CODES = ['viewport-overflow', 'parent-clipping', 'node-overlap', 'touch-target'];
   const CONTENT_DIAGNOSTIC_CODES = ['collection-not-found', 'sample-record-not-found', 'field-not-found', 'sample-value-missing', 'content-state-missing'];
+  const ASSET_DIAGNOSTIC_CODES = ['asset-not-found', 'asset-alt-missing'];
   const TOKEN_KINDS = [
     'color', 'font-family', 'font-size', 'font-weight', 'line-height',
     'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
@@ -51,18 +52,19 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, tokens: Array, components: Array, contentCollections: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], tokens: [], components: [], contentCollections: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, tokens: Array, components: Array, contentCollections: Array, assets: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], tokens: [], components: [], contentCollections: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], tokens: [], components: [], contentCollections: [], assets: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
   state.tokens = normalizeTokens(state.tokens);
   state.components = normalizeComponents(state.components);
   state.contentCollections = normalizeContentCollections(state.contentCollections);
+  state.assets = normalizeAssets(state.assets);
   state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
     ? state.designRevision
@@ -144,6 +146,14 @@
           && Array.isArray(item.nodeIds) && item.nodeIds.length === 1
           && /^[a-zA-Z0-9._-]{1,120}$/.test(item.nodeIds[0])
           && typeof item.message === 'string' && item.message.length <= 500)))
+      && (!screen.assetDiagnostics || (Array.isArray(screen.assetDiagnostics)
+        && screen.assetDiagnostics.length <= 2_000
+        && screen.assetDiagnostics.every(item => item
+          && ASSET_DIAGNOSTIC_CODES.includes(item.code)
+          && (item.severity === 'error' || item.severity === 'warning')
+          && Array.isArray(item.nodeIds) && item.nodeIds.length === 1
+          && /^[a-zA-Z0-9._-]{1,120}$/.test(item.nodeIds[0])
+          && typeof item.message === 'string' && item.message.length <= 500)))
       && Array.isArray(screen.nodes)
       && screen.nodes.length <= MAX_ELEMENTS
       && screen.nodes.every(node => node
@@ -219,6 +229,25 @@
       && collection.samples.every(sample => sample && identifier.test(sample.id)
         && typeof sample.label === 'string' && sample.label.length > 0 && sample.label.length <= 120
         && sample.values && typeof sample.values === 'object' && !Array.isArray(sample.values)));
+  }
+
+  function normalizeAssets(input) {
+    if (!Array.isArray(input) || input.length > 200) { return []; }
+    const identifier = /^[a-zA-Z0-9._-]{1,120}$/;
+    return input.filter(asset => asset && typeof asset === 'object'
+      && identifier.test(asset.id)
+      && typeof asset.label === 'string' && asset.label.length > 0 && asset.label.length <= 120
+      && ['image', 'illustration', 'icon', 'video-poster'].includes(asset.kind)
+      && asset.source && ['workspace', 'https'].includes(asset.source.kind)
+      && typeof asset.source.reference === 'string' && asset.source.reference.length > 0 && asset.source.reference.length <= 1000
+      && Number.isSafeInteger(asset.width) && asset.width >= 1 && asset.width <= 100000
+      && Number.isSafeInteger(asset.height) && asset.height >= 1 && asset.height <= 100000
+      && ['cover', 'contain', 'none'].includes(asset.crop)
+      && asset.focalPoint && Number.isFinite(asset.focalPoint.x) && asset.focalPoint.x >= 0 && asset.focalPoint.x <= 100
+      && Number.isFinite(asset.focalPoint.y) && asset.focalPoint.y >= 0 && asset.focalPoint.y <= 100
+      && typeof asset.altText === 'string' && asset.altText.length <= 500
+      && typeof asset.decorative === 'boolean'
+      && ['placeholder', 'draft', 'reviewed', 'approved'].includes(asset.maturity));
   }
 
   function responsiveView(element) {
@@ -509,6 +538,9 @@
         + (responsiveNode(element.id)?.boundContent ? '<span class="wf-box-component data">data: '
           + escapeText(responsiveNode(element.id).boundContent.collectionLabel) + ' · '
           + escapeText(responsiveNode(element.id).boundContent.sampleRecordLabel) + '</span>' : '')
+        + (responsiveNode(element.id)?.asset ? '<span class="wf-box-component asset">asset: '
+          + escapeText(responsiveNode(element.id).asset.label) + ' · '
+          + escapeText(responsiveNode(element.id).asset.crop) + '</span>' : '')
         + (isLocked(element.id) ? '<span class="wf-box-visibility">Locked</span>' : '')
         + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
         + (primary ? handlesMarkup() : '')
@@ -525,21 +557,22 @@
     if (!panel) { return; }
     const layoutDiagnostics = activeResponsiveScreen()?.diagnostics?.[activeBreakpoint];
     const contentDiagnostics = activeResponsiveScreen()?.contentDiagnostics;
-    if (!Array.isArray(layoutDiagnostics) || !Array.isArray(contentDiagnostics)) {
+    const assetDiagnostics = activeResponsiveScreen()?.assetDiagnostics;
+    if (!Array.isArray(layoutDiagnostics) || !Array.isArray(contentDiagnostics) || !Array.isArray(assetDiagnostics)) {
       panel.className = 'canvas-diagnostics warning';
-      panel.innerHTML = '<strong>Layout or content checks unavailable at ' + escapeText(activeBreakpoint) + '.</strong>'
+      panel.innerHTML = '<strong>Layout, content, or asset checks unavailable at ' + escapeText(activeBreakpoint) + '.</strong>'
         + '<span>Unknown is not treated as a pass.</span>';
       return;
     }
-    const diagnostics = [...layoutDiagnostics, ...contentDiagnostics];
+    const diagnostics = [...layoutDiagnostics, ...contentDiagnostics, ...assetDiagnostics];
     if (diagnostics.length === 0) {
       panel.className = 'canvas-diagnostics clear';
-      panel.innerHTML = '<strong>No layout or content-binding findings at ' + escapeText(activeBreakpoint) + '.</strong>'
-        + '<span>Responsive geometry, sample bindings, and required interface states were checked.</span>';
+      panel.innerHTML = '<strong>No layout, content-binding, or asset findings at ' + escapeText(activeBreakpoint) + '.</strong>'
+        + '<span>Responsive geometry, sample bindings, interface states, references, and alt text were checked.</span>';
       return;
     }
     const errors = diagnostics.filter(item => item.severity === 'error').length;
-    const diagnosticCodes = [...DIAGNOSTIC_CODES, ...CONTENT_DIAGNOSTIC_CODES];
+    const diagnosticCodes = [...DIAGNOSTIC_CODES, ...CONTENT_DIAGNOSTIC_CODES, ...ASSET_DIAGNOSTIC_CODES];
     const counts = Object.fromEntries(diagnosticCodes.map(code => [
       code, diagnostics.filter(item => item.code === code).length,
     ]));
@@ -549,6 +582,7 @@
       'collection-not-found': 'missing collection', 'sample-record-not-found': 'missing sample',
       'field-not-found': 'missing field', 'sample-value-missing': 'missing value',
       'content-state-missing': 'missing state',
+      'asset-not-found': 'missing asset', 'asset-alt-missing': 'missing alt text',
     };
     panel.className = 'canvas-diagnostics' + (errors > 0 ? ' error' : ' warning');
     panel.innerHTML = '<div class="diagnostic-summary"><strong>' + diagnostics.length + ' design finding'
@@ -809,6 +843,14 @@
         <div class="responsive-actions"><button type="button" class="secondary" id="applyDataBinding"${readOnly}>Apply binding</button>${binding ? `<button type="button" class="danger subtle" id="removeDataBinding"${readOnly}>Remove</button>` : ''}</div>
         <p class="responsive-copy">Only declared sample values render. Missing collections, records, values, or empty/loading/error/success designs stay visible as node findings.</p>
       </div>`;
+    const assignedAsset = contentStateNode?.asset;
+    const assetFields = `
+      <div class="asset-instance-inspector">
+        <div class="responsive-head"><p class="responsive-title">Asset assignment</p><span class="source-chip">stable reference</span></div>
+        <label class="field"><span>Asset</span><select id="nodeAsset"${readOnly}><option value="">No asset</option>${state.assets.map(asset => `<option value="${escapeAttribute(asset.id)}"${asset.id === contentStateNode?.assetRef ? ' selected' : ''}>${escapeText(asset.label)} · ${escapeText(asset.kind)}</option>`).join('')}</select></label>
+        ${assignedAsset ? `<p class="responsive-copy">${assignedAsset.width} × ${assignedAsset.height} · ${escapeText(assignedAsset.crop)} · focus ${assignedAsset.focalPoint.x}%, ${assignedAsset.focalPoint.y}% · ${assignedAsset.decorative ? 'decorative' : assignedAsset.altText ? 'alt text provided' : 'alt text missing'}</p>` : ''}
+        <div class="responsive-actions"><button type="button" class="secondary" id="applyNodeAsset"${readOnly}>Apply asset</button>${contentStateNode?.assetRef ? `<button type="button" class="danger subtle" id="removeNodeAsset"${readOnly}>Remove</button>` : ''}</div>
+      </div>`;
     const presentations = contentStateNode?.contentStatePresentations ?? {};
     const contentStateFields = `
       <div class="content-state-inspector">
@@ -840,6 +882,7 @@
       + responsiveFields
       + componentFields
       + bindingFields
+      + assetFields
       + contentStateFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
@@ -1585,6 +1628,15 @@
         binding: { collectionId, sampleRecordId, fieldMappings },
       });
       notice('Applying the bounded preview-data binding…');
+      return;
+    }
+
+    if (event.target.id === 'applyNodeAsset' || event.target.id === 'removeNodeAsset') {
+      const assetId = event.target.id === 'removeNodeAsset' ? null : value('#nodeAsset') || null;
+      submitDesignEdit({
+        type: 'set-node-asset', screenId: activePageId, nodeId: selectedElementId, assetId,
+      });
+      notice(assetId ? 'Assigning the validated asset metadata…' : 'Removing the asset assignment…');
       return;
     }
 
@@ -2501,6 +2553,72 @@
     });
   }
 
+  function collectAsset(row) {
+    return {
+      id: row.dataset.assetId,
+      label: value('.asset-label', row),
+      kind: value('.asset-kind', row),
+      source: { kind: value('.asset-source-kind', row), reference: value('.asset-reference', row) },
+      width: Number(value('.asset-width', row)),
+      height: Number(value('.asset-height', row)),
+      crop: value('.asset-crop', row),
+      focalPoint: { x: Number(value('.asset-focal-x', row)), y: Number(value('.asset-focal-y', row)) },
+      altText: value('.asset-alt', row),
+      decorative: qs('.asset-decorative', row)?.checked === true,
+      maturity: value('.asset-maturity', row),
+    };
+  }
+
+  function renderAssetEditor() {
+    const editor = qs('#designAssetEditor');
+    if (!editor) { return; }
+    if (state.assets.length === 0) {
+      editor.innerHTML = '<div class="token-empty">No assets yet. Add validated metadata, then assign it from a canvas node inspector.</div>';
+      return;
+    }
+    editor.innerHTML = state.assets.map(asset => '<details class="component-row asset-row" data-asset-id="' + escapeAttribute(asset.id) + '">'
+      + '<summary><strong>' + escapeText(asset.label) + '</strong><span>' + escapeText(asset.kind) + ' · ' + asset.width + ' × ' + asset.height + ' · ' + escapeText(asset.maturity) + '</span></summary>'
+      + '<div class="component-fields"><div class="field-pair"><label class="field"><span>Label</span><input class="asset-label" value="' + escapeAttribute(asset.label) + '" /></label>'
+      + '<label class="field"><span>Kind</span><select class="asset-kind">' + ['image', 'illustration', 'icon', 'video-poster'].map(kind => '<option value="' + kind + '"' + (kind === asset.kind ? ' selected' : '') + '>' + kind + '</option>').join('') + '</select></label></div>'
+      + '<div class="field-pair"><label class="field"><span>Source type</span><select class="asset-source-kind"><option value="workspace"' + (asset.source.kind === 'workspace' ? ' selected' : '') + '>Workspace-relative</option><option value="https"' + (asset.source.kind === 'https' ? ' selected' : '') + '>HTTPS</option></select></label>'
+      + '<label class="field"><span>Validated reference</span><input class="asset-reference" value="' + escapeAttribute(asset.source.reference) + '" /></label></div>'
+      + '<div class="geometry-grid"><label><span>Width</span><input class="asset-width" type="number" min="1" max="100000" step="1" value="' + asset.width + '" /></label><label><span>Height</span><input class="asset-height" type="number" min="1" max="100000" step="1" value="' + asset.height + '" /></label><label><span>Focal X %</span><input class="asset-focal-x" type="number" min="0" max="100" step="0.1" value="' + asset.focalPoint.x + '" /></label><label><span>Focal Y %</span><input class="asset-focal-y" type="number" min="0" max="100" step="0.1" value="' + asset.focalPoint.y + '" /></label></div>'
+      + '<div class="field-pair"><label class="field"><span>Crop</span><select class="asset-crop">' + ['cover', 'contain', 'none'].map(crop => '<option value="' + crop + '"' + (crop === asset.crop ? ' selected' : '') + '>' + crop + '</option>').join('') + '</select></label><label class="field"><span>Maturity</span><select class="asset-maturity">' + ['placeholder', 'draft', 'reviewed', 'approved'].map(maturity => '<option value="' + maturity + '"' + (maturity === asset.maturity ? ' selected' : '') + '>' + maturity + '</option>').join('') + '</select></label></div>'
+      + '<label class="field"><span>Alternative text</span><textarea class="asset-alt" rows="2">' + escapeText(asset.altText) + '</textarea></label>'
+      + '<label class="component-reset"><input class="asset-decorative" type="checkbox"' + (asset.decorative ? ' checked' : '') + ' /> Decorative; store empty alternative text</label>'
+      + '<div class="token-row-actions"><button type="button" class="secondary save-asset">Apply asset</button><button type="button" class="danger subtle delete-asset">Delete</button></div></div></details>').join('');
+  }
+
+  function wireAssets() {
+    renderAssetEditor();
+    qs('#addDesignAsset')?.addEventListener('click', () => {
+      const asset = {
+        id: value('#newAssetId'), label: value('#newAssetLabel'), kind: 'image',
+        source: { kind: 'workspace', reference: value('#newAssetReference') },
+        width: 1600, height: 900, crop: 'cover', focalPoint: { x: 50, y: 50 },
+        altText: '', decorative: false, maturity: 'placeholder',
+      };
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(asset.id) || !asset.label || !asset.source.reference) {
+        notice('Choose a valid stable asset id, label, and workspace-relative reference.', 'error'); return;
+      }
+      submitDesignEdit({ type: 'add-asset', asset });
+      notice('Adding the validated asset metadata…');
+    });
+    qs('#designAssetEditor')?.addEventListener('click', event => {
+      const row = event.target.closest('.asset-row');
+      if (!row || state.readOnly) { return; }
+      const assetId = row.dataset.assetId;
+      if (event.target.closest('.delete-asset')) {
+        submitDesignEdit({ type: 'delete-asset', assetId });
+        notice('Deleting the asset if no node uses it…'); return;
+      }
+      if (!event.target.closest('.save-asset')) { return; }
+      const asset = collectAsset(row);
+      submitDesignEdit({ type: 'set-asset', assetId, asset });
+      notice('Applying validated dimensions, crop, focal, and accessibility metadata…');
+    });
+  }
+
   /**
    * Ids are constrained to an identifier charset by the sanitizer, but they are
    * interpolated into selectors here, so they are escaped anyway. A selector
@@ -2549,6 +2667,10 @@
     if (message.contentCollections !== undefined) {
       state.contentCollections = normalizeContentCollections(message.contentCollections);
       renderContentCollectionEditor();
+    }
+    if (message.assets !== undefined) {
+      state.assets = normalizeAssets(message.assets);
+      renderAssetEditor();
     }
     for (const id of [...selectedElementIds]) {
       if (!findElement(id)) { selectedElementIds.delete(id); }
@@ -2602,6 +2724,7 @@
   wireTokens();
   wireComponents();
   wireContentCollections();
+  wireAssets();
   syncPageSelect();
   renderCanvas();
   renderPagePromptField();

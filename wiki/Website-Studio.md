@@ -26,7 +26,7 @@ or by choosing **Website / Marketing Site** during `/bootstrap`.
 | **Sitemap / Screens & flows** | Websites use pages and slugs; other profiles use screens and route/view identifiers. Both map hierarchy and navigation |
 | **Content Design** | Voice, principles, terminology, comprehension target, locales and accessibility rules, plus the real Markdown copy and states for each screen |
 | **Wireframe canvas** | Draw the page by dragging blocks onto a grid. Select anything and describe it in your own words. Per-page design prompts, and the draft → review → approved states for wireframe, design, content and SEO |
-| **UI System** | Brand direction and legacy defaults plus editable typed tokens, reusable component definitions, and bounded sample-data collections |
+| **UI System** | Brand direction and legacy defaults plus editable typed tokens, reusable component definitions, bounded sample-data collections, and validated assets |
 | **Implementation** | Target technologies, UI source roots, component locations, and handoff notes. Website profiles also add stack, setup, hosting, and Delivery comparison |
 | **n8n Automations** | Website-only workflow mapping: event, outcome, readiness, references, and data/privacy notes |
 
@@ -65,6 +65,12 @@ fields, samples, and collections cannot be removed underneath a binding; a stale
 reported at its owning node together with any missing empty/loading/error/success design. Production records,
 credentials, and live connectors stay outside this authority, and migration invents no sample data.
 
+Format v11 adds validated asset metadata: stable id, closed media kind, normalized workspace-relative or
+credential-free HTTPS source, intrinsic dimensions, crop/focal intent, alt/decorative intent, and maturity.
+Assign an asset from the selected-node inspector. Missing ids and missing alt text are owning-node errors.
+Full Preview projects the aspect ratio, crop, focal point, provenance, and accessibility status as inert markup;
+it does not fetch media or widen the no-network CSP. Migration adds an empty library and invents nothing.
+
 ---
 
 ## Drawing the page
@@ -81,8 +87,9 @@ any breakpoint; the whole transform is one validated revision and undo step. Gro
 clamps the complete bounds, and never reparents. Multi-delete is deliberately unavailable until the selection
 is narrowed.
 
-The active breakpoint also shows deterministic layout findings: viewport overflow, child/parent clipping,
-unintended overlap, and interactive blocks below a 44px touch target. A clear state means every check ran.
+The active breakpoint also shows deterministic layout/content/asset findings: viewport overflow,
+child/parent clipping, unintended overlap, interactive blocks below a 44px touch target, broken bindings,
+missing interface states, missing asset ids, and missing alt text. A clear state means every check ran.
 Clicking a finding selects its owning block and shares that selection with Full Preview. Parent/child overlap
 and overlay siblings are treated as intentional rather than noisy warnings.
 

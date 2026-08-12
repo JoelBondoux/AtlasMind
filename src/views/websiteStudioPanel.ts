@@ -12,11 +12,13 @@ import {
 import {
   applyDesignGraphToPages,
   diagnoseUiContentBindings,
+  diagnoseUiAssets,
   diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiComponentInstance,
   resolveUiNodeLayout,
   resolveUiNodeContent,
+  resolveUiDesignAsset,
   resolveUiScreenLayout,
   UI_DESIGN_GRAPH_MAX_REVISION,
 } from '../core/uiDesignGraph.js';
@@ -399,6 +401,7 @@ export class WebsiteStudioPanel {
       tokens: this.editSession.graph.tokens,
       components: this.editSession.graph.components,
       contentCollections: this.editSession.graph.contentCollections,
+      assets: this.editSession.graph.assets,
       responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
     });
   }
@@ -857,6 +860,8 @@ export interface WebsiteStudioResponsiveNodeState {
   contentStatePresentations?: UiDesignGraph['screens'][number]['nodes'][number]['contentStatePresentations'];
   dataBinding?: UiDesignGraph['screens'][number]['nodes'][number]['dataBinding'];
   boundContent?: ReturnType<typeof resolveUiNodeContent>;
+  assetRef?: string;
+  asset?: ReturnType<typeof resolveUiDesignAsset>;
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
   overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
@@ -868,6 +873,7 @@ export interface WebsiteStudioResponsiveScreenState {
   nodes: WebsiteStudioResponsiveNodeState[];
   diagnostics: Record<WireframeBreakpoint, ReturnType<typeof diagnoseUiScreenLayout>>;
   contentDiagnostics: ReturnType<typeof diagnoseUiContentBindings>;
+  assetDiagnostics: ReturnType<typeof diagnoseUiAssets>;
 }
 
 /** Host-resolved responsive state; the webview never reimplements inheritance. */
@@ -888,6 +894,7 @@ export function buildWebsiteStudioResponsiveScreens(
       diagnoseUiScreenLayout(screen, breakpoint),
     ])) as WebsiteStudioResponsiveScreenState['diagnostics'],
     contentDiagnostics: diagnoseUiContentBindings(graph, screen),
+    assetDiagnostics: diagnoseUiAssets(graph, screen),
     nodes: screen.nodes.map(node => ({
       id: node.id,
       locked: node.locked,
@@ -902,6 +909,8 @@ export function buildWebsiteStudioResponsiveScreens(
         : {}),
       ...(node.dataBinding ? { dataBinding: structuredClone(node.dataBinding) } : {}),
       ...(resolveUiNodeContent(graph, node) ? { boundContent: resolveUiNodeContent(graph, node) } : {}),
+      ...(node.assetRef ? { assetRef: node.assetRef } : {}),
+      ...(resolveUiDesignAsset(graph, node) ? { asset: resolveUiDesignAsset(graph, node) } : {}),
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),
@@ -960,6 +969,7 @@ export function getWebsiteStudioHtml(
     tokens: config.designGraph.tokens,
     components: config.designGraph.components,
     contentCollections: config.designGraph.contentCollections,
+    assets: config.designGraph.assets,
     responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
@@ -1505,6 +1515,20 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
         </div>
         <p class="token-help">Field rows use <code>id | label | text/number/boolean/url/date | required/optional</code>. Each sample row is one JSON object with <code>id</code>, <code>label</code>, and <code>values</code>, so punctuation in real copy is preserved. URLs must be HTTPS; these are review fixtures, not live data.</p>
         <div id="contentCollectionEditor" class="component-editor content-collection-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card asset-authority-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Validated references · inert preview projection</p>
+          <h2>Asset library</h2>
+        </div></div>
+        <p class="token-help">Assets keep target-independent dimensions, crop and focal intent, alt text, and maturity. Workspace sources must be relative; HTTPS sources cannot include credentials, query strings, or fragments. Full Preview visualizes this intent without making a network request.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newAssetId', 'hero-image', 'hero-image')}
+          ${field('Label', 'newAssetLabel', 'Hero image', 'Hero image')}
+          ${field('Workspace path', 'newAssetReference', 'assets/hero.webp', 'assets/hero.webp')}
+          <button type="button" id="addDesignAsset"${config.designGraph.assets.length >= 200 ? ' disabled' : ''}>Add asset</button>
+        </div>
+        <div id="designAssetEditor" class="component-editor asset-editor" aria-live="polite"></div>
       </article>
     </section>
   `;
