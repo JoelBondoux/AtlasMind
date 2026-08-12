@@ -311,7 +311,7 @@ profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls.
 is checked by `isWebsiteStudioMessage()` and the main payload passes through
 `sanitizeWebsiteWorkspace()` before persistence.
 
-Format v8 extends `UiDesignGraph` with reusable component definitions and explicit instances; v7 added typed
+Format v9 adds optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
 tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
 present it derives page wireframes for older renderers, and when the current canvas submits its temporary
 wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
@@ -338,6 +338,12 @@ separate in the UI and reducer. When extending the model, preserve resolution or
 instance), retain provenance, reconcile removed properties/variants/states/slots deterministically, and refuse
 definition deletion or incompatible root-kind changes while an instance uses it. The Full Preview adapter may
 style only the closed state vocabulary and must escape displayed definition/variant labels.
+
+Short empty/loading/error/success copy uses `set-node-content-state`; selecting a presentation for design
+review uses `set-node-preview-content-state`. Do not move long-form screen copy out of its Markdown file or
+infer state copy during migration. A non-default preview state requires an authored presentation, and approved
+state copy must remain impossible while it contains `[PLACEHOLDER: …]`. Data bindings may select these states
+later but must not silently author them.
 
 Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
 bounded page id and bounded content fields; the host resolves that id against the current sanitized

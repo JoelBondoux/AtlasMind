@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.292.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.293.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.292.2
+## What's new in 0.293.1
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Empty, loading, error, and success copy can now be designed in context.** Every canvas node can own bounded
+  state title/body/action copy with visible maturity, choose a state for review, and render it identically in
+  Studio and the full built-in-browser preview without replacing the screen's Markdown source.
 
 - **The orchestrator now records when it discards a model's answer.** If every tool result in an
   agentic loop's final round tests as failed, AtlasMind replaces the model's reply with a summary of

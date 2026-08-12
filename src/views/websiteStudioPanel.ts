@@ -850,6 +850,8 @@ export interface WebsiteStudioResponsiveNodeState {
   component?: ReturnType<typeof resolveUiComponentInstance>;
   componentInstance?: UiComponentInstance;
   componentSlot?: string;
+  previewContentState?: UiDesignGraph['screens'][number]['nodes'][number]['previewContentState'];
+  contentStatePresentations?: UiDesignGraph['screens'][number]['nodes'][number]['contentStatePresentations'];
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
   overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
@@ -887,6 +889,10 @@ export function buildWebsiteStudioResponsiveScreens(
         : {}),
       ...(node.componentInstance ? { componentInstance: structuredClone(node.componentInstance) } : {}),
       ...(node.componentSlot ? { componentSlot: node.componentSlot } : {}),
+      ...(node.previewContentState ? { previewContentState: node.previewContentState } : {}),
+      ...(node.contentStatePresentations
+        ? { contentStatePresentations: structuredClone(node.contentStatePresentations) }
+        : {}),
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),

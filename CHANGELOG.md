@@ -6,7 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.292.2] - 2026-08-12
+## [0.293.1] - 2026-08-12
+
+### Added
+
+- **`npm run resolve:release-conflicts` settles a long-lived branch's version-marker conflicts.**
+  Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the
+  version always names an exact state of the code — but it means two branches doing entirely unrelated
+  work conflict on the same five files *every time*, with no semantic overlap between the changes, so a
+  branch open while another stream is pushing re-conflicts within hours.
+  `scripts/resolve-release-conflicts.mjs` encodes the resolution: version files take the incoming
+  version patch-bumped — a feature branch is a PATCH on top of wherever the integration branch reached,
+  never a revert of it, which is what taking "ours" silently does — and notes files keep **both** sides
+  with this branch's entry relabelled and placed above, since taking either alone deletes release notes
+  for work that shipped. It runs only mid-merge, resolves nothing outside those five files (a conflict
+  in source, tests or docs is a real disagreement and wants a human), and refuses to report success
+  while any marker survives. The hazard is specific: hand-resolving identical-looking hunks repeatedly
+  is how a changelog entry quietly loses a paragraph while attention is on the version numbers.
+
+  Three of its rules come from its own first real run, which did precisely that. It assumed both sides
+  of a conflict are whole entries, but when a branch's earlier work has already reached the integration
+  branch the bodies merge as common context and git splits the conflict at the **heading alone** — so
+  concatenating left an empty section for this branch and reattributed the shared body to the other
+  side's version. It now refuses that shape and says why, rather than guessing which version the shared
+  body belongs to. It also computes every file before writing any, so a refusal cannot leave a
+  half-resolved tree while reporting failure; and it no longer assumes conflict markers say `HEAD`,
+  which `git checkout --conflict=merge` writes as `ours`. Finally, its "am I mid-merge?" guard now asks
+  `git rev-parse --git-path` instead of joining onto `<root>/.git` — in a **worktree** that path is a
+  file, so the guard refused to run in exactly the setup this repository uses for branches.
+
+## [0.293.0] - 2026-08-12
+
+### Added
+
+- **Canvas nodes can now design explicit empty, loading, error, and success presentations.** Each state owns
+  bounded title, body, action-label, and placeholder/draft/reviewed/approved maturity fields while screen
+  Markdown remains the long-form copy authority.
+- **The selected-node inspector edits state copy and chooses the deterministic review state.** Studio and Full
+  Preview render the same selected presentation and visibly label its maturity; the Markdown mirror lists
+  designed states and the state currently under review.
+- **The Phase 4 content authority decision is recorded.** The ADR separates interaction appearance from state
+  copy and reserves assets and sample-data bindings for later bounded slices.
+
+### Security
+
+- **State-copy changes use two exact revision-checked commands.** The host bounds every field and state,
+  refuses previewing an absent presentation, and makes add/update/remove/preview choices undoable graph edits.
+- **Unresolved copy cannot be approved.** A presentation containing `[PLACEHOLDER: …]` is downgraded at the
+  persistence boundary and refused as an exact command if it claims approved maturity.
+
+### Changed
+
+- **Website workspace format advances from v8 to v9.** The frozen migration changes only the format number and
+  invents no empty/loading/error/success copy or preview choice.
+
+## [0.292.1] - 2026-08-12
 
 ### Added
 
@@ -28,20 +82,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   diagnostic that mis-reports the branch it exists to measure is worse than none, because the
   measurement looks complete; deriving both from one classifier makes that unrepresentable rather than
   merely fixed, and a test walks every alternative.
-
-- **`npm run resolve:release-conflicts` settles a long-lived branch's version-marker conflicts.**
-  Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the
-  version always names an exact state of the code — but it means two branches doing entirely unrelated
-  work conflict on the same five files *every time*, with no semantic overlap between the changes, so a
-  branch open while another stream is pushing re-conflicts within hours.
-  `scripts/resolve-release-conflicts.mjs` encodes the resolution: version files take the incoming
-  version patch-bumped — a feature branch is a PATCH on top of wherever the integration branch reached,
-  never a revert of it, which is what taking "ours" silently does — and notes files keep **both** sides
-  with this branch's entry relabelled and placed above, since taking either alone deletes release notes
-  for work that shipped. It runs only mid-merge, resolves nothing outside those five files (a conflict
-  in source, tests or docs is a real disagreement and wants a human), and refuses to report success
-  while any marker survives. The hazard is specific: hand-resolving identical-looking hunks repeatedly
-  is how a changelog entry quietly loses a paragraph while attention is on the version numbers.
 
 ### Fixed
 

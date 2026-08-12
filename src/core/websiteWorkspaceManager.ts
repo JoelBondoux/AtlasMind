@@ -53,7 +53,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 8;
+const WEBSITE_SCHEMA_VERSION = 9;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -454,6 +454,12 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '| Component | Root | Properties | Slots | Variants | States | Instances |',
     '|---|---|---:|---:|---:|---|---:|',
     ...renderComponentRows(config.designGraph.components, config.designGraph.screens),
+    '',
+    '### Content state designs',
+    '',
+    '| Screen / node | Designed states | Previewing |',
+    '|---|---|---|',
+    ...renderContentStateRows(config.designGraph.screens),
     '',
     '## Implementation Guide',
     '',
@@ -1308,6 +1314,16 @@ function renderComponentRows(
       .filter(node => node.componentInstance?.definitionId === component.id).length;
     return `| ${escapeMarkdownCell(component.label)} (${component.id}) | ${component.rootKind} | ${component.properties.length} | ${component.slots.length} | ${component.variants.length} | ${component.states.join(', ')} | ${instances} |`;
   });
+}
+
+function renderContentStateRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => {
+    const presentations = Object.entries(node.contentStatePresentations ?? {});
+    if (presentations.length === 0) { return []; }
+    const states = presentations.map(([state, presentation]) => `${state} (${presentation?.maturity ?? 'placeholder'})`);
+    return [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${states.join(', ')} | ${node.previewContentState ?? 'default'} |`];
+  }));
+  return rows.length > 0 ? rows : ['| _None designed_ | — | — |'];
 }
 
 function markdownValue(value: string | undefined): string {

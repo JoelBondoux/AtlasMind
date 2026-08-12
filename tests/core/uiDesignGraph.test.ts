@@ -226,6 +226,24 @@ describe('UI design graph', () => {
     expect(sanitized.screens[0]!.nodes[1]!.componentSlot).toBeUndefined();
   });
 
+  it('bounds node state presentations and never leaves placeholder copy approved', () => {
+    const pages = pagesWithWireframe();
+    const graph = designGraphFromPages(pages);
+    graph.screens[0]!.nodes[0]!.previewContentState = 'error';
+    graph.screens[0]!.nodes[0]!.contentStatePresentations = {
+      error: { title: 'Could not load', body: '[PLACEHOLDER: recovery explanation]', actionLabel: 'Retry', maturity: 'approved' },
+      success: { title: 'Saved', body: 'Your changes are safe.', actionLabel: '', maturity: 'reviewed' },
+    };
+    const sanitized = sanitizeUiDesignGraph(graph, pages);
+    expect(sanitized.screens[0]!.nodes[0]).toMatchObject({
+      previewContentState: 'error',
+      contentStatePresentations: {
+        error: { title: 'Could not load', maturity: 'placeholder' },
+        success: { title: 'Saved', maturity: 'reviewed' },
+      },
+    });
+  });
+
   it('bounds layout, refs, viewport overrides, and invalid hierarchy through one sanitizer', () => {
     const pages = pagesWithWireframe();
     const raw = designGraphFromPages(pages);

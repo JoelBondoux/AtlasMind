@@ -14,6 +14,7 @@ import type {
   UiComponentPropertyKind,
   UiComponentPropertyValue,
   UiComponentState,
+  UiContentMaturity,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -26,6 +27,7 @@ import type {
   UiLayoutMode,
   UiLayoutWrap,
   UiNodeViewportOverride,
+  UiNodeContentState,
   UiSizeMode,
   WebsitePagePlan,
   WebsiteWireframe,
@@ -61,6 +63,8 @@ const COMPONENT_PROPERTY_KINDS = new Set<UiComponentPropertyKind>(['text', 'numb
 const COMPONENT_STATES = new Set<UiComponentState>([
   'default', 'hover', 'focus', 'active', 'disabled', 'loading', 'empty', 'error', 'success', 'validation',
 ]);
+const NODE_CONTENT_STATES = new Set<UiNodeContentState>(['default', 'empty', 'loading', 'error', 'success']);
+const CONTENT_MATURITIES = new Set<UiContentMaturity>(['placeholder', 'draft', 'reviewed', 'approved']);
 const MOTION_EASINGS = new Set(['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']);
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
 const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
@@ -1171,6 +1175,10 @@ function sanitizeScreen(
       const layout = asRecord(raw['layout']);
       const constraints = sanitizeConstraintSet(layout);
       const componentInstance = sanitizeUiComponentInstance(raw['componentInstance'], components, element.kind);
+      const contentStatePresentations = sanitizeNodeStatePresentations(raw['contentStatePresentations']);
+      const previewContentState = NODE_CONTENT_STATES.has(raw['previewContentState'] as UiNodeContentState)
+        ? raw['previewContentState'] as UiNodeContentState
+        : 'default';
       return {
         id: element.id,
         kind: element.kind,
@@ -1215,6 +1223,8 @@ function sanitizeScreen(
         ...optionalReference('componentRef', raw['componentRef']),
         ...(componentInstance ? { componentInstance } : {}),
         ...optionalComponentSlot(raw['componentSlot']),
+        ...(previewContentState !== 'default' ? { previewContentState } : {}),
+        ...(Object.keys(contentStatePresentations).length > 0 ? { contentStatePresentations } : {}),
       };
     }) : [];
   sanitizeComponentSlotsOnNodes(nodes, components);
@@ -1226,6 +1236,33 @@ function sanitizeScreen(
     baseBreakpoint: wireframe?.breakpoint ?? breakpoint,
     nodes,
   };
+}
+
+/** Short state copy is bounded separately from the screen's long-form Markdown authority. */
+export function sanitizeNodeStatePresentations(
+  input: unknown,
+): NonNullable<UiDesignNode['contentStatePresentations']> {
+  const source = asRecord(input);
+  const result: NonNullable<UiDesignNode['contentStatePresentations']> = {};
+  for (const state of ['empty', 'loading', 'error', 'success'] as const) {
+    const raw = asRecord(source[state]);
+    const title = cleanStateCopy(raw['title'], 160);
+    const body = cleanStateCopy(raw['body'], 1_000);
+    const actionLabel = cleanStateCopy(raw['actionLabel'], 120);
+    const maturity = CONTENT_MATURITIES.has(raw['maturity'] as UiContentMaturity)
+      ? raw['maturity'] as UiContentMaturity
+      : undefined;
+    if (title === undefined || body === undefined || actionLabel === undefined || !maturity) { continue; }
+    const unresolved = /\[PLACEHOLDER:\s*[^\]]*\]/i.test(`${title}\n${body}\n${actionLabel}`);
+    result[state] = { title, body, actionLabel, maturity: maturity === 'approved' && unresolved ? 'placeholder' : maturity };
+  }
+  return result;
+}
+
+function cleanStateCopy(input: unknown, maximum: number): string | undefined {
+  return typeof input === 'string'
+    ? input.trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, maximum)
+    : undefined;
 }
 
 function optionalComponentSlot(value: unknown): Partial<Pick<UiDesignNode, 'componentSlot'>> {

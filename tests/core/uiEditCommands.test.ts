@@ -206,6 +206,30 @@ describe('UI edit commands', () => {
     expect(session.graph.screens[0]?.nodes[1]?.label).toBe('Child');
   });
 
+  it('edits and previews explicit content-state copy through exact history commands', () => {
+    let result = applyUiEditCommand(createUiEditSession(graph()), {
+      type: 'set-node-content-state', expectedRevision: 0, screenId: 'page-home', nodeId: 'child', state: 'error',
+      presentation: { title: 'Unable to load', body: 'Check the connection.', actionLabel: 'Retry', maturity: 'reviewed' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    result = applyUiEditCommand(result.session, {
+      type: 'set-node-preview-content-state', expectedRevision: 1, screenId: 'page-home', nodeId: 'child', state: 'error',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.session.graph.screens[0]!.nodes[1]).toMatchObject({
+      previewContentState: 'error', contentStatePresentations: { error: { maturity: 'reviewed' } },
+    });
+    expect(parseUiEditCommand({
+      type: 'set-node-content-state', expectedRevision: 2, screenId: 'page-home', nodeId: 'child', state: 'error',
+      presentation: { title: 'Oops', body: '[PLACEHOLDER: why]', actionLabel: 'Retry', maturity: 'approved' },
+    })).toBeUndefined();
+    expect(applyUiEditCommand(result.session, {
+      type: 'set-node-content-state', expectedRevision: 2, screenId: 'page-home', nodeId: 'child', state: 'error', presentation: null,
+    })).toMatchObject({ ok: true, session: { graph: { revision: 3 } } });
+  });
+
   it('refuses stale, missing, invalid, and no-op edits without mutation', () => {
     const session = createUiEditSession(graph());
     const stale = applyUiEditCommand(session, {

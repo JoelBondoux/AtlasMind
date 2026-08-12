@@ -362,6 +362,21 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('Button · Primary · disabled');
       expect(html).not.toContain('<script');
     });
+
+    it('renders explicit state copy and maturity instead of inventing runtime content', () => {
+      const subject = withElements(['text']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.previewContentState = 'empty';
+      screen.nodes[0]!.contentStatePresentations = {
+        empty: { title: 'No results', body: 'Try a broader filter.', actionLabel: 'Clear filters', maturity: 'reviewed' },
+      };
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-content-state="empty"');
+      expect(html).toContain('data-content-maturity="reviewed"');
+      expect(html).toContain('No results');
+      expect(html).toContain('Clear filters');
+      expect(html).toContain('empty · reviewed');
+    });
   });
 
   describe('an undrawn page', () => {

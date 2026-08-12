@@ -218,7 +218,7 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 8,
+      version: 9,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
       designGraph: { revision: 0, tokens: [], components: [], screens: expect.any(Array) },
@@ -263,12 +263,18 @@ describe('WebsiteWorkspaceManager', () => {
           layout: { mode: 'free', rect: { x: 0, y: 0, width: 200, height: 60 }, widthMode: 'fixed', heightMode: 'fixed', hidden: false, direction: 'vertical', gap: 16, padding: 16, columns: 2, align: 'start', distribute: 'start', minWidth: null, maxWidth: null, minHeight: null, maxHeight: null, wrap: 'nowrap', order: 0 },
           viewportOverrides: {}, designPrompt: '', notes: '',
           componentInstance: { definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: {} },
+          previewContentState: 'error',
+          contentStatePresentations: {
+            error: { title: 'Unavailable', body: 'Try again.', actionLabel: 'Retry', maturity: 'reviewed' },
+          },
         }],
       } : screen),
     };
     const markdown = renderWebsiteWorkspaceMarkdown(config);
     expect(markdown).toContain('### Reusable component definitions');
     expect(markdown).toContain('| Button (button) | cta | 0 | 0 | 1 | default, hover | 1 |');
+    expect(markdown).toContain('### Content state designs');
+    expect(markdown).toContain('error (reviewed) | error |');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {

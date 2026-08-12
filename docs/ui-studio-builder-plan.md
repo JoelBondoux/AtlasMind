@@ -5,7 +5,9 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.292.0:** Phases 1, 2, and 3 are complete. Format v8 combines typed tokens with reusable
+**Progress through v0.293.0:** Phases 1, 2, and 3 are complete. Phase 4 has begun with format-v9 node-owned
+empty/loading/error/success presentations, visible content maturity, exact state commands, and shared
+Studio/Full Preview rendering. Format v8 combines typed tokens with reusable
 component definitions, explicit canvas instances, typed properties, variants, bounded slots, closed states,
 and provenance-preserving default → variant → instance resolution. Definition and instance editors use
 separate exact commands on the same revision/history boundary. The frozen v6 → v7 and v7 → v8 migrations
@@ -244,6 +246,11 @@ Acceptance criteria:
 
 #### P1.3 Content, assets, and data
 
+Progress: v0.293.0 adds bounded node-owned empty/loading/error/success title, body, action, and maturity facts,
+plus one explicit preview state. Screen Markdown remains the long-form source, an absent presentation is not
+invented, and unresolved placeholder copy cannot claim approval. Structured collections, sample-data
+bindings, asset metadata, and owning-node missing-state/binding diagnostics remain.
+
 - Structured content fields and collections complement the existing Markdown source.
 - Asset metadata records source, dimensions, crop/focal intent, and alt text without embedding secrets.
 - Nodes can bind to bounded sample data and declare empty/loading/error/success presentations.
@@ -286,7 +293,7 @@ Acceptance criteria:
 ## Architecture
 
 ```text
-website.json v7 + content/ + assets + source mappings
+website.json v9 + content/ + assets + source mappings
                     |
             bounded sanitization
                     |
