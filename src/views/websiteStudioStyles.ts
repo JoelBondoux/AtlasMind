@@ -173,6 +173,15 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   /* ── Wireframe canvas ───────────────────────────────────────── */
   .canvas-toolbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
   .field.inline { flex-direction:row; align-items:center; gap:8px; margin:0; }
+  .breakpoint-picker { display:inline-flex; border:1px solid var(--studio-border); border-radius:7px; overflow:hidden; }
+  .breakpoint-button {
+    border:0; border-right:1px solid var(--studio-border); border-radius:0; padding:5px 9px;
+    background:var(--studio-card); color:var(--vscode-foreground); font-size:.76rem;
+  }
+  .breakpoint-button:last-child { border-right:0; }
+  .breakpoint-button:hover { background:var(--vscode-list-hoverBackground); }
+  .breakpoint-button.active { background:color-mix(in srgb, var(--studio-accent) 22%, var(--studio-card)); color:var(--studio-accent); }
+  .breakpoint-context { margin:0; font-size:.72rem; color:var(--studio-muted); }
   .canvas-summary { margin:0 auto 0 0; font-size:.8rem; color:var(--studio-muted); }
   .canvas-layout { display:grid; grid-template-columns:150px minmax(0,1fr) 300px; gap:16px; align-items:start; }
   @media (max-width: 1100px) { .canvas-layout { grid-template-columns:1fr; } }
@@ -184,6 +193,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   }
   .palette-button:hover { background:var(--vscode-list-hoverBackground); }
   .palette-button.armed { border-color:var(--studio-accent); background:color-mix(in srgb, var(--studio-accent) 18%, transparent); }
+  .palette-button:disabled { opacity:.48; cursor:not-allowed; }
 
   .canvas-frame { border:1px solid var(--studio-border); border-radius:10px; overflow:hidden; background:var(--studio-card); }
   .wf-canvas {
@@ -195,6 +205,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
       repeating-linear-gradient(to bottom, color-mix(in srgb, var(--studio-border) 30%, transparent) 0 1px, transparent 1px 40px);
   }
   .wf-canvas:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:-2px; }
+  .wf-canvas.responsive-view { cursor:default; }
 
   .wf-box {
     position:absolute; display:flex; flex-direction:column; justify-content:center; align-items:flex-start;
@@ -210,8 +221,10 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
     z-index:5;
   }
   .wf-box:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:1px; }
+  .wf-box.viewport-hidden { opacity:.52; border-style:dotted; }
   .wf-box-label { font-weight:650; font-size:.82rem; line-height:1.2; }
   .wf-box-kind { font-size:.68rem; color:var(--studio-muted); text-transform:uppercase; letter-spacing:.08em; }
+  .wf-box-visibility { font-size:.62rem; font-weight:700; color:var(--vscode-testing-iconSkipped, #d29922); }
   /* Structural kinds read as bands, content kinds as blocks. Enough of a
      difference to scan the page shape without turning the canvas into a
      colour-coded legend nobody can remember. */
@@ -247,6 +260,23 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .inspector-meta { margin:0 0 10px; font-size:.76rem; color:var(--studio-muted); }
   .inspector-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
   .inspector-hint { margin:10px 0 0; font-size:.72rem; color:var(--studio-muted); }
+  .responsive-inspector { margin:12px 0; padding:10px; border:1px solid var(--studio-border); border-radius:8px; background:color-mix(in srgb, var(--studio-accent) 5%, transparent); }
+  .responsive-inspector.base { background:transparent; }
+  .responsive-head, .responsive-visibility { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .responsive-title { margin:0; font-size:.8rem; font-weight:700; text-transform:capitalize; }
+  .responsive-copy { margin:5px 0 0; font-size:.72rem; color:var(--studio-muted); }
+  .source-chip { padding:1px 6px; border:1px solid var(--studio-border); border-radius:999px; font-size:.62rem; color:var(--studio-muted); }
+  .geometry-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:9px; }
+  .geometry-grid label { display:grid; gap:3px; min-width:0; font-size:.66rem; color:var(--studio-muted); }
+  .geometry-grid input { width:100%; min-width:0; }
+  .responsive-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .responsive-actions button { padding:4px 7px; font-size:.7rem; }
+  .responsive-visibility { margin-top:12px; padding-top:10px; border-top:1px solid var(--studio-border); font-size:.74rem; }
+  .responsive-visibility label { display:flex; align-items:center; gap:6px; }
+  .layout-provenance { display:grid; gap:4px; margin:10px 0 0; font-size:.68rem; }
+  .layout-provenance div { display:flex; justify-content:space-between; gap:8px; }
+  .layout-provenance dt { color:var(--studio-muted); }
+  .layout-provenance dd { margin:0; text-align:right; }
   .page-prompt-block h3 { margin:2px 0 8px; font-size:1rem; }
 
   /* ── Stack page: framework picker ───────────────────────────── */

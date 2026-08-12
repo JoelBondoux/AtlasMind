@@ -12,6 +12,7 @@ import {
 import {
   applyDesignGraphToPages,
   designGraphFromPages,
+  resolveUiNodeLayout,
   UI_DESIGN_GRAPH_MAX_REVISION,
 } from '../core/uiDesignGraph.js';
 import {
@@ -21,12 +22,14 @@ import {
   type UiEditSession,
 } from '../core/uiEditCommands.js';
 import type {
+  UiDesignGraph,
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
   WebsitePagePlan,
   WebsitePlatformStatus,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
+  WireframeBreakpoint,
 } from '../types.js';
 import {
   buildSitemapTree,
@@ -39,7 +42,7 @@ import { readDeliveryConfig } from '../core/deliveryManager.js';
 import { WebsiteContentManager } from '../core/websiteContentManager.js';
 import { parsePageContent, renderPageContent, type WebsitePageContent } from '../core/websiteContent.js';
 import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
-import { WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
+import { WIREFRAME_BREAKPOINTS, WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
   buildScopedDesignPrompt,
   type DesignPromptScope,
@@ -387,6 +390,7 @@ export class WebsiteStudioPanel {
       revision: this.editSession.graph.revision,
       ...(reason ? { reason } : {}),
       pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
+      responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
     });
   }
 
@@ -834,6 +838,44 @@ export interface WebsiteStudioHtmlOptions {
   scriptUri?: string;
 }
 
+export interface WebsiteStudioResponsiveNodeState {
+  id: string;
+  views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
+  overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean }>;
+}
+
+export interface WebsiteStudioResponsiveScreenState {
+  id: string;
+  pageId: string;
+  baseBreakpoint: WireframeBreakpoint;
+  nodes: WebsiteStudioResponsiveNodeState[];
+}
+
+/** Host-resolved responsive state; the webview never reimplements inheritance. */
+export function buildWebsiteStudioResponsiveScreens(
+  graph: UiDesignGraph,
+): WebsiteStudioResponsiveScreenState[] {
+  return graph.screens.map(screen => ({
+    id: screen.id,
+    pageId: screen.pageId,
+    baseBreakpoint: screen.baseBreakpoint,
+    nodes: screen.nodes.map(node => ({
+      id: node.id,
+      views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+        breakpoint,
+        resolveUiNodeLayout(screen, node, breakpoint),
+      ])) as WebsiteStudioResponsiveNodeState['views'],
+      overrides: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+        breakpoint,
+        {
+          rect: node.viewportOverrides[breakpoint]?.rect !== undefined,
+          hidden: node.viewportOverrides[breakpoint]?.hidden !== undefined,
+        },
+      ])) as WebsiteStudioResponsiveNodeState['overrides'],
+    })),
+  }));
+}
+
 export function getWebsiteStudioHtml(
   webview: Pick<vscode.Webview, 'cspSource'>,
   config: WebsiteWorkspaceConfig,
@@ -858,6 +900,7 @@ export function getWebsiteStudioHtml(
     surfaceKind: config.surfaceKind,
     designRevision: config.designGraph.revision,
     pages: config.pages,
+    responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
     readOnly: options.readOnly === true,
@@ -1232,6 +1275,10 @@ function renderWireframesPage(
   options: WebsiteStudioHtmlOptions,
 ): string {
   const first = config.pages[0];
+  const firstScreen = first
+    ? config.designGraph.screens.find(screen => screen.pageId === first.id)
+    : undefined;
+  const firstBreakpoint = firstScreen?.baseBreakpoint ?? first?.wireframe?.breakpoint ?? 'desktop';
   return `
     <section class="studio-page${activePage === 'wireframes' ? ' active' : ''}" data-page="wireframes">
       ${pageIntro('Wireframe canvas', 'Draw the page. Pick a block, drag on the grid, drop one inside another to nest it. Select anything and describe it in your own words.')}
@@ -1244,6 +1291,14 @@ function renderWireframesPage(
             ${config.pages.map(page => `<option value="${escapeHtml(page.id)}">${escapeHtml(page.title)}</option>`).join('')}
           </select>
         </label>
+        <div class="breakpoint-picker" role="group" aria-label="Canvas breakpoint">
+          ${WIREFRAME_BREAKPOINTS.map(breakpoint => `
+            <button type="button" class="breakpoint-button${breakpoint === firstBreakpoint ? ' active' : ''}"
+              data-breakpoint="${breakpoint}" aria-pressed="${breakpoint === firstBreakpoint ? 'true' : 'false'}">
+              ${breakpoint[0]!.toUpperCase()}${breakpoint.slice(1)}
+            </button>`).join('')}
+        </div>
+        <p id="breakpointContext" class="breakpoint-context"></p>
         <p id="canvasSummary" class="canvas-summary" role="status" aria-live="polite"></p>
         ${generateButton('wireframe', 'Generate this page', options)}
       </div>
@@ -1253,7 +1308,8 @@ function renderWireframesPage(
           <p class="eyebrow">Blocks</p>
           ${WIREFRAME_KIND_CATALOG.map(spec => `
             <button type="button" class="palette-button${spec.kind === 'section' ? ' armed' : ''}"
-              data-kind="${escapeHtml(spec.kind)}" title="${escapeHtml(spec.description)}">
+              data-kind="${escapeHtml(spec.kind)}" data-description="${escapeHtml(spec.description)}"
+              title="${escapeHtml(spec.description)}">
               ${escapeHtml(spec.label)}
             </button>`).join('')}
         </aside>

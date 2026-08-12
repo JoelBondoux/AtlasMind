@@ -175,7 +175,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
 
     const cleared = applyUiEditCommand(mobile.session, {
       type: 'clear-node-viewport-override', expectedRevision: 2,
-      screenId: screen.id, nodeId: node.id, breakpoint: 'tablet',
+      screenId: screen.id, nodeId: node.id, breakpoint: 'tablet', property: 'rect',
     });
     expect(cleared.ok).toBe(true);
     if (!cleared.ok) { return; }

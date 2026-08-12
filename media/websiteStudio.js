@@ -35,18 +35,20 @@
   const MIN_HEIGHT = 24;
   const SNAP_TOLERANCE = 14;
   const MAX_ELEMENTS = 60;
+  const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
 
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
+  state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
     ? state.designRevision
@@ -55,6 +57,11 @@
 
   /** Page currently open on the canvas. */
   let activePageId = state.pages[0]?.id ?? '';
+  /** Viewport currently projected on the canvas. */
+  let activeBreakpoint = state.responsiveScreens.find(screen => screen?.pageId === activePageId)?.baseBreakpoint
+    ?? state.pages[0]?.wireframe?.breakpoint
+    ?? 'desktop';
+  if (!BREAKPOINTS.includes(activeBreakpoint)) { activeBreakpoint = 'desktop'; }
   /** Selected wireframe element id, or '' for none. */
   let selectedElementId = '';
   /** Kind armed in the palette; a drag on empty canvas draws this. */
@@ -65,6 +72,43 @@
   };
 
   const activePage = () => state.pages.find(page => page.id === activePageId);
+  const activeResponsiveScreen = () => state.responsiveScreens.find(screen => screen?.pageId === activePageId);
+  const activeBaseBreakpoint = () => activeResponsiveScreen()?.baseBreakpoint
+    ?? activePage()?.wireframe?.breakpoint
+    ?? 'desktop';
+  const responsiveNode = id => activeResponsiveScreen()?.nodes?.find(node => node?.id === id);
+
+  function normalizeResponsiveScreens(input) {
+    if (!Array.isArray(input) || input.length > 100) { return []; }
+    return input.filter(screen => screen
+      && /^[a-zA-Z0-9._-]{1,120}$/.test(screen.id)
+      && /^[a-zA-Z0-9._-]{1,120}$/.test(screen.pageId)
+      && BREAKPOINTS.includes(screen.baseBreakpoint)
+      && Array.isArray(screen.nodes)
+      && screen.nodes.length <= MAX_ELEMENTS
+      && screen.nodes.every(node => node
+        && /^[a-zA-Z0-9._-]{1,120}$/.test(node.id)
+        && node.views && typeof node.views === 'object'
+        && node.overrides && typeof node.overrides === 'object'));
+  }
+
+  function responsiveView(element) {
+    const candidate = responsiveNode(element.id)?.views?.[activeBreakpoint];
+    const rect = candidate?.layout?.rect;
+    if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
+      return {
+        layout: { rect: element.rect, hidden: false, mode: 'free', widthMode: 'fixed', heightMode: 'fixed' },
+        provenance: {
+          rect: { kind: 'base', breakpoint: activeBaseBreakpoint() },
+          hidden: { kind: 'base', breakpoint: activeBaseBreakpoint() },
+          mode: { kind: 'base', breakpoint: activeBaseBreakpoint() },
+          widthMode: { kind: 'base', breakpoint: activeBaseBreakpoint() },
+          heightMode: { kind: 'base', breakpoint: activeBaseBreakpoint() },
+        },
+      };
+    }
+    return candidate;
+  }
 
   function notifyPreviewSelection() {
     if (!activePageId || !selectedElementId) { return; }
@@ -117,7 +161,10 @@
    */
   function canvasHeight() {
     const elements = elementsOf(activePage());
-    const lowest = elements.reduce((max, element) => Math.max(max, element.rect.y + element.rect.height), 0);
+    const lowest = elements.reduce((max, element) => {
+      const rect = responsiveView(element).layout.rect;
+      return Math.max(max, rect.y + rect.height);
+    }, 0);
     return Math.min(CANVAS_MAX_HEIGHT, Math.max(1200, lowest + 320));
   }
 
@@ -151,7 +198,8 @@
     const edges = [];
     for (const element of elementsOf(activePage())) {
       if (element.id === excludeId) { continue; }
-      edges.push(element.rect.x, element.rect.x + element.rect.width);
+      const rect = responsiveView(element).layout.rect;
+      edges.push(rect.x, rect.x + rect.width);
     }
     for (let column = 0; column <= COLUMNS; column += 1) {
       edges.push(column * COLUMN_WIDTH);
@@ -173,7 +221,8 @@
     let bestDistance = SNAP_TOLERANCE;
     for (const element of elementsOf(activePage())) {
       if (element.id === excludeId) { continue; }
-      for (const edge of [element.rect.y, element.rect.y + element.rect.height]) {
+      const rect = responsiveView(element).layout.rect;
+      for (const edge of [rect.y, rect.y + rect.height]) {
         const distance = Math.abs(edge - candidate);
         if (distance < bestDistance) {
           best = edge;
@@ -199,7 +248,7 @@
       if (element.id === excludeId) { continue; }
       if (!kindSpec(element.kind).container) { continue; }
       if (isDescendantOf(element.id, excludeId)) { continue; }
-      const box = element.rect;
+      const box = responsiveView(element).layout.rect;
       const encloses = rect.x >= box.x - 1
         && rect.y >= box.y - 1
         && rect.x + rect.width <= box.x + box.width + 1
@@ -250,14 +299,19 @@
 
     const elements = elementsOf(page);
     // Parents first so children paint on top without needing z-index bookkeeping.
-    const ordered = [...elements].sort((a, b) => depthOf(a.id) - depthOf(b.id)
-      || a.rect.y - b.rect.y
-      || a.rect.x - b.rect.x
-      || (a.id < b.id ? -1 : 1));
+    const ordered = [...elements].sort((a, b) => {
+      const left = responsiveView(a).layout.rect;
+      const right = responsiveView(b).layout.rect;
+      return depthOf(a.id) - depthOf(b.id)
+        || left.y - right.y
+        || left.x - right.x
+        || (a.id < b.id ? -1 : 1);
+    });
 
     surface.innerHTML = ordered.map(element => {
       const spec = kindSpec(element.kind);
-      const { x, y, width, height: h } = element.rect;
+      const view = responsiveView(element);
+      const { x, y, width, height: h } = view.layout.rect;
       const style = 'left:' + (x / CANVAS_WIDTH * 100) + '%;'
         + 'top:' + (y / height * 100) + '%;'
         + 'width:' + (width / CANVAS_WIDTH * 100) + '%;'
@@ -271,13 +325,15 @@
       // class built by string concatenation is invisible to any tool that reads
       // this file for the classes it uses — including the guard that checks every
       // classed button has a background of its own.
-      return '<button type="button" class="wf-box' + (selected ? ' selected' : '') + '"'
+      return '<button type="button" class="wf-box' + (selected ? ' selected' : '')
+        + (view.layout.hidden ? ' viewport-hidden' : '') + '"'
         + ' data-kind="' + escapeAttribute(element.kind) + '"'
         + ' style="' + style + '" data-element-id="' + escapeAttribute(element.id) + '"'
         + ' aria-pressed="' + (selected ? 'true' : 'false') + '"'
         + ' aria-label="' + escapeAttribute(describeForScreenReader(element, spec)) + '">'
         + '<span class="wf-box-label">' + escapeText(element.label || spec.label) + '</span>'
         + '<span class="wf-box-kind">' + escapeText(spec.label) + '</span>'
+        + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
         + (selected ? handlesMarkup() : '')
         + '</button>';
     }).join('');
@@ -294,18 +350,21 @@
    * not.
    */
   function describeForScreenReader(element, spec) {
-    const fraction = element.rect.width / CANVAS_WIDTH;
+    const view = responsiveView(element);
+    const rect = view.layout.rect;
+    const fraction = rect.width / CANVAS_WIDTH;
     const span = fraction >= 0.98 ? 'full width'
       : fraction >= 0.72 ? 'most of the width'
         : fraction >= 0.45 ? 'about half the width'
           : fraction >= 0.28 ? 'about a third of the width'
             : 'a narrow column';
     const height = canvasHeight();
-    const vertical = element.rect.y / height < 0.2 ? 'near the top'
-      : element.rect.y / height > 0.7 ? 'near the bottom'
+    const vertical = rect.y / height < 0.2 ? 'near the top'
+      : rect.y / height > 0.7 ? 'near the bottom'
         : 'in the middle';
     const parent = element.parentId ? findElement(element.parentId) : undefined;
     return (element.label || spec.label) + ', ' + spec.label + ', ' + span + ', ' + vertical
+      + (view.layout.hidden ? ', hidden at ' + activeBreakpoint : '')
       + (parent ? ', inside ' + (parent.label || kindSpec(parent.kind).label) : '');
   }
 
@@ -319,9 +378,39 @@
     const summary = qs('#canvasSummary');
     if (!summary) { return; }
     const count = elementsOf(activePage()).length;
+    const viewport = activeBreakpoint[0].toUpperCase() + activeBreakpoint.slice(1);
     summary.textContent = count === 0
       ? 'Empty canvas — pick a block on the left, then drag on the grid to draw it.'
-      : count + ' element' + (count === 1 ? '' : 's') + ' drawn. ' + (MAX_ELEMENTS - count) + ' remaining.';
+      : viewport + ': ' + count + ' element' + (count === 1 ? '' : 's') + '. '
+        + (MAX_ELEMENTS - count) + ' remaining.';
+    syncBreakpointControls();
+  }
+
+  function sourceLabel(source) {
+    const breakpoint = BREAKPOINTS.includes(source?.breakpoint) ? source.breakpoint : activeBaseBreakpoint();
+    return (source?.kind === 'override' ? 'Override · ' : 'Base · ') + breakpoint;
+  }
+
+  function syncBreakpointControls() {
+    const base = activeBaseBreakpoint();
+    qsa('.breakpoint-button').forEach(button => {
+      const active = button.dataset.breakpoint === activeBreakpoint;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    const context = qs('#breakpointContext');
+    if (context) {
+      context.textContent = activeBreakpoint === base
+        ? 'Base layout · structural editing'
+        : 'Responsive view · inherited values may be overridden in the inspector';
+    }
+    qsa('.palette-button').forEach(button => {
+      button.disabled = state.readOnly || activeBreakpoint !== base;
+      button.title = activeBreakpoint === base
+        ? (button.dataset.description || button.title)
+        : 'Switch to the base breakpoint to add structure.';
+    });
+    canvasSurface()?.classList.toggle('responsive-view', activeBreakpoint !== base);
   }
 
   /** The panel beside the canvas: what is selected, and what can be said about it. */
@@ -336,6 +425,45 @@
     }
     const spec = kindSpec(element.kind);
     const parent = element.parentId ? findElement(element.parentId) : undefined;
+    const view = responsiveView(element);
+    const rect = view.layout.rect;
+    const base = activeBaseBreakpoint();
+    const isBase = activeBreakpoint === base;
+    const override = responsiveNode(element.id)?.overrides?.[activeBreakpoint] ?? { rect: false, hidden: false };
+    const readOnly = state.readOnly ? ' disabled' : '';
+    const responsiveFields = isBase ? `
+      <div class="responsive-inspector base">
+        <p class="responsive-title">${escapeText(activeBreakpoint)} base layout</p>
+        <p class="responsive-copy">Geometry and visibility originate here. Choose Tablet or Mobile to inspect inheritance and create a deliberate departure.</p>
+      </div>` : `
+      <div class="responsive-inspector">
+        <div class="responsive-head"><p class="responsive-title">${escapeText(activeBreakpoint)} layout</p>
+          <span class="source-chip">${escapeText(sourceLabel(view.provenance.rect))}</span></div>
+        <p class="responsive-copy">Only layout and visibility are breakpoint-specific. Label, type, hierarchy, and design intent remain shared.</p>
+        <div class="geometry-grid">
+          <label><span>X</span><input id="responsiveX" type="number" step="1" value="${escapeAttribute(String(rect.x))}"${readOnly} /></label>
+          <label><span>Y</span><input id="responsiveY" type="number" step="1" value="${escapeAttribute(String(rect.y))}"${readOnly} /></label>
+          <label><span>W</span><input id="responsiveWidth" type="number" step="1" min="1" value="${escapeAttribute(String(rect.width))}"${readOnly} /></label>
+          <label><span>H</span><input id="responsiveHeight" type="number" step="1" min="1" value="${escapeAttribute(String(rect.height))}"${readOnly} /></label>
+        </div>
+        <div class="responsive-actions">
+          <button type="button" class="secondary" id="applyResponsiveRect"${readOnly}>Apply layout</button>
+          <button type="button" class="secondary subtle" id="resetResponsiveRect"${override.rect && !state.readOnly ? '' : ' disabled'}>Use inherited layout</button>
+        </div>
+        <div class="responsive-visibility">
+          <label><input id="responsiveHidden" type="checkbox"${view.layout.hidden ? ' checked' : ''}${readOnly} /> Hidden at ${escapeText(activeBreakpoint)}</label>
+          <span class="source-chip">${escapeText(sourceLabel(view.provenance.hidden))}</span>
+        </div>
+        <div class="responsive-actions">
+          <button type="button" class="secondary" id="applyResponsiveVisibility"${readOnly}>Apply visibility</button>
+          <button type="button" class="secondary subtle" id="resetResponsiveVisibility"${override.hidden && !state.readOnly ? '' : ' disabled'}>Use inherited visibility</button>
+        </div>
+        <dl class="layout-provenance">
+          <div><dt>Mode</dt><dd>${escapeText(view.layout.mode)} · ${escapeText(sourceLabel(view.provenance.mode))}</dd></div>
+          <div><dt>Width</dt><dd>${escapeText(view.layout.widthMode)} · ${escapeText(sourceLabel(view.provenance.widthMode))}</dd></div>
+          <div><dt>Height</dt><dd>${escapeText(view.layout.heightMode)} · ${escapeText(sourceLabel(view.provenance.heightMode))}</dd></div>
+        </dl>
+      </div>`;
     inspector.innerHTML = ''
       + '<div class="inspector-head"><p class="eyebrow">Selected</p><h3>' + escapeText(element.label || spec.label) + '</h3>'
       + '<p class="inspector-meta">' + escapeText(spec.label)
@@ -346,15 +474,19 @@
       + state.kinds.map(candidate => '<option value="' + escapeAttribute(candidate.kind) + '"'
         + (candidate.kind === element.kind ? ' selected' : '') + '>' + escapeText(candidate.label) + '</option>').join('')
       + '</select></label>'
+      + responsiveFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
       + escapeText(element.designPrompt || '') + '</textarea></label>'
       + '<div class="inspector-actions">'
       + '<button type="button" id="askAboutElement" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this wireframe element and its design prompt" aria-label="Ask AtlasMind about this wireframe element"><img src="' + escapeAttribute(state.atlasIcon || '') + '" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this wireframe element</span></button>'
       + (state.canGenerate ? '<button type="button" class="secondary" id="generateElement">Generate</button>' : '')
-      + '<button type="button" class="danger subtle" id="deleteElement">Delete</button>'
+      + (isBase ? '<button type="button" class="danger subtle" id="deleteElement">Delete</button>' : '')
       + '</div>'
-      + '<p class="inspector-hint">Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.</p>';
+      + '<p class="inspector-hint">' + (isBase
+        ? 'Arrow keys nudge. Hold Shift for larger steps. Delete removes. Ctrl/Cmd+Z undoes; add Shift to redo.'
+        : 'Responsive changes are explicit overrides. Reset either property to resume inheritance. Ctrl/Cmd+Z still undoes.')
+      + '</p>';
   }
 
   // ── Drawing, moving, resizing ──────────────────────────────────
@@ -369,6 +501,17 @@
 
     const handle = event.target.closest('.wf-handle');
     const box = event.target.closest('.wf-box');
+
+    if (activeBreakpoint !== activeBaseBreakpoint()) {
+      if (box) {
+        selectedElementId = box.dataset.elementId;
+        notifyPreviewSelection();
+        renderCanvas();
+      }
+      notice('This is an inherited responsive view. Use the inspector to override layout or visibility, or switch to the base breakpoint for direct manipulation.');
+      event.preventDefault();
+      return;
+    }
 
     if (handle && box) {
       drag = {
@@ -568,6 +711,10 @@
    * announced, so the outcome is visible either way.
    */
   function deleteSelected() {
+    if (activeBreakpoint !== activeBaseBreakpoint()) {
+      notice('Switch to the base breakpoint before deleting structure. A node exists in every viewport.');
+      return;
+    }
     const element = findElement(selectedElementId);
     if (!element) { return; }
     const elements = elementsOf(activePage());
@@ -585,6 +732,10 @@
   }
 
   function nudgeSelected(dx, dy) {
+    if (activeBreakpoint !== activeBaseBreakpoint()) {
+      notice('Use the responsive inspector for breakpoint-specific geometry, or switch to the base breakpoint to nudge directly.');
+      return;
+    }
     const element = findElement(selectedElementId);
     if (!element) { return; }
     element.rect.x = round(clamp(element.rect.x + dx, 0, CANVAS_WIDTH - element.rect.width));
@@ -675,11 +826,64 @@
   });
 
   document.addEventListener('click', event => {
-    const paletteButton = event.target.closest('[data-kind]');
+    const paletteButton = event.target.closest('.palette-button[data-kind]');
     if (paletteButton) {
+      if (activeBreakpoint !== activeBaseBreakpoint()) {
+        notice('Switch to the base breakpoint to add structure. Responsive views override existing nodes only.');
+        return;
+      }
       armedKind = paletteButton.dataset.kind;
-      qsa('[data-kind]').forEach(button => button.classList.toggle('armed', button === paletteButton));
+      qsa('.palette-button[data-kind]').forEach(button => button.classList.toggle('armed', button === paletteButton));
       notice('Drag on the canvas to draw a ' + paletteButton.textContent.trim().toLowerCase() + ', or click once to place it.');
+      return;
+    }
+
+    const breakpointButton = event.target.closest('.breakpoint-button[data-breakpoint]');
+    if (breakpointButton && BREAKPOINTS.includes(breakpointButton.dataset.breakpoint)) {
+      activeBreakpoint = breakpointButton.dataset.breakpoint;
+      renderCanvas();
+      notice(activeBreakpoint === activeBaseBreakpoint()
+        ? 'Showing the base layout. Direct manipulation changes the shared structure.'
+        : 'Showing the resolved ' + activeBreakpoint + ' layout. The inspector identifies inherited and overridden values.');
+      return;
+    }
+
+    if (event.target.id === 'applyResponsiveRect') {
+      const rect = {
+        x: Number(value('#responsiveX')),
+        y: Number(value('#responsiveY')),
+        width: Number(value('#responsiveWidth')),
+        height: Number(value('#responsiveHeight')),
+      };
+      if (!Object.values(rect).every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) {
+        notice('Responsive geometry needs finite X, Y, width, and height values.', 'error');
+        return;
+      }
+      submitDesignEdit({
+        type: 'set-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
+        breakpoint: activeBreakpoint, rect,
+      });
+      return;
+    }
+    if (event.target.id === 'resetResponsiveRect') {
+      submitDesignEdit({
+        type: 'clear-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
+        breakpoint: activeBreakpoint, property: 'rect',
+      });
+      return;
+    }
+    if (event.target.id === 'applyResponsiveVisibility') {
+      submitDesignEdit({
+        type: 'set-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
+        breakpoint: activeBreakpoint, hidden: qs('#responsiveHidden')?.checked === true,
+      });
+      return;
+    }
+    if (event.target.id === 'resetResponsiveVisibility') {
+      submitDesignEdit({
+        type: 'clear-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
+        breakpoint: activeBreakpoint, property: 'hidden',
+      });
       return;
     }
 
@@ -1142,6 +1346,9 @@
       } else {
         delete page.wireframe;
       }
+    }
+    if (message.responsiveScreens !== undefined) {
+      state.responsiveScreens = normalizeResponsiveScreens(message.responsiveScreens);
     }
     if (!findElement(selectedElementId)) { selectedElementId = ''; }
     renderCanvas();

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.281.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now has a host-resolved responsive inspector.** Desktop, tablet, and mobile controls project
+  the selected screen in the canvas without duplicating inheritance logic in the browser. Each selected node
+  shows computed geometry, visibility, layout mode, width mode, height mode, and the source breakpoint for
+  every property; hidden nodes remain visible as inspectable design decisions.
+- **Tablet/mobile geometry and visibility can be applied or reset independently.** Numeric layout controls
+  and an explicit visibility choice use the existing revisioned reducer. Resetting geometry preserves an
+  intentional visibility override and vice versa; undo/redo continues to cover both.
+
+### Security
+
+- **The webview receives resolved presentation data and never becomes a layout authority.** Responsive state
+  is built from the host-owned graph, bounded again on receipt, and reconciled after every accepted/refused
+  edit. The browser can name only a saved node, closed breakpoint, bounded rectangle/Boolean, and the exact
+  property to reset.
+
+### Changed
+
+- **Structural direct manipulation is confined to the screen's base breakpoint for now.** Responsive views
+  allow selection and explicit inspector overrides, while drawing, deletion, nesting, nudging, and drag/
+  resize remain base-only so an early responsive tool cannot silently change all viewports.
+
 ## [0.280.0] - 2026-08-11
 
 ### Added

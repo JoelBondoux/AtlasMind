@@ -347,6 +347,15 @@ saved node, including inherited geometry, explicit visibility, and a visible-con
 Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
 renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
 injects only the separately audited frozen live runtime.
+
+`websiteStudioPanel.ts` builds the canvas's responsive state on the extension host with
+`buildWebsiteStudioResponsiveScreens()`: every node receives resolved desktop/tablet/mobile layout,
+per-property provenance, and Boolean flags saying which geometry/visibility overrides actually exist. The
+webview renders that projection but never computes inheritance. Its breakpoint inspector may submit exact
+set commands or clear `rect`/`hidden` independently; `uiEditCommands.ts` removes only the named property and
+drops the breakpoint record only when nothing remains. Host reconciliation returns both the compatibility
+wireframes and a fresh resolved snapshot after every result. Structural pointer editing stays base-only in
+this increment; responsive views remain selection plus explicit property editing.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review

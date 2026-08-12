@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDefaultWebsiteWorkspace } from '../../src/core/websiteWorkspaceManager.ts';
+import { designGraphFromPages } from '../../src/core/uiDesignGraph.ts';
 import {
+  buildWebsiteStudioResponsiveScreens,
   getWebsiteStudioHtml,
   isWebsiteStudioPage,
   isWebsiteStudioMessage,
@@ -36,6 +38,20 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
+        type: 'set-node-viewport-override', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        breakpoint: 'mobile', hidden: true,
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'clear-node-viewport-override', expectedRevision: 3, screenId: 'page-home', nodeId: 'hero-1',
+        breakpoint: 'mobile', property: 'hidden',
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
         type: 'set-node-frame', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
         rect: { x: 0, y: 0, width: 1_000, height: 300 }, parentId: null,
       },
@@ -55,6 +71,13 @@ describe('Website Studio webview boundary', () => {
       payload: {
         type: 'set-node-frame', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
         rect: { x: 0, y: 0, width: 1_000, height: 300 }, parentId: null, command: 'run',
+      },
+    })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'clear-node-viewport-override', expectedRevision: 3, screenId: 'page-home', nodeId: 'hero-1',
+        breakpoint: 'mobile', property: 'style',
       },
     })).toBe(false);
   });
@@ -192,6 +215,44 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('id="refreshFullPreview"');
     expect(html).toContain('id="openResponsivePreview"');
   });
+
+  it('renders host-resolved breakpoint controls and per-property provenance', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.pages[0]!.wireframe = {
+      breakpoint: 'desktop',
+      elements: [{
+        id: 'hero', kind: 'hero', label: 'Opening',
+        rect: { x: 0, y: 20, width: 1_000, height: 300 }, designPrompt: '', notes: '',
+      }],
+    };
+    config.designGraph = designGraphFromPages(config.pages, 4);
+    config.designGraph.screens[0]!.nodes[0]!.viewportOverrides.tablet = {
+      rect: { x: 80, y: 40, width: 840, height: 260 },
+    };
+    config.designGraph.screens[0]!.nodes[0]!.viewportOverrides.mobile = { hidden: true };
+
+    const responsive = buildWebsiteStudioResponsiveScreens(config.designGraph);
+    expect(responsive[0]!.nodes[0]!.views.mobile).toMatchObject({
+      layout: { rect: { x: 80, y: 40, width: 840, height: 260 }, hidden: true },
+      provenance: {
+        rect: { kind: 'override', breakpoint: 'tablet' },
+        hidden: { kind: 'override', breakpoint: 'mobile' },
+      },
+    });
+    expect(responsive[0]!.nodes[0]!.overrides).toMatchObject({
+      tablet: { rect: true, hidden: false },
+      mobile: { rect: false, hidden: true },
+    });
+
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'wireframes', {
+      scriptContent: '/* canvas */',
+    });
+    expect(html).toContain('aria-label="Canvas breakpoint"');
+    expect(html).toContain('data-breakpoint="desktop"');
+    expect(html).toContain('data-breakpoint="tablet"');
+    expect(html).toContain('data-breakpoint="mobile"');
+    expect(html).toContain('&quot;responsiveScreens&quot;');
+  });
 });
 
 /**
@@ -236,11 +297,15 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain("type: 'editDesignGraph'");
     for (const command of [
       'add-node', 'delete-node', 'set-node-frame', 'set-node-kind',
-      'set-node-label', 'set-node-design-prompt', 'undo', 'redo',
+      'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
+      'clear-node-viewport-override', 'undo', 'redo',
     ]) {
       expect(source).toContain(`'${command}'`);
     }
     expect(source).toContain('designRevision,');
     expect(source).not.toContain('designGraph: state');
+    expect(source).toContain('applyResponsiveRect');
+    expect(source).toContain("property: 'hidden'");
+    expect(source).toContain('sourceLabel(view.provenance.rect)');
   });
 });

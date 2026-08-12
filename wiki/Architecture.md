@@ -188,6 +188,13 @@ through an exact override, so the resolver does not turn absent intent into a de
 The 5 → 6 migration preserves every prior wireframe fact and the untouched-versus-empty distinction while
 inventing no responsive, token, component, or source-mapping intent.
 
+The Studio webview does not reproduce responsive inheritance. `websiteStudioPanel.ts` resolves every node
+at all three breakpoints on the extension host and sends bounded layout/provenance plus flags for the two
+override properties. The canvas can select hidden nodes and submit exact geometry/visibility set or reset
+requests. Reset names `rect` or `hidden`, so the reducer preserves the other property and removes an empty
+breakpoint record. Every result returns a fresh host projection. Structural pointer editing remains confined
+to the screen's base breakpoint until responsive direct manipulation is delivered as its own audited slice.
+
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains
 script-free and now emits static tablet/mobile media rules by resolving the matching authoritative graph

@@ -47,6 +47,8 @@ export interface UiNewNode {
   notes: string;
 }
 
+export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'all';
+
 export type UiEditCommand =
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
   | (UiNodeCommandBase & { type: 'delete-node' })
@@ -64,7 +66,11 @@ export type UiEditCommand =
     rect?: WireframeRect;
     hidden?: boolean;
   })
-  | (UiNodeCommandBase & { type: 'clear-node-viewport-override'; breakpoint: WireframeBreakpoint })
+  | (UiNodeCommandBase & {
+    type: 'clear-node-viewport-override';
+    breakpoint: WireframeBreakpoint;
+    property?: UiViewportOverrideProperty;
+  })
   | (UiEditCommandBase & { type: 'undo' })
   | (UiEditCommandBase & { type: 'redo' });
 
@@ -195,11 +201,23 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
         }
         : undefined;
     }
-    case 'clear-node-viewport-override':
+    case 'clear-node-viewport-override': {
+      const property = input['property'];
       return isBreakpoint(input['breakpoint'])
-        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'breakpoint'])
-        ? { type: 'clear-node-viewport-override', ...base, breakpoint: input['breakpoint'] }
+        && (property === undefined || isOverrideProperty(property))
+        && exactKeys(
+          input,
+          ['type', 'expectedRevision', 'screenId', 'nodeId', 'breakpoint'],
+          ['property'],
+        )
+        ? {
+          type: 'clear-node-viewport-override',
+          ...base,
+          breakpoint: input['breakpoint'],
+          ...(property === undefined ? {} : { property }),
+        }
         : undefined;
+    }
     default:
       return undefined;
   }
@@ -392,11 +410,25 @@ function applyNodeCommand(
       };
     }
     case 'clear-node-viewport-override': {
-      if (!isBreakpoint(command.breakpoint) || command.breakpoint === screen.baseBreakpoint) {
+      if (!isBreakpoint(command.breakpoint)
+          || command.breakpoint === screen.baseBreakpoint
+          || (command.property !== undefined && !isOverrideProperty(command.property))) {
         return { ok: false, reason: 'invalid-command' };
       }
       const viewportOverrides = { ...node.viewportOverrides };
-      delete viewportOverrides[command.breakpoint];
+      const property = command.property ?? 'all';
+      const existing = viewportOverrides[command.breakpoint];
+      if (existing && property !== 'all') {
+        const remaining = { ...existing };
+        delete remaining[property];
+        if (remaining.rect === undefined && remaining.hidden === undefined) {
+          delete viewportOverrides[command.breakpoint];
+        } else {
+          viewportOverrides[command.breakpoint] = remaining;
+        }
+      } else {
+        delete viewportOverrides[command.breakpoint];
+      }
       return { ok: true, node: { ...node, viewportOverrides } };
     }
     case 'reparent-node':
@@ -598,6 +630,10 @@ function validIdentifier(value: unknown): value is string {
 
 function isBreakpoint(value: unknown): value is WireframeBreakpoint {
   return WIREFRAME_BREAKPOINTS.includes(value as WireframeBreakpoint);
+}
+
+function isOverrideProperty(value: unknown): value is UiViewportOverrideProperty {
+  return value === 'rect' || value === 'hidden' || value === 'all';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

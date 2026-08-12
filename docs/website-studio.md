@@ -134,6 +134,14 @@ through tablet into mobile, explicit geometry or visibility overrides take prece
 override restores the inherited result. The responsive projection is static CSS and adds no browser-write
 capability.
 
+The Wireframe canvas has the same **Desktop / Tablet / Mobile** selector. Selecting a node at a responsive
+breakpoint shows its resolved X/Y/width/height, visibility, layout mode, sizing modes, and the base/override
+breakpoint that supplied each value. Apply layout and visibility separately, or choose **Use inherited** for
+either property without discarding the other. Hidden nodes remain faintly visible in the editor so they can
+be selected and restored; they remain hidden in the full preview. Direct drawing, drag/resize, nesting,
+nudging, and deletion currently stay on the screen's base breakpoint while responsive direct manipulation
+is completed.
+
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.
 Saving structure, content, or UI-system changes rebuilds the draft whenever the preview server is already

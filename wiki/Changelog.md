@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.281.0 — Responsive layout is visible and editable in the Studio
+
+The Wireframe canvas now switches among Desktop, Tablet, and Mobile using layouts resolved by the extension
+host. Selecting a node—including one hidden at that breakpoint—shows computed geometry, visibility, layout
+mode, sizing, and the exact base or override breakpoint behind every value.
+
+Tablet/mobile geometry and visibility can be applied or reset independently through the revisioned reducer,
+so returning geometry to inheritance does not discard an intentional visibility choice. The webview never
+computes inheritance or submits a graph. Structural drawing and direct manipulation remain base-only until
+responsive pointer editing is delivered explicitly.
+
 ## v0.280.0 — Full Preview responds to the saved design graph
 
 The deterministic full-browser draft now projects the authoritative screen at tablet and mobile widths.

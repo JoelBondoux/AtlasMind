@@ -257,7 +257,7 @@ describe('UI edit commands', () => {
 
     const cleared = applyUiEditCommand(mobile.session, {
       type: 'clear-node-viewport-override', expectedRevision: 2,
-      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet', property: 'rect',
     });
     expect(cleared.ok).toBe(true);
     if (!cleared.ok) { return; }
@@ -293,10 +293,47 @@ describe('UI edit commands', () => {
     expect(parseUiEditCommand({ ...responsive, command: 'write-file' })).toBeUndefined();
     expect(parseUiEditCommand({
       type: 'clear-node-viewport-override', expectedRevision: 3,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet', property: 'hidden',
+    })).toEqual({
+      type: 'clear-node-viewport-override', expectedRevision: 3,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet', property: 'hidden',
+    });
+    expect(parseUiEditCommand({
+      type: 'clear-node-viewport-override', expectedRevision: 3,
       screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
     })).toEqual({
       type: 'clear-node-viewport-override', expectedRevision: 3,
       screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet',
     });
+    expect(parseUiEditCommand({
+      type: 'clear-node-viewport-override', expectedRevision: 3,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'tablet', property: 'style',
+    })).toBeUndefined();
+  });
+
+  it('resets one responsive property without discarding another', () => {
+    const initial = graph();
+    const child = initial.screens[0]!.nodes.find(candidate => candidate.id === 'child')!;
+    child.viewportOverrides.mobile = {
+      rect: { x: 20, y: 30, width: 500, height: 100 },
+      hidden: true,
+    };
+    const rectReset = applyUiEditCommand(createUiEditSession(initial), {
+      type: 'clear-node-viewport-override', expectedRevision: 0,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'mobile', property: 'rect',
+    });
+    expect(rectReset.ok).toBe(true);
+    if (!rectReset.ok) { return; }
+    expect(rectReset.session.graph.screens[0]!.nodes.find(candidate => candidate.id === 'child')
+      ?.viewportOverrides.mobile).toEqual({ hidden: true });
+
+    const hiddenReset = applyUiEditCommand(rectReset.session, {
+      type: 'clear-node-viewport-override', expectedRevision: 1,
+      screenId: 'page-home', nodeId: 'child', breakpoint: 'mobile', property: 'hidden',
+    });
+    expect(hiddenReset.ok).toBe(true);
+    if (!hiddenReset.ok) { return; }
+    expect(hiddenReset.session.graph.screens[0]!.nodes.find(candidate => candidate.id === 'child')
+      ?.viewportOverrides.mobile).toBeUndefined();
   });
 });

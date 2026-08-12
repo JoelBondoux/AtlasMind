@@ -209,6 +209,12 @@ through tablet into mobile; explicit geometry and visibility overrides replace o
 name, and clearing one restores inheritance. The projection is static CSS, so responsive review adds no
 new browser command, storage, or write capability.
 
+The Studio canvas now offers the same Desktop, Tablet, and Mobile views. Its inspector shows computed
+geometry, visibility, layout and sizing together with the breakpoint each property came from. Apply or reset
+responsive geometry and visibility independently; hidden nodes stay faintly selectable in the editor while
+remaining absent from the full preview. Structural drawing, drag/resize, nesting, nudging, and deletion stay
+on the base breakpoint until responsive direct manipulation is completed.
+
 Saving structure, content, or UI-system changes rebuilds preview artefacts while the server is running.
 The built-in browser receives the new render revision and reloads automatically. Select a saved block in
 Studio to highlight it in the full preview; click a preview block to focus it back in Studio. The frozen
