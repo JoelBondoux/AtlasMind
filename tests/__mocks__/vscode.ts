@@ -5,8 +5,16 @@
 export const workspace = {
   fs: {
     readFile: async () => Buffer.from(''),
-    writeFile: async () => undefined,
-    createDirectory: async () => undefined,
+    // Writes for real. A no-op here made any test that asserted on written
+    // content pass without the code under test doing anything.
+    writeFile: async (uri: { fsPath: string }, content: Uint8Array) => {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(uri.fsPath, Buffer.from(content));
+    },
+    createDirectory: async (uri: { fsPath: string }) => {
+      const { mkdirSync } = await import('node:fs');
+      mkdirSync(uri.fsPath, { recursive: true });
+    },
     readDirectory: async () => [],
     stat: async () => ({ mtime: 0 }),
     delete: async () => undefined,
