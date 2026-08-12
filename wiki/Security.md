@@ -105,6 +105,13 @@ unrelated task.
 
 The allow-list is **deny-by-default**: an empty list trusts nothing.
 
+**What gets scanned is the whole context, including the session bundle.** A long-running session keeps a
+compressed `context.md` and AtlasMind sends that structured bundle *instead of* the raw transcript — the
+two are alternatives, never both. Until v0.294.0 the scan looked only at the raw transcript string, so
+once a session grew a context file the conversation stopped being inspected while the model still
+received all of it. Each bundle field is now scanned separately and labelled with the heading it appears
+under, so a notice names a section you can go and read rather than reporting a hit with no location.
+
 ---
 
 ## The panels

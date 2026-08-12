@@ -792,14 +792,7 @@ export class Orchestrator {
     // Scan each context slice separately so a notice can name *where* a
     // detector fired — an unexplained hit is indistinguishable from a false
     // positive, and the operator needs to be able to tell them apart.
-    const slices: Array<{ label: string; text: string }> = [
-      ...retrievalContext.memoryEntries.map(e => ({ label: `memory "${e.title}"`, text: `${e.title}\n${e.snippet}` })),
-      ...retrievalContext.liveEvidence.map(e => ({ label: `file ${e.path}`, text: e.excerpt })),
-      { label: 'session history', text: String(requestContext['sessionContext'] ?? '') },
-      { label: 'chat history', text: String(requestContext['nativeChatContext'] ?? '') },
-      { label: 'attachment', text: String(requestContext['attachmentContext'] ?? '') },
-      { label: 'workstation context', text: String(requestContext['workstationContext'] ?? '') },
-    ];
+    const slices = buildPrivacyScanSlices(retrievalContext, requestContext);
     const wsRoot = this.skillContext.workspaceRootPath ?? undefined;
 
     const allMatches: DataPrivacyMatch[] = [];
@@ -4740,6 +4733,52 @@ const TOOL_FAILURE_KEYWORD_PATTERN =
  * measurement looks complete. Deriving both from here makes that drift
  * unrepresentable rather than merely fixed.
  */
+/**
+ * Every piece of context the model will see, split so a privacy notice can name
+ * *where* a detector fired — an unexplained hit is indistinguishable from a
+ * false positive, and the operator has to be able to tell them apart.
+ *
+ * Exported because this list *is* the redaction boundary. Left inline it was a
+ * boundary nothing could check, and it had already drifted: the session bundle
+ * was absent, so once a session grew a `context.md` the conversation stopped
+ * being scanned at all. The two session forms are alternatives, never both —
+ * the chat panel sets the raw string to `''` and passes the bundle instead
+ * (`sessionContextBundle ? '' : buildContext(...)`) — so scanning only the
+ * string inspected nothing on the ordinary path while the model still received
+ * the bundle's contents.
+ *
+ * Bundle labels mirror the headings it is rendered under downstream, so a
+ * notice names a section the operator can go and look at.
+ */
+export function buildPrivacyScanSlices(
+  retrievalContext: Pick<RetrievalContextBundle, 'memoryEntries' | 'liveEvidence'>,
+  requestContext: Record<string, unknown>,
+): Array<{ label: string; text: string }> {
+  const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
+  const bundleSlices: Array<{ label: string; text: string }> = sessionBundle
+    ? [
+        { label: 'session goal', text: sessionBundle.goal ?? '' },
+        { label: 'session summary', text: sessionBundle.summary ?? '' },
+        { label: 'concluded this session', text: sessionBundle.decisions ?? '' },
+        { label: 'open threads', text: sessionBundle.openThreads ?? '' },
+        ...(sessionBundle.ssotExcerpts ?? []).map((excerpt, index) => ({
+          label: `related project knowledge #${index + 1}`,
+          text: excerpt,
+        })),
+      ]
+    : [];
+
+  return [
+    ...retrievalContext.memoryEntries.map(e => ({ label: `memory "${e.title}"`, text: `${e.title}\n${e.snippet}` })),
+    ...retrievalContext.liveEvidence.map(e => ({ label: `file ${e.path}`, text: e.excerpt })),
+    { label: 'session history', text: String(requestContext['sessionContext'] ?? '') },
+    ...bundleSlices,
+    { label: 'chat history', text: String(requestContext['nativeChatContext'] ?? '') },
+    { label: 'attachment', text: String(requestContext['attachmentContext'] ?? '') },
+    { label: 'workstation context', text: String(requestContext['workstationContext'] ?? '') },
+  ];
+}
+
 export function classifyToolFailure(result: string): string | undefined {
   const normalized = result.trim().toLowerCase();
 

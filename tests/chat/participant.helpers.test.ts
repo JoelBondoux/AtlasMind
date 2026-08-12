@@ -1569,3 +1569,58 @@ describe('resolveProjectRunAutoFlow', () => {
     ).toBeUndefined();
   });
 });
+
+describe('the file-count approval gate is reachable from chat', () => {
+  // The gate's message said "re-run with `--approve`" while the surface offered
+  // no control that could do it, and the two entry points had the approval
+  // inverted: an explicit "Proceed" arrived unapproved and stalled here, while a
+  // raw prompt merely matching the project pattern was auto-approved straight
+  // past the threshold. The prompt with the least review behind it was the one
+  // skipping the gate.
+
+  it('offers the approving prompt as the first followup when a run stops at the gate', () => {
+    const followups = buildFollowups('project', {
+      hasFailures: false,
+      hasChangedFiles: false,
+      failedSubtaskTitles: [],
+      approvalRequiredPrompt: 'Add Stripe checkout --approve',
+    });
+    expect(followups[0]).toEqual({ prompt: 'Add Stripe checkout --approve', label: 'Approve and run' });
+  });
+
+  it('outranks model-suggested followups, since nothing else can unblock the turn', () => {
+    const followups = buildFollowups(
+      'project',
+      {
+        hasFailures: false,
+        hasChangedFiles: false,
+        failedSubtaskTitles: [],
+        approvalRequiredPrompt: 'Do the thing --approve',
+      },
+      [{ label: 'Something Else', prompt: 'something else' }],
+    );
+    expect(followups[0].label).toBe('Approve and run');
+  });
+
+  it('carries a prompt that actually approves — not the bare goal', () => {
+    // A chip that re-submits the goal unchanged re-enters the gate and stops
+    // again, which is the loop this replaced.
+    const followups = buildFollowups('project', {
+      hasFailures: false,
+      hasChangedFiles: false,
+      failedSubtaskTitles: [],
+      approvalRequiredPrompt: toApprovedProjectPrompt('Add Stripe checkout'),
+    });
+    expect(followups[0].prompt).toContain('--approve');
+    expect(followups[0].prompt).toContain('Add Stripe checkout');
+  });
+
+  it('leaves ordinary project followups alone when no gate was hit', () => {
+    const followups = buildFollowups('project', {
+      hasFailures: false,
+      hasChangedFiles: false,
+      failedSubtaskTitles: [],
+    });
+    expect(followups.map(f => f.label)).not.toContain('Approve and run');
+  });
+});
