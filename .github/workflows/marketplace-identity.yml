@@ -52,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Sign in to Azure with workload identity federation
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           # Not secrets: a client id, tenant id and subscription id are all
           # discoverable. What stops anyone else using this identity is the
