@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.2] - 2026-08-12
+
+### Changed
+
+- Synced the shared-instructions block into `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md`,
+  so the core directives, architecture ground rules and coding standards reach every agent that reads
+  one of them rather than only the tools whose files happened to carry them.
+
+  **The sync re-expresses the directives per tool**, which broke this repository's rule that
+  `CLAUDE.md` and `AGENTS.md` stay byte-identical — the two files ended up saying the same things in
+  different words, and `docsIntegrity` caught it. `AGENTS.md` was restored as a true copy. The sync
+  should treat a project's identical-file pairs as one target rather than re-wording each; until it
+  does, re-copy after every run.
+
+  Note the workflow block in those three files remains stale against
+  `project_memory/operations/workflow.json`; the shared-instructions sync does not refresh it, and
+  `AtlasMind: Sync Testing Protocols to AI Agents` is the command that does.
+
+
 ## [0.305.1] - 2026-08-12
 
 ### Changed

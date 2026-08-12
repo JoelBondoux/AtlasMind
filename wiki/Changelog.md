@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.305.2 — Shared rules in every instruction file
+
+The core directives, architecture rules and coding standards now appear in all three agent instruction
+files rather than only some. No behaviour change.
+
+---
+
 ## v0.305.1 — Delivery record
 
 Housekeeping. Saves the record of the promotion run that failed earlier, which is what prompted the
