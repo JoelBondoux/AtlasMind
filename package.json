@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.301.0",
+  "version": "0.302.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1783,6 +1783,12 @@
           "maximum": 8,
           "description": "Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured.",
           "markdownDescription": "Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured.\n\nApplies on AMD, Intel and Apple Silicon, or anywhere `nvidia-smi` is unavailable. Limiting how many *distinct* models stay loaded is the only bound available without a memory reading — limiting concurrent requests would not help, because Ollama keeps a model in memory for minutes after a request finishes.\n\nRaise it if you have plenty of unified memory."
+        },
+        "atlasmind.localGpu.evictOwnModels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let AtlasMind unload models it loaded itself to make room for another. Models you loaded by hand are never unloaded.",
+          "markdownDescription": "Let AtlasMind unload models **it loaded itself** to make room for another.\n\nA model you loaded by hand — in the LM Studio app, or with `ollama run` — is never unloaded, whatever the pressure. AtlasMind tracks which models it caused to load and only ever releases those.\n\nA model is only released when it has no request in flight and has been idle for a moment, and only when releasing it would actually free enough room; unloading something and still not fitting would cost the reload for nothing.\n\nTurn this off to leave every loaded model alone and simply wait for room."
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",

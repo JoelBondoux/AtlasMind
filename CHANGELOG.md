@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.302.0] - 2026-08-12
+
+### Added
+
+- **The GPU arbiter can now reclaim room, not only wait for it.** v0.301.0 shipped the ledger that
+  knows which resident models are AtlasMind's, but nothing acted on it: a full card meant queueing and
+  then failing over to a paid provider while AtlasMind's own idle model sat holding 11 GB.
+
+  `selectEvictionVictims` (`src/core/vramBudget.ts`, pure) chooses what to release, behind four guards.
+  The first is the one that matters: **only models AtlasMind loaded are candidates.** A model you
+  loaded by hand — in the LM Studio app, or with `ollama run` — is never touched, whatever the
+  pressure, because unloading it would take away work somebody was in the middle of to serve a
+  background task they never asked about. Enforced in the policy and asserted by a property test over
+  arbitrary candidate sets, plus an arbiter-level test that a tight card with only a hand-loaded model
+  present waits and then refuses rather than reclaiming it.
+
+  The other three: a model with a request in flight is in use; a model served within
+  `LOCAL_GPU_EVICTION_COOLDOWN_MS` (30s) is probably about to be used again, and evicting it produces a
+  load-evict-load cycle slower than waiting; and a model whose resident size was never measured cannot
+  be counted towards freeing anything, since claiming an unknown quantity of space is how a budget
+  starts lying.
+
+  **A partial plan is not executed.** Unloading two models and still not fitting costs the reload of
+  both and gains nothing, so an insufficient plan is reported and the request waits instead. Victims go
+  coldest-first, then largest, so the fewest models are disturbed. Each unload is confirmed by the
+  runtime, and residency is re-read afterwards rather than assumed — an unload is a request, not a
+  fact.
+
+  New setting `atlasmind.localGpu.evictOwnModels` (default `true`); off leaves every loaded model alone
+  and simply waits.
+
+
 ## [0.301.0] - 2026-08-12
 
 ### Added

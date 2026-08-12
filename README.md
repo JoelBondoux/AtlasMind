@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.301.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.302.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.301.0
+## What's new in 0.302.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **AtlasMind tidies up after itself on a full card.** It now releases models *it* loaded to make room
+  for the next one — never a model you loaded by hand, never one in use, and never half-way (if
+  clearing everything available still wouldn't fit, it waits instead of costing you the reloads).
 
 - **Local models no longer fight over your graphics card.** If you run Ollama and LM Studio, they each
   decide what fits without knowing the other exists — and neither leaves room for your desktop. On a

@@ -380,6 +380,7 @@ AtlasMind only ever unloads models it loaded itself.
 | `atlasmind.localGpu.safetyMarginMb` | `2048` | Free memory to leave alone, for whatever your desktop grabs while a model is loading |
 | `atlasmind.localGpu.reserveMb` | `3072` | How much of the card AtlasMind will never take. A limit on *its* share — your desktop is already protected by measuring free memory. `0` removes it |
 | `atlasmind.localGpu.maxResidentModelsWhenUnmeasured` | `1` | Models kept loaded per runtime when free memory can't be read (AMD, Intel, Apple Silicon, or no `nvidia-smi`). Raise it if you have memory to spare |
+| `atlasmind.localGpu.evictOwnModels` | `true` | Let AtlasMind unload its *own* models to make room for another. Yours are never touched. Off means it waits instead |
 
 ---
 

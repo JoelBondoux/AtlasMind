@@ -53,6 +53,8 @@
 import {
   computeGpuHeadroom,
   evaluateAdmission,
+  selectEvictionVictims,
+  type EvictionCandidate,
   type GpuHeadroom,
 } from './vramBudget.js';
 import type { GpuDevice } from '../providers/gpuProbeParse.js';
@@ -124,6 +126,10 @@ export interface ArbiterConfig {
   /** Distinct models AtlasMind may hold per endpoint when memory is unmeasurable. */
   maxOwnedResidentModels: number;
   residencyPollIntervalMs: number;
+  /** Whether the arbiter may unload models it loaded to reclaim room. */
+  evictOwnModels: boolean;
+  /** How long after last serving a model it may be evicted. */
+  evictionCooldownMs: number;
 }
 
 export const DEFAULT_ARBITER_CONFIG: ArbiterConfig = {
@@ -134,6 +140,8 @@ export const DEFAULT_ARBITER_CONFIG: ArbiterConfig = {
   reserveBytes: 3 * 1024 * 1024 * 1024,
   maxOwnedResidentModels: 1,
   residencyPollIntervalMs: 5_000,
+  evictOwnModels: true,
+  evictionCooldownMs: 30_000,
 };
 
 export interface ArbiterState {
@@ -168,6 +176,7 @@ interface ResidencyEntry {
   routedModelId?: string;
   refcount: number;
   observedVramBytes?: number;
+  lastServedAtMs: number;
   /** Whether AtlasMind caused this model to load. Only ours may be evicted. */
   ownedByUs: boolean;
 }
@@ -269,6 +278,11 @@ export class LocalModelArbiter {
         const cold = !this._isResident(request);
         return this._grant(decision.rule, request, cold);
       }
+      // Before waiting, see whether releasing our own idle models makes room.
+      // Only ever our own — a model the user loaded by hand is theirs.
+      if (decision.rule === 'insufficient-headroom' && await this._tryEvictForRoom(request, decision.chargeBytes)) {
+        continue;
+      }
       // Not admissible now. Wait to be woken by a release, a poll, or the bound.
       await this._waitForCapacity(request, decision.rule);
     }
@@ -345,7 +359,10 @@ export class LocalModelArbiter {
         this._inFlight = Math.max(0, this._inFlight - 1);
         if (coldLoad) { this._coldLoadInFlight = false; }
         const current = this._residency.get(key);
-        if (current) { current.refcount = Math.max(0, current.refcount - 1); }
+        if (current) {
+          current.refcount = Math.max(0, current.refcount - 1);
+          current.lastServedAtMs = this._now();
+        }
         if (coldLoad) {
           // The load, if it happened, is attributable to this request: nothing
           // else was cold-loading. Reconcile on the next poll.
@@ -355,6 +372,59 @@ export class LocalModelArbiter {
         this._emit();
       },
     };
+  }
+
+  /**
+   * Unload our own idle models to make room, if that would be enough.
+   *
+   * Returns whether anything was freed, so the caller re-evaluates rather than
+   * assuming success: the runtime confirms each unload and the residency poll,
+   * not this method, decides what is actually gone.
+   *
+   * A plan that would not free enough is **not executed** — unloading two models
+   * and still not fitting costs the reload of both and gains nothing.
+   */
+  private async _tryEvictForRoom(request: AdmissionRequest, neededBytes: number): Promise<boolean> {
+    if (this._disposed || !this._config.evictOwnModels) { return false; }
+    const client = this._runtimeClientFor(request.endpointId, request.baseUrl);
+    if (!client) { return false; }
+
+    const candidates: EvictionCandidate[] = [];
+    for (const [key, entry] of this._residency) {
+      if (entry.endpointId !== request.endpointId) { continue; }
+      candidates.push({
+        key,
+        modelKey: entry.modelKey,
+        ownedByUs: entry.ownedByUs,
+        refcount: entry.refcount,
+        ...(entry.observedVramBytes !== undefined ? { vramBytes: entry.observedVramBytes } : {}),
+        lastServedAtMs: entry.lastServedAtMs,
+      });
+    }
+
+    const shortfall = Math.max(0, neededBytes - this._headroom.headroomBytes);
+    const plan = selectEvictionVictims({
+      candidates,
+      neededBytes: shortfall,
+      nowMs: this._now(),
+      cooldownMs: this._config.evictionCooldownMs,
+    });
+    if (!plan.sufficient || plan.victims.length === 0) { return false; }
+
+    let freedAny = false;
+    for (const victim of plan.victims) {
+      const released = await client.unload({ modelKey: victim.modelKey });
+      if (this._disposed) { return freedAny; }
+      if (!released) { continue; }
+      freedAny = true;
+      this._log(`Unloaded "${victim.modelKey}" to make room (rule ${plan.rule}).`);
+      this._residency.delete(victim.key);
+    }
+    if (freedAny) {
+      // Never trust an unload to have taken effect: re-read before admitting.
+      await this._refreshResidency(request, false);
+    }
+    return freedAny;
   }
 
   private _waitForCapacity(request: AdmissionRequest, rule: string): Promise<void> {
@@ -480,6 +550,7 @@ export class LocalModelArbiter {
         modelKey: model.modelKey,
         ...(ownedByUs && request.routedModelId ? { routedModelId: request.routedModelId } : {}),
         refcount: 0,
+        lastServedAtMs: this._now(),
         ...(model.vramBytes !== undefined ? { observedVramBytes: model.vramBytes } : {}),
         ownedByUs,
       });

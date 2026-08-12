@@ -4,6 +4,7 @@ import {
   computeGpuHeadroom,
   evaluateAdmission,
   ADMISSION_RULES,
+  selectEvictionVictims,
   type GpuHeadroom,
 } from '../../src/core/vramBudget.ts';
 
@@ -312,5 +313,102 @@ describe('robustness', () => {
     fc.assert(fc.property(arbitraryHeadroomInput, input => {
       expect(() => computeGpuHeadroom(input)).not.toThrow();
     }), { numRuns: 250 });
+  });
+});
+
+describe('selectEvictionVictims', () => {
+  const candidate = (over: Partial<import('../../src/core/vramBudget.ts').EvictionCandidate>) => ({
+    key: 'ollama::a', modelKey: 'a', ownedByUs: true, refcount: 0,
+    vramBytes: 8 * GIB, lastServedAtMs: 0, ...over,
+  });
+  const base = { nowMs: 100_000, cooldownMs: 30_000 };
+
+  it('never selects a model the user loaded by hand', () => {
+    // The one rule that must never break. Unloading somebody's own model to
+    // serve a background task they did not ask about is the worst thing this
+    // feature could do.
+    const plan = selectEvictionVictims({
+      ...base,
+      candidates: [candidate({ ownedByUs: false, vramBytes: 20 * GIB })],
+      neededBytes: 4 * GIB,
+    });
+    expect(plan.victims).toEqual([]);
+    expect(plan.sufficient).toBe(false);
+    expect(plan.rule).toBe('nothing-evictable');
+  });
+
+  it('never selects a model with a request in flight', () => {
+    const plan = selectEvictionVictims({
+      ...base, candidates: [candidate({ refcount: 1 })], neededBytes: 1 * GIB,
+    });
+    expect(plan.victims).toEqual([]);
+  });
+
+  it('leaves a recently served model alone', () => {
+    // Evicting a model used a moment ago produces a load-evict-load cycle that
+    // is slower than waiting for the request in front of it.
+    const plan = selectEvictionVictims({
+      ...base, candidates: [candidate({ lastServedAtMs: 95_000 })], neededBytes: 1 * GIB,
+    });
+    expect(plan.victims).toEqual([]);
+  });
+
+  it('never counts a model whose resident size was never measured', () => {
+    // Claiming an unknown quantity of space is how a budget starts lying.
+    const plan = selectEvictionVictims({
+      ...base, candidates: [candidate({ vramBytes: undefined })], neededBytes: 1 * GIB,
+    });
+    expect(plan.victims).toEqual([]);
+  });
+
+  it('evicts the coldest first and stops as soon as it fits', () => {
+    const plan = selectEvictionVictims({
+      ...base,
+      candidates: [
+        candidate({ key: 'k:new', modelKey: 'new', lastServedAtMs: 60_000, vramBytes: 6 * GIB }),
+        candidate({ key: 'k:old', modelKey: 'old', lastServedAtMs: 10_000, vramBytes: 6 * GIB }),
+      ],
+      neededBytes: 5 * GIB,
+    });
+    expect(plan.sufficient).toBe(true);
+    expect(plan.victims.map(v => v.modelKey)).toEqual(['old']);
+  });
+
+  it('marks a plan that would not free enough as insufficient', () => {
+    // Unloading two models and still not fitting costs the reload of both and
+    // gains nothing, so the caller waits instead.
+    const plan = selectEvictionVictims({
+      ...base,
+      candidates: [
+        candidate({ key: 'k:a', modelKey: 'a', vramBytes: 2 * GIB }),
+        candidate({ key: 'k:b', modelKey: 'b', vramBytes: 2 * GIB }),
+      ],
+      neededBytes: 20 * GIB,
+    });
+    expect(plan.sufficient).toBe(false);
+    expect(plan.rule).toBe('eviction-insufficient');
+  });
+
+  it('never proposes evicting anything not owned, for any input', () => {
+    fc.assert(fc.property(
+      fc.array(fc.record({
+        ownedByUs: fc.boolean(),
+        refcount: fc.nat({ max: 3 }),
+        vramBytes: fc.option(fc.nat({ max: 32 }).map(n => n * GIB), { nil: undefined }),
+        lastServedAtMs: fc.nat({ max: 200_000 }),
+      }), { maxLength: 8 }),
+      fc.nat({ max: 64 }),
+      (rows, neededGb) => {
+        const plan = selectEvictionVictims({
+          ...base,
+          candidates: rows.map((r, i) => ({ key: `k${i}`, modelKey: `m${i}`, ...r })),
+          neededBytes: neededGb * GIB,
+        });
+        for (const victim of plan.victims) {
+          expect(victim.ownedByUs).toBe(true);
+          expect(victim.refcount).toBe(0);
+          expect(victim.vramBytes).toBeGreaterThan(0);
+        }
+      }), { numRuns: 500 });
   });
 });

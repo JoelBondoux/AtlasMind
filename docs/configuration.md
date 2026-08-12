@@ -237,13 +237,15 @@ committed to Windows, a browser and antivirus.
 | `atlasmind.localGpu.safetyMarginMb` | `number` | `2048` | Megabytes of free VRAM left unclaimed (0–32768). Covers what the desktop will allocate *while* a model is loading. Because free memory is measured rather than assumed, this does not need to account for what Windows and your applications already hold. |
 | `atlasmind.localGpu.reserveMb` | `number` | `3072` | Megabytes of the card AtlasMind will never occupy (0–131072). **A ceiling on AtlasMind's own share, not an OS reserve** — the desktop is protected by measuring free memory. `0` lets the free-memory measurement govern alone. |
 | `atlasmind.localGpu.maxResidentModelsWhenUnmeasured` | `number` | `1` | Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured (1–8), i.e. on AMD, Intel, Apple Silicon, or without `nvidia-smi`. Limiting *distinct resident models* is the only bound available without a memory reading; limiting concurrent requests would not help, because Ollama keeps a model in memory for minutes after a request finishes. |
+| `atlasmind.localGpu.evictOwnModels` | `boolean` | `true` | Let AtlasMind unload models **it loaded itself** to reclaim room. A model you loaded by hand is never unloaded, whatever the pressure. Only released when idle, out of cooldown, and when releasing it would actually free enough — a partial eviction costs the reload for nothing. |
 
 Two behaviours are worth knowing. When the budget stays committed past a bounded wait the request is
 **refused and the turn fails over to another provider** — the local GPU is busy, so AtlasMind uses
 something that is not. That refusal is classified as a capacity deferral rather than a model failure,
 so a busy GPU never quarantines the endpoint or teaches the router that a working model is
-unreliable. And AtlasMind **only ever unloads models it loaded itself**; a model you loaded by hand
-is tracked as resident and never evicted.
+unreliable. And AtlasMind **only ever unloads models it loaded itself**; a model you loaded by hand is tracked as
+resident and never evicted, which is enforced in the eviction policy rather than left to convention
+(a property test asserts no producible plan ever names an unowned model).
 
 ## Orchestrator Tunables
 

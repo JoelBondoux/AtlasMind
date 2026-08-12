@@ -1854,6 +1854,17 @@ export const LOCAL_GPU_RESERVE_BYTES = 3 * 1024 * 1024 * 1024;
  */
 export const LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS = 1;
 
+/**
+ * How long after last serving a model AtlasMind may unload it.
+ *
+ * A model used a moment ago is probably about to be used again, and evicting it
+ * produces a load-evict-load cycle slower than simply waiting for the request in
+ * front. Thirty seconds is long enough to outlast a burst of subtask calls
+ * against one model and short enough that a genuinely finished model does not
+ * hold the card.
+ */
+export const LOCAL_GPU_EVICTION_COOLDOWN_MS = 30_000;
+
 /** How long a residency reading is reused before the runtimes are asked again. */
 export const LOCAL_GPU_RESIDENCY_POLL_MS = 5_000;
 

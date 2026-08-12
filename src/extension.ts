@@ -14,6 +14,7 @@ import {
   LOCAL_GPU_MAX_CONCURRENT_REQUESTS,
   LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS,
   LOCAL_GPU_RESIDENCY_POLL_MS,
+  LOCAL_GPU_EVICTION_COOLDOWN_MS,
 } from './constants.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
@@ -3957,6 +3958,8 @@ function readLocalGpuConfig() {
     reserveBytes: Math.max(0, cfg.get<number>('localGpu.reserveMb', 3072)) * mib,
     maxOwnedResidentModels: cfg.get<number>('localGpu.maxResidentModelsWhenUnmeasured', LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS),
     residencyPollIntervalMs: LOCAL_GPU_RESIDENCY_POLL_MS,
+    evictOwnModels: cfg.get<boolean>('localGpu.evictOwnModels', true),
+    evictionCooldownMs: LOCAL_GPU_EVICTION_COOLDOWN_MS,
   };
 }
 

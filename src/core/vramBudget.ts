@@ -165,6 +165,88 @@ export interface AdmissionDecision {
   chargeBytes: number;
 }
 
+/** A resident model considered for eviction. */
+export interface EvictionCandidate {
+  key: string;
+  modelKey: string;
+  /** Only models AtlasMind loaded may ever be evicted. */
+  ownedByUs: boolean;
+  /** In-flight requests using it. A model in use is never a candidate. */
+  refcount: number;
+  /** Measured resident VRAM. Unknown means we cannot claim evicting it frees anything. */
+  vramBytes?: number;
+  lastServedAtMs: number;
+}
+
+export interface EvictionInput {
+  candidates: readonly EvictionCandidate[];
+  /** Bytes the admission is short by. */
+  neededBytes: number;
+  nowMs: number;
+  /** How long after last serving a model it may be evicted. */
+  cooldownMs: number;
+}
+
+export interface EvictionPlan {
+  /** Models to unload, in the order to unload them. Empty means do not try. */
+  victims: EvictionCandidate[];
+  /** Bytes the plan expects to free. */
+  freesBytes: number;
+  /** Whether the plan frees enough. A partial plan is not executed. */
+  sufficient: boolean;
+  rule: string;
+}
+
+/**
+ * Which of AtlasMind's own models to unload to make room, if any.
+ *
+ * Four guards, and the first is the one that matters most: **only models
+ * AtlasMind loaded are candidates.** A model the user loaded by hand is theirs
+ * and is never touched, whatever the pressure — unloading it would take away
+ * work somebody was in the middle of, to serve a background task they did not
+ * ask about.
+ *
+ * The others: a model with a live request is in use; a model served within the
+ * cooldown is probably about to be used again, and evicting it produces a
+ * load-evict-load cycle that is slower than waiting; and a model whose resident
+ * size was never measured cannot be counted towards freeing anything, because
+ * claiming an unknown quantity of space is how a budget starts lying.
+ *
+ * **A partial plan is not executed.** Unloading two models and still not fitting
+ * costs the reload of both and gains nothing — so an insufficient plan returns
+ * its victims for reporting but is marked `sufficient: false`, and the caller
+ * waits instead.
+ *
+ * Victims are chosen least-recently-served first, then largest, so the fewest
+ * models are disturbed and the coldest go first.
+ */
+export function selectEvictionVictims(input: EvictionInput): EvictionPlan {
+  const eligible = input.candidates.filter(candidate =>
+    candidate.ownedByUs
+    && candidate.refcount === 0
+    && candidate.vramBytes !== undefined
+    && candidate.vramBytes > 0
+    && input.nowMs - candidate.lastServedAtMs >= input.cooldownMs);
+
+  if (eligible.length === 0) {
+    return { victims: [], freesBytes: 0, sufficient: false, rule: 'nothing-evictable' };
+  }
+
+  const ordered = [...eligible].sort((a, b) =>
+    (a.lastServedAtMs - b.lastServedAtMs) || ((b.vramBytes ?? 0) - (a.vramBytes ?? 0)));
+
+  const victims: EvictionCandidate[] = [];
+  let freesBytes = 0;
+  for (const candidate of ordered) {
+    victims.push(candidate);
+    freesBytes += candidate.vramBytes ?? 0;
+    if (freesBytes >= input.neededBytes) {
+      return { victims, freesBytes, sufficient: true, rule: 'evict-own-coldest-first' };
+    }
+  }
+  return { victims, freesBytes, sufficient: false, rule: 'eviction-insufficient' };
+}
+
 export interface AdmissionInput {
   enabled: boolean;
   /** Estimated weights + context footprint if this model has to be loaded. */
