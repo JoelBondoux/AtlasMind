@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.3] - 2026-08-12
+
+### Fixed
+
+- **The instruction sync no longer breaks a project's byte-identical files.** It re-expresses the
+  unified directives *per tool*, which is right for two tools that read different files and wrong when
+  a project has deliberately made two of them the same document. This repository requires `CLAUDE.md`
+  and `AGENTS.md` to match and has a test that fails when they do not; the first sync wrote two
+  differently-worded versions of the same rules and broke it.
+
+  The invariant is **detected, never configured**: files that were byte-identical before a sync are
+  made byte-identical after it, because keeping them so already expressed the intent. Files that
+  genuinely differed are left alone — two tools with different instructions are not a mistake to fix.
+
+- **`tests/__mocks__/vscode.ts` now writes for real.** `workspace.fs.writeFile` was a no-op, so any
+  test asserting on written content passed without the code under test doing anything. Both new mirror
+  tests were vacuous until this changed, and one of them now fails when the mirror restore is removed.
+
+### Changed
+
+- **The publishing routine documents the `BLOCKED` release PR.** `main` requires branches to be up to
+  date (`strict: true`), and merge-commit promotion always leaves `main` one commit ahead of `develop`
+  — so every release after the first opens behind and stalls until `git merge origin/main` is pushed
+  to `develop`. The routine now says so, says why the merge commit is still the right choice, and adds
+  a step to read the version out of `main` before tagging rather than trusting a merge notification.
+  Both cost time during the 0.305.2 release.
+
+- README's published-version baseline moved to **v0.305.2**, now that it is live.
+
+
 ## [0.305.2] - 2026-08-12
 
 ### Changed

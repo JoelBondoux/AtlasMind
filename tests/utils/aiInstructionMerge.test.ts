@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
@@ -177,5 +177,44 @@ describe('applyManagedInstructionBlock', () => {
     expect(result.updated).not.toContain('.cursorrules');
     expect(result.updated).not.toContain('WINDSURF.md');
     expect(result.updated).not.toContain('.gemini/system.md');
+  });
+});
+
+describe('mirror preservation', () => {
+  let root: string;
+  beforeEach(() => { root = tempWorkspace(); });
+  afterEach(() => { removeTempDir(root); });
+
+  it('keeps files byte-identical when the project already kept them so', async () => {
+    // The sync re-expresses directives per tool, which is right for two tools
+    // that read different files and wrong when a project has deliberately made
+    // two of them the same document. This repository requires CLAUDE.md and
+    // AGENTS.md to match and has a test that fails when they do not; the first
+    // sync wrote two differently-worded versions of the same rules and broke it.
+    const same = '# Rules\n\nshared body\n';
+    writeFileSync(path.join(root, 'CLAUDE.md'), same, 'utf8');
+    writeFileSync(path.join(root, 'AGENTS.md'), same, 'utf8');
+
+    const unified: MergeDirective[] = [{ id: '1', category: 'General', text: 'x', sources: [] }];
+    // Deliberately hand each file a different rendering, as the LLM step does.
+    await applyManagedInstructionBlock(root, {
+      'Claude Code': '- claude wording',
+      'OpenAI Codex / Antigravity': '- codex wording',
+    }, unified);
+
+    expect(readFileSync(path.join(root, 'AGENTS.md'), 'utf8'))
+      .toBe(readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'));
+  });
+
+  it('leaves genuinely different files different', async () => {
+    // Two tools with different instructions are not a mistake to correct.
+    writeFileSync(path.join(root, 'CLAUDE.md'), '# Claude\n', 'utf8');
+    writeFileSync(path.join(root, 'AGENTS.md'), '# Codex, deliberately different\n', 'utf8');
+
+    const unified: MergeDirective[] = [{ id: '1', category: 'General', text: 'x', sources: [] }];
+    await applyManagedInstructionBlock(root, {}, unified);
+
+    expect(readFileSync(path.join(root, 'AGENTS.md'), 'utf8'))
+      .not.toBe(readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'));
   });
 });
