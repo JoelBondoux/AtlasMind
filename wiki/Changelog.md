@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.293.1 — One command for a branch's version-marker conflicts
+
+Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the version
+always names an exact state of the code — but it means two branches doing entirely unrelated work conflict on
+the same five files every time, with no semantic overlap between the changes. A branch open while somebody
+else is pushing re-conflicts within hours.
+
+`npm run resolve:release-conflicts`, run mid-merge, settles exactly those: version files take the incoming
+version patch-bumped, notes files keep both sides with yours relabelled above. It resolves nothing outside
+those five files, refuses to run outside a merge, and refuses to report success while any marker survives.
+
+The hazard it removes is specific rather than ergonomic. Hand-resolving identical-looking hunks repeatedly is
+how a changelog entry quietly loses a paragraph while attention is on the version numbers — which is exactly
+what it did to itself on its first real run, against a branch whose earlier work had already merged. It now
+refuses that shape rather than guessing, computes every file before writing any, and no longer assumes the
+conflict markers say `HEAD`.
+
 ## v0.293.0 — Explicit content-state design
 
 Phase 4 starts with node-owned empty, loading, error, and success presentations. Each has bounded title, body,

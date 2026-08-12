@@ -37,7 +37,20 @@ npm run open-in-browser      # Load the web build in Chromium
 npm run test:coverage        # The CI coverage gate, locally
 npm run test:mutation        # The slower mutation suite
 npm run package:vsix         # Build a .vsix
+npm run resolve:release-conflicts   # Settle a merge's version-marker conflicts
 ```
+
+### Your branch will conflict on the release files
+
+Every commit here bumps `package.json` and writes release notes, so two branches doing entirely
+unrelated work still collide on the same five files — `package.json`, `package-lock.json`,
+`CHANGELOG.md`, `README.md`, `wiki/Changelog.md` — every time. If your branch stays open while
+someone else is pushing, expect to re-merge within hours.
+
+`npm run resolve:release-conflicts`, run mid-merge, settles exactly those: version files take the
+incoming version patch-bumped, notes files keep **both** sides with yours relabelled above. It
+resolves nothing else, and it refuses to report success while a marker survives — a conflict in
+source, tests or docs is a real disagreement and wants you, not a script.
 
 ### Two build targets
 
