@@ -127,8 +127,13 @@
       "id": "promote-staging-production",
       "fromStageId": "stage-staging",
       "toStageId": "stage-production",
-      "routineId": "publishing-routine"
+      "routineId": "publishing-routine",
+      "lastPromotion": {
+        "ranAt": "2026-08-12T14:11:54.219Z",
+        "succeeded": false,
+        "version": "0.302.0"
+      }
     }
   ],
-  "updatedAt": "2026-08-05T21:35:32.765Z"
+  "updatedAt": "2026-08-12T14:12:41.017Z"
 }

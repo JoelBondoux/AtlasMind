@@ -6,6 +6,102 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.1] - 2026-08-12
+
+### Changed
+
+- Recorded the delivery audit trail the extension wrote during this session: the promotion attempt to
+  Production at 14:11 that failed at its preflight (v0.302.0), plus the matching append-only history
+  entry. This is the run that prompted the "Ask Atlas to fix this" affordance added in 0.303.0 —
+  committed because `delivery-history.json` is an immutable record and leaving it in the working tree
+  would lose it.
+
+
+## [0.305.0] - 2026-08-12
+
+### Changed
+
+- **Every agent that opens this repository now finds the project's rules already there.** The
+  instruction sync wrote only into files that *already existed* — so a developer starting with Cursor,
+  or an agent arriving via Antigravity, worked without the testing policy, the debt markers or the
+  workflow rules, and nothing said so. Silent non-coverage, which is the failure mode worth engineering
+  against: it looks identical to being covered.
+
+  Paths marked `seed` are now created when absent. One spelling per tool is ever seeded; superseded
+  spellings are updated where a project already carries one and never created, or the same rules would
+  land in two files a tool might read twice.
+
+- **Corrected two stale paths and added three verified ones.** `.cursorrules` is deprecated in favour of
+  a `.cursor/rules/*.mdc` directory, and `WINDSURF.md` matches no Windsurf convention. Both are kept as
+  fallbacks for projects that still carry them; the current paths are now seeded alongside.
+
+  Added: `.cursor/rules/atlasmind.mdc`, `.windsurf/rules/atlasmind.md`, and `.agents/rules/atlasmind.md`
+  for Antigravity's workspace rules. The Cursor rule carries `alwaysApply: true` frontmatter, without
+  which Cursor loads it only when it judges it relevant — meaning the file would exist, look correct,
+  and do nothing.
+
+  **Only verified paths were added.** Amp, JetBrains Junie, Zed and Kiro were considered and left out
+  because their contracts were not confirmed in this pass; a guessed path is worse than a missing one,
+  since it looks like coverage in the list while the tool reads somewhere else.
+
+- **Antigravity needed no new mechanism.** It reads `AGENTS.md`, the cross-tool format already synced
+  for OpenAI Codex, so it was covered before this change — the target is now labelled for both.
+
+
+## [0.304.0] - 2026-08-12
+
+### Added
+
+- **`testingObligation.ts` — the check that asks whether tests were *added*, not merely whether they
+  passed.** Not yet wired into the turn; see the note at the end.
+
+  The project declares testing methodologies and `buildTestingObligationGuidance` states them to the
+  model in strong terms. That is a *request*, and nothing verified it afterwards for any policy except
+  TDD — so a methodology enabled in a bulk pass could never produce an artifact while every turn
+  reported success. Observed on this repository: BDD has been enabled throughout and has never
+  produced a Given-When-Then spec.
+
+  `assessTestingObligations` gives a per-policy verdict for one piece of work, each citing a published
+  rule. Five rules keep it from becoming noise nobody reads:
+
+  - **Only a behaviour change owes evidence.** Docs, config, version bumps and test-only changes owe
+    nothing. A checker that fires on every commit is one people switch off.
+  - **A practice cannot be missing.** Exploratory leaves no artifact, so its absence means nothing.
+  - **A repository-level policy is not a per-change gap.** Continuous testing is satisfied by CI
+    running and security scanning by a scanner being configured; raising them per change would report
+    a gap that is not one, forever.
+  - **Every verdict names its rule**, so a gap can be argued with rather than merely obeyed.
+  - **Unassessed is not satisfied.** With no changed-file list the verdict is `unknown`, never a pass —
+    a checker that reports success because it could not look is worse than none.
+
+  `property` is deliberately not satisfied by any test file: a project can add fifty unit tests and
+  still have written no property test, so the check looks for a generative-testing import. `bdd`
+  requires a feature file or step definitions, because a `describe` block is not a specification
+  however it is worded.
+
+  Validated against four real commits from this repository's history: every one classified as a
+  behaviour change, all four missing BDD evidence, two also missing property tests, with `continuous`,
+  `security-testing` and `exploratory` correctly producing no noise.
+
+  `buildTestingGapIssue` drafts the issue an unclosed gap becomes. **Labels come only from the declared
+  taxonomy** — applying a label GitHub does not have *creates* it, changing the project's label set as
+  a side effect of filing — so an undeclared label is dropped and the omission is stated in the issue
+  body rather than silently applied or silently lost.
+
+### Not yet done
+
+- The check is **not wired into a turn**. Changed files are computed in `participant.ts` from workspace
+  snapshots rather than in the Orchestrator, so that is where the hook belongs, and neither the
+  write-the-test attempt nor the issue filing is connected. Shipping the assessment separately keeps it
+  reviewable; the enforcement it enables is the next increment.
+
+- **The labels its issues will need are not declared yet.** `buildTestingGapIssue` asks for `critical`,
+  `test` and `testing-<policy>`, none of which this repository declares or has on the remote — so every
+  one would currently be dropped and reported as dropped. Declaring them belongs with the issue filing
+  that uses them, not ahead of it: a taxonomy entry nothing applies is a claim about how the project
+  works that nothing backs up.
+
+
 ## [0.303.3] - 2026-08-12
 
 ### Changed

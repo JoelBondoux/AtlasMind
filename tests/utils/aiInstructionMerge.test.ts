@@ -141,7 +141,7 @@ describe('gatherInstructionSources / detectedWritebackTools', () => {
     write(root, 'AGENTS.md', 'rules');
     const tools = detectedWritebackTools(root);
     expect(tools).toContain('Claude Code');
-    expect(tools).toContain('OpenAI Codex');
+    expect(tools).toContain('OpenAI Codex / Antigravity');
     expect(tools).not.toContain('Cursor');
   });
 });
@@ -161,9 +161,21 @@ describe('applyManagedInstructionBlock', () => {
     expect(result.skipped.some(s => s.path === '.continue/config.json')).toBe(true);
   });
 
-  it('does not touch files that do not exist', async () => {
+  it('seeds the current path for a tool but never a superseded spelling', async () => {
+    // The contract changed deliberately: an agent opening a repository for the
+    // first time should find the project's rules already there rather than
+    // working without them while nothing says so. What must NOT happen is
+    // seeding two files for one tool — a superseded path is updated where a
+    // project already carries one, never created, or the same rules would land
+    // in two files the tool might read twice.
     const unified: MergeDirective[] = [{ id: '1', category: 'General', text: 'x', sources: [] }];
     const result = await applyManagedInstructionBlock(root, {}, unified);
-    expect(result.updated).toHaveLength(0);
+
+    expect(result.updated).toContain('AGENTS.md');
+    expect(result.updated).toContain('.cursor/rules/atlasmind.mdc');
+    // Superseded spellings, absent here, stay absent.
+    expect(result.updated).not.toContain('.cursorrules');
+    expect(result.updated).not.toContain('WINDSURF.md');
+    expect(result.updated).not.toContain('.gemini/system.md');
   });
 });
