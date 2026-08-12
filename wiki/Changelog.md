@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.288.0 — Atomic multi-selection drag
+
+Dragging any block in a multi-selection now moves the complete selection while preserving relative spacing.
+The complete bounds stay on-canvas, and the primary block snaps against the grid and unselected blocks rather
+than being attracted to another member of its own group.
+
+Pointer-up submits one `set-node-frames` command, producing one revision and one undo step at the base,
+tablet, or mobile breakpoint. The reducer validates the whole batch first; locked and container-positioned
+members refuse the gesture, and group drag never reparents anything.
+
 ## v0.287.0 — Atomic subtree duplication and node locking
 
 UI Studio can now duplicate a block together with everything nested inside it. The operation remaps every

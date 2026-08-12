@@ -214,6 +214,9 @@ Subtree duplication is one reducer command with a complete host-validated old→
 parents and offsets base plus explicit responsive rectangles before one commit. Node locks live in the graph
 and are enforced by the reducer, including atomic frame batches and structural deletion that would otherwise
 reparent a locked child. The browser's disabled controls are only feedback for that host-owned rule.
+Multi-selection pointer drag computes one on-canvas delta, excludes the selection from snap candidates, and
+submits every resulting rectangle through one `set-node-frames` command. Base and responsive moves are
+therefore atomic, revision-checked, undoable, and unable to alter hierarchy.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

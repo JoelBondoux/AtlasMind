@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.287.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.288.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.287.0
+## What's new in 0.288.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Multi-selection now supports real pointer drag.** Drag any selected block to move the whole selection
+  without changing its spacing or hierarchy. Base and responsive gestures are each one validated revision
+  and one undo step; locked or container-positioned members keep the operation closed.
 
 - **Duplicate and lock are now safe canvas operations.** Duplicate copies a selected block and its complete
   nested subtree as one undoable edit, preserving hierarchy and moving authored responsive rectangles too.

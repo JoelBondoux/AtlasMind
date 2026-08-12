@@ -5,7 +5,7 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.287.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.288.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
@@ -172,7 +172,8 @@ six-axis alignment, two-axis distribution, and group nudge. v0.284.0 turns stack
 into a shared deterministic canvas/preview engine with explicit container settings. v0.285.0 adds inherited,
 nullable min/max width/height constraints with per-property provenance and non-destructive projection.
 v0.286.0 adds deterministic stack wrapping and responsive sibling ordering. v0.287.0 adds atomic subtree
-duplication and reducer-enforced node locking. Group drag and diagnostics remain in this phase.
+duplication and reducer-enforced node locking. v0.288.0 adds atomic pointer drag for multi-selections at base
+and responsive breakpoints. Diagnostics remain in this phase.
 
 Implementation note: v0.284.0 deliberately makes container layout a non-destructive projection. Stored child
 rectangles remain the free-layout fallback, so switching or resetting a parent cannot lose the arrangement
@@ -191,6 +192,11 @@ Implementation note: v0.287.0 treats duplication as one structural command, neve
 adds. Its complete old→new identity map is validated before remapping descendants and offsetting base plus
 explicit responsive rectangles. Lock is authoring state enforced by the same reducer; an operation that would
 edit, move, copy, delete, or implicitly reparent a locked node refuses atomically.
+
+Implementation note: v0.288.0 computes the complete selected bounds before a group move, preserves every
+relative offset, and excludes the selected identities from snap targets. Pointer-up emits one `set-node-frames`
+command. Group drag deliberately does not reparent; changing several hierarchy edges from one drop would make
+the gesture ambiguous and broaden the existing single-node structural operation.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

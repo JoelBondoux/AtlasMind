@@ -56,7 +56,8 @@ alignment, distribution, fill/hug sizing, responsive inheritance, and one canvas
 adds nullable min/max width/height constraints to that projection with responsive inheritance and provenance.
 v0.286.0 adds stack wrapping and bounded responsive sibling order without changing stored array order.
 v0.287.0 adds one-revision subtree duplication with remapped identities and reducer-enforced node locking.
-Group drag and diagnostics remain to complete the phase.
+v0.288.0 adds one-revision group pointer drag at base and responsive breakpoints. Diagnostics remain to
+complete the phase.
 
 Container layout is deliberately a projection over retained child rectangles. Free mode and undo therefore
 restore what somebody drew; hug uses that stored intrinsic box until the content phase adds measurement.
@@ -64,6 +65,8 @@ Constraints follow the same rule: they bound the displayed size while retaining 
 Wrapping and order also remain projected: reset/free/undo recover the exact underlying graph arrangement.
 Duplication validates the complete subtree before it writes and offsets explicit responsive rectangles with
 base geometry. Lock is a graph fact, not disabled-browser styling: only Unlock may mutate a locked node.
+Group drag preserves relative spacing, clamps the complete bounds, excludes selected nodes from snapping,
+and never changes hierarchy.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

@@ -54,8 +54,9 @@ draw/delete all become revision-checked graph commands; Save cannot replace the 
 
 Shift-click, Ctrl-click, or Cmd-click toggles blocks into a multi-selection. The primary block keeps the
 inspector and resize handles; the selection tools align six ways, distribute three or more blocks across or
-down, clear back to the primary block, and nudge the group. A transform is one revision and one undo step at
-both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
+down, clear back to the primary block, nudge the group, or drag the complete selection by any selected block.
+Group drag preserves spacing, stays within the complete canvas bounds, and never changes hierarchy. A
+transform is one revision and one undo step at both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
 so selecting several blocks never changes the meaning of the existing single-element delete action.
 
 Select a container to choose **free**, **stack**, **grid**, or **overlay** layout. Stack/grid/overlay arrange

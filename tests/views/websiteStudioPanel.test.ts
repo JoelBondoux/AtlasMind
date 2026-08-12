@@ -392,5 +392,8 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('function duplicateSelected()');
     expect(source).toContain('id="toggleElementLock"');
     expect(source).toContain('isLocked(element.id)');
+    expect(source).toContain("mode: 'group-move'");
+    expect(source).toContain('new Set(frames.map(frame => frame.nodeId))');
+    expect(source).toContain("notice('Moved ' + frames.length + ' elements as one undoable edit'");
   });
 });

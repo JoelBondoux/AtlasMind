@@ -231,7 +231,7 @@
   function snapX(candidate, excludeId) {
     const edges = [];
     for (const element of elementsOf(activePage())) {
-      if (element.id === excludeId) { continue; }
+      if (excludeId instanceof Set ? excludeId.has(element.id) : element.id === excludeId) { continue; }
       const rect = responsiveView(element).layout.rect;
       edges.push(rect.x, rect.x + rect.width);
     }
@@ -254,7 +254,7 @@
     let best = null;
     let bestDistance = SNAP_TOLERANCE;
     for (const element of elementsOf(activePage())) {
-      if (element.id === excludeId) { continue; }
+      if (excludeId instanceof Set ? excludeId.has(element.id) : element.id === excludeId) { continue; }
       const rect = responsiveView(element).layout.rect;
       for (const edge of [rect.y, rect.y + rect.height]) {
         const distance = Math.abs(edge - candidate);
@@ -615,7 +615,7 @@
 
   // ── Drawing, moving, resizing ──────────────────────────────────
 
-  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object, parentId?: string, responsive?: boolean}} */
+  /** @type {null | {mode: string, id: string, handle: string, start: object, origin: object, parentId?: string, responsive?: boolean, frames?: Array<{nodeId: string, rect: object}>}} */
   let drag = null;
 
   /**
@@ -775,19 +775,47 @@
         responsive,
       };
     } else if (box) {
-      selectOnly(box.dataset.elementId);
+      if (!selectedElementIds.has(box.dataset.elementId)) { selectOnly(box.dataset.elementId); }
       notifyPreviewSelection();
       const element = findElement(selectedElementId);
       if (!element) { return; }
-      drag = {
-        mode: 'move',
-        id: selectedElementId,
-        handle: '',
-        origin: point,
-        start: { ...responsiveView(element).layout.rect },
-        parentId: element.parentId,
-        responsive,
-      };
+      const selected = [...selectedElementIds]
+        .map(id => findElement(id))
+        .filter(Boolean);
+      if (selected.length > 1) {
+        if (selected.some(candidate => isLocked(candidate.id))) {
+          notice('A selected element is locked. Unlock it before dragging the selection.');
+          event.preventDefault();
+          return;
+        }
+        if (selected.some(candidate => responsiveView(candidate).provenance.rect?.containerId)) {
+          notice('A selected element is positioned by its container. Move the container or switch it to free layout first.');
+          event.preventDefault();
+          return;
+        }
+        drag = {
+          mode: 'group-move',
+          id: selectedElementId,
+          handle: '',
+          origin: point,
+          start: { ...responsiveView(element).layout.rect },
+          frames: selected.map(candidate => ({
+            nodeId: candidate.id,
+            rect: { ...responsiveView(candidate).layout.rect },
+          })),
+          responsive,
+        };
+      } else {
+        drag = {
+          mode: 'move',
+          id: selectedElementId,
+          handle: '',
+          origin: point,
+          start: { ...responsiveView(element).layout.rect },
+          parentId: element.parentId,
+          responsive,
+        };
+      }
       renderCanvas();
     } else {
       if (responsive) {
@@ -823,7 +851,30 @@
     const dx = point.x - drag.origin.x;
     const dy = point.y - drag.origin.y;
 
-    if (drag.mode === 'move') {
+    if (drag.mode === 'group-move') {
+      const frames = drag.frames ?? [];
+      const left = Math.min(...frames.map(frame => frame.rect.x));
+      const top = Math.min(...frames.map(frame => frame.rect.y));
+      const right = Math.max(...frames.map(frame => frame.rect.x + frame.rect.width));
+      const bottom = Math.max(...frames.map(frame => frame.rect.y + frame.rect.height));
+      let groupDx = clamp(dx, -left, CANVAS_WIDTH - right);
+      let groupDy = clamp(dy, -top, CANVAS_MAX_HEIGHT - bottom);
+      const ids = new Set(frames.map(frame => frame.nodeId));
+      const snappedX = snapX(drag.start.x + groupDx, ids);
+      if (snappedX !== null) { groupDx = clamp(snappedX - drag.start.x, -left, CANVAS_WIDTH - right); }
+      const snappedY = snapY(drag.start.y + groupDy, ids);
+      if (snappedY !== null) { groupDy = clamp(snappedY - drag.start.y, -top, CANVAS_MAX_HEIGHT - bottom); }
+      for (const frame of frames) {
+        const candidate = findElement(frame.nodeId);
+        if (candidate) {
+          projectGestureRect(candidate, {
+            ...frame.rect,
+            x: round(frame.rect.x + groupDx),
+            y: round(frame.rect.y + groupDy),
+          }, drag.responsive === true);
+        }
+      }
+    } else if (drag.mode === 'move') {
       let x = clamp(drag.start.x + dx, 0, CANVAS_WIDTH - drag.start.width);
       let y = clamp(drag.start.y + dy, 0, CANVAS_MAX_HEIGHT - drag.start.height);
       const snappedX = snapX(x, element.id);
@@ -932,6 +983,28 @@
       notifyPreviewSelection();
       renderCanvas();
       notice('Added a ' + spec.label.toLowerCase() + '. Describe it in the panel on the right, then Save.');
+      return;
+    }
+
+    if (session.mode === 'group-move') {
+      const frames = (session.frames ?? []).map(frame => {
+        const element = findElement(frame.nodeId);
+        return {
+          nodeId: frame.nodeId,
+          rect: element ? { ...responsiveView(element).layout.rect } : frame.rect,
+        };
+      });
+      if (frames.some((frame, index) => JSON.stringify(frame.rect) !== JSON.stringify(session.frames[index].rect))) {
+        submitDesignEdit({
+          type: 'set-node-frames',
+          screenId: activePageId,
+          frames,
+          ...(session.responsive ? { breakpoint: activeBreakpoint } : {}),
+        });
+        notice('Moved ' + frames.length + ' elements as one undoable edit'
+          + (session.responsive ? ' at ' + activeBreakpoint + '.' : '.'));
+      }
+      renderCanvas();
       return;
     }
 

@@ -52,8 +52,10 @@ Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. Drawing, movement, resizing, nest
 and intent edits all use the same revision-checked graph command path; the webview never submits a graph patch.
 
 Shift/Ctrl/Cmd-click builds a multi-selection with one primary inspector target. Align six ways, distribute
-three or more blocks across or down, or nudge the group at any breakpoint; the whole transform is one
-validated revision and undo step. Multi-delete is deliberately unavailable until the selection is narrowed.
+three or more blocks across or down, nudge the group, or drag the complete selection by any selected block at
+any breakpoint; the whole transform is one validated revision and undo step. Group drag preserves spacing,
+clamps the complete bounds, and never reparents. Multi-delete is deliberately unavailable until the selection
+is narrowed.
 
 Selecting a container exposes free, stack, grid, and overlay behaviour plus direction, gap, padding, columns,
 alignment, distribution, and fixed/fill/hug sizing. The host projects direct children identically in the

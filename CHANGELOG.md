@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.288.0] - 2026-08-12
+
+### Added
+
+- **A multi-selection can now be dragged as one gesture.** Drag any selected block to move the complete
+  selection while preserving relative spacing. The gesture works at the base breakpoint and creates explicit
+  tablet/mobile overrides when used in a responsive view.
+
+### Security
+
+- **Group drag crosses the webview boundary as one closed command.** Pointer-up sends one bounded
+  `set-node-frames` payload; the reducer validates every identity, lock, rectangle, breakpoint, and revision
+  before committing. It cannot partially move a selection or change hierarchy.
+
+### Changed
+
+- **Group bounds and snapping are deterministic.** Movement is clamped using the complete selection bounds,
+  and the primary block snaps only against the grid and unselected blocks. Selected blocks cannot attract one
+  another during the gesture, so their spacing remains exact.
+
 ## [0.287.0] - 2026-08-12
 
 ### Added
