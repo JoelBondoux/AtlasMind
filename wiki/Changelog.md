@@ -19,6 +19,37 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.304.0 — Asking whether tests were written
+
+AtlasMind has always checked that your tests *pass*. It never asked whether any were *added*.
+
+Your project declares seven testing methodologies, and every task gets told about them in firm terms.
+But that was a request to a model with nothing checking afterwards — so a methodology switched on in a
+bulk pass could sit there for months producing nothing while every turn reported success. This
+repository is the example: BDD has been enabled the whole time and has never produced a single
+Given-When-Then spec.
+
+There is now a check that looks at a piece of work and says, per policy, whether the evidence it
+requires actually appeared. Run against four real commits from this project's history, it found all
+four missing BDD evidence and two also missing property tests.
+
+The care is in what it *refuses* to flag, because a checker that complains about everything is one you
+turn off:
+
+- Documentation, config and version-bump changes owe nothing.
+- Exploratory testing can never be "missing" — it leaves no file, so there is nothing to look for.
+- Continuous and security testing are satisfied by your CI and scanners being set up, not by any
+  individual commit, so they are never raised per change.
+- If it could not see what changed, it says so rather than reporting a pass.
+
+It is also honest about what counts. Fifty unit tests do not make a property test, and a `describe`
+block is not a Given-When-Then specification however it is phrased.
+
+**Not switched on yet.** This release adds the check and the label vocabulary its issues will use; the
+part that runs it after your work, writes the missing test, or raises the issue comes next.
+
+---
+
 ## v0.303.3 — Toolchain updates
 
 Maintenance only. Linter, bundler and type definitions updated; TypeScript deliberately held at 6,
