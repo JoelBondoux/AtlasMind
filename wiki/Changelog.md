@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.303.1 — A stale instruction that would have broken releases
+
+Internal documentation fix, with no change to how AtlasMind behaves.
+
+The contributor guide described the release promotion as a squash merge. The automation has always
+done the opposite, deliberately: squashing a release makes the next one conflict on every file a
+release touches, which happened once already between 0.208.0 and 0.208.1.
+
+That mismatch was the dangerous kind. The guide reads as a specification, so the obvious "fix" is to
+change the automation to match it — reintroducing the bug. The guide now states the method, the
+reason, and which of the two wins if they ever disagree again.
+
+---
+
 ## v0.303.0 — Fixing what stopped the release
 
 Promoting to production and watching the tests fail used to leave you looking at a wall of output with

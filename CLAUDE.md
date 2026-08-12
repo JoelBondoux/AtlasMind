@@ -64,7 +64,9 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
 3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`. Fix any packaging errors before proceeding.
-5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab. It creates or reuses the `develop` → `main` PR and enables squash auto-merge. (`gh pr create --base main --head develop` is the manual equivalent if Actions is unavailable; never force-push.)
+5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab. It creates or reuses the `develop` → `main` PR and enables auto-merge **with a merge commit — never a squash**. (`gh pr create --base main --head develop` is the manual equivalent if Actions is unavailable; never force-push.)
+
+   The merge method is load-bearing, not a preference. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. The next promotion then has a merge base two releases back, and every file both branches touched since — `CHANGELOG.md`, `package.json`, `README.md`, `wiki/Changelog.md`, i.e. exactly the four every release touches — conflicts. It works once and conflicts forever after, which is what happened between 0.208.0 and 0.208.1. A merge commit keeps `main` an ancestor of `develop`, so the next promotion has nothing to resolve. `release.yml` passes `--merge` for this reason; if this document and that workflow ever disagree, the workflow is right.
 6. **Wait for PR merge**: do NOT tag until the PR has merged into `main` and CI checks pass. Confirm the merge before continuing.
 7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
 
