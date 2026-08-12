@@ -48,7 +48,7 @@ The structured SSOT memory records architecture, decisions, roadmap context, ope
 
 ### See the work, not just the answer
 
-Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website Studio, and the Personality Profile turn hidden orchestration state into something you can inspect and steer.
+Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, UI Studio, and the Personality Profile turn hidden orchestration state into something you can inspect and steer.
 
 ### Grow the team around the project
 
@@ -127,7 +127,7 @@ Since the last Marketplace publication, **v0.219.0**, source builds have added t
 - **Agent and skill workspaces** — create custom agents, define completion criteria, assign tools and models, scan custom skills, and extend through MCP.
 - **Testing strategy** — 23 configurable methodologies with per-agent ownership, model overrides, project notes, scaffolding, and protocol sync to other AI tools.
 - **Project operations** — roadmap, delivery, privacy, risk, documents, stakeholders, assignments, and follow-ups in one project dashboard, with each page linking through to the GitHub page it is about.
-- **Website Studio** — move a client site from intake through sitemap, wireframes, UI system, platform readiness, and a protected Develop → Staging → Production path.
+- **UI Studio** — design websites and non-web interfaces through screens, content, wireframes, UI system, a full built-in-browser preview, responsive inspection and implementation handoff; website profiles add a protected Develop → Staging → Production path.
 - **Voice, vision, and remote workflows** — local or hosted speech options, multimodal image analysis, opt-in remote control, and a keep-awake lock so a long run is not killed by system sleep.
 - **Transparent cost and quality signals** — per-session and per-model spend in your own currency, model comparison, feedback, verification evidence, and routing outcomes.
 
@@ -196,7 +196,7 @@ Open Project Ideation to build a visual decision board, explore constraints and 
 
 ### Deliver a website
 
-Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
+UI Studio connects project intake, screens and flows, content design, visual review, implementation guidance and website delivery planning. See the [UI Studio guide](docs/website-studio.md).
 
 ### Follow a professional GitHub workflow — and learn it
 
@@ -259,7 +259,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Project Dashboard` | Open project health, roadmap, operations, and governance |
 | `AtlasMind: Open Project Director` | Open stakeholder, team, assignment, and follow-up management |
 | `AtlasMind: Open Project Ideation` | Open the visual ideation workspace |
-| `AtlasMind: Open Website Studio` | Open the website planning and delivery workspace |
+| `AtlasMind: Open UI Studio` | Open the visual interface design and implementation-handoff workspace |
 | `AtlasMind: Open Project Run Center` | Review plans, runs, approvals, checkpoints, and artifacts |
 | `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
 | `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
@@ -342,7 +342,7 @@ Start with [Architecture](docs/architecture.md), [Development](docs/development.
 - [Model Routing](docs/model-routing.md)
 - [Configuration Reference](docs/configuration.md)
 - [SSOT Memory](docs/ssot-memory.md)
-- [Website Studio](docs/website-studio.md)
+- [UI Studio](docs/website-studio.md)
 - [Remote Control](docs/remote-control.md)
 - [Security](wiki/Security.md)
 - [Tool Execution](wiki/Tool-Execution.md)

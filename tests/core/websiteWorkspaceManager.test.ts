@@ -30,6 +30,9 @@ describe('WebsiteWorkspaceManager', () => {
     });
 
     expect(config.intake.projectName).toBe('Northstar');
+    expect(config.surfaceKind).toBe('website');
+    expect(config.contentDesign).toMatchObject({ principles: [], preferredTerms: [], avoidedTerms: [] });
+    expect(config.implementation).toMatchObject({ targetTechnologies: [], sourceRoots: [] });
     expect(config.pages.map(page => page.slug)).toEqual(['/', '/about', '/services', '/contact']);
     expect(config.platforms).toHaveLength(WEBSITE_PLATFORM_CATALOG.length);
     expect(config.platforms.find(platform => platform.primary)).toMatchObject({
@@ -214,8 +217,17 @@ describe('WebsiteWorkspaceManager', () => {
 
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
-    expect(JSON.parse(json)).toMatchObject({ version: 4, intake: { projectName: 'Client Site' } });
-    expect(markdown).toContain('# Website Studio');
+    expect(JSON.parse(json)).toMatchObject({
+      version: 13,
+      surfaceKind: 'website',
+      intake: { projectName: 'Client Site' },
+      designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], assets: [], screens: expect.any(Array) },
+      implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
+    });
+    expect(markdown).toContain('# UI Studio');
+    expect(markdown).toContain('## Content Design');
+    expect(markdown).toContain('## Implementation Guide');
+    expect(markdown).toContain('Screens: 4. Tokens: 0. Components: 0.');
     expect(markdown).toContain('## Hosting Environments');
     expect(markdown).toContain('| Develop | local | local-only |');
     expect(markdown).toContain('| Staging | hosted | password-protected |');
@@ -233,6 +245,81 @@ describe('WebsiteWorkspaceManager', () => {
 
     await expect(manager.save(config)).rejects.toThrow('blocked unsafe SSOT content');
     expect(manager.exists()).toBe(false);
+  });
+
+  it('renders reusable definitions and instance counts in the review mirror', () => {
+    const config = createDefaultWebsiteWorkspace();
+    config.pages[0]!.wireframe = {
+      breakpoint: 'desktop', elements: [{ id: 'action', kind: 'cta', label: 'Action', rect: { x: 0, y: 0, width: 200, height: 60 }, designPrompt: '', notes: '' }],
+    };
+    config.designGraph = {
+      ...config.designGraph,
+      components: [{
+        id: 'button', label: 'Button', description: '', rootKind: 'cta', properties: [], slots: [],
+        variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default', 'hover'],
+      }],
+      contentCollections: [{
+        id: 'actions', label: 'Actions', description: 'Review fixtures',
+        fields: [{ id: 'label', label: 'Label', kind: 'text', required: true }],
+        samples: [{ id: 'retry', label: 'Retry sample', values: { label: 'Retry now' } }],
+      }],
+      assets: [{
+        id: 'action-icon', label: 'Action icon', kind: 'icon',
+        source: { kind: 'workspace', reference: 'assets/action.svg' },
+        width: 24, height: 24, crop: 'contain', focalPoint: { x: 50, y: 50 },
+        altText: '', decorative: true, maturity: 'reviewed',
+      }],
+      screens: config.designGraph.screens.map((screen, index) => index === 0 ? {
+        ...screen, initialized: true, nodes: [{
+          id: 'action', kind: 'cta', label: 'Action', locked: false,
+          layout: { mode: 'free', rect: { x: 0, y: 0, width: 200, height: 60 }, widthMode: 'fixed', heightMode: 'fixed', hidden: false, direction: 'vertical', gap: 16, padding: 16, columns: 2, align: 'start', distribute: 'start', minWidth: null, maxWidth: null, minHeight: null, maxHeight: null, wrap: 'nowrap', order: 0 },
+          viewportOverrides: {}, designPrompt: '', notes: '',
+          componentInstance: { definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: {} },
+          previewContentState: 'error',
+          contentStatePresentations: {
+            error: { title: 'Unavailable', body: 'Try again.', actionLabel: 'Retry', maturity: 'reviewed' },
+          },
+          dataBinding: { collectionId: 'actions', sampleRecordId: 'retry', fieldMappings: { action: 'label' } },
+          assetRef: 'action-icon',
+        }],
+      } : screen),
+    };
+    const markdown = renderWebsiteWorkspaceMarkdown(config);
+    expect(markdown).toContain('### Reusable component definitions');
+    expect(markdown).toContain('| Button (button) | cta | 0 | 0 | 1 | default, hover | 1 |');
+    expect(markdown).toContain('### Content state designs');
+    expect(markdown).toContain('error (reviewed) | error |');
+    expect(markdown).toContain('### Structured sample-data collections');
+    expect(markdown).toContain('| Actions (actions) | 1 | 1 | 1 |');
+    expect(markdown).toContain('action → label');
+    expect(markdown).toContain('### Asset library');
+    expect(markdown).toContain('| Action icon (action-icon) | icon | workspace:assets/action.svg | 24 × 24 | contain / 50%, 50% | Decorative | reviewed | 1 |');
+    expect(markdown).toContain('### Node asset assignments');
+  });
+
+  it('renders adapter provenance, suggestions, and losses without source content', () => {
+    const config = createDefaultWebsiteWorkspace();
+    config.designGraph.tokens = [{ id: 'color-primary', label: 'Primary', kind: 'color', value: '#2563eb' }];
+    config.implementation.repositoryMappingRevision = 2;
+    config.implementation.repositoryMappings = [{
+      id: 'primary-token', label: 'Primary token', adapterId: 'static-html-css',
+      target: { kind: 'token', id: 'color-primary' }, sourcePath: 'src/tokens.css', sourceSymbol: '--color-primary',
+      propertyMappings: {}, slotMappings: {}, coverage: 'partial', limitations: ['CSS cascade is not evaluated.'],
+      lastVerified: null,
+      lastImport: {
+        adapterId: 'static-html-css', capability: 'partial', graphRevision: 3,
+        designFingerprint: `sha256:${'a'.repeat(64)}`, sourceFingerprint: `sha256:${'b'.repeat(64)}`,
+        importedAt: '2026-08-12T12:00:00.000Z',
+        facts: [{ kind: 'token', name: '--color-primary' }],
+        suggestedPropertyMappings: {}, suggestedSlotMappings: {},
+        findings: [{ code: 'html-css-static-only', severity: 'loss', message: 'CSS cascade is not evaluated.' }],
+      },
+    }];
+    const markdown = renderWebsiteWorkspaceMarkdown(config);
+    expect(markdown).toContain('### Adapter import evidence');
+    expect(markdown).toContain('token:--color-primary');
+    expect(markdown).toContain('html-css-static-only: CSS cascade is not evaluated.');
+    expect(markdown).not.toContain('body { color: red; }');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {

@@ -681,7 +681,21 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fetchBranches' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'saveBranchPreferences',
+      payload: {
+        branchView: 'ready',
+        branchSort: 'activity',
+        branchSortDirection: 'desc',
+        branchGroup: 'readiness',
+        branchScmChips: true,
+      },
+    })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'runBranchWorkflow',
+      payload: { branchId: 'local:refs/heads/feat/example', action: 'push' },
+    })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'inspectBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openBranchChangeStory', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
@@ -749,6 +763,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openContactDeepLink', payload: { contactId: 'c1', linkId: 'l1' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: 'run-1', contactId: 'c1' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: 'run-1', contactId: '' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: 'work-1', contactId: 'c1' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: 'work-1', contactId: '' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'Who owns releases?', sourcePage: 'director' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'email', contactId: 'c1', subject: 'Hi', body: 'Hello' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'schedule', contactId: 'c1' } })).toBe(true);
@@ -761,8 +777,26 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: '', sourcePage: 'ideation' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({
+      type: 'saveBranchPreferences',
+      payload: {
+        branchView: 'ready',
+        branchSort: 'recent-ish',
+        branchSortDirection: 'desc',
+        branchGroup: 'readiness',
+        branchScmChips: true,
+      },
+    })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({
+      type: 'runBranchWorkflow',
+      payload: { branchId: 'local:refs/heads/feat/example', action: 'force-push' },
+    })).toBe(false);
+    expect(isProjectDashboardMessage({
+      type: 'runBranchWorkflow',
+      payload: { branchId: '', action: 'push' },
+    })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussBranch', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'inspectBranch', payload: '' })).toBe(false);
@@ -798,6 +832,9 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'saveDirectorConfig', payload: { version: 1, contacts: [] } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openContactDeepLink', payload: { contactId: 'c1' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: '', contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: '', contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: 'x'.repeat(81), contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: 'work-1', contactId: 42 } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'sms', contactId: 'c1' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'email', contactId: '' } })).toBe(false);
   });

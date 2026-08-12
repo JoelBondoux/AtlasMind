@@ -27,6 +27,7 @@
  */
 
 import type { AutomationLevel, BindingGate } from './workflowAutomation.js';
+import type { DashboardFocusKind, DashboardWorkKind, ProjectDashboardOpenTarget } from '../types.js';
 
 export type ProjectStateSectionId = 'permissions' | 'position' | 'attention' | 'deferred' | 'promote';
 
@@ -51,6 +52,8 @@ export interface ProjectStateSection {
   /** One line on what this section is for, on hover. */
   tooltip: string;
   icon: string;
+  /** Short count/status rendered beside the section label. */
+  description?: string;
   nodes: ProjectStateNode[];
   /** Collapsed by default unless something in it needs a person. */
   expanded: boolean;
@@ -80,10 +83,27 @@ export interface ProjectStateInput {
     awaitingCheckpoint?: number;
     /** Follow-ups past their due date. */
     overdueFollowUps?: number;
+    /** Due Director follow-ups, kept individual so a click can reveal one. */
+    followUps?: Array<{
+      id: string;
+      title: string;
+      dueDate: string;
+      urgency: 'overdue' | 'due-soon';
+    }>;
     /** A CI failure whose cause could not be classified. */
     unresolvedCiFailure?: { jobName: string; classification: string };
     /** Stages held by a manual check nobody has attested. */
     blockedStages?: string[];
+    /** Active Director assignments owned by the configured self contact. */
+    assignedWork?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority: string;
+      destination: DashboardWorkKind | 'run' | 'director';
+      /** Stable id on the destination surface. */
+      targetId: string;
+    }>;
   };
   /**
    * Promotion paths, already assessed.
@@ -273,16 +293,34 @@ function buildAttention(attention: ProjectStateInput['attention']): ProjectState
     });
   }
 
-  const overdue = attention.overdueFollowUps ?? 0;
-  if (overdue > 0) {
-    nodes.push({
-      id: 'attention.followups',
-      label: `${overdue} overdue follow-up${overdue === 1 ? '' : 's'}`,
-      tooltip: 'Commitments to people that have passed their date.',
-      icon: 'bell-dot',
-      needsAttention: true,
-      command: { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' },
-    });
+  const followUps = attention.followUps;
+  if (followUps) {
+    for (const followUp of followUps) {
+      const overdue = followUp.urgency === 'overdue';
+      nodes.push({
+        id: `attention.followup.${followUp.id}`,
+        label: followUp.title,
+        description: `${overdue ? 'overdue' : 'due soon'} · ${followUp.dueDate}`,
+        tooltip: 'A Project Director follow-up that is due. Open it to review, complete, or snooze the exact item.',
+        icon: overdue ? 'warning' : 'clock',
+        needsAttention: true,
+        command: dashboardFocusCommand('director', 'follow-up', followUp.id, 'Open this follow-up'),
+      });
+    }
+  } else {
+    // Compatibility for callers that only have an aggregate. New callers pass
+    // `followUps`, because a count cannot deep-link to an exact record.
+    const overdue = attention.overdueFollowUps ?? 0;
+    if (overdue > 0) {
+      nodes.push({
+        id: 'attention.followups',
+        label: `${overdue} overdue follow-up${overdue === 1 ? '' : 's'}`,
+        tooltip: 'Commitments to people that have passed their date.',
+        icon: 'bell-dot',
+        needsAttention: true,
+        command: { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' },
+      });
+    }
   }
 
   if (attention.unresolvedCiFailure) {
@@ -317,6 +355,23 @@ function buildAttention(attention: ProjectStateInput['attention']): ProjectState
     });
   }
 
+  for (const assignment of attention.assignedWork ?? []) {
+    const status = assignment.status.replace(/-/g, ' ');
+    nodes.push({
+      id: `attention.assignment.${assignment.id}`,
+      label: assignment.title,
+      description: `${status} · ${assignment.priority}`,
+      tooltip: `Project Director assigned this ${status} work to you. Open it to review or continue the work.`,
+      icon: assignment.status === 'blocked'
+        ? 'circle-slash'
+        : assignment.status === 'in-progress'
+          ? 'sync'
+          : 'circle-outline',
+      needsAttention: true,
+      command: assignmentDestinationCommand(assignment.destination, assignment.targetId),
+    });
+  }
+
   if (nodes.length === 0) {
     // Distinct from an absent section: this one *was* assessed and found
     // nothing, which is worth saying rather than leaving a reader to wonder.
@@ -331,11 +386,49 @@ function buildAttention(attention: ProjectStateInput['attention']): ProjectState
   return {
     id: 'attention',
     label: 'Waiting on you',
+    description: String(nodes.filter(node => node.needsAttention).length || ''),
     tooltip: 'Decisions AtlasMind cannot make for you. Nothing here proceeds on its own.',
     icon: 'bell',
     nodes,
     expanded: nodes.some(node => node.needsAttention),
   };
+}
+
+export function assignmentDestinationCommand(
+  destination: DashboardWorkKind | 'run' | 'director',
+  targetId: string,
+): NonNullable<ProjectStateNode['command']> {
+  if (destination === 'run') {
+    return {
+      command: 'atlasmind.openProjectRunCenter',
+      title: 'Open this project run',
+      args: [{ runId: targetId }],
+    };
+  }
+  if (destination === 'director') {
+    return dashboardFocusCommand('director', 'assignment', targetId, 'Open this assignment');
+  }
+  const pageByKind: Record<DashboardWorkKind, string> = {
+    branch: 'branches',
+    roadmap: 'roadmap',
+    issue: 'issues',
+    'pull-request': 'pullRequests',
+    gap: 'gapAnalysis',
+    risk: 'risk',
+    debt: 'debt',
+    document: 'documents',
+  };
+  return dashboardFocusCommand(pageByKind[destination], destination, targetId, 'Open assigned work');
+}
+
+function dashboardFocusCommand(
+  page: string,
+  kind: DashboardFocusKind,
+  id: string,
+  title: string,
+): NonNullable<ProjectStateNode['command']> {
+  const target: ProjectDashboardOpenTarget = { page, focus: { kind, id } };
+  return { command: 'atlasmind.openProjectDashboard', title, args: [target] };
 }
 
 /**

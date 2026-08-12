@@ -206,6 +206,8 @@ Explicit user constraints also become a `TurnCapabilityEnvelope`. “Read-only�
 
 The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason. The agentic loop also recognizes explicit runtime claims that workspace tools are disabled or unavailable: instead of spending the remaining iterations re-prompting the same bridge, it marks that model's runtime capability as failed and immediately asks the provider-failover path for another `function_calling` model. If no recovery succeeds, the project classifier records the refusal as failed, never completed.
 
+When the loop settles and *every* tool result in the final round tests as failed, the model's completion is discarded and replaced by a summary of those failures, with `finishReason: 'error'`. That verdict comes from `looksLikeToolFailure`, which matches substrings — `failed`, `cannot`, `not found` — against **raw** tool output; since `file-read` returns file contents verbatim, a read of an ordinary source file can satisfy it, and with a single tool call in the round the `every()` check is then trivially true. The substitution is therefore instrumented: each occurrence logs the tools involved and which predicate fired, distinguishing a tool that declared its own failure (an `Error:` prefix) from a bare substring or keyword match on its output. Trigger tokens only are recorded, never tool output, which can carry secrets. The log is diagnostic — nothing branches on it — and exists so the false-positive rate can be measured before the predicate is narrowed.
+
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
 In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.
@@ -267,20 +269,35 @@ Built-in **compliance packs** (`src/core/compliancePacks.ts`) contribute curated
 
 **Detector precision is a safety property.** The detectors run over the whole assembled task context — source, logs, memory, chat history — so a pattern that fires on ordinary code silently restricts routing, redacts useful context, and floods the Privacy charts until the operator disables the policy entirely, at which point genuine regulated data is protected by nothing. Every detector is therefore anchored on a cue ordinary code does not contain (an explicit `phone:`/`SWIFT:` label, a `+` country code, a clinical construction) or paired with a validator that rejects the structurally impossible: `isPublicIpv4()` drops loopback/private/link-local/CGNAT/documentation/multicast ranges (which identify no subscriber and dominate bind configs and netmasks) and the pattern's lookbehinds drop four-part version strings; `isPersonalEmail()` drops role mailboxes (`noreply@`, `support@`, CI senders) and RFC 2606/6761 reserved domains. `tests/core/compliancePacks.test.ts` holds a benign source-repository corpus that must stay unclassified, plus the matching recall cases so tightening precision cannot silently blind a pack.
 
+The context it classifies is enumerated by `buildPrivacyScanSlices()`, exported and unit-tested because that list *is* the boundary — inline it was unverifiable and had already drifted, omitting the structured session bundle. That mattered because the bundle and the raw session string are alternatives rather than complements: once a session has a `context.md` the chat panel sets the string to `''` and passes the bundle, so scanning only the string inspected nothing on the ordinary path while the model still received the conversation in full. Each bundle field is a separate slice labelled with the heading it renders under, so a notice can name where a detector fired.
+
 Enforcement lives in the `Orchestrator`: `applyDataPrivacyGate()` classifies the assembled context before model selection; `buildMessages()` applies `privacyRedact()` to memory, live evidence, and supplemental context keyed on the actually-selected model (the fail-safe for pins/parallel overflow); and `redactToolResultForModel()` withholds `file-read` results for classified paths when the running model is un-trusted. When classified content is found but no trusted model is available, the content is redacted and the UI is notified via `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
+
+`buildSupplementalContextMessage()` splits supplemental context by a declared `SupplementalTrust` and emits **two** messages rather than one. Third-party content (attachments, fetched pages, tool output) keeps `UNTRUSTED_CONTEXT_PREAMBLE`; the conversation carries `CONVERSATION_CONTEXT_PREAMBLE`, which names it as the conversation being continued and states that it does not override system instructions. Both previously shared the untrusted preamble — and because `buildMessages()` emits system prompt, supplemental context and the current user message with no conversation-history array, prior turns existed *only* inside a block instructing the model to treat them as data it should not follow. A section the scanner **warns** on is routed to the external block whatever its declared trust, since that is precisely when conversation may be carrying injected content; blocked sections are still excluded entirely. The two blocks share one `supplementalChars` budget, so the split does not widen what is sent.
 
 The gate's response is **tiered by sensitivity**, because it scans the assembled *context* rather than the user's request — a hit means something in the retrieved haystack looked regulated, not that the task concerns personal data. `selectHardGatingMatches()` (exported, pure, unit-tested) picks the `secret` matches — PCI cardholder data and HIPAA PHI — and only those restrict the agent's candidate models to the trusted allow-list. `confidential`/`proprietary` matches set `RoutingConstraints.requireTrustedModel` as a marker but leave routing alone: the redaction boundary already removes the matched spans before they reach an un-trusted model, so re-routing buys no extra protection while costing an unexplained model downgrade on every heuristic hit. The gate classifies each context slice separately so its progress notice can name *where* a detector fired (`"email address in memory \"Stakeholders\""`) — an unattributed hit is indistinguishable from a false positive.
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
 
-### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
+### UI Studio workspace (`src/core/websiteWorkspaceManager.ts`)
 
-Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command id remains
+`atlasmind.openWebsiteStudio`). It owns the compatibility-named SSOT at
+`project_memory/domain/website.json` and regenerates `website.md` on every save. The shared
+`WebsiteWorkspaceConfig` types in `src/types.ts` model:
 
+- an explicit `UiSurfaceKind` profile: website, web app, mobile app, desktop app, editor extension,
+  embedded UI, or other;
 - normalized client intake;
 - page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
 - per-page sitemap placement (`parentId`, `order`), outbound `links`, a natural-language `designPrompt`, and a drawn `wireframe`;
+- a revisioned `UiDesignGraph` whose stable screens/nodes, base layout, viewport overrides, typed tokens,
+  reusable component definitions/instances, preview-only structured collections, explicit node bindings,
+  validated asset metadata/assignments, and bounded content/style references are authoritative when present;
 - project-level UI system decisions;
+- project-level `UiContentDesign` rules and a `UiImplementationGuide` containing bounded technology,
+  source-root, component-location, and handoff hints plus revisioned component/token/node repository mappings
+  and bounded adapter capability/loss reports (data only, never commands or source content);
 - the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
 - a catalog of static, managed-CMS, commerce, and custom platform targets;
 - n8n workflow maps containing event/outcome/status plus non-secret references.
@@ -291,29 +308,166 @@ Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the w
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 2**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 1 → 2 step transcribes each page's old `sections` list into stacked wireframe bands (the transcription is inlined in `schemaMigration.ts` rather than imported, because a migration must keep producing the same output forever); `designPrompt` and `links` are seeded empty rather than guessed.
+The SSOT is at **format version 13**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. The 9 → 10 step adds an empty sample-data collection authority and invents no schema, record, value, or binding. The 10 → 11 step adds an empty asset library and does not inspect files, infer node assignments, or invent alt text. The 11 → 12 step adds mapping revision zero and an empty repository-mapping collection; it does not scan source, infer a path/symbol, parse code, or invent a relationship. The 12 → 13 step adds `lastImport: null` to each existing mapping and preserves its definition/baseline without inspecting source or inventing evidence. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
-`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframe canvas, UI System, Hosting & Platforms, n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js`, read inline the way `projectDashboardPanel` reads its script. Its message guard accepts save/import, the two fixed website SSOT paths, three fixed navigation commands, and the four new data-only messages (`promptForTarget`, `generate`, `openPreview`, `stopPreview`) — none of which can name a command, a path, or a file. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`; n8n triggering is likewise deliberately outside this planning surface.
+`src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
+Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
+website-only n8n Automations). Its CSS lives in `websiteStudioStyles.ts` and its behaviour in
+`media/websiteStudio.js`. Content messages carry a bounded screen id and text fields; the host resolves
+the id against the current plan and `WebsiteContentManager` owns the path. The expected body implements
+optimistic concurrency, so a disk edit is refused rather than overwritten. Other messages remain
+data-only and cannot name a command, arbitrary path, or output file. Production publishing stays in
+`PromotionRunner`; n8n triggering remains outside this planning surface.
 
 ### Website Studio design and generation modules
 
-Six pure modules sit behind the Studio, each `vscode`-free and unit-tested:
+The Studio's pure core modules are `vscode`-free and unit-tested:
+
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v13 graph against the page inventory, preserves
+  stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
+  `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
+  a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
+  The same boundary validates at most 200 typed colour, typography, spacing, radius, shadow, motion, and
+  breakpoint tokens. A token owns a bounded structured value or aliases another token of the same kind;
+  `resolveUiDesignToken()` refuses missing targets, cross-kind links, and cycles while retaining the resolved
+  source and alias chain. Tokens are graph facts rather than CSS declarations, so every output target reads
+  the same system without becoming its authority. `websiteWireframePreview.ts` is the HTML adapter: a closed
+  semantic-id map supplies colour, typography, spacing, radius and breakpoint roles to preview and canvas,
+  while every resolved token receives a hex-encoded-id custom property that cannot collide or become syntax.
+  The same boundary caps preview-only content collections, validates typed sample values, retains well-shaped
+  stale node bindings for diagnostics, resolves declared title/body/action mappings, and reports missing
+  collections, records, fields, values, and interface states at the owning node.
+  It also validates at most 200 asset records: stable ids, closed media/crop kinds, positive intrinsic pixel
+  dimensions, 0–100 focal percentages, explicit decorative/alt intent, maturity, and either a normalized
+  workspace-relative path or credential/query/fragment-free HTTPS reference. Structurally valid stale node
+  assignments remain visible to `diagnoseUiAssets()`; no source is fetched at this graph boundary.
+  Component definitions remain target-independent structured data: a closed root kind, typed bounded
+  properties, variants, capacity/kind-constrained slots, and declared states. `resolveUiComponentInstance()`
+  applies definition defaults, variant values, then instance overrides while retaining provenance. Instance
+  sanitation refuses a missing/incompatible definition or variant and drops undeclared property overrides;
+  slot sanitation requires the owning parent instance and enforces allowed kinds plus maximum children.
+  Nodes may additionally own bounded `empty`/`loading`/`error`/`success` presentations with explicit content
+  maturity and one review-only preview state. These complement rather than duplicate screen Markdown. The
+  sanitizer downgrades approved copy containing an unresolved placeholder marker.
+  `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
+  the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
+  viewport only through an exact override, so migration does not invent responsive intent.
+  `resolveUiScreenLayout()` then projects direct children for stack, grid, and overlay containers in parent-
+  before-child depth order. Direction, gap, padding, columns, alignment, distribution, and size modes are
+  bounded graph data. A projected child rectangle receives `computed` provenance naming its container; the
+  stored rectangle remains untouched as the reversible free-layout fallback. Fill claims an available axis;
+  hug uses the stored intrinsic size until content measurement is implemented. Nullable min/max width/height
+  constraints inherit per breakpoint, expose their own provenance, and clamp the projected rectangle without
+  changing the retained input; a constraint-derived rectangle reports `computed` with a constraint reason.
+  Direct container children sort by responsive `order`, then stable geometry/id tie-breakers. Stack `wrap`
+  forms deterministic rows/columns; neither operation changes node-array order, hierarchy, or stored geometry.
+- **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
+  events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
+  geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
+  visibility override set/reset, undo, and redo; commands carry an expected revision and never a graph
+  patch. Typed token add/set/delete commands share that revision and history, validate the complete dependency
+  graph before committing, refuse duplicate ids and broken/cyclic/cross-kind aliases, and protect a direct
+  token while another token aliases it. `set-node-frames` validates every unique target before changing any, applies either base rectangles
+  or one named responsive breakpoint, and records the batch as one revision/history entry. A responsive command names only a
+  closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
+  invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
+  promotes direct children, history is capped at 100, and a fresh edit clears redo.
+  `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, nullable
+  width constraints 1–1000, nullable height constraints 1–4000, and an optional non-base breakpoint. Minimum
+  may not exceed maximum; wrap is `nowrap|wrap`; order is an integer from -1000 to 1000. A non-container may
+  use size/order properties but is refused a non-free container mode.
+  `duplicate-node` admits only a complete unique identity map for the selected subtree, checks collisions and
+  the graph cap before cloning, remaps parents, and offsets base plus explicit responsive rectangles in one
+  commit. `locked` is graph authoring state: every node edit except `set-node-locked` refuses, as do atomic
+  batches containing a locked node and wrapper deletion that would reparent a locked direct child.
+  Multi-selection pointer drag is another `set-node-frames` producer: the browser projects one shared clamped
+  delta for feedback, excludes selected identities from snapping, and submits the full frame set once on
+  pointer-up. The reducer already makes that batch all-or-nothing and hierarchy-neutral.
+  Component add/set/delete and node instance/slot commands use the same exact revision/history boundary.
+  A definition cannot be deleted or change to an incompatible root kind while instances use it. Definition
+  updates deterministically retain only still-valid variants, states, property overrides, and slot claims;
+  definition and instance edits are separate command types, never inferred from selection.
+  `set-node-content-state` and `set-node-preview-content-state` add/update/remove state copy and select a
+  declared presentation for review. Their exact parser refuses unknown states, extra fields, over-bounds copy,
+  placeholder copy claiming approval, and attempts to preview an absent state.
+  `diagnoseUiScreenLayout()` consumes that same projection for every breakpoint and deterministically reports
+  canvas overflow, parent clipping, non-ancestral/non-overlay overlap, and interactive nodes below 44px after
+  conversion through the 1280/834/390 preview widths. The host sends closed diagnostic records; the webview
+  renders and routes them to graph selection but does not decide whether layout passed.
+- **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
+  injection, and revision/selection event hub. A connection receives the current render revision immediately;
+  newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/
+  invalid values and broken clients are dropped. The browser may POST exactly a current revision plus bounded
+  screen/node IDs for selection; it has no edit, command, storage, arbitrary message, path, graph, or source API.
+
+- **`uiRepositoryMapping.ts`** — the design/repository declaration and divergence boundary. A closed adapter
+  catalog maps one component, token, or node to a normalized workspace-relative file and optional symbol;
+  component mappings may add bounded prop/slot correspondences and every mapping declares coverage plus
+  limitations. Exact revisioned commands own create/replace/delete/verify. Verification realpath-checks the
+  workspace and candidate, refuses non-files and files over 2 MiB, and retains only SHA-256 design/source
+  fingerprints, graph revision, and time. Target-scoped canonical design hashes prevent an unrelated graph
+  edit from marking every mapping changed. Assessments report in-sync/design-only/code-only/conflict/
+  unassessed/unsupported and never execute, automatically reconcile, or write source; adapter inspection is
+  delegated to the separately bounded import module below.
+
+- **`uiRepositoryImport.ts`** — conservative, deterministic adapter recognizers. React finds named exports and
+  simple object-shaped/destructured props; static HTML/CSS finds literal ids/classes/selectors and custom
+  properties; VS Code webview finds host exports plus literal web facts; custom returns unsupported. Every
+  built-in result is `partial` and carries at least one closed loss finding. Output is capped at 200 unique,
+  sorted facts and 40 findings, with exact graph/source-name suggestions only. The host supplies source and
+  fingerprints; the module returns no graph command, mapping mutation, source excerpt, executable value, or
+  dependency request. `uiRepositoryMapping.ts` persists that report only after its exact revisioned import
+  command and a separate mapping edit is required to accept any suggestion.
 
 - **`websiteWireframe.ts`** — the canvas geometry model. Rectangles live on a fixed 1000-unit column grid, never device pixels, because pixels would record the author's monitor size in a committed file. `sanitizeWireframe()` is total: for any input it returns a wireframe whose rects are finite and on-canvas and whose parent graph is a forest, capped at 60 elements and 3 levels. Element kinds are a closed set because generation reads the kind to decide what markup a box becomes.
 - **`websiteSitemap.ts`** — hierarchy from the slug path, overridden by an explicit `parentId`. A slug naming a parent that does not exist attaches to root **and is reported**; a cycle is broken at the repeat and reported. `layoutSitemap()` is a deterministic tidy tree, so the same pages always draw the same map.
 - **`websiteLinkGraph.ts`** — outbound/inbound links, orphan pages, and dangling links (reported, never dropped — a link whose target was deleted is the evidence a nav is broken). The root page is never an orphan. Nav/CTA labels suggest links by exact then case-insensitive match, never looser.
 - **`websiteDesignPrompt.ts`** — composes the selection-scoped prompt for `site`, `page` and `element`. Everything read out of the workspace is fenced as REPORTED CONTENT (labels and stored prompts are model-writable) and passed through `redactSecrets`; the user's own instruction is deliberately *not* fenced. The prompt states that the answer is a proposal.
 - **`websiteGeneration.ts`** — `planWebsiteGeneration()` decides the file list deterministically, before any model runs, which is what makes the confirmation dialog reviewable. Paths are constrained to the preview root with an extension allowlist that excludes `.js`; one bad path refuses the whole plan. `parseGeneratedFiles()` matches every returned path against the approved plan and reports anything unplanned rather than writing it.
+
+`websiteWireframePreview.ts` consumes the graph screen alongside its compatibility page projection. It uses
+`resolveUiScreenLayout()` to emit ordered tablet (`≤1023px`) and mobile (`≤599px`) static media rules for every
+saved node, including inherited geometry/constraints, explicit visibility, container placement, and a
+visible-content-derived stage height.
+It also resolves component definitions/instances through the same host function used by Studio and emits
+escaped definition/variant/state labels plus fixed styling for the closed disabled/loading/error/validation/
+success states. Component data never becomes markup or CSS authority.
+When a node selects a content state, the adapter replaces only that node's ordinary preview body with its
+escaped authored presentation and a maturity badge; missing state copy receives no invented fallback.
+Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
+renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
+injects only the separately audited frozen live runtime.
+
+`websiteStudioPanel.ts` builds the canvas's responsive state on the extension host with
+`buildWebsiteStudioResponsiveScreens()`: every node receives resolved desktop/tablet/mobile layout,
+per-property provenance, and Boolean flags saying which geometry/visibility overrides actually exist. The
+webview renders that projection but never computes inheritance. Its breakpoint inspector may submit exact
+set commands or clear `rect`/`hidden` independently; `uiEditCommands.ts` removes only the named property and
+drops the breakpoint record only when nothing remains. Host reconciliation returns both the compatibility
+wireframes and a fresh resolved snapshot after every result. At a non-base breakpoint, drag/resize and
+keyboard nudge optimistically change only the local resolved rectangle, then submit that rectangle as the
+same exact `set-node-viewport-override` command; the next host result replaces the projection. Drawing,
+deletion, nesting, and parent identity stay base-only, so a responsive gesture cannot change shared structure.
+Multi-selection uses a `Set` of node identities with one primary inspector target. Align, distribute, and
+group nudge submit one bounded `set-node-frames` batch at the current breakpoint; multi-delete is refused
+until the selection is narrowed, preserving the existing single-node deletion contract.
+The host responsive snapshot resolves the complete screen rather than each node in isolation. This keeps
+computed container rectangles identical in the Studio and `websiteWireframePreview.ts`; the webview displays
+the projection and provenance but never implements the layout algorithm.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review
 
-- **`websiteWireframePreview.ts`** — renders a wireframe straight to self-contained HTML with **no model involved**. It exists because there was no deterministic HTML renderer anywhere in `src/core/`, so a wireframe could not reach a browser without a generation, and an empty preview root served the 404 as a near-blank page. Output carries no script and no external request, so it satisfies the preview server's existing strict CSP unchanged; renders live under `_wireframe/`, never at a generated page's address.
+- **`websiteWireframePreview.ts`** — renders the canonical design draft straight to self-contained HTML with **no model involved**: wireframe geometry, safe colour/type tokens, and an escaped inert subset of the exact Markdown copy, repeated in a complete content proof. Missing copy stays explicit. The pure renderer still emits no script; `websitePreviewHost.ts` then injects the one frozen Studio runtime with a numeric render revision before writing `_wireframe/`. Generated/exported output is not injected. The index always owns the preview entry point and links to generated output separately.
+- **`websitePreviewHost.ts` / `websitePreviewPanel.ts`** — one guarded loopback server feeds two consumers. VS Code's built-in Simple Browser is the full-canvas primary preview; the custom sandboxed webview is only the responsive-width lab. Closing that lab does not stop a server still serving the full browser; Stop Preview, Studio disposal, and extension deactivation own shutdown.
 - **`websiteContent.ts`** / **`websiteContentManager.ts`** — markdown copy with YAML front-matter, one file per page, derived from the same `normalizeSlug` the sitemap uses. `[PLACEHOLDER: …]` is parsed and **counted**; *missing* and *empty* stay distinguishable; the file is the source of truth and a save whose file changed underneath is refused rather than merged.
 - **`websiteReviewComments.ts`** — comments against a page or element, transitioning and never deleted, with an orphaned comment kept and flagged carrying the element's remembered label. `buildCommentWorkPrompt` fences the body as REPORTED CONTENT.
 - **`websiteReviewBundle.ts`** — the overlay generated *into the site*, so it deploys to the client's own staging. The script is a **frozen constant** with configuration passed in a `data-` attribute; no endpoint is ever invented, and `connect-src` names the single declared origin or is `'none'`. Import reuses the record sanitizer and is idempotent. The decision not to host a relay is recorded in `project_memory/decisions/website-client-review-hosting.md`.
 
-The preview server's `.js` exception is **one named file** (`REVIEW_OVERLAY_SERVED_NAME`), not a widened extension class, and `script-src 'self'` is added to the served policy only when `allowOverlayScript` is set — which the host ties to the same setting that injects the overlay.
+The preview server still never serves a general `.js` extension class. It has two independently gated exact
+exceptions: the optional on-disk `REVIEW_OVERLAY_SERVED_NAME`, and the Studio-only `_atlas/runtime.js`
+response whose bytes come from `UI_PREVIEW_RUNTIME_SCRIPT`, not the workspace. Live Studio mode adds only
+same-origin `script-src`/`connect-src`; review mode separately adds its declared HTTPS connection capability.
 
 ### Website Studio stack setup
 
@@ -326,7 +480,7 @@ Four more modules cover the framework half, all pure and unit-tested except the 
 
 `src/views/websiteStackSetupHost.ts` is the impure half: probe the machine and workspace, show the modal (every command with its purpose, every file with its full contents, openable as documents before confirming), execute with a real `execFile` — argument array, no shell, `cwd` set to the workspace — then **re-probe the filesystem** rather than trusting exit codes.
 
-`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. The `http` module is injected so it is unit-tested without binding a port. `src/views/websitePreviewHost.ts` owns its lifetime (one server, started on demand, stopped with the window) and both deny-by-default gates. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; a test pins the shared shell's policy.
+`websitePreviewServer.ts` serves the generated site over `http` bound to **`127.0.0.1` only**, from one directory, with every request path re-checked via `path.relative`, no directory listing, an extension allowlist, a random per-session path token, and a restrictive CSP on every response. Its three exact live resources deliver the frozen runtime, a server-sent revision/selection stream, and one identity-only selection POST. That POST is capped at 512 bytes, accepts exact JSON fields only, requires the current render revision, and never mutates the graph or filesystem; wrong-token requests remain 404 before method disclosure. The `http` module is injected for unit tests, and an ephemeral-port integration test pins headers, token isolation, reconnect state, stale/hostile selection refusal, and event delivery. `src/views/websitePreviewHost.ts` owns the lifetime, resolves accepted IDs against the current saved graph before notifying UI Studio, injects only deterministic drafts, publishes only after render succeeds, and closes streams plus keep-alive sockets on stop. `src/views/websitePreviewPanel.ts` frames it via `WebviewOptions.portMapping` and builds **its own HTML document with its own CSP** rather than using `getWebviewHtmlShell`, so granting `frame-src` to a loopback port does not widen every other AtlasMind panel; that sandbox omits scripts and continues to refresh through its host, while Simple Browser uses the live runtime.
 
 ### CiManager (`src/core/ciManager.ts`)
 
@@ -381,6 +535,8 @@ The Delivery page hosts a full **stage editor**: stages can be added, edited, re
 
 ### PromotionRunner (`src/core/promotionRunner.ts`)
 
+**A failed step can be handed to Atlas.** `buildPromotionFixPrompt` turns one failed step into a chat prompt: the step, its command and its output, sanitized through `sanitizeCiLog` (ANSI stripped before redaction, tail kept, bounded to `PROMOTION_FIX_LOG_CHARS` rather than the 200,000-character storage default) and fenced as reported content — machine output rather than a stranger's prose, but a failing test's name or a fixture string can still read as an instruction to a model that can call tools. **It proposes and never re-runs the promotion**, which is gated on a typed confirmation and, for a protected stage, an approval; a `deploy` or `verify` failure also warns the target may be partly changed. The webview posts only the step id and the host rebuilds the prompt from the retained run, so a crafted message can name a step but never supply its text.
+
 Release remediation and the detected runbook now describe the same versioning boundary. When a target
 requires a version bump, `buildProjectDeliveryGuide` surfaces **Prepare release version** in
 Prerequisites and prefers an exact repository script (`prepare:release`, `release:prepare`,
@@ -404,19 +560,19 @@ The panel (`projectDashboardPanel.ts`) drives this through two webview messages 
 
 Models the **people** a project runs on — its stakeholders, delivery team, responsibilities (who owns what), human task assignments, and follow-ups — the data backbone of the Project Director dashboard (Project Dashboard → Director page). A `ProjectDirectorConfig` (`contacts`, `stakeholders`, `teamMembers`, `responsibilities`, `assignments`, `followUps`, `settings`) is persisted as the source of truth at `project_memory/operations/project-director.json`, with a human-readable `project-director.md` mirror regenerated on every write (`renderProjectDirectorMarkdown`) and a capped `project-director-history.json` audit trail. Like `DeliveryManager`/`DataPrivacyManager`, the persistence helpers (`readProjectDirectorConfig`/`writeProjectDirectorConfig`/`seedProjectDirectorConfig`) are `vscode`-free (node `fs` only).
 
-**Contacts are the identity layer.** A `DirectorContact` holds a person/group's name, title, communication `links`, and an optional `ref: DirectoryRef` pointing at their system of record (`m365`/`slack`/`google`/`buzz`/`local`). Each link's `kind` is a `CommunicationChannelKind` open union (`email`, `slack`, `teams`, `buzz`, `phone`, `github`, `linkedin`, …); `buzz` records a [Buzz](https://buzz.xyz) identity (npub / @handle / #channel) with an `https`-only deep link. The governing contract is **Buzz owns identity + messaging; AtlasMind owns reasoning + execution** — so `DirectoryRef.source: 'buzz'` *references* a Buzz-owned Nostr identity; AtlasMind never mints or mirrors a directory (see `project_memory/roadmap/buzz-integration.md`). `Stakeholder` and `TeamMember` are thin role records referencing a contact by id, so one human can be both without duplicating their channels. `Assignment` is the human-owner overlay that `ProjectRunRecord`/`SubTask` (assigned to *agent roles*) lack; `Assignment.linkedRunId` binds an autonomous run to a human owner **without mutating the run record**.
+**Contacts are the identity layer.** A `DirectorContact` holds a person/group's name, title, communication `links`, and an optional `ref: DirectoryRef` pointing at their system of record (`m365`/`slack`/`google`/`buzz`/`local`). Each link's `kind` is a `CommunicationChannelKind` open union (`email`, `slack`, `teams`, `buzz`, `phone`, `github`, `linkedin`, …); `buzz` records a [Buzz](https://buzz.xyz) identity (npub / @handle / #channel) with an `https`-only deep link. The governing contract is **Buzz owns identity + messaging; AtlasMind owns reasoning + execution** — so `DirectoryRef.source: 'buzz'` *references* a Buzz-owned Nostr identity; AtlasMind never mints or mirrors a directory (see `project_memory/roadmap/buzz-integration.md`). `Stakeholder` and `TeamMember` are thin role records referencing a contact by id, so one human can be both without duplicating their channels. `Assignment` is the human-owner overlay that `ProjectRunRecord`/`SubTask` (assigned to *agent roles*) lack; `Assignment.linkedRunId` binds an autonomous run to a human owner **without mutating the run record**. `Assignment.linkedWork` extends that same ownership record to a closed `DashboardWorkKind` set (branch, roadmap, issue, pull request, gap, risk, debt, document), so no dashboard page owns a parallel assignee field.
 
 **Solo dev, not just teams.** `ProjectDirectorConfig.selfContactId` marks "me" (seeded from the git user), so assignments/follow-ups default to you and the UI can address you as "you". `settings.teamMode` (`solo`/`team`/`auto`) with `resolveTeamMode`/`isSoloProject` infers **solo** when there is no team member other than yourself — a one-person project is never asked to fill in team ceremony, the dashboard foregrounds self-management (your follow-ups and the areas you own), and external stakeholders (a client, end-users, an app-store reviewer) are still first-class when they exist.
 
 **GDPR-first, deny-by-default.** AtlasMind prefers to *reference* people in their GDPR-compliant system of record (Microsoft 365 / Entra, Slack, Google Workspace — each carries a `providerDataGovernance` entry with DSAR/retention links) and resolve details on demand, rather than hoarding raw personal data locally. A contact that stores raw PII is flagged `piiStored` so the extension layer can gate it behind a one-time consent notice and the existing `gdpr-pii` classification. Communication `handle`s are non-secret identifiers (never tokens/passwords); the markdown mirror describes channels by *kind/label only* so raw addresses never land in git-tracked prose. `sanitizeProjectDirectorConfig` is the webview→disk boundary: it clamps string lengths, whitelists every enum (unknown → safe fallback), regenerates duplicate/missing ids, **drops role records referencing a non-existent contact**, clears dangling optional references, and strips any `deepLink` whose scheme is not allowlisted (`mailto:`/`tel:`/`sms:`/`slack:`/`msteams:`/`zoommtg:`/`https:` — bare `http:`, `javascript:`, and `data:` are rejected). Pure derivations `deriveFollowUpUrgency`/`countOverdueFollowUps` classify follow-ups (`overdue`/`due-soon`/`upcoming`/`snoozed`/`done`) for the dashboard, tree badge, and (later) scheduler. A `vscode` file watcher on `project-director.json` (registered in `extension.ts`) reloads the manager and fires `projectDirectorRefresh` on external edits.
 
-**Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments (+ an "assign a human owner" overlay on autonomous `ProjectRunRecord`s via `Assignment.linkedRunId`), and Follow-ups sub-sections. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
+**Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments, autonomous-run owners, and Follow-ups. `buildDashboardWorkTargets` derives assignable work from the same assembled snapshot that renders branches, roadmap, issues, pull requests, gaps, risks, debt and documents. Each surface uses `renderDirectorOwnerControl`; the Director Assignments view reads the identical records. A change message contains only a short-lived random `work-<uuid>` token, which `ProjectDashboardPanel` resolves from its latest host-issued map; an older render's token therefore cannot be rebound to a different item. The host validates the selected contact, persists only the closed `{ kind, id }` link, and re-resolves branch tokens against a fresh Git inventory before saving. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
 
 **Guarded connectors (Phase 3).** With outbound messaging enabled (`settings.outboundEnabled`, default off) and a matching MCP connector connected, the Director tab can email / schedule / message a contact. `DirectorCommsRunner` (`src/core/directorCommsRunner.ts`, pure/vscode-free) detects which connected MCP tool can perform each intent — matching tool names (`outlook_send_mail`, `create_event`, `post_message`, …) across `mcpServerRegistry.listServers()`, preferring real send/create tools over drafts — and best-effort maps a composed draft onto that tool's declared input-schema fields (inventing nothing). Capabilities stay partitioned by contact channel kind (`email`/`slack`/`teams`/`buzz`) and delivery shape, so a Buzz recipient can never fall through to another connected messaging provider; Buzz channel UUIDs select `buzz_post_message`, while 64-character Nostr pubkeys select `buzz_send_dm`. Dispatch is deny-by-default in the panel: it requires the toggle, a connected connector, and an explicit `{ modal: true }` confirmation showing the exact action (connector, tool, recipient, subject/body, classified risk via `classifyToolInvocation`) before running the tool through its `mcp:<serverId>:<toolName>` skill wrapper (`skillsRegistry.get(...).execute(args, atlas.skillContext)`). No connector for the exact channel kind → non-destructive fallback to the deep-link. The webview only supplies the draft; the tool comes from the connected server, credentials stay in SecretStorage, and successful sends are recorded to `project-director-history.json`.
 
 **Buzz Tier 1b bridge.** `src/mcp/buzzCommsServer.ts` is an extension-bundled stdio MCP server backed by the pure `BuzzCliBridge` in `src/mcp/buzzCliBridge.ts`. It wraps official `buzz-cli` source tag v0.4.26 and exposes only bounded channel listing, channel posting, bounded thread reading, and DM sending. Upstream v0.4.26 has no working `--version` flag, so the bridge probes the exact required root/channel/message/thread/DM help contracts before the MCP handshake; reads the agent private key and optional NIP-OA authorization tag from SecretStorage-backed env; converts the WS/WSS relay setting to the HTTP/HTTPS base the CLI expects; rejects remote relays without `atlasmind.buzz.allowRemoteRelay` and rejects non-TLS remote URLs; invokes the CLI without a shell; passes message bodies over stdin; validates identifiers; caps input, output, and duration; and redacts credentials from failures. It exposes none of `buzz-dev-mcp`'s shell/file-edit surface and none of Buzz's workflow/repository/admin commands. The boundary remains: **Buzz owns identity + messaging; AtlasMind owns reasoning + execution.**
 
-**Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups with an overdue badge refreshed on `projectDirectorRefresh`; `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
+**Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups. Follow-ups is the personal Director attention projection: due/overdue reminders plus active assignments owned by `selfContactId`, including dashboard-linked and run-linked work. One total drives its dynamic collapsed title, activity badge, and synthetic-URI row decoration; the same `projectDirectorRefresh` event updates it and Project State. `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
 
 ### DocumentsManager (`src/core/documentsManager.ts`)
 
@@ -565,9 +721,13 @@ The project state worth a glance without opening a panel, backing the sidebar's 
 
 The sidebar carried ten views before this and they were almost entirely *inventory* — lists of agents, skills, models, servers, sessions. Nothing said where you are in the workflow, and nothing said what AtlasMind is currently permitted to do. The second gap was the sharper one: safety-critical, genuinely computed, and visible only by opening the dashboard or reading four settings across two scopes.
 
-Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. No commits, branches, diffs or issue lists; only facts that exist because AtlasMind exists.
+Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. It carries no repository inventory of its own; only facts that exist because AtlasMind exists. A Director assignment is therefore eligible even when it points at a branch or issue: the row reports AtlasMind's human-ownership decision and links back to the surface that owns the work, rather than reproducing that surface's data.
 
 Three rules carry over from the dashboard and matter more here, because a tree row is glanced at rather than studied. **A section whose input is absent is omitted entirely** rather than rendered empty, so the tree never implies AtlasMind looked at something it did not — and "waiting on you" is the one section that *does* say "nothing waiting", because it was genuinely assessed. **The badge counts only `needsAttention` rows**: one counting everything would be permanently non-zero and therefore ignored. And **unbuilt capability is absent, not zero** — the tech-debt register does not exist, so its row is omitted rather than claiming a store with nothing in it.
+
+The **Waiting on you** gather reads Project Director's in-memory source of truth and selects active assignments whose `assigneeContactId` equals `selfContactId`; `done`, `cancelled`, unassigned, and colleague-owned records are excluded. Due and overdue follow-ups are also projected individually rather than collapsed into a count. Each row carries an opening-only destination and a stable target id: dashboard work uses `ProjectDashboardOpenTarget`, runs use `ProjectRunCenterOpenTarget.runId`, and manual assignments/follow-ups point to their exact Director record. VS Code's `TreeView.badge` is container activity—it decorates the AtlasMind activity-bar icon but not a native view header—and VS Code also hides `TreeView.description` when the view collapses. The one count is therefore projected through three APIs: `TreeView.badge` for the container, a dynamic `TreeView.title` (`Project State · N waiting`) that survives both expanded and collapsed states, and a synthetic-URI `FileDecorationProvider` for the coloured numeric badge on **Waiting on you**. Project Director applies the identical three-channel pattern to its Follow-ups projection. Owner saves invoke the Project State refresh command immediately, and `projectDirectorRefresh` covers both trees and external file edits.
+
+`ProjectDashboardOpenTarget` is the shared cross-surface deep-link type: `{ page, focus?: { kind, id } }`. `normalizeProjectDashboardOpenTarget` allowlists the page and focus kind and bounds the opaque id before the host posts it to the webview; the webview validates it again. Every assignable dashboard record exposes a matching `data-dashboard-focus-kind/id` pair. Navigation clears presentation filters that could hide the requested record, then scrolls, keyboard-focuses, and outlines it. If the record disappeared or remote data has not loaded, focus remains optional and navigation still lands on the validated owning page.
 
 A *classified* CI failure deliberately does not raise the badge: it already has an owner and a suggested fix, so flagging it would leave the badge lit on any project with a red build. Only `unknown` needs a person. Every row's command opens a surface and never mutates, the same rule the setup guides follow.
 
@@ -1013,6 +1173,33 @@ Desktop-only localhost WebSocket server that lets the AtlasMind web build remote
 
 ## Key Interfaces
 
+`WebsiteWorkspaceConfig` v10 keeps the compatibility page model and adds the authoritative design core:
+
+```typescript
+interface UiDesignGraph {
+  revision: number;
+  tokens: UiDesignToken[];
+  components: UiComponentDefinition[];
+  contentCollections: UiContentCollection[];
+  screens: UiDesignScreen[];
+}
+
+interface UiDesignScreen {
+  id: string;
+  pageId: string;
+  initialized: boolean;
+  baseBreakpoint: 'desktop' | 'tablet' | 'mobile';
+  nodes: UiDesignNode[];
+}
+```
+
+Each `UiDesignNode` owns a bounded base layout, optional per-viewport overrides, stable parent identity,
+non-executable content/style references, an optional explicit `UiComponentInstance` plus parent slot, and an
+optional preview-only `UiNodeDataBinding` that maps semantic title/body/action slots to one declared fixture.
+A component definition declares a root kind, typed properties, variants, slots, and closed states; an instance
+names that definition and carries bounded overrides only. `initialized` is required because “never drawn” and
+“drawn, intentionally empty” are different facts. Revision is monotonic even across undo/redo.
+
 `VoiceSettings` carries both synthesis controls and capability-sensitive device preferences:
 
 ```typescript
@@ -1051,6 +1238,30 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 ### ProviderRegistry (`src/providers/index.ts`)
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `acp`, and `local`) before executing completions.
+
+### LocalModelArbiter (`src/core/localModelArbiter.ts`)
+
+Who gets the GPU, and who waits. AtlasMind can issue a local model call from at least six places that never meet — the scheduler's five-way subtask fan-out, the bootstrapper's four unbounded parallel completions, the skill auto-assigner's unbounded sweep, two background timers, and every ordinary chat turn — and all of them land on one graphics card. Both runtimes do arbitrate internally (Ollama queues and evicts, LM Studio auto-evicts) but each does so against whatever free memory it sees at that instant and neither can see the other. Neither reserves anything for the desktop: measured on a 24 GB card with no model loaded, 9.2 GB was already committed to Windows, a browser and antivirus.
+
+Five properties, in the order they matter. **A slot wraps one HTTP call and nothing else** — a leaf operation that awaits nothing which could itself need a slot, which is what makes deadlock structurally impossible rather than merely unobserved. **The scarce resource is residency, not requests**: two calls to a resident model cost one context cache each, so weights are charged once per distinct model with a refcount and each request charges only its own cache — charging per request would serialise a same-model fan-out while still permitting three different models to become resident. **Cold loads run one at a time, globally**, which is what makes a load *attributable*: poll before, poll after, and a model that appeared with no other cold load in flight was caused by this arbiter — the only mechanism available, since Windows cannot attribute VRAM per process at all (`nvidia-smi --query-compute-apps` returns `[N/A]` under WDDM). **A wait is bounded and expiry refuses**, throwing a typed capacity error so the turn fails over rather than wedging. **Unknown is never unlimited**: with no free-memory reading the arbiter caps *distinct resident models* rather than concurrency, because Ollama holds a model for five minutes after a request and capping concurrency alone would bound nothing.
+
+The gate lives in `LocalEchoAdapter.completeWithLocalEndpoint` rather than the Orchestrator, because most of those six call sites bypass the Orchestrator's retry path entirely. It is taken as an optional structural dependency (`LocalAdmissionGate`, declared in `registry.ts` — the `BuzzPresenceLock` idiom), so an adapter built without one behaves exactly as it did before.
+
+Supporting modules: `vramBudget.ts` (pure headroom and admission policy with a published rule table), `providers/gpuProbe.ts` + `providers/gpuProbeParse.ts` (the probe chain and its parsers), `providers/localFootprint.ts` (footprint estimation calibrated against real blob sizes), `providers/localRuntimeClient.ts` (Ollama `/api/ps`, LM Studio `/api/v1/models`).
+
+**The budget's second limb is a ceiling on AtlasMind's own share, not an OS reserve.** The obvious `min(free − margin, total − reserve)` looks like two protections and is one: `total − reserve` is a constant, so once anything is loaded the measured limb is always lower and the reserve never binds again. It has to be `total − reserve − whatAtlasMindHolds`, and that held figure comes from the residency poll rather than from local bookkeeping — if the user restarts Ollama, the poll self-corrects.
+
+**Eviction is guarded four ways, and the first is absolute.** Only models AtlasMind loaded are candidates — a model the user loaded by hand is never touched, whatever the pressure, because unloading it would take away work somebody was in the middle of to serve a background task they never asked about. A property test asserts no producible plan names an unowned model, and an arbiter-level test confirms a tight card holding only a hand-loaded model waits and then refuses rather than reclaiming it. The others: never a model with a request in flight; never one served inside `LOCAL_GPU_EVICTION_COOLDOWN_MS`, since evicting a model about to be reused produces a load-evict-load cycle slower than waiting; and never one whose resident size was not measured, because claiming an unknown quantity of space is how a budget starts lying. **A partial plan is not executed** — unloading two models and still not fitting costs both reloads and gains nothing. Each unload is confirmed by the runtime and residency is re-read afterwards, because an unload is a request rather than a fact.
+
+**A capacity refusal is not a model failure.** It travels the ordinary failover path, so `isCapacityDeferral` guards all three punishments the catch block would otherwise apply: the endpoint circuit, `recordModelFailure`, and struggle memory. The check is structural rather than message-based, because all three of those guards are wording-based and a reworded message would silently re-arm them.
+
+### ModelRole (`src/providers/modelRole.ts`)
+
+What a model is *for*, decided before it can be routed to. A provider's `/v1/models` list is an inventory of what it serves, not a list of things that can hold a conversation: a local runtime enumerates every set of weights it has loaded, and OpenAI's own list carries `text-embedding-3-large`, `whisper-1` and `dall-e-3`. Nothing distinguished them, so `inferCapabilities` granted `chat`, `code` and — on a bare `llama` substring, or on any non-local provider — `function_calling` to all of them. A local Llama Guard model reached the router at zero cost, survived to the last failover of a turn, and answered with a chat-template error.
+
+The module publishes `MODEL_ROLE_RULES`, a short table of declared families (safety classifier, reranker, embedding, transcription, speech synthesis, image generation), and `classifyModelRole` returns the role together with the rule that decided so an exclusion is explainable. Three properties: **absence of a marker is not evidence of a non-chat role** (an unrecognised model is always conversational — a false positive silently hides capacity the user installed, so a miss is the designed failure mode); **markers match name segments, never bare substrings** (`bge` and `sdxl` are short enough that substring matching would sweep up ordinary chat models); and **rules are evaluated in declaration order**, which is load-bearing for `bge-reranker-v2-m3`, an id carrying both an embedding marker and a reranker one.
+
+Enforced at three layers: discovery drops these models in `registry.ts` and `openai-compatible.ts` so they are never registered; `inferCapabilities` and `inferLocalCapabilities` return **no capabilities at all** for them; and `ModelRouter.isRoutableChatModel` refuses any model that does not declare `chat`, in both the preferred-model and candidate paths. The router gate is the enforcement rather than the documentation — `requiredCapabilities` never names `chat` because it is assumed, which is exactly why a model with no usable capabilities remained an ordinary candidate.
 
 The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid. Each recommendation card offers one-click install into **Ollama** (via the streaming `/api/pull` API — surfaced as live progress in a shared output channel and a cancellable notification, with a daemon-reachability preflight — translating `hf:owner/repo` candidates to the `hf.co/owner/repo` pull syntax) and **LM Studio** (via `lms get <model> --yes` run as a direct child process). Both stream into the shared **"AtlasMind: Local Model Install"** output channel. Cards whose model is already present in a local runtime — matched on a normalized identity key (`localModelMatchKey`) so HuggingFace- and Ollama-style ids reconcile — show an installed badge instead of install buttons.
 
@@ -1285,6 +1496,9 @@ extension.ts
   │     ├── views/skillScannerPanel.ts
   │     ├── views/websiteStudioPanel.ts (+ views/websiteStudioStyles.ts, media/websiteStudio.js)
   │     │     ├── core/websiteWorkspaceManager.ts
+  │     │     ├── core/uiDesignGraph.ts
+  │     │     ├── core/uiEditCommands.ts
+  │     │     ├── core/uiPreviewRuntime.ts
   │     │     ├── core/websiteWireframe.ts
   │     │     ├── core/websiteSitemap.ts
   │     │     ├── core/websiteLinkGraph.ts
@@ -1342,6 +1556,11 @@ extension.ts
               │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
               │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
+              ├── providers/modelRole.ts             (what a model is for; non-chat exclusion, pure)
+              ├── providers/gpuProbe.ts              (GPU probe chain, injected execFile)
+              │     └── providers/gpuProbeParse.ts   (probe output parsers, pure)
+              ├── providers/localFootprint.ts        (VRAM footprint estimation, pure)
+              ├── providers/localRuntimeClient.ts    (Ollama/LM Studio residency + unload)
               └── providers/localModelRecommendationRegistry.ts
 
 native/acp-private-desktop/
@@ -1351,6 +1570,9 @@ tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   ├── websiteWorkspaceManager.test.ts
+  ├── uiDesignGraph.test.ts
+  ├── uiEditCommands.test.ts
+  ├── uiPreviewRuntime.test.ts
   ├── websiteWireframe.test.ts
   ├── websiteSitemap.test.ts
   ├── websiteLinkGraph.test.ts

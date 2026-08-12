@@ -1,6 +1,7 @@
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 import type { DiscoveredModel, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { isConversationalModel } from './modelRole.js';
 import { coerceOpenAiContentText } from './openai-compatible.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
@@ -21,6 +22,31 @@ export interface LocalEndpointConfig {
   id: string;
   label: string;
   baseUrl: string;
+}
+
+/**
+ * The GPU admission gate, declared here rather than imported.
+ *
+ * Structural typing keeps the provider layer free of a dependency on
+ * `localModelArbiter` — the `BuzzPresenceLock` idiom. An adapter constructed
+ * without one behaves exactly as it did before the arbiter existed, which is
+ * what the CLI and every existing test rely on.
+ *
+ * **This is the one place a local call can be gated.** Six unrelated code paths
+ * reach a local model without passing through the Orchestrator's retry loop —
+ * the bootstrapper's four unbounded parallel completions, the skill
+ * auto-assigner's unbounded sweep, two background timers, the model comparison
+ * panel, and the orchestrator's own one-shot helpers. A gate anywhere else
+ * would miss most of them.
+ */
+export interface LocalAdmissionGate {
+  acquire(request: {
+    endpointId: string;
+    baseUrl: string;
+    modelKey: string;
+    routedModelId: string;
+    signal?: AbortSignal;
+  }): Promise<{ rule: string; release(): void }>;
 }
 
 export class ProviderRegistry {
@@ -47,6 +73,8 @@ export class LocalEchoAdapter implements ProviderAdapter {
       secrets?: SecretStore;
       getEndpoints?: () => unknown;
       getBaseUrl?: () => string | undefined;
+      /** Absent means unarbitrated, exactly as before this existed. */
+      arbiter?: LocalAdmissionGate;
     },
   ) {}
 
@@ -77,7 +105,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       const perEndpointModels = await Promise.all(endpoints.map(async endpoint => {
         try {
           const ids = await this.listEndpointModels(endpoint);
-          return ids.filter(modelId => !isBuiltinLocalEchoModel(modelId));
+          return ids.filter(modelId => isRoutableLocalModel(modelId));
         } catch {
           return [];
         }
@@ -105,7 +133,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       try {
         const ids = await this.listEndpointModels(endpoint);
         return ids
-          .filter(id => !isBuiltinLocalEchoModel(id))
+          .filter(id => isRoutableLocalModel(id))
           .map(id => {
             const rawModelId = decodeLocalEndpointModelId(id).rawModelId;
             const entry = lookupCatalog(this.providerId, ensureProviderPrefix(this.providerId, rawModelId));
@@ -156,6 +184,24 @@ export class LocalEchoAdapter implements ProviderAdapter {
   }
 
   private async completeWithLocalEndpoint(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
+    // The admission slot wraps the HTTP call and nothing else. Holding it across
+    // anything wider would make deadlock possible; as a leaf operation it awaits
+    // nothing that could itself need a slot.
+    const admission = await this.options?.arbiter?.acquire({
+      endpointId: endpoint.id,
+      baseUrl: endpoint.baseUrl,
+      modelKey: decodeLocalEndpointModelId(request.model).rawModelId,
+      routedModelId: request.model,
+      ...(request.signal ? { signal: request.signal } : {}),
+    });
+    try {
+      return await this.sendLocalCompletion(endpoint, request);
+    } finally {
+      admission?.release();
+    }
+  }
+
+  private async sendLocalCompletion(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
     const response = await fetch(`${endpoint.baseUrl}/chat/completions`, {
       method: 'POST',
       signal: request.signal,
@@ -335,6 +381,20 @@ function ensureProviderPrefix(providerId: string, modelId: string): string {
 
 function isBuiltinLocalEchoModel(modelId: string): boolean {
   return stripProviderPrefix(modelId).trim() === 'echo-1';
+}
+
+/**
+ * Whether a model listed by a local endpoint belongs in the routable catalogue.
+ *
+ * `/v1/models` enumerates loaded weights, so the list routinely contains
+ * embedding, reranking, transcription and safety-classifier models alongside the
+ * chat ones. Excluding them here is the cheapest of the three gates — a model
+ * that is never registered cannot be failed over to — and the only one that also
+ * keeps them out of the model picker, where selecting one produced a provider
+ * error rather than an explanation.
+ */
+function isRoutableLocalModel(modelId: string): boolean {
+  return !isBuiltinLocalEchoModel(modelId) && isConversationalModel(modelId);
 }
 
 function stripProviderPrefix(modelId: string): string {

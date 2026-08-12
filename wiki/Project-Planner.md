@@ -37,6 +37,17 @@ With Autopilot on, `atlasmind.autoStartProposedProjectRuns` allows an immediate 
 notice. Set it to `false` if you'd rather always get the card. Unusually large runs still stop at the
 approval threshold either way.
 
+**Nothing is approved on your behalf.** However a run is asked for — a typed request, a routed intent, or
+"Proceed" on a proposal card — the goal reaches the planner unapproved, because at the moment you ask,
+nobody has seen a plan or a file estimate yet. If the estimate exceeds
+`atlasmind.project.approvalFileThreshold`, AtlasMind shows the plan and stops with an **Approve and run**
+control carrying that exact run. Clicking it is the approval.
+
+Before v0.294.0 this was inverted: saying "Proceed" arrived unapproved and stopped, while a typed request
+matching the project pattern was approved for you and went straight past the threshold — and the stop had
+no control on it at all, only an instruction to retype the goal with a `--approve` token, so the obvious
+retry stopped in the same place every time.
+
 Detection is deliberately conservative: it needs explicit project vocabulary *and* a first-person offer,
 ignores a generic "I'll build this", backs off on declines, and never fires while requirements are still
 being gathered.

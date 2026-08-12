@@ -139,6 +139,12 @@ The **Memory Agent** does this maintenance in the background. Point it at a loca
 Session context is deliberately kept **out of normal memory retrieval**, so temporary working state
 never gets confused with durable project knowledge.
 
+Where there's no session document yet, AtlasMind falls back to carrying the recent transcript directly.
+That fallback keeps the **most recent** turns and renders them in the order they happened — before
+v0.295.1 it did the opposite, keeping the oldest and dropping the newest, so a conversation past about
+six turns kept re-reading its own opening. Raising the limits made that worse rather than better,
+because the extra room went to older turns.
+
 ---
 
 ## When you're frustrated, it learns

@@ -1731,8 +1731,142 @@ export const TOOL_EXECUTION_TIMEOUT_MS = 15_000;
 /** Provider call timeout in milliseconds. */
 export const PROVIDER_TIMEOUT_MS = 30_000;
 
-/** ACP agents run a stateful subprocess and may legitimately spend time using tools. */
-export const ACP_PROVIDER_TIMEOUT_MS = 180_000;
+/**
+ * How long a single ACP JSON-RPC request may take. Consumed by the adapter as
+ * its per-request budget; exported so the enclosing budget can be derived from
+ * it rather than restated.
+ */
+export const ACP_REQUEST_TIMEOUT_MS = 180_000;
+
+/**
+ * Time allowed for everything an ACP prompt needs before the prompt itself:
+ * spawning the agent process, `initialize`, and `session/new`.
+ *
+ * Generous because the first turn after an editor restart pays for a cold
+ * process launch — an `npx`-resolved agent on Windows can spend tens of seconds
+ * before it answers a single frame.
+ */
+export const ACP_HANDSHAKE_HEADROOM_MS = 60_000;
+
+/**
+ * ACP agents run a stateful subprocess and may legitimately spend time using
+ * tools.
+ *
+ * **Derived, not restated.** This budget encloses spawn → `initialize` →
+ * `session/new` → `session/prompt`, while the adapter's budget covers one frame
+ * of that sequence. When the two were both 180_000 the outer timer always fired
+ * first on a cold start, so a slow handshake surfaced as a bare "Provider timed
+ * out after 180000ms" naming no phase, and the adapter's own message — which
+ * names the method that stalled — was never the one the user saw. `acp.ts` makes
+ * exactly this argument for `ACP_PROBE_TIMEOUT_MS` and the prompt path never got
+ * the same treatment.
+ */
+export const ACP_PROVIDER_TIMEOUT_MS = ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS;
+
+/**
+ * Extra time a local model gets per billion parameters.
+ *
+ * `PROVIDER_TIMEOUT_MS` is a flat 30s written for a hosted endpoint, where the
+ * weights are already resident and somebody else owns the GPU. A local 14B model
+ * answering a 5k-token prompt does the loading and the prompt evaluation on this
+ * machine, and 30s covers neither — the attempt was recorded as a timeout, the
+ * endpoint quarantined, and a failover spent, for a model that was working.
+ */
+export const LOCAL_TIMEOUT_MS_PER_BILLION_PARAMS = 4_000;
+
+/** Extra time a local model gets per 1,000 prompt tokens, for prompt evaluation. */
+export const LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS = 6_000;
+
+/**
+ * Extra time for the first attempt against a local model in this session.
+ *
+ * Loading weights into VRAM is a one-off cost paid by whichever turn arrives
+ * first, and it is the single largest term in a cold local call. Charged only
+ * until that model has answered once — see `Orchestrator.warmLocalModels`.
+ */
+export const LOCAL_COLD_START_TIMEOUT_MS = 60_000;
+
+/**
+ * Ceiling on a derived local timeout. A local call that has produced nothing in
+ * five minutes is a stall worth failing over from, whatever the model's size.
+ */
+export const LOCAL_PROVIDER_MAX_TIMEOUT_MS = 300_000;
+
+// ── Local GPU arbiter ────────────────────────────────────────────
+
+/**
+ * How long a local request may wait for GPU headroom before it is refused.
+ *
+ * A bound rather than an unbounded queue, because a request that never resolves
+ * is a wedged editor. On expiry the turn fails over to another provider, which
+ * is the right answer: the GPU is committed, so use something that is not.
+ *
+ * Long enough to outlast a cold model load — the commonest reason the budget is
+ * briefly committed — and short enough that the turn has not already been
+ * abandoned by whoever asked for it.
+ */
+export const LOCAL_GPU_ADMISSION_WAIT_MS = 45_000;
+
+/**
+ * Concurrent local HTTP calls allowed regardless of measured headroom.
+ *
+ * Two rather than one: with the residency accounting charging weights once per
+ * distinct model, a same-model fan-out is nearly free, and a cap of one would
+ * serialise the bootstrapper's four parallel completions — all of which route to
+ * the same model — turning a one-minute step into four. Two rather than five,
+ * because concurrent *generation* on one card is slower per request than
+ * sequential and the scheduler's fan-out is already bounded elsewhere.
+ */
+export const LOCAL_GPU_MAX_CONCURRENT_REQUESTS = 2;
+
+/**
+ * Subtracted from measured free VRAM before anything is admitted.
+ *
+ * The limb that normally binds. Covers what the desktop will allocate while a
+ * model is loading — a browser tab opening mid-load is ordinary, and a driver
+ * reporting free memory a moment before something else claims it is the common
+ * case rather than the pathological one.
+ */
+export const LOCAL_GPU_SAFETY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * VRAM reserved from the card total, defining AtlasMind's own ceiling.
+ *
+ * **Not an OS reserve.** The desktop is protected by measuring *free* memory,
+ * which already accounts for it — on the reference machine, 9.2 GB of a 24 GB
+ * card was in use with no model loaded. This is the second limb: a cap on how
+ * much of the card AtlasMind may occupy at once, which keeps binding as its own
+ * footprint grows.
+ *
+ * The naive form of that limb, `total − reserve`, is a constant and therefore
+ * inert the moment anything is loaded: the measured limb is always lower. It has
+ * to be `total − reserve − whatAtlasMindHolds` to mean anything.
+ */
+export const LOCAL_GPU_RESERVE_BYTES = 3 * 1024 * 1024 * 1024;
+
+/**
+ * Distinct models AtlasMind may hold per endpoint when VRAM is unmeasurable.
+ *
+ * The degraded mode, on AMD, Intel, Apple, or any machine without `nvidia-smi`.
+ * Capping *residency* rather than concurrency is the whole point: Ollama holds a
+ * model for five minutes after a request, so serialising requests alone would
+ * leave three sequential calls to three models with all three resident.
+ */
+export const LOCAL_GPU_MAX_OWNED_RESIDENT_MODELS = 1;
+
+/**
+ * How long after last serving a model AtlasMind may unload it.
+ *
+ * A model used a moment ago is probably about to be used again, and evicting it
+ * produces a load-evict-load cycle slower than simply waiting for the request in
+ * front. Thirty seconds is long enough to outlast a burst of subtask calls
+ * against one model and short enough that a genuinely finished model does not
+ * hold the card.
+ */
+export const LOCAL_GPU_EVICTION_COOLDOWN_MS = 30_000;
+
+/** How long a residency reading is reused before the runtimes are asked again. */
+export const LOCAL_GPU_RESIDENCY_POLL_MS = 5_000;
 
 /** Number of retries for transient provider failures. */
 export const MAX_PROVIDER_RETRIES = 2;

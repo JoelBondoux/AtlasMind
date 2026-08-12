@@ -26,14 +26,12 @@ import {
   buildProjectResponseMetadata,
   buildWorkstationContext,
   ensureAssistantVisibleResponse,
-  isAutonomousContinuationPrompt,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
   runProjectCommand,
   runLoopCommand,
-  toApprovedProjectPrompt,
   toApprovedLoopPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
@@ -152,7 +150,6 @@ interface PreparedPromptRequest {
   userMessage: string;
   projectGoal?: string;
   /** False for continuation/card starts so the file-count safety gate still runs. */
-  projectPreApproved?: boolean;
   loopGoal?: string;
   directResponse?: ChatPanelDirectResponse;
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
@@ -1146,7 +1143,6 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
-          preparedRequest.projectPreApproved ?? true,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
@@ -1357,7 +1353,6 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
-          false,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
       }
@@ -1826,7 +1821,6 @@ export class ChatPanel {
     token: vscode.CancellationToken,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
-    preApproved = true,
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -1867,9 +1861,16 @@ export class ChatPanel {
     } as unknown as vscode.ChatResponseStream;
 
     const outcome = await runProjectCommand(
-      // Explicit project requests are pre-approved (the operator typed the run);
-      // auto-flowed proposals pass the bare goal so the file-count safety gate holds.
-      preApproved ? toApprovedProjectPrompt(projectGoal) : projectGoal,
+      // Always the bare goal: nothing reaching here has been shown a plan or a
+      // file estimate yet, so nothing here has been reviewed.
+      //
+      // "Explicit project requests are pre-approved (the operator typed the run)"
+      // was the reasoning, and it had the gate backwards — typing a request is
+      // the moment of *least* review, not most. It also contradicted the `/project`
+      // path a few hundred lines up, which says in as many words that wrapping a
+      // goal in the approval token "would have removed a safety gate in passing".
+      // The gate now renders the plan and offers approval as one click instead.
+      projectGoal,
       sink,
       token,
       this.atlas,
@@ -1878,6 +1879,37 @@ export class ChatPanel {
       sessionContext,
       false,
     );
+
+    // Stopped at the file-count gate: offer the approving prompt as one click.
+    //
+    // The panel's only route past this gate used to be retyping the goal with the
+    // `--approve` token, which is not something an operator can be expected to
+    // know — and the natural retry re-entered unapproved and stopped in the same
+    // place. Rendering it as a quick reply reuses the pill the panel already has.
+    if (outcome.approvalRequiredPrompt) {
+      const entry = this.atlas.sessionConversation
+        .getTranscript(activeSessionId)
+        .find(candidate => candidate.id === assistantMessageId && candidate.role === 'assistant');
+      if (entry) {
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          entry.content,
+          activeSessionId,
+          {
+            ...entry.meta,
+            followupQuestion: 'This run exceeds the safety threshold. Approve it?',
+            quickReplies: [
+              {
+                label: 'Approve and run',
+                prompt: outcome.approvalRequiredPrompt,
+                description: 'Start the run despite the estimated file count.',
+              },
+            ],
+          },
+        );
+        await this.syncState();
+      }
+    }
 
     if (outcome.iterationLimitHit) {
       const entry = this.atlas.sessionConversation
@@ -2576,7 +2608,6 @@ export class ChatPanel {
     return {
       userMessage,
       projectGoal,
-      ...(projectGoal ? { projectPreApproved: !isAutonomousContinuationPrompt(prompt) } : {}),
       ...(loopGoal ? { loopGoal } : {}),
       ...(roadmapStatus
         ? {

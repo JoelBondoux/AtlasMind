@@ -1178,6 +1178,124 @@ export type WebsiteWorkStatus = 'not-started' | 'draft' | 'review' | 'approved' 
 export type WebsitePlatformStatus = 'not-planned' | 'planned' | 'configured' | 'live' | 'blocked';
 export type WebsiteAutomationStatus = 'idea' | 'mapped' | 'configured' | 'verified' | 'paused';
 
+/**
+ * The kind of interface being designed.
+ *
+ * `website` preserves the full sitemap/SEO/hosting workflow. The other kinds
+ * use the same screen, content, wireframe and UI-system core without pretending
+ * that their eventual implementation is HTML or that it has a public URL.
+ */
+export type UiSurfaceKind =
+  | 'website'
+  | 'web-app'
+  | 'mobile-app'
+  | 'desktop-app'
+  | 'editor-extension'
+  | 'embedded-ui'
+  | 'other';
+
+/** Project-wide content rules applied to every screen and implementation. */
+export interface UiContentDesign {
+  voice: string;
+  principles: string[];
+  preferredTerms: string[];
+  avoidedTerms: string[];
+  readingLevel: string;
+  locales: string[];
+  accessibilityNotes: string;
+}
+
+export type UiRepositoryAdapterId = 'react' | 'static-html-css' | 'vscode-webview' | 'custom';
+export type UiRepositoryMappingTargetKind = 'component' | 'token' | 'node';
+export type UiRepositoryMappingCoverage = 'declared' | 'partial' | 'unsupported';
+
+export type UiRepositoryMappingTarget =
+  | { kind: 'component'; id: string }
+  | { kind: 'token'; id: string }
+  | { kind: 'node'; id: string; screenId: string };
+
+export interface UiRepositoryMappingBaseline {
+  graphRevision: number;
+  designFingerprint: string;
+  sourceFingerprint: string;
+  verifiedAt: string;
+}
+
+export type UiRepositoryImportCapability = 'partial' | 'unsupported';
+export type UiRepositoryImportFactKind = 'export' | 'property' | 'slot' | 'token' | 'selector';
+export type UiRepositoryImportFindingSeverity = 'info' | 'loss' | 'unsupported';
+export type UiRepositoryImportFindingCode =
+  | 'react-static-only'
+  | 'react-source-extension-unsupported'
+  | 'react-props-not-found'
+  | 'html-css-static-only'
+  | 'html-css-source-extension-unsupported'
+  | 'vscode-static-only'
+  | 'vscode-source-extension-unsupported'
+  | 'custom-adapter-unsupported'
+  | 'source-symbol-not-found'
+  | 'source-not-utf8'
+  | 'no-structural-facts'
+  | 'exact-relations-suggested';
+
+export interface UiRepositoryImportFact {
+  kind: UiRepositoryImportFactKind;
+  name: string;
+}
+
+export interface UiRepositoryImportFinding {
+  code: UiRepositoryImportFindingCode;
+  severity: UiRepositoryImportFindingSeverity;
+  message: string;
+}
+
+/** Host-created adapter evidence. It deliberately has no source-content field. */
+export interface UiRepositoryImportReport {
+  adapterId: UiRepositoryAdapterId;
+  capability: UiRepositoryImportCapability;
+  graphRevision: number;
+  designFingerprint: string;
+  sourceFingerprint: string;
+  importedAt: string;
+  facts: UiRepositoryImportFact[];
+  suggestedPropertyMappings: Record<string, string>;
+  suggestedSlotMappings: Record<string, string>;
+  findings: UiRepositoryImportFinding[];
+}
+
+/** A declared bridge between one graph fact and one repository source location. */
+export interface UiRepositoryMapping {
+  id: string;
+  label: string;
+  adapterId: UiRepositoryAdapterId;
+  target: UiRepositoryMappingTarget;
+  /** Normalized workspace-relative file path; never an import string or command. */
+  sourcePath: string;
+  /** Optional export, selector, class, resource key, or equivalent adapter-owned name. */
+  sourceSymbol: string;
+  propertyMappings: Record<string, string>;
+  slotMappings: Record<string, string>;
+  coverage: UiRepositoryMappingCoverage;
+  limitations: string[];
+  /** Host-created fingerprints only. Mapping definition edits clear this baseline. */
+  lastVerified: UiRepositoryMappingBaseline | null;
+  /** Host-created structural evidence only. Mapping definition edits clear this report. */
+  lastImport: UiRepositoryImportReport | null;
+}
+
+/**
+ * A design-to-code handoff that remains useful for React Native, SwiftUI,
+ * native desktop, game-engine UI, and other non-HTML targets.
+ */
+export interface UiImplementationGuide {
+  targetTechnologies: string[];
+  sourceRoots: string[];
+  componentLocations: string[];
+  notes: string[];
+  repositoryMappingRevision: number;
+  repositoryMappings: UiRepositoryMapping[];
+}
+
 /** Normalized, deliberately bounded client brief imported into Website Studio. */
 export interface ClientWebsiteIntake {
   clientName: string;
@@ -1255,6 +1373,319 @@ export type WireframeBreakpoint = 'desktop' | 'tablet' | 'mobile';
 export interface WebsiteWireframe {
   breakpoint: WireframeBreakpoint;
   elements: WebsiteWireframeElement[];
+}
+
+/** Layout semantics shared by web and non-web UI targets. */
+export type UiLayoutMode = 'free' | 'stack' | 'grid' | 'overlay';
+
+/** How a node claims space on one axis. */
+export type UiSizeMode = 'fixed' | 'fill' | 'hug';
+
+/** Primary axis used when a container arranges its direct children. */
+export type UiLayoutDirection = 'vertical' | 'horizontal';
+
+/** Cross-axis placement for stack, grid, and overlay children. */
+export type UiLayoutAlignment = 'start' | 'center' | 'end' | 'stretch';
+
+/** Main-axis placement for the complete child run. */
+export type UiLayoutDistribution = 'start' | 'center' | 'end' | 'space-between';
+
+/** Whether a stack may continue its run on another row/column. */
+export type UiLayoutWrap = 'nowrap' | 'wrap';
+
+/** The base layout claim for one design node. */
+export interface UiNodeLayout {
+  mode: UiLayoutMode;
+  rect: WireframeRect;
+  widthMode: UiSizeMode;
+  heightMode: UiSizeMode;
+  hidden: boolean;
+  direction: UiLayoutDirection;
+  gap: number;
+  padding: number;
+  columns: number;
+  align: UiLayoutAlignment;
+  distribute: UiLayoutDistribution;
+  minWidth: number | null;
+  maxWidth: number | null;
+  minHeight: number | null;
+  maxHeight: number | null;
+  wrap: UiLayoutWrap;
+  order: number;
+}
+
+/**
+ * An intentional viewport-specific departure from the base layout. Missing
+ * properties inherit; storing a complete duplicate would make it impossible to
+ * tell an override from a coincidentally equal value.
+ */
+export interface UiNodeViewportOverride {
+  mode?: UiLayoutMode;
+  rect?: WireframeRect;
+  widthMode?: UiSizeMode;
+  heightMode?: UiSizeMode;
+  hidden?: boolean;
+  direction?: UiLayoutDirection;
+  gap?: number;
+  padding?: number;
+  columns?: number;
+  align?: UiLayoutAlignment;
+  distribute?: UiLayoutDistribution;
+  minWidth?: number | null;
+  maxWidth?: number | null;
+  minHeight?: number | null;
+  maxHeight?: number | null;
+  wrap?: UiLayoutWrap;
+  order?: number;
+}
+
+/**
+ * One target-independent node in UI Studio's authoritative design graph.
+ * References are stable identifiers, never source paths or executable values.
+ */
+export interface UiDesignNode {
+  id: string;
+  kind: WireframeElementKind;
+  label: string;
+  /** Authoring guard enforced by the reducer; it does not alter rendered output. */
+  locked: boolean;
+  parentId?: string;
+  layout: UiNodeLayout;
+  viewportOverrides: Partial<Record<WireframeBreakpoint, UiNodeViewportOverride>>;
+  designPrompt: string;
+  notes: string;
+  contentRef?: string;
+  styleRef?: string;
+  componentRef?: string;
+  /** Explicit reusable-definition instance; never inferred from selection. */
+  componentInstance?: UiComponentInstance;
+  /** Slot claimed inside the parent component instance, when applicable. */
+  componentSlot?: string;
+  /** Explicit content state selected for design review, not inferred runtime data. */
+  previewContentState?: UiNodeContentState;
+  /** Node-owned short interface copy; long-form screen copy remains in Markdown. */
+  contentStatePresentations?: Partial<Record<Exclude<UiNodeContentState, 'default'>, UiNodeStatePresentation>>;
+  /** Explicit sample-data projection for design review; never a production data source. */
+  dataBinding?: UiNodeDataBinding;
+  /** Stable reference to graph-owned asset metadata; never a source path or URL itself. */
+  assetRef?: string;
+}
+
+export type UiNodeContentState = 'default' | 'empty' | 'loading' | 'error' | 'success';
+export type UiContentMaturity = 'placeholder' | 'draft' | 'reviewed' | 'approved';
+
+export interface UiNodeStatePresentation {
+  title: string;
+  body: string;
+  actionLabel: string;
+  maturity: UiContentMaturity;
+}
+
+export type UiContentFieldKind = 'text' | 'number' | 'boolean' | 'url' | 'date';
+export type UiContentSampleValue = string | number | boolean;
+export type UiNodeContentSlot = 'title' | 'body' | 'action';
+
+export interface UiContentFieldDefinition {
+  id: string;
+  label: string;
+  kind: UiContentFieldKind;
+  required: boolean;
+}
+
+/** Bounded preview-only record. Production records and credentials never enter the design graph. */
+export interface UiContentSampleRecord {
+  id: string;
+  label: string;
+  values: Record<string, UiContentSampleValue>;
+}
+
+export interface UiContentCollection {
+  id: string;
+  label: string;
+  description: string;
+  fields: UiContentFieldDefinition[];
+  samples: UiContentSampleRecord[];
+}
+
+export type UiDesignAssetKind = 'image' | 'illustration' | 'icon' | 'video-poster';
+export type UiDesignAssetSourceKind = 'workspace' | 'https';
+export type UiDesignAssetCrop = 'cover' | 'contain' | 'none';
+
+/** A validated reference only. Binary content and credentials never enter the design graph. */
+export interface UiDesignAssetSource {
+  kind: UiDesignAssetSourceKind;
+  reference: string;
+}
+
+/** Target-independent media intent shared by canvas, preview, and future repository adapters. */
+export interface UiDesignAsset {
+  id: string;
+  label: string;
+  kind: UiDesignAssetKind;
+  source: UiDesignAssetSource;
+  width: number;
+  height: number;
+  crop: UiDesignAssetCrop;
+  /** Percentages in the closed 0..100 range. */
+  focalPoint: { x: number; y: number };
+  altText: string;
+  decorative: boolean;
+  maturity: UiContentMaturity;
+}
+
+export interface UiNodeDataBinding {
+  collectionId: string;
+  sampleRecordId: string;
+  fieldMappings: Partial<Record<UiNodeContentSlot, string>>;
+}
+
+export type UiContentDiagnosticCode =
+  | 'collection-not-found'
+  | 'sample-record-not-found'
+  | 'field-not-found'
+  | 'sample-value-missing'
+  | 'content-state-missing';
+
+export interface UiContentDiagnostic {
+  code: UiContentDiagnosticCode;
+  severity: 'error' | 'warning';
+  nodeIds: [string];
+  message: string;
+}
+
+export type UiAssetDiagnosticCode = 'asset-not-found' | 'asset-alt-missing';
+
+export interface UiAssetDiagnostic {
+  code: UiAssetDiagnosticCode;
+  severity: 'error' | 'warning';
+  nodeIds: [string];
+  message: string;
+}
+
+/** A page/screen projection in the shared design graph. */
+export interface UiDesignScreen {
+  /** Stable screen identity. Initially identical to the compatible page id. */
+  id: string;
+  pageId: string;
+  /** False preserves the meaningful legacy state "this screen has not been drawn". */
+  initialized: boolean;
+  baseBreakpoint: WireframeBreakpoint;
+  nodes: UiDesignNode[];
+}
+
+export type UiDesignTokenKind =
+  | 'color'
+  | 'font-family'
+  | 'font-size'
+  | 'font-weight'
+  | 'line-height'
+  | 'spacing'
+  | 'radius'
+  | 'shadow'
+  | 'motion'
+  | 'breakpoint';
+
+export interface UiShadowTokenValue {
+  x: number;
+  y: number;
+  blur: number;
+  spread: number;
+  color: string;
+}
+
+export interface UiMotionTokenValue {
+  durationMs: number;
+  easing: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
+export type UiDesignTokenValue = string | number | UiShadowTokenValue | UiMotionTokenValue;
+
+interface UiDesignTokenBase {
+  id: string;
+  label: string;
+  kind: UiDesignTokenKind;
+}
+
+/** A token owns one typed value or aliases another token of the same kind. */
+export type UiDesignToken =
+  | (UiDesignTokenBase & { value: UiDesignTokenValue; aliasOf?: never })
+  | (UiDesignTokenBase & { aliasOf: string; value?: never });
+
+/** Closed, target-independent component property vocabulary. */
+export type UiComponentPropertyKind = 'text' | 'number' | 'boolean' | 'choice';
+export type UiComponentPropertyValue = string | number | boolean;
+
+/** Interaction and system states that a reusable definition may explicitly support. */
+export type UiComponentState =
+  | 'default'
+  | 'hover'
+  | 'focus'
+  | 'active'
+  | 'disabled'
+  | 'loading'
+  | 'empty'
+  | 'error'
+  | 'success'
+  | 'validation';
+
+export interface UiComponentPropertyDefinition {
+  id: string;
+  label: string;
+  kind: UiComponentPropertyKind;
+  defaultValue: UiComponentPropertyValue;
+  /** Required for `choice`; absent for every other property kind. */
+  choices?: string[];
+}
+
+export interface UiComponentSlotDefinition {
+  id: string;
+  label: string;
+  required: boolean;
+  /** Empty means any bounded wireframe kind is accepted. */
+  allowedKinds: WireframeElementKind[];
+  maxChildren: number;
+}
+
+export interface UiComponentVariantDefinition {
+  id: string;
+  label: string;
+  /** Values are checked against the definition's declared properties. */
+  propertyValues: Record<string, UiComponentPropertyValue>;
+}
+
+/** A reusable, target-independent component definition. It stores no markup or executable style. */
+export interface UiComponentDefinition {
+  id: string;
+  label: string;
+  description: string;
+  rootKind: WireframeElementKind;
+  properties: UiComponentPropertyDefinition[];
+  slots: UiComponentSlotDefinition[];
+  variants: UiComponentVariantDefinition[];
+  /** Always contains `default`; other entries are explicit design decisions. */
+  states: UiComponentState[];
+}
+
+/** Bounded per-node departures from one reusable component definition. */
+export interface UiComponentInstance {
+  definitionId: string;
+  variantId?: string;
+  state: UiComponentState;
+  propertyOverrides: Record<string, UiComponentPropertyValue>;
+}
+
+/**
+ * UI Studio's authoritative visual-design document. `revision` is monotonic:
+ * undo restores content from history but still advances this value so a stale
+ * preview or webview event can never become current again by accident.
+ */
+export interface UiDesignGraph {
+  revision: number;
+  tokens: UiDesignToken[];
+  components: UiComponentDefinition[];
+  contentCollections: UiContentCollection[];
+  assets: UiDesignAsset[];
+  screens: UiDesignScreen[];
 }
 
 /**
@@ -1415,10 +1846,28 @@ export interface WebsiteStackChoice {
  * Version 3 added `stack`. The 2 → 3 step adds nothing but the version number:
  * an absent stack means nobody has chosen one, and a migration has no standing
  * to infer it.
+ * Version 4 moved page copy into separately managed Markdown files. Version 5
+ * generalizes the design core beyond websites with `surfaceKind`,
+ * `contentDesign`, and `implementation`; existing projects migrate explicitly
+ * to `website`, the only surface the older format could describe. Version 6
+ * adds the revisioned target-independent design graph; the page wireframe is a
+ * compatibility projection while existing readers move to that graph. Version
+ * 7 adds typed token definitions without inventing any during migration.
+ * Version 8 adds reusable component definitions and bounded instances; the
+ * migration again adds only empty authority, never an inferred component.
+ * Version 9 adds optional node-owned content-state presentations and changes
+ * only the format number during migration so no interface copy is invented.
+ * Version 10 adds bounded preview-only content collections and explicit node
+ * bindings; migration adds an empty collection authority and invents no data.
+ * Version 11 adds validated asset metadata and stable node references; migration
+ * adds an empty asset authority rather than inspecting or guessing from files.
+ * Version 13 adds bounded adapter evidence reports to revisioned repository mappings.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 4;
+  version: 13;
   updatedAt: string;
+  /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
+  surfaceKind: UiSurfaceKind;
   intake: ClientWebsiteIntake;
   /**
    * Natural-language design intent for the site as a whole — the sentence every
@@ -1426,7 +1875,10 @@ export interface WebsiteWorkspaceConfig {
    */
   designPrompt: string;
   pages: WebsitePagePlan[];
+  designGraph: UiDesignGraph;
   designSystem: WebsiteDesignSystem;
+  contentDesign: UiContentDesign;
+  implementation: UiImplementationGuide;
   platforms: WebsitePlatformTarget[];
   hostingEnvironments: WebsiteHostingEnvironment[];
   automations: WebsiteAutomation[];
@@ -2147,11 +2599,46 @@ export type AssignmentStatus =
   | (string & {});
 export type AssignmentPriority = 'high' | 'medium' | 'low' | (string & {});
 
+/** Dashboard work records that can carry a Director-assigned human owner. */
+export type DashboardWorkKind =
+  | 'branch'
+  | 'roadmap'
+  | 'issue'
+  | 'pull-request'
+  | 'gap'
+  | 'risk'
+  | 'debt'
+  | 'document';
+
+/** A concrete dashboard record that a cross-surface link can reveal. */
+export type DashboardFocusKind = DashboardWorkKind | 'assignment' | 'follow-up';
+
+/**
+ * A guarded dashboard deep link. The page is always required; focus is an
+ * optional enhancement, so a record removed between click and render still
+ * lands on the correct owning page rather than failing navigation entirely.
+ */
+export interface ProjectDashboardOpenTarget {
+  page: string;
+  focus?: {
+    kind: DashboardFocusKind;
+    id: string;
+  };
+}
+
+/** Stable link to work owned by another Project Dashboard surface. */
+export interface AssignmentLinkedWork {
+  kind: DashboardWorkKind;
+  id: string;
+}
+
 /**
  * Links a human (contact) to a unit of work — the human-assignee overlay that
  * {@link ProjectRunRecord} / {@link SubTask} (assigned to *agent roles*) lack.
  * `linkedRunId` binds an autonomous run to its human owner **without mutating
- * the run record**; `linkedResponsibilityId` binds an ongoing responsibility.
+ * the run record**; `linkedResponsibilityId` binds an ongoing responsibility;
+ * `linkedWork` lets the same Director-owned assignment follow actionable work
+ * across Project Dashboard surfaces without those surfaces inventing owners.
  */
 export interface Assignment {
   id: string;
@@ -2165,8 +2652,9 @@ export interface Assignment {
   /** ProjectRunRecord.id this assignment aggregates, when it maps to a run. */
   linkedRunId?: string;
   linkedResponsibilityId?: string;
+  linkedWork?: AssignmentLinkedWork;
   /** Provenance so imported/derived items are distinguishable from manual ones. */
-  source: 'manual' | 'imported' | 'run' | (string & {});
+  source: 'manual' | 'imported' | 'run' | 'dashboard' | (string & {});
   createdAt: string;
   updatedAt: string;
   notes?: string;

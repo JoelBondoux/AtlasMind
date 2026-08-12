@@ -217,6 +217,36 @@ Keep this computer awake so an AtlasMind activity that must stay online — a lo
 
 A status-bar indicator shows when the machine is being held awake (and when it is paused on battery); click it, or run **AtlasMind: Toggle Keep Computer Awake** (`atlasmind.togglePresence`), to stop. A VS Code extension cannot use Electron's `powerSaveBlocker`, so the lock is a spawned OS helper tied to the extension-host lifetime; no untrusted input is ever passed to it.
 
+## Local GPU arbiter
+
+Admits local model requests against a measured VRAM budget, so several AtlasMind code paths and
+several local runtimes cannot over-commit one graphics card between them. Backed by the
+`LocalModelArbiter` core service.
+
+The problem is specific. AtlasMind can issue a local call from at least six places that never meet —
+the subtask scheduler's fan-out, project bootstrap's parallel completions, the skill auto-assigner,
+two background timers, and every chat turn. Ollama and LM Studio each decide what fits against
+whatever free memory they see at that instant, and neither can see the other. Neither reserves
+anything for the desktop: on a 24 GB card measured with no model loaded at all, 9.2 GB was already
+committed to Windows, a browser and antivirus.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.localGpu.enabled` | `boolean` | `true` | Admit local model requests against a VRAM budget. Off restores the previous behaviour, where every local request was sent immediately. |
+| `atlasmind.localGpu.maxConcurrentRequests` | `number` | `2` | Concurrent local requests allowed regardless of available VRAM (1–8). Requests against an already-loaded model cost only their own context cache, so a burst against one model mostly runs in parallel; requests needing different models are serialised by the budget whatever this is set to. |
+| `atlasmind.localGpu.safetyMarginMb` | `number` | `2048` | Megabytes of free VRAM left unclaimed (0–32768). Covers what the desktop will allocate *while* a model is loading. Because free memory is measured rather than assumed, this does not need to account for what Windows and your applications already hold. |
+| `atlasmind.localGpu.reserveMb` | `number` | `3072` | Megabytes of the card AtlasMind will never occupy (0–131072). **A ceiling on AtlasMind's own share, not an OS reserve** — the desktop is protected by measuring free memory. `0` lets the free-memory measurement govern alone. |
+| `atlasmind.localGpu.maxResidentModelsWhenUnmeasured` | `number` | `1` | Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured (1–8), i.e. on AMD, Intel, Apple Silicon, or without `nvidia-smi`. Limiting *distinct resident models* is the only bound available without a memory reading; limiting concurrent requests would not help, because Ollama keeps a model in memory for minutes after a request finishes. |
+| `atlasmind.localGpu.evictOwnModels` | `boolean` | `true` | Let AtlasMind unload models **it loaded itself** to reclaim room. A model you loaded by hand is never unloaded, whatever the pressure. Only released when idle, out of cooldown, and when releasing it would actually free enough — a partial eviction costs the reload for nothing. |
+
+Two behaviours are worth knowing. When the budget stays committed past a bounded wait the request is
+**refused and the turn fails over to another provider** — the local GPU is busy, so AtlasMind uses
+something that is not. That refusal is classified as a capacity deferral rather than a model failure,
+so a busy GPU never quarantines the endpoint or teaches the router that a working model is
+unreliable. And AtlasMind **only ever unloads models it loaded itself**; a model you loaded by hand is tracked as
+resident and never evicted, which is enforced in the eviction policy rather than left to convention
+(a property test asserts no producible plan ever names an unowned model).
+
 ## Orchestrator Tunables
 
 | Setting | Type | Default | Description |
@@ -362,10 +392,12 @@ Two facts worth knowing before you turn this on:
   endpoint nobody probed carries no findings and says explicitly that this is not a finding of
   "no drift".
 
-## Website Studio — generation and preview
+## UI Studio — visual-guide generation and preview
 
-Website Studio models a client website: brief, sitemap, wireframe canvas, UI system, hosting and
-automation plans. All of that is inert. Two things in it are not, and each has its own switch.
+UI Studio models any interface through a selected profile, screens, content design, wireframe canvas,
+UI system and implementation handoff. Every profile can render a static HTML/CSS visual guide; website
+profiles additionally add sitemap/SEO, hosting and automation plans. Most of the Studio is inert; the
+two actions here each have their own switch.
 
 **They are two switches on purpose.** Writing model-authored files to disk and opening a local
 network port are different decisions with different consequences, and a single control carrying
@@ -375,7 +407,7 @@ both would make the second one happen without anybody agreeing to it.
 |---|---|---|---|
 | `atlasmind.website.generation.enabled` | boolean | `false` | Allow the **Generate** buttons to call a model and write static HTML and CSS. Every generation shows a modal listing **each file it will write** first, and the plan is deterministic — the same sitemap and stage always produce the same list, which is what makes that dialog worth reading. Files land only in `.atlasmind/website-preview/`; your source tree is never written to. |
 | `atlasmind.website.generation.maxFiles` | number | `40` | Most files one generation may write. A plan over the limit is **refused with the count**, never truncated — a half-generated site whose missing pages look like broken links is harder to diagnose than one that did not run. Hard ceiling of 120 regardless. |
-| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the preview to serve the generated site so it can be rendered beside the Studio. |
+| `atlasmind.website.preview.enabled` | boolean | `false` | Allow the guarded preview server. The deterministic structure/content/style draft opens in VS Code's built-in browser; a separate responsive lab uses the same URL. |
 | `atlasmind.website.preview.port` | number | `0` | Port for the preview server on `127.0.0.1`. `0` picks a free one, which is almost always right. Values below 1024 are ignored and fall back to automatic. |
 
 Four facts about the preview server, since it is the only part of Website Studio that opens a port:
@@ -389,19 +421,24 @@ Four facts about the preview server, since it is the only part of Website Studio
   small allowlist returns 404 rather than being offered as a download.
 - **Its URL carries a random per-session token.** Any process on the machine can reach a localhost
   port, and a client's design work is not something to hand to whatever else is running.
-- **It starts on demand and stops with the window.** Closing the preview, or Website Studio, stops
-  the server. A port outliving the thing that could show it is a port nobody remembers is open.
+- **It starts on demand and has explicit lifetime owners.** Stop Preview, closing UI Studio, or
+  extension deactivation stops the server. Closing only the responsive lab does not break a full
+  preview that may still be open in the built-in browser.
+
+The full-preview index is always the deterministic Studio draft rebuilt from saved wireframes, safe
+UI colour/type tokens, and exact Markdown content. Model-generated visual guides remain separate files
+linked from that index; they never replace the meaning of the preview entry point.
 
 Generated files are constrained the same way at three points — when the plan is built, when the
 model's reply is read, and again immediately before each write. A model that returns a file the user
 did not approve has it **reported, not written**, and no `.js` may be generated at all: a generated
 page that can execute is a different security question from one that cannot.
 
-## Website Studio — content and client review
+## UI Studio — content and client review
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.website.content.directory` | string | `content` | Folder holding one markdown file per page, with YAML front-matter. **Files are the source of truth**; the Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
+| `atlasmind.website.content.directory` | string | `content` | Folder holding one Markdown file per page or screen, with YAML front-matter. **Files are the source of truth**; UI Studio shows an editable mirror. A path that escapes the workspace — including an absolute one — is refused and the default is used, rather than being quietly relativised. |
 | `atlasmind.website.review.enabled` | boolean | `false` | Record client review comments against pages and wireframe elements. Comments transition through `open → addressed → resolved` (plus `wont-fix`) and are **never deleted**. |
 | `atlasmind.website.review.includeOverlayInBuild` | boolean | `false` | Inject the comment overlay into generated pages so a client can leave feedback in their own browser. |
 | `atlasmind.website.review.webhookUrl` | string | `''` | An `https` endpoint **you already own** for the overlay to POST to. Empty means export-only: the client downloads a file and you import it. |

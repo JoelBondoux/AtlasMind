@@ -7,9 +7,13 @@ import {
   buildBranchChatTarget,
   buildDashboardBranchInventory,
   listChangelogVersions,
+  normalizeBranchDashboardPreferences,
   normalizeDashboardPromptRequest,
+  normalizeProjectDashboardOpenTarget,
   parseGhReleaseList,
+  resolveBranchTrackingTarget,
   shouldRefreshRepositoryActivity,
+  validateNewBranchNameInput,
 } from '../../src/views/projectDashboardPanel.ts';
 import { ATLAS_ICON_DATA_URI, renderAtlasDiscussAction } from '../../src/views/webviewUtils.ts';
 
@@ -27,6 +31,14 @@ import { ATLAS_ICON_DATA_URI, renderAtlasDiscussAction } from '../../src/views/w
 
 const WEBVIEW_SCRIPT = readFileSync(
   path.join(process.cwd(), 'media', 'projectDashboard.js'),
+  'utf8',
+);
+const HOST_SOURCE = readFileSync(
+  path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+  'utf8',
+);
+const COMMANDS_SOURCE = readFileSync(
+  path.join(process.cwd(), 'src', 'commands.ts'),
   'utf8',
 );
 
@@ -140,7 +152,8 @@ describe('dashboard nav definition', () => {
     // Guards the blank-dashboard failure mode: state.activePage used to be
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
-    expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+    expect(WEBVIEW_SCRIPT).toContain('function normalizeNavigationTarget(');
+    expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*target\.page/);
   });
 
   const deliverySection = (): string => WEBVIEW_SCRIPT.slice(
@@ -252,6 +265,55 @@ describe('dashboard GitHub activity freshness', () => {
       ttlMs: 0,
     })).toBe(false);
   });
+
+  it('accepts exact dashboard deep links and drops untrusted focus data safely', () => {
+    expect(normalizeProjectDashboardOpenTarget({
+      page: 'branches',
+      focus: { kind: 'branch', id: 'develop' },
+    })).toEqual({ page: 'branches', focus: { kind: 'branch', id: 'develop' } });
+    expect(normalizeProjectDashboardOpenTarget('pullRequests')).toEqual({ page: 'pullRequests' });
+    expect(normalizeProjectDashboardOpenTarget({
+      page: 'risk',
+      focus: { kind: 'not-a-kind', id: 'risk-1' },
+    })).toEqual({ page: 'risk' });
+    expect(normalizeProjectDashboardOpenTarget({ page: 'not-a-page' })).toBeUndefined();
+  });
+
+  it('forwards every dashboard navigation target through the command boundary', () => {
+    const start = COMMANDS_SOURCE.indexOf("registerCommand('atlasmind.openProjectDashboard'");
+    const end = COMMANDS_SOURCE.indexOf("registerCommand('atlasmind.openProjectDirector'", start);
+    expect(start, 'openProjectDashboard command not found').toBeGreaterThan(-1);
+    expect(end, 'openProjectDashboard command terminator not found').toBeGreaterThan(start);
+    const command = COMMANDS_SOURCE.slice(start, end);
+
+    expect(command).toContain('ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target);');
+    expect(command).not.toContain("target === 'ideation'");
+  });
+
+  it('gives every Director-assignable dashboard record a stable focus marker', () => {
+    for (const kind of ['branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document']) {
+      expect(WEBVIEW_SCRIPT, `missing focus marker for ${kind}`)
+        .toContain(`data-dashboard-focus-kind="${kind}"`);
+    }
+    expect(WEBVIEW_SCRIPT).toContain('function applyPendingDashboardFocus()');
+    expect(WEBVIEW_SCRIPT).toContain("data-action=\"dashboard-focus\"");
+  });
+});
+
+describe('dashboard branch workflow inputs', () => {
+  it('resolves tracking refs against the longest live remote name', () => {
+    expect(resolveBranchTrackingTarget('team/upstream/feat/example', ['team', 'team/upstream']))
+      .toEqual({ remote: 'team/upstream', branch: 'feat/example' });
+    expect(resolveBranchTrackingTarget('vanished/feat/example', ['origin'])).toBeUndefined();
+    expect(resolveBranchTrackingTarget(undefined, ['origin'])).toBeUndefined();
+  });
+
+  it('rejects branch names that could be options, paths, or invalid refs', () => {
+    expect(validateNewBranchNameInput('feat/safe-name')).toBeUndefined();
+    for (const name of ['', '-force', '/rooted', 'feat//empty', 'feat/../escape', 'bad name', 'topic.lock']) {
+      expect(validateNewBranchNameInput(name), name).toBeTypeOf('string');
+    }
+  });
 });
 
 describe('dashboard branch inventory', () => {
@@ -298,6 +360,35 @@ describe('dashboard branch inventory', () => {
     });
     expect(inventory.items.filter(item => item.name === 'develop')).toHaveLength(1);
     expect(inventory.divergedCount).toBe(1);
+  });
+
+  it('uses the newest side of a folded branch for activity and recency sorting', () => {
+    const foldedRefs = [
+      record([
+        'refs/heads/feat/behind', 'feat/behind', '1111111', '2026-07-20T09:00:00Z', 'Ari', 'Older local commit',
+        'origin/feat/behind', '[behind 1]', '', '',
+      ]),
+      record([
+        'refs/remotes/origin/feat/behind', 'origin/feat/behind', '2222222', '2026-07-31T11:00:00Z', 'Lee', 'Newest remote commit',
+        '', '', '', '',
+      ]),
+      record([
+        'refs/heads/feat/middle', 'feat/middle', '3333333', '2026-07-29T09:00:00Z', 'Sam', 'Middle commit',
+        '', '', '', '',
+      ]),
+    ].join('\n');
+
+    const inventory = buildDashboardBranchInventory(foldedRefs, '', 'develop', now);
+    const folded = inventory.items.find(item => item.name === 'feat/behind');
+
+    expect(folded).toMatchObject({
+      hash: '2222222',
+      author: 'Lee',
+      subject: 'Newest remote commit',
+      lastCommitAt: '2026-07-31T11:00:00Z',
+      lastCommitRelative: '1 day ago',
+    });
+    expect(inventory.items.map(item => item.name)).toEqual(['feat/behind', 'feat/middle']);
   });
 
   it('shows remote-only refs as bring-local candidates and identifies the default', () => {
@@ -418,6 +509,7 @@ describe('dashboard branch inventory', () => {
       'branch-inspect',
       'branch-story',
       'branch-open-pr',
+      'branch-workflow',
       'branch-compare-toggle',
       'branch-compare-run',
       'branch-cleanup',
@@ -429,6 +521,7 @@ describe('dashboard branch inventory', () => {
     expect(WEBVIEW_SCRIPT).toContain("type: 'openBranchChangeStory', payload");
     expect(WEBVIEW_SCRIPT).toContain("type: 'reviewBranchCleanup', payload");
     expect(WEBVIEW_SCRIPT).toContain("type: 'openBranchPullRequest', payload");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'runBranchWorkflow'");
     expect(WEBVIEW_SCRIPT).toContain("type: 'compareBranches'");
     expect(WEBVIEW_SCRIPT).toContain('Changed-file overlap');
     expect(WEBVIEW_SCRIPT).toContain('Review routing');
@@ -440,6 +533,22 @@ describe('dashboard branch inventory', () => {
     expect(WEBVIEW_SCRIPT).toContain('branch-sort-select');
     expect(WEBVIEW_SCRIPT).toContain('branch-group-select');
     expect(WEBVIEW_SCRIPT).toContain('vscode.setState');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'saveBranchPreferences'");
+    expect(HOST_SOURCE).toContain("'atlasmind.projectDashboard.branchPreferences'");
+    expect(HOST_SOURCE).toContain('this.context.workspaceState?.update(PROJECT_DASHBOARD_BRANCH_PREFERENCES_KEY');
+  });
+
+  it('accepts only complete, closed-set branch preference records', () => {
+    const preferences = {
+      branchView: 'mine',
+      branchSort: 'activity',
+      branchSortDirection: 'desc',
+      branchGroup: 'branch-family',
+      branchScmChips: true,
+    } as const;
+    expect(normalizeBranchDashboardPreferences(preferences)).toEqual(preferences);
+    expect(normalizeBranchDashboardPreferences({ ...preferences, branchSort: 'surprise' })).toBeUndefined();
+    expect(normalizeBranchDashboardPreferences({ ...preferences, extra: true })).toBeUndefined();
   });
 });
 

@@ -82,6 +82,10 @@ npm run lint
 
 **Every run writes a JUnit report.** `vitest.config.ts` declares `reporters: ['default', 'junit']` with `outputFile.junit`, so `npm run test` emits `test-results/junit.xml` alongside its normal console output. This is not a convenience: AtlasMind's own Testing dashboard reads pass/fail only from a report the project wrote and never runs a test command to find out, so until the report existed the dashboard rendered *"No test report"* on the project that ships it. It is configured rather than hidden behind a separate script for the same reason — a script reproduces the failure one step along, with the report existing only when somebody remembers. `test-results/` is gitignored: it is evidence of *your* run, and committing it would make the dashboard report whoever last pushed. `test:providers:local-recommendations` passes `--reporter=dot` and therefore writes nothing, which is correct — a single-file run must not overwrite the whole-suite verdict.
 
+**The per-test timeout is 20s, not Vitest's 5s default.** A large share of this suite is deliberately not cheap: the `fs`-only managers are exercised against a real `mkdtemp` directory with a real project tree written into it, because mocking the filesystem under them would test the mock. Each such test's duration therefore tracks the host's disk, and a developer checkout on a synced folder (OneDrive, Dropbox) can be an order of magnitude slower than CI. At 5s the margin was thin enough that a filesystem-heavy test passed alone and timed out under full-suite load — the worst failure shape available, because at the moment it blocks a commit it is indistinguishable from a real one, and it trains whoever hits it to reach for `--no-verify`, which skips compile and lint as well. The higher ceiling hides nothing: a genuinely stuck test still fails, just later.
+
+**A long-lived branch conflicts on the release files, and `npm run resolve:release-conflicts` settles it.** Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the version always names an exact state of the code — but it means two branches doing entirely unrelated work conflict on the same five files (`package.json`, `package-lock.json`, `CHANGELOG.md`, `README.md`, `wiki/Changelog.md`) *every time*, with no semantic overlap between the changes. A branch open while another stream is pushing re-conflicts within hours. `scripts/resolve-release-conflicts.mjs` encodes the resolution: version files take the incoming version patch-bumped (a feature branch is a PATCH on top of wherever the integration branch reached, never a revert of it, which is what taking "ours" silently does), and notes files keep **both** sides with this branch's entry relabelled and placed above. It refuses to report success while any marker survives, it only runs mid-merge, and it touches nothing else — a conflict in source, tests or docs is a real disagreement about behaviour and wants a human. The hazard it removes is specific: hand-resolving identical-looking hunks repeatedly is how a changelog entry quietly loses a paragraph while attention is on the version numbers.
+
 **Tests live under `tests/`, and nowhere else.** The runner's `include` is `tests/**/*.test.ts`. A test file placed in `src/`, in a singular `test/` directory, or given a `.spec.ts` suffix does not run and reports nothing — its presence then reads as coverage that does not exist. Five such files were found and moved in v0.220.0; two of them did not pass once they ran. If a test seems to be passing suspiciously easily, confirm the runner is picking it up before believing it.
 
 ```bash
@@ -114,6 +118,7 @@ AtlasMind/
 │   ├── ssot-memory.md    Memory system design
 │   ├── agents-and-skills.md  Agent and skill system
 │   ├── website-studio.md Website Studio workflow and safety boundary
+│   ├── ui-studio-builder-plan.md Approved visual-builder PRD and phased delivery plan
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
@@ -128,7 +133,7 @@ AtlasMind/
 │   ├── acp/              Agent-side ACP sessions, permissions, Buzz setup/reply boundary
 │   ├── chat/             Chat participant
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`) plus its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensDashboard.ts Pure Lens catalog, readiness rules, flow map, and ranked actions
 │   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the five declaration files
 │   │   ├── lensDeclarationDraft.ts Untrusted-model boundary for a proposed declaration: refuse, anchor-check, withhold, merge
@@ -159,7 +164,7 @@ AtlasMind/
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpWindowsLauncher.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpWindowsLauncher.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, `modelRole.ts` (non-chat model exclusion, pure), `gpuProbe.ts` + `gpuProbeParse.ts` (GPU memory probing), `localFootprint.ts` (VRAM footprint estimation), `localRuntimeClient.ts` (local runtime residency), and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts` + `websiteStudioStyles.ts`, the website preview surface `websitePreviewPanel.ts` + `websitePreviewHost.ts`, stack setup in `websiteStackSetupHost.ts`, feedback import in `websiteReviewHost.ts`, and presentation-only Models tree preferences in `modelSidebarVisibility.ts`); the chat panel's slash handling is `chatSlashRouting.ts` (pure router) + `chatStreamCollector.ts` (replays the participant's handlers into memory)
 │   │   ├── lensDashboardPanel.ts The Atlas Lenses dashboard: catalog, flow map, next actions
@@ -299,14 +304,136 @@ There are two distinct handoff shapes. Operational errors contain process-, tool
 
 The shell's responsive sizing contract distinguishes containers from content. Grid and flex containers may use `min-width: 0` so a panel can contract, but do not apply that reset to inline text, labels, buttons, or badges: doing so changes their minimum contribution to almost nothing and invites character-by-character wrapping. Normal prose and controls use word-boundary wrapping and stay within `max-width: 100%`; reserve `overflow-wrap: anywhere` for unbroken content such as URLs. In compact mixed-content rows, keep intrinsic columns such as a kind badge or numeric score at `max-content` and give the descriptive column `minmax(0, 1fr)`. `tests/views/panelWiring.test.ts` pins this contract and the Project Ideation checklist/analytics implementation.
 
-The Website Studio follows the same extension-host/webview split. `websiteStudioPanel.ts` renders and collects the six dashboard pages, including the fixed Develop → Staging → Production hosting cards, but every incoming message is checked by `isWebsiteStudioMessage()` and every data payload is passed through `sanitizeWebsiteWorkspace()` in `websiteWorkspaceManager.ts` before persistence. Treat all displayed policy fields as presentation only: the host reconstructs canonical environment names, access policies, hosting restrictions, and Production protection; `assessWebsiteHostingEnvironments()` then validates loopback/HTTPS/password-reference/review-subdomain readiness. Credential inputs are references with an explicit provider prefix, never password values. Keep platform deployment and n8n execution out of the webview: it may record readiness and non-secret references, while real production actions must continue through a separately reviewed/approved host-side path.
+UI Studio follows the same extension-host/webview split while retaining the compatibility-named
+`websiteStudioPanel.ts` and command id. It renders a profile-aware sequence: Brief, Sitemap or Screens
+& Flows, Content Design, UI System, Wireframes, Full Preview, Implementation, and website-only n8n. Non-website
+profiles never render SEO, stack, hosting, Delivery comparison, or n8n controls. Every incoming message
+is checked by `isWebsiteStudioMessage()` and the main payload passes through
+`sanitizeWebsiteWorkspace()` before persistence.
+
+Format v13 adds bounded adapter evidence/capability/loss reports; v12 added revisioned repository mappings and host-created verification fingerprints; v11 added validated asset metadata and stable node assignments; v10 added bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
+tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
+present it derives page wireframes for older renderers, and when the current canvas submits its temporary
+wireframe batch the host transcribes that batch once and advances the graph revision. Do not add another
+graph/wireframe converter. New design mutations belong in `uiEditCommands.ts`; its expected-revision check,
+closed command union, bounded geometry/hierarchy, and monotonic history are the contract the live preview
+will use too.
+
+Repository mappings are host-owned through `uiRepositoryMapping.ts`, not part of the general save payload.
+Keep the adapter catalog closed, the path workspace-relative, and verification hash-only. The host resolves
+real paths, rejects symlink escape/non-files/files over 2 MiB, and computes the design and source fingerprints;
+the webview may only request an exact revisioned mapping edit or verification. A definition edit clears the
+baseline. Divergence is descriptive and never imports, evaluates, rewrites, or automatically reconciles source.
+
+`import-mapping-evidence` is the only adapter-import webview command. It carries a mapping id and expected
+mapping revision—never source, a parser choice, facts, or a report. The host reads the same contained snapshot
+as verification and calls `uiRepositoryImport.ts`. Keep recognizers conservative and deterministic: every
+built-in report stays partial with a loss; custom stays unsupported; no adapter executes code or resolves
+dependencies. Copying exact-match suggestions changes only visible form fields until a separate set-mapping
+command is submitted, which clears both the verification baseline and prior import report.
+
+Token definitions are structured target-independent data, not CSS fragments. Keep new token kinds closed
+and bounded in `uiDesignGraph.ts`; aliases must remain same-kind, acyclic, and resolvable to a direct value.
+Format migrations must seed no visual choices. The v7 → v8 step adds an empty `components` collection only.
+Components store no markup, CSS, or executable/source values: root kind, typed properties, variants, slots,
+states, and bounded instance overrides remain target-independent graph data.
+
+UI System token changes must use `add-token`, `set-token`, or `delete-token`; the ordinary save form must not
+carry a replacement graph. Preview conversion belongs in `websiteWireframePreview.ts`: semantic roles are a
+small reserved-id allowlist, while all resolved definitions use hex-encoded-id custom properties so graph
+identities cannot become CSS syntax or collide after punctuation normalization. Keep Studio canvas and Full
+Preview on those same reserved roles. A running Full Preview remains a saved-design review surface and is
+rebuilt after Save/Refresh; do not render unsaved webview-only token state into it.
+
+Component-library changes must use `add-component`, `set-component`, or `delete-component`; node assignments
+use `set-node-component` and slot claims use `set-node-component-slot`. Definition and instance actions stay
+separate in the UI and reducer. When extending the model, preserve resolution order (default → variant →
+instance), retain provenance, reconcile removed properties/variants/states/slots deterministically, and refuse
+definition deletion or incompatible root-kind changes while an instance uses it. The Full Preview adapter may
+style only the closed state vocabulary and must escape displayed definition/variant labels.
+
+Short empty/loading/error/success copy uses `set-node-content-state`; selecting a presentation for design
+review uses `set-node-preview-content-state`. Do not move long-form screen copy out of its Markdown file or
+infer state copy during migration. A non-default preview state requires an authored presentation, and approved
+state copy must remain impossible while it contains `[PLACEHOLDER: …]`. Data bindings may select these states
+for review but must not silently author them.
+
+Preview fixture changes use `add-content-collection`, `set-content-collection`, or
+`delete-content-collection`; node assignments use `set-node-data-binding`. Keep these records explicitly
+sample-only: no production response import, credential, connector, query, or template language belongs in the
+graph. A collection edit must refuse to remove a sample or field used by a binding. Sanitization deliberately
+retains a well-shaped stale reference from a hand edit so `diagnoseUiContentBindings()` can report the missing
+collection, record, field, value, or interface state at its owning node. Full Preview may render only declared
+fixture values and must not make a network request.
+
+Asset-library changes use `add-asset`, `set-asset`, or `delete-asset`; node assignment uses
+`set-node-asset`. Keep sources as validated references only: normalized workspace-relative paths or HTTPS
+URLs with no credentials, query, or fragment. Do not store binaries, data URLs, signed URLs, or secrets in
+the graph. In-use deletion is refused, stale hand-edited ids remain owning-node diagnostics, and a
+non-decorative assigned asset without alt text is an error. Full Preview may project dimensions, crop, focal
+point, provenance, and alt status as inert markup; resolving a binary requires a separate guarded host path
+and must not weaken the preview's no-network CSP.
+
+Content files are a separate source of truth. `savePageContent` and `seedPageContent` may carry only a
+bounded page id and bounded content fields; the host resolves that id against the current sanitized
+plan, and `WebsiteContentManager` derives the path. Save includes the body originally opened and is
+refused if disk now differs. Seeding is create-only and placeholder-only. Do not fold copy into
+`website.json`, accept a webview-supplied path, or auto-merge concurrent prose.
+
+For website profiles, treat all displayed hosting policy fields as presentation only: the host
+reconstructs canonical environment names, access policies, hosting restrictions, and Production
+protection; `assessWebsiteHostingEnvironments()` validates loopback/HTTPS/password-reference/review-
+subdomain readiness. Credential inputs are references with an explicit provider prefix, never values.
+Keep platform deployment and n8n execution out of the webview.
 
 The Studio's CSS lives in `websiteStudioStyles.ts` and its behaviour in `media/websiteStudio.js` (read inline by the panel, as `projectDashboardPanel` does). Four rules matter when working on the canvas:
 
 - **Geometry is canvas units, never pixels.** The canvas is a fixed 1000-unit column grid; the webview converts pointer positions into units before anything is stored. A pixel that reaches `website.json` records the author's monitor size in a committed file.
 - **The webview sends data, never a command.** `promptForTarget` carries a scope, some ids and the user's sentence; `generate` carries a stage and ids. The panel composes the prompt and decides the file list. A webview that could name a path or a command would make every gate advisory.
+- **Canvas mutations are closed design commands, not arbitrary patches.** `editDesignGraph` carries one exact
+  `UiEditCommand` with the current revision. The host parses it again, applies it to its bounded session, and
+  returns only the compatibility wireframes. Save names `designRevision`; the host supplies the graph. Keep
+  pointer, keyboard, inspector, preview, and future model proposals on this same reducer path. Responsive
+  overrides likewise use exact set/clear commands: a non-base breakpoint plus bounded geometry and/or
+  Boolean visibility, never a style object or graph fragment. Resolve display values with
+  `resolveUiNodeLayout()` so provenance and tablet-to-mobile inheritance cannot drift between surfaces.
+- **The responsive canvas consumes a host projection, not a JavaScript resolver.** Add computed fields to
+  `buildWebsiteStudioResponsiveScreens()` and its bounded webview snapshot; do not copy inheritance rules
+  into `media/websiteStudio.js`. Geometry and visibility reset independently via
+  `clear-node-viewport-override.property`. Responsive drag/resize/nudge may optimistically project the
+  host-resolved rectangle for immediate feedback, but pointer-up must submit the existing exact viewport
+  command and accept the next host snapshot as authoritative. Keep drawing, deletion, nesting, and all
+  parent changes confined to the declared base breakpoint.
+- **Multi-selection transforms are one command, not a message loop.** `set-node-frames` carries a bounded,
+  unique list of node ids and rectangles plus an optional non-base breakpoint. The reducer validates every
+  target before cloning or mutating, then creates one revision and undo record. Keep alignment, distribution,
+  and group nudge on this path so a partial batch cannot survive a stale or missing target. Multi-selection
+  does not imply multi-delete; deletion stays single-node until a separately reviewed atomic policy exists.
+- **Container layout has one pure host engine.** Extend `resolveUiScreenLayout()` for stack/grid/overlay
+  semantics and consume its result in both `buildWebsiteStudioResponsiveScreens()` and
+  `websiteWireframePreview.ts`; never reproduce placement rules in the webview or CSS generator. Parent
+  behaviour is flat bounded graph data (`mode`, `direction`, `gap`, `padding`, `columns`, `align`,
+  `distribute`, width/height sizing, and nullable min/max width/height). Projection must not rewrite stored
+  rectangles, because those are the free-layout/intrinsic fallback after reset/undo. Constraints use canvas
+  units (width 1–1000, height 1–4000), and the closed boundary refuses an inverted pair. `set-node-layout` is
+  the only browser/model mutation path. `wrap` is closed to `nowrap|wrap`; `order` is an integer from -1000
+  to 1000. Container resolution sorts a copy and wraps a projection—never reorder `screen.nodes` to render it.
+  Duplication must remain one `duplicate-node` command carrying a complete unique source→new identity map;
+  never reconstruct it as browser-side `add-node` calls. Lock checks belong in the reducer, including batch
+  and implicit structural edits, while the webview's disabled controls provide feedback only.
+  Multi-selection pointer drag likewise ends in one `set-node-frames` command. Compute one clamped delta from
+  the complete bounds, exclude the selected ids from snap candidates, and do not infer group reparenting.
+  Responsive diagnostics belong in `diagnoseUiScreenLayout()` beside the resolver, never in the webview or a
+  second geometry implementation. Keep touch thresholds tied to the preview widths and preserve the explicit
+  ancestor/overlay exclusions when adding a diagnostic family.
 - **Generation is gated twice and confirmed once.** `atlasmind.website.generation.enabled` and `atlasmind.website.preview.enabled` are separate and both default off; every Generate shows a `{modal:true}` dialog naming each file. The plan is built by `planWebsiteGeneration()` before any model call, which is what lets the dialog be specific.
 - **Nothing is written outside `.atlasmind/website-preview/`.** Paths are validated at plan time, again when the model's reply is parsed, and again immediately before each write in `websiteGenerationRunner.ts`. Do not remove any of the three: the runner's writer is injected precisely so a test can fail the run if an escaping path is ever passed.
+- **Preview has one canonical draft and two consumers.** `writeWireframePreviews()` rebuilds the `_wireframe/` index from saved geometry, safe UI tokens, and Markdown content; generated output may be linked but never becomes the entry point. Each page receives its matching graph screen, and the pure renderer emits inherited tablet/mobile geometry and visibility as static media rules before the host injects `UI_PREVIEW_RUNTIME_SCRIPT`. Simple Browser receives revision and selection SSE events, reloads after a successful render, and can send a clicked saved identity back; the responsive lab remains a scriptless iframe and is refreshed by its extension host. Both consume the same tokenized loopback URL.
+- **The live protocol is three exact paths, never an API namespace.** `_atlas/runtime.js` is returned from a
+  frozen constant, `_atlas/events` accepts GET/HEAD only, and `_atlas/selection` accepts only a 512-byte
+  current-revision identity POST. Static `.js` remains refused, listeners cap at eight, saved-graph resolution
+  precedes fan-out, and Stop Preview closes streams and idle sockets. Add future browser-to-host events as a
+  separately reviewed closed protocol; do not turn these routes into arbitrary messages.
 
 Stack setup adds four rules of its own, and each is pinned by a test rather than left as a convention:
 
@@ -315,7 +442,19 @@ Stack setup adds four rules of its own, and each is pinned by a test rather than
 - **Create-only for anything that could destroy work** — config files, `package.json` scripts, branches, workflows. An existing one is reported untouched. A scaffolder that overwrites can only safely be run once, which makes it useless for the case it exists for.
 - **Re-probe, never infer.** A scaffold command can exit zero having done nothing; `websiteStackSetupHost.ts` checks the filesystem afterwards and reports what is actually there.
 
-Tests live in `tests/core/website*.test.ts` (eleven suites, including property tests for the wireframe sanitizer and the preview server's path resolution, and exhaustive walks for the setup planner and the CI templates) and `tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`.
+Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
+`tests/core/uiEditCommands.test.ts`, and `tests/core/uiPreviewRuntime.test.ts` (including property tests for the graph/wireframe sanitizers and preview
+path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
+`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`. The three executable
+cross-target foundation scenarios are declared in `tests/fixtures/uiStudioReferenceProjects.ts` and run by
+`tests/core/uiStudioReferenceProjects.test.ts`; keep migration, reopening, edit/history, selection, full
+preview, and graph-neutrality coverage aligned when the shared graph contract changes.
+
+The full-preview browser protocol is intentionally smaller than the Studio webview protocol. `runtime.js`
+and the SSE stream are GET-only; `_atlas/selection` is the sole POST and carries exactly a render revision,
+screen ID, and node ID in at most 512 bytes. Add no generic message envelope. A new browser-to-host event
+needs its own exact route, payload cap, parser, stale-state rule, host-side resolution, and hostile-input
+integration coverage. Selection remains ephemeral and must never call the graph reducer or a filesystem writer.
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 
@@ -350,7 +489,11 @@ The Pipeline page also owns **CI configuration and management**, independently o
 
 The Workflow page's **Your workflow file** card treats enablement as a segment state, not a checkbox decoration. `media/projectDashboard.js` emits `is-enabled` / `is-disabled` on each stage row, while the panel stylesheet colours only the outline and the standard **Enabled** status tag; row content and the 24-pixel marker stay neutral. The explicit **Enabled** / **Disabled** text and `aria-pressed` mean colour speeds up scanning but never carries the state alone.
 
-The Dashboard's **Branches** page is a complete local/cached-remote inventory rather than the Repo page's capped recency list. `collectDashboardBranchInventory` reads `refs/heads` and `refs/remotes` with NUL-separated `git for-each-ref` fields, folds a tracked local/remote pair into one card, and derives current/default/protected/other-worktree, upstream, ahead/behind, merged, latest-commit, author, and 30-day staleness signals. The list is collected locally on render; **Fetch latest from remotes** is a separate `git fetch --all --prune --tags` action so opening the panel never hides a network/ref mutation. Cards start compact and keep expansion session-local; **Expand all** / **Collapse all** changes disclosure without changing Git or evidence. Activity, readiness, drift, and name sorts each have an explicit direction, and branch-family grouping applies the selected order within each family. Long commit subjects use CSS ellipsis with the full escaped subject in a native hover title. The optional branch-title chip maps logical branches with a local ref to `--vscode-charts-blue` and remote-only refs to `--vscode-charts-purple`; its persisted **Show SCM colours** checkbox and Local/Remote preview sit immediately above the card inventory where the effect appears. **Switch here** and **Bring local** send only an opaque inventory id. `handleActivateBranch` rebuilds the inventory, refuses a dirty tree, another-worktree checkout, remote/local name collision, or vanished item, then confirms before it runs `git switch`; a remote-only item uses `--track -c` to create the local branch. Every card's Atlas icon uses the same opaque-id rule: `handleDiscussBranch` rebuilds live state, resolves commit hashes host-side, and produces a one-shot `ChatPanelDirectResponse` via `buildBranchChatTarget`. Its initial answer is deterministic and model-free: `rev-list --left-right --count` supplies current/production divergence, `git diff --name-only <base>...<selected>` counts selected-side files since the merge base, a declared rule set reports staleness/tracking/worktree/production-history concerns, and a bounded 30-commit `git log` supplies author names only (never addresses). Quick-reply chips enter normal Chat for deeper read-only comparison, issue review, or contributor analysis. Tests cover delimiter safety, local/remote folding, default-ref resolution, staleness/worktree blocking, deterministic response/chip construction, message validation, page/nav parity, and both branch action contracts.
+The Dashboard's **Branches** page is a complete local/cached-remote inventory rather than the Repo page's capped recency list. `collectDashboardBranchInventory` reads `refs/heads` and `refs/remotes` with NUL-separated `git for-each-ref` fields, folds a tracked local/remote pair into one card, and derives current/default/protected/other-worktree, upstream, ahead/behind, merged, latest-commit, author, and 30-day staleness signals. A folded card's activity metadata comes from whichever side has the newest commit, so a behind or diverged local ref cannot make recent-activity ordering stale. The list is collected locally on render; **Fetch latest from remotes** is a separate `git fetch --all --prune --tags` action so opening the panel never hides a network/ref mutation. Cards start compact and keep expansion session-local; **Expand all** / **Collapse all** changes disclosure without changing Git or evidence. Activity, readiness, drift, and name sorts each have an explicit direction, and branch-family grouping applies the selected order within each family. Saved view, sort, order, grouping, and SCM-colour selections are written to both webview state and a host-validated workspace-state record: re-renders remain instant, while closing and recreating the panel restores the same presentation for that workspace. Long commit subjects use CSS ellipsis with the full escaped subject in a native hover title. The optional branch-title chip maps logical branches with a local ref to `--vscode-charts-blue` and remote-only refs to `--vscode-charts-purple`; its persisted **Show SCM colours** checkbox and Local/Remote preview sit immediately above the card inventory where the effect appears. **Work on this branch** sends only an opaque inventory id. `handleActivateBranch` rebuilds the inventory, refuses a dirty tree, another-worktree checkout, remote/local name collision, or vanished item, then confirms before it runs `git switch`; a remote-only item uses `--track -c` to create the local branch. Every card's Atlas icon uses the same opaque-id rule: `handleDiscussBranch` rebuilds live state, resolves commit hashes host-side, and produces a one-shot `ChatPanelDirectResponse` via `buildBranchChatTarget`. Its initial answer is deterministic and model-free: `rev-list --left-right --count` supplies current/production divergence, `git diff --name-only <base>...<selected>` counts selected-side files since the merge base, a declared rule set reports staleness/tracking/worktree/production-history concerns, and a bounded 30-commit `git log` supplies author names only (never addresses). Quick-reply chips enter normal Chat for deeper read-only comparison, issue review, or contributor analysis. Tests cover delimiter safety, local/remote folding, default-ref resolution, staleness/worktree blocking, durable preference validation, logical-branch recency, deterministic response/chip construction, message validation, page/nav parity, and both branch action contracts.
+
+Expanded cards divide actions into **Work** and **Review**. Work's owner picker and icon toolbar sit inside one `branch-action-content` column, preventing the toolbar from auto-placing into the narrow label column; each action is a fixed 36-pixel control with a native tooltip and matching `aria-label`, so compact presentation does not discard the safety explanation. The browser sends `runBranchWorkflow` with an opaque card id and one closed action enum; `handleBranchWorkflow` serializes write operations and reuses `resolveLiveBranchAction` before resolving refs, remotes or commits. **Commit** opens Source Control only after proving the card is the current dirty branch, leaving staging, message review and the final commit visible. **Pull** requires the current clean tracked branch and runs `git pull --ff-only`; a known divergence is refused rather than choosing merge or rebase. **Push** uses a host-resolved remote and explicit `refs/heads/...` refspec, never force; **Publish** additionally sets the upstream after a remote choice and modal confirmation. **Branch from here** validates with `git check-ref-format` and creates a local ref at a host-resolved commit without switching the workspace. **Create pull request** requires evidence that the branch has been pushed and invokes `gh pr create --web`, so GitHub receives no submission until the user reviews its form. Merge, rebase, force-push and automatic commit are absent by design because a compact card cannot provide their necessary conflict and content review.
+
+Human ownership is a shared Project Dashboard primitive rather than page-local state. `buildDashboardWorkTargets` projects concrete active work—branches, roadmap items, issues, pull requests, gaps, risks, debt and documents needing attention—from the already assembled snapshot. `renderDirectorOwnerControl` places the same Director contact picker beside each record and in Director → Assignments. A selection posts only the short-lived target token emitted for that render; `ProjectDashboardPanel` resolves it from its current map, validates the contact against `ProjectDirectorConfig.contacts`, and writes an `Assignment.linkedWork` pair through `sanitizeProjectDirectorConfig`. Branch targets additionally pass through `resolveLiveBranchAction` and must retain the same stable name before ownership is saved. Completed or otherwise inactive work is not offered as a new assignment, while an older linked assignment remains in the Director record rather than being silently deleted. Project State → Waiting on you and Project Director → Follow-ups both derive their active self-owned assignments from that same persisted record. Each tree link carries the stable `linkedWork.id` (or run/assignment/follow-up id) in a validated `ProjectDashboardOpenTarget`; the Director page's **Open work** control uses the same route. The webview validates the target again, clears presentation filters that could hide it, and focuses the matching `data-dashboard-focus-kind/id` record; stale focus ids degrade to page-only navigation.
 
 `src/core/projectVocabulary.ts` is the single reader of the nouns a project has *declared* for its delivery pipeline and Git workflow — stage names, stage kinds, branch refs, and the workflow's integration/release/protected branches. It is pure and `fs`-free: callers pass already-parsed `DeliveryConfig`/`WorkflowConfig` fragments, which keeps it unit-testable (`tests/core/projectVocabulary.test.ts`) and stops it becoming a second reader of `delivery.json`. The Orchestrator reads both files per turn (like the testing config) and passes the result to `selectTaskScopedSkills()` and into the system prompt. When adding to it: a term must come from a file the project maintains — do not infer a stage from branch names, because a wrong stage name aims a promotion at the wrong branch. A stage's `kind` is a valid way to name it (this repository's staging stage is called `Integration`), matching is whole-word (`main` must not match inside `domain`), and `describeDeliveryPipeline` returns `undefined` rather than an empty heading so a project with no pipeline is never described as having none.
 

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
@@ -262,7 +263,7 @@ import {
   buildDeliveryRunConfirmation,
   buildDeliveryRunPlan,
 } from '../core/deliveryRunPlan.js';
-import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation } from '../core/promotionRunner.js';
+import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation, buildPromotionFixPrompt } from '../core/promotionRunner.js';
 import {
   PROJECT_DIRECTOR_SSOT_PATH,
   PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -309,10 +310,11 @@ import {
   sanitizeRiskFindings,
 } from '../core/riskOversightManager.js';
 import { openSecurityFindings, readSecurityReviewConfig } from '../core/securityReviewManager.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
+import type { AssignmentPriority, AssignmentStatus, DashboardFocusKind, DashboardWorkKind, DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionPlan, PromotionRunResult, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
+const PROJECT_DASHBOARD_BRANCH_PREFERENCES_KEY = 'atlasmind.projectDashboard.branchPreferences';
 const MAX_COMMITS = 10;
 const MAX_BRANCHES = 8;
 const BRANCH_STALE_DAYS = 30;
@@ -506,6 +508,58 @@ function extractRoadmapItemsRegion(content: string): string {
 
 type TestingFixOutcome = 'completed' | 'failed';
 
+export type BranchWorkflowAction =
+  | 'commit'
+  | 'pull'
+  | 'push'
+  | 'create-branch'
+  | 'create-pull-request';
+
+const BRANCH_WORKFLOW_ACTIONS = new Set<BranchWorkflowAction>([
+  'commit',
+  'pull',
+  'push',
+  'create-branch',
+  'create-pull-request',
+]);
+
+type BranchDashboardPreferences = {
+  branchView: 'all' | 'mine' | 'needs-my-review' | 'ready' | 'ci-failing' | 'cleanup';
+  branchSort: 'activity' | 'readiness' | 'drift' | 'name';
+  branchSortDirection: 'asc' | 'desc';
+  branchGroup: 'none' | 'readiness' | 'pull-request' | 'branch-family';
+  branchScmChips: boolean;
+};
+
+const BRANCH_DASHBOARD_PREFERENCE_KEYS = new Set<keyof BranchDashboardPreferences>([
+  'branchView',
+  'branchSort',
+  'branchSortDirection',
+  'branchGroup',
+  'branchScmChips',
+]);
+
+/** Validate the complete, presentation-only branch preference record at the host boundary. */
+export function normalizeBranchDashboardPreferences(value: unknown): BranchDashboardPreferences | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (Object.keys(candidate).some(key => !BRANCH_DASHBOARD_PREFERENCE_KEYS.has(key as keyof BranchDashboardPreferences))) {
+    return undefined;
+  }
+  if (
+    !['all', 'mine', 'needs-my-review', 'ready', 'ci-failing', 'cleanup'].includes(String(candidate['branchView']))
+    || !['activity', 'readiness', 'drift', 'name'].includes(String(candidate['branchSort']))
+    || !['asc', 'desc'].includes(String(candidate['branchSortDirection']))
+    || !['none', 'readiness', 'pull-request', 'branch-family'].includes(String(candidate['branchGroup']))
+    || typeof candidate['branchScmChips'] !== 'boolean'
+  ) {
+    return undefined;
+  }
+  return candidate as BranchDashboardPreferences;
+}
+
 /**
  * The repair task's retained, display-safe terminal state. This is deliberately
  * separate from the current testing snapshot: a snapshot says what evidence is
@@ -523,7 +577,9 @@ type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'fetchBranches' }
+  | { type: 'saveBranchPreferences'; payload: BranchDashboardPreferences }
   | { type: 'activateBranch'; payload: string }
+  | { type: 'runBranchWorkflow'; payload: { branchId: string; action: BranchWorkflowAction } }
   | { type: 'discussBranch'; payload: string }
   | { type: 'inspectBranch'; payload: string }
   | { type: 'openBranchChangeStory'; payload: string }
@@ -557,6 +613,7 @@ type ProjectDashboardMessage =
   /** Opaque workflow filename; the host re-reads the directory before use. */
   | { type: 'reviewCiWorkflow'; payload: string }
   | { type: 'workOnIssue'; payload: string }
+  | { type: 'fixPromotionStep'; payload: string }
   | { type: 'createIssue'; payload: { title: string; body?: string; labels?: string[] } }
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
@@ -624,6 +681,7 @@ type ProjectDashboardMessage =
   | { type: 'discussDeliveryGuideStep'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
+  | { type: 'assignDashboardWorkOwner'; payload: { targetId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
   | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentIds: string[]; label?: string } }
   | { type: 'openExternalUrl'; payload: string };
@@ -631,9 +689,10 @@ type ProjectDashboardMessage =
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
   | { type: 'error'; payload: string }
-  | { type: 'navigate'; payload: DashboardPageId }
+  | { type: 'navigate'; payload: DashboardPageId | DashboardNavigationTarget }
   | { type: 'repositoryRefreshBusy'; payload: boolean }
   | { type: 'branchFetchBusy'; payload: boolean }
+  | { type: 'branchWorkflowBusy'; payload: { branchId: string; action: BranchWorkflowAction; busy: boolean } }
   | { type: 'branchInspectionBusy'; payload: { branchId: string; busy: boolean } }
   | { type: 'ideationBusy'; payload: boolean }
   | { type: 'ideationStatus'; payload: string }
@@ -710,7 +769,52 @@ const DASHBOARD_PAGE_IDS = [
   'ssot', 'runtime', 'ideation',
 ] as const;
 
-type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
+export type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
+
+type DashboardNavigationTarget = {
+  page: DashboardPageId;
+  focus?: { kind: DashboardFocusKind; id: string };
+};
+
+const DASHBOARD_FOCUS_KINDS: readonly DashboardFocusKind[] = [
+  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
+  'assignment', 'follow-up',
+];
+
+/** Validate command-boundary navigation before it reaches the webview. */
+export function normalizeProjectDashboardOpenTarget(value: unknown): DashboardNavigationTarget | undefined {
+  if (typeof value === 'string') {
+    return (DASHBOARD_PAGE_IDS as readonly string[]).includes(value)
+      ? { page: value as DashboardPageId }
+      : undefined;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const page = candidate['page'];
+  if (typeof page !== 'string' || !(DASHBOARD_PAGE_IDS as readonly string[]).includes(page)) {
+    return undefined;
+  }
+  const focus = candidate['focus'];
+  if (focus === undefined) {
+    return { page: page as DashboardPageId };
+  }
+  if (typeof focus !== 'object' || focus === null || Array.isArray(focus)) {
+    return { page: page as DashboardPageId };
+  }
+  const focusRecord = focus as Record<string, unknown>;
+  const kind = focusRecord['kind'];
+  const id = focusRecord['id'];
+  if (typeof kind !== 'string' || !(DASHBOARD_FOCUS_KINDS as readonly string[]).includes(kind)
+    || typeof id !== 'string' || id.trim().length === 0 || id.length > 500) {
+    return { page: page as DashboardPageId };
+  }
+  return {
+    page: page as DashboardPageId,
+    focus: { kind: kind as DashboardFocusKind, id: id.trim() },
+  };
+}
 
 /**
  * Card kinds, as the *union of both vocabularies that exist on disk*.
@@ -1763,6 +1867,27 @@ interface DashboardDirectorRun {
   ownerName?: string;
 }
 
+/**
+ * A host-resolved piece of assignable dashboard work. `token` is deliberately
+ * short-lived: the webview names this entry, never a persisted assignment or a
+ * branch ref of its own choosing.
+ */
+interface DashboardWorkTarget {
+  token: string;
+  kind: DashboardWorkKind;
+  stableId: string;
+  title: string;
+  page: DashboardPageId;
+  status: AssignmentStatus;
+  priority: AssignmentPriority;
+  /** Opaque branch inventory id, present only when live Git re-resolution is required. */
+  branchId?: string;
+}
+
+interface DashboardWorkAssignmentsSnapshot {
+  targets: DashboardWorkTarget[];
+}
+
 interface DashboardDirectorSnapshot {
   /** Workspace-relative path of the JSON source of truth. */
   configPath: string;
@@ -1990,6 +2115,8 @@ interface DashboardSnapshot {
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
   };
+  /** Human ownership for actionable records across the dashboard. */
+  workAssignments: DashboardWorkAssignmentsSnapshot;
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
@@ -3190,7 +3317,7 @@ export class ProjectDashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private ideationAttachments: TaskImageAttachment[] = [];
-  private pendingNavigationTarget: DashboardPageId | undefined;
+  private pendingNavigationTarget: DashboardNavigationTarget | undefined;
   /**
    * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
    * network call against a rate-limited API, and a page that refreshed it on
@@ -3206,11 +3333,24 @@ export class ProjectDashboardPanel {
   private lastGitRemoteUrl: string | undefined;
   /** Prevent one impatient double-click from starting two remote fetches. */
   private branchesFetchRunning = false;
+  private branchWorkflowRunning = false;
   /** The GitHub activity refresh is shared by Issues, PRs, CI, and releases. */
   private repositoryActivityRefreshRunning = false;
   /** Start time of the last attempt, successful or not, for bounded retries. */
   private repositoryActivityLastAttemptAt = 0;
 
+  /** Current host-issued assignment tokens; replaced atomically on every render. */
+  private dashboardWorkTargets = new Map<string, DashboardWorkTarget>();
+
+  /**
+   * The last promotion this panel ran, retained so a failed step can be handed
+   * to Atlas without the webview supplying any of the text.
+   *
+   * In-memory and last-only: a promotion result is a fact about this session,
+   * and offering to fix a step from a run two hours ago would point a model at
+   * output that no longer describes the tree.
+   */
+  private lastPromotionRun: { plan: PromotionPlan; result: PromotionRunResult; fromName: string; toName: string } | undefined;
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
     detail: 'Issues have not been loaded yet.',
@@ -3320,13 +3460,14 @@ export class ProjectDashboardPanel {
     return this.workflowConfigManager;
   }
 
-  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: unknown): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const navigationTarget = normalizeProjectDashboardOpenTarget(target);
 
     if (ProjectDashboardPanel.currentPanel) {
       ProjectDashboardPanel.currentPanel.panel.reveal(column);
-      if (targetPage) {
-        ProjectDashboardPanel.currentPanel.queueNavigation(targetPage);
+      if (navigationTarget) {
+        ProjectDashboardPanel.currentPanel.queueNavigation(navigationTarget);
       }
       if (!ProjectDashboardPanel.currentPanel.refreshRepositoryActivityIfStale()) {
         void ProjectDashboardPanel.currentPanel.syncState();
@@ -3345,14 +3486,14 @@ export class ProjectDashboardPanel {
       },
     );
 
-    ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas, targetPage);
+    ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas, navigationTarget);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
     private readonly atlas: AtlasMindContext,
-    initialTarget?: DashboardPageId,
+    initialTarget?: DashboardNavigationTarget,
   ) {
     this.panel = panel;
     this.pendingNavigationTarget = initialTarget;
@@ -3410,8 +3551,8 @@ export class ProjectDashboardPanel {
     void this.syncState();
   }
 
-  private queueNavigation(pageId: DashboardPageId): void {
-    this.pendingNavigationTarget = pageId;
+  private queueNavigation(target: DashboardPageId | DashboardNavigationTarget): void {
+    this.pendingNavigationTarget = typeof target === 'string' ? { page: target } : target;
   }
 
   private dispose(): void {
@@ -3442,8 +3583,14 @@ export class ProjectDashboardPanel {
       case 'fetchBranches':
         await this.handleFetchBranches();
         return;
+      case 'saveBranchPreferences':
+        await this.context.workspaceState?.update(PROJECT_DASHBOARD_BRANCH_PREFERENCES_KEY, message.payload);
+        return;
       case 'activateBranch':
         await this.handleActivateBranch(message.payload);
+        return;
+      case 'runBranchWorkflow':
+        await this.handleBranchWorkflow(message.payload.branchId, message.payload.action);
         return;
       case 'discussBranch':
         await this.handleDiscussBranch(message.payload);
@@ -3564,6 +3711,9 @@ export class ProjectDashboardPanel {
         return;
       case 'workOnIssue':
         await this.handleWorkOnIssue(message.payload);
+        return;
+      case 'fixPromotionStep':
+        await this.handleFixPromotionStep(message.payload);
         return;
       case 'createIssue':
       case 'closeIssue':
@@ -3783,6 +3933,9 @@ export class ProjectDashboardPanel {
       case 'assignRunOwner':
         await this.handleAssignRunOwner(message.payload);
         return;
+      case 'assignDashboardWorkOwner':
+        await this.handleAssignDashboardWorkOwner(message.payload);
+        return;
       case 'directorSendComms':
         await this.handleDirectorSendComms(message.payload);
         break;
@@ -3967,6 +4120,7 @@ export class ProjectDashboardPanel {
   private async syncState(): Promise<void> {
     try {
       const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+      this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -4522,6 +4676,230 @@ export class ProjectDashboardPanel {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`AtlasMind could not switch to ${branch.name}: ${detail}`);
       await this.syncState();
+    }
+  }
+
+  /**
+   * Run one bounded daily workflow for a freshly resolved branch.
+   *
+   * The webview contributes an opaque inventory id and a closed action enum.
+   * Git refs, remotes, tracking targets and commits are all re-derived here.
+   * Commit deliberately opens Source Control instead of invoking `git commit`:
+   * staging, message review and the final commit stay visible to the user.
+   */
+  private async handleBranchWorkflow(
+    branchId: string,
+    action: BranchWorkflowAction,
+  ): Promise<void> {
+    if (this.branchWorkflowRunning) {
+      void vscode.window.showInformationMessage('Another Branch Dashboard workflow is already running.');
+      return;
+    }
+
+    this.branchWorkflowRunning = true;
+    await this.postMessage({
+      type: 'branchWorkflowBusy',
+      payload: { branchId, action, busy: true },
+    });
+    try {
+      const live = await this.resolveLiveBranchAction(branchId);
+      if (!live) return;
+      const { branch, snapshot, workspaceRoot } = live;
+
+      if (action === 'commit') {
+        if (!branch.current) {
+          void vscode.window.showInformationMessage(`Work on ${branch.name} before committing changes to it.`);
+          return;
+        }
+        if (!snapshot.dirty) {
+          void vscode.window.showInformationMessage(`${branch.name} has no working-tree changes to commit.`);
+          return;
+        }
+        await vscode.commands.executeCommand('workbench.view.scm');
+        await this.postMessage({
+          type: 'branchOperationStatus',
+          payload: `Opened Source Control to review, stage, and commit the pending changes on ${branch.name}.`,
+        });
+        return;
+      }
+
+      if (action === 'pull') {
+        if (!branch.current || !branch.localRef) {
+          void vscode.window.showInformationMessage(`Work on ${branch.name} before pulling updates into it.`);
+          return;
+        }
+        if (!branch.upstream) {
+          void vscode.window.showInformationMessage(`${branch.name} has no configured upstream to pull from.`);
+          return;
+        }
+        if (branch.status === 'upstream-gone') {
+          void vscode.window.showInformationMessage(
+            `${branch.upstream} no longer exists. Publish the branch again or choose a new upstream before pulling.`,
+          );
+          return;
+        }
+        if (snapshot.dirty) {
+          void vscode.window.showWarningMessage('Commit, stash, or discard the pending changes before pulling.');
+          return;
+        }
+        if (branch.ahead > 0 && branch.behind > 0) {
+          void vscode.window.showWarningMessage(
+            `${branch.name} has diverged from ${branch.upstream}. Review and reconcile it explicitly; AtlasMind will not choose merge or rebase for you.`,
+          );
+          return;
+        }
+        const pullLabel = 'Pull fast-forward only';
+        const confirmed = await vscode.window.showInformationMessage(
+          `Pull ${branch.upstream} into ${branch.name}? AtlasMind will refuse rather than create a merge commit.`,
+          { modal: true },
+          pullLabel,
+        );
+        if (confirmed !== pullLabel) return;
+        await runGit(workspaceRoot, ['pull', '--ff-only'], { timeoutMs: 60_000 });
+        await vscode.commands.executeCommand('git.refresh');
+        await this.syncState();
+        await this.postMessage({
+          type: 'branchOperationStatus',
+          payload: `Pulled ${branch.upstream} into ${branch.name} with the fast-forward-only guard.`,
+        });
+        return;
+      }
+
+      if (action === 'push') {
+        if (!branch.current || !branch.localRef) {
+          void vscode.window.showInformationMessage(`Work on ${branch.name} before pushing it.`);
+          return;
+        }
+        if (branch.behind > 0) {
+          void vscode.window.showWarningMessage(
+            `${branch.name} is behind its cached remote ref. Pull or reconcile it before pushing; AtlasMind never force-pushes.`,
+          );
+          return;
+        }
+        const remotes = await listGitRemotes(workspaceRoot);
+        const tracking = resolveBranchTrackingTarget(branch.upstream, remotes);
+        if (branch.upstream && !tracking) {
+          throw new Error(`The configured upstream ${branch.upstream} does not match a live Git remote.`);
+        }
+        let remote = tracking?.remote
+          ?? (branch.remoteName && remotes.includes(branch.remoteName) ? branch.remoteName : undefined);
+        if (!remote && remotes.length === 1) {
+          [remote] = remotes;
+        }
+        if (!remote && remotes.length > 1) {
+          remote = await vscode.window.showQuickPick(remotes, {
+            title: `Publish ${branch.name}`,
+            placeHolder: 'Choose the remote that should receive this branch',
+            ignoreFocusOut: true,
+          });
+        }
+        if (!remote) {
+          void vscode.window.showWarningMessage(
+            remotes.length === 0
+              ? 'No Git remote is configured for this workspace.'
+              : 'Branch publish cancelled before a remote was selected.',
+          );
+          return;
+        }
+        const remoteBranch = tracking?.branch ?? branch.name;
+        const publish = !tracking;
+        const pushLabel = publish ? 'Publish branch' : 'Push branch';
+        const protectedWarning = branch.protected
+          ? '\n\nThis is a protected branch. The remote may reject the push, and AtlasMind will not bypass that protection.'
+          : '';
+        const confirmed = await vscode.window.showWarningMessage(
+          publish
+            ? `Publish ${branch.name} to ${remote}/${remoteBranch} and configure it as the upstream?${protectedWarning}`
+            : `Push ${branch.name} to ${remote}/${remoteBranch}? This is a normal non-force push.${protectedWarning}`,
+          { modal: true },
+          pushLabel,
+        );
+        if (confirmed !== pushLabel) return;
+        const refspec = `refs/heads/${branch.name}:refs/heads/${remoteBranch}`;
+        await runGit(
+          workspaceRoot,
+          publish
+            ? ['push', '--porcelain', '--set-upstream', '--', remote, refspec]
+            : ['push', '--porcelain', '--', remote, refspec],
+          { timeoutMs: 60_000 },
+        );
+        await vscode.commands.executeCommand('git.refresh');
+        await this.syncState();
+        await this.postMessage({
+          type: 'branchOperationStatus',
+          payload: publish
+            ? `Published ${branch.name} to ${remote}/${remoteBranch} and configured its upstream.`
+            : `Pushed ${branch.name} to ${remote}/${remoteBranch} without force.`,
+        });
+        return;
+      }
+
+      if (action === 'create-branch') {
+        const sourceRef = branchDiscussionRef(branch, false);
+        const sourceCommit = await resolveBranchCommit(workspaceRoot, sourceRef);
+        if (!sourceCommit) {
+          throw new Error('The selected branch no longer resolves to a commit.');
+        }
+        const proposed = await vscode.window.showInputBox({
+          title: `Create a branch from ${branch.name}`,
+          prompt: 'Enter the new local branch name. It will be created at the selected commit without switching this workspace.',
+          placeHolder: 'feat/short-description',
+          ignoreFocusOut: true,
+          validateInput: validateNewBranchNameInput,
+        });
+        const branchName = proposed?.trim();
+        if (!branchName) return;
+        await runGit(workspaceRoot, ['check-ref-format', '--branch', branchName]);
+        const alreadyExists = await runGit(
+          workspaceRoot,
+          ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
+        ).then(() => true, () => false);
+        if (alreadyExists) {
+          void vscode.window.showWarningMessage(`A local branch named ${branchName} already exists.`);
+          return;
+        }
+        await runGit(workspaceRoot, ['branch', '--', branchName, sourceCommit]);
+        await vscode.commands.executeCommand('git.refresh');
+        await this.syncState();
+        await this.postMessage({
+          type: 'branchOperationStatus',
+          payload: `Created local branch ${branchName} from ${branch.name} without changing the working tree.`,
+        });
+        return;
+      }
+
+      const existingPullRequest = this.pullRequestsState
+        ?.filter(candidate => normalizeBranchRef(candidate.headRefName).toLowerCase() === branch.name.toLowerCase())
+        .sort((left, right) => branchPullRequestRank(left) - branchPullRequestRank(right))[0];
+      if (existingPullRequest?.url && /^https:\/\/github\.com\//i.test(existingPullRequest.url)) {
+        await vscode.env.openExternal(vscode.Uri.parse(existingPullRequest.url));
+        return;
+      }
+      if (!branch.localRef || (!branch.upstream && !branch.remoteRef)) {
+        void vscode.window.showInformationMessage(`Push or publish ${branch.name} before opening a pull request.`);
+        return;
+      }
+      await runGhOrThrow(
+        workspaceRoot,
+        ['pr', 'create', '--web', '--head', branch.name],
+        { timeoutMs: 30_000 },
+      );
+      await this.postMessage({
+        type: 'branchOperationStatus',
+        payload: `Opened GitHub's pull-request form for ${branch.name}; nothing is created until you submit it there.`,
+      });
+    } catch (error) {
+      const detail = action === 'create-pull-request'
+        ? ghFailureOf(error).detail
+        : error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not ${branchWorkflowVerb(action)}: ${detail}`);
+      await this.syncState();
+    } finally {
+      this.branchWorkflowRunning = false;
+      await this.postMessage({
+        type: 'branchWorkflowBusy',
+        payload: { branchId, action, busy: false },
+      });
     }
   }
 
@@ -5964,7 +6342,7 @@ export class ProjectDashboardPanel {
 
     // Into the composer, not onto the tracker. The user reads it, edits it, and
     // the existing create flow confirms before anything is posted.
-    this.pendingNavigationTarget = 'issues';
+    this.pendingNavigationTarget = { page: 'issues' };
     await this.postMessage({ type: 'issueDraft', payload: {
       title: draft.title,
       body,
@@ -5999,7 +6377,7 @@ export class ProjectDashboardPanel {
 
     const declaredLabels = this.taxonomyState?.labels.map(label => label.name) ?? [];
     const draft = derivePullRequestIssueDraft(pullRequest, declaredLabels);
-    this.pendingNavigationTarget = 'issues';
+    this.pendingNavigationTarget = { page: 'issues' };
     await this.postMessage({
       type: 'issueDraft',
       payload: draft,
@@ -6618,6 +6996,41 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Hand an issue to chat as *reported content*, never as instructions. */
+  /**
+   * Ask Atlas to fix a promotion step that failed.
+   *
+   * The webview posts a **step id and nothing else**; the prompt is rebuilt here
+   * from the run this panel retained. That is the `addIdeationEvidence` rule: a
+   * crafted message can name a step that does not exist, but it can never supply
+   * the command or the output that reaches the model.
+   */
+  private async handleFixPromotionStep(rawStepId: unknown): Promise<void> {
+    const stepId = String(rawStepId ?? '').trim();
+    const run = this.lastPromotionRun;
+    if (!stepId || !run) {
+      return;
+    }
+    const result = run.result.steps.find(step => step.id === stepId);
+    const planStep = run.plan.steps.find(step => step.id === stepId);
+    // Only a step that actually ran and actually failed. A skipped step failed
+    // because something before it did, and handing that one over would send the
+    // model after a symptom.
+    if (!result || result.ok || result.skipped || !planStep) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildPromotionFixPrompt({
+        stepLabel: result.label,
+        stepKind: planStep.kind,
+        ...(planStep.command ? { command: planStep.command } : {}),
+        output: result.output,
+        fromName: run.fromName,
+        toName: run.toName,
+      }),
+      sendMode: 'new-session',
+    });
+  }
+
   private async handleWorkOnIssue(rawNumber: unknown): Promise<void> {
     const number = sanitizeIssueNumber(rawNumber);
     const issue = this.issuesState.issues.find(entry => entry.number === number);
@@ -7019,6 +7432,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
     await this.atlas.projectDirectorManager.save(clean);
+    await vscode.commands.executeCommand('atlasmind.refreshProjectState');
     await this.syncState();
   }
 
@@ -7035,6 +7449,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
     await this.atlas.projectDirectorManager.save(config);
+    await vscode.commands.executeCommand('atlasmind.refreshProjectState');
     await this.syncState();
   }
 
@@ -7495,6 +7910,76 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const clean = sanitizeProjectDirectorConfig({ ...config, assignments });
     if (clean) {
       await manager.save(clean);
+      await vscode.commands.executeCommand('atlasmind.refreshProjectState');
+      await this.syncState();
+    }
+  }
+
+  /** Assign (or clear) the Director-owned human owner of host-resolved dashboard work. */
+  private async handleAssignDashboardWorkOwner(payload: { targetId: string; contactId: string }): Promise<void> {
+    const manager = this.atlas.projectDirectorManager;
+    const config = manager?.getConfig();
+    const target = this.dashboardWorkTargets.get(payload.targetId.trim());
+    if (!manager || !config || !target) {
+      return;
+    }
+    const contactId = payload.contactId.trim();
+    if (contactId && !config.contacts.some(contact => contact.id === contactId)) {
+      return;
+    }
+
+    // A branch can be renamed, deleted, or replaced after the page rendered.
+    // Re-resolve its opaque inventory id and require the stable branch identity
+    // to agree before persisting ownership.
+    let currentTarget = target;
+    if (target.kind === 'branch') {
+      if (!target.branchId) { return; }
+      const live = await this.resolveLiveBranchAction(target.branchId);
+      if (!live || live.branch.name !== target.stableId) { return; }
+      currentTarget = {
+        ...target,
+        title: live.branch.name,
+        status: live.branch.current ? 'in-progress' : 'todo',
+        priority: ['diverged', 'upstream-gone', 'name-conflict'].includes(live.branch.status) ? 'high' : 'medium',
+      };
+    }
+
+    const assignments = [...config.assignments];
+    const existingIndex = assignments.findIndex(assignment =>
+      assignment.linkedWork?.kind === currentTarget.kind
+      && assignment.linkedWork.id === currentTarget.stableId);
+    if (!contactId) {
+      if (existingIndex >= 0) { assignments.splice(existingIndex, 1); }
+    } else {
+      const now = new Date().toISOString();
+      if (existingIndex >= 0) {
+        assignments[existingIndex] = {
+          ...assignments[existingIndex],
+          title: currentTarget.title,
+          assigneeContactId: contactId,
+          status: currentTarget.status,
+          priority: currentTarget.priority,
+          updatedAt: now,
+        };
+      } else {
+        assignments.push({
+          id: `asg-dashboard-${currentTarget.kind}-${Date.now()}`,
+          title: currentTarget.title,
+          kind: 'task',
+          assigneeContactId: contactId,
+          status: currentTarget.status,
+          priority: currentTarget.priority,
+          linkedWork: { kind: currentTarget.kind, id: currentTarget.stableId },
+          source: 'dashboard',
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    const clean = sanitizeProjectDirectorConfig({ ...config, assignments });
+    if (clean) {
+      await manager.save(clean);
+      await vscode.commands.executeCommand('atlasmind.refreshProjectState');
       await this.syncState();
     }
   }
@@ -7751,6 +8236,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         durationMs: result.durationMs,
         actor: await resolveGitActor(workspaceRoot),
       }).catch(() => undefined);
+      this.lastPromotionRun = { plan, result, fromName: from.name, toName: to.name };
       await this.postMessage({ type: 'promotionDone', payload: result });
     } finally {
       await releaseDeliveryLock(workspaceRoot);
@@ -7860,6 +8346,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         durationMs: result.durationMs,
         actor: await resolveGitActor(workspaceRoot),
       }).catch(() => undefined);
+      this.lastPromotionRun = { plan, result, fromName: from.name, toName: to.name };
       await this.postMessage({ type: 'promotionDone', payload: result });
     } finally {
       await releaseDeliveryLock(workspaceRoot);
@@ -7920,6 +8407,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon.svg'),
     ).toString();
     let inlineScript: string | undefined;
+    const storedBranchPreferences = normalizeBranchDashboardPreferences(
+      this.context.workspaceState?.get(PROJECT_DASHBOARD_BRANCH_PREFERENCES_KEY),
+    );
+    const encodedBranchPreferences = storedBranchPreferences
+      ? encodeURIComponent(JSON.stringify(storedBranchPreferences))
+      : '';
     try {
       // Prefer inline script content to avoid webview resource bootstrap issues.
       inlineScript = readFileSync(scriptFileUri.fsPath, 'utf8');
@@ -7966,7 +8459,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
                re-announce the whole dashboard on each keystroke and checkbox
                toggle. Transient status is announced through #dashboard-status
                instead. -->
-          <div id="dashboard-root" class="dashboard-root" data-atlas-discuss-icon="${escapeHtml(atlasIconUri)}">
+          <div id="dashboard-root" class="dashboard-root" data-atlas-discuss-icon="${escapeHtml(atlasIconUri)}" data-branch-preferences="${encodedBranchPreferences}">
             <div class="dashboard-loading">Loading dashboard signals…</div>
           </div>
           <div id="dashboard-status" class="visually-hidden" role="status" aria-live="polite"></div>
@@ -7983,6 +8476,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
+  if (candidate['type'] === 'saveBranchPreferences') {
+    return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
+  }
   if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
@@ -8000,6 +8496,17 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string'
       && candidate['payload'].length > 0
       && candidate['payload'].length <= 600;
+  }
+
+  if (candidate['type'] === 'runBranchWorkflow') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object'
+      && payload !== null
+      && typeof payload['branchId'] === 'string'
+      && payload['branchId'].length > 0
+      && payload['branchId'].length <= 600
+      && typeof payload['action'] === 'string'
+      && BRANCH_WORKFLOW_ACTIONS.has(payload['action'] as BranchWorkflowAction);
   }
 
   if (candidate['type'] === 'compareBranches') {
@@ -8341,6 +8848,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['runId'] === 'string' && p['runId'].length > 0
       && typeof p['contactId'] === 'string';
+  }
+
+  if (candidate['type'] === 'assignDashboardWorkOwner') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && typeof p['targetId'] === 'string' && p['targetId'].length > 0 && p['targetId'].length <= 80
+      && typeof p['contactId'] === 'string' && p['contactId'].length <= 80;
   }
 
   if (candidate['type'] === 'directorSendComms') {
@@ -9436,7 +9950,7 @@ async function collectDashboardSnapshot(
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
   // what stops the Overview and the page it links to disagreeing.
-  const snapshot: Omit<DashboardSnapshot, 'attention'> = {
+  const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
     workspaceName,
@@ -9676,7 +10190,81 @@ async function collectDashboardSnapshot(
     privacy: privacySnapshot,
   };
 
-  return { ...snapshot, attention: buildAttentionFeed(buildAttentionInput(snapshot, latestCiConclusion)) };
+  const snapshotWithAssignments: Omit<DashboardSnapshot, 'attention'> = {
+    ...snapshot,
+    workAssignments: { targets: buildDashboardWorkTargets(snapshot) },
+  };
+  return {
+    ...snapshotWithAssignments,
+    attention: buildAttentionFeed(buildAttentionInput(snapshotWithAssignments, latestCiConclusion)),
+  };
+}
+
+/**
+ * Build the common Director assignment surface from records already rendered
+ * elsewhere in this snapshot. Process/configuration cards are intentionally
+ * absent: only concrete work a person can take ownership of is assignable.
+ */
+function buildDashboardWorkTargets(
+  snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'>,
+): DashboardWorkTarget[] {
+  const targets: DashboardWorkTarget[] = [];
+  const seen = new Set<string>();
+  const add = (target: Omit<DashboardWorkTarget, 'token'>): void => {
+    const key = `${target.kind}\u0000${target.stableId}`;
+    if (!target.stableId || seen.has(key) || targets.length >= 600) { return; }
+    seen.add(key);
+    targets.push({ ...target, token: `work-${randomUUID()}` });
+  };
+
+  for (const branch of snapshot.branches.items) {
+    add({
+      kind: 'branch',
+      stableId: branch.name,
+      title: branch.name,
+      page: 'branches',
+      status: branch.current ? 'in-progress' : 'todo',
+      priority: ['diverged', 'upstream-gone', 'name-conflict'].includes(branch.status) ? 'high' : 'medium',
+      branchId: branch.id,
+    });
+  }
+  for (const item of snapshot.roadmap.items.filter(item => !item.completed)) {
+    add({
+      kind: 'roadmap', stableId: item.id, title: item.text, page: 'roadmap', status: 'todo',
+      priority: item.focus === 'security' ? 'high' : item.focus === 'documentation' ? 'low' : 'medium',
+    });
+  }
+  for (const issue of snapshot.issues.issues.filter(issue => issue.state === 'open')) {
+    add({ kind: 'issue', stableId: String(issue.number), title: `#${issue.number} ${issue.title}`, page: 'issues', status: 'todo', priority: 'medium' });
+  }
+  for (const pullRequest of (snapshot.guidedWorkflow.pullRequestRecords ?? []).filter(pr => pr.state === 'open' || pr.state === 'draft')) {
+    add({ kind: 'pull-request', stableId: String(pullRequest.number), title: `#${pullRequest.number} ${pullRequest.title}`, page: 'pullRequests', status: 'in-progress', priority: 'medium' });
+  }
+  for (const item of snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise')) {
+    add({
+      kind: 'gap', stableId: item.id, title: item.text, page: 'gapAnalysis', status: 'todo',
+      priority: item.priority === 'P1' ? 'high' : item.priority === 'P3' ? 'low' : 'medium',
+    });
+  }
+  for (const finding of snapshot.risk.findings.filter(finding => finding.status === 'open')) {
+    add({
+      kind: 'risk', stableId: finding.id, title: finding.title, page: 'risk', status: 'blocked',
+      priority: finding.impact === 'high' ? 'high' : finding.impact === 'low' ? 'low' : 'medium',
+    });
+  }
+  for (const entry of snapshot.debt.entries.filter(entry => ['open', 'accepted', 'scheduled'].includes(entry.status))) {
+    add({
+      kind: 'debt', stableId: entry.id, title: entry.title, page: 'debt',
+      status: entry.status === 'scheduled' ? 'in-progress' : 'todo', priority: entry.severity,
+    });
+  }
+  for (const document of snapshot.documents.autoUpdate.filter(document => document.status === 'missing' || document.status === 'review-due')) {
+    add({
+      kind: 'document', stableId: document.id, title: document.label || document.path, page: 'documents',
+      status: document.status === 'missing' ? 'blocked' : 'todo', priority: document.status === 'missing' ? 'high' : 'medium',
+    });
+  }
+  return targets;
 }
 
 /**
@@ -10158,7 +10746,18 @@ function branchInventoryItem(input: {
   defaultRefs: ReadonlySet<string>;
   now: number;
 }): DashboardBranchInventoryItem {
-  const source = input.local ?? input.remote!;
+  // One card represents the logical branch, so its activity is the newest
+  // commit visible on either side of a folded local/upstream pair. Always
+  // preferring the local ref made a behind or diverged branch look older than
+  // its remote and caused the otherwise-correct recency comparator to sort on
+  // the wrong timestamp.
+  const localTime = Date.parse(input.local?.committedAt ?? '');
+  const remoteTime = Date.parse(input.remote?.committedAt ?? '');
+  const source = input.local && input.remote
+    ? (Number.isFinite(remoteTime) && (!Number.isFinite(localTime) || remoteTime > localTime)
+      ? input.remote
+      : input.local)
+    : input.local ?? input.remote!;
   const remoteRef = input.remote?.shortRef;
   const isDefault = Boolean(input.remote && input.defaultRefs.has(input.remote.ref))
     || [...input.defaultRefs].some(ref => ref.endsWith(`/${input.name}`));
@@ -15269,6 +15868,60 @@ async function runGit(
   return stdout.trim();
 }
 
+async function listGitRemotes(workspaceRoot: string): Promise<string[]> {
+  return (await runGit(workspaceRoot, ['remote']))
+    .split(/\r?\n/)
+    .map(remote => remote.trim())
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length || left.localeCompare(right));
+}
+
+/** Match an upstream against live remote names without assuming the remote has no slash. */
+export function resolveBranchTrackingTarget(
+  upstream: string | undefined,
+  remotes: readonly string[],
+): { remote: string; branch: string } | undefined {
+  if (!upstream) return undefined;
+  const remote = [...remotes]
+    .sort((left, right) => right.length - left.length)
+    .find(candidate => upstream.startsWith(`${candidate}/`));
+  if (!remote) return undefined;
+  const branch = upstream.slice(remote.length + 1);
+  return branch.length > 0 ? { remote, branch } : undefined;
+}
+
+export function validateNewBranchNameInput(value: string): string | undefined {
+  const name = value.trim();
+  if (!name) return 'Enter a branch name.';
+  if (name.length > 244) return 'Keep the branch name to 244 characters or fewer.';
+  if (/\s|[\u0000-\u001f\u007f~^:?*\[\\]/.test(name)) {
+    return 'The name contains a character Git does not allow in branch names.';
+  }
+  if (
+    name.startsWith('-')
+    || name.startsWith('/')
+    || name.endsWith('/')
+    || name.endsWith('.')
+    || name.includes('..')
+    || name.includes('//')
+    || name.includes('@{')
+    || name.endsWith('.lock')
+  ) {
+    return 'Enter a complete Git branch name without empty, relative, or reserved segments.';
+  }
+  return undefined;
+}
+
+function branchWorkflowVerb(action: BranchWorkflowAction): string {
+  switch (action) {
+    case 'commit': return 'prepare that commit';
+    case 'pull': return 'pull that branch';
+    case 'push': return 'push that branch';
+    case 'create-branch': return 'create that branch';
+    case 'create-pull-request': return 'open that pull request';
+  }
+}
+
 function parseCurrentBranch(statusLine: string): string {
   const match = statusLine.match(/^##\s+([^.\s]+)/);
   return match?.[1] ?? 'Detached';
@@ -15698,6 +16351,21 @@ const DASHBOARD_CSS = `
     padding: 24px;
     position: relative;
     overflow: hidden;
+  }
+
+  /* Cross-surface deep links land on a page and identify the exact record.
+     The outline is temporary visual orientation; keyboard focus remains on the
+     record so screen-reader and keyboard users receive the same destination. */
+  .dashboard-focus-target {
+    outline: 2px solid var(--vscode-focusBorder, var(--dash-accent-strong));
+    outline-offset: 3px;
+    animation: dashboardFocusPulse 1.4s ease-out 1;
+  }
+
+  @keyframes dashboardFocusPulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-focusBorder, var(--dash-accent-strong)) 48%, transparent); }
+    65% { box-shadow: 0 0 0 10px transparent; }
+    100% { box-shadow: var(--dash-shadow); }
   }
 
   .hero-card::after {
@@ -17433,8 +18101,60 @@ const DASHBOARD_CSS = `
   }
 
   .branch-card-actions {
+    min-width: 0;
+  }
+
+  .branch-action-stack {
+    display: grid;
+    gap: 10px;
     margin-top: auto;
-    padding-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+  }
+
+  .branch-action-group {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+  }
+
+  .branch-action-label {
+    padding-top: 6px;
+    color: var(--dash-muted);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .branch-action-content {
+    display: grid;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .branch-work-actions {
+    align-items: center;
+  }
+
+  .action-link.branch-icon-action {
+    display: inline-grid;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    place-items: center;
+    padding: 0;
+    border-radius: 9px;
+    font-size: 16px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .action-link.branch-icon-action.primary {
+    padding: 0;
+    border-radius: 9px;
   }
 
   @media (max-width: 760px) {
@@ -17443,6 +18163,8 @@ const DASHBOARD_CSS = `
     .branch-review-source,
     .branch-operation-status,
     .branch-card-display-controls { align-items: stretch; flex-direction: column; }
+    .branch-action-group { grid-template-columns: 1fr; gap: 6px; }
+    .branch-action-label { padding-top: 0; }
   }
 
   .inline-notice.warning {
@@ -17666,6 +18388,24 @@ const DASHBOARD_CSS = `
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 10px;
+  }
+
+  .work-owner-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--dash-muted);
+    font-size: 12px;
+  }
+
+  .work-owner-select {
+    max-width: 180px;
+    min-height: 28px;
+    border: 1px solid var(--dash-border);
+    border-radius: 7px;
+    padding: 3px 7px;
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
   }
 
   .tag {
@@ -19118,6 +19858,7 @@ const DASHBOARD_CSS = `
   .promo-step.failed { color: var(--vscode-errorForeground, #f14c4c); }
   .promo-step.running { color: var(--vscode-charts-blue, #4daafc); }
   .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
+  .promo-step-fix { margin: 6px 0 0 18px; }
   .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
   .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
 

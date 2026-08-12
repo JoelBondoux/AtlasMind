@@ -14,6 +14,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   ClientWebsiteIntake,
+  UiComponentDefinition,
+  UiContentCollection,
+  UiDesignScreen,
+  UiContentDesign,
+  UiDesignToken,
+  UiImplementationGuide,
+  UiSurfaceKind,
   WebsiteAutomation,
   WebsiteAutomationStatus,
   WebsiteDesignSystem,
@@ -35,6 +42,11 @@ import { deriveSectionLabels, sanitizeWireframe } from './websiteWireframe.js';
 import { buildSitemapTree, flattenSitemap, normalizeSlug } from './websiteSitemap.js';
 import { buildLinkGraph } from './websiteLinkGraph.js';
 import { interpretVersionedDocument } from './schemaMigration.js';
+import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph } from './uiDesignGraph.js';
+import {
+  sanitizeUiRepositoryMappings,
+  UI_REPOSITORY_MAPPING_MAX_REVISION,
+} from './uiRepositoryMapping.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
 export const WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH = 'project_memory/domain/website.md';
@@ -46,12 +58,21 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 4;
+const WEBSITE_SCHEMA_VERSION = 13;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
 const AUTOMATION_STATUSES = new Set<WebsiteAutomationStatus>(['idea', 'mapped', 'configured', 'verified', 'paused']);
 const HOSTING_ENVIRONMENT_IDS: ReadonlyArray<WebsiteHostingEnvironmentId> = ['develop', 'staging', 'production'];
+const UI_SURFACE_KINDS = new Set<UiSurfaceKind>([
+  'website',
+  'web-app',
+  'mobile-app',
+  'desktop-app',
+  'editor-extension',
+  'embedded-ui',
+  'other',
+]);
 
 export type WebsiteHostingReadinessStatus = 'ready' | 'needs-setup' | 'blocked';
 
@@ -99,9 +120,16 @@ export interface WebsiteBootstrapSeed {
 export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): WebsiteWorkspaceConfig {
   const now = new Date().toISOString();
   const primaryPlatform = inferPlatformId(seed.platformHint);
+  const pages = [
+    defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action'], 0),
+    defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action'], 1),
+    defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action'], 2),
+    defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
+  ];
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: now,
+    surfaceKind: 'website',
     designPrompt: '',
     intake: {
       clientName: cleanText(seed.clientName, 160),
@@ -118,13 +146,11 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
       budget: optionalText(seed.budget, 160),
       stakeholders: [],
     },
-    pages: [
-      defaultPage('page-home', 'Home', '/', 'Explain the offer quickly and guide the primary audience to the main action.', ['Hero', 'Proof', 'Services or benefits', 'Primary call to action'], 0),
-      defaultPage('page-about', 'About', '/about', 'Build trust through the client story, approach, and credentials.', ['Story', 'Values', 'Team or credentials', 'Call to action'], 1),
-      defaultPage('page-services', 'Services', '/services', 'Describe the core services or products and help visitors choose a next step.', ['Service overview', 'Service detail', 'Process', 'Call to action'], 2),
-      defaultPage('page-contact', 'Contact', '/contact', 'Give qualified visitors a clear, accessible way to make contact.', ['Contact options', 'Enquiry form', 'Location or availability', 'Privacy note'], 3),
-    ],
+    pages,
+    designGraph: designGraphFromPages(pages),
     designSystem: defaultDesignSystem(seed.brandNotes),
+    contentDesign: defaultContentDesign(),
+    implementation: defaultImplementationGuide(),
     platforms: WEBSITE_PLATFORM_CATALOG.map(platform => ({
       id: platform.id,
       label: platform.label,
@@ -142,7 +168,12 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const fallback = createDefaultWebsiteWorkspace();
   const intake = sanitizeClientWebsiteIntake(source['intake']);
   const pages = sanitizePages(source['pages']);
+  const selectedPages = pages.length > 0 ? pages : fallback.pages;
+  const designGraph = sanitizeUiDesignGraph(source['designGraph'], selectedPages);
+  const projectedPages = applyDesignGraphToPages(selectedPages, designGraph);
   const designSystem = sanitizeDesignSystem(source['designSystem']);
+  const contentDesign = sanitizeContentDesign(source['contentDesign']);
+  const implementation = sanitizeImplementationGuide(source['implementation']);
   const platforms = sanitizePlatforms(source['platforms']);
   const hostingEnvironments = sanitizeHostingEnvironments(source['hostingEnvironments']);
   const automations = sanitizeAutomations(source['automations']);
@@ -152,10 +183,16 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   return {
     version: WEBSITE_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
+    surfaceKind: UI_SURFACE_KINDS.has(source['surfaceKind'] as UiSurfaceKind)
+      ? source['surfaceKind'] as UiSurfaceKind
+      : 'website',
     designPrompt: cleanText(source['designPrompt'], 4_000),
     intake,
-    pages: pages.length > 0 ? pages : fallback.pages,
+    pages: projectedPages,
+    designGraph,
     designSystem,
+    contentDesign,
+    implementation,
     platforms: platforms.length > 0 ? platforms : fallback.platforms,
     hostingEnvironments,
     automations,
@@ -343,7 +380,7 @@ export function importClientWebsiteIntake(
 export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): string {
   const primary = config.platforms.find(platform => platform.primary);
   const lines = [
-    '# Website Studio',
+    '# UI Studio',
     '',
     `> Updated ${config.updatedAt}. This mirror is generated from \`${WEBSITE_WORKSPACE_SSOT_PATH}\`.`,
     '',
@@ -351,6 +388,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '',
     `- Client: ${markdownValue(config.intake.clientName)}`,
     `- Project: ${markdownValue(config.intake.projectName)}`,
+    `- Interface profile: ${config.surfaceKind}`,
     `- Summary: ${markdownValue(config.intake.summary)}`,
     `- Target launch: ${markdownValue(config.intake.targetLaunch)}`,
     `- Budget: ${markdownValue(config.intake.budget)}`,
@@ -376,10 +414,31 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '|---|---|---|---:|---:|---:|---:|',
     ...renderPageRows(config),
     '',
+    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}. Tokens: ${config.designGraph.tokens.length}. Components: ${config.designGraph.components.length}.`,
+    '',
     ...renderLinkFindings(config),
     '## Page Design Prompts',
     '',
     ...renderDesignPrompts(config),
+    '',
+    '## Content Design',
+    '',
+    `- Voice: ${markdownValue(config.contentDesign.voice)}`,
+    `- Reading level: ${markdownValue(config.contentDesign.readingLevel)}`,
+    `- Locales: ${markdownValue(config.contentDesign.locales.join(', '))}`,
+    `- Accessibility notes: ${markdownValue(config.contentDesign.accessibilityNotes)}`,
+    '',
+    '### Principles',
+    '',
+    ...markdownList(config.contentDesign.principles),
+    '',
+    '### Preferred terms',
+    '',
+    ...markdownList(config.contentDesign.preferredTerms),
+    '',
+    '### Avoided terms',
+    '',
+    ...markdownList(config.contentDesign.avoidedTerms),
     '',
     '## UI System',
     '',
@@ -388,6 +447,72 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     `- Palette: ${config.designSystem.primaryColor}, ${config.designSystem.secondaryColor}, ${config.designSystem.accentColor}`,
     `- Typography: ${markdownValue(config.designSystem.headingFont)} headings / ${markdownValue(config.designSystem.bodyFont)} body`,
     `- Accessibility target: ${markdownValue(config.designSystem.accessibilityTarget)}`,
+    '',
+    '### Typed design tokens',
+    '',
+    '| Token | Kind | Definition |',
+    '|---|---|---|',
+    ...renderDesignTokenRows(config.designGraph.tokens),
+    '',
+    '### Reusable component definitions',
+    '',
+    '| Component | Root | Properties | Slots | Variants | States | Instances |',
+    '|---|---|---:|---:|---:|---|---:|',
+    ...renderComponentRows(config.designGraph.components, config.designGraph.screens),
+    '',
+    '### Content state designs',
+    '',
+    '| Screen / node | Designed states | Previewing |',
+    '|---|---|---|',
+    ...renderContentStateRows(config.designGraph.screens),
+    '',
+    '### Structured sample-data collections',
+    '',
+    '| Collection | Fields | Sample records | Bound nodes |',
+    '|---|---:|---:|---:|',
+    ...renderContentCollectionRows(config.designGraph.contentCollections, config.designGraph.screens),
+    '',
+    '### Node sample-data bindings',
+    '',
+    '| Screen / node | Collection | Sample | Field mappings |',
+    '|---|---|---|---|',
+    ...renderContentBindingRows(config.designGraph.screens),
+    '',
+    '### Asset library',
+    '',
+    '| Asset | Kind | Source | Dimensions | Crop / focal point | Alt status | Maturity | Assigned nodes |',
+    '|---|---|---|---|---|---|---|---:|',
+    ...renderAssetRows(config.designGraph.assets, config.designGraph.screens),
+    '',
+    '### Node asset assignments',
+    '',
+    '| Screen / node | Asset id |',
+    '|---|---|',
+    ...renderAssetBindingRows(config.designGraph.screens),
+    '',
+    '## Implementation Guide',
+    '',
+    `- Target technologies: ${markdownValue(config.implementation.targetTechnologies.join(', '))}`,
+    `- Source roots: ${markdownValue(config.implementation.sourceRoots.join(', '))}`,
+    `- Component locations: ${markdownValue(config.implementation.componentLocations.join(', '))}`,
+    '',
+    ...markdownList(config.implementation.notes),
+    '',
+    `### Repository mappings (revision ${config.implementation.repositoryMappingRevision})`,
+    '',
+    '| Mapping | Adapter | Design target | Source location | Coverage | Verified graph revision | Source fingerprint | Limitations |',
+    '|---|---|---|---|---|---:|---|---|',
+    ...renderRepositoryMappingRows(config.implementation.repositoryMappings),
+    '',
+    '> Mapping fingerprints are local read-only verification records. A mapping grants no source-write authority and does not claim lossless round-tripping.',
+    '',
+    '### Adapter import evidence',
+    '',
+    '| Mapping | Capability | Imported graph revision | Facts | Suggestions | Loss / unsupported findings | Source fingerprint |',
+    '|---|---|---:|---|---|---|---|',
+    ...renderRepositoryImportRows(config.implementation.repositoryMappings),
+    '',
+    '> Import reports contain bounded structural facts and explicit losses, never source excerpts. Suggestions are not applied automatically.',
     '',
     '## Hosting Environments',
     '',
@@ -428,7 +553,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
         ]
       : []),
     '',
-    '> Security boundary: Website Studio stores only secret references. It never stores API keys, passwords, n8n webhook URLs, or credential values, and it never deploys or triggers a workflow without a separate guarded action.',
+    '> Security boundary: UI Studio stores only secret references. It never stores API keys, passwords, n8n webhook URLs, or credential values, and it never deploys or triggers a workflow without a separate guarded action.',
     '',
   ];
   return lines.join('\n');
@@ -504,7 +629,7 @@ export class WebsiteWorkspaceManager {
 
   public async save(input: unknown): Promise<WebsiteWorkspaceConfig> {
     if (!this.workspaceRoot) {
-      throw new Error('Open a workspace folder before saving Website Studio.');
+      throw new Error('Open a workspace folder before saving UI Studio.');
     }
     // The refusal is re-checked here rather than trusted from a previous read:
     // the file can be replaced between opening the panel and pressing save, and
@@ -526,7 +651,7 @@ export class WebsiteWorkspaceManager {
     ].find(result => result.status === 'blocked');
     if (blockedScan) {
       const issue = blockedScan.issues.find(candidate => candidate.severity === 'error');
-      throw new Error(`Website Studio blocked unsafe SSOT content${issue ? `: ${issue.message}` : '.'}`);
+      throw new Error(`UI Studio blocked unsafe SSOT content${issue ? `: ${issue.message}` : '.'}`);
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
     await writeFile(jsonPath, serialized, 'utf8');
@@ -683,6 +808,29 @@ function defaultDesignSystem(brandNotes?: string): WebsiteDesignSystem {
     cornerStyle: '8px',
     accessibilityTarget: 'WCAG 2.2 AA',
     componentNotes: [],
+  };
+}
+
+function defaultContentDesign(): UiContentDesign {
+  return {
+    voice: '',
+    principles: [],
+    preferredTerms: [],
+    avoidedTerms: [],
+    readingLevel: '',
+    locales: [],
+    accessibilityNotes: '',
+  };
+}
+
+function defaultImplementationGuide(): UiImplementationGuide {
+  return {
+    targetTechnologies: [],
+    sourceRoots: [],
+    componentLocations: [],
+    notes: [],
+    repositoryMappingRevision: 0,
+    repositoryMappings: [],
   };
 }
 
@@ -863,6 +1011,37 @@ function sanitizeDesignSystem(input: unknown): WebsiteDesignSystem {
     accessibilityTarget: cleanText(source['accessibilityTarget'], 160) || fallback.accessibilityTarget,
     componentNotes: valueToStringList(source['componentNotes']),
   };
+}
+
+function sanitizeContentDesign(input: unknown): UiContentDesign {
+  const source = asRecord(input);
+  return {
+    voice: cleanText(source['voice'], 4_000),
+    principles: cleanStringList(source['principles'], MAX_LIST_ITEMS, 500),
+    preferredTerms: cleanStringList(source['preferredTerms'], MAX_LIST_ITEMS, 300),
+    avoidedTerms: cleanStringList(source['avoidedTerms'], MAX_LIST_ITEMS, 300),
+    readingLevel: cleanText(source['readingLevel'], 300),
+    locales: cleanStringList(source['locales'], MAX_LIST_ITEMS, 100),
+    accessibilityNotes: cleanText(source['accessibilityNotes'], 4_000),
+  };
+}
+
+function sanitizeImplementationGuide(input: unknown): UiImplementationGuide {
+  const source = asRecord(input);
+  return {
+    targetTechnologies: cleanStringList(source['targetTechnologies'], MAX_LIST_ITEMS, 300),
+    sourceRoots: cleanStringList(source['sourceRoots'], MAX_LIST_ITEMS, 500),
+    componentLocations: cleanStringList(source['componentLocations'], MAX_LIST_ITEMS, 500),
+    notes: cleanStringList(source['notes'], MAX_LIST_ITEMS, 1_000),
+    repositoryMappingRevision: sanitizeMappingRevision(source['repositoryMappingRevision']),
+    repositoryMappings: sanitizeUiRepositoryMappings(source['repositoryMappings']),
+  };
+}
+
+function sanitizeMappingRevision(input: unknown): number {
+  return Number.isSafeInteger(input) && (input as number) >= 0
+    ? Math.min(input as number, UI_REPOSITORY_MAPPING_MAX_REVISION)
+    : 0;
 }
 
 function sanitizePlatforms(input: unknown): WebsitePlatformTarget[] {
@@ -1166,6 +1345,115 @@ function markdownList(values: string[]): string[] {
   return values.length > 0
     ? values.map(value => `- ${value.replace(/\r?\n/g, ' ')}`)
     : ['- _Not captured yet._'];
+}
+
+function renderDesignTokenRows(tokens: readonly UiDesignToken[]): string[] {
+  return tokens.length === 0
+    ? ['| _None defined_ | — | — |']
+    : tokens.map(token => `| ${escapeMarkdownCell(token.label)} (${token.id}) | ${token.kind} | ${
+        token.aliasOf !== undefined
+          ? `Alias of ${token.aliasOf}`
+          : escapeMarkdownCell(typeof token.value === 'object' ? JSON.stringify(token.value) : String(token.value))
+      } |`);
+}
+
+function renderComponentRows(
+  components: readonly UiComponentDefinition[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (components.length === 0) {
+    return ['| _None defined_ | — | — | — | — | — | — |'];
+  }
+  return components.map(component => {
+    const instances = screens.flatMap(screen => screen.nodes)
+      .filter(node => node.componentInstance?.definitionId === component.id).length;
+    return `| ${escapeMarkdownCell(component.label)} (${component.id}) | ${component.rootKind} | ${component.properties.length} | ${component.slots.length} | ${component.variants.length} | ${component.states.join(', ')} | ${instances} |`;
+  });
+}
+
+function renderContentStateRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => {
+    const presentations = Object.entries(node.contentStatePresentations ?? {});
+    if (presentations.length === 0) { return []; }
+    const states = presentations.map(([state, presentation]) => `${state} (${presentation?.maturity ?? 'placeholder'})`);
+    return [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${states.join(', ')} | ${node.previewContentState ?? 'default'} |`];
+  }));
+  return rows.length > 0 ? rows : ['| _None designed_ | — | — |'];
+}
+
+function renderContentCollectionRows(
+  collections: readonly UiContentCollection[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (collections.length === 0) { return ['| _None defined_ | — | — | — |']; }
+  return collections.map(collection => {
+    const consumers = screens.flatMap(screen => screen.nodes)
+      .filter(node => node.dataBinding?.collectionId === collection.id).length;
+    return `| ${escapeMarkdownCell(collection.label)} (${collection.id}) | ${collection.fields.length} | ${collection.samples.length} | ${consumers} |`;
+  });
+}
+
+function renderContentBindingRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => node.dataBinding
+    ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.dataBinding.collectionId} | ${node.dataBinding.sampleRecordId} | ${Object.entries(node.dataBinding.fieldMappings).map(([slot, field]) => `${slot} → ${field}`).join(', ')} |`]
+    : []));
+  return rows.length > 0 ? rows : ['| _None bound_ | — | — | — |'];
+}
+
+function renderAssetRows(
+  assets: readonly import('../types.js').UiDesignAsset[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (assets.length === 0) { return ['| _None defined_ | — | — | — | — | — | — | — |']; }
+  return assets.map(asset => {
+    const consumers = screens.flatMap(screen => screen.nodes).filter(node => node.assetRef === asset.id).length;
+    const source = asset.source.kind === 'workspace'
+      ? `workspace:${asset.source.reference}`
+      : asset.source.reference;
+    const alt = asset.decorative ? 'Decorative' : asset.altText ? 'Provided' : 'Missing';
+    return `| ${escapeMarkdownCell(asset.label)} (${asset.id}) | ${asset.kind} | ${escapeMarkdownCell(source)} | ${asset.width} × ${asset.height} | ${asset.crop} / ${asset.focalPoint.x}%, ${asset.focalPoint.y}% | ${alt} | ${asset.maturity} | ${consumers} |`;
+  });
+}
+
+function renderAssetBindingRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => node.assetRef
+    ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.assetRef} |`]
+    : []));
+  return rows.length > 0 ? rows : ['| _None assigned_ | — |'];
+}
+
+function renderRepositoryMappingRows(
+  mappings: readonly import('../types.js').UiRepositoryMapping[],
+): string[] {
+  if (mappings.length === 0) { return ['| _None declared_ | — | — | — | — | — | — | — |']; }
+  return mappings.map(mapping => {
+    const target = mapping.target.kind === 'node'
+      ? `node:${mapping.target.screenId}/${mapping.target.id}`
+      : `${mapping.target.kind}:${mapping.target.id}`;
+    const symbol = mapping.sourceSymbol ? `#${mapping.sourceSymbol}` : '';
+    const verifiedRevision = mapping.lastVerified?.graphRevision ?? '—';
+    const fingerprint = mapping.lastVerified?.sourceFingerprint ?? 'unverified';
+    return `| ${escapeMarkdownCell(mapping.label)} (${mapping.id}) | ${mapping.adapterId} | ${escapeMarkdownCell(target)} | ${escapeMarkdownCell(mapping.sourcePath + symbol)} | ${mapping.coverage} | ${verifiedRevision} | ${fingerprint} | ${escapeMarkdownCell(mapping.limitations.join('; ') || '—')} |`;
+  });
+}
+
+function renderRepositoryImportRows(
+  mappings: readonly import('../types.js').UiRepositoryMapping[],
+): string[] {
+  const rows = mappings.filter(mapping => mapping.lastImport).map(mapping => {
+    const report = mapping.lastImport!;
+    const facts = report.facts.map(fact => `${fact.kind}:${fact.name}`).join('; ') || 'none';
+    const suggestions = [
+      ...Object.entries(report.suggestedPropertyMappings).map(([graph, source]) => `prop:${graph}→${source}`),
+      ...Object.entries(report.suggestedSlotMappings).map(([graph, source]) => `slot:${graph}→${source}`),
+    ].join('; ') || 'none';
+    const losses = report.findings
+      .filter(finding => finding.severity !== 'info')
+      .map(finding => `${finding.code}: ${finding.message}`)
+      .join('; ') || 'none';
+    return `| ${escapeMarkdownCell(mapping.label)} (${mapping.id}) | ${report.capability} | ${report.graphRevision} | ${escapeMarkdownCell(facts)} | ${escapeMarkdownCell(suggestions)} | ${escapeMarkdownCell(losses)} | ${report.sourceFingerprint} |`;
+  });
+  return rows.length > 0 ? rows : ['| _None imported_ | — | — | — | — | — | — |'];
 }
 
 function markdownValue(value: string | undefined): string {

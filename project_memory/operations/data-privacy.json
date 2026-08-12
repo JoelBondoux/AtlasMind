@@ -86,7 +86,12 @@
     "local/ollama@@qwen3:4b-instruct-2507-q8_0",
     "local/endpoint-94xdvd48@@text-embedding-bge-m3",
     "local/endpoint-94xdvd48@@text-embedding-nomic-embed-text-v1.5",
-    "local/endpoint-94xdvd48@@whisper-large-v3-turbo"
+    "local/endpoint-94xdvd48@@whisper-large-v3-turbo",
+    "local/endpoint-94xdvd48@@openai/gpt-oss-20b",
+    "local/ollama@@llama3.2-vision:11b",
+    "local/endpoint-94xdvd48@@llama-guard-3-1b",
+    "local/endpoint-94xdvd48@@llama-guard-3-8b-imat",
+    "local/ollama@@qwen2.5:14b"
   ],
-  "updatedAt": "2026-07-25T13:16:17.653Z"
+  "updatedAt": "2026-08-10T12:31:26.355Z"
 }

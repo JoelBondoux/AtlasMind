@@ -94,6 +94,32 @@ at all.
 `logs`, and the Compose equivalents) plus lifecycle commands (`start`, `stop`, `restart`, `up`, `down`,
 `build`, `pull`). Inspection is low-risk; lifecycle follows the high-risk approval path.
 
+### The GitHub CLI
+
+`gh` is graded by **verb**, not by namespace. `gh pr list`, `gh pr view`, `gh issue list`, `gh run view`
+and `gh auth status` are reads. `gh pr create`, `gh pr merge`, `gh issue close` and `gh release create`
+are writes and follow the approval path. Grading by namespace would have put *reading* a pull request
+behind the same prompt as *merging* one — which is how a gate ends up switched off wholesale.
+
+An **unrecognised** subcommand is treated as a write. `gh` gains subcommands regularly, and guessing
+"probably a read" is the expensive direction to be wrong in. `gh api` is always a write, because it is
+arbitrary — `gh api -X DELETE …` is an ordinary use of it.
+
+**Refused outright, at any setting:**
+
+| Refused | Why |
+|---|---|
+| `gh auth token` | Prints your GitHub token to stdout, which becomes model context. No approval makes that safe |
+| `gh auth login` / `logout` / `refresh` / `setup-git` | Changes how the machine authenticates, outside the sandboxed workspace |
+| `gh ssh-key` / `gh gpg-key` | Same |
+| `gh secret` / `gh variable` | Reads or writes repository credentials |
+| `gh alias` | Would redefine what a later `gh` command does |
+| `gh repo delete` | Irreversible, and remote |
+
+The refusal anchors on `gh`'s own namespace names rather than argument positions, so a global flag with a
+value — `gh --hostname github.com auth token` — cannot slip past by shifting the arguments along. It is
+not a substring search: `gh pr comment --body "see the auth token docs"` is an ordinary comment and runs.
+
 ---
 
 ## Saying "read-only" actually means read-only
@@ -230,6 +256,19 @@ in-flight execution is aborted.
 
 This holds identically in gateway mode: the gateway authenticates the transport, and grants no tool
 authority whatsoever.
+
+UI Studio's **Verify fingerprints** is deliberately not a source-editing tool. It reads one explicitly mapped,
+workspace-relative regular file after real-path containment checks, caps the read at 2 MiB, and retains only a
+SHA-256 hash. The mapping itself is revision-checked data and does not authorize imports, commands, code
+execution, or writes. A design-only/code-only/conflict result remains advisory. If a later adapter proposes a
+source diff, applying it must enter the same risk classification, approval, execution, and verification path as
+any other project-file mutation.
+
+**Import source evidence** uses that same read-only snapshot and is not an execution shortcut. Its exact
+webview request carries only mapping id plus revision. A fixed local recognizer produces bounded facts,
+suggestions, provenance, and mandatory loss/unsupported findings without loading a dependency or running a
+build, script, template, extension host, or model. Copying a suggestion changes only form text; accepting it is
+a separate mapping edit. Neither operation authorizes a project-file write.
 
 ---
 

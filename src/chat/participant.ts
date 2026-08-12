@@ -399,6 +399,16 @@ export interface ProjectRunOutcome {
   suggestedIterationLimit?: number;
   /** Suggested temporary/permanent maxToolCallsPerTurn value for resuming the run. */
   suggestedToolCallsPerTurnLimit?: number;
+  /**
+   * Set when the run stopped at the file-count safety gate: the exact prompt that
+   * would approve *this* run.
+   *
+   * Carried on the outcome rather than left to the operator to retype. The gate
+   * used to end the turn with "re-run with `--approve`" and no control that could
+   * do it, so the only way past a safety gate was to retype the goal by hand and
+   * hope it matched — which is why the natural retry ("Proceed") looped forever.
+   */
+  approvalRequiredPrompt?: string;
 }
 
 export interface AssistantResponseReconciliation {
@@ -563,10 +573,21 @@ async function handleNativeChatRequest(
     }
     stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
     const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+    // The goal is passed through **unapproved**, whichever way the run was asked for.
+    //
+    // This branch used to invert the gate: an explicit "Proceed" arrived
+    // unapproved and stalled, while a raw prompt merely *matching*
+    // PROJECT_RUN_REQUEST_PATTERN had `--approve` appended for it and sailed past
+    // the file-count threshold. That was backwards on both halves. The prompt with
+    // the least review behind it — nobody has seen a plan or a file estimate when
+    // it is typed — was the one being auto-approved, and the gate whose own message
+    // says it "exists to prevent unreviewed large-scale changes" never saw it.
+    //
+    // Neither shape carries approval now, because neither has been shown what it
+    // would do. The gate answers that by rendering the plan first and offering an
+    // "Approve and run" chip carrying the exact approving prompt.
     const outcome = await runProjectCommand(
-      isAutonomousContinuationPrompt(request.prompt)
-        ? routedIntent.goal
-        : toApprovedProjectPrompt(routedIntent.goal),
+      routedIntent.goal,
       stream,
       token,
       atlas,
@@ -983,7 +1004,10 @@ async function handleChatRequest(
         stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
         const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
         projectOutcome = await runProjectCommand(
-          toApprovedProjectPrompt(routedIntent.goal),
+          // Unapproved, for the same reason as the other entry point: a routed
+          // intent is a phrasing match on the operator's prompt, not a review of
+          // what the run would touch.
+          routedIntent.goal,
           stream,
           token,
           atlas,
@@ -1144,14 +1168,18 @@ export async function runProjectCommand(
       `which exceeds the safety threshold of ${projectUiConfig.approvalFileThreshold}. ` +
       `This gate exists to prevent unreviewed large-scale changes — you can adjust it in ` +
       `AtlasMind Settings → Advanced → Approval Threshold.\n\n` +
-      `Re-run with \`${PROJECT_APPROVAL_TOKEN}\` to proceed.`,
+      `The plan above is what will run. Approve it below, or refine the goal and ask again.`,
     );
     stream.button({
       command: 'atlasmind.showCostSummary',
       title: 'Show Cost Summary',
       tooltip: 'Review current session cost before approving a large run.',
     });
-    return noOpOutcome;
+    // The approving prompt travels with the outcome so the surface can offer it
+    // as one click. A gate whose only exit was retyping a magic token is one
+    // people learn to route around, which costs the gate its purpose — and the
+    // natural retry ("Proceed") re-entered here unapproved and looped forever.
+    return { ...noOpOutcome, approvalRequiredPrompt: toApprovedProjectPrompt(goal) };
   }
 
   stream.progress('Planning project...');
@@ -4969,6 +4997,17 @@ export function buildFollowups(
   outcome?: ProjectRunOutcome,
   suggestedFollowups?: SessionSuggestedFollowup[],
 ): vscode.ChatFollowup[] {
+  // Ahead of everything else, including model-suggested followups: a run stopped
+  // at a safety gate is the only state here where the turn cannot continue at all
+  // without the operator, and the approving prompt is one the surface knows
+  // exactly and the operator would otherwise have to reconstruct by hand.
+  if (outcome?.approvalRequiredPrompt) {
+    return [
+      { prompt: outcome.approvalRequiredPrompt, label: 'Approve and run' },
+      { prompt: '/runs', label: 'Review previous runs first' },
+    ];
+  }
+
   if (suggestedFollowups && suggestedFollowups.length > 0) {
     return suggestedFollowups.map(item => ({ prompt: item.prompt, label: item.label }));
   }

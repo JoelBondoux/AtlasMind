@@ -264,11 +264,22 @@ export class SessionContextManager {
     const openThreads = this.extractSection(contextMd, 'Open Threads');
     const ssotLinks = this.extractSection(contextMd, 'SSOT Links');
 
-    // Everything except Concluded and Open Threads forms the summary
+    // Everything except Concluded and Open Threads forms the summary.
+    //
+    // The terminator is `$(?![\s\S])`, not `$(?![\s\S])`. JavaScript has no `$(?![\s\S])` — that is
+    // a Perl/Ruby anchor, and in a JS regex it matches a literal "z". With a lazy
+    // quantifier in front of it, each of these stopped at the first "z" after its
+    // heading, or failed to match at all when the trailing section contained none.
+    // Sections were therefore left partly in the summary and partly stripped,
+    // depending on where the word "size" or "analyze" happened to fall.
+    //
+    // `$` alone is wrong too: under `m` it matches at every line end, so the very
+    // first newline would terminate the section. The lookahead pins it to the
+    // actual end of the string.
     const summary = contextMd
-      .replace(/^## Concluded[\s\S]*?(?=^## |\z)/m, '')
-      .replace(/^## Open Threads[\s\S]*?(?=^## |\z)/m, '')
-      .replace(/^## SSOT Links[\s\S]*?(?=^## |\z)/m, '')
+      .replace(/^## Concluded[\s\S]*?(?=^## |$(?![\s\S]))/m, '')
+      .replace(/^## Open Threads[\s\S]*?(?=^## |$(?![\s\S]))/m, '')
+      .replace(/^## SSOT Links[\s\S]*?(?=^## |$(?![\s\S]))/m, '')
       .trim();
 
     // Also try ssot_links.md for cross-references
@@ -285,10 +296,18 @@ export class SessionContextManager {
     };
   }
 
-  /** Extract the body of a named ## Section from markdown. Returns '' if absent. */
+  /**
+   * Extract the body of a named ## Section from markdown. Returns '' if absent.
+   *
+   * Terminates on the next heading or the true end of the string. See the note in
+   * {@link parseContextBundle}: `$(?![\s\S])` is not a JavaScript anchor, and this pattern
+   * previously cut every section at the first literal "z" after its heading — so
+   * Open Threads and the current state were usually truncated or lost outright,
+   * which then propagated into every prompt built from the bundle.
+   */
   private extractSection(markdown: string, sectionName: string): string {
     const pattern = new RegExp(
-      `^## ${sectionName}\\s*\\n([\\s\\S]*?)(?=^## |\\z)`,
+      `^## ${sectionName}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`,
       'm',
     );
     return (pattern.exec(markdown)?.[1] ?? '').trim();

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-01T11:24:00.535Z",
+  "updatedAt": "2026-08-11T12:16:18.674Z",
   "project": {
     "name": "atlasmind",
     "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
@@ -126,7 +126,113 @@
       "ownerContactId": "contact-joelbondoux"
     }
   ],
-  "assignments": [],
+  "assignments": [
+    {
+      "id": "asg-dashboard-branch-1786449616134",
+      "title": "dependabot/npm_and_yarn/develop/developer-tooling-d37d1d647a",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "branch",
+        "id": "dependabot/npm_and_yarn/develop/developer-tooling-d37d1d647a"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:00:16.134Z",
+      "updatedAt": "2026-08-11T12:00:16.134Z"
+    },
+    {
+      "id": "asg-dashboard-branch-1786449622886",
+      "title": "develop",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "in-progress",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "branch",
+        "id": "develop"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:00:22.886Z",
+      "updatedAt": "2026-08-11T12:00:22.886Z"
+    },
+    {
+      "id": "asg-dashboard-issue-1786449741792",
+      "title": "#166 Interface Studio redesign is stranded on an unmerged branch",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "issue",
+        "id": "166"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:02:21.792Z",
+      "updatedAt": "2026-08-11T12:02:21.792Z"
+    },
+    {
+      "id": "asg-dashboard-roadmap-1786449813079",
+      "title": "Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmi",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "roadmap",
+        "id": "roadmap-1"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:03:33.079Z",
+      "updatedAt": "2026-08-11T12:03:33.079Z"
+    },
+    {
+      "id": "asg-dashboard-debt-1786449886804",
+      "title": "ATDD is enabled with no evidence it runs",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "debt",
+        "id": "test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:04:46.804Z",
+      "updatedAt": "2026-08-11T12:04:46.804Z"
+    },
+    {
+      "id": "asg-dashboard-branch-1786450140800",
+      "title": "main",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "branch",
+        "id": "main"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:09:00.800Z",
+      "updatedAt": "2026-08-11T12:09:00.800Z"
+    },
+    {
+      "id": "asg-dashboard-gap-1786450578674",
+      "title": "Core functionality and feature completeness still need work relative to the intended project outcome.",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "todo",
+      "priority": "high",
+      "linkedWork": {
+        "kind": "gap",
+        "id": "Y29yZSBmdW5jdGlv"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-11T12:16:18.674Z",
+      "updatedAt": "2026-08-11T12:16:18.674Z"
+    }
+  ],
   "followUps": [],
   "settings": {
     "teamMode": "solo",

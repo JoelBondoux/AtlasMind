@@ -143,7 +143,7 @@ describe('migrateDocument', () => {
     it('climbs a v1 file all the way to the current version in one pass', () => {
       const outcome = migrateDocument('website', v1());
       expect(outcome.status).toBe('migrated');
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(4);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(13);
     });
   });
 
@@ -162,7 +162,7 @@ describe('migrateDocument', () => {
       const value = (outcome as { value: Record<string, unknown> }).value;
       // migrateDocument climbs the whole ladder, so a v2 file lands on the
       // current version rather than stopping at the next step.
-      expect(value['version']).toBe(4);
+      expect(value['version']).toBe(13);
       // No stack is invented. Absent means nobody has chosen one, and a wrong
       // guess here decides what gets scaffolded.
       expect(value).not.toHaveProperty('stack');
@@ -177,7 +177,7 @@ describe('migrateDocument', () => {
 
     it('climbs on past v3 to the current version', () => {
       const outcome = migrateDocument('website', v2());
-      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(4);
+      expect((outcome as { value: Record<string, unknown> }).value['version']).toBe(13);
     });
   });
 
@@ -198,7 +198,7 @@ describe('migrateDocument', () => {
       const outcome = migrateDocument('website', v3());
       expect(outcome.status).toBe('migrated');
       const value = (outcome as { value: Record<string, unknown> }).value;
-      expect(value['version']).toBe(4);
+      expect(value['version']).toBe(13);
       expect(value).not.toHaveProperty('content');
     });
 
@@ -208,8 +208,130 @@ describe('migrateDocument', () => {
       expect((value['stack'] as Record<string, unknown>)['frameworkId']).toBe('astro');
     });
 
-    it('does not re-run on a file already at v4', () => {
-      expect(migrateDocument('website', { ...v3(), version: 4 }).status).toBe('current');
+    it('moves a v4 website into the generalized UI profile without inventing guidance', () => {
+      const outcome = migrateDocument('website', { ...v3(), version: 4 });
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value).toMatchObject({
+        version: 13,
+        surfaceKind: 'website',
+        contentDesign: { principles: [], preferredTerms: [], avoidedTerms: [] },
+        implementation: { targetTechnologies: [], sourceRoots: [], componentLocations: [], notes: [] },
+      });
+    });
+
+    it('transcribes a v5 wireframe into the v6 graph without inventing responsive intent', () => {
+      const page = {
+        id: 'page-home',
+        wireframe: {
+          breakpoint: 'mobile',
+          elements: [{
+            id: 'hero', kind: 'hero', label: 'Opening', rect: { x: 1, y: 2, width: 3, height: 4 },
+            designPrompt: 'Editorial.', notes: 'Keep.',
+          }],
+        },
+      };
+      const outcome = migrateDocument('website', { ...v3(), version: 5, pages: [page] });
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value['designGraph']).toMatchObject({
+        revision: 0,
+        tokens: [],
+        components: [],
+        screens: [{
+          id: 'page-home',
+          pageId: 'page-home',
+          initialized: true,
+          baseBreakpoint: 'mobile',
+          nodes: [{
+            id: 'hero',
+            label: 'Opening',
+            layout: {
+              mode: 'free',
+              rect: { x: 1, y: 2, width: 3, height: 4 },
+              widthMode: 'fixed',
+              heightMode: 'fixed',
+              hidden: false,
+            },
+            viewportOverrides: {},
+          }],
+        }],
+      });
+      expect((value['pages'] as unknown[])[0]).toEqual(page);
+    });
+
+    it('preserves an untouched page as uninitialized in the v6 graph', () => {
+      const outcome = migrateDocument('website', {
+        ...v3(),
+        version: 5,
+        pages: [{ id: 'page-home', sections: [] }],
+      });
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value['designGraph']).toMatchObject({
+        screens: [{ pageId: 'page-home', initialized: false, nodes: [] }],
+      });
+    });
+
+    it('adds an empty token collection to a v6 graph without changing graph facts', () => {
+      const designGraph = {
+        revision: 9,
+        screens: [{ id: 'page-home', pageId: 'page-home', initialized: false, baseBreakpoint: 'desktop', nodes: [] }],
+      };
+      const outcome = migrateDocument('website', { ...v3(), version: 6, designGraph });
+      expect(outcome.status).toBe('migrated');
+      const value = (outcome as { value: Record<string, unknown> }).value;
+      expect(value).toMatchObject({
+        version: 13,
+        designGraph: { ...designGraph, tokens: [], components: [], contentCollections: [], assets: [] },
+      });
+    });
+
+    it('adds an empty component collection to v7 without inferring instances', () => {
+      const designGraph = { revision: 3, tokens: [], screens: [] };
+      const outcome = migrateDocument('website', { ...v3(), version: 7, designGraph });
+      expect(outcome).toMatchObject({ status: 'migrated', value: { version: 13, designGraph: { ...designGraph, components: [], contentCollections: [], assets: [] } } });
+    });
+
+    it('moves v8 through v13 without inventing state copy, sample data, assets, mappings, or import evidence', () => {
+      const outcome = migrateDocument('website', { ...v3(), version: 8 });
+      expect(outcome).toMatchObject({
+        status: 'migrated', value: {
+          version: 13,
+          designGraph: { contentCollections: [], assets: [] },
+          implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
+        },
+      });
+      expect((outcome as { value: Record<string, unknown> }).value).not.toHaveProperty('contentStatePresentations');
+    });
+
+    it('adds empty collection and asset authority on their exact migration steps', () => {
+      expect(migrateDocument('website', { ...v3(), version: 9 })).toMatchObject({
+        status: 'migrated', value: { version: 13, designGraph: { contentCollections: [], assets: [] } },
+      });
+      expect(migrateDocument('website', { ...v3(), version: 10 })).toMatchObject({
+        status: 'migrated', value: { version: 13, designGraph: { assets: [] } },
+      });
+      expect(migrateDocument('website', { ...v3(), version: 11 })).toMatchObject({
+        status: 'migrated',
+        value: {
+          version: 13,
+          implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
+        },
+      });
+      expect(migrateDocument('website', { ...v3(), version: 12, implementation: {
+        repositoryMappingRevision: 4,
+        repositoryMappings: [{ id: 'button', lastVerified: { sourceFingerprint: 'keep' } }],
+      } })).toMatchObject({
+        status: 'migrated',
+        value: {
+          version: 13,
+          implementation: {
+            repositoryMappingRevision: 4,
+            repositoryMappings: [{ id: 'button', lastVerified: { sourceFingerprint: 'keep' }, lastImport: null }],
+          },
+        },
+      });
+      expect(migrateDocument('website', { ...v3(), version: 13 }).status).toBe('current');
     });
   });
 });

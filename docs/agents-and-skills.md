@@ -173,9 +173,22 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
-When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds Website Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open Website Studio** provides client intake, sitemap, wireframe/UI review, UI-system, Hosting & Platforms, and n8n dashboards. The hosting plan is always Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
+When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds UI Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open UI Studio** provides the project brief, screens/content, wireframe/UI review, UI system, implementation handoff and website-only delivery dashboards. The website hosting plan remains Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
 
 Website Studio is a planning and review boundary, not an execution shortcut. Imported/webview data is bounded and sanitized before SSOT persistence; common credential shapes and n8n webhook URLs are redacted; password and n8n inputs store only provider-prefixed credential references rather than values. Hosting access policies are rebuilt server-side, with HTTPS/loopback/subdomain readiness checks, so a webview payload cannot make Staging public or remove Production protection. Choosing Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another platform does not authorize a deployment, and marking an n8n workflow configured does not trigger it. Publishing continues through the guarded Delivery pipeline, and any future n8n runner must enter the normal tool-risk and approval path.
+
+UI Studio repository mappings likewise grant no agent or tool authority. They are reviewable data linking a
+graph component/token/node to a workspace-relative source location through a declared adapter. Verification is
+a local host operation that realpath-checks containment, reads at most 2 MiB, and records hashes only; source
+is not placed in project memory, the webview, or a model prompt. A design-only/code-only/conflict result is a
+finding, never an instruction to reconcile. Later proposed source diffs must still pass the ordinary tool-risk,
+approval, execution, and post-change verification path.
+
+Adapter evidence import does not widen that boundary. The webview supplies only a mapping id and expected
+revision; the host resolves the contained source snapshot and fixed adapter. React, literal HTML/CSS, and VS
+Code webview recognizers emit bounded facts, exact-name suggestions, provenance, and mandatory losses; custom
+is unsupported. No source excerpt, dependency, syntax tree, executable value, or browser/model-authored report
+is persisted. Copying suggestions affects only the unsaved Studio form until a separate mapping command.
 
 #### Framework scaffolding (`src/core/testingScaffolder.ts`)
 
@@ -511,7 +524,11 @@ Approval surfaces receive a bounded host-produced argument preview rather than s
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx, the GitHub CLI, and more |
+
+`gh` is on the allow-list and graded by verb in `toolPolicy.ts`, exactly as `git` is: `gh pr list` is `terminal-read`, `gh pr merge` is `terminal-write`, and an **unrecognised** verb is a write because `gh` gains subcommands faster than this table is revised. `gh api` is always a write, being arbitrary. Seven subcommands are refused in `terminalRun.ts` before execution regardless of approval mode — `auth token` (it would return your GitHub token as tool output, which becomes model context), `auth login`/`logout`/`refresh`/`setup-git`, `ssh-key`, `gpg-key`, `secret`, `variable`, `alias`, and `repo delete`. The refusal anchors on `gh`'s own namespace names rather than argument positions, because a global flag carrying a value shifts every positional along and index-based matching then failed permissively.
+
+Selection is separate from authorisation, and both had to change: GitHub work is recognised by `TASK_SCOPED_GITHUB_PATTERN` and granted `terminal-run`, because git vocabulary alone selected `git-status`/`git-diff`/`git-log` — none of which can see an issue, a review or a CI run. The `github-operator` agent declares no skills of its own and falls through to exactly this selection, so before this it was advertised for pull-request work while holding only local git reads.
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff (staged or against a ref) |
 | `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |

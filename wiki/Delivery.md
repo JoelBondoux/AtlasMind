@@ -187,5 +187,5 @@ that doesn't genuinely restore service is worse than knowing you don't have one.
 - [[GitHub Workflow]] — the eight-stage workflow this is part of
 - [[Project Planner]] — autonomous runs route deployments through here rather than deploying directly
 - [[Tool Execution]] — the approval model shared with the rest of AtlasMind
-- [[Website Studio]] — the Develop → Staging → Production path for client sites
+- [[Website Studio|UI Studio]] — the Develop → Staging → Production path for website profiles
 - [[Security]] — these boundaries in their wider context

@@ -5,6 +5,7 @@ import {
   buildProjectState,
   countAttentionItems,
   hasProjectState,
+  assignmentDestinationCommand,
   type ProjectStateInput,
   type ProjectStateSection,
 } from '../core/projectStateTree.js';
@@ -14,9 +15,9 @@ import {
   resolveRestrictiveLevel,
 } from '../core/workflowAutomation.js';
 import { SSOT_FOLDERS } from '../types.js';
-import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, Assignment, FollowUp, McpServerState, MemoryEntry, ProjectDashboardOpenTarget, ProjectDirectorConfig, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
 import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings, peekAcpAgentProbe } from '../providers/acp.js';
-import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
+import { deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
@@ -30,6 +31,52 @@ import {
 import { registerLensTreeView } from './lensTreeView.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
+const PROJECT_STATE_ATTENTION_URI_STRING = 'atlasmind-project-state:/waiting-on-you';
+const PROJECT_DIRECTOR_ATTENTION_URI_STRING = 'atlasmind-project-director:/follow-ups';
+
+/**
+ * A real tree-row badge for the personal ToDo section.
+ *
+ * `TreeView.badge` sounds as if it decorates the view header, but VS Code
+ * implements it as view *activity*: it reaches the activity-bar container and
+ * stops there. A file decoration is the public API that actually renders a
+ * compact, coloured badge on a native tree row. The URI is synthetic and has
+ * no file-system provider; it is only a stable decoration identity.
+ */
+class AttentionDecorationProvider implements vscode.FileDecorationProvider, vscode.Disposable {
+  private readonly changeEmitter = new vscode.EventEmitter<vscode.Uri | undefined>();
+  readonly onDidChangeFileDecorations = this.changeEmitter.event;
+  private count = 0;
+
+  constructor(
+    private readonly attentionUri: vscode.Uri,
+    private readonly singularTooltip: string,
+    private readonly pluralTooltip: string,
+  ) {}
+
+  update(count: number): void {
+    if (count === this.count) {
+      return;
+    }
+    this.count = count;
+    this.changeEmitter.fire(this.attentionUri);
+  }
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (this.count <= 0 || uri.toString() !== this.attentionUri.toString()) {
+      return undefined;
+    }
+    return new vscode.FileDecoration(
+      this.count > 99 ? '99' : String(this.count),
+      `${this.count} ${this.count === 1 ? this.singularTooltip : this.pluralTooltip}`,
+      new vscode.ThemeColor('notificationsWarningIcon.foreground'),
+    );
+  }
+
+  dispose(): void {
+    this.changeEmitter.dispose();
+  }
+}
 
 export type SessionRenameTarget = ChatSessionTreeItem | SessionFolderTreeItem;
 
@@ -71,14 +118,26 @@ export function registerTreeViews(
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const discoveryProvider = new DiscoveryTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
-  const projectDirectorProvider = new ProjectDirectorTreeProvider(atlas);
+  const projectDirectorAttentionUri = vscode.Uri.parse(PROJECT_DIRECTOR_ATTENTION_URI_STRING);
+  const projectDirectorProvider = new ProjectDirectorTreeProvider(atlas, projectDirectorAttentionUri);
   const projectDirectorTreeView = vscode.window.createTreeView('atlasmind.projectDirectorView', {
     treeDataProvider: projectDirectorProvider,
   });
-  const projectStateProvider = new ProjectStateTreeProvider(atlas);
+  const projectStateAttentionUri = vscode.Uri.parse(PROJECT_STATE_ATTENTION_URI_STRING);
+  const projectStateProvider = new ProjectStateTreeProvider(atlas, projectStateAttentionUri);
   const projectStateTreeView = vscode.window.createTreeView('atlasmind.projectStateView', {
     treeDataProvider: projectStateProvider,
   });
+  const projectStateAttentionDecorations = new AttentionDecorationProvider(
+    projectStateAttentionUri,
+    'thing waiting on you',
+    'things waiting on you',
+  );
+  const projectDirectorAttentionDecorations = new AttentionDecorationProvider(
+    projectDirectorAttentionUri,
+    'Director follow-up needing attention',
+    'Director follow-ups needing attention',
+  );
   /**
    * Badge and visibility, recomputed together.
    *
@@ -99,6 +158,14 @@ export function registerTreeViews(
       sections = [];
     }
     const waiting = countAttentionItems(sections);
+    // A title description is hidden with the body when the view collapses.
+    // Put the live signal in the title itself so the closed header still says
+    // what is waiting; the decoration provider handles the expanded tree row.
+    projectStateTreeView.title = waiting > 0
+      ? `Project State · ${waiting} waiting`
+      : 'Project State';
+    projectStateTreeView.description = undefined;
+    projectStateAttentionDecorations.update(waiting);
     projectStateTreeView.badge = waiting > 0
       ? { value: waiting, tooltip: `${waiting} thing${waiting === 1 ? '' : 's'} waiting on you` }
       : undefined;
@@ -122,13 +189,19 @@ export function registerTreeViews(
     set('atlasmind.hasMcpServers', (atlas.mcpServerRegistry?.listServers?.() ?? []).length > 0);
   };
 
-  const refreshDirectorBadge = (): void => {
-    const overdue = countOverdueFollowUps(atlas.projectDirectorManager?.getConfig());
-    projectDirectorTreeView.badge = overdue > 0
-      ? { value: overdue, tooltip: `${overdue} overdue follow-up${overdue === 1 ? '' : 's'}` }
+  const refreshDirectorAttention = (): void => {
+    const attention = collectDirectorAttention(atlas.projectDirectorManager?.getConfig());
+    const count = attention.followUps.length + attention.assignments.length;
+    projectDirectorTreeView.title = count > 0
+      ? `Project Director · ${count} follow-up${count === 1 ? '' : 's'}`
+      : 'Project Director';
+    projectDirectorTreeView.description = undefined;
+    projectDirectorAttentionDecorations.update(count);
+    projectDirectorTreeView.badge = count > 0
+      ? { value: count, tooltip: `${count} Director follow-up${count === 1 ? '' : 's'} needing attention` }
       : undefined;
   };
-  refreshDirectorBadge();
+  refreshDirectorAttention();
   refreshProjectState();
   refreshEmptyViewContexts();
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
@@ -153,9 +226,17 @@ export function registerTreeViews(
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
-  atlas.projectDirectorRefresh?.event(() => { projectDirectorProvider.refresh(); refreshDirectorBadge(); });
+  atlas.projectDirectorRefresh?.event(() => {
+    projectDirectorProvider.refresh();
+    refreshDirectorAttention();
+    refreshProjectState();
+  });
 
   context.subscriptions.push(
+    projectStateAttentionDecorations,
+    vscode.window.registerFileDecorationProvider(projectStateAttentionDecorations),
+    projectDirectorAttentionDecorations,
+    vscode.window.registerFileDecorationProvider(projectDirectorAttentionDecorations),
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
       chatViewProvider,
@@ -1107,19 +1188,34 @@ class DiscoveryTreeProvider implements vscode.TreeDataProvider<DiscoveryTreeNode
 type DirectorTreeNode = DirectorGroupItem | DirectorEntryItem;
 
 class DirectorGroupItem extends vscode.TreeItem {
-  constructor(public readonly group: 'stakeholders' | 'team' | 'followups', label: string, count: number, icon: string) {
+  constructor(
+    public readonly group: 'stakeholders' | 'team' | 'followups',
+    label: string,
+    count: number,
+    icon: string,
+    attentionUri?: vscode.Uri,
+  ) {
     super(`${label} (${count})`, vscode.TreeItemCollapsibleState.Expanded);
     this.contextValue = `director-group-${group}`;
     this.iconPath = new vscode.ThemeIcon(icon);
+    if (attentionUri) {
+      this.resourceUri = attentionUri;
+    }
   }
 }
 
 class DirectorEntryItem extends vscode.TreeItem {
-  constructor(label: string, description: string, icon: string, color?: string) {
+  constructor(
+    label: string,
+    description: string,
+    icon: string,
+    command: vscode.Command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' },
+    color?: string,
+  ) {
     super(label || '—', vscode.TreeItemCollapsibleState.None);
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
-    this.command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' };
+    this.command = command;
   }
 }
 
@@ -1140,7 +1236,10 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
 
   private sections: ProjectStateSection[] = [];
 
-  constructor(private readonly atlas: AtlasMindContext) {}
+  constructor(
+    private readonly atlas: AtlasMindContext,
+    private readonly attentionUri: vscode.Uri,
+  ) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -1176,6 +1275,11 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
         );
         item.id = `state.${section.id}`;
         item.iconPath = new vscode.ThemeIcon(section.icon);
+        if (section.id === 'attention') {
+          item.resourceUri = this.attentionUri;
+        } else if (section.description) {
+          item.description = section.description;
+        }
         item.tooltip = section.tooltip;
         item.contextValue = `atlasmind.state.${section.id}`;
         return item;
@@ -1257,7 +1361,25 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
     // nothing. Runs likewise.
     const directorConfig = this.atlas.projectDirectorManager?.getConfig();
     if (directorConfig) {
-      input.attention = { overdueFollowUps: countOverdueFollowUps(directorConfig) };
+      const directorAttention = collectDirectorAttention(directorConfig);
+      const assignedWork = directorAttention.assignments.map(assignment => ({
+            id: assignment.id,
+            title: assignment.title,
+            status: assignment.status,
+            priority: assignment.priority,
+            destination: assignment.linkedWork?.kind
+              ?? (assignment.linkedRunId ? 'run' as const : 'director' as const),
+            targetId: assignment.linkedWork?.id ?? assignment.linkedRunId ?? assignment.id,
+          }));
+      input.attention = {
+        followUps: directorAttention.followUps.map(followUp => ({
+          id: followUp.id,
+          title: followUp.title,
+          dueDate: followUp.dueDate,
+          urgency: deriveFollowUpUrgency(followUp) as 'overdue' | 'due-soon',
+        })),
+        assignedWork,
+      };
     }
 
     return input;
@@ -1268,7 +1390,10 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<DirectorTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly atlas: AtlasMindContext) {}
+  constructor(
+    private readonly atlas: AtlasMindContext,
+    private readonly attentionUri: vscode.Uri,
+  ) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -1285,11 +1410,9 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
     }
     const nameOf = (contactId: string): string =>
       config.contacts.find(contact => contact.id === contactId)?.name ?? '—';
-    const isDueOrOverdue = (status: string, urgency: string): boolean =>
-      status !== 'done' && status !== 'cancelled' && (urgency === 'overdue' || urgency === 'due-soon');
+    const attention = collectDirectorAttention(config);
 
     if (!element) {
-      const dueItems = config.followUps.filter(f => isDueOrOverdue(f.status, deriveFollowUpUrgency(f)));
       const groups: DirectorTreeNode[] = [];
       if (config.stakeholders.length > 0 || resolveTeamMode(config) === 'team') {
         groups.push(new DirectorGroupItem('stakeholders', 'Stakeholders', config.stakeholders.length, 'organization'));
@@ -1297,7 +1420,13 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
       if (resolveTeamMode(config) === 'team') {
         groups.push(new DirectorGroupItem('team', 'Team', config.teamMembers.length, 'organization'));
       }
-      groups.push(new DirectorGroupItem('followups', 'Follow-ups', dueItems.length, 'bell'));
+      groups.push(new DirectorGroupItem(
+        'followups',
+        'Follow-ups',
+        attention.followUps.length + attention.assignments.length,
+        'bell',
+        this.attentionUri,
+      ));
       return groups;
     }
 
@@ -1310,24 +1439,75 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
         new DirectorEntryItem(nameOf(member.contactId), member.discipline, 'person'));
     }
     if (element instanceof DirectorGroupItem && element.group === 'followups') {
-      const items = config.followUps.filter(f => isDueOrOverdue(f.status, deriveFollowUpUrgency(f)));
-      if (items.length === 0) {
+      if (attention.followUps.length === 0 && attention.assignments.length === 0) {
         const empty = new vscode.TreeItem('Nothing due', vscode.TreeItemCollapsibleState.None);
         empty.contextValue = 'director-empty';
         return [empty as DirectorTreeNode];
       }
-      return items.map(followUp => {
+      const followUps = attention.followUps.map(followUp => {
         const overdue = deriveFollowUpUrgency(followUp) === 'overdue';
         return new DirectorEntryItem(
           followUp.title,
           `due ${followUp.dueDate}`,
           overdue ? 'warning' : 'clock',
+          dashboardTreeCommand({
+            page: 'director',
+            focus: { kind: 'follow-up', id: followUp.id },
+          }, 'Open this follow-up'),
           overdue ? 'charts.red' : 'charts.yellow',
         );
       });
+      const assignments = attention.assignments.map(assignment => {
+        const destination = assignment.linkedWork?.kind
+          ?? (assignment.linkedRunId ? 'run' as const : 'director' as const);
+        const targetId = assignment.linkedWork?.id ?? assignment.linkedRunId ?? assignment.id;
+        const command = assignmentDestinationCommand(destination, targetId);
+        return new DirectorEntryItem(
+          assignment.title,
+          `${assignment.status.replace(/-/g, ' ')} · ${assignment.priority}`,
+          assignment.status === 'blocked' ? 'circle-slash'
+            : assignment.status === 'in-progress' ? 'sync' : 'circle-outline',
+          {
+            command: command.command,
+            title: command.title,
+            ...(command.args ? { arguments: command.args } : {}),
+          },
+        );
+      });
+      return [...followUps, ...assignments];
     }
     return [];
   }
+}
+
+function collectDirectorAttention(config: ProjectDirectorConfig | undefined): {
+  followUps: FollowUp[];
+  assignments: Assignment[];
+} {
+  if (!config) {
+    return { followUps: [], assignments: [] };
+  }
+  const followUps = config.followUps.filter(followUp => {
+    const urgency = deriveFollowUpUrgency(followUp);
+    return followUp.status !== 'done'
+      && followUp.status !== 'cancelled'
+      && (urgency === 'overdue' || urgency === 'due-soon');
+  });
+  const assignments = config.selfContactId
+    ? config.assignments.filter(assignment =>
+      assignment.assigneeContactId === config.selfContactId
+      && assignment.status !== 'done'
+      && assignment.status !== 'cancelled')
+    : [];
+  return { followUps, assignments };
+}
+
+function dashboardTreeCommand(target: ProjectDashboardOpenTarget, title: string): vscode.Command {
+  return {
+    command: 'atlasmind.openProjectDashboard',
+    title,
+    arguments: [target],
+  };
 }
 
 function shortArdType(type: string): string {

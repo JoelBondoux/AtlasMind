@@ -1,23 +1,158 @@
-# Website Studio
+# UI Studio
 
-Website Studio is AtlasMind's project-scoped workspace for taking a client website from intake to delivery readiness. Open it from **Project Dashboard → Delivery**, from the Project Ideation board, with the **AtlasMind: Open Website Studio** command, or by choosing **Website / Marketing Site** during guided bootstrap. (Until v0.234.0 the command was the only way in — the Studio linked out to the Dashboard and the Ideation board, and neither linked back.)
+UI Studio is AtlasMind's project-scoped workspace for designing an interface and carrying that design
+into the implementation. Choose a website, web app, mobile app, desktop app, editor extension,
+embedded UI, or another interface profile. Open it from **Project Dashboard → Delivery**, from the
+Project Ideation board, or with **AtlasMind: Open UI Studio**. The command id and the
+`project_memory/domain/website.json` path remain stable for extension and repository compatibility.
+
+The approved path from this foundation to a class-leading visual builder is recorded in
+[UI Studio — class-leading visual builder plan](ui-studio-builder-plan.md), including phased requirements,
+acceptance criteria, reference projects, metrics, risks, and the design/source/preview authority decisions.
+
+Website is a profile, not the product boundary. Every profile shares project brief, screens and flows,
+content design, Markdown screen copy, wireframes, UI system, and implementation guidance. The website
+profile additionally exposes sitemap/SEO language, stack setup,
+Develop → Staging → Production hosting, Delivery comparison, and n8n mapping.
+
+Every profile may generate a sandboxed static HTML/CSS **visual reference** beside the Studio. For a
+SwiftUI, React Native, XAML, game-engine, or other non-web project, that preview communicates layout,
+content, states and tokens; it never claims HTML is the implementation target. The Implementation guide
+is what points subsequent project work at the real technology and source locations.
 
 ## Dashboards
 
 | Dashboard | Purpose |
 |---|---|
-| Client Brief | Capture the client, project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, launch target, and budget — plus the whole-site design prompt |
-| Sitemap | Page title, slug, purpose, template, and the auto-drawn hierarchy map with each page's outbound links and inbound count |
+| Project Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
+| Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction, tone, palette, typography, spacing, corner style, accessibility target, and component notes |
-| Stack & hosting | Pick the framework and the platform (one decision — the pairing sets the build command, output directory and deploy config), configure Develop/Staging/Production, run automatic setup, and cross-check against the Delivery pipeline |
-| n8n Automations | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases, reusable component definitions, bounded sample-data collections, and validated assets |
+| Implementation | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
+| n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+
+## Typed design tokens
+
+UI System edits format-v7 token definitions through the same revisioned command history as the canvas.
+Each token has a stable id, label, closed kind, and either one bounded value or a same-kind alias. Deleting a
+token that an alias still uses is refused; undo and redo cover token changes too. The Markdown mirror lists
+every definition so a review does not depend on opening the webview.
+
+Reserved ids—`color-primary`, `color-secondary`, `color-accent`, `font-heading`, `font-body`,
+`spacing-base`, `radius-base`, `breakpoint-tablet`, and `breakpoint-mobile`—apply consistently to the Studio
+canvas and deterministic Full Preview. Other valid tokens remain available to target adapters under uniquely
+encoded CSS custom properties. CSS is a preview projection only: the graph stores structured values and
+remains equally usable for SwiftUI, Compose, XAML, native desktop, embedded, and editor-extension targets.
+
+## Reusable components
+
+Format v8 keeps reusable definitions beside tokens in the authoritative graph. UI System creates a
+definition with a compatible root block type, typed properties (`text`, `number`, `boolean`, or bounded
+`choice`), variants, capacity/kind-constrained slots, and supported default/hover/focus/active/disabled/
+loading/empty/error/success/validation states. Definitions contain no HTML, CSS, source paths, or commands.
+
+Select a canvas block to assign a compatible definition, variant, state, and property overrides. This is an
+explicit **instance edit**; changing it cannot rewrite the shared definition. Resolution is deterministic:
+definition default, then variant value, then instance override, with the source shown in the inspector.
+Children can claim only a declared slot on their parent instance and the host enforces kind and capacity.
+
+## Content is part of the design
+
+Project-wide content rules live in the versioned UI Studio SSOT. Actual screen copy remains in the
+configured Markdown content directory (default `content/`) so a copywriter, developer, static-site
+generator, and the Studio all work on the same source. The editor includes headings, labels,
+instructions, empty/loading/error/success states, validation, and recovery actions—not only prose.
+
+Creating a missing content file writes explicit `[PLACEHOLDER: …]` markers derived from the current
+wireframe and never plausible filler. When saving, the host compares the body with the version that
+was opened. If another process changed it, the save is refused and the user reloads; prose is never
+auto-merged into something nobody authored.
+
+Each canvas node may also own short **empty, loading, error, and success presentations**. Expand Content states
+in the selected-node inspector to edit the title, explanation, action label, and maturity, then select an
+authored state for in-context review. These messages complement the screen's Markdown; they do not move or
+duplicate its long-form copy. Placeholder, draft, reviewed, and approved remain visibly distinct, and a state
+containing `[PLACEHOLDER: …]` cannot remain approved.
+
+Format v10 adds **structured sample-data collections** for interface design. UI System defines bounded
+text/number/boolean/HTTPS-URL/date fields and deliberate review records; it never imports production responses.
+The selected-node inspector maps title, body, and action slots to one collection record. Studio and Full
+Preview render those exact values and label the fixture they came from. Collection edits cannot remove a field
+or sample used by a node, while stale references introduced by a hand edit remain visible as diagnostics.
+
+Format v11 adds **validated asset metadata**. UI System records a stable id, media kind, normalized
+workspace-relative or credential-free HTTPS source, intrinsic dimensions, crop/focal intent, alt/decorative
+intent, and maturity. A canvas node assigns one asset by id. Missing references and missing alt text are
+owning-node errors. Full Preview projects aspect ratio, crop, focal point, provenance, and alt status as inert
+markup; it does not fetch media or weaken the no-network CSP.
+
+## Repository mappings and divergence
+
+Format v12 begins Phase 5 in the Implementation dashboard. A mapping connects one component, token, or
+canvas node to a normalized workspace-relative file and optional source symbol through a named React, static
+HTML/CSS, VS Code webview, or custom adapter. Component mappings can additionally declare `graph-id |
+source-name` prop and slot correspondences. Coverage is explicitly `declared`, `partial`, or `unsupported`;
+partial/unsupported and custom mappings must state limitations, and this slice makes no lossless claim.
+
+**Verify fingerprints** asks the extension host to resolve the current graph target and read the mapped file.
+The host checks real-path containment, refuses non-files and files over 2 MiB, and persists only SHA-256 design
+and source fingerprints plus graph revision and verification time. Source content is not stored, rendered in
+the webview/Markdown mirror, or sent to a model. The resulting status is `in-sync`, `design-only`, `code-only`,
+`conflict`, `unassessed`, or `unsupported`. It is evidence, not reconciliation: no side is selected and no
+source is changed. Editing the mapping clears its baseline. Adapter evidence and proposed diffs must retain
+explicit capability/loss reporting; applying a future source diff remains on the normal approval path.
+
+Format v13 adds **Import source evidence**. The host reads the same contained file snapshot used by
+verification and runs only the adapter already named by the mapping. React recognizes named exports and
+simple props/slots; static HTML/CSS recognizes literal selectors and custom properties; VS Code webview
+recognizes host exports and literal web facts; custom reports unsupported. Every built-in result remains
+`partial` and publishes what it did not evaluate. The report retains bounded facts, exact-match suggestions,
+closed findings, adapter id, graph revision, target/source fingerprints, and time—never source excerpts.
+
+Suggestions may be copied into the visible form, where they remain ordinary editable text until **Apply
+mapping** is pressed separately. Import does not change the graph, mapping, implementation, or source. A report
+is visibly stale when its design target or source fingerprint changes; it stays available as provenance.
+Proposed project-source diffs remain the next Phase 5 slice and will use normal approval and verification.
 
 ## The wireframe canvas
 
 A page's structure is a set of drawn boxes, not a list of strings. Pick a block from the palette,
 drag on the grid to draw it, resize from any of eight handles, and drop one block inside another to
 nest it. Arrow keys nudge the selection; Shift makes the step a whole column; Delete removes it.
+Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. These interactions, inspector label/kind/intent changes, and
+draw/delete all become revision-checked graph commands; Save cannot replace the graph from browser data.
+
+Shift-click, Ctrl-click, or Cmd-click toggles blocks into a multi-selection. The primary block keeps the
+inspector and resize handles; the selection tools align six ways, distribute three or more blocks across or
+down, clear back to the primary block, nudge the group, or drag the complete selection by any selected block.
+Group drag preserves spacing, stays within the complete canvas bounds, and never changes hierarchy. A
+transform is one revision and one undo step at both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
+so selecting several blocks never changes the meaning of the existing single-element delete action.
+
+Above the canvas, the active breakpoint reports viewport overflow, children that extend outside a clipping
+parent, unintended overlap, interactive blocks below a 44px touch target, broken sample-data bindings, missing
+fixture values, and absent empty/loading/error/success designs for bound nodes. A clear state says the layout
+and content/asset checks ran; it does not infer success from missing data. Missing asset ids and alt text point
+to the assigning node. Click a finding to select its owning block. Ancestor
+overlap and siblings in an overlay container are intentional and therefore excluded.
+
+Select a container to choose **free**, **stack**, **grid**, or **overlay** layout. Stack/grid/overlay arrange
+direct children using direction, gap, padding, alignment, distribution, and (for grid) columns. Child width
+and height can be fixed, fill, or hug: fill claims the available axis; hug keeps the stored intrinsic box
+until content measurement is added. The arrangement is a projection, so switching back to free or undoing
+the change restores the exact rectangles that were drawn. Non-container blocks cannot claim a container mode.
+Optional min/max width and height apply to free and container layouts in the same 1000 × 4000 canvas units.
+An empty bound means none. Constraints clamp only the displayed projection, so clearing/resetting one restores
+the retained drawn or intrinsic size; a constrained free node remains movable.
+Stacks may wrap onto another row/column. Each node also has an order from -1000 to 1000; container children
+sort by that value before their stable position/id order. Both can vary by breakpoint without changing the
+stored node array, hierarchy, or rectangles. A fill item claims one wrapped line.
+
+At the base breakpoint, **Duplicate** copies the selected node and its complete nested subtree. Identities and
+parent references are remapped together, base and explicit responsive rectangles receive the same offset,
+and the result is one undo step. **Lock** leaves a node selectable and inspectable but prevents gestures,
+inspector edits, multi-selection transforms, deletion, and duplication until it is unlocked.
 
 Three rules are worth knowing because they are deliberate:
 
@@ -26,7 +161,7 @@ Three rules are worth knowing because they are deliberate:
   differently on a laptop and a 4K panel.
 - **Deleting a container promotes what was inside it.** Cascade delete is the obvious implementation
   and the wrong one: it silently takes six cards with the wrapper, with no undo. The children move up
-  a level and the notice says so.
+  a level and the notice says so. If a direct child is locked, deletion refuses instead of moving it.
 - **Every block is a real focusable control** that announces its kind, its width as a fraction, and
   roughly where it sits. A canvas only a mouse can use would be a step backwards from the table it
   replaces.
@@ -83,7 +218,48 @@ not become one. The user's own sentence is deliberately *not* fenced — it is t
 fencing it would be theatre that also breaks the feature. Every prompt ends by saying the answer is a
 proposal and that nothing should be written to `website.json`.
 
-## Generate and preview
+## Full preview: the design feedback loop
+
+**Full Preview is a numbered Studio step**, not an output utility. Save the current design, then choose
+**Rebuild and open** to render one deterministic draft from three sources of truth:
+
+- wireframe geometry and hierarchy from the canvas;
+- primary, secondary, and accent colours plus safe heading/body font tokens from the UI system; and
+- resolved component definitions, variants, and explicitly selected interaction/system states; and
+- the exact Markdown file for each page or screen, including visible `[PLACEHOLDER: …]` gaps.
+
+The primary surface is VS Code's built-in Simple Browser, giving the design a full browser canvas without
+leaving the editor. Each screen repeats all copy in a **Content proof** below the spatial canvas: fixed
+wireframe boxes can clip during layout exploration, but clipped copy must never disappear from review.
+The companion **Responsive lab** uses the same URL and server with Fit, Desktop 1280, Tablet 834, and
+Mobile 390 widths. The deterministic draft resolves the saved graph at each width: desktop values inherit
+through tablet into mobile, explicit geometry or visibility overrides take precedence, and clearing an
+override restores the inherited result. The responsive projection is static CSS and adds no browser-write
+capability.
+
+The Wireframe canvas has the same **Desktop / Tablet / Mobile** selector. Selecting a node at a responsive
+breakpoint shows its resolved X/Y/width/height, visibility, layout mode, sizing modes, and the base/override
+breakpoint that supplied each value. Apply layout and visibility separately, or choose **Use inherited** for
+either property without discarding the other. Hidden nodes remain faintly visible in the editor so they can
+be selected and restored; they remain hidden in the full preview. At a non-base breakpoint, dragging,
+resizing, or arrow-key nudging creates an explicit geometry override and retains normal snapping, bounds,
+undo, and reset. Drawing, nesting, deletion, and parent changes stay on the screen's base breakpoint because
+they alter shared structure rather than responsive presentation.
+
+Layout behaviour also inherits by breakpoint. Applying a tablet/mobile container behaviour creates a closed
+responsive override; **Use inherited behaviour** removes only mode/direction/gap/padding/columns/alignment/
+distribution/sizing/constraints while preserving geometry and visibility choices. A child positioned by its
+container shows computed provenance naming that container; a free node whose size is limited reports the
+constraint separately and remains directly positionable.
+
+The preview index always opens the deterministic Studio draft. If model-generated output exists it is
+linked separately, one click away; generation cannot take over the meaning of “show my current design”.
+Saving structure, content, or UI-system changes rebuilds the draft whenever the preview server is already
+running. The built-in browser receives the newer render revision over the token-protected live channel and
+reloads automatically; **Rebuild and open** remains the explicit way to start or refocus it. The browser
+receives only an integer revision and has no design-write protocol.
+
+## Generate
 
 **Generate** works from four places, each knowing a different amount:
 
@@ -112,11 +288,11 @@ Four properties hold:
 A model that returns a file that was not in the approved plan has it **reported, not written** — the
 defence is not that the path is malformed, it is that the user did not agree to it.
 
-The preview renders in a window beside the Studio, served by a small static server. It binds
-`127.0.0.1` and nothing else, serves only the preview folder, re-checks every request path against
-that folder, offers no directory listing, and carries a random per-session token in its URL so another
-process on the machine cannot enumerate the site. It starts when you open the preview and stops when
-you close it or close the Studio.
+The preview is served by a small static server. It binds `127.0.0.1` and nothing else, serves only the
+preview folder, re-checks every request path against that folder, offers no directory listing, and
+carries a random per-session token in its URL so another process on the machine cannot enumerate the
+design. It starts when you open a preview and stops through **Stop Preview**, when the Studio closes,
+or when the extension deactivates.
 
 Both switches are off by default and are two switches on purpose: writing model-authored files and
 opening a local port are different decisions.
@@ -224,14 +400,19 @@ preview root served the 404 as a near-blank page.
 Renders live under `_wireframe/`, deliberately **not** at the address a generated page occupies.
 Sharing an address would mean either the create-only rule blocking a later Generate, or a Generate
 silently replacing the wireframe — and in both cases somebody looks at the wrong thing believing it is
-the other. Opening the preview shows the generated site when there is one and the wireframe index when
-there is not.
+the other. Opening the preview always shows the live design index. A generated visual guide, when
+present, is a separate link and never silently replaces the deterministic draft.
 
-Every block is unmistakably unfinished: hatched fill, dashed border, its own label. A `text` block
-renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than a stock
-photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
-rather than filler. The output carries no script and no external request, so it satisfies the preview
-server's existing strict CSP without that policy being widened.
+Without content, every block is unmistakably unfinished: hatched fill, dashed border, its own label. A
+`text` block renders grey bars rather than lorem ipsum; `media` renders a crossed rectangle rather than
+a stock photo; `nav` and `footer` show the **real page titles from the sitemap**, because those are facts
+rather than filler. With content, an inert Markdown subset renders exact copy into eligible blocks and
+the full content proof; input is escaped before formatting. The pure renderer emits no script or external
+request. Immediately before writing the Studio draft, the host injects one frozen AtlasMind runtime that can
+listen for same-origin revision/selection events, reload, and send a clicked block's current revision plus
+screen/node IDs to one exact endpoint. The host resolves those IDs against the saved graph before Studio
+selects them. No workspace value enters the script, the browser cannot submit edits or source, and generated
+or exported output is never injected.
 
 ## Page content
 
@@ -284,8 +465,9 @@ This is the only place AtlasMind puts JavaScript into a generated page, so:
 
 - The script is a **frozen constant**, hand-written, never model-written, with nothing from the
   workspace interpolated into it — configuration travels in a `data-` attribute as JSON.
-- The preview server's `.js` exception is **one named file**, not a widened extension class, and
-  `script-src 'self'` is added only while the overlay setting is on.
+- The preview server's on-disk `.js` exception is **one named file**, not a widened extension class. The
+  Studio live runtime is a separate exact `_atlas/runtime.js` response sourced from a frozen constant, never
+  a workspace file; it does not make arbitrary `.js` servable.
 - Import is **idempotent**: re-sending the same export adds nothing and never resets a comment already
   resolved.
 
@@ -311,7 +493,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 2**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 13**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -329,6 +511,34 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
 - `designPrompt` and `links` are seeded **empty rather than guessed**. A migration has no standing to
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
+
+### Formats v2 → v13
+
+- v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
+- v4 moved actual copy into separately managed Markdown files; migration created no files because
+  missing content is a meaningful state.
+- v5 adds `surfaceKind`, project-wide content design and implementation guidance. A v4 workspace
+  becomes `website`, the only profile the old format could represent, and both new guidance records
+  start empty rather than inventing product or source-code decisions.
+- v6 adds the target-independent, monotonic-revision design graph. The migration transcribes every
+  existing node, parent, label, prompt, note, breakpoint, and rectangle. It records whether a screen had
+  never been drawn, creates no responsive override or component claim, and keeps page wireframes as a
+  derived compatibility projection while current renderers move to the graph.
+- v7 adds typed colour, font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint
+  token definitions to that graph. Values are bounded structured data, not CSS. Aliases must resolve through
+  the same kind without a cycle. Migration adds an empty token collection rather than guessing a system.
+- v8 adds reusable component definitions and bounded node instances. The migration adds an empty component
+  collection and never infers a definition, variant, property, slot, state, or instance from existing nodes.
+- v9 adds optional node-owned empty/loading/error/success presentations and one review state. Migration changes
+  only the format number and invents no interface copy.
+- v10 adds bounded preview-only content collections and explicit node bindings. Migration adds an empty
+  collection authority and invents no schema, sample record, value, binding, or production-data claim.
+- v11 adds validated asset metadata and stable node assignments. Migration adds an empty asset library and
+  never scans files, fetches a source, or invents an assignment or alternative text.
+- v12 adds repository-mapping revision zero and an empty mapping collection. Migration never scans source,
+  infers a file/symbol, parses code, or invents a component/token/node relationship.
+- v13 adds `lastImport: null` to each existing mapping. Migration preserves definitions and verification
+  baselines, reads no source, runs no adapter, and invents no facts, suggestions, capability, or loss report.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

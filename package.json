@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.270.3",
+  "version": "0.303.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -583,7 +583,7 @@
       },
       {
         "command": "atlasmind.openWebsiteStudio",
-        "title": "AtlasMind: Open Website Studio",
+        "title": "AtlasMind: Open UI Studio",
         "icon": "$(globe)"
       },
       {
@@ -603,17 +603,17 @@
       },
       {
         "command": "atlasmind.previewWebsiteWireframe",
-        "title": "AtlasMind: Preview Website Wireframe",
+        "title": "AtlasMind: Rebuild and Open UI Preview",
         "icon": "$(layout)"
       },
       {
         "command": "atlasmind.stopWebsitePreview",
-        "title": "AtlasMind: Stop Website Preview",
+        "title": "AtlasMind: Stop UI Preview",
         "icon": "$(debug-stop)"
       },
       {
         "command": "atlasmind.openWebsitePreview",
-        "title": "AtlasMind: Open Website Preview",
+        "title": "AtlasMind: Open UI Preview in Built-in Browser",
         "icon": "$(preview)"
       },
       {
@@ -1746,6 +1746,50 @@
           "description": "Labeled local OpenAI-compatible endpoints AtlasMind aggregates under the Local provider. Each entry has a stable id, a human-facing label, and a baseUrl.",
           "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings → Models & Integrations → OpenAI-compatible endpoints** rather than editing JSON by hand.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
         },
+        "atlasmind.localGpu.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Admit local model requests against a VRAM budget so two runtimes on one graphics card cannot over-commit it.",
+          "markdownDescription": "Admit local model requests against a VRAM budget.\n\nAtlasMind can issue local calls from several places at once — the subtask scheduler, project bootstrap, background maintenance — and Ollama and LM Studio each decide what fits without knowing the other exists. When on, AtlasMind measures free VRAM, queues requests that will not fit, and fails over to another provider rather than over-committing the card.\n\nTurn this off to restore the previous behaviour, where every local request was sent immediately."
+        },
+        "atlasmind.localGpu.maxConcurrentRequests": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Concurrent local model requests allowed regardless of available VRAM.",
+          "markdownDescription": "Concurrent local model requests allowed regardless of available VRAM.\n\nRequests against a model *already loaded* cost only their own context cache, so a burst against one model is cheap and mostly runs in parallel. Requests needing *different* models are serialised by the VRAM budget whatever this is set to.\n\nThis is also the only control that applies when free VRAM cannot be measured (AMD, Intel, Apple Silicon, or no `nvidia-smi`)."
+        },
+        "atlasmind.localGpu.safetyMarginMb": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 0,
+          "maximum": 32768,
+          "description": "Megabytes of free VRAM left unclaimed, so a model loading cannot squeeze the desktop.",
+          "markdownDescription": "Megabytes of free VRAM left unclaimed.\n\nSubtracted from the free memory the driver reports. This is the limb that normally decides, and it covers what your desktop will allocate *while* a model is loading — opening a browser tab mid-load is ordinary.\n\nBecause free memory is measured rather than assumed, this does not need to account for what Windows and your applications are already using: that is already excluded."
+        },
+        "atlasmind.localGpu.reserveMb": {
+          "type": "number",
+          "default": 3072,
+          "minimum": 0,
+          "maximum": 131072,
+          "description": "Megabytes of the card AtlasMind will never occupy, as a ceiling on its own share.",
+          "markdownDescription": "Megabytes of the card AtlasMind will never occupy.\n\n**This is a ceiling on AtlasMind's own share, not a reserve for your operating system.** Your desktop is protected by measuring free VRAM, which already accounts for it.\n\nThis limb answers a different question: *has AtlasMind taken more of the card than you want it to?* It keeps applying as AtlasMind's own footprint grows, so raising it caps how much of the card AtlasMind will hold at once. Set to `0` to let the free-memory measurement govern alone."
+        },
+        "atlasmind.localGpu.maxResidentModelsWhenUnmeasured": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured.",
+          "markdownDescription": "Models AtlasMind may keep loaded per runtime when free VRAM cannot be measured.\n\nApplies on AMD, Intel and Apple Silicon, or anywhere `nvidia-smi` is unavailable. Limiting how many *distinct* models stay loaded is the only bound available without a memory reading — limiting concurrent requests would not help, because Ollama keeps a model in memory for minutes after a request finishes.\n\nRaise it if you have plenty of unified memory."
+        },
+        "atlasmind.localGpu.evictOwnModels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let AtlasMind unload models it loaded itself to make room for another. Models you loaded by hand are never unloaded.",
+          "markdownDescription": "Let AtlasMind unload models **it loaded itself** to make room for another.\n\nA model you loaded by hand — in the LM Studio app, or with `ollama run` — is never unloaded, whatever the pressure. AtlasMind tracks which models it caused to load and only ever releases those.\n\nA model is only released when it has no request in flight and has been idle for a moment, and only when releasing it would actually free enough room; unloading something and still not fitting would cost the reload for nothing.\n\nTurn this off to leave every loaded model alone and simply wait for room."
+        },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:11434/v1",
@@ -2510,14 +2554,14 @@
         "atlasmind.website.generation.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow Website Studio to generate static HTML and CSS into .atlasmind/website-preview/. Off by default.",
-          "markdownDescription": "Allow the **Generate** buttons in Website Studio to call a model and write static\nHTML and CSS files.\n\nOff by default, and separate from `#atlasmind.website.preview.enabled#` on purpose: writing\nmodel-authored files and opening a local port are two different decisions, and one switch\ncarrying both would make the second one happen without being agreed to.\n\nEvery generation shows a modal listing **each file it will write** before anything happens,\nand the plan is deterministic — the same sitemap and the same stage always produce the same\nfile list, which is what makes that dialog worth reading.\n\nFiles only ever land in `.atlasmind/website-preview/`. Your source tree is never written to;\npromoting a generated design out of the preview folder is a separate, deliberate step."
+          "description": "Allow UI Studio to generate static HTML/CSS visual guides into .atlasmind/website-preview/. Off by default.",
+          "markdownDescription": "Allow the **Generate** buttons in UI Studio to call a model and write a static\nHTML/CSS visual guide. For non-web profiles this is explicitly a design reference, not the\ntarget implementation.\n\nOff by default, and separate from `#atlasmind.website.preview.enabled#` on purpose: writing\nmodel-authored files and opening a local port are two different decisions, and one switch\ncarrying both would make the second one happen without being agreed to.\n\nEvery generation shows a modal listing **each file it will write** before anything happens,\nand the plan is deterministic — the same screen map and the same stage always produce the same\nfile list, which is what makes that dialog worth reading.\n\nFiles only ever land in `.atlasmind/website-preview/`. Your source tree is never written to;\npromoting a generated design out of the preview folder is a separate, deliberate step."
         },
         "atlasmind.website.preview.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to serve the generated website preview from a local 127.0.0.1 port. Off by default.",
-          "markdownDescription": "Allow the website preview to run a small static web server so the generated design can be\nrendered in a window beside Website Studio.\n\nThe server binds **`127.0.0.1` only** — never `0.0.0.0` — so it is not reachable from your\nnetwork. It serves nothing but `.atlasmind/website-preview/`, refuses any path that resolves\noutside it, offers no directory listing, and its URL carries a random per-session token so\nanother process on this machine cannot simply guess the port and read your client work.\n\nIt starts only when you open the preview and stops when you close it or close Website Studio."
+          "description": "Allow AtlasMind to serve the generated UI visual guide from a local 127.0.0.1 port. Off by default.",
+          "markdownDescription": "Allow UI Studio to run a small static web server so its canonical design preview can open in\nVS Code's built-in browser, with a separate guarded responsive-width lab. The deterministic draft\ncombines saved wireframes, UI tokens, and exact Markdown content; model-generated output remains a\nseparate link rather than replacing that draft.\n\nThe server binds **`127.0.0.1` only** — never `0.0.0.0` — so it is not reachable from your\nnetwork. It serves nothing but `.atlasmind/website-preview/`, refuses any path that resolves\noutside it, offers no directory listing, and its URL carries a random per-session token so\nanother process on this machine cannot simply guess the port and read your client work.\n\nIt starts only when you open a preview and stops through **Stop Preview**, when UI Studio closes,\nor when the extension deactivates."
         },
         "atlasmind.website.preview.port": {
           "type": "number",
@@ -2574,8 +2618,8 @@
         "atlasmind.website.content.directory": {
           "type": "string",
           "default": "content",
-          "description": "Folder holding the markdown content files Website Studio reads and writes. Relative to the workspace root.",
-          "markdownDescription": "Where page copy lives, as one markdown file per page with YAML front-matter.\n\nFiles are the **source of truth**; the Studio shows an editable mirror of them. That way a\ncopywriter can work in their own editor, the copy diffs cleanly in a pull request, and every\nstatic framework in the catalog can read it natively.\n\nA path that escapes the workspace is ignored and the default is used instead."
+          "description": "Folder holding the Markdown screen/content files UI Studio reads and writes. Relative to the workspace root.",
+          "markdownDescription": "Where interface copy lives, as one Markdown file per page or screen with YAML front-matter.\n\nFiles are the **source of truth**; UI Studio shows an editable mirror of them. That lets a\ncontent designer work in their own editor, keeps copy reviewable in pull requests, and leaves\nthe eventual implementation free to consume or translate the content for HTML, native, or other targets.\n\nA path that escapes the workspace is ignored and the default is used instead."
         },
         "atlasmind.website.review.enabled": {
           "type": "boolean",
@@ -2610,6 +2654,7 @@
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
     "monitor:integrations:audit": "node .github/scripts/audit-integration-coverage.mjs",
     "lint": "eslint src tests",
+    "resolve:release-conflicts": "node scripts/resolve-release-conflicts.mjs",
     "test": "vitest run",
     "test:providers:local-recommendations": "vitest run tests/providers/localModelRecommendationRegistry.test.ts --reporter=dot",
     "test:watch": "vitest",

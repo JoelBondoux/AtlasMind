@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   KINDS_WITH_PLACEHOLDER_SHAPE,
+  UI_PREVIEW_MOBILE_MAX_WIDTH,
+  UI_PREVIEW_TABLET_MAX_WIDTH,
   WIREFRAME_INDEX_PATH,
   previewPathFor,
   renderWireframeIndex,
@@ -9,6 +11,7 @@ import {
 } from '../../src/core/websiteWireframePreview.js';
 import { WIREFRAME_KIND_CATALOG } from '../../src/core/websiteWireframe.js';
 import { pagePath } from '../../src/core/websiteGeneration.js';
+import { designGraphFromPages } from '../../src/core/uiDesignGraph.js';
 import type { WebsiteDesignSystem, WebsitePagePlan, WireframeElementKind } from '../../src/types.js';
 
 const designSystem: WebsiteDesignSystem = {
@@ -84,6 +87,14 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('border: 1.5px dashed');
     });
 
+    it('marks every block with graph identity for full-preview selection', () => {
+      const html = renderWireframePreview({ page: withElements(['hero', 'cta']), designSystem });
+      expect(html).toContain('data-atlas-screen-id="home"');
+      expect(html).toContain('data-atlas-node-id="e0"');
+      expect(html).toContain('data-atlas-node-id="e1"');
+      expect(html).toContain('[data-atlas-preview-selected]');
+    });
+
     it('says outright that nothing on the page is real content', () => {
       const html = renderWireframePreview({ page: withElements(['hero']), designSystem });
       expect(html).toContain('nothing here is real content');
@@ -129,6 +140,93 @@ describe('websiteWireframePreview', () => {
       const subject = withElements(['nav', 'hero', 'footer']);
       expect(renderWireframePreview({ page: subject, designSystem }))
         .toBe(renderWireframePreview({ page: subject, designSystem }));
+    });
+
+    it('projects inherited tablet and mobile layouts through static media rules', () => {
+      const subject = withElements(['hero', 'cta']);
+      const graph = designGraphFromPages([subject]);
+      const screen = graph.screens[0]!;
+      screen.nodes[0]!.viewportOverrides.tablet = {
+        rect: { x: 100, y: 40, width: 800, height: 240 },
+      };
+      screen.nodes[0]!.viewportOverrides.mobile = { hidden: true };
+      screen.nodes[1]!.viewportOverrides.mobile = {
+        rect: { x: 80, y: 100, width: 840, height: 120 },
+      };
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('<style data-atlas-responsive-layout>');
+      expect(html).toContain(`@media (max-width: ${UI_PREVIEW_TABLET_MAX_WIDTH}px)`);
+      expect(html).toContain(`@media (max-width: ${UI_PREVIEW_MOBILE_MAX_WIDTH}px)`);
+      expect(html).toContain('.wf-block[data-atlas-screen-id="home"][data-atlas-node-id="e0"]');
+      expect(html).toContain('left:10.000% !important');
+      expect(html).toContain('display:none !important');
+      expect(html).toContain('left:8.000% !important');
+      expect(html).not.toContain('<script');
+    });
+
+    it('uses the same deterministic container projection for base and responsive preview', () => {
+      const subject = withElements(['section', 'text', 'text']);
+      subject.wireframe!.elements[0]!.rect = { x: 0, y: 0, width: 1_000, height: 420 };
+      subject.wireframe!.elements[1]!.parentId = 'e0';
+      subject.wireframe!.elements[2]!.parentId = 'e0';
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      Object.assign(screen.nodes[0]!.layout, {
+        mode: 'grid', columns: 2, padding: 20, gap: 20, align: 'stretch', direction: 'horizontal',
+      });
+      screen.nodes[1]!.layout.widthMode = 'fill';
+      screen.nodes[2]!.layout.widthMode = 'fill';
+      screen.nodes[1]!.layout.maxWidth = 300;
+      screen.nodes[2]!.layout.minHeight = 220;
+      screen.nodes[0]!.viewportOverrides.mobile = { mode: 'stack', direction: 'vertical', gap: 8 };
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-node-id="e1" style="left:2.000%');
+      expect(html).toContain('data-atlas-node-id="e2" style="left:51.000%');
+      expect(html).toContain('width:30.000%');
+      expect(html).toContain('height:36.667%');
+      expect(html).toContain('@media (max-width: 599px)');
+      expect(html).toContain('left:2.000% !important');
+      expect(html).toContain('width:96.000% !important');
+      expect(screen.nodes[1]!.layout.rect.x).toBe(0);
+    });
+
+    it('renders ordered wrapped stack lines through the shared full-preview projection', () => {
+      const subject = withElements(['section', 'text', 'text']);
+      subject.wireframe!.elements[0]!.rect = { x: 0, y: 0, width: 1_000, height: 500 };
+      for (const child of subject.wireframe!.elements.slice(1)) {
+        child.parentId = 'e0';
+        child.rect = { ...child.rect, width: 600, height: 100 };
+      }
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      Object.assign(screen.nodes[0]!.layout, {
+        mode: 'stack', direction: 'horizontal', wrap: 'wrap', padding: 20, gap: 20, align: 'start',
+      });
+      screen.nodes[2]!.layout.order = -1;
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-node-id="e1" style="left:2.000%;top:23.333%');
+      expect(html).toContain('data-atlas-node-id="e2" style="left:2.000%;top:3.333%');
+    });
+
+    it('ignores a responsive screen that does not own the rendered page', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.pageId = 'another-page';
+      expect(renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen }))
+        .not.toContain('data-atlas-responsive-layout');
+    });
+
+    it('escapes responsive graph identities before using them in CSS selectors', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.id = 'home</style><script>alert(1)</script>';
+      screen.nodes[0]!.id = 'hero"]{display:none}</style>';
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-responsive-layout');
+      expect(html).not.toContain('<script>alert(1)</script>');
+      expect(html).not.toContain('hero"]{display:none}</style>');
+      expect(html).toContain('\\3c ');
     });
 
     it('never throws, for any wireframe the sanitizer could produce', () => {
@@ -183,6 +281,152 @@ describe('websiteWireframePreview', () => {
       expect(html).not.toContain('display:none');
       expect(html).toContain('--accent: #2563eb');
     });
+
+    it('renders exact Markdown copy inertly and makes content gaps conspicuous', () => {
+      const html = renderWireframePreview({
+        page: withElements(['hero', 'text']),
+        designSystem,
+        content: {
+          pageId: 'home', filePath: 'content/index.md', title: 'Home', metaDescription: '',
+          status: 'review', body: '# Real heading\n\nExact client copy.\n\n[PLACEHOLDER: proof point]\n\n<img src=x onerror=alert(1)>',
+          placeholders: [{ need: 'proof point', line: 5 }], missing: false, extraFrontMatter: {},
+        },
+      });
+      expect(html).toContain('Real heading');
+      expect(html).toContain('Exact client copy.');
+      expect(html).toContain('<span class="content-gap">Gap: proof point</span>');
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      expect(html).not.toContain('<img src=x');
+      expect(html).toContain('Content proof');
+    });
+
+    it('applies safe font tokens and refuses stylesheet injection through them', () => {
+      const html = renderWireframePreview({
+        page: withElements(['hero']),
+        designSystem: {
+          ...designSystem,
+          headingFont: 'Georgia, serif',
+          bodyFont: 'Arial; } body { display:none',
+        },
+      });
+      expect(html).toContain('--heading-font: Georgia, serif');
+      expect(html).toContain('--body-font: ui-sans-serif, system-ui, sans-serif');
+      expect(html).not.toContain('display:none');
+    });
+
+    it('projects resolved typed tokens into semantic roles, unique adapter variables, and breakpoints', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      const html = renderWireframePreview({
+        page: subject,
+        designSystem,
+        responsiveScreen: screen,
+        tokens: [
+          { id: 'brand-base', label: 'Brand base', kind: 'color', value: '#123456' },
+          { id: 'color-primary', label: 'Primary', kind: 'color', aliasOf: 'brand-base' },
+          { id: 'font-heading', label: 'Heading', kind: 'font-family', value: 'Georgia, serif' },
+          { id: 'spacing-base', label: 'Spacing', kind: 'spacing', value: 18 },
+          { id: 'radius-base', label: 'Radius', kind: 'radius', value: 14 },
+          { id: 'breakpoint-tablet', label: 'Tablet', kind: 'breakpoint', value: 900 },
+          { id: 'breakpoint-mobile', label: 'Mobile', kind: 'breakpoint', value: 480 },
+          { id: 'motion-fast', label: 'Fast', kind: 'motion', value: { durationMs: 120, easing: 'ease-out' } },
+        ],
+      });
+      expect(html).toContain('--accent: #123456');
+      expect(html).toContain('--heading-font: Georgia, serif');
+      expect(html).toContain('--atlas-spacing-base: 18px');
+      expect(html).toContain('--atlas-radius-base: 14px');
+      expect(html).toContain('@media (max-width: 900px)');
+      expect(html).toContain('@media (max-width: 480px)');
+      expect(html).toContain('--atlas-token-6d-6f-74-69-6f-6e-2d-66-61-73-74-duration: 120ms');
+      expect(html).not.toContain('[object Object]');
+    });
+
+    it('projects explicit component variants and interaction states without markup authority', () => {
+      const subject = withElements(['cta']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.componentInstance = {
+        definitionId: 'button', variantId: 'primary', state: 'disabled', propertyOverrides: { label: 'Buy' },
+      };
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        components: [{
+          id: 'button', label: 'Button', description: '', rootKind: 'cta',
+          properties: [{ id: 'label', label: 'Label', kind: 'text', defaultValue: 'Continue' }],
+          slots: [], variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }],
+          states: ['default', 'disabled'],
+        }],
+      });
+      expect(html).toContain('data-component="button"');
+      expect(html).toContain('data-component-state="disabled"');
+      expect(html).toContain('Button · Primary · disabled');
+      expect(html).not.toContain('<script');
+    });
+
+    it('renders explicit state copy and maturity instead of inventing runtime content', () => {
+      const subject = withElements(['text']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.previewContentState = 'empty';
+      screen.nodes[0]!.contentStatePresentations = {
+        empty: { title: 'No results', body: 'Try a broader filter.', actionLabel: 'Clear filters', maturity: 'reviewed' },
+      };
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-content-state="empty"');
+      expect(html).toContain('data-content-maturity="reviewed"');
+      expect(html).toContain('No results');
+      expect(html).toContain('Clear filters');
+      expect(html).toContain('empty · reviewed');
+    });
+
+    it('renders only explicitly bound sample values in the full preview', () => {
+      const subject = withElements(['text']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.dataBinding = {
+        collectionId: 'articles', sampleRecordId: 'launch',
+        fieldMappings: { title: 'headline', body: 'summary', action: 'cta' },
+      };
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        contentCollections: [{
+          id: 'articles', label: 'Articles', description: 'Fixtures',
+          fields: [
+            { id: 'headline', label: 'Headline', kind: 'text', required: true },
+            { id: 'summary', label: 'Summary', kind: 'text', required: true },
+            { id: 'cta', label: 'CTA', kind: 'text', required: false },
+          ],
+          samples: [{ id: 'launch', label: 'Launch story', values: {
+            headline: 'Atlas launches', summary: 'A deliberate sample summary.', cta: 'Read story',
+          } }],
+        }],
+      });
+      expect(html).toContain('Articles · Launch story');
+      expect(html).toContain('Atlas launches');
+      expect(html).toContain('A deliberate sample summary.');
+      expect(html).toContain('Read story');
+      expect(html).not.toContain('<script');
+    });
+
+    it('projects asset crop, focal, provenance, and alt status without fetching media', () => {
+      const subject = withElements(['media']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.assetRef = 'hero-image';
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        assets: [{
+          id: 'hero-image', label: 'Hero image', kind: 'image',
+          source: { kind: 'https', reference: 'https://cdn.example.test/hero.webp' },
+          width: 1600, height: 900, crop: 'cover', focalPoint: { x: 35, y: 45 },
+          altText: 'Colleagues reviewing a prototype', decorative: false, maturity: 'reviewed',
+        }],
+      });
+      expect(html).toContain('Hero image · cover');
+      expect(html).toContain('cdn.example.test');
+      expect(html).toContain('focus 35%, 45%');
+      expect(html).toContain('aria-label="Colleagues reviewing a prototype"');
+      expect(html).not.toContain('<img');
+      expect(html).not.toContain('src="https://cdn.example.test');
+      expect(html).not.toContain('<script');
+    });
   });
 
   describe('an undrawn page', () => {
@@ -193,7 +437,17 @@ describe('websiteWireframePreview', () => {
     });
 
     it('is marked as undrawn in the index', () => {
-      expect(renderWireframeIndex([page()], designSystem)).toContain('not drawn yet');
+      const html = renderWireframeIndex([page()], designSystem);
+      expect(html).toContain('not drawn yet');
+      expect(html).toContain('href="home.html"');
+      expect(html).not.toContain('href="_wireframe/home.html"');
+    });
+
+    it('keeps model-generated output separate and one click away', () => {
+      const html = renderWireframeIndex([page()], designSystem, 'Northstar', { generatedAvailable: true });
+      expect(html).toContain('Live design previews');
+      expect(html).toContain('href="../index.html"');
+      expect(html).toContain('kept separate from the live Studio draft');
     });
   });
 
@@ -211,8 +465,9 @@ describe('websiteWireframePreview', () => {
 
     it('flattens nested slugs into one folder', () => {
       expect(previewPathFor(page({ slug: '/services/seo' }))).toBe('_wireframe/services-seo.html');
-      expect(previewPathFor(page({ slug: '/' }))).toBe('_wireframe/index.html');
+      expect(previewPathFor(page({ slug: '/' }))).toBe('_wireframe/home.html');
       expect(WIREFRAME_INDEX_PATH).toBe('_wireframe/index.html');
+      expect(previewPathFor(page({ slug: '/' }))).not.toBe(WIREFRAME_INDEX_PATH);
     });
   });
 });

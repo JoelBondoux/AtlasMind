@@ -27,6 +27,7 @@ describe('Branch Dashboard host authority', () => {
       'handleOpenBranchChangeStory',
       'handleOpenBranchPullRequest',
       'handleReviewBranchCleanup',
+      'handleBranchWorkflow',
     ]) {
       const start = hostSource.indexOf(`private async ${name}`);
       const body = hostSource.slice(start, start + 1_800);
@@ -70,6 +71,35 @@ describe('Branch Dashboard host authority', () => {
     expect(openPullRequest).toContain('/^https:\\/\\/github\\.com\\//i');
     expect(webviewSource).toContain("type: 'openBranchPullRequest', payload");
     expect(webviewSource).not.toContain("type: 'openBranchPullRequest', payload: pullRequest.url");
+  });
+
+  it('keeps write workflows bounded, reviewable, and non-force', () => {
+    const workflow = method('handleBranchWorkflow', 'attachIdeationImages');
+
+    expect(workflow).toContain('resolveLiveBranchAction(branchId)');
+    expect(workflow).toContain("executeCommand('workbench.view.scm')");
+    expect(workflow).not.toContain("['commit'");
+    expect(workflow).toContain("['pull', '--ff-only']");
+    expect(workflow).toContain("['push', '--porcelain', '--', remote, refspec]");
+    expect(workflow).toContain("['branch', '--', branchName, sourceCommit]");
+    expect(workflow).toContain("['check-ref-format', '--branch', branchName]");
+    expect(workflow).not.toContain('--force');
+    expect(workflow).not.toContain('reset --hard');
+    expect(webviewSource).toContain("type: 'runBranchWorkflow'");
+    expect(webviewSource).toContain('payload: { branchId: payload, action: workflow }');
+  });
+
+  it('assigns branch owners through current host tokens and fresh Git identity', () => {
+    const assignment = method('handleAssignDashboardWorkOwner', 'handleDirectorSendComms');
+    expect(assignment).toContain('this.dashboardWorkTargets.get(');
+    expect(hostSource).toContain('token: `work-${randomUUID()}`');
+    expect(assignment).toContain("target.kind === 'branch'");
+    expect(assignment).toContain('resolveLiveBranchAction(target.branchId)');
+    expect(assignment).toContain('live.branch.name !== target.stableId');
+    expect(assignment).toContain("source: 'dashboard'");
+    expect(assignment).toContain("executeCommand('atlasmind.refreshProjectState')");
+    expect(webviewSource).toContain("type: 'assignDashboardWorkOwner'");
+    expect(webviewSource).toContain('payload: { targetId: targetId, contactId: target.value }');
   });
 });
 
@@ -127,5 +157,39 @@ describe('Branch Dashboard disclosure and emphasis', () => {
     expect(cardRender).toContain('class="branch-subject" title="${escapeAttr(subject)}"');
     expect(hostSource).toContain('-webkit-line-clamp: 1');
     expect(hostSource).toContain('.branch-inventory-card.has-failure');
+  });
+
+  it('groups daily write actions separately from branch review actions', () => {
+    expect(cardRender).toContain('<span class="branch-action-label">Work</span>');
+    expect(cardRender).toContain('<span class="branch-action-label">Review</span>');
+    expect(cardRender).toContain("workflowButton('commit', '●', 'Commit'");
+    expect(cardRender).toContain("workflowButton('pull', '↓', 'Pull'");
+    expect(cardRender).toContain("workflowButton('push', '↑', branch.upstream ? 'Push' : 'Publish'");
+    expect(cardRender).toContain("workflowButton('create-branch', '+⎇', 'Branch from here'");
+    expect(cardRender).toContain("workflowButton('create-pull-request', '⇄', 'Create pull request'");
+  });
+
+  it('keeps the owner and icon actions in one flexible content column', () => {
+    expect(cardRender).toContain('class="branch-action-content"');
+    expect(cardRender).toContain('class="branch-card-actions branch-work-actions"');
+    expect(cardRender).toContain('class="action-link branch-icon-action');
+    expect(cardRender).toContain('aria-label="${escapeAttr(`${label}. ${title}`)}"');
+    expect(hostSource).toContain('.branch-action-content {');
+    expect(hostSource).toContain('flex: 0 0 36px;');
+    expect(hostSource).toContain('width: 36px;');
+    expect(hostSource).toContain('white-space: nowrap;');
+  });
+});
+
+describe('Director ownership across dashboard work', () => {
+  it('uses one shared picker on the principal actionable work surfaces', () => {
+    for (const kind of ['branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document']) {
+      expect(webviewSource).toContain(`renderDirectorOwnerControl('${kind}'`);
+    }
+    expect(webviewSource).toContain("renderDirectorOwnerBadge('branch', branch.name)");
+    expect(webviewSource).toContain('data-action="director-assign-work"');
+    expect(webviewSource).toContain('entry.linkedWork.kind === kind');
+    expect(webviewSource).toContain('Active dashboard work');
+    expect(webviewSource).toContain('targets.map(target =>');
   });
 });

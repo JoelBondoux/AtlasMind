@@ -3,18 +3,41 @@ import { readFileSync } from 'node:fs';
 import {
   assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
+  sanitizeWebsiteWorkspace,
   WEBSITE_PLATFORM_CATALOG,
   WEBSITE_WORKSPACE_SSOT_PATH,
   WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH,
   WebsiteWorkspaceManager,
 } from '../core/websiteWorkspaceManager.js';
+import {
+  applyDesignGraphToPages,
+  diagnoseUiContentBindings,
+  diagnoseUiAssets,
+  diagnoseUiScreenLayout,
+  designGraphFromPages,
+  resolveUiComponentInstance,
+  resolveUiNodeLayout,
+  resolveUiNodeContent,
+  resolveUiDesignAsset,
+  resolveUiScreenLayout,
+  UI_DESIGN_GRAPH_MAX_REVISION,
+} from '../core/uiDesignGraph.js';
+import {
+  applyUiEditCommand,
+  createUiEditSession,
+  parseUiEditCommand,
+  type UiEditSession,
+} from '../core/uiEditCommands.js';
 import type {
+  UiDesignGraph,
+  UiComponentInstance,
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
   WebsitePagePlan,
   WebsitePlatformStatus,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
+  WireframeBreakpoint,
 } from '../types.js';
 import {
   buildSitemapTree,
@@ -25,8 +48,16 @@ import {
 import { buildLinkGraph } from '../core/websiteLinkGraph.js';
 import { readDeliveryConfig } from '../core/deliveryManager.js';
 import { WebsiteContentManager } from '../core/websiteContentManager.js';
+import { parsePageContent, renderPageContent, type WebsitePageContent } from '../core/websiteContent.js';
 import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
-import { WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
+import { WIREFRAME_BREAKPOINTS, WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
+import {
+  applyUiRepositoryMappingCommand,
+  assessUiRepositoryMappings,
+  parseUiRepositoryMappingCommand,
+  UI_REPOSITORY_ADAPTERS,
+  type UiRepositoryMappingAssessment,
+} from '../core/uiRepositoryMapping.js';
 import {
   buildScopedDesignPrompt,
   type DesignPromptScope,
@@ -49,20 +80,25 @@ import {
 } from '../core/websiteFrameworks.js';
 import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
+import { onWebsitePreviewSelection, selectWebsitePreviewTarget } from './websitePreviewHost.js';
 
 export type WebsiteStudioPage =
   | 'brief'
   | 'sitemap'
+  | 'content'
   | 'wireframes'
   | 'ui-system'
+  | 'preview'
   | 'stack'
   | 'automations';
 
 const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
   'brief',
   'sitemap',
+  'content',
   'wireframes',
   'ui-system',
+  'preview',
   'stack',
   'automations',
 ]);
@@ -102,13 +138,20 @@ const MAX_INSTRUCTION_LENGTH = 4_000;
 export type WebsiteStudioMessage =
   | { type: 'ready' }
   | { type: 'saveConfig'; payload: unknown }
+  | { type: 'savePageContent'; payload: { pageId: string; title: string; metaDescription: string; status: 'draft' | 'review' | 'approved'; body: string; expectedBody: string } }
+  | { type: 'seedPageContent'; payload: { pageId: string } }
   | { type: 'importIntake'; payload: string }
   | { type: 'openSsot'; payload: 'json' | 'markdown' }
   | { type: 'openCommand'; payload: 'atlasmind.openProjectDashboard' | 'atlasmind.openProjectIdeation' | 'atlasmind.openChatPanel' }
   | { type: 'promptForTarget'; payload: { scope: DesignPromptScope; pageId?: string; elementId?: string; instruction: string } }
   | { type: 'generate'; payload: { stage: WebsiteGenerationStage; pageId?: string; elementId?: string } }
   | { type: 'openPreview' }
+  | { type: 'openResponsivePreview' }
+  | { type: 'refreshPreview' }
   | { type: 'stopPreview' }
+  | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
+  | { type: 'editDesignGraph'; payload: unknown }
+  | { type: 'editRepositoryMapping'; payload: unknown }
   | { type: 'selectFramework'; payload: { frameworkId: string } }
   | { type: 'planStackSetup' }
   | { type: 'compareDelivery' };
@@ -129,10 +172,23 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
   switch (message['type']) {
     case 'ready':
     case 'openPreview':
+    case 'openResponsivePreview':
+    case 'refreshPreview':
     case 'stopPreview':
     case 'planStackSetup':
     case 'compareDelivery':
       return true;
+    case 'selectPreviewTarget': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 2
+        && isBoundedIdentifier(payload['pageId'])
+        && isBoundedIdentifier(payload['nodeId']);
+    }
+    case 'editDesignGraph':
+      return parseUiEditCommand(message['payload']) !== undefined;
+    case 'editRepositoryMapping':
+      return parseUiRepositoryMappingCommand(message['payload']) !== undefined;
     case 'selectFramework': {
       const payload = asPayload(message['payload']);
       // Checked against the catalog here, not merely for being a string: this
@@ -143,6 +199,29 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
       return typeof message['payload'] === 'object'
         && message['payload'] !== null
         && !Array.isArray(message['payload']);
+    case 'savePageContent': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && typeof payload['pageId'] === 'string'
+        && payload['pageId'].length > 0
+        && payload['pageId'].length <= 64
+        && typeof payload['title'] === 'string'
+        && payload['title'].length <= 500
+        && typeof payload['metaDescription'] === 'string'
+        && payload['metaDescription'].length <= 500
+        && (payload['status'] === 'draft' || payload['status'] === 'review' || payload['status'] === 'approved')
+        && typeof payload['body'] === 'string'
+        && payload['body'].length <= 200_000
+        && typeof payload['expectedBody'] === 'string'
+        && payload['expectedBody'].length <= 200_000;
+    }
+    case 'seedPageContent': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && typeof payload['pageId'] === 'string'
+        && payload['pageId'].length > 0
+        && payload['pageId'].length <= 64;
+    }
     case 'importIntake':
       return typeof message['payload'] === 'string' && message['payload'].length <= 128_000;
     case 'openSsot':
@@ -190,6 +269,10 @@ function isOptionalId(value: unknown): boolean {
   return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 64);
 }
 
+function isBoundedIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9._-]{1,120}$/.test(value);
+}
+
 export class WebsiteStudioPanel {
   public static currentPanel: WebsiteStudioPanel | undefined;
   public static readonly viewType = 'atlasmind.websiteStudio';
@@ -208,7 +291,7 @@ export class WebsiteStudioPanel {
 
     const panel = vscode.window.createWebviewPanel(
       WebsiteStudioPanel.viewType,
-      'AtlasMind Website Studio',
+      'AtlasMind UI Studio',
       column,
       {
         enableScripts: true,
@@ -220,7 +303,10 @@ export class WebsiteStudioPanel {
   }
 
   private readonly manager: WebsiteWorkspaceManager;
+  private readonly contentManager: WebsiteContentManager;
+  private readonly workspaceRoot: string | undefined;
   private config: WebsiteWorkspaceConfig;
+  private editSession: UiEditSession;
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
@@ -232,13 +318,29 @@ export class WebsiteStudioPanel {
     targetPage: WebsiteStudioPage,
     private readonly context: vscode.ExtensionContext,
   ) {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    this.manager = new WebsiteWorkspaceManager(workspaceRoot);
+    this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    this.manager = new WebsiteWorkspaceManager(this.workspaceRoot);
+    this.contentManager = new WebsiteContentManager(
+      this.workspaceRoot,
+      vscode.workspace.getConfiguration('atlasmind').get<string>('website.content.directory'),
+    );
     const read = this.manager.read();
     this.config = read.config;
+    this.editSession = createUiEditSession(this.config.designGraph);
     this.readOnly = read.preserveExisting;
     this.activePage = targetPage;
     this.render(targetPage);
+
+    const previewSelectionSubscription = onWebsitePreviewSelection(selection => {
+      if (WebsiteStudioPanel.currentPanel !== this) {
+        return;
+      }
+      void this.panel.webview.postMessage({
+        type: 'previewSelection',
+        pageId: selection.pageId,
+        nodeId: selection.nodeId,
+      });
+    });
 
     if (read.notice) {
       // Surfaced rather than logged. A migrated file and a refused one are both
@@ -251,6 +353,7 @@ export class WebsiteStudioPanel {
     }
 
     this.panel.onDidDispose(() => {
+      previewSelectionSubscription.dispose();
       WebsiteStudioPanel.currentPanel = undefined;
       // The preview server is owned by the preview panel, but a Studio that is
       // gone should not leave one running on its behalf.
@@ -271,6 +374,13 @@ export class WebsiteStudioPanel {
         readOnly: this.readOnly,
         canGenerate: isGenerationEnabled(),
         canSetUpStack: isStackSetupEnabled(),
+        pageContent: [...this.contentManager.read(this.config.pages).values()],
+        contentDirectory: this.contentManager.contentDirectory,
+        repositoryMappingAssessments: assessUiRepositoryMappings(
+          this.config.designGraph,
+          this.config.implementation.repositoryMappings,
+          this.workspaceRoot,
+        ),
         ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         scriptContent: this.readScript(),
       },
@@ -295,9 +405,26 @@ export class WebsiteStudioPanel {
     }
   }
 
+  private async postDesignGraphState(
+    type: 'designGraphUpdated' | 'designEditRefused',
+    reason?: string,
+  ): Promise<void> {
+    await this.panel.webview.postMessage({
+      type,
+      revision: this.editSession.graph.revision,
+      ...(reason ? { reason } : {}),
+      pages: this.config.pages.map(page => ({ id: page.id, wireframe: page.wireframe ?? null })),
+      tokens: this.editSession.graph.tokens,
+      components: this.editSession.graph.components,
+      contentCollections: this.editSession.graph.contentCollections,
+      assets: this.editSession.graph.assets,
+      responsiveScreens: buildWebsiteStudioResponsiveScreens(this.editSession.graph),
+    });
+  }
+
   private async handleMessage(input: unknown): Promise<void> {
     if (!isWebsiteStudioMessage(input)) {
-      void this.panel.webview.postMessage({ type: 'notice', tone: 'error', message: 'Website Studio ignored an invalid message.' });
+      void this.panel.webview.postMessage({ type: 'notice', tone: 'error', message: 'UI Studio ignored an invalid message.' });
       return;
     }
 
@@ -305,8 +432,45 @@ export class WebsiteStudioPanel {
       switch (input.type) {
         case 'ready':
           return;
-        case 'saveConfig':
-          this.config = await this.manager.save(input.payload);
+        case 'saveConfig': {
+          const payload = sanitizeWebsiteWorkspace(input.payload);
+          // Repository mappings and their verification hashes are host-owned.
+          // The general form may edit the surrounding implementation hints but
+          // cannot replace mapping authority or forge a verified baseline.
+          payload.implementation.repositoryMappingRevision = this.config.implementation.repositoryMappingRevision;
+          payload.implementation.repositoryMappings = structuredClone(this.config.implementation.repositoryMappings);
+          const rawPayload = input.payload as Record<string, unknown>;
+          const expectedDesignRevision = rawPayload['designRevision'];
+          const usesEditSession = Number.isSafeInteger(expectedDesignRevision);
+          const suppliedGraph = typeof input.payload === 'object'
+            && input.payload !== null
+            && !Array.isArray(input.payload)
+            && 'designGraph' in input.payload;
+          if (usesEditSession && expectedDesignRevision !== this.editSession.graph.revision) {
+            throw new Error('The canvas changed while this save was being prepared. Reload UI Studio and review the latest design.');
+          }
+          if (!usesEditSession && !suppliedGraph && this.config.designGraph.revision >= UI_DESIGN_GRAPH_MAX_REVISION) {
+            throw new Error('The UI design revision limit has been reached. Save was refused so an older browser event cannot become current again.');
+          }
+          // Current Studio builds name the revision of the host-owned edit
+          // session. The fallback preserves pre-v0.277 webviews that still
+          // submit one compatibility-wireframe batch after an extension reload.
+          const compatiblePayload = usesEditSession
+            ? { ...payload, designGraph: this.editSession.graph }
+            : suppliedGraph ? payload
+            : {
+                ...payload,
+                designGraph: designGraphFromPages(
+                  payload.pages,
+                  this.config.designGraph.revision + 1,
+                ),
+              };
+          this.config = await this.manager.save(compatiblePayload);
+          this.editSession = {
+            ...this.editSession,
+            graph: this.config.designGraph,
+          };
+          await this.refreshPreviewIfRunning();
           // Re-render on the page the user is already on. Saving used to update
           // `this.config` and post a success notice without re-rendering, so
           // everything derived server-side — counts, status chips, derived
@@ -317,14 +481,131 @@ export class WebsiteStudioPanel {
           await this.panel.webview.postMessage({
             type: 'notice',
             tone: 'success',
-            message: `Website plan saved to ${WEBSITE_WORKSPACE_SSOT_PATH}.`,
+            message: `UI plan saved to ${WEBSITE_WORKSPACE_SSOT_PATH}.`,
           });
           return;
+        }
+        case 'editDesignGraph': {
+          if (this.readOnly) {
+            throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
+          }
+          const command = parseUiEditCommand(input.payload);
+          if (!command) {
+            throw new Error('UI Studio ignored an invalid design edit.');
+          }
+          const result = applyUiEditCommand(this.editSession, command);
+          if (!result.ok) {
+            await this.postDesignGraphState('designEditRefused', result.reason);
+            return;
+          }
+          this.editSession = result.session;
+          this.config = {
+            ...this.config,
+            designGraph: result.session.graph,
+            pages: applyDesignGraphToPages(this.config.pages, result.session.graph),
+          };
+          await this.postDesignGraphState('designGraphUpdated');
+          return;
+        }
+        case 'editRepositoryMapping': {
+          if (this.readOnly) {
+            throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
+          }
+          const command = parseUiRepositoryMappingCommand(input.payload);
+          if (!command) { throw new Error('UI Studio ignored an invalid repository mapping edit.'); }
+          const result = applyUiRepositoryMappingCommand(
+            this.config.implementation.repositoryMappingRevision,
+            this.config.implementation.repositoryMappings,
+            this.editSession.graph,
+            command,
+            this.workspaceRoot,
+          );
+          if (!result.ok) {
+            this.render('stack');
+            await this.panel.webview.postMessage({
+              type: 'notice', tone: 'error',
+              message: `Repository mapping edit was refused (${result.reason}).`,
+            });
+            return;
+          }
+          this.config = await this.manager.save({
+            ...this.config,
+            designGraph: this.editSession.graph,
+            implementation: {
+              ...this.config.implementation,
+              repositoryMappingRevision: result.revision,
+              repositoryMappings: result.mappings,
+            },
+          });
+          this.render('stack');
+          await this.panel.webview.postMessage({
+            type: 'notice', tone: 'success',
+            message: command.type === 'verify-mapping'
+              ? 'Repository mapping fingerprints verified without storing source content.'
+              : command.type === 'import-mapping-evidence'
+                ? 'Adapter evidence imported with capability, provenance, and explicit loss reporting.'
+                : 'Repository mapping updated.',
+          });
+          return;
+        }
+        case 'savePageContent': {
+          const page = this.config.pages.find(candidate => candidate.id === input.payload.pageId);
+          if (!page) {
+            throw new Error('The selected screen is no longer part of this UI plan. Reload the Studio.');
+          }
+          const existing = this.contentManager.read([page]).get(page.id);
+          const proposed: WebsitePageContent = {
+            pageId: page.id,
+            filePath: existing?.filePath ?? '',
+            title: input.payload.title,
+            metaDescription: input.payload.metaDescription,
+            status: input.payload.status,
+            body: input.payload.body,
+            placeholders: [],
+            missing: false,
+            extraFrontMatter: existing?.extraFrontMatter ?? {},
+          };
+          // Normalize through the same parser used for disk content so control
+          // characters, field bounds, placeholder discovery, and front-matter
+          // semantics cannot differ between the webview and the next read.
+          const normalized = parsePageContent(
+            page,
+            renderPageContent(proposed),
+            this.contentManager.contentDirectory,
+          );
+          const result = await this.contentManager.save(page, normalized, input.payload.expectedBody);
+          if (!result.ok) {
+            throw new Error(result.reason);
+          }
+          await this.refreshPreviewIfRunning();
+          this.render('content');
+          await this.panel.webview.postMessage({ type: 'notice', tone: 'success', message: 'Screen content saved to its Markdown source file.' });
+          return;
+        }
+        case 'seedPageContent': {
+          const page = this.config.pages.find(candidate => candidate.id === input.payload.pageId);
+          if (!page) {
+            throw new Error('The selected screen is no longer part of this UI plan. Reload the Studio.');
+          }
+          const result = await this.contentManager.seed(page);
+          if (result === 'no-workspace') {
+            throw new Error('Open a workspace folder before creating content.');
+          }
+          await this.refreshPreviewIfRunning();
+          this.render('content');
+          await this.panel.webview.postMessage({
+            type: 'notice',
+            tone: result === 'written' ? 'success' : 'error',
+            message: result === 'written' ? 'Created a placeholder-only content file.' : 'The content file already exists and was left unchanged.',
+          });
+          return;
+        }
         case 'importIntake':
           this.config = importClientWebsiteIntake(this.config, input.payload);
           this.config = await this.manager.save(this.config);
+          this.editSession = createUiEditSession(this.config.designGraph);
           this.render('brief');
-          void vscode.window.showInformationMessage('Client website intake imported and normalized into Website Studio.');
+          void vscode.window.showInformationMessage('Client intake imported and normalized into UI Studio.');
           return;
         case 'openSsot': {
           const relativePath = input.payload === 'json'
@@ -336,6 +617,7 @@ export class WebsiteStudioPanel {
           }
           if (!this.manager.exists()) {
             this.config = await this.manager.save(this.config);
+            this.editSession = createUiEditSession(this.config.designGraph);
           }
           await vscode.window.showTextDocument(vscode.Uri.joinPath(workspace.uri, ...relativePath.split('/')));
           return;
@@ -343,7 +625,7 @@ export class WebsiteStudioPanel {
         case 'openCommand':
           if (input.payload === 'atlasmind.openChatPanel') {
             await vscode.commands.executeCommand(input.payload, {
-              draftPrompt: 'Help me turn the current Website Studio brief, sitemap, wireframes, UI system, platform choice, and n8n automation map into the next safe implementation milestone. Ground the plan in project_memory/domain/website.json, preserve the platform and credential safety boundaries, and propose the smallest reviewable build step.',
+              draftPrompt: 'Help me turn the current UI Studio brief, screen map, content design, wireframes, UI system, implementation guide, and any website delivery choices into the next safe implementation milestone. Ground the plan in project_memory/domain/website.json and the configured content directory, preserve platform and credential safety boundaries, and propose the smallest reviewable build step for the selected interface profile.',
             });
           } else {
             await vscode.commands.executeCommand(input.payload);
@@ -358,8 +640,19 @@ export class WebsiteStudioPanel {
         case 'openPreview':
           await vscode.commands.executeCommand('atlasmind.openWebsitePreview');
           return;
+        case 'openResponsivePreview': {
+          const { openResponsiveWebsitePreview } = await import('./websitePreviewHost.js');
+          await openResponsiveWebsitePreview(this.context);
+          return;
+        }
+        case 'refreshPreview':
+          await vscode.commands.executeCommand('atlasmind.previewWebsiteWireframe');
+          return;
         case 'stopPreview':
           await vscode.commands.executeCommand('atlasmind.stopWebsitePreview');
+          return;
+        case 'selectPreviewTarget':
+          selectWebsitePreviewTarget(input.payload.pageId, input.payload.nodeId);
           return;
         case 'selectFramework':
           await this.handleSelectFramework(input.payload.frameworkId);
@@ -374,7 +667,7 @@ export class WebsiteStudioPanel {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void this.panel.webview.postMessage({ type: 'notice', tone: 'error', message: detail });
-      void vscode.window.showErrorMessage(`Website Studio: ${detail}`);
+      void vscode.window.showErrorMessage(`UI Studio: ${detail}`);
     }
   }
 
@@ -490,6 +783,7 @@ export class WebsiteStudioPanel {
       return;
     }
     this.config = await persistFrameworkChoice(this.manager, this.config, frameworkId);
+    this.editSession = createUiEditSession(this.config.designGraph);
     this.render('stack');
     const spec = websiteFrameworkSpec(frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
     await this.panel.webview.postMessage({
@@ -521,6 +815,11 @@ export class WebsiteStudioPanel {
       tone: report.inStep ? 'success' : '',
       message: this.deliveryDriftSummary,
     });
+  }
+
+  private async refreshPreviewIfRunning(): Promise<void> {
+    const { refreshRunningWebsitePreview } = await import('./websitePreviewHost.js');
+    await refreshRunningWebsitePreview();
   }
 }
 
@@ -604,10 +903,107 @@ export interface WebsiteStudioHtmlOptions {
    * reassuring blank — the two models can disagree and nobody has looked.
    */
   deliveryDriftSummary?: string;
+  /** Screen copy read from the configured Markdown content directory. */
+  pageContent?: readonly WebsitePageContent[];
+  contentDirectory?: string;
+  /** Read-only host assessment; hashes only, never source content. */
+  repositoryMappingAssessments?: readonly UiRepositoryMappingAssessment[];
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
   scriptUri?: string;
+}
+
+export interface WebsiteStudioResponsiveNodeState {
+  id: string;
+  locked: boolean;
+  component?: ReturnType<typeof resolveUiComponentInstance>;
+  componentInstance?: UiComponentInstance;
+  componentSlot?: string;
+  previewContentState?: UiDesignGraph['screens'][number]['nodes'][number]['previewContentState'];
+  contentStatePresentations?: UiDesignGraph['screens'][number]['nodes'][number]['contentStatePresentations'];
+  dataBinding?: UiDesignGraph['screens'][number]['nodes'][number]['dataBinding'];
+  boundContent?: ReturnType<typeof resolveUiNodeContent>;
+  assetRef?: string;
+  asset?: ReturnType<typeof resolveUiDesignAsset>;
+  views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
+  overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
+}
+
+export interface WebsiteStudioResponsiveScreenState {
+  id: string;
+  pageId: string;
+  baseBreakpoint: WireframeBreakpoint;
+  nodes: WebsiteStudioResponsiveNodeState[];
+  diagnostics: Record<WireframeBreakpoint, ReturnType<typeof diagnoseUiScreenLayout>>;
+  contentDiagnostics: ReturnType<typeof diagnoseUiContentBindings>;
+  assetDiagnostics: ReturnType<typeof diagnoseUiAssets>;
+}
+
+/** Host-resolved responsive state; the webview never reimplements inheritance. */
+export function buildWebsiteStudioResponsiveScreens(
+  graph: UiDesignGraph,
+): WebsiteStudioResponsiveScreenState[] {
+  return graph.screens.map(screen => {
+    const resolved = Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+      breakpoint,
+      new Map(resolveUiScreenLayout(screen, breakpoint).map(node => [node.id, node])),
+    ])) as Record<WireframeBreakpoint, Map<string, ReturnType<typeof resolveUiScreenLayout>[number]>>;
+    return ({
+    id: screen.id,
+    pageId: screen.pageId,
+    baseBreakpoint: screen.baseBreakpoint,
+    diagnostics: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+      breakpoint,
+      diagnoseUiScreenLayout(screen, breakpoint),
+    ])) as WebsiteStudioResponsiveScreenState['diagnostics'],
+    contentDiagnostics: diagnoseUiContentBindings(graph, screen),
+    assetDiagnostics: diagnoseUiAssets(graph, screen),
+    nodes: screen.nodes.map(node => ({
+      id: node.id,
+      locked: node.locked,
+      ...(resolveUiComponentInstance(graph, screen, node)
+        ? { component: resolveUiComponentInstance(graph, screen, node) }
+        : {}),
+      ...(node.componentInstance ? { componentInstance: structuredClone(node.componentInstance) } : {}),
+      ...(node.componentSlot ? { componentSlot: node.componentSlot } : {}),
+      ...(node.previewContentState ? { previewContentState: node.previewContentState } : {}),
+      ...(node.contentStatePresentations
+        ? { contentStatePresentations: structuredClone(node.contentStatePresentations) }
+        : {}),
+      ...(node.dataBinding ? { dataBinding: structuredClone(node.dataBinding) } : {}),
+      ...(resolveUiNodeContent(graph, node) ? { boundContent: resolveUiNodeContent(graph, node) } : {}),
+      ...(node.assetRef ? { assetRef: node.assetRef } : {}),
+      ...(resolveUiDesignAsset(graph, node) ? { asset: resolveUiDesignAsset(graph, node) } : {}),
+      views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+        breakpoint,
+        resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),
+      ])) as WebsiteStudioResponsiveNodeState['views'],
+      overrides: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+        breakpoint,
+        {
+          rect: node.viewportOverrides[breakpoint]?.rect !== undefined,
+          hidden: node.viewportOverrides[breakpoint]?.hidden !== undefined,
+          layout: node.viewportOverrides[breakpoint]?.mode !== undefined
+            || node.viewportOverrides[breakpoint]?.widthMode !== undefined
+            || node.viewportOverrides[breakpoint]?.heightMode !== undefined
+            || node.viewportOverrides[breakpoint]?.direction !== undefined
+            || node.viewportOverrides[breakpoint]?.gap !== undefined
+            || node.viewportOverrides[breakpoint]?.padding !== undefined
+            || node.viewportOverrides[breakpoint]?.columns !== undefined
+            || node.viewportOverrides[breakpoint]?.align !== undefined
+            || node.viewportOverrides[breakpoint]?.distribute !== undefined
+            || node.viewportOverrides[breakpoint]?.minWidth !== undefined
+            || node.viewportOverrides[breakpoint]?.maxWidth !== undefined
+            || node.viewportOverrides[breakpoint]?.minHeight !== undefined
+            || node.viewportOverrides[breakpoint]?.maxHeight !== undefined
+            || node.viewportOverrides[breakpoint]?.wrap !== undefined
+            || node.viewportOverrides[breakpoint]?.order !== undefined,
+        },
+      ])) as WebsiteStudioResponsiveNodeState['overrides'],
+    })),
+    });
+  });
 }
 
 export function getWebsiteStudioHtml(
@@ -622,13 +1018,27 @@ export function getWebsiteStudioHtml(
   const primaryPlatform = config.platforms.find(platform => platform.primary);
   const hostingReadiness = assessWebsiteHostingEnvironments(config);
   const readyHostingEnvironments = hostingReadiness.filter(readiness => readiness.status === 'ready').length;
+  const isWebsite = config.surfaceKind === 'website';
+  const screenNoun = isWebsite ? 'page' : 'screen';
+  const contentReady = (options.pageContent ?? []).filter(content => !content.missing && content.body.trim().length > 0).length;
 
   // The canvas needs the geometry model client-side, and the pages need to be
   // readable by the script without re-parsing the DOM. Passed as an escaped
   // data attribute rather than a <script> block so nothing executable is
   // introduced and the CSP stays as it is.
   const canvasState = JSON.stringify({
+    surfaceKind: config.surfaceKind,
+    designRevision: config.designGraph.revision,
     pages: config.pages,
+    tokens: config.designGraph.tokens,
+    components: config.designGraph.components,
+    contentCollections: config.designGraph.contentCollections,
+    assets: config.designGraph.assets,
+    repositoryMappingRevision: config.implementation.repositoryMappingRevision,
+    repositoryMappings: config.implementation.repositoryMappings,
+    repositoryMappingAssessments: options.repositoryMappingAssessments ?? [],
+    repositoryAdapters: UI_REPOSITORY_ADAPTERS,
+    responsiveScreens: buildWebsiteStudioResponsiveScreens(config.designGraph),
     kinds: WIREFRAME_KIND_CATALOG,
     canGenerate: options.canGenerate === true,
     readOnly: options.readOnly === true,
@@ -637,20 +1047,20 @@ export function getWebsiteStudioHtml(
 
   return getWebviewHtmlShell({
     dashboardSkin: true,
-    title: 'AtlasMind Website Studio',
+    title: 'AtlasMind UI Studio',
     cspSource: webview.cspSource,
     bodyContent: `
       <div id="websiteStudioState" hidden data-state="${escapeHtml(canvasState)}"></div>
       <header class="studio-hero">
         <div>
-          <p class="eyebrow">AtlasMind · Website delivery workspace</p>
-          <h1>Website Studio</h1>
-          <p class="hero-copy">Move a client website from intake and sitemap through wireframes, visual design, a guarded Develop → Staging → Production pipeline, platform readiness, and automation mapping.</p>
+          <p class="eyebrow">AtlasMind · Interface design workspace</p>
+          <h1>UI Studio</h1>
+          <p class="hero-copy">Design the structure, content, visual system, and implementation handoff for websites, apps, extensions, desktop tools, and other interfaces. Website projects keep their guarded delivery workflow.</p>
         </div>
         <div class="hero-actions">
           <button type="button" class="secondary" data-command="atlasmind.openProjectIdeation">Ideation board</button>
           <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Project dashboard</button>
-          <button type="button" class="atlas-discuss-action icon-only" data-command="atlasmind.openChatPanel" title="Ask AtlasMind to plan the next safe website milestone" aria-label="Ask AtlasMind to plan the next website milestone"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to plan the next website milestone</span></button>
+          <button type="button" class="atlas-discuss-action icon-only" data-command="atlasmind.openChatPanel" title="Ask AtlasMind to plan the next safe UI milestone" aria-label="Ask AtlasMind to plan the next UI milestone"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to plan the next UI milestone</span></button>
         </div>
       </header>
       ${options.readOnly ? `
@@ -660,30 +1070,35 @@ export function getWebsiteStudioHtml(
         You can read it, but saving is disabled — writing now would overwrite settings this build cannot understand.
       </div>` : ''}
 
-      <div class="metric-strip" aria-label="Website readiness summary">
-        ${metricCard('Pages', String(config.pages.length), 'in the sitemap')}
+      <div class="metric-strip" aria-label="UI readiness summary">
+        ${metricCard(isWebsite ? 'Pages' : 'Screens', String(config.pages.length), isWebsite ? 'in the sitemap' : 'in the interface map')}
         ${metricCard('Design ready', `${approvedPages}/${config.pages.length}`, 'wireframe + UI approved')}
-        ${metricCard('Hosting ready', `${readyHostingEnvironments}/3`, 'Develop · Staging · Production')}
-        ${metricCard('Primary platform', primaryPlatform?.label ?? 'Not chosen', primaryPlatform?.status ?? 'decision needed')}
-        ${metricCard('n8n verified', `${readyAutomations}/${config.automations.length}`, 'mapped workflows')}
+        ${metricCard('Content ready', `${contentReady}/${config.pages.length}`, `Markdown ${screenNoun} files`)}
+        ${isWebsite
+          ? `${metricCard('Hosting ready', `${readyHostingEnvironments}/3`, 'Develop · Staging · Production')}
+             ${metricCard('Primary platform', primaryPlatform?.label ?? 'Not chosen', primaryPlatform?.status ?? 'decision needed')}
+             ${metricCard('n8n verified', `${readyAutomations}/${config.automations.length}`, 'mapped workflows')}`
+          : metricCard('Profile', surfaceKindLabel(config.surfaceKind), 'implementation-independent')}
       </div>
 
       <div id="studioNotice" class="notice" role="status" aria-live="polite"></div>
 
       <div class="studio-layout">
-        <nav class="studio-nav" aria-label="Website Studio dashboards">
-          ${navButton('brief', '1', 'Client brief', activePage)}
-          ${navButton('sitemap', '2', 'Sitemap', activePage)}
+        <nav class="studio-nav" aria-label="UI Studio dashboards">
+          ${navButton('brief', '1', 'Project brief', activePage)}
+          ${navButton('sitemap', '2', isWebsite ? 'Sitemap' : 'Screens & flows', activePage)}
           ${/* The nav renders literal numbered steps, so it promises a linear
-                workflow — but 3 and 4 were inverted against their own content.
+                workflow. Content design now sits before the visual system, and
+                the shared UI system still precedes the pages that apply it.
                 Each wireframe card tracks a per-page "UI design" stage, and
                 that cannot be done consistently until the shared typography,
-                colour and component decisions exist. The system now precedes
-                the pages that apply it. */ ''}
-          ${navButton('ui-system', '3', 'UI system', activePage)}
-          ${navButton('wireframes', '4', 'Wireframes & UI', activePage)}
-          ${navButton('stack', '5', 'Stack & hosting', activePage)}
-          ${navButton('automations', '6', 'n8n automations', activePage)}
+                colour and component decisions exist. */ ''}
+          ${navButton('content', '3', 'Content design', activePage)}
+          ${navButton('ui-system', '4', 'UI system', activePage)}
+          ${navButton('wireframes', '5', 'Wireframes & UI', activePage)}
+          ${navButton('preview', '6', 'Full preview', activePage)}
+          ${navButton('stack', '7', isWebsite ? 'Implementation & hosting' : 'Implementation', activePage)}
+          ${isWebsite ? navButton('automations', '8', 'n8n automations', activePage) : ''}
           <div class="nav-footer">
             <button type="button" class="secondary full" data-open-ssot="json">Open website.json</button>
             <button type="button" class="secondary full" data-open-ssot="markdown">Open website.md</button>
@@ -693,8 +1108,10 @@ export function getWebsiteStudioHtml(
         <main>
           ${renderBriefPage(config, activePage, options)}
           ${renderSitemapPage(config, activePage, options)}
+          ${renderContentPage(config, activePage, options)}
           ${renderWireframesPage(config, activePage, options)}
           ${renderUiSystemPage(config, activePage)}
+          ${renderPreviewPage(config, activePage, options)}
           ${renderStackPage(config, activePage, options)}
           ${renderAutomationsPage(config, activePage)}
         </main>
@@ -706,8 +1123,8 @@ export function getWebsiteStudioHtml(
           <span>Changes are sanitized and mirrored to JSON + Markdown. Credentials and n8n webhook values are never stored here.</span>
         </div>
         <span id="unsavedBadge" class="unsaved-badge" hidden>Unsaved changes</span>
-        <button type="button" class="secondary" id="openPreview">Open preview</button>
-        <button type="button" id="saveWebsiteStudio"${options.readOnly ? ' disabled' : ''}>Save Website Studio</button>
+        <button type="button" class="secondary" id="openPreview">Open full preview</button>
+        <button type="button" id="saveWebsiteStudio"${options.readOnly ? ' disabled' : ''}>Save UI Studio</button>
       </footer>
     `,
     extraCss: `${WEBSITE_STUDIO_CSS}${ATLAS_DISCUSS_ACTION_CSS}`,
@@ -725,15 +1142,29 @@ function renderBriefPage(
   options: WebsiteStudioHtmlOptions,
 ): string {
   const intake = config.intake;
+  const isWebsite = config.surfaceKind === 'website';
   return `
     <section class="studio-page${activePage === 'brief' ? ' active' : ''}" data-page="brief">
-      ${pageIntro('Client brief', 'Normalize the raw client request before design or platform decisions start. Blank fields remain explicit gaps.')}
+      ${pageIntro('Project brief', 'Normalize the product or client request before design or implementation decisions start. Blank fields remain explicit gaps.')}
+      <article class="panel-card profile-card">
+        <div>
+          <p class="eyebrow">Interface profile</p>
+          <h2>What are you designing?</h2>
+          <p>The profile changes the Studio's language and reveals website-only delivery tools. It never dictates the implementation technology.</p>
+        </div>
+        <label class="field">
+          <span>Surface type</span>
+          <select id="surfaceKind">
+            ${UI_SURFACE_OPTIONS.map(([value, label]) => `<option value="${value}"${config.surfaceKind === value ? ' selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+      </article>
       <article class="panel-card prompt-card">
         <div class="card-heading">
           <div>
             <p class="eyebrow">Describe it in words</p>
-            <h2>Whole-site design prompt</h2>
-            <p>One sentence about how the site should look and feel. Every page prompt is read against this.</p>
+            <h2>Whole-${isWebsite ? 'site' : 'interface'} design prompt</h2>
+            <p>One sentence about how the ${isWebsite ? 'site' : 'interface'} should look and feel. Every ${isWebsite ? 'page' : 'screen'} prompt is read against this.</p>
           </div>
           ${generateButton('brief', 'Generate a concept', options)}
         </div>
@@ -746,8 +1177,8 @@ function renderBriefPage(
         <article class="panel-card">
           <h2>Client and outcome</h2>
           ${field('Client / organisation', 'intake-clientName', intake.clientName)}
-          ${field('Project / website name', 'intake-projectName', intake.projectName)}
-          ${textarea('Summary', 'intake-summary', intake.summary, 'What the site is, who it serves, and the change it should create.')}
+          ${field(isWebsite ? 'Project / website name' : 'Project / product name', 'intake-projectName', intake.projectName)}
+          ${textarea('Summary', 'intake-summary', intake.summary, `What the ${isWebsite ? 'site' : 'interface'} is, who it serves, and the change it should create.`)}
           ${listTextarea('Goals', 'intake-goals', intake.goals, 'One goal per line')}
           ${listTextarea('Primary audiences', 'intake-audiences', intake.audiences, 'One audience or persona per line')}
           ${listTextarea('Success metrics', 'intake-successMetrics', intake.successMetrics, 'One measurable signal per line')}
@@ -783,6 +1214,8 @@ function renderSitemapPage(
   activePage: WebsiteStudioPage,
   options: WebsiteStudioHtmlOptions,
 ): string {
+  const isWebsite = config.surfaceKind === 'website';
+  const itemLabel = isWebsite ? 'page' : 'screen';
   const tree = buildSitemapTree(config.pages);
   const layout = layoutSitemap(tree);
   const graph = buildLinkGraph(config.pages);
@@ -791,13 +1224,15 @@ function renderSitemapPage(
 
   return `
     <section class="studio-page${activePage === 'sitemap' ? ' active' : ''}" data-page="sitemap">
-      ${pageIntro('Sitemap dashboard', 'The hierarchy draws itself from the slugs as pages are added. Give a page a design prompt and it can be generated without ever being drawn.')}
+      ${pageIntro(isWebsite ? 'Sitemap dashboard' : 'Screens and flows', isWebsite
+        ? 'The hierarchy draws itself from the slugs as pages are added. Give a page a design prompt and it can be generated without ever being drawn.'
+        : 'Use routes or stable view identifiers to map the interface. Parent relationships show hierarchy; declared links describe navigation and task flow without assuming a web implementation.')}
 
       <article class="panel-card">
         <div class="card-heading">
           <div>
             <h2>Hierarchy map</h2>
-            <p>Built from each page's slug. Set a parent explicitly to override it. Click a page to open it on the canvas.</p>
+            <p>${isWebsite ? "Built from each page's slug." : 'Built from each screen route or view id.'} Set a parent explicitly to override it. Click a ${itemLabel} to open it on the canvas.</p>
           </div>
           ${generateButton('sitemap', 'Generate all pages', options)}
         </div>
@@ -817,12 +1252,12 @@ function renderSitemapPage(
 
       <article class="panel-card">
         <div class="card-heading">
-          <div><h2>Page inventory</h2><p>${config.pages.length} planned page${config.pages.length === 1 ? '' : 's'}</p></div>
-          <button type="button" id="addWebsitePage"${options.readOnly ? ' disabled' : ''}>Add page</button>
+          <div><h2>${isWebsite ? 'Page' : 'Screen'} inventory</h2><p>${config.pages.length} planned ${itemLabel}${config.pages.length === 1 ? '' : 's'}</p></div>
+          <button type="button" id="addWebsitePage"${options.readOnly ? ' disabled' : ''}>Add ${itemLabel}</button>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Page</th><th>Slug</th><th>Purpose</th><th>Template</th><th>Links to</th><th></th></tr></thead>
+            <thead><tr><th>${isWebsite ? 'Page' : 'Screen'}</th><th>${isWebsite ? 'Slug' : 'Route / view id'}</th><th>Purpose</th><th>Template</th><th>Links to</th><th></th></tr></thead>
             <tbody id="sitemapRows">
               ${config.pages.map(page => renderSitemapRow(page, graph, titles)).join('')}
             </tbody>
@@ -886,12 +1321,102 @@ function renderSitemapSvg(layout: SitemapLayout): string {
     </div>`;
 }
 
+function renderContentPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const byPageId = new Map((options.pageContent ?? []).map(content => [content.pageId, content]));
+  const screenNoun = config.surfaceKind === 'website' ? 'page' : 'screen';
+  const content = config.contentDesign;
+  return `
+    <section class="studio-page${activePage === 'content' ? ' active' : ''}" data-page="content">
+      ${pageIntro('Content design', `Design the words as part of the interface: voice, terminology, accessibility, states, and the actual copy for each ${screenNoun}. Markdown files remain the source of truth.`)}
+
+      <div class="two-column">
+        <article class="panel-card">
+          <h2>Voice and comprehension</h2>
+          ${textarea('Product voice', 'content-voice', content.voice, 'Direct, calm, specific; explain consequences before asking for commitment.')}
+          ${listTextarea('Content principles', 'content-principles', content.principles, 'One rule per line')}
+          ${field('Reading level / comprehension target', 'content-readingLevel', content.readingLevel, 'Plain English; specialist terms explained')}
+          ${listTextarea('Locales and language variants', 'content-locales', content.locales, 'en-GB\nfr-FR')}
+          ${textarea('Content accessibility notes', 'content-accessibilityNotes', content.accessibilityNotes, 'Labels, alternatives, error recovery, cognitive load, screen-reader phrasing…')}
+        </article>
+        <article class="panel-card">
+          <h2>Terminology</h2>
+          <p>Keep product language consistent across design, code, documentation, and support.</p>
+          ${listTextarea('Preferred terms', 'content-preferredTerms', content.preferredTerms, 'Use “workspace”, not “tenant”')}
+          ${listTextarea('Avoided terms', 'content-avoidedTerms', content.avoidedTerms, 'Jargon, ambiguous labels, exclusionary language…')}
+          <div class="callout">
+            <strong>States are content too.</strong>
+            Use each ${screenNoun}'s Markdown file to specify headings, labels, instructions, empty states, validation, errors, success messages, and recovery actions alongside the main copy.
+          </div>
+        </article>
+      </div>
+
+      <article class="panel-card">
+        <div class="card-heading">
+          <div>
+            <h2>${config.surfaceKind === 'website' ? 'Page' : 'Screen'} content files</h2>
+            <p>Stored under <code>${escapeHtml(options.contentDirectory ?? 'content')}</code>. A save is refused if the file changed on disk after this view loaded.</p>
+          </div>
+        </div>
+        <div class="content-screen-grid">
+          ${config.pages.map(page => renderPageContentEditor(page, byPageId.get(page.id), options.readOnly === true, config.surfaceKind === 'website')).join('')}
+        </div>
+      </article>
+    </section>
+  `;
+}
+
+function renderPageContentEditor(
+  page: WebsitePagePlan,
+  content: WebsitePageContent | undefined,
+  readOnly: boolean,
+  isWebsite: boolean,
+): string {
+  if (!content || content.missing) {
+    return `
+      <article class="content-screen-card" data-content-page-id="${escapeHtml(page.id)}">
+        <div class="card-heading">
+          <div><h3>${escapeHtml(page.title)}</h3><p>${escapeHtml(content?.filePath ?? page.slug)}</p></div>
+          <span class="status-chip status-not-started">Missing</span>
+        </div>
+        <p>No content file exists yet. Create a placeholder-only outline from the current wireframe; the Studio will not invent plausible copy.</p>
+        <button type="button" class="seed-page-content"${readOnly ? ' disabled' : ''}>Create content outline</button>
+      </article>`;
+  }
+
+  return `
+    <article class="content-screen-card" data-content-page-id="${escapeHtml(page.id)}">
+      <div class="card-heading">
+        <div><h3>${escapeHtml(page.title)}</h3><p><code>${escapeHtml(content.filePath)}</code></p></div>
+        <span class="status-chip status-${escapeHtml(content.status)}">${escapeHtml(content.status)}</span>
+      </div>
+      <div class="field-pair">
+        ${field('Content title', '', content.title, '', 'content-title')}
+        ${selectField('Status', 'content-status', [['draft', 'Draft'], ['review', 'In review'], ['approved', 'Approved']], content.status)}
+      </div>
+      ${textarea(isWebsite ? 'Meta description' : 'Summary / metadata', '', content.metaDescription, isWebsite ? 'Search-result description' : 'Optional implementation-facing summary', 'content-metaDescription')}
+      ${textarea('Interface copy (Markdown)', '', content.body, 'Headings, labels, help, empty/loading/error/success states, and recovery actions.', 'content-body', 16)}
+      <textarea class="content-expectedBody" hidden>${escapeHtml(content.body)}</textarea>
+      <div class="content-editor-footer">
+        <span>${content.placeholders.length} unresolved placeholder${content.placeholders.length === 1 ? '' : 's'}</span>
+        <button type="button" class="save-page-content"${readOnly ? ' disabled' : ''}>Save content file</button>
+      </div>
+    </article>`;
+}
+
 function renderWireframesPage(
   config: WebsiteWorkspaceConfig,
   activePage: WebsiteStudioPage,
   options: WebsiteStudioHtmlOptions,
 ): string {
   const first = config.pages[0];
+  const firstScreen = first
+    ? config.designGraph.screens.find(screen => screen.pageId === first.id)
+    : undefined;
+  const firstBreakpoint = firstScreen?.baseBreakpoint ?? first?.wireframe?.breakpoint ?? 'desktop';
   return `
     <section class="studio-page${activePage === 'wireframes' ? ' active' : ''}" data-page="wireframes">
       ${pageIntro('Wireframe canvas', 'Draw the page. Pick a block, drag on the grid, drop one inside another to nest it. Select anything and describe it in your own words.')}
@@ -904,16 +1429,26 @@ function renderWireframesPage(
             ${config.pages.map(page => `<option value="${escapeHtml(page.id)}">${escapeHtml(page.title)}</option>`).join('')}
           </select>
         </label>
+        <div class="breakpoint-picker" role="group" aria-label="Canvas breakpoint">
+          ${WIREFRAME_BREAKPOINTS.map(breakpoint => `
+            <button type="button" class="breakpoint-button${breakpoint === firstBreakpoint ? ' active' : ''}"
+              data-breakpoint="${breakpoint}" aria-pressed="${breakpoint === firstBreakpoint ? 'true' : 'false'}">
+              ${breakpoint[0]!.toUpperCase()}${breakpoint.slice(1)}
+            </button>`).join('')}
+        </div>
+        <p id="breakpointContext" class="breakpoint-context"></p>
         <p id="canvasSummary" class="canvas-summary" role="status" aria-live="polite"></p>
         ${generateButton('wireframe', 'Generate this page', options)}
       </div>
+      <div id="canvasDiagnostics" class="canvas-diagnostics" aria-live="polite"></div>
 
       <div class="canvas-layout">
         <aside class="canvas-palette" aria-label="Wireframe blocks">
           <p class="eyebrow">Blocks</p>
           ${WIREFRAME_KIND_CATALOG.map(spec => `
             <button type="button" class="palette-button${spec.kind === 'section' ? ' armed' : ''}"
-              data-kind="${escapeHtml(spec.kind)}" title="${escapeHtml(spec.description)}">
+              data-kind="${escapeHtml(spec.kind)}" data-description="${escapeHtml(spec.description)}"
+              title="${escapeHtml(spec.description)}">
               ${escapeHtml(spec.label)}
             </button>`).join('')}
         </aside>
@@ -943,7 +1478,7 @@ function renderWireframesPage(
       </div>`}
 
       <div id="wireframeCards" class="wireframe-grid">
-        ${config.pages.map(renderWireframeCard).join('')}
+        ${config.pages.map(page => renderWireframeCard(page, config.surfaceKind === 'website')).join('')}
       </div>
     </section>
   `;
@@ -982,7 +1517,7 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           ${field('Accessibility target', 'design-accessibilityTarget', design.accessibilityTarget)}
         </article>
         <article class="panel-card">
-          <h2>Tokens and components</h2>
+          <h2>Legacy visual defaults</h2>
           <div class="color-grid">
             ${colorField('Primary', 'design-primaryColor', design.primaryColor)}
             ${colorField('Secondary', 'design-secondaryColor', design.secondaryColor)}
@@ -999,6 +1534,141 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           </div>
         </article>
       </div>
+      <article class="panel-card token-authority-card">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Authoritative graph · revision ${config.designGraph.revision}</p>
+            <h2>Typed design tokens</h2>
+          </div>
+        </div>
+        <p class="token-help">Tokens are structured, target-independent definitions. Reserved ids such as <code>color-primary</code>, <code>font-heading</code>, <code>spacing-base</code>, and <code>radius-base</code> drive Studio and Full Preview; every valid token is also exposed to preview adapters.</p>
+        <p class="token-help">Use plain numbers for numeric kinds, <code>x y blur spread #RRGGBB</code> for shadow, and <code>durationMs easing</code> for motion.</p>
+        <div class="token-create-row">
+          ${field('Stable id', 'newTokenId', 'color-primary', 'color-primary')}
+          ${field('Label', 'newTokenLabel', 'Primary', 'Primary')}
+          <label class="field"><span>Kind</span><select id="newTokenKind">${[
+            'color', 'font-family', 'font-size', 'font-weight', 'line-height',
+            'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
+          ].map(kind => `<option value="${kind}">${kind}</option>`).join('')}</select></label>
+          ${field('Initial value', 'newTokenValue', '#2563EB', '#2563EB')}
+          <button type="button" id="addDesignToken"${config.designGraph.tokens.length >= 200 ? ' disabled' : ''}>Add token</button>
+        </div>
+        <div id="designTokenEditor" class="token-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card component-authority-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Definition editing · explicit instance overrides</p>
+          <h2>Reusable components</h2>
+        </div></div>
+        <p class="token-help">Definitions are structured design data, never markup. A canvas node becomes an instance only through its inspector; editing that instance cannot silently rewrite the definition.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newComponentId', 'button', 'button')}
+          ${field('Label', 'newComponentLabel', 'Button', 'Button')}
+          <label class="field"><span>Root type</span><select id="newComponentKind">${WIREFRAME_KIND_CATALOG.map(spec => `<option value="${escapeHtml(spec.kind)}">${escapeHtml(spec.label)}</option>`).join('')}</select></label>
+          <button type="button" id="addDesignComponent"${config.designGraph.components.length >= 100 ? ' disabled' : ''}>Add component</button>
+        </div>
+        <p class="token-help">Property rows use <code>id | label | text/number/boolean/choice | default | comma-separated choices</code>. Slots use <code>id | label | required/optional | allowed kinds | max children</code>. Variants use <code>id | label | property=value;…</code>.</p>
+        <div id="designComponentEditor" class="component-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card content-collection-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Preview-only sample data · no credentials or production records</p>
+          <h2>Structured content collections</h2>
+        </div></div>
+        <p class="token-help">Collections define bounded fields and deliberate sample records for design review. Canvas nodes bind title, body, and action slots explicitly; broken bindings and missing interface states are reported at the node.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newCollectionId', 'products', 'products')}
+          ${field('Label', 'newCollectionLabel', 'Products', 'Products')}
+          <button type="button" id="addContentCollection"${config.designGraph.contentCollections.length >= 50 ? ' disabled' : ''}>Add collection</button>
+        </div>
+        <p class="token-help">Field rows use <code>id | label | text/number/boolean/url/date | required/optional</code>. Each sample row is one JSON object with <code>id</code>, <code>label</code>, and <code>values</code>, so punctuation in real copy is preserved. URLs must be HTTPS; these are review fixtures, not live data.</p>
+        <div id="contentCollectionEditor" class="component-editor content-collection-editor" aria-live="polite"></div>
+      </article>
+      <article class="panel-card asset-authority-card">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Validated references · inert preview projection</p>
+          <h2>Asset library</h2>
+        </div></div>
+        <p class="token-help">Assets keep target-independent dimensions, crop and focal intent, alt text, and maturity. Workspace sources must be relative; HTTPS sources cannot include credentials, query strings, or fragments. Full Preview visualizes this intent without making a network request.</p>
+        <div class="component-create-row">
+          ${field('Stable id', 'newAssetId', 'hero-image', 'hero-image')}
+          ${field('Label', 'newAssetLabel', 'Hero image', 'Hero image')}
+          ${field('Workspace path', 'newAssetReference', 'assets/hero.webp', 'assets/hero.webp')}
+          <button type="button" id="addDesignAsset"${config.designGraph.assets.length >= 200 ? ' disabled' : ''}>Add asset</button>
+        </div>
+        <div id="designAssetEditor" class="component-editor asset-editor" aria-live="polite"></div>
+      </article>
+    </section>
+  `;
+}
+
+function renderPreviewPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const contents = new Map((options.pageContent ?? []).map(content => [content.pageId, content]));
+  const drawn = config.pages.filter(page => (page.wireframe?.elements.length ?? 0) > 0).length;
+  const contentReady = config.pages.filter(page => {
+    const content = contents.get(page.id);
+    return content !== undefined && !content.missing && content.body.trim().length > 0;
+  }).length;
+  const screenNoun = config.surfaceKind === 'website' ? 'page' : 'screen';
+
+  return `
+    <section class="studio-page${activePage === 'preview' ? ' active' : ''}" data-page="preview">
+      ${pageIntro('Full preview', 'Use the built-in browser as the main review canvas. The preview is rebuilt directly from the saved wireframes, visual tokens, and exact Markdown copy, so design decisions can be judged together without a model call.')}
+
+      <article class="panel-card preview-launch-card">
+        <div>
+          <p class="eyebrow">Canonical review surface</p>
+          <h2>Open the complete design in VS Code</h2>
+          <p>The full preview opens in VS Code's built-in browser at normal browser scale. Its index keeps every ${screenNoun} one click away and links separately to any model-generated visual guide.</p>
+          <p class="preview-freshness"><strong>Saved inputs:</strong> ${drawn}/${config.pages.length} drawn · ${contentReady}/${config.pages.length} with content · UI system applied globally</p>
+        </div>
+        <div class="preview-primary-actions">
+          <button type="button" id="refreshFullPreview">Rebuild and open full preview</button>
+          <button type="button" class="secondary" id="openFullPreview">Open full preview</button>
+        </div>
+      </article>
+
+      <div class="two-column">
+        <article class="panel-card">
+          <p class="eyebrow">Responsive inspection</p>
+          <h2>Device-width lab</h2>
+          <p>Open the guarded companion view when you need fixed desktop, tablet, and mobile widths. It uses the same preview URL as the built-in browser, so there is only one version of the design to review.</p>
+          <button type="button" class="secondary" id="openResponsivePreview">Open responsive lab</button>
+        </article>
+        <article class="panel-card">
+          <p class="eyebrow">What the preview proves</p>
+          <h2>Structure + content + style</h2>
+          <ul class="preview-proof-list">
+            <li>Canvas geometry and hierarchy from each wireframe</li>
+            <li>Primary, secondary, and accent colours plus heading/body typography</li>
+            <li>Exact Markdown copy with unresolved placeholders made conspicuous</li>
+            <li>A full content proof below each visual canvas so clipped copy cannot hide</li>
+          </ul>
+        </article>
+      </div>
+
+      <article class="panel-card">
+        <div class="card-heading">
+          <div><h2>Preview coverage</h2><p>Missing work stays visible; the preview never fills gaps with plausible copy.</p></div>
+          <button type="button" class="secondary" id="stopPreview">Stop preview server</button>
+        </div>
+        <div class="preview-coverage-grid">
+          ${config.pages.length === 0 ? '<p>No screens yet. Add one in Screens & flows.</p>' : config.pages.map(page => {
+            const content = contents.get(page.id);
+            const elements = page.wireframe?.elements.length ?? 0;
+            const copy = !content || content.missing
+              ? 'content missing'
+              : content.placeholders.length > 0
+                ? `${content.placeholders.length} content gap${content.placeholders.length === 1 ? '' : 's'}`
+                : `${content.status} content`;
+            return `<div class="preview-coverage-item"><strong>${escapeHtml(page.title)}</strong><span>${elements === 0 ? 'not drawn' : `${elements} element${elements === 1 ? '' : 's'}`} · ${escapeHtml(copy)}</span></div>`;
+          }).join('')}
+        </div>
+      </article>
     </section>
   `;
 }
@@ -1100,9 +1770,22 @@ function renderStackPage(
   options: WebsiteStudioHtmlOptions,
 ): string {
   const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
+  const guide = renderImplementationGuide(config);
+  if (config.surfaceKind !== 'website') {
+    return `
+      <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
+        ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
+        ${guide}
+        <div class="callout">
+          <strong>Design intent, not code generation.</strong>
+          UI Studio records what to build and where the existing implementation lives. The normal project tools still review and edit SwiftUI, React Native, XAML, VS Code webviews, game-engine UI, or any other target through their own guarded workflow.
+        </div>
+      </section>`;
+  }
   return `
     <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
       ${pageIntro('Stack, hosting and setup', 'Pick what the site is built with and where it ships, then let AtlasMind scaffold it. Framework and platform are one decision — the pairing determines the build command, the output directory and the deploy config.')}
+      ${guide}
       ${renderFrameworkCard(config, options)}
       <div class="hosting-heading">
         <div>
@@ -1119,11 +1802,11 @@ function renderStackPage(
       </div>
       <div class="callout">
         <strong>Password references only.</strong>
-        Use a reference such as <code>SecretStorage:website.staging.password</code> or <code>env:WEBSITE_STAGING_PASSWORD</code>. Website Studio rejects raw password values and never writes them to project memory.
+        Use a reference such as <code>SecretStorage:website.staging.password</code> or <code>env:WEBSITE_STAGING_PASSWORD</code>. UI Studio rejects raw password values and never writes them to project memory.
       </div>
       <div class="callout warning">
         <strong>No one-click production deploys here.</strong>
-        Website Studio records the platform and non-secret references. Use the Project Dashboard delivery pipeline for preflight, approval, backup, publish, and verification.
+        UI Studio records the platform and non-secret references. Use the Project Dashboard delivery pipeline for preflight, approval, backup, publish, and verification.
       </div>
       <div class="hosting-heading platform-heading">
         <div>
@@ -1157,6 +1840,54 @@ function renderStackPage(
       <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Open guarded Delivery dashboard</button>
     </section>
   `;
+}
+
+function renderImplementationGuide(config: WebsiteWorkspaceConfig): string {
+  const guide = config.implementation;
+  const targets = [
+    ...config.designGraph.components.map(component => ({ value: `component:${component.id}`, label: `Component · ${component.label}` })),
+    ...config.designGraph.tokens.map(token => ({ value: `token:${token.id}`, label: `Token · ${token.label}` })),
+    ...config.designGraph.screens.flatMap(screen => screen.nodes.map(node => ({
+      value: `node:${screen.id}:${node.id}`, label: `Node · ${node.label} (${screen.pageId})`,
+    }))),
+  ];
+  return `
+    <article class="panel-card implementation-guide">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Design → project</p>
+          <h2>Implementation guide</h2>
+          <p>These are bounded workspace-relative hints for collaborators and agents, never commands and never proof that a path exists.</p>
+        </div>
+      </div>
+      <div class="two-column">
+        <div>
+          ${listTextarea('Target technologies', 'implementation-targetTechnologies', guide.targetTechnologies, 'React Native\nSwiftUI\nVS Code webview')}
+          ${listTextarea('UI source roots', 'implementation-sourceRoots', guide.sourceRoots, 'src/ui\napp/screens')}
+        </div>
+        <div>
+          ${listTextarea('Component locations', 'implementation-componentLocations', guide.componentLocations, 'src/components\nDesignSystem/Components')}
+          ${listTextarea('Handoff notes', 'implementation-notes', guide.notes, 'One constraint, mapping, or continuation note per line')}
+        </div>
+      </div>
+      <div class="repository-mapping-authority">
+        <div class="card-heading"><div>
+          <p class="eyebrow">Repository boundary · mapping revision ${guide.repositoryMappingRevision}</p>
+          <h3>Source mappings and divergence</h3>
+          <p>Connect design facts to workspace source without granting write authority. Verification reads a bounded file and stores fingerprints only.</p>
+        </div></div>
+        <div class="component-create-row">
+          ${field('Stable id', 'newMappingId', 'button-source', 'button-source')}
+          ${field('Label', 'newMappingLabel', 'Button source', 'Button source')}
+          <label class="field"><span>Adapter</span><select id="newMappingAdapter">${UI_REPOSITORY_ADAPTERS.map(adapter => `<option value="${adapter.id}">${escapeHtml(adapter.label)}</option>`).join('')}</select></label>
+          <label class="field"><span>Design target</span><select id="newMappingTarget"><option value="">Choose a graph target</option>${targets.map(target => `<option value="${escapeHtml(target.value)}">${escapeHtml(target.label)}</option>`).join('')}</select></label>
+          ${field('Source file', 'newMappingSourcePath', 'src/components/Button.tsx', 'src/components/Button.tsx')}
+          <button type="button" id="addRepositoryMapping"${guide.repositoryMappings.length >= 200 || targets.length === 0 ? ' disabled' : ''}>Add mapping</button>
+        </div>
+        <p class="token-help">Component relation rows use <code>graph-id | source-name</code>. This first adapter slice records declared/partial/unsupported coverage and never claims lossless import.</p>
+        <div id="repositoryMappingEditor" class="component-editor repository-mapping-editor" aria-live="polite"></div>
+      </div>
+    </article>`;
 }
 
 function renderHostingEnvironmentCard(
@@ -1278,7 +2009,7 @@ function renderSitemapRow(
  * same page that disagree is worse than one, and the derived structure list
  * below states what the canvas holds without pretending to draw it.
  */
-function renderWireframeCard(page: WebsitePagePlan): string {
+function renderWireframeCard(page: WebsitePagePlan, isWebsite = true): string {
   const elements = page.wireframe?.elements ?? [];
   const structure = elements.length > 0
     ? `<ul class="structure-list">${elements
@@ -1301,7 +2032,7 @@ function renderWireframeCard(page: WebsitePagePlan): string {
         ${selectField('Wireframe', 'page-wireframeStatus', WORK_STATUS_OPTIONS, page.wireframeStatus)}
         ${selectField('UI design', 'page-designStatus', WORK_STATUS_OPTIONS, page.designStatus)}
         ${selectField('Content', 'page-contentStatus', WORK_STATUS_OPTIONS, page.contentStatus)}
-        ${selectField('SEO', 'page-seoStatus', WORK_STATUS_OPTIONS, page.seoStatus)}
+        ${isWebsite ? selectField('SEO', 'page-seoStatus', WORK_STATUS_OPTIONS, page.seoStatus) : ''}
       </div>
     </article>
   `;
@@ -1335,6 +2066,20 @@ const WORK_STATUS_OPTIONS: ReadonlyArray<[WebsiteWorkStatus, string]> = [
   ['approved', 'Approved'],
   ['blocked', 'Blocked'],
 ];
+
+const UI_SURFACE_OPTIONS: ReadonlyArray<[WebsiteWorkspaceConfig['surfaceKind'], string]> = [
+  ['website', 'Website'],
+  ['web-app', 'Web application'],
+  ['mobile-app', 'Mobile application'],
+  ['desktop-app', 'Desktop application'],
+  ['editor-extension', 'Editor extension'],
+  ['embedded-ui', 'Embedded / device UI'],
+  ['other', 'Other interface'],
+];
+
+function surfaceKindLabel(kind: WebsiteWorkspaceConfig['surfaceKind']): string {
+  return UI_SURFACE_OPTIONS.find(([value]) => value === kind)?.[1] ?? 'Other interface';
+}
 
 const PLATFORM_STATUS_OPTIONS: ReadonlyArray<[WebsitePlatformStatus, string]> = [
   ['not-planned', 'Not planned'],
@@ -1387,10 +2132,11 @@ function textarea(
   value: string,
   placeholder = '',
   className = '',
+  rows = 4,
 ): string {
   const idAttribute = id ? ` id="${escapeHtml(id)}"` : '';
   const classAttribute = className ? ` class="${escapeHtml(className)}"` : '';
-  return `<label class="field"><span>${escapeHtml(label)}</span><textarea${idAttribute}${classAttribute} rows="4" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea></label>`;
+  return `<label class="field"><span>${escapeHtml(label)}</span><textarea${idAttribute}${classAttribute} rows="${rows}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea></label>`;
 }
 
 function listTextarea(

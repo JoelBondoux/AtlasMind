@@ -50,8 +50,9 @@ turn the cards that survived into real roadmap items. See [[Ideation]].
 **Ship properly.** A guided eight-stage workflow takes you from an idea to a released version, with an
 explanation at every step. See [[GitHub Workflow]] and [[Delivery]].
 
-**Deliver a client website.** From the client brief through sitemap, wireframes, design system and
-hosting to a protected production path. See [[Website Studio]].
+**Design an interface and carry it into the project.** Use screens, content, wireframes, UI system and
+implementation handoff for any UI, with full-canvas review in VS Code's built-in browser and a responsive
+inspection lab; website profiles add protected delivery. See [[Website Studio|UI Studio]].
 
 **Work from the terminal.** The same orchestrator, agents and safety rules without opening the editor.
 See [[CLI]].
@@ -113,7 +114,7 @@ code, get checked against your repository, and report honestly when nobody has l
 | [[Ideation]] | The thinking board and the research scans behind it |
 | [[GitHub Workflow]] | The guided eight-stage workflow from idea to release |
 | [[Delivery]] | Moving work safely towards production |
-| [[Website Studio]] | Client sites from brief to launch |
+| [[Website Studio|UI Studio]] | Visual design, content, screens, full built-in-browser preview, responsive inspection, and implementation handoff for websites and other interfaces |
 | [[Resource Discovery]] | Finding and adding new MCP servers, agents and skills |
 | [[Remote Control]] | Driving a desktop instance from a browser |
 
