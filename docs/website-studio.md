@@ -28,9 +28,22 @@ is what points subsequent project work at the real technology and source locatio
 | Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
 | Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction, tone, palette, typography, spacing, corner style, accessibility target, and component notes |
+| UI System | Record brand direction and legacy defaults; directly edit typed colour, typography, spacing, radius, shadow, motion, and breakpoint tokens and aliases |
 | Implementation | Record target technologies, source roots, component locations, and handoff notes for any implementation target. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
 | n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+
+## Typed design tokens
+
+UI System edits format-v7 token definitions through the same revisioned command history as the canvas.
+Each token has a stable id, label, closed kind, and either one bounded value or a same-kind alias. Deleting a
+token that an alias still uses is refused; undo and redo cover token changes too. The Markdown mirror lists
+every definition so a review does not depend on opening the webview.
+
+Reserved ids—`color-primary`, `color-secondary`, `color-accent`, `font-heading`, `font-body`,
+`spacing-base`, `radius-base`, `breakpoint-tablet`, and `breakpoint-mobile`—apply consistently to the Studio
+canvas and deterministic Full Preview. Other valid tokens remain available to target adapters under uniquely
+encoded CSS custom properties. CSS is a preview projection only: the graph stores structured values and
+remains equally usable for SwiftUI, Compose, XAML, native desktop, embedded, and editor-extension targets.
 
 ## Content is part of the design
 

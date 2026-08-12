@@ -313,6 +313,34 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('--body-font: ui-sans-serif, system-ui, sans-serif');
       expect(html).not.toContain('display:none');
     });
+
+    it('projects resolved typed tokens into semantic roles, unique adapter variables, and breakpoints', () => {
+      const subject = withElements(['hero']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      const html = renderWireframePreview({
+        page: subject,
+        designSystem,
+        responsiveScreen: screen,
+        tokens: [
+          { id: 'brand-base', label: 'Brand base', kind: 'color', value: '#123456' },
+          { id: 'color-primary', label: 'Primary', kind: 'color', aliasOf: 'brand-base' },
+          { id: 'font-heading', label: 'Heading', kind: 'font-family', value: 'Georgia, serif' },
+          { id: 'spacing-base', label: 'Spacing', kind: 'spacing', value: 18 },
+          { id: 'radius-base', label: 'Radius', kind: 'radius', value: 14 },
+          { id: 'breakpoint-tablet', label: 'Tablet', kind: 'breakpoint', value: 900 },
+          { id: 'breakpoint-mobile', label: 'Mobile', kind: 'breakpoint', value: 480 },
+          { id: 'motion-fast', label: 'Fast', kind: 'motion', value: { durationMs: 120, easing: 'ease-out' } },
+        ],
+      });
+      expect(html).toContain('--accent: #123456');
+      expect(html).toContain('--heading-font: Georgia, serif');
+      expect(html).toContain('--atlas-spacing-base: 18px');
+      expect(html).toContain('--atlas-radius-base: 14px');
+      expect(html).toContain('@media (max-width: 900px)');
+      expect(html).toContain('@media (max-width: 480px)');
+      expect(html).toContain('--atlas-token-6d-6f-74-69-6f-6e-2d-66-61-73-74-duration: 120ms');
+      expect(html).not.toContain('[object Object]');
+    });
   });
 
   describe('an undrawn page', () => {

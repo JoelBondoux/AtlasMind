@@ -182,12 +182,19 @@ same kind to a direct value; the host refuses missing targets, cross-kind links,
 duplicates, and excess definitions. The v6 → v7 migration adds an empty collection and never invents a
 design system.
 
+`websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
+colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
+resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or
+collapse two graph identities onto one name.
+
 `uiDesignGraph.ts` is the graph's untrusted-input boundary and derives the legacy page wireframe while
 existing readers migrate; a valid graph is the declared winner. `uiEditCommands.ts` is the pure closed
 mutation path for canvas, form, future preview, and model-proposed edits. Drawing, frame/reparent, deletion,
 kind, label, intent, visibility, viewport geometry/visibility override set/reset, undo, and redo commands
 name the revision they read and pass an exact parser; the webview never submits a graph patch. Invalid
-targets refuse, and bounded undo/redo never rewinds revision. Responsive resolution applies desktop →
+targets refuse, and bounded undo/redo never rewinds revision. Typed token add/set/delete uses that same exact
+path and history: the host validates the whole dependency graph and protects a direct token while an alias
+uses it. UI System sends definitions, never graph patches. Responsive resolution applies desktop →
 tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
 override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
 through an exact override, so the resolver does not turn absent intent into a design decision.

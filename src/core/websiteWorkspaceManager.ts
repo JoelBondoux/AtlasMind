@@ -15,6 +15,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   ClientWebsiteIntake,
   UiContentDesign,
+  UiDesignToken,
   UiImplementationGuide,
   UiSurfaceKind,
   WebsiteAutomation,
@@ -439,6 +440,12 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     `- Palette: ${config.designSystem.primaryColor}, ${config.designSystem.secondaryColor}, ${config.designSystem.accentColor}`,
     `- Typography: ${markdownValue(config.designSystem.headingFont)} headings / ${markdownValue(config.designSystem.bodyFont)} body`,
     `- Accessibility target: ${markdownValue(config.designSystem.accessibilityTarget)}`,
+    '',
+    '### Typed design tokens',
+    '',
+    '| Token | Kind | Definition |',
+    '|---|---|---|',
+    ...renderDesignTokenRows(config.designGraph.tokens),
     '',
     '## Implementation Guide',
     '',
@@ -1269,6 +1276,16 @@ function markdownList(values: string[]): string[] {
   return values.length > 0
     ? values.map(value => `- ${value.replace(/\r?\n/g, ' ')}`)
     : ['- _Not captured yet._'];
+}
+
+function renderDesignTokenRows(tokens: readonly UiDesignToken[]): string[] {
+  return tokens.length === 0
+    ? ['| _None defined_ | — | — |']
+    : tokens.map(token => `| ${escapeMarkdownCell(token.label)} (${token.id}) | ${token.kind} | ${
+        token.aliasOf !== undefined
+          ? `Alias of ${token.aliasOf}`
+          : escapeMarkdownCell(typeof token.value === 'object' ? JSON.stringify(token.value) : String(token.value))
+      } |`);
 }
 
 function markdownValue(value: string | undefined): string {

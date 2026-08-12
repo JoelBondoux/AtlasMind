@@ -246,6 +246,7 @@ async function writeWireframePreviews(
           {
             contents,
             generatedAvailable: existsSync(path.join(root, 'index.html')),
+            tokens: config.designGraph.tokens,
           },
         ),
         renderRevision,
@@ -263,6 +264,7 @@ async function writeWireframePreviews(
             designSystem: config.designSystem,
             siblings: config.pages,
             content: contents.get(page.id),
+            tokens: config.designGraph.tokens,
             ...(responsiveScreen ? { responsiveScreen } : {}),
             ...(config.intake.projectName ? { siteName: config.intake.projectName } : {}),
           }),

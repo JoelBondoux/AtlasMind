@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.290.1 — The orchestrator says when it discards an answer
+## v0.291.1 — The orchestrator says when it discards an answer
 
 When every tool result in an agentic loop's final round tests as failed, AtlasMind throws away the
 model's completion and substitutes a summary of the failures. That test matches substrings such as
@@ -33,6 +33,18 @@ never the output itself, because the log persists and tool results can carry sec
 
 Nothing branches on the new record and the substitution itself is unchanged — this is measurement,
 added before any fix, so the size of the problem is known rather than assumed.
+
+## v0.291.0 — Visual typed-token editing and preview projection
+
+UI System now edits the v7 token authority directly: add typed values, make same-kind aliases, change a
+definition, and delete an unused token. Every operation crosses the exact graph command boundary, advances
+one revision, and participates in undo/redo. The host refuses broken dependency graphs and protects tokens
+that still have aliases.
+
+Reserved semantic ids now drive colour, typography, spacing, radius, and responsive breakpoints in both the
+Studio canvas and Full Preview. The adapter additionally publishes every resolved token under a uniquely
+encoded CSS custom property without turning graph ids into raw CSS. The Markdown mirror lists definitions
+and aliases for review outside the Studio.
 
 ## v0.290.0 — Typed UI Studio token authority
 

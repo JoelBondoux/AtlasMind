@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.290.1] - 2026-08-12
+## [0.291.1] - 2026-08-12
 
 ### Added
 
@@ -32,6 +32,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   load, which at the moment it blocks a commit is indistinguishable from a real failure and teaches
   whoever hits it to reach for `--no-verify`, skipping compile and lint too. Raised to 20s, which
   hides no hang: a genuinely stuck test still fails, just later.
+
+## [0.291.0] - 2026-08-12
+
+### Added
+
+- **UI System now has a typed-token editor backed by the authoritative graph.** Operators can add direct
+  values, create same-kind aliases, update definitions, and delete unused tokens without editing JSON.
+- **Studio and Full Preview consume the same resolved token values.** Reserved semantic ids control primary,
+  secondary and accent colours, heading/body fonts, base spacing/radius, and tablet/mobile breakpoints; the
+  preview adapter also publishes every resolved definition under a collision-free CSS custom property.
+- **The generated Markdown mirror lists typed tokens.** Reviews can see each stable id, kind, direct value, or
+  alias relationship without opening the Studio.
+
+### Security
+
+- **Token edits use the existing exact, revision-checked graph command boundary.** The host reparses every
+  command, sanitizes the complete dependency graph, refuses cycles/cross-kind/missing aliases and deletion of
+  an in-use token, and makes each accepted edit one bounded undo step.
+- **CSS conversion is confined to the deterministic preview adapter.** Graph values never become arbitrary
+  properties or selectors; semantic roles use an explicit id allowlist and custom-property names hex-encode
+  stable ids to prevent collisions or stylesheet syntax injection.
+
+### Changed
+
+- **UI Studio save payloads now identify workspace format v7.** Token state remains host-owned and persists
+  with the current graph revision rather than being accepted as an arbitrary form patch.
 
 ## [0.290.0] - 2026-08-12
 

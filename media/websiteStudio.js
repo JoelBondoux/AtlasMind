@@ -37,6 +37,10 @@
   const MAX_ELEMENTS = 60;
   const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
   const DIAGNOSTIC_CODES = ['viewport-overflow', 'parent-clipping', 'node-overlap', 'touch-target'];
+  const TOKEN_KINDS = [
+    'color', 'font-family', 'font-size', 'font-weight', 'line-height',
+    'spacing', 'radius', 'shadow', 'motion', 'breakpoint',
+  ];
   const validNullableConstraint = (candidate, maximum) => candidate === null
     || (Number.isFinite(candidate) && candidate >= 1 && candidate <= maximum);
   const orderedConstraint = (minimum, maximum) => minimum === null || maximum === null || minimum <= maximum;
@@ -44,14 +48,15 @@
   // ── State ──────────────────────────────────────────────────────
 
   const stateNode = qs('#websiteStudioState');
-  /** @type {{pages: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
-  let state = { pages: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+  /** @type {{pages: Array, tokens: Array, responsiveScreens: Array, kinds: Array, canGenerate: boolean, readOnly: boolean, atlasIcon: string}} */
+  let state = { pages: [], tokens: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   try {
     state = JSON.parse(stateNode?.dataset?.state ?? '{}');
   } catch {
-    state = { pages: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
+    state = { pages: [], tokens: [], responsiveScreens: [], kinds: [], canGenerate: false, readOnly: false, atlasIcon: '' };
   }
   state.pages = Array.isArray(state.pages) ? state.pages : [];
+  state.tokens = normalizeTokens(state.tokens);
   state.responsiveScreens = normalizeResponsiveScreens(state.responsiveScreens);
   state.kinds = Array.isArray(state.kinds) ? state.kinds : [];
   let designRevision = Number.isSafeInteger(state.designRevision) && state.designRevision >= 0
@@ -132,6 +137,43 @@
         && /^[a-zA-Z0-9._-]{1,120}$/.test(node.id)
         && node.views && typeof node.views === 'object'
         && node.overrides && typeof node.overrides === 'object'));
+  }
+
+  function normalizeTokens(input) {
+    if (!Array.isArray(input) || input.length > 200) { return []; }
+    const seen = new Set();
+    const tokens = [];
+    for (const token of input) {
+      if (!token || typeof token !== 'object'
+          || !/^[a-zA-Z0-9._-]{1,120}$/.test(token.id)
+          || typeof token.label !== 'string' || token.label.length < 1 || token.label.length > 120
+          || !TOKEN_KINDS.includes(token.kind) || seen.has(token.id)) {
+        continue;
+      }
+      if (token.aliasOf !== undefined) {
+        if (!/^[a-zA-Z0-9._-]{1,120}$/.test(token.aliasOf)) { continue; }
+      } else if (!validTokenValue(token.kind, token.value)) {
+        continue;
+      }
+      seen.add(token.id);
+      tokens.push(token);
+    }
+    return tokens;
+  }
+
+  function validTokenValue(kind, candidate) {
+    if (kind === 'color') { return typeof candidate === 'string' && /^#[0-9a-fA-F]{6}$/.test(candidate); }
+    if (kind === 'font-family') { return typeof candidate === 'string' && /^[a-zA-Z0-9 _,-]{1,120}$/.test(candidate); }
+    if (kind === 'shadow') {
+      return candidate && typeof candidate === 'object'
+        && [candidate.x, candidate.y, candidate.blur, candidate.spread].every(Number.isFinite)
+        && /^#[0-9a-fA-F]{6}$/.test(candidate.color);
+    }
+    if (kind === 'motion') {
+      return candidate && typeof candidate === 'object' && Number.isSafeInteger(candidate.durationMs)
+        && ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'].includes(candidate.easing);
+    }
+    return Number.isFinite(candidate);
   }
 
   function responsiveView(element) {
@@ -217,6 +259,34 @@
 
   function canvasSurface() {
     return qs('#wireframeCanvas');
+  }
+
+  function resolvedTokenValue(id) {
+    const byId = new Map(state.tokens.map(token => [token.id, token]));
+    const visited = new Set();
+    let token = byId.get(id);
+    while (token) {
+      if (visited.has(token.id)) { return undefined; }
+      visited.add(token.id);
+      if (token.aliasOf === undefined) { return token.value; }
+      token = byId.get(token.aliasOf);
+    }
+    return undefined;
+  }
+
+  function applyCanvasTokens() {
+    const surface = canvasSurface();
+    if (!surface) { return; }
+    const accent = resolvedTokenValue('color-primary');
+    const heading = resolvedTokenValue('font-heading');
+    const body = resolvedTokenValue('font-body');
+    const spacing = resolvedTokenValue('spacing-base');
+    const radius = resolvedTokenValue('radius-base');
+    surface.style.setProperty('--atlas-design-accent', typeof accent === 'string' ? accent : 'var(--studio-accent)');
+    surface.style.setProperty('--atlas-design-heading', typeof heading === 'string' ? heading : 'inherit');
+    surface.style.setProperty('--atlas-design-body', typeof body === 'string' ? body : 'inherit');
+    surface.style.setProperty('--atlas-design-spacing', Number.isFinite(spacing) ? spacing + 'px' : '6px');
+    surface.style.setProperty('--atlas-design-radius', Number.isFinite(radius) ? radius + 'px' : '6px');
   }
 
   /** Pointer position → canvas units. */
@@ -340,6 +410,7 @@
   function renderCanvas() {
     const surface = canvasSurface();
     if (!surface) { return; }
+    applyCanvasTokens();
     const page = activePage();
     const height = canvasHeight();
     surface.style.aspectRatio = CANVAS_WIDTH + ' / ' + height;
@@ -1629,7 +1700,7 @@
     }));
 
     return {
-      version: 6,
+      version: 7,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -1872,6 +1943,118 @@
     return escapeText(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  function tokenValueText(token) {
+    if (token.kind === 'shadow') {
+      return [token.value?.x, token.value?.y, token.value?.blur, token.value?.spread, token.value?.color].join(' ');
+    }
+    if (token.kind === 'motion') {
+      return [token.value?.durationMs, token.value?.easing].join(' ');
+    }
+    return String(token.value ?? '');
+  }
+
+  function parseTokenValue(kind, text) {
+    if (kind === 'color' || kind === 'font-family') { return text; }
+    if (kind === 'shadow') {
+      const parts = text.trim().split(/\s+/);
+      if (parts.length !== 5) { return undefined; }
+      const [x, y, blur, spread] = parts.slice(0, 4).map(Number);
+      return [x, y, blur, spread].every(Number.isFinite) && /^#[0-9a-fA-F]{6}$/.test(parts[4])
+        ? { x, y, blur, spread, color: parts[4] }
+        : undefined;
+    }
+    if (kind === 'motion') {
+      const parts = text.trim().split(/\s+/);
+      const durationMs = Number(parts[0]);
+      return parts.length === 2 && Number.isSafeInteger(durationMs)
+        && ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'].includes(parts[1])
+        ? { durationMs, easing: parts[1] }
+        : undefined;
+    }
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  }
+
+  function renderTokenEditor() {
+    const editor = qs('#designTokenEditor');
+    if (!editor) { return; }
+    if (state.tokens.length === 0) {
+      editor.innerHTML = '<div class="token-empty">No typed tokens yet. Add one without changing the legacy visual defaults.</div>';
+      return;
+    }
+    editor.innerHTML = state.tokens.map(token => {
+      const aliased = typeof token.aliasOf === 'string';
+      const kindOptions = TOKEN_KINDS.map(kind => '<option value="' + kind + '"'
+        + (kind === token.kind ? ' selected' : '') + '>' + escapeText(kind) + '</option>').join('');
+      const aliases = state.tokens.filter(candidate => candidate.id !== token.id && candidate.kind === token.kind)
+        .map(candidate => '<option value="' + escapeAttribute(candidate.id) + '"'
+          + (candidate.id === token.aliasOf ? ' selected' : '') + '>' + escapeText(candidate.label)
+          + ' (' + escapeText(candidate.id) + ')</option>').join('');
+      return '<div class="token-row" data-token-id="' + escapeAttribute(token.id) + '">'
+        + '<label class="field"><span>Label</span><input class="token-label" value="' + escapeAttribute(token.label) + '" />'
+        + '<small class="token-id">' + escapeText(token.id) + '</small></label>'
+        + '<label class="field"><span>Kind</span><select class="token-kind">' + kindOptions + '</select></label>'
+        + '<label class="field"><span>Source</span><select class="token-mode"><option value="value"'
+        + (!aliased ? ' selected' : '') + '>Direct value</option><option value="alias"' + (aliased ? ' selected' : '')
+        + '>Alias</option></select></label>'
+        + '<label class="field token-value-field"' + (aliased ? ' hidden' : '') + '><span>Value</span><input class="token-value" value="'
+        + escapeAttribute(tokenValueText(token)) + '" /></label>'
+        + '<label class="field token-alias-field"' + (!aliased ? ' hidden' : '') + '><span>Alias target</span><select class="token-alias"><option value="">Choose same-kind token</option>'
+        + aliases + '</select></label>'
+        + '<div class="token-row-actions"><button type="button" class="secondary save-token">Apply</button>'
+        + '<button type="button" class="danger subtle delete-token">Delete</button></div></div>';
+    }).join('');
+  }
+
+  function wireTokens() {
+    renderTokenEditor();
+    qs('#addDesignToken')?.addEventListener('click', () => {
+      if (state.readOnly || state.tokens.length >= 200) { return; }
+      const id = value('#newTokenId');
+      const label = value('#newTokenLabel');
+      const kind = value('#newTokenKind');
+      const tokenValue = parseTokenValue(kind, value('#newTokenValue'));
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(id) || !label || tokenValue === undefined) {
+        notice('Choose a valid stable id, label, kind, and initial value.', 'error');
+        return;
+      }
+      submitDesignEdit({
+        type: 'add-token', token: { id, label, kind, value: tokenValue },
+      });
+      notice('Adding the typed token…');
+    });
+    qs('#designTokenEditor')?.addEventListener('change', event => {
+      const mode = event.target.closest('.token-mode');
+      if (!mode) { return; }
+      const row = mode.closest('.token-row');
+      qs('.token-value-field', row).hidden = mode.value === 'alias';
+      qs('.token-alias-field', row).hidden = mode.value !== 'alias';
+    });
+    qs('#designTokenEditor')?.addEventListener('click', event => {
+      const row = event.target.closest('.token-row');
+      if (!row || state.readOnly) { return; }
+      const tokenId = row.dataset.tokenId;
+      if (event.target.closest('.delete-token')) {
+        submitDesignEdit({ type: 'delete-token', tokenId });
+        notice('Deleting the token if no alias depends on it…');
+        return;
+      }
+      if (!event.target.closest('.save-token')) { return; }
+      const label = value('.token-label', row);
+      const kind = value('.token-kind', row);
+      const mode = value('.token-mode', row);
+      const token = mode === 'alias'
+        ? { id: tokenId, label, kind, aliasOf: value('.token-alias', row) }
+        : { id: tokenId, label, kind, value: parseTokenValue(kind, value('.token-value', row)) };
+      if (!token.label || (mode === 'alias' ? !token.aliasOf : token.value === undefined)) {
+        notice('Complete a valid label and token value or same-kind alias target.', 'error');
+        return;
+      }
+      submitDesignEdit({ type: 'set-token', tokenId, token });
+      notice('Applying the token through the revision-checked design graph…');
+    });
+  }
+
   /**
    * Ids are constrained to an identifier charset by the sanitizer, but they are
    * interpolated into selectors here, so they are escaped anyway. A selector
@@ -1908,6 +2091,10 @@
     }
     if (message.responsiveScreens !== undefined) {
       state.responsiveScreens = normalizeResponsiveScreens(message.responsiveScreens);
+    }
+    if (message.tokens !== undefined) {
+      state.tokens = normalizeTokens(message.tokens);
+      renderTokenEditor();
     }
     for (const id of [...selectedElementIds]) {
       if (!findElement(id)) { selectedElementIds.delete(id); }
@@ -1958,6 +2145,7 @@
   });
 
   wireCanvas();
+  wireTokens();
   syncPageSelect();
   renderCanvas();
   renderPagePromptField();

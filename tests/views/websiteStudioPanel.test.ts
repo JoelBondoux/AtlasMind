@@ -36,6 +36,12 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({ type: 'refreshPreview' })).toBe(true);
     expect(isWebsiteStudioMessage({ type: 'selectPreviewTarget', payload: { pageId: 'page-home', nodeId: 'hero-1' } })).toBe(true);
     expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph', payload: {
+        type: 'add-token', expectedRevision: 2,
+        token: { id: 'color-primary', label: 'Primary', kind: 'color', value: '#2563EB' },
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
         type: 'set-node-locked', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1', locked: true,
@@ -271,6 +277,24 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('save-page-content');
   });
 
+  it('renders typed graph tokens as a revisioned UI System editor', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.designGraph.tokens = [
+      { id: 'color-primary', label: 'Primary', kind: 'color', value: '#123456' },
+      { id: 'color-action', label: 'Action', kind: 'color', aliasOf: 'color-primary' },
+    ];
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'ui-system', {
+      scriptContent: '/* canvas */',
+    });
+
+    expect(html).toContain('Typed design tokens');
+    expect(html).toContain('id="designTokenEditor"');
+    expect(html).toContain('id="addDesignToken"');
+    expect(html).toContain('&quot;color-primary&quot;');
+    expect(html).toContain('&quot;aliasOf&quot;:&quot;color-primary&quot;');
+    expect(html).toContain('Reserved ids');
+  });
+
   it('makes the built-in browser preview a numbered design step', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'preview', {
@@ -324,6 +348,7 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('data-breakpoint="mobile"');
     expect(html).toContain('id="canvasDiagnostics"');
     expect(html).toContain('&quot;responsiveScreens&quot;');
+    expect(html).toContain('&quot;tokens&quot;');
   });
 });
 
@@ -371,6 +396,7 @@ describe('UI Studio canvas command wiring', () => {
       'add-node', 'delete-node', 'duplicate-node', 'set-node-locked', 'set-node-frame', 'set-node-frames', 'set-node-kind',
       'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
       'set-node-layout', 'clear-node-viewport-override', 'undo', 'redo',
+      'add-token', 'set-token', 'delete-token',
     ]) {
       expect(source).toContain(`'${command}'`);
     }

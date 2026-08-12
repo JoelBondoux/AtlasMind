@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.290.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.291.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.290.1
+## What's new in 0.291.1
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
@@ -139,6 +139,10 @@ capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
   the token that triggered each verdict, so a tool that genuinely failed can be told apart from one
   whose output merely mentioned failure. Trigger tokens only, never tool output, which can carry
   secrets. Behaviour is unchanged; this is measurement ahead of a fix.
+
+- **Typed design tokens are now directly editable and visible in both review surfaces.** UI System can add,
+  update, alias, and delete bounded tokens through the same revision/undo history as canvas edits. Reserved
+  semantic tokens drive the Studio canvas and Full Preview, while adapters expose every resolved definition.
 
 - **Phase 3 starts with typed design tokens in the authoritative graph.** Colour, typography, spacing,
   radius, shadow, motion, and breakpoint values now have bounded target-independent definitions. Aliases

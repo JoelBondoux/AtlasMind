@@ -103,6 +103,17 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   code { background:var(--vscode-textCodeBlock-background); padding:2px 5px; border-radius:4px; }
   .token-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
   .token-preview span { width:28px; height:28px; border-radius:50%; border:1px solid var(--studio-border); }
+  .token-authority-card { margin-top:14px; }
+  .token-authority-card .card-heading h2 { margin:3px 0 0; }
+  .token-help { max-width:900px; color:var(--studio-muted); }
+  .token-editor { display:grid; gap:10px; }
+  .token-create-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) minmax(110px,.7fr) minmax(160px,1fr) auto; gap:8px; align-items:end; margin:14px 0; padding:12px; background:color-mix(in srgb, var(--studio-accent) 6%, transparent); border-radius:9px; }
+  .token-create-row .field { margin:0; }
+  .token-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(130px,.8fr) minmax(110px,.65fr) minmax(180px,1.25fr) auto; gap:8px; align-items:end; padding:12px; border:1px solid var(--studio-border); border-radius:9px; }
+  .token-row .field { margin:0; }
+  .token-row-actions { display:flex; gap:6px; padding-bottom:1px; }
+  .token-id { display:block; margin-top:4px; color:var(--studio-muted); font:12px/1.4 var(--vscode-editor-font-family, monospace); }
+  .token-empty { padding:20px; text-align:center; border:1px dashed var(--studio-border); border-radius:9px; color:var(--studio-muted); }
   .empty-state { grid-column:1/-1; min-height:180px; display:grid; place-content:center; text-align:center; gap:5px; border:1px dashed var(--studio-border); border-radius:12px; color:var(--studio-muted); }
   .save-bar { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; justify-content:space-between; align-items:center; gap:20px; padding:12px 22px; background:color-mix(in srgb, var(--vscode-editor-background) 94%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--studio-border); }
   .save-bar div { display:grid; }
@@ -122,6 +133,9 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
     .studio-hero, .save-bar { align-items:flex-start; flex-direction:column; }
     .metric-strip, .two-column, .wireframe-grid, .platform-grid, .automation-grid { grid-template-columns:1fr; }
     .status-grid, .color-grid, .field-pair { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .token-row { grid-template-columns:1fr 1fr; }
+    .token-create-row { grid-template-columns:1fr 1fr; }
+    .token-row-actions { grid-column:1/-1; }
     .metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .save-bar button { width:100%; }
   }
@@ -226,35 +240,35 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
 
   .wf-box {
     position:absolute; display:flex; flex-direction:column; justify-content:center; align-items:flex-start;
-    gap:2px; padding:6px 9px; overflow:hidden; text-align:left; cursor:grab;
-    border:1.5px solid color-mix(in srgb, var(--studio-accent) 60%, var(--studio-border));
-    background:color-mix(in srgb, var(--studio-accent) 10%, transparent);
-    border-radius:6px; color:var(--vscode-foreground);
+    gap:2px; padding:var(--atlas-design-spacing, 6px) calc(var(--atlas-design-spacing, 6px) * 1.5); overflow:hidden; text-align:left; cursor:grab;
+    border:1.5px solid color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 60%, var(--studio-border));
+    background:color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 10%, transparent);
+    border-radius:var(--atlas-design-radius, 6px); color:var(--vscode-foreground); font-family:var(--atlas-design-body, inherit);
   }
-  .wf-box:hover { background:color-mix(in srgb, var(--studio-accent) 18%, transparent); }
+  .wf-box:hover { background:color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 18%, transparent); }
   .wf-box.selected {
-    border-color:var(--studio-accent); border-width:2px;
-    background:color-mix(in srgb, var(--studio-accent) 24%, transparent);
+    border-color:var(--atlas-design-accent, var(--studio-accent)); border-width:2px;
+    background:color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 24%, transparent);
     z-index:5;
   }
-  .wf-box.primary { outline:2px solid color-mix(in srgb, var(--studio-accent) 70%, white); outline-offset:2px; }
+  .wf-box.primary { outline:2px solid color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 70%, white); outline-offset:2px; }
   .wf-box:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:1px; }
   .wf-box.viewport-hidden { opacity:.52; border-style:dotted; }
   .wf-box.container-positioned { cursor:default; }
   .wf-box.locked { cursor:not-allowed; border-style:double; }
-  .wf-box-label { font-weight:650; font-size:.82rem; line-height:1.2; }
+  .wf-box-label { font-family:var(--atlas-design-heading, inherit); font-weight:650; font-size:.82rem; line-height:1.2; }
   .wf-box-kind { font-size:.68rem; color:var(--studio-muted); text-transform:uppercase; letter-spacing:.08em; }
   .wf-box-visibility { font-size:.62rem; font-weight:700; color:var(--vscode-testing-iconSkipped, #d29922); }
   /* Structural kinds read as bands, content kinds as blocks. Enough of a
      difference to scan the page shape without turning the canvas into a
      colour-coded legend nobody can remember. */
   .wf-box[data-kind="nav"], .wf-box[data-kind="footer"] { background:color-mix(in srgb, var(--studio-muted) 16%, transparent); }
-  .wf-box[data-kind="hero"] { background:color-mix(in srgb, var(--studio-accent) 20%, transparent); }
+  .wf-box[data-kind="hero"] { background:color-mix(in srgb, var(--atlas-design-accent, var(--studio-accent)) 20%, transparent); }
   .wf-box[data-kind="cta"] { border-style:solid; border-width:2px; }
   .wf-box[data-kind="media"], .wf-box[data-kind="custom"] { border-style:dashed; }
 
   .wf-handle {
-    position:absolute; width:9px; height:9px; background:var(--studio-accent);
+    position:absolute; width:9px; height:9px; background:var(--atlas-design-accent, var(--studio-accent));
     border:1px solid var(--vscode-editor-background); border-radius:2px;
   }
   .wf-handle-nw { top:-5px; left:-5px; cursor:nwse-resize; }
