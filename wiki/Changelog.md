@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.297.1 — Chat carries the turns you just had
+
+Four defects in how a conversation is carried between turns, all in code nothing tested.
+
+**The carried context held the oldest turns, not the newest.** Entries were ordered by relevance weight
+with the oldest first as a tiebreak, then taken from the front — and since every ordinary turn has the
+same weight, that tiebreak decided everything. Past about six turns the context froze on the opening of
+the conversation and never included what you had just said. Raising the turn or character limits bought
+more *old* turns; it could not buy recent ones.
+
+**The transcript could arrive out of order.** Any answer mentioning "failed" or "not found" is classified
+as an error and weighted lower, and while weight decided ordering, those answers were rendered after
+later turns — so the model read a conversation where replies came before the questions.
+
+**A message could be deleted by a substring match.** Typing "ignore this bit of the diff" matched a
+pattern that marked the turn permanently invisible to every future turn, regardless of who wrote it.
+Automatic classification now labels but never erases.
+
+**Session files were parsed with an anchor JavaScript does not have.** `\z` means end-of-string in Perl
+and Ruby; in JavaScript it matches a literal letter *z*. Every section of a session's `context.md` was
+cut at the first *z* after its heading — "Decided to analyze the payload" became "Decided to analy" — and
+a final section containing no *z* was lost entirely, which is why open threads and current state so often
+went missing.
+
 ## v0.297.0 — The conversation is no longer labelled untrusted
 
 AtlasMind carried your conversation to the model inside a block beginning *"Supplemental untrusted
