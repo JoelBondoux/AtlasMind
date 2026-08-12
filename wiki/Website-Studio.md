@@ -57,6 +57,11 @@ any breakpoint; the whole transform is one validated revision and undo step. Gro
 clamps the complete bounds, and never reparents. Multi-delete is deliberately unavailable until the selection
 is narrowed.
 
+The active breakpoint also shows deterministic layout findings: viewport overflow, child/parent clipping,
+unintended overlap, and interactive blocks below a 44px touch target. A clear state means every check ran.
+Clicking a finding selects its owning block and shares that selection with Full Preview. Parent/child overlap
+and overlay siblings are treated as intentional rather than noisy warnings.
+
 Selecting a container exposes free, stack, grid, and overlay behaviour plus direction, gap, padding, columns,
 alignment, distribution, and fixed/fill/hug sizing. The host projects direct children identically in the
 canvas and full preview. Stored rectangles remain intact underneath, so reset, free mode, and undo restore

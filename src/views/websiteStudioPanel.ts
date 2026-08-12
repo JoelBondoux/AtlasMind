@@ -11,6 +11,7 @@ import {
 } from '../core/websiteWorkspaceManager.js';
 import {
   applyDesignGraphToPages,
+  diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiNodeLayout,
   resolveUiScreenLayout,
@@ -851,6 +852,7 @@ export interface WebsiteStudioResponsiveScreenState {
   pageId: string;
   baseBreakpoint: WireframeBreakpoint;
   nodes: WebsiteStudioResponsiveNodeState[];
+  diagnostics: Record<WireframeBreakpoint, ReturnType<typeof diagnoseUiScreenLayout>>;
 }
 
 /** Host-resolved responsive state; the webview never reimplements inheritance. */
@@ -866,6 +868,10 @@ export function buildWebsiteStudioResponsiveScreens(
     id: screen.id,
     pageId: screen.pageId,
     baseBreakpoint: screen.baseBreakpoint,
+    diagnostics: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+      breakpoint,
+      diagnoseUiScreenLayout(screen, breakpoint),
+    ])) as WebsiteStudioResponsiveScreenState['diagnostics'],
     nodes: screen.nodes.map(node => ({
       id: node.id,
       locked: node.locked,
@@ -1326,6 +1332,7 @@ function renderWireframesPage(
         <p id="canvasSummary" class="canvas-summary" role="status" aria-live="polite"></p>
         ${generateButton('wireframe', 'Generate this page', options)}
       </div>
+      <div id="canvasDiagnostics" class="canvas-diagnostics" aria-live="polite"></div>
 
       <div class="canvas-layout">
         <aside class="canvas-palette" aria-label="Wireframe blocks">

@@ -5,7 +5,7 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.288.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.289.0:** Phases 1 and 2 are complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
@@ -173,7 +173,8 @@ into a shared deterministic canvas/preview engine with explicit container settin
 nullable min/max width/height constraints with per-property provenance and non-destructive projection.
 v0.286.0 adds deterministic stack wrapping and responsive sibling ordering. v0.287.0 adds atomic subtree
 duplication and reducer-enforced node locking. v0.288.0 adds atomic pointer drag for multi-selections at base
-and responsive breakpoints. Diagnostics remain in this phase.
+and responsive breakpoints. v0.289.0 completes Phase 2 with deterministic overflow, parent-clipping, overlap,
+and minimum-touch-target diagnostics at all three breakpoints.
 
 Implementation note: v0.284.0 deliberately makes container layout a non-destructive projection. Stored child
 rectangles remain the free-layout fallback, so switching or resetting a parent cannot lose the arrangement
@@ -197,6 +198,11 @@ Implementation note: v0.288.0 computes the complete selected bounds before a gro
 relative offset, and excludes the selected identities from snap targets. Pointer-up emits one `set-node-frames`
 command. Group drag deliberately does not reparent; changing several hierarchy edges from one drop would make
 the gesture ambiguous and broaden the existing single-node structural operation.
+
+Implementation note: v0.289.0 derives diagnostics from `resolveUiScreenLayout`, so the canvas, Full Preview,
+and checks cannot disagree about placement. Ancestor overlap and overlay siblings are intentional exclusions.
+The 44px touch rule converts through the responsive lab's 1280/834/390 widths; it is not compared directly
+with the 1000-unit design grid.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

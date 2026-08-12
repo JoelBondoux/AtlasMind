@@ -217,6 +217,10 @@ reparent a locked child. The browser's disabled controls are only feedback for t
 Multi-selection pointer drag computes one on-canvas delta, excludes the selection from snap candidates, and
 submits every resulting rectangle through one `set-node-frames` command. Base and responsive moves are
 therefore atomic, revision-checked, undoable, and unable to alter hierarchy.
+`diagnoseUiScreenLayout()` runs over the same projected rectangles at all three breakpoints. It reports canvas
+overflow, parent clipping, unintended overlap (excluding ancestors and overlay siblings), and interactive
+nodes below 44px using the preview's actual fixed widths. The browser renders closed host findings and can
+select their graph identities; it cannot submit or redefine a diagnostic.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

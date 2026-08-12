@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.289.0 — Responsive layout diagnostics
+
+Every Studio breakpoint now reports viewport overflow, a child extending outside its clipping parent,
+unintended visible-node overlap, and interactive nodes smaller than a 44px touch target. The touch threshold
+uses the responsive lab's real 1280, 834, and 390px widths rather than treating canvas units as pixels.
+
+The checks run over the same deterministic host projection used by Studio and Full Preview. Parent/child
+overlap and overlay siblings are intentional and excluded. Findings carry only closed codes and graph
+identities; clicking one selects the owning node and synchronizes that selection with Full Preview. This
+completes the recorded Phase 2 responsive-layout milestone.
+
 ## v0.288.0 — Atomic multi-selection drag
 
 Dragging any block in a multi-selection now moves the complete selection while preserving relative spacing.

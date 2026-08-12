@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   applyDesignGraphToPages,
+  diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiNodeLayout,
   resolveUiScreenLayout,
@@ -181,6 +182,45 @@ describe('UI design graph', () => {
     const inheritedMobile = resolveUiNodeLayout(desktopBase, node, 'mobile');
     expect(inheritedMobile.layout.rect).toEqual(node.viewportOverrides.tablet.rect);
     expect(inheritedMobile.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });
+  });
+
+  it('reports deterministic responsive overflow, clipping, overlap, and touch-target findings', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const screen = graph.screens[0]!;
+    const parent = screen.nodes[0]!;
+    const child = screen.nodes[1]!;
+    parent.layout.rect = { x: 0, y: 3_700, width: 300, height: 300 };
+    parent.layout.mode = 'stack';
+    parent.layout.padding = 0;
+    parent.layout.gap = 200;
+    child.kind = 'cta';
+    child.layout.rect = { x: 250, y: 3_850, width: 100, height: 24 };
+    const sibling = structuredClone(child);
+    sibling.id = 'second-action';
+    sibling.label = 'Second action';
+    sibling.parentId = 'hero';
+    sibling.layout.rect = { x: 260, y: 3_860, width: 100, height: 180 };
+    screen.nodes.push(sibling);
+    const overlapping = structuredClone(child);
+    overlapping.id = 'floating-copy';
+    overlapping.kind = 'text';
+    overlapping.label = 'Floating copy';
+    delete overlapping.parentId;
+    overlapping.layout.rect = { x: 10, y: 3_710, width: 180, height: 180 };
+    screen.nodes.push(overlapping);
+
+    const diagnostics = diagnoseUiScreenLayout(screen, 'mobile');
+    expect(diagnostics.some(item => item.code === 'viewport-overflow')).toBe(true);
+    expect(diagnostics.some(item => item.code === 'parent-clipping')).toBe(true);
+    expect(diagnostics.some(item => item.code === 'node-overlap')).toBe(true);
+    expect(diagnostics.some(item => item.code === 'touch-target' && item.nodeIds[0] === 'copy')).toBe(true);
+    expect(diagnostics.every(item => item.breakpoint === 'mobile')).toBe(true);
+    expect(diagnostics).toEqual(diagnoseUiScreenLayout(screen, 'mobile'));
+
+    parent.layout.mode = 'overlay';
+    const overlayDiagnostics = diagnoseUiScreenLayout(screen, 'desktop');
+    expect(overlayDiagnostics.some(item => item.code === 'node-overlap'
+      && item.nodeIds.includes('copy') && item.nodeIds.includes('second-action'))).toBe(false);
   });
 
   it('projects grid and responsive stack containers without rewriting stored child rectangles', () => {

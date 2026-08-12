@@ -56,8 +56,8 @@ alignment, distribution, fill/hug sizing, responsive inheritance, and one canvas
 adds nullable min/max width/height constraints to that projection with responsive inheritance and provenance.
 v0.286.0 adds stack wrapping and bounded responsive sibling order without changing stored array order.
 v0.287.0 adds one-revision subtree duplication with remapped identities and reducer-enforced node locking.
-v0.288.0 adds one-revision group pointer drag at base and responsive breakpoints. Diagnostics remain to
-complete the phase.
+v0.288.0 adds one-revision group pointer drag at base and responsive breakpoints. v0.289.0 completes Phase 2
+with deterministic overflow, parent-clipping, overlap, and 44px touch-target diagnostics at every breakpoint.
 
 Container layout is deliberately a projection over retained child rectangles. Free mode and undo therefore
 restore what somebody drew; hug uses that stored intrinsic box until the content phase adds measurement.
@@ -67,6 +67,8 @@ Duplication validates the complete subtree before it writes and offsets explicit
 base geometry. Lock is a graph fact, not disabled-browser styling: only Unlock may mutate a locked node.
 Group drag preserves relative spacing, clamps the complete bounds, excludes selected nodes from snapping,
 and never changes hierarchy.
+Diagnostics consume the same resolved screen as Studio and Full Preview. Ancestor and overlay overlap are
+intentional exclusions; touch sizing converts through the responsive lab's actual fixed viewport widths.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

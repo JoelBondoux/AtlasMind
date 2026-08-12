@@ -351,6 +351,10 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   Multi-selection pointer drag is another `set-node-frames` producer: the browser projects one shared clamped
   delta for feedback, excludes selected identities from snapping, and submits the full frame set once on
   pointer-up. The reducer already makes that batch all-or-nothing and hierarchy-neutral.
+  `diagnoseUiScreenLayout()` consumes that same projection for every breakpoint and deterministically reports
+  canvas overflow, parent clipping, non-ancestral/non-overlay overlap, and interactive nodes below 44px after
+  conversion through the 1280/834/390 preview widths. The host sends closed diagnostic records; the webview
+  renders and routes them to graph selection but does not decide whether layout passed.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/

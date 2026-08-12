@@ -59,6 +59,11 @@ Group drag preserves spacing, stays within the complete canvas bounds, and never
 transform is one revision and one undo step at both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
 so selecting several blocks never changes the meaning of the existing single-element delete action.
 
+Above the canvas, the active breakpoint reports viewport overflow, children that extend outside a clipping
+parent, unintended overlap, and interactive blocks below a 44px touch target. A clear state says all four
+checks ran; it does not infer success from missing data. Click a finding to select its owning block. Ancestor
+overlap and siblings in an overlay container are intentional and therefore excluded.
+
 Select a container to choose **free**, **stack**, **grid**, or **overlay** layout. Stack/grid/overlay arrange
 direct children using direction, gap, padding, alignment, distribution, and (for grid) columns. Child width
 and height can be fixed, fill, or hug: fill claims the available axis; hug keeps the stored intrinsic box

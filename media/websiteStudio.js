@@ -36,6 +36,7 @@
   const SNAP_TOLERANCE = 14;
   const MAX_ELEMENTS = 60;
   const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
+  const DIAGNOSTIC_CODES = ['viewport-overflow', 'parent-clipping', 'node-overlap', 'touch-target'];
   const validNullableConstraint = (candidate, maximum) => candidate === null
     || (Number.isFinite(candidate) && candidate >= 1 && candidate <= maximum);
   const orderedConstraint = (minimum, maximum) => minimum === null || maximum === null || minimum <= maximum;
@@ -113,6 +114,18 @@
       && /^[a-zA-Z0-9._-]{1,120}$/.test(screen.id)
       && /^[a-zA-Z0-9._-]{1,120}$/.test(screen.pageId)
       && BREAKPOINTS.includes(screen.baseBreakpoint)
+      && (!screen.diagnostics || (typeof screen.diagnostics === 'object'
+        && BREAKPOINTS.every(breakpoint => !screen.diagnostics[breakpoint]
+          || (Array.isArray(screen.diagnostics[breakpoint])
+            && screen.diagnostics[breakpoint].length <= 2_000
+            && screen.diagnostics[breakpoint].every(item => item
+              && DIAGNOSTIC_CODES.includes(item.code)
+              && (item.severity === 'error' || item.severity === 'warning')
+              && item.breakpoint === breakpoint
+              && Array.isArray(item.nodeIds)
+              && item.nodeIds.length >= 1 && item.nodeIds.length <= 2
+              && item.nodeIds.every(id => /^[a-zA-Z0-9._-]{1,120}$/.test(id))
+              && typeof item.message === 'string' && item.message.length <= 500)))))
       && Array.isArray(screen.nodes)
       && screen.nodes.length <= MAX_ELEMENTS
       && screen.nodes.every(node => node
@@ -379,6 +392,44 @@
 
     renderInspector();
     renderCanvasSummary();
+    renderCanvasDiagnostics();
+  }
+
+  function renderCanvasDiagnostics() {
+    const panel = qs('#canvasDiagnostics');
+    if (!panel) { return; }
+    const diagnostics = activeResponsiveScreen()?.diagnostics?.[activeBreakpoint];
+    if (!Array.isArray(diagnostics)) {
+      panel.className = 'canvas-diagnostics warning';
+      panel.innerHTML = '<strong>Layout checks unavailable at ' + escapeText(activeBreakpoint) + '.</strong>'
+        + '<span>Unknown is not treated as a pass.</span>';
+      return;
+    }
+    if (diagnostics.length === 0) {
+      panel.className = 'canvas-diagnostics clear';
+      panel.innerHTML = '<strong>No layout findings at ' + escapeText(activeBreakpoint) + '.</strong>'
+        + '<span>Overflow, clipping, overlap, and 44px touch targets were checked.</span>';
+      return;
+    }
+    const errors = diagnostics.filter(item => item.severity === 'error').length;
+    const counts = Object.fromEntries(DIAGNOSTIC_CODES.map(code => [
+      code, diagnostics.filter(item => item.code === code).length,
+    ]));
+    const labels = {
+      'viewport-overflow': 'overflow', 'parent-clipping': 'clipping',
+      'node-overlap': 'overlap', 'touch-target': 'touch target',
+    };
+    panel.className = 'canvas-diagnostics' + (errors > 0 ? ' error' : ' warning');
+    panel.innerHTML = '<div class="diagnostic-summary"><strong>' + diagnostics.length + ' layout finding'
+      + (diagnostics.length === 1 ? '' : 's') + ' at ' + escapeText(activeBreakpoint) + '</strong><span>'
+      + DIAGNOSTIC_CODES.filter(code => counts[code] > 0)
+        .map(code => counts[code] + ' ' + labels[code] + (counts[code] === 1 ? '' : 's')).join(' · ')
+      + '</span></div><div class="diagnostic-list">'
+      + diagnostics.slice(0, 6).map(item => '<button type="button" class="diagnostic-item '
+        + escapeAttribute(item.severity) + '" data-diagnostic-node="' + escapeAttribute(item.nodeIds[0]) + '">'
+        + escapeText(item.message) + '</button>').join('')
+      + (diagnostics.length > 6 ? '<span class="diagnostic-more">+' + (diagnostics.length - 6) + ' more</span>' : '')
+      + '</div>';
   }
 
   /**
@@ -1259,6 +1310,13 @@
   });
 
   document.addEventListener('click', event => {
+    const diagnostic = event.target.closest('[data-diagnostic-node]');
+    if (diagnostic) {
+      selectOnly(diagnostic.dataset.diagnosticNode);
+      notifyPreviewSelection();
+      renderCanvas();
+      return;
+    }
     const multiLayout = event.target.closest('[data-multi-layout]');
     if (multiLayout) {
       if (multiLayout.dataset.multiLayout === 'clear') {

@@ -155,6 +155,28 @@ export interface ResolvedUiScreenNode extends ResolvedUiNodeLayout {
   id: string;
 }
 
+export type UiResponsiveDiagnosticCode =
+  | 'viewport-overflow'
+  | 'parent-clipping'
+  | 'node-overlap'
+  | 'touch-target';
+
+export interface UiResponsiveDiagnostic {
+  code: UiResponsiveDiagnosticCode;
+  severity: 'error' | 'warning';
+  breakpoint: WireframeBreakpoint;
+  nodeIds: string[];
+  message: string;
+}
+
+const PREVIEW_WIDTH_BY_BREAKPOINT: Record<WireframeBreakpoint, number> = {
+  desktop: 1_280,
+  tablet: 834,
+  mobile: 390,
+};
+const MIN_TOUCH_TARGET_PX = 44;
+const INTERACTIVE_KINDS = new Set<UiDesignNode['kind']>(['nav', 'form', 'cta', 'footer']);
+
 /**
  * Resolve a complete screen, including deterministic container layout.
  * Node rectangles remain stored as design inputs; stack/grid/overlay produce
@@ -210,6 +232,104 @@ export function resolveUiScreenLayout(
     });
   }
   return resolved;
+}
+
+/**
+ * Deterministic responsive checks over the same projection used by Studio and
+ * Full Preview. Unknown is not a pass: callers run this for every breakpoint.
+ */
+export function diagnoseUiScreenLayout(
+  screen: UiDesignScreen,
+  breakpoint: WireframeBreakpoint,
+): UiResponsiveDiagnostic[] {
+  const resolved = resolveUiScreenLayout(screen, breakpoint);
+  const sourceById = new Map(screen.nodes.map(node => [node.id, node]));
+  const viewById = new Map(resolved.map(node => [node.id, node]));
+  const visible = resolved.filter(node => !node.layout.hidden);
+  const diagnostics: UiResponsiveDiagnostic[] = [];
+  const label = (id: string): string => sourceById.get(id)?.label || id;
+
+  for (const view of visible) {
+    const rect = view.layout.rect;
+    if (rect.x < 0 || rect.y < 0
+        || rect.x + rect.width > WIREFRAME_CANVAS_WIDTH
+        || rect.y + rect.height > WIREFRAME_CANVAS_HEIGHT) {
+      diagnostics.push({
+        code: 'viewport-overflow', severity: 'error', breakpoint, nodeIds: [view.id],
+        message: `${label(view.id)} extends beyond the ${breakpoint} canvas.`,
+      });
+    }
+    const source = sourceById.get(view.id);
+    const parentView = source?.parentId ? viewById.get(source.parentId) : undefined;
+    if (parentView && !parentView.layout.hidden && !containsRect(parentView.layout.rect, rect)) {
+      diagnostics.push({
+        code: 'parent-clipping', severity: 'error', breakpoint, nodeIds: [view.id, parentView.id],
+        message: `${label(view.id)} extends outside ${label(parentView.id)} and may be clipped.`,
+      });
+    }
+    if (source && INTERACTIVE_KINDS.has(source.kind)) {
+      const viewportWidth = PREVIEW_WIDTH_BY_BREAKPOINT[breakpoint];
+      const minimumCanvasUnits = MIN_TOUCH_TARGET_PX / viewportWidth * WIREFRAME_CANVAS_WIDTH;
+      if (rect.width < minimumCanvasUnits || rect.height < minimumCanvasUnits) {
+        diagnostics.push({
+          code: 'touch-target', severity: 'warning', breakpoint, nodeIds: [view.id],
+          message: `${label(view.id)} is smaller than 44px in the ${breakpoint} preview.`,
+        });
+      }
+    }
+  }
+
+  for (let leftIndex = 0; leftIndex < visible.length; leftIndex += 1) {
+    const left = visible[leftIndex]!;
+    for (let rightIndex = leftIndex + 1; rightIndex < visible.length; rightIndex += 1) {
+      const right = visible[rightIndex]!;
+      if (!rectsOverlap(left.layout.rect, right.layout.rect)
+          || isAncestor(sourceById, left.id, right.id)
+          || isAncestor(sourceById, right.id, left.id)
+          || sharesOverlayParent(sourceById, viewById, left.id, right.id)) {
+        continue;
+      }
+      diagnostics.push({
+        code: 'node-overlap', severity: 'warning', breakpoint, nodeIds: [left.id, right.id],
+        message: `${label(left.id)} overlaps ${label(right.id)} at ${breakpoint}.`,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function containsRect(parent: WireframeRect, child: WireframeRect): boolean {
+  return child.x >= parent.x && child.y >= parent.y
+    && child.x + child.width <= parent.x + parent.width
+    && child.y + child.height <= parent.y + parent.height;
+}
+
+function rectsOverlap(left: WireframeRect, right: WireframeRect): boolean {
+  return left.x < right.x + right.width && left.x + left.width > right.x
+    && left.y < right.y + right.height && left.y + left.height > right.y;
+}
+
+function isAncestor(nodes: ReadonlyMap<string, UiDesignNode>, ancestorId: string, nodeId: string): boolean {
+  let parentId = nodes.get(nodeId)?.parentId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    if (parentId === ancestorId) { return true; }
+    seen.add(parentId);
+    parentId = nodes.get(parentId)?.parentId;
+  }
+  return false;
+}
+
+function sharesOverlayParent(
+  nodes: ReadonlyMap<string, UiDesignNode>,
+  views: ReadonlyMap<string, ResolvedUiScreenNode>,
+  leftId: string,
+  rightId: string,
+): boolean {
+  const parentId = nodes.get(leftId)?.parentId;
+  return parentId !== undefined
+    && parentId === nodes.get(rightId)?.parentId
+    && views.get(parentId)?.layout.mode === 'overlay';
 }
 
 function arrangeContainerChildren(

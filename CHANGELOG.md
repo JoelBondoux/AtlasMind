@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.289.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now reports responsive layout diagnostics at desktop, tablet, and mobile.** The host checks
+  viewport overflow, children that extend outside a clipping parent, unintended visible-node overlap, and
+  interactive nav/form/CTA/footer nodes that render below a 44px touch target.
+- **Findings are actionable on the canvas.** The active breakpoint shows a clear/check state or deterministic
+  counts by category, followed by bounded finding buttons that select and synchronize the owning node with
+  Full Preview.
+
+### Security
+
+- **Diagnostics are pure host projections, not browser assertions.** They consume the same resolved graph as
+  Studio and Full Preview, never execute content, and send only closed codes, severities, breakpoint values,
+  bounded node identities, and escaped messages. The webview validates the diagnostic envelope before use.
+
+### Changed
+
+- **Phase 2 responsive layout is complete.** Intentional parent/child overlap and siblings in an overlay
+  container are excluded from overlap warnings. Touch-target thresholds convert the fixed 44px requirement
+  into canvas units using the actual 1280/834/390 preview widths.
+
 ## [0.288.0] - 2026-08-12
 
 ### Added

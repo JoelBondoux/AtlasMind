@@ -313,6 +313,7 @@ describe('Website Studio webview boundary', () => {
       tablet: { rect: true, hidden: false },
       mobile: { rect: false, hidden: true, layout: true },
     });
+    expect(Object.keys(responsive[0]!.diagnostics)).toEqual(['desktop', 'tablet', 'mobile']);
 
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'wireframes', {
       scriptContent: '/* canvas */',
@@ -321,6 +322,7 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('data-breakpoint="desktop"');
     expect(html).toContain('data-breakpoint="tablet"');
     expect(html).toContain('data-breakpoint="mobile"');
+    expect(html).toContain('id="canvasDiagnostics"');
     expect(html).toContain('&quot;responsiveScreens&quot;');
   });
 });
@@ -395,5 +397,8 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain("mode: 'group-move'");
     expect(source).toContain('new Set(frames.map(frame => frame.nodeId))');
     expect(source).toContain("notice('Moved ' + frames.length + ' elements as one undoable edit'");
+    expect(source).toContain('function renderCanvasDiagnostics()');
+    expect(source).toContain('[data-diagnostic-node]');
+    expect(source).toContain('Unknown is not treated as a pass.');
   });
 });
