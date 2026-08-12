@@ -5572,6 +5572,22 @@ const TASK_SCOPED_GIT_PATTERN = /\b(?:git|branch|commit|diff|merge|rebase|cherry
  * still selects `git-commit` and not the ability to push.
  */
 const TASK_SCOPED_GIT_INTEGRATION_PATTERN = /\b(?:merge|merging|merged|rebase|rebasing|cherry[- ]?pick(?:ing|ed)?)\b/i;
+/**
+ * Work that lives on GitHub rather than in the local repository.
+ *
+ * Separate from {@link TASK_SCOPED_GIT_PATTERN} because the two need different
+ * tools and the difference is not cosmetic. Git words select `git-status`,
+ * `git-diff` and friends, none of which can see an issue, a review or a CI run
+ * — so "why did CI fail on my PR?" selected local git tooling, found nothing
+ * that could answer, and the agent explained instead of looking. The
+ * `github-operator` agent, which is what the workflow routes this work to,
+ * declares no skills of its own and falls through to exactly this selection.
+ *
+ * These turns get `terminal-run`, which is how `gh` is reached. Selection is not
+ * authorisation: what `gh` may then do is graded in `toolPolicy`, and the
+ * dangerous subcommands are refused outright in `terminalRun`.
+ */
+const TASK_SCOPED_GITHUB_PATTERN = /\b(?:github|gh\b|pull request|\bprs?\b|issue|issues|milestone|label|review(?:er|ers)?|workflow run|actions? run|\bci\b|checks?|release|draft|assignee|dependabot|renovate)\b/i;
 const TASK_SCOPED_MEMORY_PATTERN = /\b(?:memory|ssot|decision|project knowledge|remember|recall)\b/i;
 const TASK_SCOPED_WEB_PATTERN = /\b(?:https?:\/\/|website|web page|url|external research|browse|fetch)\b/i;
 const TASK_SCOPED_EXPLANATION_PATTERN = /^\s*(?:please\s+)?(?:help\s+me\s+understand|explain|what\s+(?:is|are|does)|how\s+does|why\s+does|describe|compare)\b/i;
@@ -5695,6 +5711,7 @@ export function selectTaskScopedSkills(
   // is what decides whether anything runs.
   const delivery = promotionVerb && deliveryStage !== undefined;
   const git = TASK_SCOPED_GIT_PATTERN.test(userMessage) || delivery;
+  const github = TASK_SCOPED_GITHUB_PATTERN.test(userMessage);
   const gitIntegration = git && (TASK_SCOPED_GIT_INTEGRATION_PATTERN.test(userMessage) || delivery);
   const memory = TASK_SCOPED_MEMORY_PATTERN.test(userMessage);
   const web = TASK_SCOPED_WEB_PATTERN.test(userMessage);
@@ -5703,6 +5720,13 @@ export function selectTaskScopedSkills(
   const workspace = (!conceptualExplanation && TASK_SCOPED_WORKSPACE_PATTERN.test(userMessage))
     || contextualInvestigation
     || (testing && (command || action));
+
+  // `gh` lives behind `terminal-run`, so a GitHub turn that does not also select
+  // it can only talk about GitHub. Read tools alongside, because answering "why
+  // did this fail?" usually means reading the code the run was about.
+  if (github) {
+    add('terminal-run', 'file-read', 'file-search');
+  }
 
   if (git) {
     add('git-status', 'git-diff', 'git-log');

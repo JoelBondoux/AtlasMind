@@ -62,6 +62,11 @@ arguments, so there is no shell-injection surface: no pipes, no `&&`, no backtic
 substitution. `sudo`, `rm -rf`, `chmod`, `dd`, `shutdown` and friends are blocked outright, at every
 setting.
 
+The **GitHub CLI** is on the list, graded by verb: reading a pull request is a read, merging one
+follows the approval path, and an unrecognised subcommand is treated as a write. Seven are refused
+outright at any setting — most importantly `gh auth token`, which would print your GitHub token into
+model context through a tool whose whole job is returning what it read.
+
 Full detail in [[Tool Execution]].
 
 ---

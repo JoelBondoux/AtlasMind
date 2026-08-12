@@ -5332,3 +5332,42 @@ describe('buildPrivacyScanSlices', () => {
     expect(slices.some(s => s.text === 's')).toBe(true);
   });
 });
+
+describe('GitHub work selects the tools that can reach GitHub', () => {
+  // Git words select git-status/git-diff/git-log, none of which can see an
+  // issue, a review or a CI run. "Why did CI fail on my PR?" therefore selected
+  // local git tooling, found nothing that could answer, and the agent explained
+  // instead of looking. gh lives behind terminal-run.
+  const eligible = [
+    'file-read', 'file-search', 'terminal-run', 'git-status', 'git-diff', 'git-log',
+    'git-commit', 'git-push', 'git-branch',
+  ].map(id => ({
+    id,
+    name: id,
+    description: id,
+    parameters: { type: 'object', properties: {}, required: [] },
+    builtIn: true,
+  }) as unknown as SkillDefinition);
+
+  const skillsFor = (message: string) =>
+    selectTaskScopedSkills({ skills: [], skillPolicy: 'task-scoped' }, eligible, message);
+
+  it.each([
+    'why did CI fail on my PR?',
+    'list the open issues',
+    'review the pull request',
+    'what did the reviewer say?',
+    'check the release workflow run',
+    'are there any dependabot PRs?',
+  ])('selects terminal-run for: %s', message => {
+    expect(skillsFor(message).map(s => s.id)).toContain('terminal-run');
+  });
+
+  it('does not select terminal-run for unrelated work', () => {
+    expect(skillsFor('rename the parser class').map(s => s.id)).not.toContain('terminal-run');
+  });
+
+  it('still selects local git tools for local git work', () => {
+    expect(skillsFor('what changed since the last commit?').map(s => s.id)).toContain('git-diff');
+  });
+});

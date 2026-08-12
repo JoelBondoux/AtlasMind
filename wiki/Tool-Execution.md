@@ -94,6 +94,32 @@ at all.
 `logs`, and the Compose equivalents) plus lifecycle commands (`start`, `stop`, `restart`, `up`, `down`,
 `build`, `pull`). Inspection is low-risk; lifecycle follows the high-risk approval path.
 
+### The GitHub CLI
+
+`gh` is graded by **verb**, not by namespace. `gh pr list`, `gh pr view`, `gh issue list`, `gh run view`
+and `gh auth status` are reads. `gh pr create`, `gh pr merge`, `gh issue close` and `gh release create`
+are writes and follow the approval path. Grading by namespace would have put *reading* a pull request
+behind the same prompt as *merging* one — which is how a gate ends up switched off wholesale.
+
+An **unrecognised** subcommand is treated as a write. `gh` gains subcommands regularly, and guessing
+"probably a read" is the expensive direction to be wrong in. `gh api` is always a write, because it is
+arbitrary — `gh api -X DELETE …` is an ordinary use of it.
+
+**Refused outright, at any setting:**
+
+| Refused | Why |
+|---|---|
+| `gh auth token` | Prints your GitHub token to stdout, which becomes model context. No approval makes that safe |
+| `gh auth login` / `logout` / `refresh` / `setup-git` | Changes how the machine authenticates, outside the sandboxed workspace |
+| `gh ssh-key` / `gh gpg-key` | Same |
+| `gh secret` / `gh variable` | Reads or writes repository credentials |
+| `gh alias` | Would redefine what a later `gh` command does |
+| `gh repo delete` | Irreversible, and remote |
+
+The refusal anchors on `gh`'s own namespace names rather than argument positions, so a global flag with a
+value — `gh --hostname github.com auth token` — cannot slip past by shifting the arguments along. It is
+not a substring search: `gh pr comment --body "see the auth token docs"` is an ordinary comment and runs.
+
 ---
 
 ## Saying "read-only" actually means read-only

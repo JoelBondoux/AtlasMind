@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.300.0] - 2026-08-12
+
+### Added
+
+- **Chat can do GitHub work.** `gh` was missing from the `terminal-run` allow-list — not as a policy, as
+  a gap, and an expensive one. The planner *instructs* agents to reach for `gh pr list`, `gh pr view` and
+  `gh pr merge`; the `github-operator` agent is advertised for pull-request and issue work; the entire
+  guided workflow is built around GitHub. All of it terminated at a refusal the operator never saw,
+  because a tool error goes back to the model rather than to the chat surface — and the agentic loop then
+  discarded the model's explanation along with it. From the chair it looked like AtlasMind losing
+  interest in GitHub work. It was a capability that did not exist, failing silently.
+
+- **GitHub turns now select tools that can reach GitHub.** Git vocabulary selected `git-status`,
+  `git-diff` and `git-log`, none of which can see an issue, a review or a CI run — so *"why did CI fail
+  on my PR?"* got local git tooling, found nothing that could answer, and the agent explained rather than
+  looked. GitHub work is now recognised separately and gets `terminal-run`, which is how `gh` is reached.
+
+### Security
+
+- **`gh` subcommands are graded by verb, exactly as `git`'s are.** `gh pr list` is a read; `gh pr merge`
+  is a write and goes through the existing approval gate. Grading by namespace instead would have put
+  reading a pull request behind the same prompt as merging one, which is how a gate ends up switched off
+  wholesale. An **unrecognised** verb is treated as a write: `gh` gains subcommands regularly, and
+  guessing "probably a read" is the expensive direction to be wrong in. `gh api` is always a write,
+  because it is arbitrary and `gh api -X DELETE …` is an ordinary use of it.
+
+- **Seven `gh` subcommands are refused outright, at any approval setting.** These are not risky writes —
+  the gate handles those — they are things no chat turn should be able to do at all. `gh auth token`
+  prints your GitHub token to stdout, which `terminal-run` returns as tool output, which becomes model
+  context: credential exfiltration through a tool whose entire purpose is returning what it read, and no
+  approval prompt makes it safe. `gh auth login`/`logout`/`refresh`/`setup-git`, `gh ssh-key` and
+  `gh gpg-key` change how the machine authenticates, well outside the workspace this tool is sandboxed
+  to. `gh secret` and `gh variable` read or write repository credentials. `gh alias` would redefine what
+  a later `gh` command does. `gh repo delete` is irreversible and remote.
+
+  The refusal anchors on `gh`'s own namespace names rather than argument positions, because a global flag
+  that takes a value (`gh --hostname github.com auth token`) shifts every positional along — index-based
+  matching read the namespace as "github.com" and waved it through, failing in the permissive direction.
+  It is deliberately not a substring search either: `gh pr comment --body "see the auth token docs"` is an
+  ordinary comment, and blocking it would teach whoever hit it that the refusal is noise.
+
 ## [0.299.0] - 2026-08-12
 
 ### Added
