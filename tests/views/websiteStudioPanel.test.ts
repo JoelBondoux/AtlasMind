@@ -42,6 +42,19 @@ describe('Website Studio webview boundary', () => {
       },
     })).toBe(true);
     expect(isWebsiteStudioMessage({
+      type: 'editRepositoryMapping',
+      payload: {
+        type: 'add-mapping', expectedRevision: 0,
+        mapping: {
+          id: 'button-source', label: 'Button source', adapterId: 'react',
+          target: { kind: 'component', id: 'button' },
+          sourcePath: 'src/components/Button.tsx', sourceSymbol: 'Button',
+          propertyMappings: { label: 'children' }, slotMappings: { icon: 'icon' },
+          coverage: 'declared', limitations: [],
+        },
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
         type: 'set-node-locked', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1', locked: true,
@@ -154,6 +167,13 @@ describe('Website Studio webview boundary', () => {
         },
       },
     })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editRepositoryMapping',
+      payload: {
+        type: 'verify-mapping', expectedRevision: 0, mappingId: 'button-source',
+        sourceFingerprint: `sha256:${'a'.repeat(64)}`,
+      },
+    })).toBe(false);
   });
 
   it('keeps the old platforms page id working as a deep link', () => {
@@ -197,6 +217,32 @@ describe('Website Studio webview boundary', () => {
     });
     expect(html).toContain('Not compared yet');
     expect(html).toContain('drift apart between syncs');
+  });
+
+  it('renders explicit repository mapping controls and host divergence assessments', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.designGraph.components = [{
+      id: 'button', label: 'Button', description: '', rootKind: 'cta', properties: [], slots: [],
+      variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default'],
+    }];
+    config.implementation.repositoryMappingRevision = 4;
+    config.implementation.repositoryMappings = [{
+      id: 'button-source', label: 'Button source', adapterId: 'react',
+      target: { kind: 'component', id: 'button' }, sourcePath: 'src/components/Button.tsx', sourceSymbol: 'Button',
+      propertyMappings: {}, slotMappings: {}, coverage: 'declared', limitations: [], lastVerified: null,
+    }];
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+      scriptContent: '/* canvas */',
+      repositoryMappingAssessments: [{
+        mappingId: 'button-source', status: 'code-only', sourceStatus: 'ok',
+        message: 'Only repository source changed since verification.',
+      }],
+    });
+    expect(html).toContain('Repository boundary · mapping revision 4');
+    expect(html).toContain('Source mappings and divergence');
+    expect(html).toContain('id="addRepositoryMapping"');
+    expect(html).toContain('&quot;status&quot;:&quot;code-only&quot;');
+    expect(html).toContain('&quot;sourcePath&quot;:&quot;src/components/Button.tsx&quot;');
   });
 
   it('shows an incompatible framework with its reason rather than hiding it', () => {

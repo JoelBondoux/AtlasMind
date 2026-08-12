@@ -277,6 +277,11 @@ Acceptance criteria:
 
 #### P1.4 Repository mappings and divergence
 
+Progress: v0.298.0 starts Phase 5 with format-v12 revisioned component/token/node mappings, a closed
+React/static-HTML/VS Code webview/custom adapter catalog, bounded workspace-relative source locations,
+read-only source and design-target fingerprints, and explicit in-sync/design-only/code-only/conflict/
+unassessed/unsupported reporting. Import and proposed source diffs remain later Phase 5 slices.
+
 - Framework adapters map graph components to repository components, props, slots, tokens, and source roots.
 - Import is adapter-based and reports unsupported or lossy constructs.
 - Generation produces proposed diffs with provenance; it never silently overwrites hand-written code.
@@ -306,7 +311,7 @@ Acceptance criteria:
 ## Architecture
 
 ```text
-website.json v10 + content/ + assets + source mappings
+website.json v12 + content/ + assets + source mappings
                     |
             bounded sanitization
                     |
@@ -333,6 +338,7 @@ Detailed decisions live in:
 - `project_memory/decisions/ui-studio-design-authority.md`
 - `project_memory/decisions/ui-studio-preview-protocol.md`
 - `project_memory/decisions/ui-studio-v6-schema.md`
+- `project_memory/decisions/ui-studio-repository-mappings.md`
 
 ## Delivery sequence
 

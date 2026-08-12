@@ -231,6 +231,13 @@ in-flight execution is aborted.
 This holds identically in gateway mode: the gateway authenticates the transport, and grants no tool
 authority whatsoever.
 
+UI Studio's **Verify fingerprints** is deliberately not a source-editing tool. It reads one explicitly mapped,
+workspace-relative regular file after real-path containment checks, caps the read at 2 MiB, and retains only a
+SHA-256 hash. The mapping itself is revision-checked data and does not authorize imports, commands, code
+execution, or writes. A design-only/code-only/conflict result remains advisory. If a later adapter proposes a
+source diff, applying it must enter the same risk classification, approval, execution, and verification path as
+any other project-file mutation.
+
 ---
 
 ## The CLI is stricter

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.297.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.298.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.297.1
+## What's new in 0.298.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Design and source can now be connected without pretending they are the same thing.** UI Studio maps a
+  component, token, or node to a real project file and symbol through a named adapter, including prop/slot
+  correspondences and honest coverage limitations.
+- **Repository divergence is visible before reconciliation.** Local hash-only verification distinguishes
+  design-only, code-only, and conflicting changes. It reads bounded workspace files but stores no source,
+  writes no source, sends none to the browser/model, and never chooses which side should win.
 
 - **Chat carries the turns you just had.** The context carried between turns was keeping the *oldest*
   messages and dropping the newest, so past about six turns it froze on how the conversation opened —
@@ -689,7 +696,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`), CI inspection/scaffolding, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository-mapping core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |

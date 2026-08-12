@@ -218,10 +218,11 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 11,
+      version: 12,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
       designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], assets: [], screens: expect.any(Array) },
+      implementation: { repositoryMappingRevision: 0, repositoryMappings: [] },
     });
     expect(markdown).toContain('# UI Studio');
     expect(markdown).toContain('## Content Design');
