@@ -48,6 +48,17 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
+        type: 'set-node-layout', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        breakpoint: 'mobile',
+        layout: {
+          mode: 'stack', widthMode: 'fill', heightMode: 'hug', direction: 'vertical', gap: 16,
+          padding: 24, columns: 2, align: 'stretch', distribute: 'space-between',
+        },
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
         type: 'set-node-viewport-override', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
         breakpoint: 'mobile', hidden: true,
       },
@@ -95,6 +106,16 @@ describe('Website Studio webview boundary', () => {
       payload: {
         type: 'set-node-frames', expectedRevision: 2, screenId: 'page-home',
         frames: [{ nodeId: '../outside', rect: { x: 0, y: 0, width: 100, height: 100 } }],
+      },
+    })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'set-node-layout', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
+        layout: {
+          mode: 'flex', widthMode: 'fill', heightMode: 'hug', direction: 'vertical', gap: 16,
+          padding: 24, columns: 2, align: 'stretch', distribute: 'space-between',
+        },
       },
     })).toBe(false);
   });
@@ -246,7 +267,9 @@ describe('Website Studio webview boundary', () => {
     config.designGraph.screens[0]!.nodes[0]!.viewportOverrides.tablet = {
       rect: { x: 80, y: 40, width: 840, height: 260 },
     };
-    config.designGraph.screens[0]!.nodes[0]!.viewportOverrides.mobile = { hidden: true };
+    config.designGraph.screens[0]!.nodes[0]!.viewportOverrides.mobile = {
+      hidden: true, mode: 'stack', direction: 'vertical', gap: 12,
+    };
 
     const responsive = buildWebsiteStudioResponsiveScreens(config.designGraph);
     expect(responsive[0]!.nodes[0]!.views.mobile).toMatchObject({
@@ -258,7 +281,7 @@ describe('Website Studio webview boundary', () => {
     });
     expect(responsive[0]!.nodes[0]!.overrides).toMatchObject({
       tablet: { rect: true, hidden: false },
-      mobile: { rect: false, hidden: true },
+      mobile: { rect: false, hidden: true, layout: true },
     });
 
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'wireframes', {
@@ -315,10 +338,12 @@ describe('UI Studio canvas command wiring', () => {
     for (const command of [
       'add-node', 'delete-node', 'set-node-frame', 'set-node-frames', 'set-node-kind',
       'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
-      'clear-node-viewport-override', 'undo', 'redo',
+      'set-node-layout', 'clear-node-viewport-override', 'undo', 'redo',
     ]) {
       expect(source).toContain(`'${command}'`);
     }
+    expect(source).toContain("provenance.rect?.kind === 'computed'");
+    expect(source).toContain('container-positioned');
     expect(source).toContain('designRevision,');
     expect(source).not.toContain('designGraph: state');
     expect(source).toContain('applyResponsiveRect');
@@ -330,5 +355,7 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('applyMultiLayout');
     expect(source).toContain('selectedElementIds');
     expect(source).toContain('data-multi-layout="distribute-x"');
+    expect(source).toContain('id="applyNodeLayout"');
+    expect(source).toContain("property: 'layout'");
   });
 });

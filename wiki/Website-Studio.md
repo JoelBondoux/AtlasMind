@@ -55,6 +55,11 @@ Shift/Ctrl/Cmd-click builds a multi-selection with one primary inspector target.
 three or more blocks across or down, or nudge the group at any breakpoint; the whole transform is one
 validated revision and undo step. Multi-delete is deliberately unavailable until the selection is narrowed.
 
+Selecting a container exposes free, stack, grid, and overlay behaviour plus direction, gap, padding, columns,
+alignment, distribution, and fixed/fill/hug sizing. The host projects direct children identically in the
+canvas and full preview. Stored rectangles remain intact underneath, so reset, free mode, and undo restore
+the drawn arrangement. The same behaviour can inherit or be deliberately overridden at tablet/mobile.
+
 A few things behave the way they do on purpose:
 
 - **Delete a wrapper and what was inside it moves up a level** rather than disappearing with it. The

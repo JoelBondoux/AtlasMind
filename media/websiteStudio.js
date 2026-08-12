@@ -353,6 +353,7 @@
       // classed button has a background of its own.
       return '<button type="button" class="wf-box' + (selected ? ' selected' : '')
         + (primary && selectedElementIds.size > 1 ? ' primary' : '')
+        + (view.provenance.rect?.kind === 'computed' ? ' container-positioned' : '')
         + (view.layout.hidden ? ' viewport-hidden' : '') + '"'
         + ' data-kind="' + escapeAttribute(element.kind) + '"'
         + ' style="' + style + '" data-element-id="' + escapeAttribute(element.id) + '"'
@@ -416,6 +417,10 @@
 
   function sourceLabel(source) {
     const breakpoint = BREAKPOINTS.includes(source?.breakpoint) ? source.breakpoint : activeBaseBreakpoint();
+    if (source?.kind === 'computed') {
+      const container = findElement(source.containerId);
+      return 'Computed by ' + (container?.label || 'container') + ' · ' + breakpoint;
+    }
     return (source?.kind === 'override' ? 'Override · ' : 'Base · ') + breakpoint;
   }
 
@@ -457,7 +462,7 @@
     const rect = view.layout.rect;
     const base = activeBaseBreakpoint();
     const isBase = activeBreakpoint === base;
-    const override = responsiveNode(element.id)?.overrides?.[activeBreakpoint] ?? { rect: false, hidden: false };
+    const override = responsiveNode(element.id)?.overrides?.[activeBreakpoint] ?? { rect: false, hidden: false, layout: false };
     const readOnly = state.readOnly ? ' disabled' : '';
     const selectionCount = selectedElementIds.size;
     const multiFields = selectionCount > 1 ? `
@@ -476,6 +481,41 @@
           <button type="button" class="secondary" data-multi-layout="distribute-y"${selectionCount < 3 || state.readOnly ? ' disabled' : ''}>Space down</button>
         </div>
       </div>` : '';
+    const layoutFields = `
+      <div class="layout-inspector">
+        <div class="responsive-head"><p class="responsive-title">Layout behaviour</p>
+          <span class="source-chip">${escapeText(sourceLabel(view.provenance.mode))}</span></div>
+        <div class="layout-select-grid">
+          <label><span>Mode</span><select id="layoutMode"${readOnly}>
+            ${['free', 'stack', 'grid', 'overlay'].filter(mode => spec.container || mode === 'free').map(mode => `<option value="${mode}"${view.layout.mode === mode ? ' selected' : ''}>${mode}</option>`).join('')}
+          </select></label>
+          <label><span>Direction</span><select id="layoutDirection"${readOnly}>
+            ${['vertical', 'horizontal'].map(direction => `<option value="${direction}"${view.layout.direction === direction ? ' selected' : ''}>${direction}</option>`).join('')}
+          </select></label>
+          <label><span>Width</span><select id="layoutWidthMode"${readOnly}>
+            ${['fixed', 'fill', 'hug'].map(mode => `<option value="${mode}"${view.layout.widthMode === mode ? ' selected' : ''}>${mode}</option>`).join('')}
+          </select></label>
+          <label><span>Height</span><select id="layoutHeightMode"${readOnly}>
+            ${['fixed', 'fill', 'hug'].map(mode => `<option value="${mode}"${view.layout.heightMode === mode ? ' selected' : ''}>${mode}</option>`).join('')}
+          </select></label>
+          <label><span>Align</span><select id="layoutAlign"${readOnly}>
+            ${['start', 'center', 'end', 'stretch'].map(align => `<option value="${align}"${view.layout.align === align ? ' selected' : ''}>${align}</option>`).join('')}
+          </select></label>
+          <label><span>Distribute</span><select id="layoutDistribute"${readOnly}>
+            ${['start', 'center', 'end', 'space-between'].map(distribute => `<option value="${distribute}"${view.layout.distribute === distribute ? ' selected' : ''}>${distribute}</option>`).join('')}
+          </select></label>
+        </div>
+        <div class="geometry-grid layout-numbers">
+          <label><span>Gap</span><input id="layoutGap" type="number" min="0" max="500" step="1" value="${escapeAttribute(String(view.layout.gap))}"${readOnly} /></label>
+          <label><span>Padding</span><input id="layoutPadding" type="number" min="0" max="500" step="1" value="${escapeAttribute(String(view.layout.padding))}"${readOnly} /></label>
+          <label><span>Columns</span><input id="layoutColumns" type="number" min="1" max="12" step="1" value="${escapeAttribute(String(view.layout.columns))}"${readOnly} /></label>
+        </div>
+        <p class="responsive-copy">Mode arranges direct children. Fill stretches in the available axis; hug keeps the stored intrinsic rectangle until content measurement lands.</p>
+        <div class="responsive-actions">
+          <button type="button" class="secondary" id="applyNodeLayout"${readOnly}>Apply behaviour</button>
+          ${isBase ? '' : `<button type="button" class="secondary subtle" id="resetNodeLayout"${override.layout && !state.readOnly ? '' : ' disabled'}>Use inherited behaviour</button>`}
+        </div>
+      </div>`;
     const responsiveFields = isBase ? `
       <div class="responsive-inspector base">
         <p class="responsive-title">${escapeText(activeBreakpoint)} base layout</p>
@@ -484,7 +524,9 @@
       <div class="responsive-inspector">
         <div class="responsive-head"><p class="responsive-title">${escapeText(activeBreakpoint)} layout</p>
           <span class="source-chip">${escapeText(sourceLabel(view.provenance.rect))}</span></div>
-        <p class="responsive-copy">Only layout and visibility are breakpoint-specific. Label, type, hierarchy, and design intent remain shared.</p>
+        <p class="responsive-copy">${view.provenance.rect?.kind === 'computed'
+          ? 'Its container computes position. Stored width/height remain intrinsic inputs; edit the container or use free mode to position directly.'
+          : 'Only layout and visibility are breakpoint-specific. Label, type, hierarchy, and design intent remain shared.'}</p>
         <div class="geometry-grid">
           <label><span>X</span><input id="responsiveX" type="number" step="1" value="${escapeAttribute(String(rect.x))}"${readOnly} /></label>
           <label><span>Y</span><input id="responsiveY" type="number" step="1" value="${escapeAttribute(String(rect.y))}"${readOnly} /></label>
@@ -520,6 +562,7 @@
       + state.kinds.map(candidate => '<option value="' + escapeAttribute(candidate.kind) + '"'
         + (candidate.kind === element.kind ? ' selected' : '') + '>' + escapeText(candidate.label) + '</option>').join('')
       + '</select></label>'
+      + layoutFields
       + responsiveFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
@@ -576,6 +619,10 @@
       .map(element => ({ element, rect: { ...responsiveView(element).layout.rect } }));
     if (selected.length < 2) {
       notice('Select at least two elements with Shift, Ctrl, or Cmd before aligning them.');
+      return;
+    }
+    if (selected.some(item => responsiveView(item.element).provenance.rect?.kind === 'computed')) {
+      notice('A selected element is positioned by its container. Align the container, or switch it to free layout first.');
       return;
     }
     if ((action === 'distribute-x' || action === 'distribute-y') && selected.length < 3) {
@@ -651,6 +698,18 @@
       renderCanvas();
       event.preventDefault();
       return;
+    }
+
+    if (box && !handle) {
+      const positioned = findElement(box.dataset.elementId);
+      if (positioned && responsiveView(positioned).provenance.rect?.kind === 'computed') {
+        selectOnly(positioned.id);
+        notifyPreviewSelection();
+        renderCanvas();
+        notice('This position is computed by its container. Edit the container or switch it to free layout before moving the child.');
+        event.preventDefault();
+        return;
+      }
     }
 
     const responsive = activeBreakpoint !== activeBaseBreakpoint();
@@ -902,6 +961,13 @@
   function nudgeSelected(dx, dy) {
     const element = findElement(selectedElementId);
     if (!element) { return; }
+    if ([...selectedElementIds].some(id => {
+      const candidate = findElement(id);
+      return candidate && responsiveView(candidate).provenance.rect?.kind === 'computed';
+    })) {
+      notice('Container-positioned elements cannot be nudged. Edit the container or switch it to free layout.');
+      return;
+    }
     const responsive = activeBreakpoint !== activeBaseBreakpoint();
     if (selectedElementIds.size > 1) {
       const selected = [...selectedElementIds]
@@ -1058,6 +1124,38 @@
       notice(activeBreakpoint === activeBaseBreakpoint()
         ? 'Showing the base layout. Direct manipulation changes the shared structure.'
         : 'Showing the resolved ' + activeBreakpoint + ' layout. Dragging, resizing, and nudging create an override; structure stays shared.');
+      return;
+    }
+
+    if (event.target.id === 'applyNodeLayout') {
+      const layout = {
+        mode: value('#layoutMode'),
+        widthMode: value('#layoutWidthMode'),
+        heightMode: value('#layoutHeightMode'),
+        direction: value('#layoutDirection'),
+        gap: Number(value('#layoutGap')),
+        padding: Number(value('#layoutPadding')),
+        columns: Number(value('#layoutColumns')),
+        align: value('#layoutAlign'),
+        distribute: value('#layoutDistribute'),
+      };
+      if (!Number.isFinite(layout.gap) || layout.gap < 0 || layout.gap > 500
+          || !Number.isFinite(layout.padding) || layout.padding < 0 || layout.padding > 500
+          || !Number.isInteger(layout.columns) || layout.columns < 1 || layout.columns > 12) {
+        notice('Layout needs gap/padding from 0–500 and whole-number columns from 1–12.', 'error');
+        return;
+      }
+      submitDesignEdit({
+        type: 'set-node-layout', screenId: activePageId, nodeId: selectedElementId, layout,
+        ...(activeBreakpoint === activeBaseBreakpoint() ? {} : { breakpoint: activeBreakpoint }),
+      });
+      return;
+    }
+    if (event.target.id === 'resetNodeLayout') {
+      submitDesignEdit({
+        type: 'clear-node-viewport-override', screenId: activePageId, nodeId: selectedElementId,
+        breakpoint: activeBreakpoint, property: 'layout',
+      });
       return;
     }
 

@@ -185,11 +185,15 @@ targets refuse, and bounded undo/redo never rewinds revision. Responsive resolut
 tablet → mobile inheritance and reports the source breakpoint for every computed property; clearing an
 override restores that inherited value. A migrated tablet/mobile base changes at a wider viewport only
 through an exact override, so the resolver does not turn absent intent into a design decision.
+`resolveUiScreenLayout()` then projects direct children for stack, grid, and overlay containers using bounded
+direction, gap, padding, columns, alignment, distribution, and size modes. A computed child rectangle names
+its container in provenance and never replaces the stored free-layout fallback. Fill claims the available
+axis; hug keeps the stored intrinsic rectangle until content measurement is implemented.
 The 5 → 6 migration preserves every prior wireframe fact and the untouched-versus-empty distinction while
 inventing no responsive, token, component, or source-mapping intent.
 
 The Studio webview does not reproduce responsive inheritance. `websiteStudioPanel.ts` resolves every node
-at all three breakpoints on the extension host and sends bounded layout/provenance plus flags for the two
+at all three breakpoints on the extension host and sends bounded layout/provenance plus override flags. The
 override properties. The canvas can select hidden nodes and submit exact geometry/visibility set or reset
 requests. Reset names `rect` or `hidden`, so the reducer preserves the other property and removes an empty
 breakpoint record. Every result returns a fresh host projection. Drag, resize, and keyboard nudge at a
@@ -198,6 +202,9 @@ override command. Drawing, deletion, nesting, and parent changes remain confined
 Multi-selection alignment, distribution, and group nudge use one `set-node-frames` command containing only
 bounded unique node ids and rectangles. The reducer validates the whole batch first, then advances one
 revision and undo entry; multi-delete remains refused rather than inheriting new cascade semantics.
+Container behaviour uses `set-node-layout`: closed enums, gap/padding 0–500, columns 1–12, and an optional
+non-base breakpoint. The Studio and Full Preview consume the same complete-screen projection; the webview
+can request settings but cannot submit CSS or implement placement.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

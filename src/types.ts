@@ -1301,6 +1301,15 @@ export type UiLayoutMode = 'free' | 'stack' | 'grid' | 'overlay';
 /** How a node claims space on one axis. */
 export type UiSizeMode = 'fixed' | 'fill' | 'hug';
 
+/** Primary axis used when a container arranges its direct children. */
+export type UiLayoutDirection = 'vertical' | 'horizontal';
+
+/** Cross-axis placement for stack, grid, and overlay children. */
+export type UiLayoutAlignment = 'start' | 'center' | 'end' | 'stretch';
+
+/** Main-axis placement for the complete child run. */
+export type UiLayoutDistribution = 'start' | 'center' | 'end' | 'space-between';
+
 /** The base layout claim for one design node. */
 export interface UiNodeLayout {
   mode: UiLayoutMode;
@@ -1308,6 +1317,12 @@ export interface UiNodeLayout {
   widthMode: UiSizeMode;
   heightMode: UiSizeMode;
   hidden: boolean;
+  direction: UiLayoutDirection;
+  gap: number;
+  padding: number;
+  columns: number;
+  align: UiLayoutAlignment;
+  distribute: UiLayoutDistribution;
 }
 
 /**
@@ -1316,8 +1331,17 @@ export interface UiNodeLayout {
  * tell an override from a coincidentally equal value.
  */
 export interface UiNodeViewportOverride {
+  mode?: UiLayoutMode;
   rect?: WireframeRect;
+  widthMode?: UiSizeMode;
+  heightMode?: UiSizeMode;
   hidden?: boolean;
+  direction?: UiLayoutDirection;
+  gap?: number;
+  padding?: number;
+  columns?: number;
+  align?: UiLayoutAlignment;
+  distribute?: UiLayoutDistribution;
 }
 
 /**

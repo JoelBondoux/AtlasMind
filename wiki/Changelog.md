@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.284.0 — Container layout is real and shared with Full Preview
+
+Free, stack, grid, and overlay now drive direct-child placement. Containers expose direction, gap, padding,
+columns, alignment, and distribution; child axes support fixed, fill, and hug. One pure extension-host engine
+projects the result into both the Studio canvas and built-in-browser preview at every breakpoint.
+
+Responsive behaviour inherits with per-property provenance and resets independently of geometry/visibility.
+Computed child rectangles name the container that positioned them. The underlying drawn rectangles are never
+rewritten, so returning to free layout or undoing restores the exact prior arrangement. Layout messages remain
+closed to named enums, bounded spacing, bounded columns, saved identities, and one optional breakpoint.
+
 ## v0.283.0 — Multi-selection transforms are atomic
 
 Shift, Ctrl, or Cmd now toggles canvas blocks into a multi-selection. The inspector can align left, centre,

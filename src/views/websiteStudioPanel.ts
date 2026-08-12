@@ -13,6 +13,7 @@ import {
   applyDesignGraphToPages,
   designGraphFromPages,
   resolveUiNodeLayout,
+  resolveUiScreenLayout,
   UI_DESIGN_GRAPH_MAX_REVISION,
 } from '../core/uiDesignGraph.js';
 import {
@@ -841,7 +842,7 @@ export interface WebsiteStudioHtmlOptions {
 export interface WebsiteStudioResponsiveNodeState {
   id: string;
   views: Record<WireframeBreakpoint, ReturnType<typeof resolveUiNodeLayout>>;
-  overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean }>;
+  overrides: Record<WireframeBreakpoint, { rect: boolean; hidden: boolean; layout: boolean }>;
 }
 
 export interface WebsiteStudioResponsiveScreenState {
@@ -855,7 +856,12 @@ export interface WebsiteStudioResponsiveScreenState {
 export function buildWebsiteStudioResponsiveScreens(
   graph: UiDesignGraph,
 ): WebsiteStudioResponsiveScreenState[] {
-  return graph.screens.map(screen => ({
+  return graph.screens.map(screen => {
+    const resolved = Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
+      breakpoint,
+      new Map(resolveUiScreenLayout(screen, breakpoint).map(node => [node.id, node])),
+    ])) as Record<WireframeBreakpoint, Map<string, ReturnType<typeof resolveUiScreenLayout>[number]>>;
+    return ({
     id: screen.id,
     pageId: screen.pageId,
     baseBreakpoint: screen.baseBreakpoint,
@@ -863,17 +869,27 @@ export function buildWebsiteStudioResponsiveScreens(
       id: node.id,
       views: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
-        resolveUiNodeLayout(screen, node, breakpoint),
+        resolved[breakpoint].get(node.id) ?? resolveUiNodeLayout(screen, node, breakpoint),
       ])) as WebsiteStudioResponsiveNodeState['views'],
       overrides: Object.fromEntries(WIREFRAME_BREAKPOINTS.map(breakpoint => [
         breakpoint,
         {
           rect: node.viewportOverrides[breakpoint]?.rect !== undefined,
           hidden: node.viewportOverrides[breakpoint]?.hidden !== undefined,
+          layout: node.viewportOverrides[breakpoint]?.mode !== undefined
+            || node.viewportOverrides[breakpoint]?.widthMode !== undefined
+            || node.viewportOverrides[breakpoint]?.heightMode !== undefined
+            || node.viewportOverrides[breakpoint]?.direction !== undefined
+            || node.viewportOverrides[breakpoint]?.gap !== undefined
+            || node.viewportOverrides[breakpoint]?.padding !== undefined
+            || node.viewportOverrides[breakpoint]?.columns !== undefined
+            || node.viewportOverrides[breakpoint]?.align !== undefined
+            || node.viewportOverrides[breakpoint]?.distribute !== undefined,
         },
       ])) as WebsiteStudioResponsiveNodeState['overrides'],
     })),
-  }));
+    });
+  });
 }
 
 export function getWebsiteStudioHtml(

@@ -4,6 +4,7 @@ import {
   applyDesignGraphToPages,
   designGraphFromPages,
   resolveUiNodeLayout,
+  resolveUiScreenLayout,
   sanitizeUiDesignGraph,
   UI_DESIGN_GRAPH_MAX_REVISION,
   wireframeFromScreen,
@@ -104,6 +105,9 @@ describe('UI design graph', () => {
     node.viewportOverrides.mobile = {
       rect: { x: -100, y: 9_000, width: 0, height: 0 },
       hidden: true,
+      mode: 'grid',
+      columns: 50,
+      gap: 24,
     };
 
     const sanitized = sanitizeUiDesignGraph(raw, pages);
@@ -113,7 +117,8 @@ describe('UI design graph', () => {
     expect(result.layout.rect.x).toBeGreaterThanOrEqual(0);
     expect(result.layout.rect.width).toBeLessThanOrEqual(1_000);
     expect(result.contentRef).toBe('content-script');
-    expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true });
+    expect(result.viewportOverrides.mobile).toMatchObject({ hidden: true, mode: 'grid', gap: 24 });
+    expect(result.viewportOverrides.mobile?.columns).toBeUndefined();
   });
 
   it('inherits responsive properties in order and reports the source of every computed value', () => {
@@ -140,6 +145,12 @@ describe('UI design graph', () => {
       widthMode: { kind: 'base', breakpoint: 'tablet' },
       heightMode: { kind: 'base', breakpoint: 'tablet' },
       hidden: { kind: 'override', breakpoint: 'mobile' },
+      direction: { kind: 'base', breakpoint: 'tablet' },
+      gap: { kind: 'base', breakpoint: 'tablet' },
+      padding: { kind: 'base', breakpoint: 'tablet' },
+      columns: { kind: 'base', breakpoint: 'tablet' },
+      align: { kind: 'base', breakpoint: 'tablet' },
+      distribute: { kind: 'base', breakpoint: 'tablet' },
     });
 
     const desktopBase = { ...screen, baseBreakpoint: 'desktop' as const };
@@ -147,6 +158,38 @@ describe('UI design graph', () => {
     const inheritedMobile = resolveUiNodeLayout(desktopBase, node, 'mobile');
     expect(inheritedMobile.layout.rect).toEqual(node.viewportOverrides.tablet.rect);
     expect(inheritedMobile.provenance.rect).toEqual({ kind: 'override', breakpoint: 'tablet' });
+  });
+
+  it('projects grid and responsive stack containers without rewriting stored child rectangles', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const screen = graph.screens[0]!;
+    const parent = screen.nodes[0]!;
+    const first = screen.nodes[1]!;
+    const second = structuredClone(first);
+    second.id = 'copy-2';
+    second.label = 'Second';
+    second.layout.rect = { x: 600, y: 100, width: 200, height: 120 };
+    screen.nodes.push(second);
+    Object.assign(parent.layout, {
+      mode: 'grid', padding: 20, gap: 20, columns: 2, align: 'stretch', direction: 'horizontal',
+    });
+    first.layout.widthMode = 'fill';
+    second.layout.widthMode = 'fill';
+
+    const stored = screen.nodes.slice(1).map(node => ({ ...node.layout.rect }));
+    const grid = new Map(resolveUiScreenLayout(screen, 'tablet').map(node => [node.id, node]));
+    expect(grid.get('copy')?.layout.rect).toEqual({ x: 30, y: 40, width: 420, height: 160 });
+    expect(grid.get('copy-2')?.layout.rect).toEqual({ x: 470, y: 40, width: 420, height: 120 });
+    expect(grid.get('copy')?.provenance.rect).toEqual({
+      kind: 'computed', breakpoint: 'tablet', containerId: 'hero',
+    });
+
+    parent.viewportOverrides.mobile = { mode: 'stack', gap: 10, direction: 'vertical' };
+    const mobile = new Map(resolveUiScreenLayout(screen, 'mobile').map(node => [node.id, node]));
+    expect(mobile.get('copy')?.layout.rect).toEqual({ x: 30, y: 40, width: 860, height: 160 });
+    expect(mobile.get('copy-2')?.layout.rect).toEqual({ x: 30, y: 210, width: 860, height: 120 });
+    expect(parent.layout.mode).toBe('grid');
+    expect(screen.nodes.slice(1).map(node => node.layout.rect)).toEqual(stored);
   });
 
   it('is total for arbitrary untrusted graph input', () => {

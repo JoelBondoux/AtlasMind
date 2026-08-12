@@ -165,6 +165,28 @@ describe('websiteWireframePreview', () => {
       expect(html).not.toContain('<script');
     });
 
+    it('uses the same deterministic container projection for base and responsive preview', () => {
+      const subject = withElements(['section', 'text', 'text']);
+      subject.wireframe!.elements[0]!.rect = { x: 0, y: 0, width: 1_000, height: 420 };
+      subject.wireframe!.elements[1]!.parentId = 'e0';
+      subject.wireframe!.elements[2]!.parentId = 'e0';
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      Object.assign(screen.nodes[0]!.layout, {
+        mode: 'grid', columns: 2, padding: 20, gap: 20, align: 'stretch', direction: 'horizontal',
+      });
+      screen.nodes[1]!.layout.widthMode = 'fill';
+      screen.nodes[2]!.layout.widthMode = 'fill';
+      screen.nodes[0]!.viewportOverrides.mobile = { mode: 'stack', direction: 'vertical', gap: 8 };
+
+      const html = renderWireframePreview({ page: subject, designSystem, responsiveScreen: screen });
+      expect(html).toContain('data-atlas-node-id="e1" style="left:2.000%');
+      expect(html).toContain('data-atlas-node-id="e2" style="left:51.000%');
+      expect(html).toContain('@media (max-width: 599px)');
+      expect(html).toContain('left:2.000% !important');
+      expect(html).toContain('width:96.000% !important');
+      expect(screen.nodes[1]!.layout.rect.x).toBe(0);
+    });
+
     it('ignores a responsive screen that does not own the rendered page', () => {
       const subject = withElements(['hero']);
       const screen = designGraphFromPages([subject]).screens[0]!;

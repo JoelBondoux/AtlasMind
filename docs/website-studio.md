@@ -58,6 +58,12 @@ down, clear back to the primary block, and nudge the group. A transform is one r
 both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
 so selecting several blocks never changes the meaning of the existing single-element delete action.
 
+Select a container to choose **free**, **stack**, **grid**, or **overlay** layout. Stack/grid/overlay arrange
+direct children using direction, gap, padding, alignment, distribution, and (for grid) columns. Child width
+and height can be fixed, fill, or hug: fill claims the available axis; hug keeps the stored intrinsic box
+until content measurement is added. The arrangement is a projection, so switching back to free or undoing
+the change restores the exact rectangles that were drawn. Non-container blocks cannot claim a container mode.
+
 Three rules are worth knowing because they are deliberate:
 
 - **Coordinates are canvas units on a fixed 1000-wide grid, never pixels.** `website.json` is
@@ -148,6 +154,11 @@ be selected and restored; they remain hidden in the full preview. At a non-base 
 resizing, or arrow-key nudging creates an explicit geometry override and retains normal snapping, bounds,
 undo, and reset. Drawing, nesting, deletion, and parent changes stay on the screen's base breakpoint because
 they alter shared structure rather than responsive presentation.
+
+Layout behaviour also inherits by breakpoint. Applying a tablet/mobile container behaviour creates a closed
+responsive override; **Use inherited behaviour** removes only mode/direction/gap/padding/columns/alignment/
+distribution/sizing while preserving geometry and visibility choices. A child positioned by its container
+shows computed provenance naming that container.
 
 The preview index always opens the deterministic Studio draft. If model-generated output exists it is
 linked separately, one click away; generation cannot take over the meaning of “show my current design”.

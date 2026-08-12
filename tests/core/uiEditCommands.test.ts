@@ -295,6 +295,72 @@ describe('UI edit commands', () => {
     expect(parseUiEditCommand({ ...command, command: 'write-file' })).toBeUndefined();
   });
 
+  it('sets container behaviour at base or a responsive breakpoint and resets it as one property family', () => {
+    const layout = {
+      mode: 'grid' as const,
+      widthMode: 'fill' as const,
+      heightMode: 'fixed' as const,
+      direction: 'horizontal' as const,
+      gap: 24,
+      padding: 32,
+      columns: 3,
+      align: 'stretch' as const,
+      distribute: 'space-between' as const,
+    };
+    const base = applyUiEditCommand(createUiEditSession(graph()), {
+      type: 'set-node-layout', expectedRevision: 0, screenId: 'page-home', nodeId: 'container', layout,
+    });
+    expect(base.ok).toBe(true);
+    if (!base.ok) { return; }
+    expect(base.session.graph.screens[0]!.nodes[0]!.layout).toMatchObject(layout);
+
+    const responsive = applyUiEditCommand(createUiEditSession(graph()), {
+      type: 'set-node-layout', expectedRevision: 0, screenId: 'page-home', nodeId: 'container',
+      breakpoint: 'mobile', layout,
+    });
+    expect(responsive.ok).toBe(true);
+    if (!responsive.ok) { return; }
+    const responsiveNode = responsive.session.graph.screens[0]!.nodes[0]!;
+    expect(responsiveNode.layout.mode).toBe('free');
+    expect(resolveUiNodeLayout(responsive.session.graph.screens[0]!, responsiveNode, 'mobile').layout)
+      .toMatchObject(layout);
+
+    responsiveNode.viewportOverrides.mobile = {
+      ...responsiveNode.viewportOverrides.mobile,
+      rect: { x: 10, y: 10, width: 900, height: 400 },
+      hidden: true,
+    };
+    const reset = applyUiEditCommand({ ...responsive.session, graph: responsive.session.graph }, {
+      type: 'clear-node-viewport-override', expectedRevision: 1,
+      screenId: 'page-home', nodeId: 'container', breakpoint: 'mobile', property: 'layout',
+    });
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) { return; }
+    expect(reset.session.graph.screens[0]!.nodes[0]!.viewportOverrides.mobile).toEqual({
+      rect: { x: 10, y: 10, width: 900, height: 400 }, hidden: true,
+    });
+
+    expect(applyUiEditCommand(createUiEditSession(graph()), {
+      type: 'set-node-layout', expectedRevision: 0, screenId: 'page-home', nodeId: 'child', layout,
+    })).toMatchObject({ ok: false, reason: 'invalid-command' });
+  });
+
+  it('parses only exact bounded layout behaviour commands', () => {
+    const command = {
+      type: 'set-node-layout', expectedRevision: 2, screenId: 'page-home', nodeId: 'container',
+      breakpoint: 'tablet',
+      layout: {
+        mode: 'stack', widthMode: 'fixed', heightMode: 'hug', direction: 'vertical',
+        gap: 16, padding: 24, columns: 2, align: 'center', distribute: 'space-between',
+      },
+    };
+    expect(parseUiEditCommand(command)).toEqual(command);
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, gap: 501 } })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, columns: 2.5 } })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, mode: 'flex' } })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, layout: { ...command.layout, command: 'run' } })).toBeUndefined();
+  });
+
   it('sets and clears responsive overrides through revisioned, undoable commands', () => {
     const initial = createUiEditSession(graph());
     const tabletRect = { x: 40, y: 120, width: 720, height: 100 };

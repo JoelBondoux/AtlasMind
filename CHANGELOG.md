@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.284.0] - 2026-08-12
+
+### Added
+
+- **Stack, grid, and overlay are now real container layouts.** A container can set direction, gap, padding,
+  columns, cross-axis alignment, main-axis distribution, and fixed/fill/hug sizing. The extension host
+  deterministically projects direct children for the Studio canvas and full built-in-browser preview; modes
+  are no longer dormant enum values or inspector-only labels.
+- **Container behaviour participates in responsive inheritance.** Tablet/mobile layout settings report
+  base, override, or computed-container provenance and can be applied or reset as one property family without
+  discarding geometry or visibility overrides.
+
+### Security
+
+- **Layout editing stays a closed bounded command.** `set-node-layout` accepts only named enums, gap/padding
+  from 0–500, and 1–12 columns. Non-container nodes cannot become layout containers, non-base overrides name
+  one closed breakpoint, and the webview never sends CSS, a style object, or a graph fragment.
+
+### Changed
+
+- **Container layout is a projection, not a destructive rearrangement.** Stored child rectangles remain the
+  free-layout fallback. Switching a parent to stack/grid/overlay computes displayed rectangles with explicit
+  provenance; resetting or undoing the parent restores the previous positions exactly.
+- **Fill and hug now have deterministic initial semantics.** Fill claims the available axis in a stack/grid/
+  overlay cell. Hug retains the stored intrinsic rectangle until the later content-measurement phase; the
+  inspector says so rather than implying browser content measurement already exists.
+
 ## [0.283.0] - 2026-08-12
 
 ### Added

@@ -11,12 +11,16 @@ import type {
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
+  UiLayoutAlignment,
+  UiLayoutDirection,
+  UiLayoutDistribution,
   UiLayoutMode,
   UiNodeViewportOverride,
   UiSizeMode,
   WebsitePagePlan,
   WebsiteWireframe,
   WireframeBreakpoint,
+  WireframeRect,
 } from '../types.js';
 import {
   deriveSectionLabels,
@@ -30,11 +34,18 @@ export const UI_DESIGN_GRAPH_MAX_REVISION = 2_147_483_647;
 const MAX_REFERENCE_LENGTH = 160;
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
 const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
+const LAYOUT_DIRECTIONS = new Set<UiLayoutDirection>(['vertical', 'horizontal']);
+const LAYOUT_ALIGNMENTS = new Set<UiLayoutAlignment>(['start', 'center', 'end', 'stretch']);
+const LAYOUT_DISTRIBUTIONS = new Set<UiLayoutDistribution>(['start', 'center', 'end', 'space-between']);
 const BREAKPOINTS = new Set<WireframeBreakpoint>(WIREFRAME_BREAKPOINTS);
+export const UI_LAYOUT_MAX_GAP = 500;
+export const UI_LAYOUT_MAX_PADDING = 500;
+export const UI_LAYOUT_MAX_COLUMNS = 12;
 
 export interface UiLayoutPropertySource {
-  kind: 'base' | 'override';
+  kind: 'base' | 'override' | 'computed';
   breakpoint: WireframeBreakpoint;
+  containerId?: string;
 }
 
 export interface ResolvedUiNodeLayout {
@@ -45,6 +56,12 @@ export interface ResolvedUiNodeLayout {
     widthMode: UiLayoutPropertySource;
     heightMode: UiLayoutPropertySource;
     hidden: UiLayoutPropertySource;
+    direction: UiLayoutPropertySource;
+    gap: UiLayoutPropertySource;
+    padding: UiLayoutPropertySource;
+    columns: UiLayoutPropertySource;
+    align: UiLayoutPropertySource;
+    distribute: UiLayoutPropertySource;
   };
 }
 
@@ -73,6 +90,12 @@ export function resolveUiNodeLayout(
     widthMode: baseSource(),
     heightMode: baseSource(),
     hidden: baseSource(),
+    direction: baseSource(),
+    gap: baseSource(),
+    padding: baseSource(),
+    columns: baseSource(),
+    align: baseSource(),
+    distribute: baseSource(),
   };
   const baseIndex = WIREFRAME_BREAKPOINTS.indexOf(screen.baseBreakpoint);
   const targetIndex = WIREFRAME_BREAKPOINTS.indexOf(breakpoint);
@@ -91,6 +114,14 @@ export function resolveUiNodeLayout(
       layout.rect = { ...override.rect };
       provenance.rect = { kind: 'override', breakpoint: candidate };
     }
+    for (const property of [
+      'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+    ] as const) {
+      if (override[property] !== undefined) {
+        Object.assign(layout, { [property]: override[property] });
+        provenance[property] = { kind: 'override', breakpoint: candidate };
+      }
+    }
     if (override.hidden !== undefined) {
       layout.hidden = override.hidden;
       provenance.hidden = { kind: 'override', breakpoint: candidate };
@@ -98,6 +129,208 @@ export function resolveUiNodeLayout(
   }
 
   return { layout, provenance };
+}
+
+export interface ResolvedUiScreenNode extends ResolvedUiNodeLayout {
+  id: string;
+}
+
+/**
+ * Resolve a complete screen, including deterministic container layout.
+ * Node rectangles remain stored as design inputs; stack/grid/overlay produce
+ * a projection and never rewrite children merely because a parent mode changed.
+ */
+export function resolveUiScreenLayout(
+  screen: UiDesignScreen,
+  breakpoint: WireframeBreakpoint,
+): ResolvedUiScreenNode[] {
+  const resolved = screen.nodes.map(node => ({ id: node.id, ...resolveUiNodeLayout(screen, node, breakpoint) }));
+  const byId = new Map(resolved.map(node => [node.id, node]));
+  const sourceById = new Map(screen.nodes.map(node => [node.id, node]));
+  const depth = (node: UiDesignNode): number => {
+    let value = 0;
+    let parentId = node.parentId;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      value += 1;
+      parentId = sourceById.get(parentId)?.parentId;
+    }
+    return value;
+  };
+  const parents = [...screen.nodes].sort((left, right) => depth(left) - depth(right));
+  for (const parent of parents) {
+    const parentView = byId.get(parent.id);
+    if (!parentView || parentView.layout.mode === 'free' || !wireframeKindSpec(parent.kind).container) {
+      continue;
+    }
+    const children = screen.nodes
+      .filter(node => node.parentId === parent.id)
+      .map(node => ({ source: node, view: byId.get(node.id)! }))
+      .filter(candidate => candidate.view && !candidate.view.layout.hidden)
+      .sort((left, right) => left.view.layout.rect.y - right.view.layout.rect.y
+        || left.view.layout.rect.x - right.view.layout.rect.x
+        || left.source.id.localeCompare(right.source.id));
+    if (children.length === 0) {
+      continue;
+    }
+    const projected = arrangeContainerChildren(parentView.layout, children.map(child => child.view.layout));
+    children.forEach((child, index) => {
+      child.view.layout.rect = projected[index]!;
+      child.view.provenance.rect = { kind: 'computed', breakpoint, containerId: parent.id };
+    });
+  }
+  return resolved;
+}
+
+function arrangeContainerChildren(
+  parent: UiDesignNode['layout'],
+  children: readonly UiDesignNode['layout'][],
+): WireframeRect[] {
+  const padding = Math.min(parent.padding, parent.rect.width / 2, parent.rect.height / 2);
+  const inner = {
+    x: parent.rect.x + padding,
+    y: parent.rect.y + padding,
+    width: Math.max(1, parent.rect.width - padding * 2),
+    height: Math.max(1, parent.rect.height - padding * 2),
+  };
+  if (parent.mode === 'overlay') {
+    return children.map(child => {
+      const width = child.widthMode === 'fill' || parent.align === 'stretch'
+        ? inner.width : Math.min(child.rect.width, inner.width);
+      const height = child.heightMode === 'fill'
+        ? inner.height : Math.min(child.rect.height, inner.height);
+      const x = crossPosition(inner.x, inner.width, width, parent.align);
+      const y = mainPosition(inner.y, inner.height, height, parent.distribute);
+      return roundedRect(x, y, width, height);
+    });
+  }
+  if (parent.mode === 'grid') {
+    return arrangeGrid(parent, children, inner);
+  }
+  return arrangeStack(parent, children, inner);
+}
+
+function arrangeStack(
+  parent: UiDesignNode['layout'],
+  children: readonly UiDesignNode['layout'][],
+  inner: WireframeRect,
+): WireframeRect[] {
+  const horizontal = parent.direction === 'horizontal';
+  const mainAvailable = horizontal ? inner.width : inner.height;
+  const crossAvailable = horizontal ? inner.height : inner.width;
+  const fillChildren = children.filter(child => horizontal
+    ? child.widthMode === 'fill' : child.heightMode === 'fill').length;
+  const fixedTotal = children.reduce((sum, child) => sum + ((horizontal
+    ? child.widthMode : child.heightMode) === 'fill' ? 0 : (horizontal ? child.rect.width : child.rect.height)), 0);
+  const baseGaps = parent.gap * Math.max(0, children.length - 1);
+  const fillSize = fillChildren > 0 ? Math.max(1, (mainAvailable - fixedTotal - baseGaps) / fillChildren) : 0;
+  const sizes = children.map(child => {
+    const main = (horizontal ? child.widthMode : child.heightMode) === 'fill'
+      ? fillSize : Math.min(horizontal ? child.rect.width : child.rect.height, mainAvailable);
+    const cross = (horizontal ? child.heightMode : child.widthMode) === 'fill' || parent.align === 'stretch'
+      ? crossAvailable : Math.min(horizontal ? child.rect.height : child.rect.width, crossAvailable);
+    return { main, cross };
+  });
+  const contentSize = sizes.reduce((sum, size) => sum + size.main, 0) + baseGaps;
+  const placement = distributedRun(innerStart(horizontal, inner), mainAvailable, contentSize, parent.gap,
+    children.length, parent.distribute);
+  let cursor = placement.start;
+  return sizes.map(size => {
+    const cross = crossPosition(crossStart(horizontal, inner), crossAvailable, size.cross, parent.align);
+    const rect = horizontal
+      ? roundedRect(cursor, cross, size.main, size.cross)
+      : roundedRect(cross, cursor, size.cross, size.main);
+    cursor += size.main + placement.gap;
+    return rect;
+  });
+}
+
+function arrangeGrid(
+  parent: UiDesignNode['layout'],
+  children: readonly UiDesignNode['layout'][],
+  inner: WireframeRect,
+): WireframeRect[] {
+  const columns = Math.max(1, Math.min(parent.columns, children.length));
+  const rows = Math.ceil(children.length / columns);
+  const cellWidth = Math.max(1, (inner.width - parent.gap * (columns - 1)) / columns);
+  const rowHeights = Array.from({ length: rows }, (_, row) => children
+    .filter((_, index) => gridPosition(index, columns, rows, parent.direction).row === row)
+    .reduce((height, child) => Math.max(height, Math.min(child.rect.height, inner.height)), 1));
+  const contentHeight = rowHeights.reduce((sum, height) => sum + height, 0) + parent.gap * (rows - 1);
+  const placement = distributedRun(inner.y, inner.height, contentHeight, parent.gap, rows, parent.distribute);
+  const rowStarts: number[] = [];
+  let cursor = placement.start;
+  for (const height of rowHeights) {
+    rowStarts.push(cursor);
+    cursor += height + placement.gap;
+  }
+  return children.map((child, index) => {
+    const position = gridPosition(index, columns, rows, parent.direction);
+    const cellX = inner.x + position.column * (cellWidth + parent.gap);
+    const cellHeight = rowHeights[position.row]!;
+    const width = child.widthMode === 'fill' || parent.align === 'stretch'
+      ? cellWidth : Math.min(child.rect.width, cellWidth);
+    const height = child.heightMode === 'fill' ? cellHeight : Math.min(child.rect.height, cellHeight);
+    return roundedRect(
+      crossPosition(cellX, cellWidth, width, parent.align),
+      rowStarts[position.row]!,
+      width,
+      height,
+    );
+  });
+}
+
+function gridPosition(index: number, columns: number, rows: number, direction: UiLayoutDirection): { row: number; column: number } {
+  return direction === 'horizontal'
+    ? { row: Math.floor(index / columns), column: index % columns }
+    : { row: index % rows, column: Math.floor(index / rows) };
+}
+
+function distributedRun(
+  start: number,
+  available: number,
+  content: number,
+  gap: number,
+  count: number,
+  distribution: UiLayoutDistribution,
+): { start: number; gap: number } {
+  const remaining = Math.max(0, available - content);
+  if (distribution === 'center') { return { start: start + remaining / 2, gap }; }
+  if (distribution === 'end') { return { start: start + remaining, gap }; }
+  if (distribution === 'space-between' && count > 1) {
+    return { start, gap: gap + remaining / (count - 1) };
+  }
+  return { start, gap };
+}
+
+function crossPosition(start: number, available: number, size: number, alignment: UiLayoutAlignment): number {
+  if (alignment === 'center') { return start + (available - size) / 2; }
+  if (alignment === 'end') { return start + available - size; }
+  return start;
+}
+
+function mainPosition(start: number, available: number, size: number, distribution: UiLayoutDistribution): number {
+  if (distribution === 'center') { return start + (available - size) / 2; }
+  if (distribution === 'end') { return start + available - size; }
+  return start;
+}
+
+function innerStart(horizontal: boolean, rect: WireframeRect): number {
+  return horizontal ? rect.x : rect.y;
+}
+
+function crossStart(horizontal: boolean, rect: WireframeRect): number {
+  return horizontal ? rect.y : rect.x;
+}
+
+function roundedRect(x: number, y: number, width: number, height: number): WireframeRect {
+  return {
+    x: Math.round(x * 1_000) / 1_000,
+    y: Math.round(y * 1_000) / 1_000,
+    width: Math.max(1, Math.round(width * 1_000) / 1_000),
+    height: Math.max(1, Math.round(height * 1_000) / 1_000),
+  };
 }
 
 /** Transcribe every compatible page fact into the v6 graph without guessing. */
@@ -200,6 +433,12 @@ function screenFromPage(page: WebsitePagePlan): UiDesignScreen {
         widthMode: 'fixed',
         heightMode: 'fixed',
         hidden: false,
+        direction: 'vertical',
+        gap: 16,
+        padding: 16,
+        columns: 2,
+        align: 'start',
+        distribute: 'start',
       },
       viewportOverrides: {},
       designPrompt: element.designPrompt,
@@ -259,6 +498,18 @@ function sanitizeScreen(input: Record<string, unknown>, page: WebsitePagePlan): 
             ? layout['heightMode'] as UiSizeMode
             : 'fixed',
           hidden: layout['hidden'] === true,
+          direction: LAYOUT_DIRECTIONS.has(layout['direction'] as UiLayoutDirection)
+            ? layout['direction'] as UiLayoutDirection
+            : 'vertical',
+          gap: boundedLayoutNumber(layout['gap'], 16, UI_LAYOUT_MAX_GAP),
+          padding: boundedLayoutNumber(layout['padding'], 16, UI_LAYOUT_MAX_PADDING),
+          columns: boundedLayoutInteger(layout['columns'], 2, 1, UI_LAYOUT_MAX_COLUMNS),
+          align: LAYOUT_ALIGNMENTS.has(layout['align'] as UiLayoutAlignment)
+            ? layout['align'] as UiLayoutAlignment
+            : 'start',
+          distribute: LAYOUT_DISTRIBUTIONS.has(layout['distribute'] as UiLayoutDistribution)
+            ? layout['distribute'] as UiLayoutDistribution
+            : 'start',
         },
         viewportOverrides: sanitizeOverrides(raw['viewportOverrides'], element.kind, breakpoint),
         designPrompt: element.designPrompt,
@@ -285,12 +536,31 @@ function sanitizeOverrides(
     const raw = asRecord(source[breakpoint]);
     const hasRect = isRecord(source[breakpoint]) && isRecord(raw['rect']);
     const hasHidden = typeof raw['hidden'] === 'boolean';
-    if (!hasRect && !hasHidden) {
+    const hasMode = LAYOUT_MODES.has(raw['mode'] as UiLayoutMode);
+    const hasWidthMode = SIZE_MODES.has(raw['widthMode'] as UiSizeMode);
+    const hasHeightMode = SIZE_MODES.has(raw['heightMode'] as UiSizeMode);
+    const hasDirection = LAYOUT_DIRECTIONS.has(raw['direction'] as UiLayoutDirection);
+    const hasGap = validBoundedLayoutNumber(raw['gap'], UI_LAYOUT_MAX_GAP);
+    const hasPadding = validBoundedLayoutNumber(raw['padding'], UI_LAYOUT_MAX_PADDING);
+    const hasColumns = validBoundedLayoutInteger(raw['columns'], 1, UI_LAYOUT_MAX_COLUMNS);
+    const hasAlign = LAYOUT_ALIGNMENTS.has(raw['align'] as UiLayoutAlignment);
+    const hasDistribute = LAYOUT_DISTRIBUTIONS.has(raw['distribute'] as UiLayoutDistribution);
+    if (!hasRect && !hasHidden && !hasMode && !hasWidthMode && !hasHeightMode && !hasDirection
+        && !hasGap && !hasPadding && !hasColumns && !hasAlign && !hasDistribute) {
       continue;
     }
     overrides[breakpoint] = {
       ...(hasRect ? { rect: sanitizeRect(raw['rect'], wireframeKindSpec(kind)) } : {}),
       ...(hasHidden ? { hidden: raw['hidden'] as boolean } : {}),
+      ...(hasMode ? { mode: raw['mode'] as UiLayoutMode } : {}),
+      ...(hasWidthMode ? { widthMode: raw['widthMode'] as UiSizeMode } : {}),
+      ...(hasHeightMode ? { heightMode: raw['heightMode'] as UiSizeMode } : {}),
+      ...(hasDirection ? { direction: raw['direction'] as UiLayoutDirection } : {}),
+      ...(hasGap ? { gap: raw['gap'] as number } : {}),
+      ...(hasPadding ? { padding: raw['padding'] as number } : {}),
+      ...(hasColumns ? { columns: raw['columns'] as number } : {}),
+      ...(hasAlign ? { align: raw['align'] as UiLayoutAlignment } : {}),
+      ...(hasDistribute ? { distribute: raw['distribute'] as UiLayoutDistribution } : {}),
     };
   }
   return overrides;
@@ -309,6 +579,22 @@ function sanitizeRevision(value: unknown): number {
     return 0;
   }
   return Math.min(value, UI_DESIGN_GRAPH_MAX_REVISION);
+}
+
+function boundedLayoutNumber(value: unknown, fallback: number, maximum: number): number {
+  return validBoundedLayoutNumber(value, maximum) ? value : fallback;
+}
+
+function boundedLayoutInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  return validBoundedLayoutInteger(value, minimum, maximum) ? value : fallback;
+}
+
+function validBoundedLayoutNumber(value: unknown, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum;
+}
+
+function validBoundedLayoutInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
 }
 
 function cleanIdentifier(value: unknown, maxLength = 120): string | undefined {

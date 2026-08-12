@@ -5,13 +5,15 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.283.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
+**Progress through v0.284.0:** Phase 1 is complete. The contract, v6 graph/migration, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 has started with
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
 responsive projection in both the Studio canvas and full built-in-browser preview, and direct breakpoint
 drag/resize/nudge that cannot change shared structure. Multi-selection alignment, distribution, and group
-nudge now run as one validated revision and undo step at base or responsive breakpoints.
+nudge run as one validated revision and undo step. Stack/grid/overlay container modes now deterministically
+project direction, gap, padding, columns, alignment, distribution, and fill/hug sizing in both canvas and
+full preview, with responsive inheritance and computed-container provenance.
 
 ## Problem
 
@@ -164,14 +166,14 @@ tablet/mobile widths. v0.281.0 adds host-resolved breakpoint controls, computed-
 independent geometry/visibility apply/reset in the Studio inspector. The three reference projects exercise
 inheritance, reset, and preview. v0.282.0 routes breakpoint drag, resize, and keyboard nudge through the same
 exact geometry-override command while leaving structure base-only. v0.283.0 adds atomic multi-selection,
-six-axis alignment, two-axis distribution, and group nudge. Richer container/sizing properties, duplicate,
-lock, group drag, and diagnostics remain in this phase.
+six-axis alignment, two-axis distribution, and group nudge. v0.284.0 turns stack/grid/overlay and fill/hug
+into a shared deterministic canvas/preview engine with explicit container settings. Min/max constraints,
+wrapping/ordering, duplicate, lock, group drag, and diagnostics remain in this phase.
 
-Implementation order note: the graph already reserves `stack`, `grid`, `overlay`, `fill`, and `hug`, but a
-competitive implementation also needs explicit gap, padding, columns, alignment, and min/max constraints.
-Those controls must land with deterministic canvas/preview semantics rather than exposing dormant enum
-values as cosmetic choices. The atomic transform primitive precedes that schema/layout-engine slice because
-both manual arrangement and future container conversion depend on all-or-nothing multi-node geometry.
+Implementation note: v0.284.0 deliberately makes container layout a non-destructive projection. Stored child
+rectangles remain the free-layout fallback, so switching or resetting a parent cannot lose the arrangement
+somebody drew. Hug currently retains that stored intrinsic rectangle; content-derived measurement belongs
+with Phase 4 content/assets/data rather than being guessed from placeholder markup.
 
 - Stack, grid, free, and overlay layout modes.
 - Fixed, fill, and hug sizing.

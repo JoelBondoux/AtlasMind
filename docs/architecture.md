@@ -322,6 +322,11 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
   the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
   viewport only through an exact override, so migration does not invent responsive intent.
+  `resolveUiScreenLayout()` then projects direct children for stack, grid, and overlay containers in parent-
+  before-child depth order. Direction, gap, padding, columns, alignment, distribution, and size modes are
+  bounded graph data. A projected child rectangle receives `computed` provenance naming its container; the
+  stored rectangle remains untouched as the reversible free-layout fallback. Fill claims an available axis;
+  hug uses the stored intrinsic size until content measurement is implemented.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
   geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
@@ -331,6 +336,8 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
   invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
   promotes direct children, history is capped at 100, and a fresh edit clears redo.
+  `set-node-layout` is the closed container/sizing edit: exact enums, gap/padding 0–500, columns 1–12, and an
+  optional non-base breakpoint. A non-container may use size modes but is refused a non-free container mode.
 - **`uiPreviewRuntime.ts`** — the frozen full-preview runtime, three exact token-scoped protocol paths, HTML
   injection, and revision/selection event hub. A connection receives the current render revision immediately;
   newer revisions and host-resolved selection identities fan out to at most eight listeners, while stale/
@@ -363,6 +370,9 @@ deletion, nesting, and parent identity stay base-only, so a responsive gesture c
 Multi-selection uses a `Set` of node identities with one primary inspector target. Align, distribute, and
 group nudge submit one bounded `set-node-frames` batch at the current breakpoint; multi-delete is refused
 until the selection is narrowed, preserving the existing single-node deletion contract.
+The host responsive snapshot resolves the complete screen rather than each node in isolation. This keeps
+computed container rectangles identical in the Studio and `websiteWireframePreview.ts`; the webview displays
+the projection and provenance but never implements the layout algorithm.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review

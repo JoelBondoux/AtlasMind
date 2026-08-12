@@ -44,7 +44,7 @@ import {
   wireframeKindSpec,
 } from './websiteWireframe.js';
 import { normalizeSlug } from './websiteSitemap.js';
-import { resolveUiNodeLayout } from './uiDesignGraph.js';
+import { resolveUiScreenLayout } from './uiDesignGraph.js';
 
 /** Fixed until breakpoint tokens become part of the design system in Phase 3. */
 export const UI_PREVIEW_TABLET_MAX_WIDTH = 1_023;
@@ -102,15 +102,25 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     });
   }
 
-  const height = contentHeight(wireframe);
   const ordered = orderedWireframeElements(wireframe);
+  const baseProjection = options.responsiveScreen?.pageId === page.id
+    ? new Map(resolveUiScreenLayout(options.responsiveScreen, 'desktop')
+      .map(node => [node.id, node.layout]))
+    : undefined;
+  const height = baseProjection
+    ? Math.max(600, ordered.reduce((lowest, element) => {
+      const layout = baseProjection.get(element.id);
+      return layout?.hidden ? lowest : Math.max(lowest, (layout?.rect ?? element.rect).y + (layout?.rect ?? element.rect).height);
+    }, 0) + 40)
+    : contentHeight(wireframe);
   const byId = new Map(ordered.map(element => [element.id, element]));
   const contentSections = splitContentSections(options.content?.body ?? '');
   let nextContentSection = 0;
 
   const blocks = ordered.map(element => {
     const spec = wireframeKindSpec(element.kind);
-    const { x, y, width, height: elementHeight } = element.rect;
+    const projected = baseProjection?.get(element.id);
+    const { x, y, width, height: elementHeight } = projected?.rect ?? element.rect;
 
     // Positioned in percentages of the same 1000-unit grid the canvas uses, so
     // the browser shows what was drawn rather than an interpretation of it.
@@ -119,6 +129,7 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
       `top:${percent(y / height)}`,
       `width:${percent(width / WIREFRAME_CANVAS_WIDTH)}`,
       `height:${percent(elementHeight / height)}`,
+      ...(projected?.hidden ? ['display:none'] : []),
     ].join(';');
 
     const parent = element.parentId ? byId.get(element.parentId) : undefined;
@@ -169,7 +180,10 @@ function renderResponsiveBreakpoint(
   breakpoint: 'tablet' | 'mobile',
   maxWidth: number,
 ): string {
-  const resolved = screen.nodes.map(node => ({ node, layout: resolveUiNodeLayout(screen, node, breakpoint).layout }));
+  const resolved = resolveUiScreenLayout(screen, breakpoint).map(view => ({
+    node: screen.nodes.find(candidate => candidate.id === view.id)!,
+    layout: view.layout,
+  }));
   const height = Math.max(
     600,
     resolved.reduce(

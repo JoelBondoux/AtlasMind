@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.283.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.284.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.283.0
+## What's new in 0.284.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline for the first thirteen items below; the remaining
 items recap recently shipped capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Stack, grid, overlay, fill, and hug now drive the actual layout.** Configure direction, gap, padding,
+  columns, alignment, and distribution in the inspector; the same deterministic projection appears in the
+  Studio and full built-in-browser preview at desktop, tablet, and mobile. Resetting a responsive behaviour
+  restores inheritance without losing geometry or visibility decisions.
 
 - **The Studio now has atomic multi-selection layout tools.** Shift/Ctrl/Cmd-select several blocks, then
   align edges or centres, distribute spacing, or nudge the group at desktop, tablet, or mobile. The complete

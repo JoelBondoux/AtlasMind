@@ -10,6 +10,11 @@ import type {
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
+  UiLayoutAlignment,
+  UiLayoutDirection,
+  UiLayoutDistribution,
+  UiLayoutMode,
+  UiSizeMode,
   WireframeBreakpoint,
   WireframeElementKind,
   WireframeRect,
@@ -24,7 +29,12 @@ import {
   MAX_WIREFRAME_DEPTH,
   WIREFRAME_BREAKPOINTS,
 } from './websiteWireframe.js';
-import { UI_DESIGN_GRAPH_MAX_REVISION } from './uiDesignGraph.js';
+import {
+  UI_DESIGN_GRAPH_MAX_REVISION,
+  UI_LAYOUT_MAX_COLUMNS,
+  UI_LAYOUT_MAX_GAP,
+  UI_LAYOUT_MAX_PADDING,
+} from './uiDesignGraph.js';
 
 export const UI_EDIT_HISTORY_LIMIT = 100;
 
@@ -52,7 +62,19 @@ export interface UiNodeFrameEdit {
   rect: WireframeRect;
 }
 
-export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'all';
+export interface UiNodeLayoutEdit {
+  mode: UiLayoutMode;
+  widthMode: UiSizeMode;
+  heightMode: UiSizeMode;
+  direction: UiLayoutDirection;
+  gap: number;
+  padding: number;
+  columns: number;
+  align: UiLayoutAlignment;
+  distribute: UiLayoutDistribution;
+}
+
+export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'layout' | 'all';
 
 export type UiEditCommand =
   | (UiEditCommandBase & { type: 'add-node'; screenId: string; node: UiNewNode })
@@ -67,6 +89,11 @@ export type UiEditCommand =
   })
   | (UiNodeCommandBase & { type: 'set-node-label'; label: string })
   | (UiNodeCommandBase & { type: 'set-node-design-prompt'; designPrompt: string })
+  | (UiNodeCommandBase & {
+    type: 'set-node-layout';
+    layout: UiNodeLayoutEdit;
+    breakpoint?: WireframeBreakpoint;
+  })
   | (UiNodeCommandBase & { type: 'move-node'; x: number; y: number })
   | (UiNodeCommandBase & { type: 'resize-node'; width: number; height: number })
   | (UiNodeCommandBase & { type: 'reparent-node'; parentId?: string })
@@ -179,6 +206,15 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
         && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'designPrompt'])
         ? { type: 'set-node-design-prompt', ...base, designPrompt: input['designPrompt'] }
         : undefined;
+    case 'set-node-layout': {
+      const layout = parseLayoutEdit(input['layout']);
+      const breakpoint = input['breakpoint'];
+      return layout
+        && (breakpoint === undefined || isBreakpoint(breakpoint))
+        && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'layout'], ['breakpoint'])
+        ? { type: 'set-node-layout', ...base, layout, ...(breakpoint === undefined ? {} : { breakpoint }) }
+        : undefined;
+    }
     case 'move-node':
       return finite(input['x']) && finite(input['y'])
         && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'x', 'y'])
@@ -299,6 +335,25 @@ function parseNodeFrames(input: unknown): UiNodeFrameEdit[] | undefined {
   return frames;
 }
 
+function parseLayoutEdit(input: unknown): UiNodeLayoutEdit | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, [
+        'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+      ])
+      || !isLayoutMode(input['mode'])
+      || !isSizeMode(input['widthMode'])
+      || !isSizeMode(input['heightMode'])
+      || !isLayoutDirection(input['direction'])
+      || !boundedNumber(input['gap'], UI_LAYOUT_MAX_GAP)
+      || !boundedNumber(input['padding'], UI_LAYOUT_MAX_PADDING)
+      || !boundedInteger(input['columns'], 1, UI_LAYOUT_MAX_COLUMNS)
+      || !isLayoutAlignment(input['align'])
+      || !isLayoutDistribution(input['distribute'])) {
+    return undefined;
+  }
+  return input as unknown as UiNodeLayoutEdit;
+}
+
 export function createUiEditSession(graph: UiDesignGraph): UiEditSession {
   return { graph: cloneGraph(graph), undo: [], redo: [] };
 }
@@ -401,6 +456,30 @@ function applyNodeCommand(
       }
       return { ok: true, node: { ...node, designPrompt: command.designPrompt.trim() } };
     }
+    case 'set-node-layout': {
+      if (!validLayoutEdit(command.layout)
+          || (command.layout.mode !== 'free' && !wireframeKindSpec(node.kind).container)
+          || (command.breakpoint !== undefined
+            && (!isBreakpoint(command.breakpoint) || command.breakpoint === screen.baseBreakpoint))) {
+        return { ok: false, reason: 'invalid-command' };
+      }
+      if (command.breakpoint === undefined) {
+        return { ok: true, node: { ...node, layout: { ...node.layout, ...command.layout } } };
+      }
+      return {
+        ok: true,
+        node: {
+          ...node,
+          viewportOverrides: {
+            ...node.viewportOverrides,
+            [command.breakpoint]: {
+              ...node.viewportOverrides[command.breakpoint],
+              ...command.layout,
+            },
+          },
+        },
+      };
+    }
     case 'move-node': {
       if (!finite(command.x) || !finite(command.y)) {
         return { ok: false, reason: 'invalid-command' };
@@ -469,8 +548,16 @@ function applyNodeCommand(
       const existing = viewportOverrides[command.breakpoint];
       if (existing && property !== 'all') {
         const remaining = { ...existing };
-        delete remaining[property];
-        if (remaining.rect === undefined && remaining.hidden === undefined) {
+        if (property === 'layout') {
+          for (const layoutProperty of [
+            'mode', 'widthMode', 'heightMode', 'direction', 'gap', 'padding', 'columns', 'align', 'distribute',
+          ] as const) {
+            delete remaining[layoutProperty];
+          }
+        } else {
+          delete remaining[property];
+        }
+        if (Object.keys(remaining).length === 0) {
           delete viewportOverrides[command.breakpoint];
         } else {
           viewportOverrides[command.breakpoint] = remaining;
@@ -574,6 +661,12 @@ function addNode(
       widthMode: 'fixed',
       heightMode: 'fixed',
       hidden: false,
+      direction: 'vertical',
+      gap: 16,
+      padding: 16,
+      columns: 2,
+      align: 'start',
+      distribute: 'start',
     },
     viewportOverrides: {},
     designPrompt: input.designPrompt.trim(),
@@ -740,7 +833,47 @@ function isBreakpoint(value: unknown): value is WireframeBreakpoint {
 }
 
 function isOverrideProperty(value: unknown): value is UiViewportOverrideProperty {
-  return value === 'rect' || value === 'hidden' || value === 'all';
+  return value === 'rect' || value === 'hidden' || value === 'layout' || value === 'all';
+}
+
+function validLayoutEdit(value: UiNodeLayoutEdit): boolean {
+  return isLayoutMode(value.mode)
+    && isSizeMode(value.widthMode)
+    && isSizeMode(value.heightMode)
+    && isLayoutDirection(value.direction)
+    && boundedNumber(value.gap, UI_LAYOUT_MAX_GAP)
+    && boundedNumber(value.padding, UI_LAYOUT_MAX_PADDING)
+    && boundedInteger(value.columns, 1, UI_LAYOUT_MAX_COLUMNS)
+    && isLayoutAlignment(value.align)
+    && isLayoutDistribution(value.distribute);
+}
+
+function isLayoutMode(value: unknown): value is UiLayoutMode {
+  return value === 'free' || value === 'stack' || value === 'grid' || value === 'overlay';
+}
+
+function isSizeMode(value: unknown): value is UiSizeMode {
+  return value === 'fixed' || value === 'fill' || value === 'hug';
+}
+
+function isLayoutDirection(value: unknown): value is UiLayoutDirection {
+  return value === 'vertical' || value === 'horizontal';
+}
+
+function isLayoutAlignment(value: unknown): value is UiLayoutAlignment {
+  return value === 'start' || value === 'center' || value === 'end' || value === 'stretch';
+}
+
+function isLayoutDistribution(value: unknown): value is UiLayoutDistribution {
+  return value === 'start' || value === 'center' || value === 'end' || value === 'space-between';
+}
+
+function boundedNumber(value: unknown, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum;
+}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
