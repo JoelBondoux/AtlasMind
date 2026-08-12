@@ -30,6 +30,7 @@
  */
 
 import type {
+  UiComponentDefinition,
   UiDesignScreen,
   UiDesignToken,
   WebsiteDesignSystem,
@@ -45,7 +46,7 @@ import {
   wireframeKindSpec,
 } from './websiteWireframe.js';
 import { normalizeSlug } from './websiteSitemap.js';
-import { resolveUiDesignToken, resolveUiScreenLayout } from './uiDesignGraph.js';
+import { resolveUiComponentInstance, resolveUiDesignToken, resolveUiScreenLayout } from './uiDesignGraph.js';
 
 /** Fixed until breakpoint tokens become part of the design system in Phase 3. */
 export const UI_PREVIEW_TABLET_MAX_WIDTH = 1_023;
@@ -64,6 +65,7 @@ export interface WireframePreviewOptions {
   responsiveScreen?: UiDesignScreen;
   /** Typed system definitions projected through this target adapter. */
   tokens?: readonly UiDesignToken[];
+  components?: readonly UiComponentDefinition[];
 }
 
 export interface WireframeIndexOptions {
@@ -140,11 +142,22 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     const parent = element.parentId ? byId.get(element.parentId) : undefined;
     const describedAs = `${element.label || spec.label}, ${spec.label}`
       + (parent ? `, inside ${parent.label || wireframeKindSpec(parent.kind).label}` : '');
+    const graphNode = options.responsiveScreen?.nodes.find(node => node.id === element.id);
+    const component = graphNode && options.responsiveScreen
+      ? resolveUiComponentInstance({
+        revision: 0, tokens: options.tokens ? [...options.tokens] : [],
+        components: options.components ? [...options.components] : [], screens: [options.responsiveScreen],
+      }, options.responsiveScreen, graphNode)
+      : undefined;
+    const componentTag = component
+      ? `<span class="wf-component-tag">${escapeHtml(component.definitionLabel)}${component.variantLabel ? ` · ${escapeHtml(component.variantLabel)}` : ''}${component.state !== 'default' ? ` · ${escapeHtml(component.state)}` : ''}</span>`
+      : '';
 
     return `<div class="wf-block" data-kind="${escapeHtml(element.kind)}"
+      ${component ? `data-component="${escapeHtml(component.definitionId)}" data-component-state="${escapeHtml(component.state)}"` : ''}
       data-atlas-screen-id="${escapeHtml(page.id)}" data-atlas-node-id="${escapeHtml(element.id)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
-      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span></div>
+      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}</div>
       ${previewBody(
         element,
         options,
@@ -372,6 +385,11 @@ function renderShell(options: ShellOptions): string {
     font-size: .62rem; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
     opacity: .55; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
   }
+  .wf-component-tag { display:inline-block; margin-left:6px; padding:2px 5px; border-radius:999px; color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, transparent); font-size:.62rem; }
+  .wf-block[data-component-state="disabled"] { opacity:.5; filter:grayscale(.45); }
+  .wf-block[data-component-state="loading"] { border-style:dotted; }
+  .wf-block[data-component-state="error"], .wf-block[data-component-state="validation"] { border-color:#b42318; }
+  .wf-block[data-component-state="success"] { border-color:#16803c; }
 
   .wf-block[data-kind="nav"], .wf-block[data-kind="footer"] { background-color: rgba(15, 23, 42, .06); }
   .wf-block[data-kind="hero"] {

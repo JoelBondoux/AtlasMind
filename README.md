@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.291.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.292.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.291.0
+## What's new in 0.292.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Reusable components are now first-class design data.** UI System owns bounded definitions with typed
+  properties, variants, slots, and interaction states; the canvas inspector creates explicit instances and
+  keeps per-instance overrides separate. Studio and the full built-in-browser preview show the same result.
 
 - **Typed design tokens are now directly editable and visible in both review surfaces.** UI System can add,
   update, alias, and delete bounded tokens through the same revision/undo history as canvas edits. Reserved

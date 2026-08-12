@@ -295,6 +295,27 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('Reserved ids');
   });
 
+  it('renders reusable definitions and resolved component instances as separate editing surfaces', () => {
+    const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
+    config.pages[0]!.wireframe = {
+      breakpoint: 'desktop', elements: [{ id: 'action', kind: 'cta', label: 'Action', rect: { x: 10, y: 10, width: 200, height: 60 }, designPrompt: '', notes: '' }],
+    };
+    config.designGraph = designGraphFromPages(config.pages, 3);
+    config.designGraph.components = [{
+      id: 'button', label: 'Button', description: '', rootKind: 'cta',
+      properties: [{ id: 'label', label: 'Label', kind: 'text', defaultValue: 'Continue' }],
+      slots: [], variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default', 'hover'],
+    }];
+    config.designGraph.screens[0]!.nodes[0]!.componentInstance = {
+      definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: { label: 'Buy' },
+    };
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'ui-system', { scriptContent: '/* canvas */' });
+    expect(html).toContain('Reusable components');
+    expect(html).toContain('id="designComponentEditor"');
+    expect(html).toContain('&quot;components&quot;:[{');
+    expect(html).toContain('&quot;component&quot;:{&quot;definitionId&quot;:&quot;button&quot;');
+  });
+
   it('makes the built-in browser preview a numbered design step', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'preview', {
@@ -397,6 +418,7 @@ describe('UI Studio canvas command wiring', () => {
       'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
       'set-node-layout', 'clear-node-viewport-override', 'undo', 'redo',
       'add-token', 'set-token', 'delete-token',
+      'add-component', 'set-component', 'delete-component', 'set-node-component', 'set-node-component-slot',
     ]) {
       expect(source).toContain(`'${command}'`);
     }

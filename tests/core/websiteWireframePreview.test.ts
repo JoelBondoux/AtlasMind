@@ -341,6 +341,27 @@ describe('websiteWireframePreview', () => {
       expect(html).toContain('--atlas-token-6d-6f-74-69-6f-6e-2d-66-61-73-74-duration: 120ms');
       expect(html).not.toContain('[object Object]');
     });
+
+    it('projects explicit component variants and interaction states without markup authority', () => {
+      const subject = withElements(['cta']);
+      const screen = designGraphFromPages([subject]).screens[0]!;
+      screen.nodes[0]!.componentInstance = {
+        definitionId: 'button', variantId: 'primary', state: 'disabled', propertyOverrides: { label: 'Buy' },
+      };
+      const html = renderWireframePreview({
+        page: subject, designSystem, responsiveScreen: screen,
+        components: [{
+          id: 'button', label: 'Button', description: '', rootKind: 'cta',
+          properties: [{ id: 'label', label: 'Label', kind: 'text', defaultValue: 'Continue' }],
+          slots: [], variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }],
+          states: ['default', 'disabled'],
+        }],
+      });
+      expect(html).toContain('data-component="button"');
+      expect(html).toContain('data-component-state="disabled"');
+      expect(html).toContain('Button · Primary · disabled');
+      expect(html).not.toContain('<script');
+    });
   });
 
   describe('an undrawn page', () => {

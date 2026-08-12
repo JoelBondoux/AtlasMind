@@ -218,15 +218,15 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 7,
+      version: 8,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
-      designGraph: { revision: 0, tokens: [], screens: expect.any(Array) },
+      designGraph: { revision: 0, tokens: [], components: [], screens: expect.any(Array) },
     });
     expect(markdown).toContain('# UI Studio');
     expect(markdown).toContain('## Content Design');
     expect(markdown).toContain('## Implementation Guide');
-    expect(markdown).toContain('Screens: 4. Tokens: 0.');
+    expect(markdown).toContain('Screens: 4. Tokens: 0. Components: 0.');
     expect(markdown).toContain('## Hosting Environments');
     expect(markdown).toContain('| Develop | local | local-only |');
     expect(markdown).toContain('| Staging | hosted | password-protected |');
@@ -244,6 +244,31 @@ describe('WebsiteWorkspaceManager', () => {
 
     await expect(manager.save(config)).rejects.toThrow('blocked unsafe SSOT content');
     expect(manager.exists()).toBe(false);
+  });
+
+  it('renders reusable definitions and instance counts in the review mirror', () => {
+    const config = createDefaultWebsiteWorkspace();
+    config.pages[0]!.wireframe = {
+      breakpoint: 'desktop', elements: [{ id: 'action', kind: 'cta', label: 'Action', rect: { x: 0, y: 0, width: 200, height: 60 }, designPrompt: '', notes: '' }],
+    };
+    config.designGraph = {
+      ...config.designGraph,
+      components: [{
+        id: 'button', label: 'Button', description: '', rootKind: 'cta', properties: [], slots: [],
+        variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default', 'hover'],
+      }],
+      screens: config.designGraph.screens.map((screen, index) => index === 0 ? {
+        ...screen, initialized: true, nodes: [{
+          id: 'action', kind: 'cta', label: 'Action', locked: false,
+          layout: { mode: 'free', rect: { x: 0, y: 0, width: 200, height: 60 }, widthMode: 'fixed', heightMode: 'fixed', hidden: false, direction: 'vertical', gap: 16, padding: 16, columns: 2, align: 'start', distribute: 'start', minWidth: null, maxWidth: null, minHeight: null, maxHeight: null, wrap: 'nowrap', order: 0 },
+          viewportOverrides: {}, designPrompt: '', notes: '',
+          componentInstance: { definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: {} },
+        }],
+      } : screen),
+    };
+    const markdown = renderWebsiteWorkspaceMarkdown(config);
+    expect(markdown).toContain('### Reusable component definitions');
+    expect(markdown).toContain('| Button (button) | cta | 0 | 0 | 1 | default, hover | 1 |');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {

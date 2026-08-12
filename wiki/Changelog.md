@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.292.0 — Reusable component definitions and instances
+
+UI Studio format v8 adds target-independent reusable components to the same revisioned graph as screens and
+tokens. A definition declares a root type, typed properties, variants, bounded slots, and supported states.
+The canvas creates an instance explicitly and may override only declared properties; definition edits and
+instance edits remain visibly separate actions.
+
+UI System edits definitions through exact host commands, while the canvas inspector assigns compatible
+definitions, variants, states, property overrides, and parent slots. Studio, Full Preview, and the Markdown
+mirror project the same facts. The v7 → v8 migration adds an empty collection and invents no component.
+
 ## v0.291.0 — Visual typed-token editing and preview projection
 
 UI System now edits the v7 token authority directly: add typed values, make same-kind aliases, change a

@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 7,
+  website: 8,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -272,6 +272,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       designGraph: {
         ...asMigrationRecord(document['designGraph']),
         tokens: [],
+      },
+    }),
+  },
+  {
+    kind: 'website',
+    from: 7,
+    to: 8,
+    summary: 'UI Studio now stores reusable component definitions and bounded instances in the authoritative graph.',
+    migrate: document => ({
+      ...document,
+      version: 8,
+      designGraph: {
+        ...asMigrationRecord(document['designGraph']),
+        components: [],
       },
     }),
   },

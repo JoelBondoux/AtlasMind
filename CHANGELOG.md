@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.292.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now models reusable component definitions and explicit canvas instances.** Definitions include
+  typed properties, variants, bounded slots, and declared interaction/system states; instance overrides retain
+  provenance and never silently rewrite the shared definition.
+- **UI System and the canvas now provide separate definition and instance editors.** Components are created
+  and maintained in UI System, while the selected-node inspector assigns a compatible definition, variant,
+  state, property overrides, and parent slot.
+- **Studio, Full Preview, and the Markdown mirror project the same component facts.** Canvas and browser
+  previews identify definitions, variants, and non-default states, while the mirror reports library shape and
+  instance counts for review.
+
+### Security
+
+- **Every component edit uses exact revision-checked graph commands.** The host bounds identifiers, text,
+  property types, choices, collection sizes, slot capacity/kinds, states, and definition/instance references;
+  it refuses deletion or incompatible root-kind changes while definitions are in use.
+- **Component definitions store no markup, CSS, source path, or executable value.** Full Preview converts only
+  closed state names into fixed adapter styling and escapes every displayed identity and label.
+
+### Changed
+
+- **Website workspace format advances from v7 to v8.** The frozen migration adds an empty component collection
+  without inferring definitions, instances, variants, slots, properties, or states.
+
 ## [0.291.0] - 2026-08-12
 
 ### Added

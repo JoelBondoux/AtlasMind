@@ -38,6 +38,17 @@ function graph() {
   return designGraphFromPages(pages);
 }
 
+const buttonComponent = {
+  id: 'button', label: 'Button', description: 'Shared action', rootKind: 'cta' as const,
+  properties: [
+    { id: 'label', label: 'Label', kind: 'text' as const, defaultValue: 'Continue' },
+    { id: 'size', label: 'Size', kind: 'choice' as const, defaultValue: 'medium', choices: ['small', 'medium', 'large'] },
+  ],
+  slots: [{ id: 'icon', label: 'Icon', required: false, allowedKinds: ['media' as const], maxChildren: 1 }],
+  variants: [{ id: 'primary', label: 'Primary', propertyValues: { size: 'large' } }],
+  states: ['default', 'hover', 'disabled'] as const,
+};
+
 describe('UI edit commands', () => {
   it('adds, changes, aliases, deletes, and restores tokens through the same revision history', () => {
     let session = createUiEditSession(graph());
@@ -97,6 +108,83 @@ describe('UI edit commands', () => {
     expect(applyUiEditCommand(session, {
       type: 'add-token', expectedRevision: 0,
       token: { id: 'space-alias', label: 'Alias', kind: 'spacing', aliasOf: 'missing' },
+    })).toMatchObject({ ok: false, reason: 'invalid-command' });
+  });
+
+  it('propagates component definitions while preserving bounded instance overrides', () => {
+    const initial = graph();
+    initial.screens[0]!.nodes[1]!.kind = 'cta';
+    let result = applyUiEditCommand(createUiEditSession(initial), {
+      type: 'add-component', expectedRevision: 0, component: structuredClone(buttonComponent),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    result = applyUiEditCommand(result.session, {
+      type: 'set-node-component', expectedRevision: 1, screenId: 'page-home', nodeId: 'child',
+      instance: { definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: { label: 'Buy now' } },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.session.graph.screens[0]!.nodes[1]!.componentInstance).toEqual({
+      definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: { label: 'Buy now' },
+    });
+
+    const changed = structuredClone(buttonComponent);
+    changed.properties[1]!.defaultValue = 'small';
+    changed.variants[0]!.propertyValues.size = 'small';
+    const updated = applyUiEditCommand(result.session, {
+      type: 'set-component', expectedRevision: 2, componentId: 'button', component: changed,
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) { return; }
+    expect(updated.session.graph.components[0]!.variants[0]!.propertyValues.size).toBe('small');
+    expect(updated.session.graph.screens[0]!.nodes[1]!.componentInstance?.propertyOverrides).toEqual({ label: 'Buy now' });
+    expect(applyUiEditCommand(updated.session, {
+      type: 'delete-component', expectedRevision: 3, componentId: 'button',
+    })).toMatchObject({ ok: false, reason: 'component-in-use' });
+  });
+
+  it('parses exact component commands and validates slots against the parent definition', () => {
+    const add = { type: 'add-component' as const, expectedRevision: 0, component: structuredClone(buttonComponent) };
+    expect(parseUiEditCommand(add)).toEqual(add);
+    expect(parseUiEditCommand({ ...add, run: 'shell' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...add, component: { ...add.component, states: ['hover'] } })).toBeUndefined();
+    expect(parseUiEditCommand({
+      ...add,
+      component: {
+        ...add.component,
+        variants: [{ id: 'primary', label: 'Primary', propertyValues: { undeclared: 'x' } }],
+      },
+    })).toBeUndefined();
+    expect(parseUiEditCommand({
+      ...add,
+      component: {
+        ...add.component,
+        slots: [{ ...add.component.slots[0]!, allowedKinds: ['media', 'script'] }],
+      },
+    })).toBeUndefined();
+
+    const initial = graph();
+    initial.screens[0]!.nodes[0]!.kind = 'cta';
+    initial.screens[0]!.nodes[1]!.kind = 'media';
+    initial.screens[0]!.nodes[1]!.parentId = 'container';
+    initial.components = [structuredClone(buttonComponent)];
+    initial.screens[0]!.nodes[0]!.componentInstance = {
+      definitionId: 'button', state: 'default', propertyOverrides: {},
+    };
+    const assigned = applyUiEditCommand(createUiEditSession(initial), {
+      type: 'set-node-component-slot', expectedRevision: 0, screenId: 'page-home', nodeId: 'child', slotId: 'icon',
+    });
+    expect(assigned.ok).toBe(true);
+    if (!assigned.ok) { return; }
+    expect(assigned.session.graph.screens[0]!.nodes[1]!.componentSlot).toBe('icon');
+    expect(parseUiEditCommand({
+      type: 'set-node-component', expectedRevision: 1, screenId: 'page-home', nodeId: 'child',
+      instance: { definitionId: 'x', state: 'default', propertyOverrides: {}, execute: true },
+    })).toBeUndefined();
+    expect(applyUiEditCommand(createUiEditSession(initial), {
+      type: 'set-node-component', expectedRevision: 0, screenId: 'page-home', nodeId: 'container',
+      instance: { definitionId: 'button', state: 'default', propertyOverrides: { undeclared: 'x' } },
     })).toMatchObject({ ok: false, reason: 'invalid-command' });
   });
 

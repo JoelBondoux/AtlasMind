@@ -14,6 +14,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   ClientWebsiteIntake,
+  UiComponentDefinition,
+  UiDesignScreen,
   UiContentDesign,
   UiDesignToken,
   UiImplementationGuide,
@@ -51,7 +53,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 7;
+const WEBSITE_SCHEMA_VERSION = 8;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -407,7 +409,7 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '|---|---|---|---:|---:|---:|---:|',
     ...renderPageRows(config),
     '',
-    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}. Tokens: ${config.designGraph.tokens.length}.`,
+    `Design graph revision: ${config.designGraph.revision}. Screens: ${config.designGraph.screens.length}. Tokens: ${config.designGraph.tokens.length}. Components: ${config.designGraph.components.length}.`,
     '',
     ...renderLinkFindings(config),
     '## Page Design Prompts',
@@ -446,6 +448,12 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '| Token | Kind | Definition |',
     '|---|---|---|',
     ...renderDesignTokenRows(config.designGraph.tokens),
+    '',
+    '### Reusable component definitions',
+    '',
+    '| Component | Root | Properties | Slots | Variants | States | Instances |',
+    '|---|---|---:|---:|---:|---|---:|',
+    ...renderComponentRows(config.designGraph.components, config.designGraph.screens),
     '',
     '## Implementation Guide',
     '',
@@ -1286,6 +1294,20 @@ function renderDesignTokenRows(tokens: readonly UiDesignToken[]): string[] {
           ? `Alias of ${token.aliasOf}`
           : escapeMarkdownCell(typeof token.value === 'object' ? JSON.stringify(token.value) : String(token.value))
       } |`);
+}
+
+function renderComponentRows(
+  components: readonly UiComponentDefinition[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (components.length === 0) {
+    return ['| _None defined_ | — | — | — | — | — | — |'];
+  }
+  return components.map(component => {
+    const instances = screens.flatMap(screen => screen.nodes)
+      .filter(node => node.componentInstance?.definitionId === component.id).length;
+    return `| ${escapeMarkdownCell(component.label)} (${component.id}) | ${component.rootKind} | ${component.properties.length} | ${component.slots.length} | ${component.variants.length} | ${component.states.join(', ')} | ${instances} |`;
+  });
 }
 
 function markdownValue(value: string | undefined): string {

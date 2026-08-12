@@ -74,13 +74,18 @@ Phase 3 started in v0.290.0 with format v7 and typed target-independent token de
 typography, spacing, radius, shadow, motion, and breakpoints. The host bounds every value and permits an
 alias only when its same-kind path reaches a direct definition without a cycle. The v6 → v7 migration adds
 an empty collection rather than inventing a design system. Component definitions/instances, variants,
-slots, properties, and interaction states follow the token editing and preview work delivered in v0.291.0.
+slots, properties, and interaction states followed in format v8.
 
 v0.291.0 makes those definitions editable in UI System through exact revisioned add/set/delete commands and
 the existing undo/redo history. Reserved semantic ids drive colour, fonts, spacing, radius, and breakpoint
 behaviour in both the Studio canvas and Full Preview; every resolved definition is also available to the
-preview adapter under a uniquely encoded custom property. Components, variants, slots, properties, and
-interaction states are the remaining Phase 3 work.
+preview adapter under a uniquely encoded custom property.
+
+v0.292.0 completes Phase 3 with reusable component definitions, explicit canvas instances, typed properties,
+variants, bounded slots, and closed interaction/system states. Defaults, variant values, and instance
+overrides resolve deterministically with provenance; definition and instance editors remain separate and all
+mutations use the same exact revision/history boundary. Studio, Full Preview, and the Markdown mirror consume
+the same resolved facts. The v7 → v8 migration adds no inferred component.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

@@ -5,10 +5,11 @@
 **Approved:** 2026-08-11  
 **First implementation milestone:** design graph, structured edits, revision history, and live preview protocol
 
-**Progress through v0.291.0:** Phases 1 and 2 are complete. Phase 3 now includes the v7 typed-token
-authority, bounded value sanitation, same-kind acyclic aliases, deterministic resolution, closed token edit
-commands, direct UI System editing, and one Studio/Full Preview adapter. The frozen v6 → v7 migration invents
-no design decisions. The contract, v6 screen/node graph, closed edit
+**Progress through v0.292.0:** Phases 1, 2, and 3 are complete. Format v8 combines typed tokens with reusable
+component definitions, explicit canvas instances, typed properties, variants, bounded slots, closed states,
+and provenance-preserving default → variant → instance resolution. Definition and instance editors use
+separate exact commands on the same revision/history boundary. The frozen v6 → v7 and v7 → v8 migrations
+invent no design decisions. The contract, screen/node graph, closed edit
 reducer/history, frozen live preview transport, revision-checked two-way selection, reducer-backed canvas
 gestures, and executable validation across all three reference projects pass. Phase 2 delivered
 deterministic base → tablet → mobile inheritance, per-property provenance, revisioned override reset,
@@ -222,13 +223,14 @@ Acceptance criteria:
 
 #### P1.2 Tokens, components, variants, and states
 
-Progress: v0.290.0 established the typed token authority and frozen format migration. It bounds colour,
+Progress: complete in v0.292.0. v0.290.0 established the typed token authority and frozen format migration. It bounds colour,
 font family/size/weight, line-height, spacing, radius, shadow, motion, and breakpoint values; same-kind
 aliases resolve to one direct source with an auditable chain. v0.291.0 adds exact add/set/delete commands,
 an accessible UI System editor, Markdown review rows, and a shared adapter that applies reserved semantic
 ids in the Studio canvas and Full Preview while exposing all resolved tokens as collision-free custom
-properties. Reusable component definitions/instances, variants, slots, properties, and interaction states
-remain to deliver.
+properties. v0.292.0 adds reusable definitions/instances, typed properties, variants, capacity/kind-constrained
+slots, closed interaction/system states, separate visual editors, deterministic propagation, and shared
+Studio/Full Preview projection.
 
 - Typed colour, type, spacing, radius, shadow, motion, and breakpoint tokens with aliases.
 - Component definitions and instances, slots, properties, variants, and bounded instance overrides.
