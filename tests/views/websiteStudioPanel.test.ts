@@ -419,6 +419,7 @@ describe('UI Studio canvas command wiring', () => {
       'set-node-layout', 'clear-node-viewport-override', 'undo', 'redo',
       'add-token', 'set-token', 'delete-token',
       'add-component', 'set-component', 'delete-component', 'set-node-component', 'set-node-component-slot',
+      'set-node-content-state', 'set-node-preview-content-state',
     ]) {
       expect(source).toContain(`'${command}'`);
     }
@@ -448,5 +449,7 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('function renderCanvasDiagnostics()');
     expect(source).toContain('[data-diagnostic-node]');
     expect(source).toContain('Unknown is not treated as a pass.');
+    expect(source).toContain('Content states');
+    expect(source).toContain('[PLACEHOLDER: …]');
   });
 });

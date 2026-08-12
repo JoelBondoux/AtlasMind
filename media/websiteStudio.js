@@ -753,6 +753,23 @@
         ${parentDefinition ? `<label class="field"><span>Parent slot</span><select id="componentSlot"${readOnly}><option value="">Unassigned</option>${parentDefinition.slots.filter(slot => slot.allowedKinds.length === 0 || slot.allowedKinds.includes(element.kind)).map(slot => `<option value="${escapeAttribute(slot.id)}"${slot.id === responsiveNode(element.id)?.componentSlot ? ' selected' : ''}>${escapeText(slot.label)}</option>`).join('')}</select></label>` : ''}
         <div class="responsive-actions"><button type="button" class="secondary" id="applyComponentInstance"${readOnly}>Apply instance</button></div>
       </div>`;
+    const contentStateNode = responsiveNode(element.id);
+    const presentations = contentStateNode?.contentStatePresentations ?? {};
+    const contentStateFields = `
+      <div class="content-state-inspector">
+        <div class="responsive-head"><p class="responsive-title">Content states</p><span class="source-chip">node copy</span></div>
+        <label class="field"><span>Preview state</span><select id="previewContentState"${readOnly}><option value="default">Default content</option>${['empty', 'loading', 'error', 'success'].filter(candidate => presentations[candidate]).map(candidate => `<option value="${candidate}"${candidate === contentStateNode?.previewContentState ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label>
+        ${['empty', 'loading', 'error', 'success'].map(contentState => {
+          const presentation = presentations[contentState] ?? { title: '', body: '', actionLabel: '', maturity: 'placeholder' };
+          return `<details class="content-state-row" data-content-state="${contentState}"${contentState === contentStateNode?.previewContentState ? ' open' : ''}><summary><strong>${contentState}</strong><span>${presentations[contentState] ? presentation.maturity : 'not designed'}</span></summary><div class="content-state-fields">
+            <label class="field"><span>Title</span><input class="state-title" value="${escapeAttribute(presentation.title)}"${readOnly} /></label>
+            <label class="field"><span>Body</span><textarea class="state-body" rows="3"${readOnly}>${escapeText(presentation.body)}</textarea></label>
+            <div class="field-pair"><label class="field"><span>Action label</span><input class="state-action" value="${escapeAttribute(presentation.actionLabel)}"${readOnly} /></label><label class="field"><span>Maturity</span><select class="state-maturity"${readOnly}>${['placeholder', 'draft', 'reviewed', 'approved'].map(candidate => `<option value="${candidate}"${candidate === presentation.maturity ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label></div>
+            <div class="responsive-actions"><button type="button" class="secondary save-content-state"${readOnly}>Apply state</button>${presentations[contentState] ? `<button type="button" class="danger subtle delete-content-state"${readOnly}>Remove</button>` : ''}</div>
+          </div></details>`;
+        }).join('')}
+        <p class="responsive-copy">Short state copy complements the screen Markdown. Approved copy containing a <code>[PLACEHOLDER: …]</code> marker is refused.</p>
+      </div>`;
     inspector.innerHTML = ''
       + '<div class="inspector-head"><p class="eyebrow">Selected</p><h3>' + escapeText(element.label || spec.label) + '</h3>'
       + '<p class="inspector-meta">' + escapeText(spec.label)
@@ -767,6 +784,7 @@
       + layoutFields
       + responsiveFields
       + componentFields
+      + contentStateFields
       + '<label class="field"><span>Design prompt for this element</span>'
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
       + escapeText(element.designPrompt || '') + '</textarea></label>'
@@ -1434,6 +1452,11 @@
           : null,
       });
       notice(definitionId ? 'Assigning the definition; instance controls will refresh…' : 'Removing the component instance…');
+    } else if (event.target.id === 'previewContentState') {
+      submitDesignEdit({
+        type: 'set-node-preview-content-state', screenId: activePageId, nodeId: selectedElementId,
+        state: event.target.value,
+      });
     }
   });
 
@@ -1475,6 +1498,21 @@
       notice(activeBreakpoint === activeBaseBreakpoint()
         ? 'Showing the base layout. Direct manipulation changes the shared structure.'
         : 'Showing the resolved ' + activeBreakpoint + ' layout. Dragging, resizing, and nudging create an override; structure stays shared.');
+      return;
+    }
+
+    const contentStateRow = event.target.closest('.content-state-row');
+    if (contentStateRow && (event.target.closest('.save-content-state') || event.target.closest('.delete-content-state'))) {
+      const contentState = contentStateRow.dataset.contentState;
+      const presentation = event.target.closest('.delete-content-state') ? null : {
+        title: value('.state-title', contentStateRow), body: value('.state-body', contentStateRow),
+        actionLabel: value('.state-action', contentStateRow), maturity: value('.state-maturity', contentStateRow),
+      };
+      submitDesignEdit({
+        type: 'set-node-content-state', screenId: activePageId, nodeId: selectedElementId,
+        state: contentState, presentation,
+      });
+      notice(presentation ? 'Applying the explicit ' + contentState + ' presentation…' : 'Removing the ' + contentState + ' presentation…');
       return;
     }
 
@@ -1811,7 +1849,7 @@
     }));
 
     return {
-      version: 8,
+      version: 9,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),

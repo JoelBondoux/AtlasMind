@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.293.0] - 2026-08-12
+
+### Added
+
+- **Canvas nodes can now design explicit empty, loading, error, and success presentations.** Each state owns
+  bounded title, body, action-label, and placeholder/draft/reviewed/approved maturity fields while screen
+  Markdown remains the long-form copy authority.
+- **The selected-node inspector edits state copy and chooses the deterministic review state.** Studio and Full
+  Preview render the same selected presentation and visibly label its maturity; the Markdown mirror lists
+  designed states and the state currently under review.
+- **The Phase 4 content authority decision is recorded.** The ADR separates interaction appearance from state
+  copy and reserves assets and sample-data bindings for later bounded slices.
+
+### Security
+
+- **State-copy changes use two exact revision-checked commands.** The host bounds every field and state,
+  refuses previewing an absent presentation, and makes add/update/remove/preview choices undoable graph edits.
+- **Unresolved copy cannot be approved.** A presentation containing `[PLACEHOLDER: …]` is downgraded at the
+  persistence boundary and refused as an exact command if it claims approved maturity.
+
+### Changed
+
+- **Website workspace format advances from v8 to v9.** The frozen migration changes only the format number and
+  invents no empty/loading/error/success copy or preview choice.
+
 ## [0.292.1] - 2026-08-12
 
 ### Added

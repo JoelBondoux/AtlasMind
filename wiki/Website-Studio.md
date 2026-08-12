@@ -53,6 +53,11 @@ A missing file can be seeded from the wireframe, but only as loud `[PLACEHOLDER:
 fictional copy that looks reviewed. Saving checks that the file body still matches the version opened;
 an external edit causes a refusal and reload instead of an automatic merge.
 
+The canvas inspector separately designs short empty/loading/error/success messages at the node that owns them.
+Each presentation records title, body, action label, and visible maturity, and an authored state can be selected
+for in-context Studio/Full Preview review. This does not replace long-form Markdown, and placeholder-marked copy
+cannot be approved. Format v9 adds no state copy during migration.
+
 ---
 
 ## Drawing the page

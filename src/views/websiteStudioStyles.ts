@@ -126,6 +126,11 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .component-property-overrides { display:grid; gap:7px; }
   .component-property { display:grid; gap:3px; }
   .component-reset { display:flex; align-items:center; gap:5px; color:var(--studio-muted); font-size:.76rem; }
+  .content-state-inspector { display:grid; gap:8px; margin:12px 0; padding:10px; border:1px solid var(--studio-border); border-radius:8px; }
+  .content-state-row { border:1px solid var(--studio-border); border-radius:7px; overflow:hidden; }
+  .content-state-row summary { display:flex; justify-content:space-between; gap:8px; padding:8px; cursor:pointer; text-transform:capitalize; }
+  .content-state-row summary span { color:var(--studio-muted); font-size:.75rem; }
+  .content-state-fields { display:grid; gap:7px; padding:8px; border-top:1px solid var(--studio-border); }
   .empty-state { grid-column:1/-1; min-height:180px; display:grid; place-content:center; text-align:center; gap:5px; border:1px dashed var(--studio-border); border-radius:12px; color:var(--studio-muted); }
   .save-bar { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; justify-content:space-between; align-items:center; gap:20px; padding:12px 22px; background:color-mix(in srgb, var(--vscode-editor-background) 94%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--studio-border); }
   .save-bar div { display:grid; }

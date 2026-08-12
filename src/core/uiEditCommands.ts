@@ -11,6 +11,8 @@ import type {
   UiComponentInstance,
   UiComponentPropertyValue,
   UiComponentState,
+  UiNodeContentState,
+  UiNodeStatePresentation,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -47,6 +49,7 @@ import {
   sanitizeUiComponentDefinitions,
   sanitizeUiComponentInstance,
   sanitizeUiDesignTokens,
+  sanitizeNodeStatePresentations,
 } from './uiDesignGraph.js';
 
 export const UI_EDIT_HISTORY_LIMIT = 100;
@@ -128,6 +131,12 @@ export type UiEditCommand =
   | (UiNodeCommandBase & { type: 'set-node-design-prompt'; designPrompt: string })
   | (UiNodeCommandBase & { type: 'set-node-component'; instance: UiComponentInstance | null })
   | (UiNodeCommandBase & { type: 'set-node-component-slot'; slotId: string | null })
+  | (UiNodeCommandBase & {
+    type: 'set-node-content-state';
+    state: Exclude<UiNodeContentState, 'default'>;
+    presentation: UiNodeStatePresentation | null;
+  })
+  | (UiNodeCommandBase & { type: 'set-node-preview-content-state'; state: UiNodeContentState })
   | (UiNodeCommandBase & {
     type: 'set-node-layout';
     layout: UiNodeLayoutEdit;
@@ -321,6 +330,24 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
         && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'slotId'])
         ? { type: 'set-node-component-slot', ...base, slotId: input['slotId'] }
         : undefined;
+    case 'set-node-content-state': {
+      const state = parseNodeContentState(input['state'], false);
+      const presentation = input['presentation'] === null ? null : parseNodeStatePresentation(input['presentation']);
+      if (!state || presentation === undefined
+          || !exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'state', 'presentation'])) {
+        return undefined;
+      }
+      return {
+        type: 'set-node-content-state', ...base,
+        state: state as Exclude<UiNodeContentState, 'default'>, presentation,
+      };
+    }
+    case 'set-node-preview-content-state': {
+      const state = parseNodeContentState(input['state'], true);
+      return state && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'nodeId', 'state'])
+        ? { type: 'set-node-preview-content-state', ...base, state }
+        : undefined;
+    }
     case 'set-node-layout': {
       const layout = parseLayoutEdit(input['layout']);
       const breakpoint = input['breakpoint'];
@@ -545,6 +572,31 @@ function isComponentState(input: unknown): input is UiComponentState {
   return input === 'default' || input === 'hover' || input === 'focus' || input === 'active'
     || input === 'disabled' || input === 'loading' || input === 'empty' || input === 'error'
     || input === 'success' || input === 'validation';
+}
+
+function parseNodeContentState(
+  input: unknown,
+  allowDefault: boolean,
+): UiNodeContentState | Exclude<UiNodeContentState, 'default'> | undefined {
+  if (input === 'empty' || input === 'loading' || input === 'error' || input === 'success') { return input; }
+  return allowDefault && input === 'default' ? input : undefined;
+}
+
+function parseNodeStatePresentation(input: unknown): UiNodeStatePresentation | undefined {
+  if (!isRecord(input)
+      || !exactKeys(input, ['title', 'body', 'actionLabel', 'maturity'])
+      || typeof input['title'] !== 'string'
+      || typeof input['body'] !== 'string'
+      || typeof input['actionLabel'] !== 'string'
+      || (input['maturity'] !== 'placeholder' && input['maturity'] !== 'draft'
+        && input['maturity'] !== 'reviewed' && input['maturity'] !== 'approved')) {
+    return undefined;
+  }
+  // The sanitizer uses real state keys; one fixed key lets the parser compare
+  // the complete value without accepting a partially dropped presentation.
+  const checked = sanitizeNodeStatePresentations({ empty: input }).empty;
+  if (!checked || JSON.stringify(checked) !== JSON.stringify(input)) { return undefined; }
+  return checked;
 }
 
 function isTokenKind(input: unknown): input is UiDesignTokenKind {
@@ -955,6 +1007,36 @@ function applyNodeCommand(
       }
       return { ok: true, node: { ...node, designPrompt: command.designPrompt.trim() } };
     }
+    case 'set-node-content-state': {
+      const presentations = { ...(node.contentStatePresentations ?? {}) };
+      if (command.presentation === null) {
+        delete presentations[command.state];
+      } else {
+        const sanitized = sanitizeNodeStatePresentations({ [command.state]: command.presentation })[command.state];
+        if (!sanitized || JSON.stringify(sanitized) !== JSON.stringify(command.presentation)) {
+          return { ok: false, reason: 'invalid-command' };
+        }
+        presentations[command.state] = sanitized;
+      }
+      const previewContentState = command.presentation === null && node.previewContentState === command.state
+        ? undefined
+        : node.previewContentState;
+      return { ok: true, node: {
+        ...node,
+        ...(previewContentState ? { previewContentState } : { previewContentState: undefined }),
+        ...(Object.keys(presentations).length > 0
+          ? { contentStatePresentations: presentations }
+          : { contentStatePresentations: undefined }),
+      } };
+    }
+    case 'set-node-preview-content-state':
+      if (command.state !== 'default' && !node.contentStatePresentations?.[command.state]) {
+        return { ok: false, reason: 'invalid-command' };
+      }
+      return { ok: true, node: {
+        ...node,
+        ...(command.state === 'default' ? { previewContentState: undefined } : { previewContentState: command.state }),
+      } };
     case 'set-node-layout': {
       if (!validLayoutEdit(command.layout)
           || (command.layout.mode !== 'free' && !wireframeKindSpec(node.kind).container)

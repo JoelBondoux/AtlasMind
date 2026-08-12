@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 8,
+  website: 9,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -288,6 +288,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
         components: [],
       },
     }),
+  },
+  {
+    kind: 'website',
+    from: 8,
+    to: 9,
+    summary: 'UI Studio nodes may now declare explicit empty, loading, error, and success presentations.',
+    migrate: document => ({ ...document, version: 9 }),
   },
 ];
 

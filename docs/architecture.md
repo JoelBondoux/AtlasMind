@@ -302,7 +302,7 @@ Filesystem-only service behind **AtlasMind: Open UI Studio** (the stable command
 
 Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
 
-The SSOT is at **format version 8**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
+The SSOT is at **format version 9**, registered in `schemaMigration.ts` as the `website` kind. `load()` routes through `interpretVersionedDocument`, so a file written by a newer AtlasMind is refused rather than replaced — the Studio opens read-only and says why. The 4 → 5 step marks existing projects as websites (the only surface v4 could represent) and seeds empty content-design and implementation-guidance records without inventing either. The 5 → 6 step transcribes every wireframe fact into the design graph, including untouched-versus-empty canvas state, without inventing viewport overrides, references, components, or states. The 6 → 7 step adds an empty typed-token collection without changing a graph fact or inferring a design system. The 7 → 8 step likewise adds only an empty component collection; it has no standing to infer definitions or instances. The 8 → 9 step changes only the version because optional node state copy must remain absent until authored. While existing readers migrate, `uiDesignGraph.ts` deterministically rebuilds their page wireframes from the graph.
 
 `src/views/websiteStudioPanel.ts` is a profile-aware webview (Brief, Sitemap or Screens & Flows,
 Content Design, UI System, Wireframe canvas, Full Preview, Implementation/website hosting, and
@@ -317,7 +317,7 @@ data-only and cannot name a command, arbitrary path, or output file. Production 
 
 Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
 
-- **`uiDesignGraph.ts`** — sanitizes the target-independent v8 graph against the page inventory, preserves
+- **`uiDesignGraph.ts`** — sanitizes the target-independent v9 graph against the page inventory, preserves
   stable screen/node identity, clamps geometry and references, and derives the legacy wireframe projection.
   `initialized` keeps “never drawn” distinct from a deliberately empty screen. Graph precedence is explicit:
   a valid graph wins; there is no last-write-wins reconciliation between two design authorities.
@@ -333,6 +333,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   applies definition defaults, variant values, then instance overrides while retaining provenance. Instance
   sanitation refuses a missing/incompatible definition or variant and drops undeclared property overrides;
   slot sanitation requires the owning parent instance and enforces allowed kinds plus maximum children.
+  Nodes may additionally own bounded `empty`/`loading`/`error`/`success` presentations with explicit content
+  maturity and one review-only preview state. These complement rather than duplicate screen Markdown. The
+  sanitizer downgrades approved copy containing an unresolved placeholder marker.
   `resolveUiNodeLayout()` applies smaller-viewport overrides in desktop → tablet → mobile order and returns
   the source breakpoint for every computed layout property. A legacy tablet/mobile base changes at a wider
   viewport only through an exact override, so migration does not invent responsive intent.
@@ -371,6 +374,9 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   A definition cannot be deleted or change to an incompatible root kind while instances use it. Definition
   updates deterministically retain only still-valid variants, states, property overrides, and slot claims;
   definition and instance edits are separate command types, never inferred from selection.
+  `set-node-content-state` and `set-node-preview-content-state` add/update/remove state copy and select a
+  declared presentation for review. Their exact parser refuses unknown states, extra fields, over-bounds copy,
+  placeholder copy claiming approval, and attempts to preview an absent state.
   `diagnoseUiScreenLayout()` consumes that same projection for every breakpoint and deterministically reports
   canvas overflow, parent clipping, non-ancestral/non-overlay overlap, and interactive nodes below 44px after
   conversion through the 1280/834/390 preview widths. The host sends closed diagnostic records; the webview
@@ -394,6 +400,8 @@ visible-content-derived stage height.
 It also resolves component definitions/instances through the same host function used by Studio and emits
 escaped definition/variant/state labels plus fixed styling for the closed disabled/loading/error/validation/
 success states. Component data never becomes markup or CSS authority.
+When a node selects a content state, the adapter replaces only that node's ordinary preview body with its
+escaped authored presentation and a maturity badge; missing state copy receives no invented fallback.
 Selectors escape graph identities and a screen whose `pageId` does not own the page is ignored. The pure
 renderer still emits no script; `websitePreviewHost.ts` supplies the matching authoritative screen and then
 injects only the separately audited frozen live runtime.
@@ -1131,7 +1139,7 @@ Desktop-only localhost WebSocket server that lets the AtlasMind web build remote
 
 ## Key Interfaces
 
-`WebsiteWorkspaceConfig` v8 keeps the compatibility page model and adds the authoritative design core:
+`WebsiteWorkspaceConfig` v9 keeps the compatibility page model and adds the authoritative design core:
 
 ```typescript
 interface UiDesignGraph {

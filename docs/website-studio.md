@@ -69,6 +69,12 @@ wireframe and never plausible filler. When saving, the host compares the body wi
 was opened. If another process changed it, the save is refused and the user reloads; prose is never
 auto-merged into something nobody authored.
 
+Each canvas node may also own short **empty, loading, error, and success presentations**. Expand Content states
+in the selected-node inspector to edit the title, explanation, action label, and maturity, then select an
+authored state for in-context review. These messages complement the screen's Markdown; they do not move or
+duplicate its long-form copy. Placeholder, draft, reviewed, and approved remain visibly distinct, and a state
+containing `[PLACEHOLDER: …]` cannot remain approved.
+
 ## The wireframe canvas
 
 A page's structure is a set of drawn boxes, not a list of strings. Pick a block from the palette,
@@ -445,7 +451,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 8**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 9**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -464,7 +470,7 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
 
-### Formats v2 → v7
+### Formats v2 → v9
 
 - v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
 - v4 moved actual copy into separately managed Markdown files; migration created no files because
@@ -481,6 +487,8 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   the same kind without a cycle. Migration adds an empty token collection rather than guessing a system.
 - v8 adds reusable component definitions and bounded node instances. The migration adds an empty component
   collection and never infers a definition, variant, property, slot, state, or instance from existing nodes.
+- v9 adds optional node-owned empty/loading/error/success presentations and one review state. Migration changes
+  only the format number and invents no interface copy.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same

@@ -1381,6 +1381,20 @@ export interface UiDesignNode {
   componentInstance?: UiComponentInstance;
   /** Slot claimed inside the parent component instance, when applicable. */
   componentSlot?: string;
+  /** Explicit content state selected for design review, not inferred runtime data. */
+  previewContentState?: UiNodeContentState;
+  /** Node-owned short interface copy; long-form screen copy remains in Markdown. */
+  contentStatePresentations?: Partial<Record<Exclude<UiNodeContentState, 'default'>, UiNodeStatePresentation>>;
+}
+
+export type UiNodeContentState = 'default' | 'empty' | 'loading' | 'error' | 'success';
+export type UiContentMaturity = 'placeholder' | 'draft' | 'reviewed' | 'approved';
+
+export interface UiNodeStatePresentation {
+  title: string;
+  body: string;
+  actionLabel: string;
+  maturity: UiContentMaturity;
 }
 
 /** A page/screen projection in the shared design graph. */
@@ -1674,9 +1688,11 @@ export interface WebsiteStackChoice {
  * 7 adds typed token definitions without inventing any during migration.
  * Version 8 adds reusable component definitions and bounded instances; the
  * migration again adds only empty authority, never an inferred component.
+ * Version 9 adds optional node-owned content-state presentations and changes
+ * only the format number during migration so no interface copy is invented.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 8;
+  version: 9;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;

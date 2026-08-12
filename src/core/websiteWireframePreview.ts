@@ -152,17 +152,29 @@ export function renderWireframePreview(options: WireframePreviewOptions): string
     const componentTag = component
       ? `<span class="wf-component-tag">${escapeHtml(component.definitionLabel)}${component.variantLabel ? ` · ${escapeHtml(component.variantLabel)}` : ''}${component.state !== 'default' ? ` · ${escapeHtml(component.state)}` : ''}</span>`
       : '';
+    const contentState = graphNode?.previewContentState ?? 'default';
+    const statePresentation = contentState === 'default'
+      ? undefined
+      : graphNode?.contentStatePresentations?.[contentState];
+    const contentStateTag = statePresentation
+      ? `<span class="wf-content-state ${escapeHtml(statePresentation.maturity)}">${escapeHtml(contentState)} · ${escapeHtml(statePresentation.maturity)}</span>`
+      : '';
+    const contentSection = consumesContent(element.kind) ? contentSections[nextContentSection++] : undefined;
+    const renderedBody = statePresentation
+      ? `<div class="wf-state-presentation"><strong>${escapeHtml(statePresentation.title || `${contentState} state`)}</strong>${statePresentation.body ? `<p>${escapeHtml(statePresentation.body)}</p>` : ''}${statePresentation.actionLabel ? `<span class="wf-button">${escapeHtml(statePresentation.actionLabel)}</span>` : ''}</div>`
+      : previewBody(
+        element,
+        options,
+        contentSection,
+      );
 
     return `<div class="wf-block" data-kind="${escapeHtml(element.kind)}"
       ${component ? `data-component="${escapeHtml(component.definitionId)}" data-component-state="${escapeHtml(component.state)}"` : ''}
+      ${statePresentation ? `data-content-state="${escapeHtml(contentState)}" data-content-maturity="${escapeHtml(statePresentation.maturity)}"` : ''}
       data-atlas-screen-id="${escapeHtml(page.id)}" data-atlas-node-id="${escapeHtml(element.id)}" style="${style}"
       role="group" aria-label="${escapeHtml(describedAs)}">
-      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}</div>
-      ${previewBody(
-        element,
-        options,
-        consumesContent(element.kind) ? contentSections[nextContentSection++] : undefined,
-      )}
+      <div class="wf-tag">${escapeHtml(element.label || spec.label)}<span>${escapeHtml(spec.label)}</span>${componentTag}${contentStateTag}</div>
+      ${renderedBody}
     </div>`;
   }).join('\n');
 
@@ -386,6 +398,13 @@ function renderShell(options: ShellOptions): string {
     opacity: .55; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
   }
   .wf-component-tag { display:inline-block; margin-left:6px; padding:2px 5px; border-radius:999px; color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, transparent); font-size:.62rem; }
+  .wf-content-state { display:inline-block; padding:2px 5px; border-radius:999px; font-size:.62rem; }
+  .wf-content-state.placeholder { color:#9a3412; background:#ffedd5; }
+  .wf-content-state.draft { color:#854d0e; background:#fef9c3; }
+  .wf-content-state.reviewed { color:#1d4ed8; background:#dbeafe; }
+  .wf-content-state.approved { color:#166534; background:#dcfce7; }
+  .wf-state-presentation { display:grid; gap:7px; margin-top:10px; }
+  .wf-state-presentation p { margin:0; font-size:.82rem; }
   .wf-block[data-component-state="disabled"] { opacity:.5; filter:grayscale(.45); }
   .wf-block[data-component-state="loading"] { border-style:dotted; }
   .wf-block[data-component-state="error"], .wf-block[data-component-state="validation"] { border-color:#b42318; }

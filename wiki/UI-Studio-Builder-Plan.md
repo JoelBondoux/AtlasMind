@@ -87,5 +87,11 @@ overrides resolve deterministically with provenance; definition and instance edi
 mutations use the same exact revision/history boundary. Studio, Full Preview, and the Markdown mirror consume
 the same resolved facts. The v7 → v8 migration adds no inferred component.
 
+Phase 4 starts in v0.293.0 with format-v9 node-owned empty/loading/error/success presentations. Each has
+bounded title/body/action copy and visible placeholder/draft/reviewed/approved maturity; one authored state may
+be selected for Studio and Full Preview review. Long-form screen Markdown remains authoritative, the migration
+invents no copy, and placeholder-marked copy cannot claim approval. Assets, structured collections, sample-data
+bindings, and content diagnostics remain.
+
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

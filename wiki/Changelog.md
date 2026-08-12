@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.293.0 — Explicit content-state design
+
+Phase 4 starts with node-owned empty, loading, error, and success presentations. Each has bounded title, body,
+action-label, and placeholder/draft/reviewed/approved maturity fields. The canvas inspector edits these facts
+and selects one for review; Studio, Full Preview, and the Markdown mirror consume the same graph state.
+
+Format v9 changes only the version during migration and invents no copy. Exact revisioned commands own every
+edit, an absent presentation cannot be previewed, and `[PLACEHOLDER: …]` copy cannot claim approval. Screen
+Markdown remains authoritative for long-form content; assets and sample-data bindings remain later Phase 4 work.
+
 ## v0.292.1 — The orchestrator says when it discards an answer
 
 When every tool result in an agentic loop's final round tests as failed, AtlasMind throws away the
