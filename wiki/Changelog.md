@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.305.3 — Sync no longer scrambles matching files
+
+If your project keeps two instruction files identical on purpose, the sync used to rewrite each in its
+own words and quietly break that. It now notices files you were keeping in step and keeps them in step
+— while leaving genuinely different files alone.
+
+Also documents a release-process wrinkle: the promotion pull request always opens blocked, because the
+previous release leaves `main` one commit ahead. The fix is one merge, and the guide now says so.
+
+---
+
 ## v0.305.2 — Shared rules in every instruction file
 
 The core directives, architecture rules and coding standards now appear in all three agent instruction

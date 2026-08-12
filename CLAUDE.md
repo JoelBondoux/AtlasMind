@@ -68,6 +68,17 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 
    The merge method is load-bearing, not a preference. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. The next promotion then has a merge base two releases back, and every file both branches touched since — `CHANGELOG.md`, `package.json`, `README.md`, `wiki/Changelog.md`, i.e. exactly the four every release touches — conflicts. It works once and conflicts forever after, which is what happened between 0.208.0 and 0.208.1. A merge commit keeps `main` an ancestor of `develop`, so the next promotion has nothing to resolve. `release.yml` passes `--merge` for this reason; if this document and that workflow ever disagree, the workflow is right.
 6. **Wait for PR merge**: do NOT tag until the PR has merged into `main` and CI checks pass. Confirm the merge before continuing.
+
+   **Expect the PR to open `BLOCKED`, and know why.** `main` requires branches to be up to date
+   (`required_status_checks.strict: true`), and a merge-commit promotion always leaves `main` one
+   commit ahead of `develop` — the merge commit itself is not on `develop`. So every release after the
+   first opens behind. Clear it with `git merge origin/main` into `develop` and push; the PR then
+   auto-merges. This is the standing cost of the merge-commit choice in step 5, and it is worth paying:
+   a squash would make the *next* promotion conflict on every file a release touches.
+
+   **Verify `main` yourself before tagging.** Read the version out of `main` — `git show
+   origin/main:package.json` — rather than trusting a "merged" signal. A merge notification can match
+   an older, already-merged release PR, and the tag step is irreversible.
 7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
 
 **`npm run publish:release` publishes only; it no longer pushes a tag.** The two were chained until v0.184.0, and the chain was a hazard: the tag push triggered `publish.yml`, which ran `publish:release` again and failed on "version already exists". One release now has exactly one publish path (CI, from the tag) and one tag path (`npm run tag:release`, run deliberately). For an emergency local publish when Actions is unavailable, run both in that order.

@@ -416,6 +416,41 @@ export function renderUnifiedMarkdown(unified: MergeDirective[]): string {
  * instruction file (managed block only). JSON-config tools are reported as
  * skipped. Non-destructive: content outside the managed block is preserved.
  */
+
+/**
+ * Files a project keeps byte-identical, and expects to stay that way.
+ *
+ * The sync re-expresses the unified directives *per tool*, which is right when
+ * two tools genuinely read different files — and wrong when a project has
+ * deliberately made two of them the same document. This repository requires
+ * `CLAUDE.md` and `AGENTS.md` to be byte-identical and has a test that fails
+ * when they are not; the first sync duly wrote two differently-worded versions
+ * of the same rules and broke it.
+ *
+ * The invariant is **detected, never configured**. If two target files were
+ * identical before the sync, they are made identical after it — the project has
+ * already expressed the intent by keeping them that way, and asking again in a
+ * setting would be asking for something it can see. If they differed, they are
+ * left to differ: two tools with genuinely different instructions are not a
+ * mistake to correct.
+ */
+function findMirrorGroups(workspaceRoot: string, paths: readonly string[]): string[][] {
+  const byContent = new Map<string, string[]>();
+  for (const relativePath of paths) {
+    const resolved = resolveRelativePath(workspaceRoot, relativePath);
+    if (!resolved || !existsSync(resolved)) { continue; }
+    let content: string;
+    try {
+      content = readFileSync(resolved, { encoding: 'utf8' });
+    } catch {
+      continue;
+    }
+    const group = byContent.get(content);
+    if (group) { group.push(relativePath); } else { byContent.set(content, [relativePath]); }
+  }
+  return [...byContent.values()].filter(group => group.length > 1);
+}
+
 export async function applyManagedInstructionBlock(
   workspaceRoot: string,
   renderedByTool: Record<string, string>,
@@ -424,6 +459,10 @@ export async function applyManagedInstructionBlock(
   const fallback = renderUnifiedMarkdown(unified);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
+
+  // Read the identical-file groups *before* writing: afterwards every file has
+  // been rewritten and the evidence of what the project kept in step is gone.
+  const mirrorGroups = findMirrorGroups(workspaceRoot, MANAGED_MARKDOWN_TARGETS.map(t => t.path));
 
   for (const target of MANAGED_MARKDOWN_TARGETS) {
     const resolved = resolveRelativePath(workspaceRoot, target.path);
@@ -454,6 +493,21 @@ export async function applyManagedInstructionBlock(
       updated.push(target.path);
     } catch (err) {
       skipped.push({ path: target.path, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Restore each group to one wording. The first member is the source, so the
+  // choice is stable across runs rather than depending on iteration order.
+  for (const group of mirrorGroups) {
+    const [sourcePath, ...mirrors] = group;
+    const sourceResolved = sourcePath ? resolveRelativePath(workspaceRoot, sourcePath) : undefined;
+    if (!sourceResolved || !existsSync(sourceResolved)) { continue; }
+    const sourceText = readFileSync(sourceResolved, { encoding: 'utf8' });
+    for (const mirrorPath of mirrors) {
+      const mirrorResolved = resolveRelativePath(workspaceRoot, mirrorPath);
+      if (!mirrorResolved || !existsSync(mirrorResolved)) { continue; }
+      if (readFileSync(mirrorResolved, { encoding: 'utf8' }) === sourceText) { continue; }
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(mirrorResolved), Buffer.from(sourceText, 'utf8'));
     }
   }
 
