@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.305.1 — Delivery record
+
+Housekeeping. Saves the record of the promotion run that failed earlier, which is what prompted the
+"Ask Atlas to fix this" button. No behaviour change.
+
+---
+
 ## v0.305.0 — Every agent gets the rules, not just the ones already set up
 
 If someone opened this project in Cursor, or an agent arrived through Antigravity, they worked without

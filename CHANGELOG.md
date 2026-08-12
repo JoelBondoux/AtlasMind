@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.1] - 2026-08-12
+
+### Changed
+
+- Recorded the delivery audit trail the extension wrote during this session: the promotion attempt to
+  Production at 14:11 that failed at its preflight (v0.302.0), plus the matching append-only history
+  entry. This is the run that prompted the "Ask Atlas to fix this" affordance added in 0.303.0 —
+  committed because `delivery-history.json` is an immutable record and leaving it in the working tree
+  would lose it.
+
+
 ## [0.305.0] - 2026-08-12
 
 ### Changed
