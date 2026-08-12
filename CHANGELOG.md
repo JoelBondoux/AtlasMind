@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.294.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now owns structured preview-data collections.** Format v10 adds bounded text, number, boolean,
+  HTTPS URL, and ISO-date fields plus deliberate sample records. UI System provides visual collection editing,
+  while the Markdown mirror records schemas, fixture counts, consumers, and node mappings.
+- **Canvas nodes can bind title, body, and action slots to one explicit sample record.** Studio and Full Preview
+  render the same declared values and label their collection/sample provenance; no live connector or network
+  request participates in this design-review path.
+- **Content completeness is diagnosed at the owning node.** Missing collections, records, fields, sample values,
+  and empty/loading/error/success presentations appear beside the existing responsive findings.
+- **The sample-data authority decision is recorded.** The v10 ADR keeps review fixtures separate from production
+  records, credentials, live adapters, Markdown page copy, and later asset metadata.
+
+### Security
+
+- **Collection and binding edits use exact revision-checked commands.** Values and cardinalities are bounded,
+  URL samples require HTTPS, used collections/fields/records cannot be removed through the editor, and stale
+  hand-edited references remain visible diagnostics instead of disappearing during sanitation.
+
+### Changed
+
+- **Website workspace format advances from v9 to v10.** Migration adds only an empty collection authority and
+  invents no schema, fixture, value, node binding, or production-data claim.
+
 ## [0.293.1] - 2026-08-12
 
 ### Added

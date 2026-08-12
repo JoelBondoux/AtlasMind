@@ -218,10 +218,10 @@ describe('WebsiteWorkspaceManager', () => {
     const json = await readFile(path.join(root, WEBSITE_WORKSPACE_SSOT_PATH), 'utf8');
     const markdown = await readFile(path.join(root, WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH), 'utf8');
     expect(JSON.parse(json)).toMatchObject({
-      version: 9,
+      version: 10,
       surfaceKind: 'website',
       intake: { projectName: 'Client Site' },
-      designGraph: { revision: 0, tokens: [], components: [], screens: expect.any(Array) },
+      designGraph: { revision: 0, tokens: [], components: [], contentCollections: [], screens: expect.any(Array) },
     });
     expect(markdown).toContain('# UI Studio');
     expect(markdown).toContain('## Content Design');
@@ -257,6 +257,11 @@ describe('WebsiteWorkspaceManager', () => {
         id: 'button', label: 'Button', description: '', rootKind: 'cta', properties: [], slots: [],
         variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default', 'hover'],
       }],
+      contentCollections: [{
+        id: 'actions', label: 'Actions', description: 'Review fixtures',
+        fields: [{ id: 'label', label: 'Label', kind: 'text', required: true }],
+        samples: [{ id: 'retry', label: 'Retry sample', values: { label: 'Retry now' } }],
+      }],
       screens: config.designGraph.screens.map((screen, index) => index === 0 ? {
         ...screen, initialized: true, nodes: [{
           id: 'action', kind: 'cta', label: 'Action', locked: false,
@@ -267,6 +272,7 @@ describe('WebsiteWorkspaceManager', () => {
           contentStatePresentations: {
             error: { title: 'Unavailable', body: 'Try again.', actionLabel: 'Retry', maturity: 'reviewed' },
           },
+          dataBinding: { collectionId: 'actions', sampleRecordId: 'retry', fieldMappings: { action: 'label' } },
         }],
       } : screen),
     };
@@ -275,6 +281,9 @@ describe('WebsiteWorkspaceManager', () => {
     expect(markdown).toContain('| Button (button) | cta | 0 | 0 | 1 | default, hover | 1 |');
     expect(markdown).toContain('### Content state designs');
     expect(markdown).toContain('error (reviewed) | error |');
+    expect(markdown).toContain('### Structured sample-data collections');
+    expect(markdown).toContain('| Actions (actions) | 1 | 1 | 1 |');
+    expect(markdown).toContain('action → label');
   });
 
   it('seeds bootstrap state once without overwriting an existing client plan', async () => {

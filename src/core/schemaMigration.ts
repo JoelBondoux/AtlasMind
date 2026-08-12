@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 9,
+  website: 10,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -295,6 +295,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
     to: 9,
     summary: 'UI Studio nodes may now declare explicit empty, loading, error, and success presentations.',
     migrate: document => ({ ...document, version: 9 }),
+  },
+  {
+    kind: 'website',
+    from: 9,
+    to: 10,
+    summary: 'UI Studio now stores bounded sample-data collections and explicit node bindings.',
+    migrate: document => ({
+      ...document,
+      version: 10,
+      designGraph: {
+        ...asMigrationRecord(document['designGraph']),
+        contentCollections: [],
+      },
+    }),
   },
 ];
 

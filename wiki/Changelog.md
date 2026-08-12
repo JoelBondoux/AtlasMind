@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.294.0 — Structured sample data and explicit bindings
+
+UI Studio format v10 adds bounded preview-only content collections with typed fields and deliberate sample
+records. UI System edits the schema and fixtures; a canvas node explicitly maps title, body, and action slots
+to one sample. Studio, Full Preview, and the Markdown mirror consume the same graph facts without a live-data
+connector or network request.
+
+The canvas now reports missing collections, records, fields, values, and empty/loading/error/success designs at
+the node that owns them. Exact revisioned commands protect collection and binding changes, used facts cannot be
+removed underneath a binding, and migration adds only an empty collection authority—never invented data.
+
 ## v0.293.1 — One command for a branch's version-marker conflicts
 
 Every commit here bumps `package.json` and writes release notes. That rule is worth its cost — the version

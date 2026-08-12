@@ -306,14 +306,26 @@ describe('Website Studio webview boundary', () => {
       properties: [{ id: 'label', label: 'Label', kind: 'text', defaultValue: 'Continue' }],
       slots: [], variants: [{ id: 'primary', label: 'Primary', propertyValues: {} }], states: ['default', 'hover'],
     }];
+    config.designGraph.contentCollections = [{
+      id: 'actions', label: 'Actions', description: 'Fixtures',
+      fields: [{ id: 'label', label: 'Label', kind: 'text', required: true }],
+      samples: [{ id: 'buy', label: 'Buy sample', values: { label: 'Buy' } }],
+    }];
     config.designGraph.screens[0]!.nodes[0]!.componentInstance = {
       definitionId: 'button', variantId: 'primary', state: 'hover', propertyOverrides: { label: 'Buy' },
+    };
+    config.designGraph.screens[0]!.nodes[0]!.dataBinding = {
+      collectionId: 'actions', sampleRecordId: 'buy', fieldMappings: { action: 'label' },
     };
     const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'ui-system', { scriptContent: '/* canvas */' });
     expect(html).toContain('Reusable components');
     expect(html).toContain('id="designComponentEditor"');
     expect(html).toContain('&quot;components&quot;:[{');
     expect(html).toContain('&quot;component&quot;:{&quot;definitionId&quot;:&quot;button&quot;');
+    expect(html).toContain('Structured content collections');
+    expect(html).toContain('id="contentCollectionEditor"');
+    expect(html).toContain('&quot;contentCollections&quot;:[{');
+    expect(html).toContain('&quot;dataBinding&quot;:{&quot;collectionId&quot;:&quot;actions&quot;');
   });
 
   it('makes the built-in browser preview a numbered design step', () => {
@@ -420,6 +432,7 @@ describe('UI Studio canvas command wiring', () => {
       'add-token', 'set-token', 'delete-token',
       'add-component', 'set-component', 'delete-component', 'set-node-component', 'set-node-component-slot',
       'set-node-content-state', 'set-node-preview-content-state',
+      'add-content-collection', 'set-content-collection', 'delete-content-collection', 'set-node-data-binding',
     ]) {
       expect(source).toContain(`'${command}'`);
     }
@@ -451,5 +464,7 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain('Unknown is not treated as a pass.');
     expect(source).toContain('Content states');
     expect(source).toContain('[PLACEHOLDER: …]');
+    expect(source).toContain('Sample data binding');
+    expect(source).toContain('CONTENT_DIAGNOSTIC_CODES');
   });
 });

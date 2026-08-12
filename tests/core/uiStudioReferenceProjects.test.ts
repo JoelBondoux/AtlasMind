@@ -28,7 +28,7 @@ function wireframeFacts(pages: readonly WebsitePagePlan[]): unknown {
 }
 
 function expectTargetIndependentGraph(graph: UiDesignGraph): void {
-  expect(Object.keys(graph).sort()).toEqual(['components', 'revision', 'screens', 'tokens']);
+  expect(Object.keys(graph).sort()).toEqual(['components', 'contentCollections', 'revision', 'screens', 'tokens']);
   for (const screen of graph.screens) {
     expect(Object.keys(screen).sort()).toEqual([
       'baseBreakpoint', 'id', 'initialized', 'nodes', 'pageId',
@@ -56,7 +56,7 @@ function expectTargetIndependentGraph(graph: UiDesignGraph): void {
 }
 
 describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', reference => {
-  it('migrates every legacy wireframe fact to v9 and preserves it through save/reopen', async () => {
+  it('migrates every legacy wireframe fact to v10 and preserves it through save/reopen', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), `atlasmind-${reference.id}-`));
     temporaryRoots.push(root);
     const filePath = path.join(root, WEBSITE_WORKSPACE_SSOT_PATH);
@@ -68,7 +68,7 @@ describe.each(UI_STUDIO_REFERENCE_PROJECTS)('UI Studio reference: $id', referenc
     const legacyPages = reference.legacyWorkspace.pages;
 
     expect(read.preserveExisting).toBe(false);
-    expect(read.config).toMatchObject({ version: 9, surfaceKind: reference.surfaceKind });
+    expect(read.config).toMatchObject({ version: 10, surfaceKind: reference.surfaceKind });
     expect(wireframeFacts(read.config.pages)).toEqual(wireframeFacts(legacyPages));
     expectTargetIndependentGraph(read.config.designGraph);
 

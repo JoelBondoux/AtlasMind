@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.293.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.294.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.293.1
+## What's new in 0.294.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Structured sample data is now first-class design material.** UI System defines bounded collection schemas and
+  deliberate preview fixtures; canvas nodes bind title, body, and action slots to one record. Studio and Full
+  Preview render the same declared values without connecting to production data.
+- **Broken bindings and incomplete data states stay visible.** Missing collections, samples, fields, values, and
+  empty/loading/error/success designs are reported at the owning node. Exact revisioned commands protect every
+  edit, and used collection facts cannot be removed underneath a binding.
 
 - **Empty, loading, error, and success copy can now be designed in context.** Every canvas node can own bounded
   state title/body/action copy with visible maturity, choose a state for review, and render it identically in

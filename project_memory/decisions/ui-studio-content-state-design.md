@@ -37,5 +37,6 @@ deterministically and labels maturity; it never invents missing state copy.
 
 - [x] Add bounded state-presentation types, sanitation, exact commands, and history. Shipped in v0.293.0.
 - [x] Add canvas editing and deterministic Full Preview projection. Shipped in v0.293.0.
-- [ ] Add owning-node missing-state diagnostics with the data-binding slice.
-- [ ] Add structured collections, sample-data bindings, and asset metadata in subsequent Phase 4 slices.
+- [x] Add owning-node missing-state diagnostics with the data-binding slice. Shipped in v0.294.0.
+- [x] Add structured collections and sample-data bindings. Shipped in v0.294.0.
+- [ ] Add asset metadata in the next Phase 4 slice.

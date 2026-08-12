@@ -15,6 +15,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   ClientWebsiteIntake,
   UiComponentDefinition,
+  UiContentCollection,
   UiDesignScreen,
   UiContentDesign,
   UiDesignToken,
@@ -53,7 +54,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 9;
+const WEBSITE_SCHEMA_VERSION = 10;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -460,6 +461,18 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     '| Screen / node | Designed states | Previewing |',
     '|---|---|---|',
     ...renderContentStateRows(config.designGraph.screens),
+    '',
+    '### Structured sample-data collections',
+    '',
+    '| Collection | Fields | Sample records | Bound nodes |',
+    '|---|---:|---:|---:|',
+    ...renderContentCollectionRows(config.designGraph.contentCollections, config.designGraph.screens),
+    '',
+    '### Node sample-data bindings',
+    '',
+    '| Screen / node | Collection | Sample | Field mappings |',
+    '|---|---|---|---|',
+    ...renderContentBindingRows(config.designGraph.screens),
     '',
     '## Implementation Guide',
     '',
@@ -1324,6 +1337,25 @@ function renderContentStateRows(screens: readonly UiDesignScreen[]): string[] {
     return [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${states.join(', ')} | ${node.previewContentState ?? 'default'} |`];
   }));
   return rows.length > 0 ? rows : ['| _None designed_ | — | — |'];
+}
+
+function renderContentCollectionRows(
+  collections: readonly UiContentCollection[],
+  screens: readonly UiDesignScreen[],
+): string[] {
+  if (collections.length === 0) { return ['| _None defined_ | — | — | — |']; }
+  return collections.map(collection => {
+    const consumers = screens.flatMap(screen => screen.nodes)
+      .filter(node => node.dataBinding?.collectionId === collection.id).length;
+    return `| ${escapeMarkdownCell(collection.label)} (${collection.id}) | ${collection.fields.length} | ${collection.samples.length} | ${consumers} |`;
+  });
+}
+
+function renderContentBindingRows(screens: readonly UiDesignScreen[]): string[] {
+  const rows = screens.flatMap(screen => screen.nodes.flatMap(node => node.dataBinding
+    ? [`| ${escapeMarkdownCell(screen.pageId)} / ${escapeMarkdownCell(node.label)} (${node.id}) | ${node.dataBinding.collectionId} | ${node.dataBinding.sampleRecordId} | ${Object.entries(node.dataBinding.fieldMappings).map(([slot, field]) => `${slot} → ${field}`).join(', ')} |`]
+    : []));
+  return rows.length > 0 ? rows : ['| _None bound_ | — | — | — |'];
 }
 
 function markdownValue(value: string | undefined): string {

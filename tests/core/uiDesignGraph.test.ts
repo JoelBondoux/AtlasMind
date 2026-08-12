@@ -2,13 +2,16 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   applyDesignGraphToPages,
+  diagnoseUiContentBindings,
   diagnoseUiScreenLayout,
   designGraphFromPages,
   resolveUiDesignToken,
   resolveUiComponentInstance,
   resolveUiNodeLayout,
+  resolveUiNodeContent,
   resolveUiScreenLayout,
   sanitizeUiDesignGraph,
+  sanitizeUiContentCollections,
   UI_DESIGN_GRAPH_MAX_REVISION,
   UI_DESIGN_GRAPH_MAX_TOKENS,
   wireframeFromScreen,
@@ -448,6 +451,50 @@ describe('UI design graph', () => {
     expect(reordered.get('copy')?.provenance.order).toEqual({ kind: 'override', breakpoint: 'mobile' });
   });
 
+  it('sanitizes bounded sample collections and resolves explicit node bindings without live data', () => {
+    const collections = sanitizeUiContentCollections([{
+      id: 'products', label: 'Products', description: 'Deliberate review fixtures',
+      fields: [
+        { id: 'name', label: 'Name', kind: 'text', required: true },
+        { id: 'price', label: 'Price', kind: 'number', required: true },
+        { id: 'url', label: 'URL', kind: 'url', required: false },
+      ],
+      samples: [{ id: 'starter', label: 'Starter', values: {
+        name: 'Starter plan', price: 12, url: 'http://unsafe.example', ignored: 'drop me',
+      } }],
+    }]);
+    expect(collections[0]?.samples[0]?.values).toEqual({ name: 'Starter plan', price: 12 });
+
+    const graph = designGraphFromPages(pagesWithWireframe());
+    graph.contentCollections = collections;
+    const node = graph.screens[0]!.nodes[0]!;
+    node.dataBinding = {
+      collectionId: 'products', sampleRecordId: 'starter',
+      fieldMappings: { title: 'name', body: 'price' },
+    };
+    expect(resolveUiNodeContent(graph, node)).toMatchObject({
+      collectionLabel: 'Products', sampleRecordLabel: 'Starter',
+      values: { title: 'Starter plan', body: '12' },
+    });
+    expect(diagnoseUiContentBindings(graph, graph.screens[0]!))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'content-state-missing', nodeIds: ['hero'] }),
+      ]));
+  });
+
+  it('retains well-shaped stale bindings so owning-node diagnostics can report the exact break', () => {
+    const graph = designGraphFromPages(pagesWithWireframe());
+    const node = graph.screens[0]!.nodes[0]!;
+    node.dataBinding = {
+      collectionId: 'missing', sampleRecordId: 'missing-record', fieldMappings: { title: 'missing-field' },
+    };
+    const sanitized = sanitizeUiDesignGraph(graph, pagesWithWireframe());
+    expect(sanitized.screens[0]!.nodes[0]!.dataBinding).toEqual(node.dataBinding);
+    expect(diagnoseUiContentBindings(sanitized, sanitized.screens[0]!)[0]).toMatchObject({
+      code: 'collection-not-found', severity: 'error', nodeIds: ['hero'],
+    });
+  });
+
   it('is total for arbitrary untrusted graph input', () => {
     const pages = pagesWithWireframe();
     fc.assert(fc.property(fc.anything(), input => {
@@ -455,6 +502,7 @@ describe('UI design graph', () => {
       expect(graph.screens).toHaveLength(pages.length);
       expect(graph.tokens.length).toBeLessThanOrEqual(UI_DESIGN_GRAPH_MAX_TOKENS);
       expect(graph.components.length).toBeLessThanOrEqual(100);
+      expect(graph.contentCollections.length).toBeLessThanOrEqual(50);
       expect(Number.isSafeInteger(graph.revision)).toBe(true);
       for (const screen of graph.screens) {
         expect(pages.some(page => page.id === screen.pageId)).toBe(true);

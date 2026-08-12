@@ -14,7 +14,11 @@ import type {
   UiComponentPropertyKind,
   UiComponentPropertyValue,
   UiComponentState,
+  UiContentCollection,
+  UiContentDiagnostic,
+  UiContentFieldKind,
   UiContentMaturity,
+  UiContentSampleValue,
   UiDesignGraph,
   UiDesignNode,
   UiDesignScreen,
@@ -28,6 +32,7 @@ import type {
   UiLayoutWrap,
   UiNodeViewportOverride,
   UiNodeContentState,
+  UiNodeDataBinding,
   UiSizeMode,
   WebsitePagePlan,
   WebsiteWireframe,
@@ -49,6 +54,9 @@ export const UI_DESIGN_GRAPH_MAX_REVISION = 2_147_483_647;
 const MAX_REFERENCE_LENGTH = 160;
 export const UI_DESIGN_GRAPH_MAX_TOKENS = 200;
 export const UI_DESIGN_GRAPH_MAX_COMPONENTS = 100;
+export const UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS = 50;
+export const UI_CONTENT_COLLECTION_MAX_FIELDS = 20;
+export const UI_CONTENT_COLLECTION_MAX_SAMPLES = 50;
 export const UI_COMPONENT_MAX_PROPERTIES = 30;
 export const UI_COMPONENT_MAX_SLOTS = 20;
 export const UI_COMPONENT_MAX_VARIANTS = 30;
@@ -65,6 +73,8 @@ const COMPONENT_STATES = new Set<UiComponentState>([
 ]);
 const NODE_CONTENT_STATES = new Set<UiNodeContentState>(['default', 'empty', 'loading', 'error', 'success']);
 const CONTENT_MATURITIES = new Set<UiContentMaturity>(['placeholder', 'draft', 'reviewed', 'approved']);
+const CONTENT_FIELD_KINDS = new Set<UiContentFieldKind>(['text', 'number', 'boolean', 'url', 'date']);
+const NODE_CONTENT_SLOTS = new Set(['title', 'body', 'action']);
 const MOTION_EASINGS = new Set(['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']);
 const LAYOUT_MODES = new Set<UiLayoutMode>(['free', 'stack', 'grid', 'overlay']);
 const SIZE_MODES = new Set<UiSizeMode>(['fixed', 'fill', 'hug']);
@@ -739,6 +749,7 @@ export function designGraphFromPages(
     revision: sanitizeRevision(revision),
     tokens: [],
     components: [],
+    contentCollections: [],
     screens: pages.map(page => screenFromPage(page)),
   };
 }
@@ -766,10 +777,12 @@ export function sanitizeUiDesignGraph(
   }
 
   const components = sanitizeUiComponentDefinitions(source['components']);
+  const contentCollections = sanitizeUiContentCollections(source['contentCollections']);
   return {
     revision: sanitizeRevision(source['revision']),
     tokens: sanitizeUiDesignTokens(source['tokens']),
     components,
+    contentCollections,
     screens: pages.map(page => {
       const candidate = byPageId.get(page.id);
       return candidate ? sanitizeScreen(candidate, page, components) : screenFromPage(page);
@@ -1176,6 +1189,7 @@ function sanitizeScreen(
       const constraints = sanitizeConstraintSet(layout);
       const componentInstance = sanitizeUiComponentInstance(raw['componentInstance'], components, element.kind);
       const contentStatePresentations = sanitizeNodeStatePresentations(raw['contentStatePresentations']);
+      const dataBinding = sanitizeUiNodeDataBinding(raw['dataBinding']);
       const previewContentState = NODE_CONTENT_STATES.has(raw['previewContentState'] as UiNodeContentState)
         ? raw['previewContentState'] as UiNodeContentState
         : 'default';
@@ -1225,6 +1239,7 @@ function sanitizeScreen(
         ...optionalComponentSlot(raw['componentSlot']),
         ...(previewContentState !== 'default' ? { previewContentState } : {}),
         ...(Object.keys(contentStatePresentations).length > 0 ? { contentStatePresentations } : {}),
+        ...(dataBinding ? { dataBinding } : {}),
       };
     }) : [];
   sanitizeComponentSlotsOnNodes(nodes, components);
@@ -1257,6 +1272,183 @@ export function sanitizeNodeStatePresentations(
     result[state] = { title, body, actionLabel, maturity: maturity === 'approved' && unresolved ? 'placeholder' : maturity };
   }
   return result;
+}
+
+export interface ResolvedUiNodeContent {
+  collectionId: string;
+  collectionLabel: string;
+  sampleRecordId: string;
+  sampleRecordLabel: string;
+  values: Partial<Record<'title' | 'body' | 'action', string>>;
+}
+
+/** Resolve only declared sample facts. Missing references stay absent and are diagnosed separately. */
+export function resolveUiNodeContent(
+  graph: UiDesignGraph,
+  node: UiDesignNode,
+): ResolvedUiNodeContent | undefined {
+  const binding = node.dataBinding;
+  if (!binding) { return undefined; }
+  const collection = graph.contentCollections.find(candidate => candidate.id === binding.collectionId);
+  const sample = collection?.samples.find(candidate => candidate.id === binding.sampleRecordId);
+  if (!collection || !sample) { return undefined; }
+  const values: ResolvedUiNodeContent['values'] = {};
+  for (const [slot, fieldId] of Object.entries(binding.fieldMappings)) {
+    if (!NODE_CONTENT_SLOTS.has(slot) || !collection.fields.some(field => field.id === fieldId)) { continue; }
+    const value = sample.values[fieldId];
+    if (value !== undefined) { values[slot as keyof ResolvedUiNodeContent['values']] = String(value); }
+  }
+  return {
+    collectionId: collection.id,
+    collectionLabel: collection.label,
+    sampleRecordId: sample.id,
+    sampleRecordLabel: sample.label,
+    values,
+  };
+}
+
+/** Report broken bindings and missing state designs at the node that owns the decision. */
+export function diagnoseUiContentBindings(
+  graph: UiDesignGraph,
+  screen: UiDesignScreen,
+): UiContentDiagnostic[] {
+  const diagnostics: UiContentDiagnostic[] = [];
+  for (const node of screen.nodes) {
+    const binding = node.dataBinding;
+    if (!binding) { continue; }
+    const collection = graph.contentCollections.find(candidate => candidate.id === binding.collectionId);
+    if (!collection) {
+      diagnostics.push({
+        code: 'collection-not-found', severity: 'error', nodeIds: [node.id],
+        message: `${node.label} references missing collection ${binding.collectionId}.`,
+      });
+      continue;
+    }
+    const sample = collection.samples.find(candidate => candidate.id === binding.sampleRecordId);
+    if (!sample) {
+      diagnostics.push({
+        code: 'sample-record-not-found', severity: 'error', nodeIds: [node.id],
+        message: `${node.label} references missing sample ${binding.sampleRecordId} in ${collection.label}.`,
+      });
+    }
+    for (const [slot, fieldId] of Object.entries(binding.fieldMappings)) {
+      const field = collection.fields.find(candidate => candidate.id === fieldId);
+      if (!field) {
+        diagnostics.push({
+          code: 'field-not-found', severity: 'error', nodeIds: [node.id],
+          message: `${node.label}'s ${slot} binding references missing field ${fieldId}.`,
+        });
+      } else if (sample && sample.values[fieldId] === undefined) {
+        diagnostics.push({
+          code: 'sample-value-missing', severity: field.required ? 'error' : 'warning', nodeIds: [node.id],
+          message: `${node.label}'s sample has no ${field.label} value for its ${slot}.`,
+        });
+      }
+    }
+    for (const state of ['empty', 'loading', 'error', 'success'] as const) {
+      if (!node.contentStatePresentations?.[state]) {
+        diagnostics.push({
+          code: 'content-state-missing', severity: 'warning', nodeIds: [node.id],
+          message: `${node.label} is data-bound but has no designed ${state} presentation.`,
+        });
+      }
+    }
+  }
+  return diagnostics;
+}
+
+/** Sanitize one binding structurally while retaining stale references for owning-node diagnostics. */
+export function sanitizeUiNodeDataBinding(input: unknown): UiNodeDataBinding | undefined {
+  const source = asRecord(input);
+  const collectionId = cleanIdentifier(source['collectionId']);
+  const sampleRecordId = cleanIdentifier(source['sampleRecordId']);
+  const rawMappings = asRecord(source['fieldMappings']);
+  const fieldMappings: UiNodeDataBinding['fieldMappings'] = {};
+  for (const [slot, value] of Object.entries(rawMappings)) {
+    if (!NODE_CONTENT_SLOTS.has(slot)) { continue; }
+    const fieldId = cleanIdentifier(value);
+    if (fieldId) { fieldMappings[slot as keyof UiNodeDataBinding['fieldMappings']] = fieldId; }
+  }
+  return collectionId && sampleRecordId && Object.keys(fieldMappings).length > 0
+    ? { collectionId, sampleRecordId, fieldMappings }
+    : undefined;
+}
+
+/** Sanitize preview-only structured collections at persisted and exact-command boundaries. */
+export function sanitizeUiContentCollections(input: unknown): UiContentCollection[] {
+  const rawCollections = Array.isArray(input)
+    ? input.slice(0, UI_DESIGN_GRAPH_MAX_CONTENT_COLLECTIONS)
+    : [];
+  const collections: UiContentCollection[] = [];
+  const collectionIds = new Set<string>();
+  for (const candidate of rawCollections) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    const description = cleanComponentText(source['description'], 500, true);
+    if (!id || !label || description === undefined || collectionIds.has(id)) { continue; }
+    const fields = sanitizeContentFields(source['fields']);
+    const samples = sanitizeContentSamples(source['samples'], fields);
+    collections.push({ id, label, description, fields, samples });
+    collectionIds.add(id);
+  }
+  return collections;
+}
+
+function sanitizeContentFields(input: unknown): UiContentCollection['fields'] {
+  const raw = Array.isArray(input) ? input.slice(0, UI_CONTENT_COLLECTION_MAX_FIELDS) : [];
+  const fields: UiContentCollection['fields'] = [];
+  const ids = new Set<string>();
+  for (const candidate of raw) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    const kind = CONTENT_FIELD_KINDS.has(source['kind'] as UiContentFieldKind)
+      ? source['kind'] as UiContentFieldKind
+      : undefined;
+    if (!id || !label || !kind || ids.has(id)) { continue; }
+    fields.push({ id, label, kind, required: source['required'] === true });
+    ids.add(id);
+  }
+  return fields;
+}
+
+function sanitizeContentSamples(
+  input: unknown,
+  fields: readonly UiContentCollection['fields'][number][],
+): UiContentCollection['samples'] {
+  const raw = Array.isArray(input) ? input.slice(0, UI_CONTENT_COLLECTION_MAX_SAMPLES) : [];
+  const samples: UiContentCollection['samples'] = [];
+  const ids = new Set<string>();
+  const fieldById = new Map(fields.map(field => [field.id, field]));
+  for (const candidate of raw) {
+    const source = asRecord(candidate);
+    const id = cleanIdentifier(source['id']);
+    const label = cleanComponentText(source['label'], 120);
+    if (!id || !label || ids.has(id)) { continue; }
+    const values: Record<string, UiContentSampleValue> = {};
+    for (const [fieldId, value] of Object.entries(asRecord(source['values']))) {
+      const field = fieldById.get(fieldId);
+      const sanitized = field ? sanitizeContentSampleValue(field.kind, value) : undefined;
+      if (sanitized !== undefined) { values[fieldId] = sanitized; }
+    }
+    samples.push({ id, label, values });
+    ids.add(id);
+  }
+  return samples;
+}
+
+function sanitizeContentSampleValue(kind: UiContentFieldKind, input: unknown): UiContentSampleValue | undefined {
+  if (kind === 'boolean') { return typeof input === 'boolean' ? input : undefined; }
+  if (kind === 'number') {
+    return typeof input === 'number' && Number.isFinite(input) && input >= -1_000_000_000 && input <= 1_000_000_000
+      ? input : undefined;
+  }
+  if (typeof input !== 'string') { return undefined; }
+  const cleaned = input.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 2_000);
+  if (kind === 'url') { return /^https:\/\/[^\s]{1,1992}$/i.test(cleaned) ? cleaned : undefined; }
+  if (kind === 'date') { return /^\d{4}-\d{2}-\d{2}$/.test(cleaned) ? cleaned : undefined; }
+  return cleaned;
 }
 
 function cleanStateCopy(input: unknown, maximum: number): string | undefined {
