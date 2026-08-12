@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.291.1 — The orchestrator says when it discards an answer
+## v0.291.2 — The orchestrator says when it discards an answer
 
 When every tool result in an agentic loop's final round tests as failed, AtlasMind throws away the
 model's completion and substitutes a summary of the failures. That test matches substrings such as

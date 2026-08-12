@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.291.1] - 2026-08-12
+## [0.291.2] - 2026-08-12
 
 ### Added
 
@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   substring or keyword match (the false-positive class). Tool output itself is never logged, only the
   trigger token, because the log persists and tool results can carry secrets. Diagnostic only: nothing
   branches on it and the substitution behaviour is unchanged.
+
+  The predicate and the diagnostic are now **one function**, `classifyToolFailure`. Written as two
+  they drifted immediately — the diagnostic was missing the predicate's `requires .*true` alternative,
+  so a result matching only that was discarded as a failure while the log called it `unclassified`. A
+  diagnostic that mis-reports the branch it exists to measure is worse than none, because the
+  measurement looks complete; deriving both from one classifier makes that unrepresentable rather than
+  merely fixed, and a test walks every alternative.
 
 ### Fixed
 

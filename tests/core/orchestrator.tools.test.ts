@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldOpenEndpointCircuit, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldOpenEndpointCircuit, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -5099,5 +5099,70 @@ describe('task-scoped skill context', () => {
       skills: [],
       skillPolicy: 'task-scoped',
     })).toMatchObject({ skills: [], skillPolicy: 'task-scoped' });
+  });
+});
+
+describe('classifyToolFailure', () => {
+  // The predicate that replaces a model's answer and the diagnostic that reports
+  // *why* were once two functions, and drifted: the diagnostic was missing the
+  // regex's `requires .*true` alternative, so a result matching only that was
+  // discarded as a failure while the log called it "unclassified". A diagnostic
+  // that mis-reports the branch it exists to measure is worse than none, because
+  // the measurement looks complete. These pin the single-source-of-truth.
+
+  /** One example per alternative the predicate recognises. */
+  const TRIGGERS: ReadonlyArray<{ result: string; expected: string }> = [
+    { result: 'Error: Command "gh" is not on the allow-list.', expected: 'declared (error:)' },
+    { result: 'Skill "deploy" is not enabled for this agent.', expected: 'declared (skill refusal)' },
+    { result: 'Unknown tool: frobnicate', expected: 'declared (unknown tool:)' },
+    { result: 'Invalid arguments for file-read', expected: 'declared (invalid arguments)' },
+    { result: 'Tests failed (exit 1): 3 assertions', expected: 'substring ("failed")' },
+    { result: 'The requested path was not found on disk', expected: 'keyword ("not found")' },
+    { result: 'That directory does not exist', expected: 'keyword ("does not exist")' },
+    { result: 'No such revision in this repository', expected: 'keyword ("no such")' },
+    { result: 'The request timed out after 15s', expected: 'keyword ("timed out")' },
+    { result: 'Blocked: denied by policy', expected: 'keyword ("denied by policy")' },
+    { result: 'AtlasMind was denied access to that path', expected: 'keyword ("was denied")' },
+    { result: 'Unable to reach the configured endpoint', expected: 'keyword ("unable to")' },
+    { result: 'Cannot find name "Foo"', expected: 'keyword ("cannot")' },
+    { result: "Can't resolve that module", expected: 'keyword ("can\'t")' },
+    { result: 'Could not open the workspace', expected: 'keyword ("could not")' },
+    { result: 'You must provide a target path', expected: 'keyword ("must provide")' },
+    { result: 'This action requires confirmation', expected: 'keyword ("requires confirmation")' },
+  ];
+
+  it.each(TRIGGERS)('classifies $expected', ({ result, expected }) => {
+    expect(classifyToolFailure(result)).toBe(expected);
+  });
+
+  it('classifies the dynamic `requires .*true` alternative rather than leaving it unnamed', () => {
+    // The alternative that drifted. It must name a trigger, never fall through.
+    const classified = classifyToolFailure('This operation requires force=true to proceed');
+    expect(classified).toBeDefined();
+    expect(classified).toContain('requires');
+  });
+
+  it('clamps the dynamic capture, because it reaches a log line', () => {
+    const classified = classifyToolFailure(`requires ${'x'.repeat(500)} true`);
+    expect(classified).toBeDefined();
+    expect(classified!.length).toBeLessThan(80);
+  });
+
+  it('never embeds a raw quote from the `skill "` prefix into the label', () => {
+    // Deriving the label from the prefix rendered as: declared ("skill "")
+    expect(classifyToolFailure('Skill "x" is disabled')).not.toContain('""');
+  });
+
+  it('returns undefined for ordinary tool output', () => {
+    expect(classifyToolFailure('export const answer = 42;')).toBeUndefined();
+    expect(classifyToolFailure('')).toBeUndefined();
+  });
+
+  it('is the same decision the replacement branch makes', () => {
+    // looksLikeToolFailure is `classifyToolFailure(...) !== undefined`. If a
+    // future edit re-splits them, this fails on the first alternative that drifts.
+    for (const { result } of TRIGGERS) {
+      expect(classifyToolFailure(result), result).toBeDefined();
+    }
   });
 });
