@@ -448,6 +448,18 @@ export class SessionConversation {
       relevanceWeight = options.relevanceWeight ?? 0;
     } else {
       // Auto-classify based on content patterns.
+      //
+      // Auto-detection labels; it never erases. A weight of 0 removes an entry
+      // from every future context build permanently, and `buildContext` filters
+      // on `> 0` — so the `/irrelevant|nonsense|ignore this/` branch could delete
+      // a user's own turn from the conversation on a substring match. "Ignore
+      // this bit of the diff" is an ordinary thing to type, and its cost was
+      // that the turn ceased to exist. Only an explicit caller may set 0 (the
+      // Memory tree does, deliberately, in the branch above).
+      //
+      // The weights below no longer decide *order* either — `buildContext` sorts
+      // chronologically and uses weight solely as an inclusion filter — so these
+      // now serve as classification metadata rather than as a ranking signal.
       classification = 'intent';
       relevanceWeight = 1;
       if (role === 'assistant' && content.match(/billing|quota|model usage|insufficient credits|subscription/i)) {
@@ -456,9 +468,9 @@ export class SessionConversation {
       } else if (role === 'assistant' && content.match(/error|failed|exception|not found|invalid/i)) {
         classification = 'error';
         relevanceWeight = 0.2;
-      } else if (content.match(/irrelevant|nonsense|ignore this/i)) {
+      } else if (role === 'assistant' && content.match(/irrelevant|nonsense|ignore this/i)) {
         classification = 'irrelevant';
-        relevanceWeight = 0;
+        relevanceWeight = 0.1;
       } else if (role === 'assistant') {
         classification = 'answer';
         relevanceWeight = 1;
@@ -586,34 +598,69 @@ export class SessionConversation {
 
   buildContext(options?: { maxTurns?: number; maxChars?: number; sessionId?: string }): string {
     const sessionId = options?.sessionId ?? this.activeSessionId;
-    // Only include entries with relevanceWeight > 0, sorted by timestamp
+    const maxTurns = normalizeLimit(options?.maxTurns, 6, 1, 20);
+    const maxChars = normalizeLimit(options?.maxChars, 2500, 400, 12000);
+
+    // `relevanceWeight` filters. It does **not** order.
+    //
+    // This used to sort by weight descending with *ascending* timestamp as the
+    // tiebreak and then slice from the front — so with every ordinary turn at
+    // weight 1 the tiebreak decided everything, and the slice kept the OLDEST
+    // entries. Past ~6 turns the carried context froze on the opening of the
+    // conversation and the turn the user had just had was never in it. Raising
+    // the limits bought more old turns; it could not buy recent ones.
+    //
+    // It also emitted whatever survived in weight order, so a demoted reply came
+    // out after later turns and the model was handed a conversation out of
+    // sequence.
     const entries = this.getTranscript(sessionId)
       .filter(entry => entry.content.trim().length > 0 && (entry.relevanceWeight ?? 1) > 0)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    // Sort by relevanceWeight descending, then recency
-    const sorted = entries.sort((a, b) => (b.relevanceWeight ?? 1) - (a.relevanceWeight ?? 1)
-      || new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    const maxTurns = normalizeLimit(options?.maxTurns, 6, 1, 20);
-    const maxChars = normalizeLimit(options?.maxChars, 2500, 400, 12000);
-    const selected = sorted.slice(0, maxTurns * 2);
+
+    // Take from the END — the most recent turns — then render oldest-first so the
+    // model reads the exchange in the order it happened.
+    const selected = entries.slice(-(maxTurns * 2));
     if (selected.length === 0) {
       return '';
     }
 
-    const blocks: string[] = [];
+    // Spend the character budget newest-first for the same reason, then restore
+    // chronological order for output. Walking oldest-first would let the earliest
+    // turns exhaust the budget and reintroduce the defect one layer down.
+    const chosen: SessionTranscriptEntry[] = [];
     let remainingChars = maxChars;
 
-    for (const entry of selected) {
+    for (let index = selected.length - 1; index >= 0; index--) {
+      const entry = selected[index]!;
       if (remainingChars <= 0) {
         break;
       }
-      const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}`;
+      const block = renderTranscriptBlock(entry);
       if (block.length > remainingChars) {
-        blocks.push(truncate(block, remainingChars));
+        // Keep a truncated form of the most recent turn rather than dropping it:
+        // an empty context is worse than a clipped one, and this only triggers
+        // when a single turn is larger than the whole budget.
+        if (chosen.length === 0) {
+          chosen.push(entry);
+        }
+        break;
+      }
+      chosen.push(entry);
+      remainingChars -= block.length + 2;
+    }
+
+    chosen.reverse();
+
+    const blocks: string[] = [];
+    let budget = maxChars;
+    for (const entry of chosen) {
+      const block = renderTranscriptBlock(entry);
+      if (block.length > budget) {
+        blocks.push(truncate(block, budget));
         break;
       }
       blocks.push(block);
-      remainingChars -= block.length + 2;
+      budget -= block.length + 2;
     }
     return blocks.join('\n\n');
   }
@@ -937,6 +984,18 @@ function isSessionPolicySnapshot(value: unknown): value is SessionPolicySnapshot
   return typeof candidate['source'] === 'string'
     && typeof candidate['label'] === 'string'
     && typeof candidate['summary'] === 'string';
+}
+
+/**
+ * One transcript entry as the model sees it.
+ *
+ * Shared so the pass that *measures* a turn against the character budget and the
+ * pass that *renders* it cannot disagree about its length — a divergence there
+ * would silently overspend the budget.
+ */
+function renderTranscriptBlock(entry: SessionTranscriptEntry): string {
+  const speaker = entry.role === 'user' ? 'User' : 'Assistant';
+  return `${speaker}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}`;
 }
 
 function normalizeLimit(value: number | undefined, fallback: number, min: number, max: number): number {

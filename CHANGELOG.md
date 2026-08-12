@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.295.1] - 2026-08-12
+
+### Fixed
+
+- **Carried chat context now holds the most recent turns instead of the oldest.** `buildContext` sorted
+  by `relevanceWeight` descending with *ascending* timestamp as the tiebreak, then sliced from the front.
+  Since every ordinary turn carries weight 1, the tiebreak decided the whole order and the slice kept the
+  **oldest** entries — so past roughly six turns the carried context froze on the opening of the
+  conversation and the turn you had just taken was never in it. Raising `chatSessionTurnLimit` or
+  `chatSessionContextChars` bought more old turns; it could not buy recent ones. Selection now takes from
+  the end and the character budget is spent newest-first, with output restored to chronological order.
+
+- **The transcript is no longer emitted out of sequence.** Because weight decided ordering, a reply
+  classified `error` — which any answer mentioning "failed", "not found" or "invalid" is — was rendered
+  after later turns, so the model received a conversation whose answers preceded their questions.
+  `relevanceWeight` now filters and never orders.
+
+- **A user's own turn can no longer be deleted by a substring match.** Auto-classification matched
+  `/irrelevant|nonsense|ignore this/` against **any** role and assigned weight 0, which removes an entry
+  from every future context build permanently. "Ignore this bit of the diff" is an ordinary thing to
+  type, and its cost was that the turn ceased to exist. Auto-detection now labels but never erases; an
+  explicit caller — the Memory tree — can still mark an entry irrelevant deliberately.
+
+- **`context.md` sections are parsed correctly.** The parser used `\z` as an end-of-string anchor.
+  JavaScript has no `\z` — that is a Perl/Ruby anchor, and in a JS regex it matches a literal `z`. With a
+  lazy quantifier in front of it, every section was cut at the first `z` after its heading: *"Decided to
+  analyze the payload"* came back as *"Decided to analy"*, with *"ze the payload"* left orphaned in the
+  summary. A trailing section containing no `z` failed to match at all and came back empty, which is why
+  Open Threads and the current state were routinely lost. Every prompt built from the bundle inherited it.
+
+### Added
+
+- **Tests for the context-retention path**, which previously had none — `tests/chat/sessionConversation.test.ts`
+  was ten lines pinning one trivial assertion, and `SessionContextManager` had no test file. That absence
+  is how all four defects above survived. The `\z` tests were confirmed to fail against the old anchor
+  before being kept.
+
 ## [0.295.0] - 2026-08-12
 
 ### Added
