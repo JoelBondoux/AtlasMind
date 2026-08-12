@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.295.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.296.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.295.0
+## What's new in 0.296.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Two safety boundaries in chat now do their job.** Nothing approves a project run on your behalf any
+  more: however a run is asked for, AtlasMind shows the plan first and — when the estimate exceeds your
+  file threshold — offers **Approve and run** rather than telling you to retype the goal with a token.
+  Separately, the data-privacy scan now inspects the whole conversation. It read only the raw transcript,
+  which a long-running session stops using once it has a compressed context file, so the scan had been
+  quietly inspecting nothing while the model still received everything.
 
 - **Assets are now first-class design data.** UI System owns validated workspace-relative or credential-free
   HTTPS references, dimensions, crop/focal intent, alt/decorative intent, and maturity; canvas nodes assign one

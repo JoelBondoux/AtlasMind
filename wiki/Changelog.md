@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.296.0 — The approval gate works, and privacy sees the whole conversation
+
+Two safety boundaries in chat were not doing their job.
+
+The **data-privacy scan** read the raw session-context string, but that string and the structured
+context bundle are alternatives, never both — once a session has a `context.md` the panel sends the
+bundle and blanks the string. The scan was inspecting nothing on the ordinary path while the model
+received the whole conversation. Every bundle field is now scanned, each labelled with the heading it
+appears under, so a notice still names where a detector fired.
+
+The **project-run approval gate** was inverted on both chat surfaces. Saying Proceed arrived
+unapproved and stopped at the file-count threshold; a raw request merely matching the project pattern
+was approved on your behalf and went straight past. The request with the least review behind it was
+the one skipping the gate. Nothing is auto-approved now.
+
+The gate also used to be a dead end — it asked you to retype the goal with a `--approve` token and
+offered no control that could do it, so the obvious retry stopped in the same place every time. It now
+shows the plan and offers **Approve and run**: a followup chip in `@atlas`, a quick-reply pill in the
+chat panel.
+
 ## v0.295.0 — Validated asset authority
 
 UI Studio format v11 adds bounded target-independent assets: stable ids, media kind, validated workspace-relative
