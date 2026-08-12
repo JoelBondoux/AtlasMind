@@ -19,6 +19,107 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.305.2 — Shared rules in every instruction file
+
+The core directives, architecture rules and coding standards now appear in all three agent instruction
+files rather than only some. No behaviour change.
+
+---
+
+## v0.305.1 — Delivery record
+
+Housekeeping. Saves the record of the promotion run that failed earlier, which is what prompted the
+"Ask Atlas to fix this" button. No behaviour change.
+
+---
+
+## v0.305.0 — Every agent gets the rules, not just the ones already set up
+
+If someone opened this project in Cursor, or an agent arrived through Antigravity, they worked without
+your testing policy, your technical-debt markers and your workflow rules — because AtlasMind only wrote
+into instruction files that already existed. Nothing warned you. It looked exactly like being covered.
+
+AtlasMind now creates those files. Open the repo in any supported tool and the rules are already there.
+
+Two of the paths were also wrong, which is worse than missing — the tool looks covered and reads
+somewhere else entirely. Cursor moved from `.cursorrules` to a `.cursor/rules/` folder, and Windsurf
+from a single file to `.windsurf/rules/`. Both old paths are kept for projects that still use them, and
+the current ones are now written too. The Cursor rule carries the frontmatter that makes it always
+apply — without it the file exists, looks right, and is quietly ignored.
+
+Antigravity turned out to need nothing new: it reads `AGENTS.md`, which AtlasMind already wrote for
+Codex.
+
+Only paths that were actually verified were added. A few other tools were considered and deliberately
+left out rather than guessed at.
+
+---
+
+## v0.304.0 — Asking whether tests were written
+
+AtlasMind has always checked that your tests *pass*. It never asked whether any were *added*.
+
+Your project declares seven testing methodologies, and every task gets told about them in firm terms.
+But that was a request to a model with nothing checking afterwards — so a methodology switched on in a
+bulk pass could sit there for months producing nothing while every turn reported success. This
+repository is the example: BDD has been enabled the whole time and has never produced a single
+Given-When-Then spec.
+
+There is now a check that looks at a piece of work and says, per policy, whether the evidence it
+requires actually appeared. Run against four real commits from this project's history, it found all
+four missing BDD evidence and two also missing property tests.
+
+The care is in what it *refuses* to flag, because a checker that complains about everything is one you
+turn off:
+
+- Documentation, config and version-bump changes owe nothing.
+- Exploratory testing can never be "missing" — it leaves no file, so there is nothing to look for.
+- Continuous and security testing are satisfied by your CI and scanners being set up, not by any
+  individual commit, so they are never raised per change.
+- If it could not see what changed, it says so rather than reporting a pass.
+
+It is also honest about what counts. Fifty unit tests do not make a property test, and a `describe`
+block is not a Given-When-Then specification however it is phrased.
+
+**Not switched on yet.** This release adds the check and the label vocabulary its issues will use; the
+part that runs it after your work, writes the missing test, or raises the issue comes next.
+
+---
+
+## v0.303.3 — Toolchain updates
+
+Maintenance only. Linter, bundler and type definitions updated; TypeScript deliberately held at 6,
+because the linter's parser does not support 7 and the upgrade breaks the build.
+
+---
+
+## v0.303.2 — Dependency housekeeping
+
+Maintenance only; nothing changes in how AtlasMind behaves.
+
+`ws` and the Azure sign-in action used by Marketplace publishing were updated, the latter checked
+against the real credential without publishing anything.
+
+Dependabot has also been told to stop offering TypeScript 7. The linter's parser only supports
+TypeScript up to 6.0, so the upgrade breaks the build outright — and because it was bundled with five
+harmless updates, it was blocking those too, every day.
+
+---
+
+## v0.303.1 — A stale instruction that would have broken releases
+
+Internal documentation fix, with no change to how AtlasMind behaves.
+
+The contributor guide described the release promotion as a squash merge. The automation has always
+done the opposite, deliberately: squashing a release makes the next one conflict on every file a
+release touches, which happened once already between 0.208.0 and 0.208.1.
+
+That mismatch was the dangerous kind. The guide reads as a specification, so the obvious "fix" is to
+change the automation to match it — reintroducing the bug. The guide now states the method, the
+reason, and which of the two wins if they ever disagree again.
+
+---
+
 ## v0.303.0 — Fixing what stopped the release
 
 Promoting to production and watching the tests fail used to leave you looking at a wall of output with

@@ -6,6 +6,177 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.305.2] - 2026-08-12
+
+### Changed
+
+- Synced the shared-instructions block into `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md`,
+  so the core directives, architecture ground rules and coding standards reach every agent that reads
+  one of them rather than only the tools whose files happened to carry them.
+
+  **The sync re-expresses the directives per tool**, which broke this repository's rule that
+  `CLAUDE.md` and `AGENTS.md` stay byte-identical — the two files ended up saying the same things in
+  different words, and `docsIntegrity` caught it. `AGENTS.md` was restored as a true copy. The sync
+  should treat a project's identical-file pairs as one target rather than re-wording each; until it
+  does, re-copy after every run.
+
+  Note the workflow block in those three files remains stale against
+  `project_memory/operations/workflow.json`; the shared-instructions sync does not refresh it, and
+  `AtlasMind: Sync Testing Protocols to AI Agents` is the command that does.
+
+
+## [0.305.1] - 2026-08-12
+
+### Changed
+
+- Recorded the delivery audit trail the extension wrote during this session: the promotion attempt to
+  Production at 14:11 that failed at its preflight (v0.302.0), plus the matching append-only history
+  entry. This is the run that prompted the "Ask Atlas to fix this" affordance added in 0.303.0 —
+  committed because `delivery-history.json` is an immutable record and leaving it in the working tree
+  would lose it.
+
+
+## [0.305.0] - 2026-08-12
+
+### Changed
+
+- **Every agent that opens this repository now finds the project's rules already there.** The
+  instruction sync wrote only into files that *already existed* — so a developer starting with Cursor,
+  or an agent arriving via Antigravity, worked without the testing policy, the debt markers or the
+  workflow rules, and nothing said so. Silent non-coverage, which is the failure mode worth engineering
+  against: it looks identical to being covered.
+
+  Paths marked `seed` are now created when absent. One spelling per tool is ever seeded; superseded
+  spellings are updated where a project already carries one and never created, or the same rules would
+  land in two files a tool might read twice.
+
+- **Corrected two stale paths and added three verified ones.** `.cursorrules` is deprecated in favour of
+  a `.cursor/rules/*.mdc` directory, and `WINDSURF.md` matches no Windsurf convention. Both are kept as
+  fallbacks for projects that still carry them; the current paths are now seeded alongside.
+
+  Added: `.cursor/rules/atlasmind.mdc`, `.windsurf/rules/atlasmind.md`, and `.agents/rules/atlasmind.md`
+  for Antigravity's workspace rules. The Cursor rule carries `alwaysApply: true` frontmatter, without
+  which Cursor loads it only when it judges it relevant — meaning the file would exist, look correct,
+  and do nothing.
+
+  **Only verified paths were added.** Amp, JetBrains Junie, Zed and Kiro were considered and left out
+  because their contracts were not confirmed in this pass; a guessed path is worse than a missing one,
+  since it looks like coverage in the list while the tool reads somewhere else.
+
+- **Antigravity needed no new mechanism.** It reads `AGENTS.md`, the cross-tool format already synced
+  for OpenAI Codex, so it was covered before this change — the target is now labelled for both.
+
+
+## [0.304.0] - 2026-08-12
+
+### Added
+
+- **`testingObligation.ts` — the check that asks whether tests were *added*, not merely whether they
+  passed.** Not yet wired into the turn; see the note at the end.
+
+  The project declares testing methodologies and `buildTestingObligationGuidance` states them to the
+  model in strong terms. That is a *request*, and nothing verified it afterwards for any policy except
+  TDD — so a methodology enabled in a bulk pass could never produce an artifact while every turn
+  reported success. Observed on this repository: BDD has been enabled throughout and has never
+  produced a Given-When-Then spec.
+
+  `assessTestingObligations` gives a per-policy verdict for one piece of work, each citing a published
+  rule. Five rules keep it from becoming noise nobody reads:
+
+  - **Only a behaviour change owes evidence.** Docs, config, version bumps and test-only changes owe
+    nothing. A checker that fires on every commit is one people switch off.
+  - **A practice cannot be missing.** Exploratory leaves no artifact, so its absence means nothing.
+  - **A repository-level policy is not a per-change gap.** Continuous testing is satisfied by CI
+    running and security scanning by a scanner being configured; raising them per change would report
+    a gap that is not one, forever.
+  - **Every verdict names its rule**, so a gap can be argued with rather than merely obeyed.
+  - **Unassessed is not satisfied.** With no changed-file list the verdict is `unknown`, never a pass —
+    a checker that reports success because it could not look is worse than none.
+
+  `property` is deliberately not satisfied by any test file: a project can add fifty unit tests and
+  still have written no property test, so the check looks for a generative-testing import. `bdd`
+  requires a feature file or step definitions, because a `describe` block is not a specification
+  however it is worded.
+
+  Validated against four real commits from this repository's history: every one classified as a
+  behaviour change, all four missing BDD evidence, two also missing property tests, with `continuous`,
+  `security-testing` and `exploratory` correctly producing no noise.
+
+  `buildTestingGapIssue` drafts the issue an unclosed gap becomes. **Labels come only from the declared
+  taxonomy** — applying a label GitHub does not have *creates* it, changing the project's label set as
+  a side effect of filing — so an undeclared label is dropped and the omission is stated in the issue
+  body rather than silently applied or silently lost.
+
+### Not yet done
+
+- The check is **not wired into a turn**. Changed files are computed in `participant.ts` from workspace
+  snapshots rather than in the Orchestrator, so that is where the hook belongs, and neither the
+  write-the-test attempt nor the issue filing is connected. Shipping the assessment separately keeps it
+  reviewable; the enforcement it enables is the next increment.
+
+- **The labels its issues will need are not declared yet.** `buildTestingGapIssue` asks for `critical`,
+  `test` and `testing-<policy>`, none of which this repository declares or has on the remote — so every
+  one would currently be dropped and reported as dropped. Declaring them belongs with the issue filing
+  that uses them, not ahead of it: a taxonomy entry nothing applies is a claim about how the project
+  works that nothing backs up.
+
+
+## [0.303.3] - 2026-08-12
+
+### Changed
+
+- **The five developer-tooling updates from PR #176, applied without the TypeScript 7 bump that made
+  it unmergeable.** `@types/node` 26.2.0, `@typescript-eslint/eslint-plugin` 8.66.0,
+  `@typescript-eslint/parser` 8.67.0, `esbuild` 0.28.2, `eslint` 10.8.1. TypeScript stays at 6.0.3,
+  verified installed rather than assumed from the manifest.
+
+  Applied by hand because the ignore rule added in 0.303.2 **cannot take effect yet**: Dependabot
+  reads `.github/dependabot.yml` from the *default* branch, and this repository's default branch is
+  `main`. The rule is on `develop`, so `@dependabot recreate` regenerated #176 with TypeScript 7 still
+  in it — the config it consulted has no ignore entry. The rule starts working only once it reaches
+  `main` on the next promotion; until then Dependabot will keep re-proposing the bump daily.
+
+  Verified against the installed tree: compile, lint and 5,549 tests clean.
+
+
+## [0.303.2] - 2026-08-12
+
+### Changed
+
+- **Dependabot no longer proposes TypeScript 7.** `@typescript-eslint/parser` declares
+  `typescript: ">=4.8.4 <6.1.0"`, so a 7.x bump does not merely warn — it breaks `npm run lint` on
+  every platform. PR #176 bundled `typescript@7.0.2` into the developer-tooling group and failed CI on
+  all three runners in under 25 seconds, taking five harmless updates down with it, and Dependabot
+  re-proposed it daily.
+
+  `.github/dependabot.yml` now ignores major TypeScript updates, scoped to the npm ecosystem entry. The
+  rule states the peer range that causes it, the PR it broke, and how to check whether it can be
+  removed — `npm info @typescript-eslint/parser peerDependencies`, rather than assuming some release
+  has widened it.
+
+- **`ws` 8.21.1 → 8.21.3** and **`azure/login` v2 → v3** in both Marketplace credential workflows,
+  the latter verified against the live federated credential by the `Marketplace — verify publishing
+  identity` workflow, which tests the sign-in without consuming a version number.
+
+
+## [0.303.1] - 2026-08-12
+
+### Fixed
+
+- **The publishing routine said the release workflow squashes. It does not, and must not.** CLAUDE.md
+  described step 5 as enabling "squash auto-merge", while `release.yml` passes `--merge` and carries a
+  comment explaining why: squashing rewrites develop's commits into one new commit on `main`, so `main`
+  immediately holds a commit that is not an ancestor of `develop`. The next promotion's merge base is
+  then two releases back, and every file both branches touched since — `CHANGELOG.md`, `package.json`,
+  `README.md`, `wiki/Changelog.md`, exactly the four every release touches — conflicts. It works once
+  and conflicts forever after, which is what happened between 0.208.0 and 0.208.1.
+
+  A stale instruction is worse here than a missing one: it reads as a specification, so the correction
+  somebody makes is to change the workflow to match it, reintroducing the bug the comment was written
+  to prevent. The document now states the merge method, the reason, and that the workflow wins if the
+  two ever disagree.
+
+
 ## [0.303.0] - 2026-08-12
 
 ### Added

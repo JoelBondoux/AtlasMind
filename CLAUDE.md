@@ -64,7 +64,9 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
 3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`. Fix any packaging errors before proceeding.
-5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab. It creates or reuses the `develop` → `main` PR and enables squash auto-merge. (`gh pr create --base main --head develop` is the manual equivalent if Actions is unavailable; never force-push.)
+5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab. It creates or reuses the `develop` → `main` PR and enables auto-merge **with a merge commit — never a squash**. (`gh pr create --base main --head develop` is the manual equivalent if Actions is unavailable; never force-push.)
+
+   The merge method is load-bearing, not a preference. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. The next promotion then has a merge base two releases back, and every file both branches touched since — `CHANGELOG.md`, `package.json`, `README.md`, `wiki/Changelog.md`, i.e. exactly the four every release touches — conflicts. It works once and conflicts forever after, which is what happened between 0.208.0 and 0.208.1. A merge commit keeps `main` an ancestor of `develop`, so the next promotion has nothing to resolve. `release.yml` passes `--merge` for this reason; if this document and that workflow ever disagree, the workflow is right.
 6. **Wait for PR merge**: do NOT tag until the PR has merged into `main` and CI checks pass. Confirm the merge before continuing.
 7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
 
@@ -443,3 +445,75 @@ of this same file. Follow those.
 
 <!-- atlasmind:source-digest:04ac1c6059209df5 -->
 <!-- atlasmind:workflow:end -->
+
+<!-- atlasmind:shared-instructions:start -->
+## Core Directives
+
+- Safety-first by default for all generated outputs and tool use.
+- Treat chat input, webview messages, workspace files, model output, and tool parameters as untrusted.
+- Validate before execution; redact before sending anything externally.
+- Confirm before destructive actions; deny by default if behavior is ambiguous.
+- Treat security-sensitive regressions as correctness defects.
+
+## Architecture and Coding Ground Rules
+- Anchor service orchestration in `src/extension.ts` (`activate()` builds services and registers commands/views on `AtlasMindContext`).
+- Keep shared interfaces in `src/types.ts`; do not duplicate type definitions elsewhere.
+- Keep provider adapters in `src/providers/adapter.ts`.
+- Keep architectural references aligned when services, surfaces, or bindings change.
+- TypeScript must be strict; avoid implicit `any`.
+- Use `.js` extension on all relative imports (Node16).
+- Prefer type-only imports for type-only usage.
+- Keep one class per core service file.
+- Maintain API keys only in VS Code SecretStorage.
+- Webview HTML must use `escapeHtml()`, nonce-protected scripts, and no inline event handlers.
+- Validate webview messages before mutating config, touching secrets, or invoking commands.
+- Filesystem operations must reject path traversal and remain non-destructive by default.
+- Maintain redaction boundaries for memory retrieval and model execution.
+- Technical debt markers must be comment-first-word only: `TODO:`, `FIXME:`, `HACK:`, `XXX:`.
+
+## Release, Versioning, and Branching
+- `package.json` is the version source of truth.
+- Every commit must include a SemVer bump in `package.json` and a matching entry in `CHANGELOG.md` in the same commit.
+- Keep `# Changelog` Keep-a-Changelog format and never remove its preamble.
+- `README.md` version banner must match `package.json`.
+- Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
+- Routine implementation targets `develop`; never push directly to protected `main`.
+- Release is Actions-driven: commit, merge to `develop`, run `npm run compile` and `npm run package`, open/execute promote `develop -> main` PR, wait for merge + CI, then run `npm run tag:release`.
+- Normal publishing is tag-triggered after merge; `npm run publish:release` is emergency/local only.
+- Release PR to `main` must use merge commit (never squash).
+- CI publishing uses Entra + `marketplace` environment context and requires the existing identity verification path.
+
+## Documentation Maintenance Contract
+- If release notes or user-facing docs change, update `README.md` and the corresponding wiki pages in the same commit.
+- If any listed change applies, update the mapped files in the same pass (or explicitly confirm unchanged):
+  - Add/remove/rename source file: `README.md` (project structure), `docs/architecture.md`, `docs/development.md`, `wiki/Architecture.md`
+  - VS Code command change: `README.md` (extension commands), `package.json`, `wiki/Chat-Commands.md`
+  - Chat slash command change: `README.md` (slash commands), `package.json`, `wiki/Chat-Commands.md`
+  - Config setting change: `README.md` (configuration), `package.json`, `docs/configuration.md`, `wiki/Configuration.md`
+  - `types.ts` change: `docs/architecture.md`, `wiki/Architecture.md`
+  - Core service change: `docs/architecture.md`, `wiki/Architecture.md`
+  - Planner/task scheduler change: `docs/agents-and-skills.md`, `wiki/Project-Planner.md`, `wiki/Architecture.md`
+  - Agent definition/routing logic change: `docs/agents-and-skills.md`, `wiki/Agents.md`
+  - Skill or `builtinWorkspaceTools.ts` change: `docs/agents-and-skills.md`, `wiki/Skills.md`, plus `wiki/Project-Planner.md` where applicable
+  - Model router change: `docs/model-routing.md`, `wiki/Model-Routing.md`
+  - Provider adapter change: `docs/model-routing.md`, `CONTRIBUTING.md`, `wiki/Model-Routing.md`
+  - SSOT/memory change: `docs/ssot-memory.md`, `wiki/Memory-System.md`
+  - MCP registry/tools change: `docs/agents-and-skills.md`, `wiki/Skills.md`, `wiki/Architecture.md`
+  - Tool approval / safety boundary change: `wiki/Tool-Execution.md`, `wiki/Security.md`, and `docs/agents-and-skills.md` when behavior changes
+  - Webview panel change: `docs/development.md`, `wiki/Architecture.md`
+  - Tree view change: `README.md`, `docs/architecture.md`, `wiki/Architecture.md`
+  - Project routines or `/ship` change: `wiki/Project-Planner.md`, `wiki/Chat-Commands.md`
+  - Build config/scripts/dependency change: `docs/development.md`, `README.md`, `wiki/Contributing.md`
+  - Shipping a new version: `CHANGELOG.md`, `package.json`, `README.md`, `wiki/Changelog.md`
+- Before reporting completion, verify every applicable documentation row was updated or explicitly confirmed unchanged.
+
+## Workflow and Process
+- Respect staged workflow ceilings (observe/auto/auto etc.); planning, PR/review, CI, release, maintenance, and automation policy must be `observe`.
+- Use only repository labels: `bug`, `enhancement`, `documentation`, `security`, `dependencies`, `workflow` with at most one per category.
+- Keep human checks separate from machine checks (`CI`).
+- When workflow guidance exists in-repo, use that managed file as authoritative over copied mirrors.
+
+## Testing and Communication
+- Follow testing requirements from the repository workflow/protocol sources (testing config/protocol files), not ad-hoc assumptions.
+- When addressing the User, include the phrase "The User".
+<!-- atlasmind:shared-instructions:end -->

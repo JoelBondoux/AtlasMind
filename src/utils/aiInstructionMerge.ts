@@ -15,12 +15,20 @@
  *      file (non-destructive, reversible — see `managedBlock.ts`);
  *   4. persist the unified set to AtlasMind's SSOT so it is loaded as context.
  *
- * Safety: only delimited managed blocks are written, only into files that
- * already exist, and all paths pass the shared traversal guard. Malformed LLM
- * output throws before anything is written — never a partial write.
+ * Safety: only delimited managed blocks are written, and all paths pass the
+ * shared traversal guard. Malformed LLM output throws before anything is
+ * written — never a partial write.
+ *
+ * Seeded paths are *created* when absent, so an agent opening this repository
+ * for the first time finds the project's rules already there. That is a
+ * deliberate change from the earlier detected-set-only behaviour, where a tool
+ * nobody had configured a file for simply worked without the policy and nothing
+ * said so. Only one spelling per tool is ever seeded; superseded paths are
+ * updated where a project already carries one, never created.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import * as vscode from 'vscode';
 import {
   AI_INSTRUCTIONS_SYNC_REL_PATH,
@@ -47,22 +55,68 @@ const ATLASMIND_SOURCE_PATHS = [
 ];
 
 /**
+ * Cursor applies an `.mdc` rule only as its frontmatter directs.
+ *
+ * Without `alwaysApply: true` the rule loads only when Cursor judges it
+ * relevant, which for a testing policy means "usually not" — the failure being
+ * that the file exists, looks correct, and does nothing.
+ */
+const CURSOR_RULE_FRONT_MATTER =
+  '---\ndescription: AtlasMind project rules — testing policy, technical-debt markers, and GitHub workflow\nalwaysApply: true\n---\n\n';
+
+/**
  * Markdown instruction files that can host the managed block, keyed by tool.
  * Mirrors `testingProtocolSync.ts` — these are the two-way writeback targets.
  */
-const MANAGED_MARKDOWN_TARGETS: { tool: string; path: string }[] = [
-  { tool: 'GitHub Copilot', path: '.github/copilot-instructions.md' },
-  { tool: 'Claude Code', path: 'CLAUDE.md' },
+const MANAGED_MARKDOWN_TARGETS: ManagedMarkdownTarget[] = [
+  { tool: 'GitHub Copilot', path: '.github/copilot-instructions.md', seed: true },
+  { tool: 'Claude Code', path: 'CLAUDE.md', seed: true },
   { tool: 'Claude Code', path: '.claude/CLAUDE.md' },
+  // `AGENTS.md` is the cross-tool format: OpenAI Codex reads it, and so do
+  // Google Antigravity (v1.20.3+) and several others. One file, several tools —
+  // which is why it is seeded even on a project that runs none of them today.
+  { tool: 'OpenAI Codex / Antigravity', path: 'AGENTS.md', seed: true },
+  // Cursor deprecated the root `.cursorrules` in favour of a directory of
+  // `.mdc` rules. The old path stays as a fallback for projects that still have
+  // one; the new path is what a current Cursor actually reads, and it needs
+  // frontmatter or it is never applied.
+  { tool: 'Cursor', path: '.cursor/rules/atlasmind.mdc', seed: true, frontMatter: CURSOR_RULE_FRONT_MATTER },
   { tool: 'Cursor', path: '.cursorrules' },
+  // Windsurf likewise moved from a single file to a rules directory.
+  { tool: 'Windsurf', path: '.windsurf/rules/atlasmind.md', seed: true },
+  { tool: 'Windsurf', path: '.windsurfrules' },
+  { tool: 'Windsurf', path: 'WINDSURF.md' },
+  // Antigravity's workspace-scoped rules, alongside the AGENTS.md it also reads.
+  { tool: 'Antigravity', path: '.agents/rules/atlasmind.md', seed: true },
   { tool: 'Cline', path: '.clinerules' },
   { tool: 'Cline', path: '.cline/system_prompt.md' },
-  { tool: 'OpenAI Codex', path: 'AGENTS.md' },
   { tool: 'Gemini CLI', path: 'GEMINI.md' },
   { tool: 'Gemini CLI', path: '.gemini/system.md' },
-  { tool: 'Windsurf', path: 'WINDSURF.md' },
   { tool: 'Aider', path: '.aider.system.md' },
 ];
+
+/**
+ * A file that can host AtlasMind's managed block, and how to write it.
+ *
+ * `seed` marks a path AtlasMind will **create** when it is absent, so an agent
+ * opening this repository for the first time finds the project's rules already
+ * there rather than working without them and nobody noticing. Paths without it
+ * are updated only when they already exist: they are superseded spellings kept
+ * for projects that still carry one, and creating both would put the same rules
+ * in two files a tool might read twice.
+ *
+ * Only paths whose contract has been *verified* appear here. A guessed path is
+ * worse than a missing one — it looks like coverage in this list while the tool
+ * reads somewhere else entirely, so the rules silently never apply.
+ */
+interface ManagedMarkdownTarget {
+  tool: string;
+  path: string;
+  /** Create the file when absent. */
+  seed?: boolean;
+  /** Prepended on creation — some tools ignore a rule file without it. */
+  frontMatter?: string;
+}
 
 /** JSON-config tools cannot host a markdown block — reported as skipped. */
 const JSON_INSTRUCTION_TARGETS = ['.continue/config.json', '.continuerc.json'];
@@ -373,14 +427,28 @@ export async function applyManagedInstructionBlock(
 
   for (const target of MANAGED_MARKDOWN_TARGETS) {
     const resolved = resolveRelativePath(workspaceRoot, target.path);
-    if (!resolved || !existsSync(resolved)) {
-      continue; // Detected set only.
+    if (!resolved) {
+      continue;
+    }
+    const present = existsSync(resolved);
+    // A seeded path is created when absent, so an agent opening this repository
+    // for the first time finds the project's rules already there instead of
+    // working without them while nothing says so. Everything else is a
+    // superseded spelling, updated only where a project already carries one.
+    if (!present && !target.seed) {
+      continue;
     }
     const body = renderedByTool[target.tool] ?? fallback;
     try {
-      const existing = readFileSync(resolved, { encoding: 'utf8' });
+      const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : (target.frontMatter ?? '');
       const next = upsertManagedBlock(existing, body, SHARED_INSTRUCTIONS_MARKERS);
-      if (next !== existing) {
+      if (next !== existing || !present) {
+        // Only when seeding: an existing file's directory is already there, and
+        // calling this on every write would be a side effect on the common path
+        // for no gain.
+        if (!present) {
+          await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirname(resolved)));
+        }
         await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
       }
       updated.push(target.path);

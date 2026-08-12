@@ -6,6 +6,7 @@ export const workspace = {
   fs: {
     readFile: async () => Buffer.from(''),
     writeFile: async () => undefined,
+    createDirectory: async () => undefined,
     readDirectory: async () => [],
     stat: async () => ({ mtime: 0 }),
     delete: async () => undefined,
