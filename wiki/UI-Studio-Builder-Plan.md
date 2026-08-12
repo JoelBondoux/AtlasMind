@@ -49,8 +49,12 @@ clearing an override restores inheritance, and the same behaviour runs across al
 In v0.280.0 the deterministic full preview began projecting that inherited layout at tablet/mobile browser
 widths with static media rules. v0.281.0 adds host-resolved Studio breakpoint controls and a provenance-aware
 inspector that applies or independently resets geometry and visibility. v0.282.0 adds direct breakpoint
-drag, resize, and keyboard nudge without granting responsive gestures authority over structure. Richer
-layout properties, multi-selection tools, and diagnostics remain to complete the phase.
+drag, resize, and keyboard nudge without granting responsive gestures authority over structure. v0.283.0
+adds atomic multi-selection, six-axis alignment, two-axis distribution, and group nudge at every breakpoint.
+Richer container/sizing properties, duplicate, lock, group drag, and diagnostics remain to complete the phase.
+
+The reserved stack/grid/overlay and fill/hug values will ship with explicit gap, padding, columns, alignment,
+and constraint semantics; the plan does not treat a cosmetic enum selector as a completed layout engine.
 
 The architecture choices are recorded in `project_memory/decisions/` so later implementation cannot
 silently change who owns the design, what the browser may send, or what migration is allowed to invent.

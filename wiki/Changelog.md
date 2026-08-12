@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.283.0 — Multi-selection transforms are atomic
+
+Shift, Ctrl, or Cmd now toggles canvas blocks into a multi-selection. The inspector can align left, centre,
+right, top, middle, or bottom; distribute three or more blocks across or down; clear back to the primary
+selection; and nudge the group. The tools operate on base geometry or the active responsive breakpoint.
+
+Every group transform is one closed `set-node-frames` command, one revision, and one undo step. The host
+validates every unique identity and bounded rectangle before applying any of them, so a missing or invalid
+target refuses the whole batch. Hierarchy is untouched, and multi-delete remains unavailable until narrowed.
+
 ## v0.282.0 — Responsive layouts support direct manipulation
 
 Tablet and mobile nodes can now be dragged, resized from all eight handles, and nudged with the keyboard.

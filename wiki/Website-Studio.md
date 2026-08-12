@@ -51,6 +51,10 @@ it nests. Arrow keys nudge the selection, Shift moves it a whole column, Delete 
 Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. Drawing, movement, resizing, nesting, deletion, kind, label,
 and intent edits all use the same revision-checked graph command path; the webview never submits a graph patch.
 
+Shift/Ctrl/Cmd-click builds a multi-selection with one primary inspector target. Align six ways, distribute
+three or more blocks across or down, or nudge the group at any breakpoint; the whole transform is one
+validated revision and undo step. Multi-delete is deliberately unavailable until the selection is narrowed.
+
 A few things behave the way they do on purpose:
 
 - **Delete a wrapper and what was inside it moves up a level** rather than disappearing with it. The

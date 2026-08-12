@@ -52,6 +52,12 @@ nest it. Arrow keys nudge the selection; Shift makes the step a whole column; De
 Ctrl/Cmd+Z undoes and Shift+Ctrl/Cmd+Z redoes. These interactions, inspector label/kind/intent changes, and
 draw/delete all become revision-checked graph commands; Save cannot replace the graph from browser data.
 
+Shift-click, Ctrl-click, or Cmd-click toggles blocks into a multi-selection. The primary block keeps the
+inspector and resize handles; the selection tools align six ways, distribute three or more blocks across or
+down, clear back to the primary block, and nudge the group. A transform is one revision and one undo step at
+both base and responsive breakpoints. Delete stays unavailable for a multi-selection until it is narrowed,
+so selecting several blocks never changes the meaning of the existing single-element delete action.
+
 Three rules are worth knowing because they are deliberate:
 
 - **Coordinates are canvas units on a fixed 1000-wide grid, never pixels.** `website.json` is

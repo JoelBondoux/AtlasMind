@@ -220,6 +220,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
     background:color-mix(in srgb, var(--studio-accent) 24%, transparent);
     z-index:5;
   }
+  .wf-box.primary { outline:2px solid color-mix(in srgb, var(--studio-accent) 70%, white); outline-offset:2px; }
   .wf-box:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:1px; }
   .wf-box.viewport-hidden { opacity:.52; border-style:dotted; }
   .wf-box-label { font-weight:650; font-size:.82rem; line-height:1.2; }
@@ -277,6 +278,10 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .layout-provenance div { display:flex; justify-content:space-between; gap:8px; }
   .layout-provenance dt { color:var(--studio-muted); }
   .layout-provenance dd { margin:0; text-align:right; }
+  .multi-inspector { margin:12px 0; padding:10px; border:1px solid color-mix(in srgb, var(--studio-accent) 45%, var(--studio-border)); border-radius:8px; background:color-mix(in srgb, var(--studio-accent) 9%, transparent); }
+  .multi-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .multi-actions { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; margin-top:9px; }
+  .multi-actions button { min-width:0; padding:5px 7px; font-size:.7rem; }
   .page-prompt-block h3 { margin:2px 0 8px; font-size:1rem; }
 
   /* ── Stack page: framework picker ───────────────────────────── */

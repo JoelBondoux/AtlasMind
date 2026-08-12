@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.283.0] - 2026-08-12
+
+### Added
+
+- **UI Studio now supports multi-selection alignment and distribution.** Shift, Ctrl, or Cmd toggles
+  elements into the current selection. The inspector aligns left/centre/right/top/middle/bottom, distributes
+  three or more rectangles across/down, clears back to the primary element, and nudges a selected group.
+  The same tools work on base geometry and responsive overrides.
+- **Multi-node transforms are atomic graph edits.** `set-node-frames` validates a bounded unique identity/
+  rectangle list, refuses the whole request if any target is missing or invalid, advances one revision, and
+  creates one undo entry rather than a fragile series of independent edits.
+
+### Security
+
+- **Batch geometry remains a closed data command.** The webview cannot submit a graph fragment, parent
+  change, source path, style object, or executable value. Responsive batches additionally name one closed
+  non-base breakpoint, and the host sanitizes every rectangle against its node kind before mutation.
+
+### Changed
+
+- **Group deletion remains explicit rather than implied.** Delete is refused while multiple elements are
+  selected; operators narrow to the primary selection first. This avoids a new multi-select affordance
+  silently turning the existing single-node delete into a cascade.
+
 ## [0.282.0] - 2026-08-12
 
 ### Added

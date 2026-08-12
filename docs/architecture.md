@@ -324,8 +324,10 @@ Nine pure modules sit behind the Studio, each `vscode`-free and unit-tested:
   viewport only through an exact override, so migration does not invent responsive intent.
 - **`uiEditCommands.ts`** — the closed mutation protocol for direct manipulation, forms, future preview
   events, and model proposals. Its exact boundary parser covers node lifecycle, kind/label/intent, atomic
-  geometry plus reparenting, base visibility, viewport geometry/visibility override set/reset, undo, and
-  redo; commands carry an expected revision and never a graph patch. A responsive command names only a
+  geometry plus reparenting, bounded multi-node frame transforms, base visibility, viewport geometry/
+  visibility override set/reset, undo, and redo; commands carry an expected revision and never a graph
+  patch. `set-node-frames` validates every unique target before changing any, applies either base rectangles
+  or one named responsive breakpoint, and records the batch as one revision/history entry. A responsive command names only a
   closed breakpoint and bounded values, and cannot override the screen's own base breakpoint. Stale/missing/
   invalid targets refuse. Successful mutations and undo/redo all advance revision monotonically, deletion
   promotes direct children, history is capped at 100, and a fresh edit clears redo.
@@ -358,6 +360,9 @@ wireframes and a fresh resolved snapshot after every result. At a non-base break
 keyboard nudge optimistically change only the local resolved rectangle, then submit that rectangle as the
 same exact `set-node-viewport-override` command; the next host result replaces the projection. Drawing,
 deletion, nesting, and parent identity stay base-only, so a responsive gesture cannot change shared structure.
+Multi-selection uses a `Set` of node identities with one primary inspector target. Align, distribute, and
+group nudge submit one bounded `set-node-frames` batch at the current breakpoint; multi-delete is refused
+until the selection is narrowed, preserving the existing single-node deletion contract.
 - **`websiteGenerationRunner.ts`** — runs one generation with the completer and the file writer injected, so "never writes outside the preview root" is checkable rather than asserted. Paths are re-validated immediately before each write. A failed call is recorded, not swallowed.
 
 ### Website Studio content and review

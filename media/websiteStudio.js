@@ -64,6 +64,8 @@
   if (!BREAKPOINTS.includes(activeBreakpoint)) { activeBreakpoint = 'desktop'; }
   /** Selected wireframe element id, or '' for none. */
   let selectedElementId = '';
+  /** All selected elements; `selectedElementId` is the primary inspector target. */
+  const selectedElementIds = new Set();
   /** Kind armed in the palette; a drag on empty canvas draws this. */
   let armedKind = 'section';
 
@@ -77,6 +79,29 @@
     ?? activePage()?.wireframe?.breakpoint
     ?? 'desktop';
   const responsiveNode = id => activeResponsiveScreen()?.nodes?.find(node => node?.id === id);
+
+  function clearCanvasSelection() {
+    selectedElementId = '';
+    selectedElementIds.clear();
+  }
+
+  function selectOnly(elementId) {
+    selectedElementId = elementId;
+    selectedElementIds.clear();
+    if (elementId) { selectedElementIds.add(elementId); }
+  }
+
+  function toggleSelection(elementId) {
+    if (selectedElementIds.has(elementId)) {
+      selectedElementIds.delete(elementId);
+      if (selectedElementId === elementId) {
+        selectedElementId = [...selectedElementIds].at(-1) ?? '';
+      }
+    } else {
+      selectedElementIds.add(elementId);
+      selectedElementId = elementId;
+    }
+  }
 
   function normalizeResponsiveScreens(input) {
     if (!Array.isArray(input) || input.length > 100) { return []; }
@@ -316,7 +341,8 @@
         + 'top:' + (y / height * 100) + '%;'
         + 'width:' + (width / CANVAS_WIDTH * 100) + '%;'
         + 'height:' + (h / height * 100) + '%;';
-      const selected = element.id === selectedElementId;
+      const selected = selectedElementIds.has(element.id);
+      const primary = element.id === selectedElementId;
       // Every box is a real button: the canvas has to be reachable by keyboard,
       // and a div with a click handler is not.
       //
@@ -326,6 +352,7 @@
       // this file for the classes it uses — including the guard that checks every
       // classed button has a background of its own.
       return '<button type="button" class="wf-box' + (selected ? ' selected' : '')
+        + (primary && selectedElementIds.size > 1 ? ' primary' : '')
         + (view.layout.hidden ? ' viewport-hidden' : '') + '"'
         + ' data-kind="' + escapeAttribute(element.kind) + '"'
         + ' style="' + style + '" data-element-id="' + escapeAttribute(element.id) + '"'
@@ -334,7 +361,7 @@
         + '<span class="wf-box-label">' + escapeText(element.label || spec.label) + '</span>'
         + '<span class="wf-box-kind">' + escapeText(spec.label) + '</span>'
         + (view.layout.hidden ? '<span class="wf-box-visibility">Hidden at ' + escapeText(activeBreakpoint) + '</span>' : '')
-        + (selected ? handlesMarkup() : '')
+        + (primary ? handlesMarkup() : '')
         + '</button>';
     }).join('');
 
@@ -382,7 +409,8 @@
     summary.textContent = count === 0
       ? 'Empty canvas — pick a block on the left, then drag on the grid to draw it.'
       : viewport + ': ' + count + ' element' + (count === 1 ? '' : 's') + '. '
-        + (MAX_ELEMENTS - count) + ' remaining.';
+        + (MAX_ELEMENTS - count) + ' remaining.'
+        + (selectedElementIds.size > 1 ? ' ' + selectedElementIds.size + ' selected.' : '');
     syncBreakpointControls();
   }
 
@@ -431,6 +459,23 @@
     const isBase = activeBreakpoint === base;
     const override = responsiveNode(element.id)?.overrides?.[activeBreakpoint] ?? { rect: false, hidden: false };
     const readOnly = state.readOnly ? ' disabled' : '';
+    const selectionCount = selectedElementIds.size;
+    const multiFields = selectionCount > 1 ? `
+      <div class="multi-inspector">
+        <div class="multi-head"><p class="responsive-title">${selectionCount} selected</p>
+          <button type="button" class="secondary subtle" data-multi-layout="clear">Clear others</button></div>
+        <p class="responsive-copy">Align or distribute the resolved rectangles as one revision and one undo step.</p>
+        <div class="multi-actions" role="group" aria-label="Align selected elements">
+          <button type="button" class="secondary" data-multi-layout="left"${readOnly}>Left</button>
+          <button type="button" class="secondary" data-multi-layout="center"${readOnly}>Centre</button>
+          <button type="button" class="secondary" data-multi-layout="right"${readOnly}>Right</button>
+          <button type="button" class="secondary" data-multi-layout="top"${readOnly}>Top</button>
+          <button type="button" class="secondary" data-multi-layout="middle"${readOnly}>Middle</button>
+          <button type="button" class="secondary" data-multi-layout="bottom"${readOnly}>Bottom</button>
+          <button type="button" class="secondary" data-multi-layout="distribute-x"${selectionCount < 3 || state.readOnly ? ' disabled' : ''}>Space across</button>
+          <button type="button" class="secondary" data-multi-layout="distribute-y"${selectionCount < 3 || state.readOnly ? ' disabled' : ''}>Space down</button>
+        </div>
+      </div>` : '';
     const responsiveFields = isBase ? `
       <div class="responsive-inspector base">
         <p class="responsive-title">${escapeText(activeBreakpoint)} base layout</p>
@@ -469,6 +514,7 @@
       + '<p class="inspector-meta">' + escapeText(spec.label)
       + (parent ? ' inside ' + escapeText(parent.label || kindSpec(parent.kind).label) : ' at the top level')
       + '</p></div>'
+      + multiFields
       + '<label class="field"><span>Label</span><input id="inspectorLabel" value="' + escapeAttribute(element.label) + '" /></label>'
       + '<label class="field"><span>Type</span><select id="inspectorKind">'
       + state.kinds.map(candidate => '<option value="' + escapeAttribute(candidate.kind) + '"'
@@ -523,6 +569,74 @@
     }
   }
 
+  function applyMultiLayout(action) {
+    const selected = [...selectedElementIds]
+      .map(id => findElement(id))
+      .filter(Boolean)
+      .map(element => ({ element, rect: { ...responsiveView(element).layout.rect } }));
+    if (selected.length < 2) {
+      notice('Select at least two elements with Shift, Ctrl, or Cmd before aligning them.');
+      return;
+    }
+    if ((action === 'distribute-x' || action === 'distribute-y') && selected.length < 3) {
+      notice('Distribution needs at least three selected elements.');
+      return;
+    }
+    const left = Math.min(...selected.map(item => item.rect.x));
+    const right = Math.max(...selected.map(item => item.rect.x + item.rect.width));
+    const top = Math.min(...selected.map(item => item.rect.y));
+    const bottom = Math.max(...selected.map(item => item.rect.y + item.rect.height));
+    const frames = selected.map(item => ({ nodeId: item.element.id, rect: { ...item.rect } }));
+
+    for (const frame of frames) {
+      if (action === 'left') { frame.rect.x = left; }
+      else if (action === 'center') { frame.rect.x = round((left + right - frame.rect.width) / 2); }
+      else if (action === 'right') { frame.rect.x = right - frame.rect.width; }
+      else if (action === 'top') { frame.rect.y = top; }
+      else if (action === 'middle') { frame.rect.y = round((top + bottom - frame.rect.height) / 2); }
+      else if (action === 'bottom') { frame.rect.y = bottom - frame.rect.height; }
+    }
+    if (action === 'distribute-x') {
+      const ordered = [...frames].sort((a, b) => a.rect.x - b.rect.x || a.nodeId.localeCompare(b.nodeId));
+      const totalWidth = ordered.reduce((sum, frame) => sum + frame.rect.width, 0);
+      const gap = (right - left - totalWidth) / (ordered.length - 1);
+      let cursor = left;
+      for (const frame of ordered) {
+        frame.rect.x = round(cursor);
+        cursor += frame.rect.width + gap;
+      }
+    } else if (action === 'distribute-y') {
+      const ordered = [...frames].sort((a, b) => a.rect.y - b.rect.y || a.nodeId.localeCompare(b.nodeId));
+      const totalHeight = ordered.reduce((sum, frame) => sum + frame.rect.height, 0);
+      const gap = (bottom - top - totalHeight) / (ordered.length - 1);
+      let cursor = top;
+      for (const frame of ordered) {
+        frame.rect.y = round(cursor);
+        cursor += frame.rect.height + gap;
+      }
+    }
+
+    const currentById = new Map(selected.map(item => [item.element.id, item.rect]));
+    if (!frames.some(frame => JSON.stringify(frame.rect) !== JSON.stringify(currentById.get(frame.nodeId)))) {
+      notice('The selected elements already have that arrangement.');
+      return;
+    }
+    const responsive = activeBreakpoint !== activeBaseBreakpoint();
+    for (const frame of frames) {
+      const element = findElement(frame.nodeId);
+      if (element) { projectGestureRect(element, frame.rect, responsive); }
+    }
+    submitDesignEdit({
+      type: 'set-node-frames',
+      screenId: activePageId,
+      frames,
+      ...(responsive ? { breakpoint: activeBreakpoint } : {}),
+    });
+    renderCanvas();
+    notice((action.startsWith('distribute') ? 'Distributed' : 'Aligned') + ' '
+      + frames.length + ' elements as one undoable edit.');
+  }
+
   function beginCanvasPointer(event) {
     const surface = canvasSurface();
     if (!surface || state.readOnly) { return; }
@@ -531,11 +645,20 @@
     const handle = event.target.closest('.wf-handle');
     const box = event.target.closest('.wf-box');
 
+    if (box && !handle && (event.shiftKey || event.ctrlKey || event.metaKey)) {
+      toggleSelection(box.dataset.elementId);
+      notifyPreviewSelection();
+      renderCanvas();
+      event.preventDefault();
+      return;
+    }
+
     const responsive = activeBreakpoint !== activeBaseBreakpoint();
 
     if (handle && box) {
       const element = findElement(box.dataset.elementId);
       if (!element) { return; }
+      if (!selectedElementIds.has(element.id)) { selectOnly(element.id); }
       drag = {
         mode: 'resize',
         id: box.dataset.elementId,
@@ -546,7 +669,7 @@
         responsive,
       };
     } else if (box) {
-      selectedElementId = box.dataset.elementId;
+      selectOnly(box.dataset.elementId);
       notifyPreviewSelection();
       const element = findElement(selectedElementId);
       if (!element) { return; }
@@ -698,7 +821,7 @@
       const container = containerAt(rect, created.id);
       if (container && depthOf(container.id) < 2) { created.parentId = container.id; }
       elementsOf(activePage()).push(created);
-      selectedElementId = created.id;
+      selectOnly(created.id);
       submitDesignEdit({ type: 'add-node', screenId: activePageId, node: created });
       notifyPreviewSelection();
       renderCanvas();
@@ -756,6 +879,10 @@
       notice('Switch to the base breakpoint before deleting structure. A node exists in every viewport.');
       return;
     }
+    if (selectedElementIds.size > 1) {
+      notice('Deletion is single-element for now. Use Clear others, then delete the primary selection.');
+      return;
+    }
     const element = findElement(selectedElementId);
     if (!element) { return; }
     const elements = elementsOf(activePage());
@@ -765,7 +892,7 @@
     }
     activePage().wireframe.elements = elements.filter(candidate => candidate.id !== element.id);
     submitDesignEdit({ type: 'delete-node', screenId: activePageId, nodeId: element.id });
-    selectedElementId = '';
+    clearCanvasSelection();
     renderCanvas();
     notice(promoted.length > 0
       ? 'Deleted. The ' + promoted.length + ' element' + (promoted.length === 1 ? '' : 's') + ' inside moved up a level rather than being deleted too.'
@@ -776,6 +903,33 @@
     const element = findElement(selectedElementId);
     if (!element) { return; }
     const responsive = activeBreakpoint !== activeBaseBreakpoint();
+    if (selectedElementIds.size > 1) {
+      const selected = [...selectedElementIds]
+        .map(id => findElement(id))
+        .filter(Boolean)
+        .map(candidate => ({ element: candidate, rect: { ...responsiveView(candidate).layout.rect } }));
+      const left = Math.min(...selected.map(item => item.rect.x));
+      const right = Math.max(...selected.map(item => item.rect.x + item.rect.width));
+      const top = Math.min(...selected.map(item => item.rect.y));
+      const bottom = Math.max(...selected.map(item => item.rect.y + item.rect.height));
+      const boundedDx = clamp(dx, -left, CANVAS_WIDTH - right);
+      const boundedDy = clamp(dy, -top, CANVAS_MAX_HEIGHT - bottom);
+      if (boundedDx === 0 && boundedDy === 0) { return; }
+      const frames = selected.map(item => ({
+        nodeId: item.element.id,
+        rect: { ...item.rect, x: round(item.rect.x + boundedDx), y: round(item.rect.y + boundedDy) },
+      }));
+      for (const frame of frames) {
+        const candidate = findElement(frame.nodeId);
+        if (candidate) { projectGestureRect(candidate, frame.rect, responsive); }
+      }
+      submitDesignEdit({
+        type: 'set-node-frames', screenId: activePageId, frames,
+        ...(responsive ? { breakpoint: activeBreakpoint } : {}),
+      });
+      renderCanvas();
+      return;
+    }
     const current = responsiveView(element).layout.rect;
     const rect = {
       ...current,
@@ -825,7 +979,7 @@
       else if (event.key === 'ArrowUp') { nudgeSelected(0, -step); event.preventDefault(); }
       else if (event.key === 'ArrowDown') { nudgeSelected(0, step); event.preventDefault(); }
       else if (event.key === 'Delete' || event.key === 'Backspace') { deleteSelected(); event.preventDefault(); }
-      else if (event.key === 'Escape') { selectedElementId = ''; renderCanvas(); }
+      else if (event.key === 'Escape') { clearCanvasSelection(); renderCanvas(); }
     });
   }
 
@@ -867,13 +1021,24 @@
       }
     } else if (event.target.id === 'wireframePageSelect') {
       activePageId = event.target.value;
-      selectedElementId = '';
+      clearCanvasSelection();
       renderCanvas();
       renderPagePromptField();
     }
   });
 
   document.addEventListener('click', event => {
+    const multiLayout = event.target.closest('[data-multi-layout]');
+    if (multiLayout) {
+      if (multiLayout.dataset.multiLayout === 'clear') {
+        selectOnly(selectedElementId);
+        renderCanvas();
+      } else if (!state.readOnly) {
+        applyMultiLayout(multiLayout.dataset.multiLayout);
+      }
+      return;
+    }
+
     const paletteButton = event.target.closest('.palette-button[data-kind]');
     if (paletteButton) {
       if (activeBreakpoint !== activeBaseBreakpoint()) {
@@ -990,7 +1155,7 @@
     const sitemapNode = event.target.closest('[data-sitemap-page]');
     if (sitemapNode) {
       activePageId = sitemapNode.dataset.sitemapPage;
-      selectedElementId = '';
+      clearCanvasSelection();
       showPage('wireframes');
       syncPageSelect();
       renderCanvas();
@@ -1306,7 +1471,7 @@
       qsa('#wireframePageSelect option').filter(option => option.value === id).forEach(option => option.remove());
       if (activePageId === id) {
         activePageId = state.pages[0]?.id ?? '';
-        selectedElementId = '';
+        clearCanvasSelection();
         syncPageSelect();
         renderCanvas();
         renderPagePromptField();
@@ -1398,7 +1563,12 @@
     if (message.responsiveScreens !== undefined) {
       state.responsiveScreens = normalizeResponsiveScreens(message.responsiveScreens);
     }
-    if (!findElement(selectedElementId)) { selectedElementId = ''; }
+    for (const id of [...selectedElementIds]) {
+      if (!findElement(id)) { selectedElementIds.delete(id); }
+    }
+    if (!findElement(selectedElementId)) {
+      selectedElementId = [...selectedElementIds].at(-1) ?? '';
+    }
     renderCanvas();
     renderPagePromptField();
     if (message.type === 'designEditRefused') {
@@ -1428,7 +1598,7 @@
         return;
       }
       activePageId = pageId;
-      selectedElementId = nodeId;
+      selectOnly(nodeId);
       syncPageSelect();
       showPage('wireframes');
       renderCanvas();

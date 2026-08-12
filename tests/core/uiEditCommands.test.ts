@@ -232,6 +232,69 @@ describe('UI edit commands', () => {
     })).toBeUndefined();
   });
 
+  it('applies multi-node frames atomically at base and responsive breakpoints', () => {
+    const initial = createUiEditSession(graph());
+    const frames = [
+      { nodeId: 'container', rect: { x: 20, y: 20, width: 960, height: 500 } },
+      { nodeId: 'child', rect: { x: 20, y: 120, width: 400, height: 120 } },
+    ];
+    const aligned = applyUiEditCommand(initial, {
+      type: 'set-node-frames', expectedRevision: 0, screenId: 'page-home', frames,
+    });
+    expect(aligned.ok).toBe(true);
+    if (!aligned.ok) { return; }
+    expect(aligned.session.graph.revision).toBe(1);
+    expect(aligned.session.undo).toHaveLength(1);
+    expect(aligned.session.graph.screens[0]!.nodes.map(node => node.layout.rect)).toEqual(frames.map(frame => frame.rect));
+
+    const undone = applyUiEditCommand(aligned.session, { type: 'undo', expectedRevision: 1 });
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) { return; }
+    expect(undone.session.graph.screens[0]!.nodes.map(node => node.layout.rect)).toEqual([
+      { x: 0, y: 0, width: 1_000, height: 500 },
+      { x: 100, y: 100, width: 400, height: 120 },
+    ]);
+
+    const responsive = applyUiEditCommand(initial, {
+      type: 'set-node-frames', expectedRevision: 0, screenId: 'page-home', breakpoint: 'mobile', frames,
+    });
+    expect(responsive.ok).toBe(true);
+    if (!responsive.ok) { return; }
+    const nodes = responsive.session.graph.screens[0]!.nodes;
+    expect(nodes.map(node => node.layout.rect)).toEqual([
+      { x: 0, y: 0, width: 1_000, height: 500 },
+      { x: 100, y: 100, width: 400, height: 120 },
+    ]);
+    expect(nodes.map(node => node.viewportOverrides.mobile?.rect)).toEqual(frames.map(frame => frame.rect));
+
+    expect(applyUiEditCommand(initial, {
+      type: 'set-node-frames', expectedRevision: 0, screenId: 'page-home',
+      frames: [...frames, { nodeId: 'missing', rect: { x: 0, y: 0, width: 100, height: 100 } }],
+    })).toMatchObject({ ok: false, reason: 'node-not-found', session: initial });
+    expect(applyUiEditCommand(initial, {
+      type: 'set-node-frames', expectedRevision: 0, screenId: 'page-home', breakpoint: 'desktop', frames,
+    })).toMatchObject({ ok: false, reason: 'invalid-command', session: initial });
+  });
+
+  it('parses multi-node frames only when every identity and rectangle is unique and bounded', () => {
+    const command = {
+      type: 'set-node-frames', expectedRevision: 7, screenId: 'page-home', breakpoint: 'tablet',
+      frames: [
+        { nodeId: 'container', rect: { x: 0, y: 0, width: 900, height: 500 } },
+        { nodeId: 'child', rect: { x: 0, y: 100, width: 400, height: 120 } },
+      ],
+    };
+    expect(parseUiEditCommand(command)).toEqual(command);
+    expect(parseUiEditCommand({ ...command, breakpoint: 'watch' })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, frames: [] })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, frames: [command.frames[0], command.frames[0]] })).toBeUndefined();
+    expect(parseUiEditCommand({
+      ...command,
+      frames: [{ nodeId: 'child', rect: { x: 0, y: 0, width: Number.NaN, height: 20 } }],
+    })).toBeUndefined();
+    expect(parseUiEditCommand({ ...command, command: 'write-file' })).toBeUndefined();
+  });
+
   it('sets and clears responsive overrides through revisioned, undoable commands', () => {
     const initial = createUiEditSession(graph());
     const tabletRect = { x: 40, y: 120, width: 720, height: 100 };

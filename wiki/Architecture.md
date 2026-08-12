@@ -195,6 +195,9 @@ requests. Reset names `rect` or `hidden`, so the reducer preserves the other pro
 breakpoint record. Every result returns a fresh host projection. Drag, resize, and keyboard nudge at a
 non-base breakpoint project the resolved rectangle optimistically, then submit it through the same exact
 override command. Drawing, deletion, nesting, and parent changes remain confined to the base breakpoint.
+Multi-selection alignment, distribution, and group nudge use one `set-node-frames` command containing only
+bounded unique node ids and rectangles. The reducer validates the whole batch first, then advances one
+revision and undo entry; multi-delete remains refused rather than inheriting new cascade semantics.
 
 Full Preview is the shared design feedback loop. `websiteWireframePreview.ts` deterministically combines
 wireframe geometry, sanitized colour/type tokens, and escaped Markdown content. The pure renderer remains

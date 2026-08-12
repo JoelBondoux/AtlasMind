@@ -47,6 +47,11 @@ export interface UiNewNode {
   notes: string;
 }
 
+export interface UiNodeFrameEdit {
+  nodeId: string;
+  rect: WireframeRect;
+}
+
 export type UiViewportOverrideProperty = 'rect' | 'hidden' | 'all';
 
 export type UiEditCommand =
@@ -54,6 +59,12 @@ export type UiEditCommand =
   | (UiNodeCommandBase & { type: 'delete-node' })
   | (UiNodeCommandBase & { type: 'set-node-kind'; kind: WireframeElementKind })
   | (UiNodeCommandBase & { type: 'set-node-frame'; rect: WireframeRect; parentId: string | null })
+  | (UiEditCommandBase & {
+    type: 'set-node-frames';
+    screenId: string;
+    frames: UiNodeFrameEdit[];
+    breakpoint?: WireframeBreakpoint;
+  })
   | (UiNodeCommandBase & { type: 'set-node-label'; label: string })
   | (UiNodeCommandBase & { type: 'set-node-design-prompt'; designPrompt: string })
   | (UiNodeCommandBase & { type: 'move-node'; x: number; y: number })
@@ -117,6 +128,18 @@ export function parseUiEditCommand(input: unknown): UiEditCommand | undefined {
     const node = parseNewNode(input['node']);
     return node && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'node'])
       ? { type: 'add-node', expectedRevision, screenId, node }
+      : undefined;
+  }
+  if (input['type'] === 'set-node-frames') {
+    const frames = parseNodeFrames(input['frames']);
+    const breakpoint = input['breakpoint'];
+    return frames
+      && (breakpoint === undefined || isBreakpoint(breakpoint))
+      && exactKeys(input, ['type', 'expectedRevision', 'screenId', 'frames'], ['breakpoint'])
+      ? {
+        type: 'set-node-frames', expectedRevision, screenId, frames,
+        ...(breakpoint === undefined ? {} : { breakpoint }),
+      }
       : undefined;
   }
   if (!validIdentifier(input['nodeId'])) {
@@ -253,6 +276,29 @@ function parseNewNode(input: unknown): UiNewNode | undefined {
   };
 }
 
+function parseNodeFrames(input: unknown): UiNodeFrameEdit[] | undefined {
+  if (!Array.isArray(input) || input.length < 1 || input.length > MAX_WIREFRAME_ELEMENTS) {
+    return undefined;
+  }
+  const frames: UiNodeFrameEdit[] = [];
+  const seen = new Set<string>();
+  for (const candidate of input) {
+    if (!isRecord(candidate)
+        || !exactKeys(candidate, ['nodeId', 'rect'])
+        || !validIdentifier(candidate['nodeId'])
+        || seen.has(candidate['nodeId'])) {
+      return undefined;
+    }
+    const rect = parseRect(candidate['rect']);
+    if (!rect) {
+      return undefined;
+    }
+    seen.add(candidate['nodeId']);
+    frames.push({ nodeId: candidate['nodeId'], rect });
+  }
+  return frames;
+}
+
 export function createUiEditSession(graph: UiDesignGraph): UiEditSession {
   return { graph: cloneGraph(graph), undo: [], redo: [] };
 }
@@ -279,6 +325,9 @@ export function applyUiEditCommand(session: UiEditSession, command: UiEditComman
   const screen = session.graph.screens[screenIndex]!;
   if (command.type === 'add-node') {
     return addNode(session, screenIndex, screen, command.node);
+  }
+  if (command.type === 'set-node-frames') {
+    return setNodeFrames(session, screenIndex, screen, command.frames, command.breakpoint);
   }
   const nodeIndex = screen.nodes.findIndex(node => node.id === command.nodeId);
   if (nodeIndex < 0) {
@@ -316,7 +365,7 @@ type NodeCommandResult =
 function applyNodeCommand(
   screen: UiDesignScreen,
   node: UiDesignNode,
-  command: Exclude<UiEditCommand, { type: 'undo' | 'redo' | 'add-node' | 'delete-node' }>,
+  command: Exclude<UiEditCommand, { type: 'undo' | 'redo' | 'add-node' | 'delete-node' | 'set-node-frames' }>,
 ): NodeCommandResult {
   switch (command.type) {
     case 'set-node-kind': {
@@ -434,6 +483,64 @@ function applyNodeCommand(
     case 'reparent-node':
       return reparentNode(screen, node, command.parentId);
   }
+}
+
+function setNodeFrames(
+  session: UiEditSession,
+  screenIndex: number,
+  screen: UiDesignScreen,
+  frames: readonly UiNodeFrameEdit[],
+  breakpoint?: WireframeBreakpoint,
+): UiEditResult {
+  if (frames.length < 1
+      || frames.length > MAX_WIREFRAME_ELEMENTS
+      || (breakpoint !== undefined
+        && (!isBreakpoint(breakpoint) || breakpoint === screen.baseBreakpoint))) {
+    return refused(session, 'invalid-command');
+  }
+  const byId = new Map(screen.nodes.map((node, index) => [node.id, { node, index }]));
+  const seen = new Set<string>();
+  const changes: Array<{ index: number; node: UiDesignNode }> = [];
+  for (const frame of frames) {
+    if (!validIdentifier(frame.nodeId) || seen.has(frame.nodeId) || !validRect(frame.rect)) {
+      return refused(session, 'invalid-command');
+    }
+    const current = byId.get(frame.nodeId);
+    if (!current) {
+      return refused(session, 'node-not-found');
+    }
+    seen.add(frame.nodeId);
+    const rect = sanitizeRect(frame.rect, wireframeKindSpec(current.node.kind));
+    const node = breakpoint === undefined
+      ? withRect(current.node, rect)
+      : {
+        ...current.node,
+        viewportOverrides: {
+          ...current.node.viewportOverrides,
+          [breakpoint]: {
+            ...current.node.viewportOverrides[breakpoint],
+            rect,
+          },
+        },
+      };
+    changes.push({ index: current.index, node });
+  }
+  if (changes.every(change => sameNode(screen.nodes[change.index]!, change.node))) {
+    return refused(session, 'no-change');
+  }
+  const nextGraph = cloneGraph(session.graph);
+  nextGraph.revision = session.graph.revision + 1;
+  for (const change of changes) {
+    nextGraph.screens[screenIndex]!.nodes[change.index] = change.node;
+  }
+  return {
+    ok: true,
+    session: {
+      graph: nextGraph,
+      undo: [...session.undo, cloneGraph(session.graph)].slice(-UI_EDIT_HISTORY_LIMIT),
+      redo: [],
+    },
+  };
 }
 
 function addNode(

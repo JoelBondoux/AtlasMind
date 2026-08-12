@@ -38,6 +38,16 @@ describe('Website Studio webview boundary', () => {
     expect(isWebsiteStudioMessage({
       type: 'editDesignGraph',
       payload: {
+        type: 'set-node-frames', expectedRevision: 2, screenId: 'page-home', breakpoint: 'mobile',
+        frames: [
+          { nodeId: 'hero-1', rect: { x: 0, y: 0, width: 1_000, height: 300 } },
+          { nodeId: 'copy-1', rect: { x: 0, y: 320, width: 1_000, height: 200 } },
+        ],
+      },
+    })).toBe(true);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
         type: 'set-node-viewport-override', expectedRevision: 2, screenId: 'page-home', nodeId: 'hero-1',
         breakpoint: 'mobile', hidden: true,
       },
@@ -78,6 +88,13 @@ describe('Website Studio webview boundary', () => {
       payload: {
         type: 'clear-node-viewport-override', expectedRevision: 3, screenId: 'page-home', nodeId: 'hero-1',
         breakpoint: 'mobile', property: 'style',
+      },
+    })).toBe(false);
+    expect(isWebsiteStudioMessage({
+      type: 'editDesignGraph',
+      payload: {
+        type: 'set-node-frames', expectedRevision: 2, screenId: 'page-home',
+        frames: [{ nodeId: '../outside', rect: { x: 0, y: 0, width: 100, height: 100 } }],
       },
     })).toBe(false);
   });
@@ -296,7 +313,7 @@ describe('UI Studio canvas command wiring', () => {
   it('routes every current canvas mutation family through the closed command message', () => {
     expect(source).toContain("type: 'editDesignGraph'");
     for (const command of [
-      'add-node', 'delete-node', 'set-node-frame', 'set-node-kind',
+      'add-node', 'delete-node', 'set-node-frame', 'set-node-frames', 'set-node-kind',
       'set-node-label', 'set-node-design-prompt', 'set-node-viewport-override',
       'clear-node-viewport-override', 'undo', 'redo',
     ]) {
@@ -310,5 +327,8 @@ describe('UI Studio canvas command wiring', () => {
     expect(source).toContain("type: 'set-node-viewport-override', screenId: activePageId, nodeId: element.id");
     expect(source).toContain("property: 'hidden'");
     expect(source).toContain('sourceLabel(view.provenance.rect)');
+    expect(source).toContain('applyMultiLayout');
+    expect(source).toContain('selectedElementIds');
+    expect(source).toContain('data-multi-layout="distribute-x"');
   });
 });
