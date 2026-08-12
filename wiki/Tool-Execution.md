@@ -264,6 +264,12 @@ execution, or writes. A design-only/code-only/conflict result remains advisory. 
 source diff, applying it must enter the same risk classification, approval, execution, and verification path as
 any other project-file mutation.
 
+**Import source evidence** uses that same read-only snapshot and is not an execution shortcut. Its exact
+webview request carries only mapping id plus revision. A fixed local recognizer produces bounded facts,
+suggestions, provenance, and mandatory loss/unsupported findings without loading a dependency or running a
+build, script, template, extension host, or model. Copying a suggestion changes only form text; accepting it is
+a separate mapping edit. Neither operation authorizes a project-file write.
+
 ---
 
 ## The CLI is stricter

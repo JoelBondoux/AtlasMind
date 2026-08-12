@@ -316,6 +316,13 @@ only SHA-256 fingerprints plus graph provenance. The webview cannot provide a fi
 does not enter `website.json`, its Markdown mirror, webview state, or a model prompt. Divergence reports which
 side changed without selecting a winner; a future source edit must use the normal approval boundary.
 
+**Adapter import keeps the same read boundary.** The browser can request import for one mapping, but cannot
+provide source, select another parser, or submit its own report. The host reads the contained snapshot and the
+mapping chooses a fixed conservative recognizer. Stored output is limited to structural names, exact-match
+suggestions, capability/loss findings, hashes, graph revision, and time—never excerpts, syntax trees,
+dependencies, markup bodies, or executable values. Invalid UTF-8 is unsupported. Built-in adapters always say
+partial and custom says unsupported; no result can claim lossless understanding or mutate design/source.
+
 **Which files, decided before any model runs.** The plan is worked out from your sitemap, not by a
 model, so the confirmation dialog can name every single file — and the same sitemap always produces the
 same list, which is what makes "yes" mean something you can learn. The model writes file *contents*; it

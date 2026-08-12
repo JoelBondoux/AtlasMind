@@ -82,6 +82,7 @@ describe('UI Studio repository mappings', () => {
         sourceFingerprint: `sha256:${'b'.repeat(64)}`,
         verifiedAt: '2026-08-12T10:00:00.000Z',
       },
+      lastImport: null,
     };
     const mappings = sanitizeUiRepositoryMappings([
       valid,
@@ -117,6 +118,12 @@ describe('UI Studio repository mappings', () => {
     expect(parseUiRepositoryMappingCommand({
       type: 'verify-mapping', expectedRevision: 0, mappingId: mapping.id,
       sourceFingerprint: `sha256:${'a'.repeat(64)}`,
+    })).toBeUndefined();
+    expect(parseUiRepositoryMappingCommand({
+      type: 'import-mapping-evidence', expectedRevision: 0, mappingId: mapping.id,
+    })).toEqual({ type: 'import-mapping-evidence', expectedRevision: 0, mappingId: mapping.id });
+    expect(parseUiRepositoryMappingCommand({
+      type: 'import-mapping-evidence', expectedRevision: 0, mappingId: mapping.id, apply: true,
     })).toBeUndefined();
   });
 
@@ -155,7 +162,7 @@ describe('UI Studio repository mappings', () => {
     const graph = graphWithComponent();
     const sourceText = 'export function Button() { return <button>Continue</button>; }';
     const root = await workspaceWithSource(sourceText);
-    const initial: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null };
+    const initial: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null, lastImport: null };
     const verified = applyUiRepositoryMappingCommand(0, [initial], graph, {
       type: 'verify-mapping', expectedRevision: 0, mappingId: initial.id,
     }, root, () => '2026-08-12T10:00:00.000Z');
@@ -185,10 +192,78 @@ describe('UI Studio repository mappings', () => {
     });
   });
 
+  it('imports bounded adapter evidence without applying suggestions or storing source', async () => {
+    const graph = graphWithComponent();
+    const sourceText = `
+      interface ButtonProps { label?: string; icon?: React.ReactNode; }
+      export function Button({ label, icon }: ButtonProps) { return <button>{icon}{label}</button>; }
+    `;
+    const root = await workspaceWithSource(sourceText);
+    const initial: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null, lastImport: null };
+    const imported = applyUiRepositoryMappingCommand(0, [initial], graph, {
+      type: 'import-mapping-evidence', expectedRevision: 0, mappingId: initial.id,
+    }, root, () => '2026-08-12T12:00:00.000Z');
+    expect(imported).toMatchObject({
+      ok: true,
+      revision: 1,
+      mappings: [{
+        propertyMappings: { label: 'children' },
+        slotMappings: { icon: 'icon' },
+        lastVerified: null,
+        lastImport: {
+          adapterId: 'react', capability: 'partial', graphRevision: graph.revision,
+          importedAt: '2026-08-12T12:00:00.000Z',
+          suggestedPropertyMappings: { label: 'label' },
+          suggestedSlotMappings: { icon: 'icon' },
+        },
+      }],
+    });
+    expect(JSON.stringify(imported)).not.toContain(sourceText.trim());
+    expect(JSON.stringify(imported)).not.toContain('return <button>');
+    if (!imported.ok) { return; }
+
+    const sanitized = sanitizeUiRepositoryMappings(imported.mappings);
+    expect(sanitized[0]?.lastImport).toEqual(imported.mappings[0]?.lastImport);
+    const forged = structuredClone(imported.mappings[0]!);
+    forged.lastImport = {
+      ...forged.lastImport!, capability: 'partial',
+      findings: forged.lastImport!.findings.filter(finding => finding.severity !== 'loss'),
+    };
+    expect(sanitizeUiRepositoryMappings([forged])[0]?.lastImport).toBeNull();
+    forged.lastImport = {
+      ...imported.mappings[0]!.lastImport!,
+      suggestedPropertyMappings: { label: 'not-a-detected-fact' },
+    };
+    expect(sanitizeUiRepositoryMappings([forged])[0]?.lastImport).toBeNull();
+
+    const changed = applyUiRepositoryMappingCommand(1, imported.mappings, graph, {
+      type: 'set-mapping', expectedRevision: 1, mappingId: initial.id,
+      mapping: sourceDraft({ label: 'Reviewed source mapping' }),
+    }, root);
+    expect(changed).toMatchObject({ ok: true, revision: 2, mappings: [{ lastImport: null, lastVerified: null }] });
+  });
+
+  it('records invalid UTF-8 as unsupported evidence without retaining bytes', async () => {
+    const root = await workspaceWithSource();
+    await writeFile(path.join(root, 'Button.tsx'), Buffer.from([0xff, 0xfe, 0xfd]));
+    const mapping: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null, lastImport: null };
+    const result = applyUiRepositoryMappingCommand(0, [mapping], graphWithComponent(), {
+      type: 'import-mapping-evidence', expectedRevision: 0, mappingId: mapping.id,
+    }, root, () => '2026-08-12T12:00:00.000Z');
+    expect(result).toMatchObject({
+      ok: true,
+      mappings: [{ lastImport: {
+        capability: 'unsupported', facts: [],
+        findings: [{ code: 'source-not-utf8', severity: 'unsupported' }],
+      } }],
+    });
+    expect(JSON.stringify(result)).not.toContain('fffe');
+  });
+
   it('fingerprints only the mapped design target, while retaining graph revision as provenance', async () => {
     const graph = graphWithComponent();
     const root = await workspaceWithSource();
-    const mapping: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null };
+    const mapping: UiRepositoryMapping = { ...sourceDraft(), lastVerified: null, lastImport: null };
     const verified = applyUiRepositoryMappingCommand(0, [mapping], graph, {
       type: 'verify-mapping', expectedRevision: 0, mappingId: mapping.id,
     }, root);
@@ -215,7 +290,7 @@ describe('UI Studio repository mappings', () => {
     expect(fingerprintUiRepositorySource(root, 'large.ts').status).toBe('refused');
 
     const result = applyUiRepositoryMappingCommand(0, [{
-      ...sourceDraft({ sourcePath: 'missing.ts' }), lastVerified: null,
+      ...sourceDraft({ sourcePath: 'missing.ts' }), lastVerified: null, lastImport: null,
     }], graphWithComponent(), {
       type: 'verify-mapping', expectedRevision: 0, mappingId: 'button-react',
     }, root);
@@ -225,11 +300,11 @@ describe('UI Studio repository mappings', () => {
   it('reports missing design targets and declared unsupported coverage without choosing a side', async () => {
     const root = await workspaceWithSource();
     const missing: UiRepositoryMapping = {
-      ...sourceDraft({ target: { kind: 'component', id: 'missing' } }), lastVerified: null,
+      ...sourceDraft({ target: { kind: 'component', id: 'missing' } }), lastVerified: null, lastImport: null,
     };
     const unsupported: UiRepositoryMapping = {
       ...sourceDraft({ id: 'unsupported', coverage: 'unsupported', limitations: ['Runtime behavior is source-only.'] }),
-      lastVerified: null,
+      lastVerified: null, lastImport: null,
     };
     expect(assessUiRepositoryMappings(graphWithComponent(), [missing, unsupported], root))
       .toMatchObject([{ status: 'unsupported' }, { status: 'unsupported' }]);

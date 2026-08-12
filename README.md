@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.299.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.300.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.299.0
+## What's new in 0.300.0
 
 The last Marketplace publication, **v0.270.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
@@ -138,6 +138,13 @@ capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
   reach GitHub, rather than local git tooling that cannot see a review or a CI run. Subcommands are
   graded like git's: reading a pull request is a read, merging one asks first, and seven — including
   `gh auth token` — are refused outright at any setting.
+
+- **Existing UI source now produces an honest adapter report.** React, literal HTML/CSS, and VS Code webview
+  mappings import bounded structural facts, exact-match prop/slot suggestions, provenance, and explicit losses;
+  custom targets say unsupported instead of pretending generic parsing understood them.
+- **Imports are proposals, not authority.** Suggestions can be copied into the mapping form for review, then
+  require a separate Apply action. Source stays local, bounded, unexecuted, absent from memory/browser/model
+  state, and every built-in report remains explicitly partial.
 
 - **Design and source can now be connected without pretending they are the same thing.** UI Studio maps a
   component, token, or node to a real project file and symbol through a named adapter, including prop/slot
@@ -703,7 +710,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository-mapping core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`), CI inspection/scaffolding, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs and health |
 | `src/skills/` | Built-in tools and skill handlers |

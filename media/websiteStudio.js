@@ -2011,7 +2011,7 @@
     }));
 
     return {
-      version: 12,
+      version: 13,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -2711,6 +2711,18 @@
       const verified = mapping.lastVerified
         ? 'Graph r' + mapping.lastVerified.graphRevision + ' · ' + mapping.lastVerified.sourceFingerprint.slice(0, 19) + '… · ' + mapping.lastVerified.verifiedAt
         : 'Never verified';
+      const imported = mapping.lastImport;
+      const importStale = imported && (imported.designFingerprint !== assessment.currentDesignFingerprint
+        || imported.sourceFingerprint !== assessment.currentSourceFingerprint);
+      const importEvidence = imported
+        ? '<div class="mapping-import-report"><p><strong>Adapter evidence · ' + escapeText(imported.capability) + (importStale ? ' · stale' : '') + '</strong></p>'
+          + '<p class="responsive-copy">Graph r' + escapeText(String(imported.graphRevision)) + ' · ' + escapeText(imported.sourceFingerprint.slice(0, 19)) + '… · ' + escapeText(imported.importedAt) + '</p>'
+          + '<p><strong>Detected facts</strong> ' + escapeText(imported.facts.map(fact => fact.kind + ':' + fact.name).join(', ') || 'none') + '</p>'
+          + '<ul class="mapping-import-findings">' + imported.findings.map(finding => '<li data-severity="' + escapeAttribute(finding.severity) + '"><strong>' + escapeText(finding.code) + '</strong> · ' + escapeText(finding.message) + '</li>').join('') + '</ul>'
+          + ((Object.keys(imported.suggestedPropertyMappings).length > 0 || Object.keys(imported.suggestedSlotMappings).length > 0)
+            ? '<button type="button" class="secondary use-import-suggestions"' + (state.readOnly ? ' disabled' : '') + '>Copy exact-match suggestions into form</button>'
+            : '') + '</div>'
+        : '<p class="responsive-copy">No adapter evidence imported yet.</p>';
       return '<details class="component-row repository-mapping-row" data-mapping-id="' + escapeAttribute(mapping.id) + '">'
         + '<summary><strong>' + escapeText(mapping.label) + '</strong><span>' + escapeText(mapping.adapterId) + ' · ' + escapeText(assessment.status) + '</span></summary>'
         + '<div class="component-fields"><div class="canvas-diagnostics ' + escapeAttribute(assessment.status === 'in-sync' ? 'clear' : assessment.status === 'conflict' || assessment.status === 'unsupported' ? 'error' : 'warning') + '"><strong>' + escapeText(assessment.status) + '</strong><span>' + escapeText(assessment.message) + '</span></div>'
@@ -2722,7 +2734,8 @@
         + '<label class="field"><span>Slot mappings</span><textarea class="mapping-slots" rows="' + Math.max(2, Object.keys(mapping.slotMappings).length) + '">' + escapeText(mappingRelationLines(mapping.slotMappings)) + '</textarea></label>'
         + '<label class="field"><span>Limitations</span><textarea class="mapping-limitations" rows="' + Math.max(2, mapping.limitations.length) + '">' + escapeText(mapping.limitations.join('\n')) + '</textarea></label>'
         + '<p class="responsive-copy">' + escapeText(verified) + '</p>'
-        + '<div class="token-row-actions"><button type="button" class="secondary save-mapping"' + (state.readOnly ? ' disabled' : '') + '>Apply mapping</button><button type="button" class="secondary verify-mapping"' + (state.readOnly ? ' disabled' : '') + '>Verify fingerprints</button><button type="button" class="danger subtle delete-mapping"' + (state.readOnly ? ' disabled' : '') + '>Delete</button></div></div></details>';
+        + importEvidence
+        + '<div class="token-row-actions"><button type="button" class="secondary save-mapping"' + (state.readOnly ? ' disabled' : '') + '>Apply mapping</button><button type="button" class="secondary import-mapping"' + (state.readOnly ? ' disabled' : '') + '>Import source evidence</button><button type="button" class="secondary verify-mapping"' + (state.readOnly ? ' disabled' : '') + '>Verify fingerprints</button><button type="button" class="danger subtle delete-mapping"' + (state.readOnly ? ' disabled' : '') + '>Delete</button></div></div></details>';
     }).join('');
   }
 
@@ -2777,6 +2790,22 @@
       if (event.target.closest('.verify-mapping')) {
         submitRepositoryMappingEdit({ type: 'verify-mapping', mappingId });
         notice('Verifying bounded source and design fingerprints…'); return;
+      }
+      if (event.target.closest('.import-mapping')) {
+        submitRepositoryMappingEdit({ type: 'import-mapping-evidence', mappingId });
+        notice('Importing bounded adapter evidence and an explicit loss report…'); return;
+      }
+      if (event.target.closest('.use-import-suggestions')) {
+        const mapping = state.repositoryMappings.find(candidate => candidate.id === mappingId);
+        const report = mapping?.lastImport;
+        if (!report) { return; }
+        const properties = { ...(mapping.propertyMappings ?? {}), ...report.suggestedPropertyMappings };
+        const slots = { ...(mapping.slotMappings ?? {}), ...report.suggestedSlotMappings };
+        const propertyField = row.querySelector('.mapping-properties');
+        const slotField = row.querySelector('.mapping-slots');
+        if (propertyField) { propertyField.value = mappingRelationLines(properties); }
+        if (slotField) { slotField.value = mappingRelationLines(slots); }
+        notice('Suggestions copied into the form. Review them, then apply the mapping separately.'); return;
       }
       if (!event.target.closest('.save-mapping')) { return; }
       const mapping = collectRepositoryMapping(row);

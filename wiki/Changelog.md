@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.299.0 — Chat can do GitHub work
+## v0.300.0 — Chat can do GitHub work
 
 `gh` was missing from the terminal allow-list. Not as a policy — as a gap, and an expensive one. The
 planner *tells* agents to use `gh pr list`, the GitHub Operator agent is advertised for pull-request and
@@ -35,6 +35,19 @@ could not answer it and the agent explained rather than looked.
 Subcommands are graded like git's: `gh pr list` is a read, `gh pr merge` follows the approval path, and
 anything unrecognised counts as a write. Seven are refused outright at any setting — chiefly
 `gh auth token`, which would print your GitHub token into model context.
+
+## v0.299.0 — Adapter imports publish what they cannot know
+
+UI Studio can now inspect an existing mapped source file through its named adapter. React recognizes exports
+and simple props/slots; static HTML/CSS recognizes literal selectors and custom properties; VS Code webview
+recognizes host exports and literal web facts; custom remains explicitly unsupported. Each format-v13 report
+stores bounded facts, exact-match suggestions, adapter/graph/source provenance, and a closed loss report—never
+source content and never a lossless claim.
+
+Suggestions can be copied into the mapping form for review, but are not authoritative until **Apply mapping**
+runs as a separate revisioned action. Import never edits the graph, executes the project, follows dependencies,
+or sends source to a model. Invalid UTF-8 is reported unsupported. Migration adds only an empty report field to
+existing mappings. Approval-gated proposed source diffs and post-change verification remain next.
 
 ## v0.298.0 — Repository mappings and honest divergence
 

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.299.0] - 2026-08-12
+## [0.300.0] - 2026-08-12
 
 ### Added
 
@@ -46,6 +46,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   matching read the namespace as "github.com" and waved it through, failing in the permissive direction.
   It is deliberately not a substring search either: `gh pr comment --body "see the auth token docs"` is an
   ordinary comment, and blocking it would teach whoever hit it that the refusal is noise.
+
+## [0.299.0] - 2026-08-12
+
+### Added
+
+- **UI Studio can import adapter evidence from an existing implementation.** React recognizes named exports
+  and simple props/slots; static HTML/CSS recognizes literal selectors and custom properties; VS Code webview
+  recognizes host exports and literal web facts; custom mappings return an honest unsupported report.
+- **Every import publishes capability, provenance, and loss.** Format v13 retains the adapter, partial/
+  unsupported grade, graph revision, design/source fingerprints, time, bounded facts, exact-match prop/slot
+  suggestions, and closed findings. There is deliberately no lossless grade.
+- **Exact-match suggestions remain reviewable.** Studio can copy them into the visible mapping form, but a
+  separate **Apply mapping** action is still required before they change mapping authority.
+- **The adapter-import decision is recorded.** The ADR defines conservative recognition, source privacy,
+  deterministic bounds, staleness, and why imports are evidence proposals rather than graph mutations.
+
+### Security
+
+- **Import reads the same contained 2 MiB source snapshot as verification.** Invalid UTF-8 becomes an
+  unsupported finding. Reports store no source excerpt, syntax tree, generated markup, executable value, or
+  dependency content, and source is never executed or sent to a model.
+- **The webview can request an import but cannot supply source or a report.** The exact revisioned command
+  carries only a mapping id; the host resolves the mapping, file, fingerprints, adapter, and findings.
+
+### Changed
+
+- **Website workspace format advances from v12 to v13.** Migration adds `lastImport: null` to existing mappings
+  and preserves their definitions and verification baselines without reading source or inventing evidence.
+- **Phase 5 now covers declarations, divergence, and adapter evidence.** Proposed source diffs, normal approval,
+  and post-change verification remain the next recorded repository-integration slice.
 
 ## [0.298.0] - 2026-08-12
 

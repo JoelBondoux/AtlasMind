@@ -68,7 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'mcp-environment': 1,
   workflow: 1,
   research: 1,
-  website: 12,
+  website: 13,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -339,12 +339,33 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       },
     }),
   },
+  {
+    kind: 'website',
+    from: 12,
+    to: 13,
+    summary: 'UI Studio repository mappings now retain bounded adapter capability and loss reports.',
+    migrate: document => ({
+      ...document,
+      version: 13,
+      implementation: addEmptyRepositoryImportReports(document['implementation']),
+    }),
+  },
 ];
 
 function asMigrationRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function addEmptyRepositoryImportReports(value: unknown): Record<string, unknown> {
+  const implementation = asMigrationRecord(value);
+  return {
+    ...implementation,
+    repositoryMappings: Array.isArray(implementation['repositoryMappings'])
+      ? implementation['repositoryMappings'].map(mapping => ({ ...asMigrationRecord(mapping), lastImport: null }))
+      : implementation['repositoryMappings'],
+  };
 }
 
 /**

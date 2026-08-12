@@ -218,6 +218,18 @@ revision/time are retained. Source content never enters `website.json`, its Mark
 model prompt. Target-scoped design hashes distinguish design-only, code-only, and conflicting changes without
 making unrelated graph edits look like drift. No assessment chooses a winner or grants source-write authority.
 
+Format v13 adds an optional adapter import report to each mapping. `uiRepositoryImport.ts` conservatively
+recognizes React exports/simple props/slots, literal HTML/CSS selectors/custom properties, and VS Code webview
+host exports/literal web facts; custom reports unsupported. Every built-in report is partial and carries a
+closed loss finding. Facts (200), findings (40), and exact-name suggestions are bounded and deterministic.
+The report stores adapter, graph revision, design/source fingerprints, and time, but no source excerpt or
+executable value. The 12 → 13 migration adds only `lastImport: null` to existing mappings.
+
+The webview's exact import command carries only mapping id and expected revision. The host resolves and reads
+the already mapped 2 MiB-contained source snapshot, selects the mapping's adapter, and creates the report.
+Copying suggestions edits only the visible form; a separate revisioned Apply action is required. Import never
+executes source, resolves dependencies, mutates the graph, accepts a browser-authored report, or writes code.
+
 `websiteWireframePreview.ts` is the target adapter, not another authority. A closed semantic-id map supplies
 colour, typography, spacing, radius, and breakpoint roles to Studio canvas and Full Preview; every other
 resolved token is emitted under a hex-encoded-id custom property so punctuation cannot become CSS syntax or

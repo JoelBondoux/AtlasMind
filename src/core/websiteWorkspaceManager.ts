@@ -58,7 +58,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 12;
+const WEBSITE_SCHEMA_VERSION = 13;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -505,6 +505,14 @@ export function renderWebsiteWorkspaceMarkdown(config: WebsiteWorkspaceConfig): 
     ...renderRepositoryMappingRows(config.implementation.repositoryMappings),
     '',
     '> Mapping fingerprints are local read-only verification records. A mapping grants no source-write authority and does not claim lossless round-tripping.',
+    '',
+    '### Adapter import evidence',
+    '',
+    '| Mapping | Capability | Imported graph revision | Facts | Suggestions | Loss / unsupported findings | Source fingerprint |',
+    '|---|---|---:|---|---|---|---|',
+    ...renderRepositoryImportRows(config.implementation.repositoryMappings),
+    '',
+    '> Import reports contain bounded structural facts and explicit losses, never source excerpts. Suggestions are not applied automatically.',
     '',
     '## Hosting Environments',
     '',
@@ -1427,6 +1435,25 @@ function renderRepositoryMappingRows(
     const fingerprint = mapping.lastVerified?.sourceFingerprint ?? 'unverified';
     return `| ${escapeMarkdownCell(mapping.label)} (${mapping.id}) | ${mapping.adapterId} | ${escapeMarkdownCell(target)} | ${escapeMarkdownCell(mapping.sourcePath + symbol)} | ${mapping.coverage} | ${verifiedRevision} | ${fingerprint} | ${escapeMarkdownCell(mapping.limitations.join('; ') || '—')} |`;
   });
+}
+
+function renderRepositoryImportRows(
+  mappings: readonly import('../types.js').UiRepositoryMapping[],
+): string[] {
+  const rows = mappings.filter(mapping => mapping.lastImport).map(mapping => {
+    const report = mapping.lastImport!;
+    const facts = report.facts.map(fact => `${fact.kind}:${fact.name}`).join('; ') || 'none';
+    const suggestions = [
+      ...Object.entries(report.suggestedPropertyMappings).map(([graph, source]) => `prop:${graph}→${source}`),
+      ...Object.entries(report.suggestedSlotMappings).map(([graph, source]) => `slot:${graph}→${source}`),
+    ].join('; ') || 'none';
+    const losses = report.findings
+      .filter(finding => finding.severity !== 'info')
+      .map(finding => `${finding.code}: ${finding.message}`)
+      .join('; ') || 'none';
+    return `| ${escapeMarkdownCell(mapping.label)} (${mapping.id}) | ${report.capability} | ${report.graphRevision} | ${escapeMarkdownCell(facts)} | ${escapeMarkdownCell(suggestions)} | ${escapeMarkdownCell(losses)} | ${report.sourceFingerprint} |`;
+  });
+  return rows.length > 0 ? rows : ['| _None imported_ | — | — | — | — | — | — |'];
 }
 
 function markdownValue(value: string | undefined): string {

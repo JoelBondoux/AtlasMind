@@ -542,7 +542,9 @@ export class WebsiteStudioPanel {
             type: 'notice', tone: 'success',
             message: command.type === 'verify-mapping'
               ? 'Repository mapping fingerprints verified without storing source content.'
-              : 'Repository mapping updated.',
+              : command.type === 'import-mapping-evidence'
+                ? 'Adapter evidence imported with capability, provenance, and explicit loss reporting.'
+                : 'Repository mapping updated.',
           });
           return;
         }

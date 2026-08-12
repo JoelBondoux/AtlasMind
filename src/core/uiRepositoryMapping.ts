@@ -1,8 +1,8 @@
 /**
  * Explicit, read-only bridges between UI Studio graph facts and repository files.
  *
- * This module never parses or executes source and never writes it. Verification
- * stores fingerprints only; divergence is a comparison, not reconciliation.
+ * This module never executes or writes source. Verification stores fingerprints
+ * only; bounded adapter inspection is evidence, never reconciliation.
  */
 
 import { createHash } from 'node:crypto';
@@ -11,11 +11,18 @@ import * as path from 'node:path';
 import type {
   UiDesignGraph,
   UiRepositoryAdapterId,
+  UiRepositoryImportFindingCode,
+  UiRepositoryImportReport,
   UiRepositoryMapping,
   UiRepositoryMappingCoverage,
   UiRepositoryMappingTarget,
 } from '../types.js';
 import { UI_DESIGN_GRAPH_MAX_REVISION } from './uiDesignGraph.js';
+import {
+  analyzeUiRepositoryImport,
+  UI_REPOSITORY_IMPORT_MAX_FACTS,
+  UI_REPOSITORY_IMPORT_MAX_FINDINGS,
+} from './uiRepositoryImport.js';
 
 export const UI_REPOSITORY_MAPPING_MAX_ITEMS = 200;
 export const UI_REPOSITORY_MAPPING_MAX_RELATIONS = 50;
@@ -30,15 +37,15 @@ export const UI_REPOSITORY_ADAPTERS: ReadonlyArray<{
 }> = [
   {
     id: 'react', label: 'React', targetKinds: ['component', 'token', 'node'],
-    note: 'Declared component, prop, slot, token, and source correspondences; parsing is not yet implemented.',
+    note: 'Recognizes exports and simple object-shaped props; imports, runtime behavior, composition, and complex types remain losses.',
   },
   {
     id: 'static-html-css', label: 'Static HTML/CSS', targetKinds: ['component', 'token', 'node'],
-    note: 'Declared selectors, files, and custom-property correspondences; typed props and slots may be partial.',
+    note: 'Recognizes literal selectors and CSS custom properties; templates, scripts, cascade, and preprocessors remain losses.',
   },
   {
     id: 'vscode-webview', label: 'VS Code webview', targetKinds: ['component', 'token', 'node'],
-    note: 'Declared host/webview source correspondences; runtime message behavior remains source-only.',
+    note: 'Recognizes host exports and literal web facts; messages, CSP, template construction, and runtime behavior remain losses.',
   },
   {
     id: 'custom', label: 'Custom / other', targetKinds: ['component', 'token', 'node'],
@@ -67,7 +74,8 @@ export type UiRepositoryMappingCommand =
   | (UiRepositoryMappingCommandBase & { type: 'add-mapping'; mapping: UiRepositoryMappingDraft })
   | (UiRepositoryMappingCommandBase & { type: 'set-mapping'; mappingId: string; mapping: UiRepositoryMappingDraft })
   | (UiRepositoryMappingCommandBase & { type: 'delete-mapping'; mappingId: string })
-  | (UiRepositoryMappingCommandBase & { type: 'verify-mapping'; mappingId: string });
+  | (UiRepositoryMappingCommandBase & { type: 'verify-mapping'; mappingId: string })
+  | (UiRepositoryMappingCommandBase & { type: 'import-mapping-evidence'; mappingId: string });
 
 export type UiRepositoryDivergenceStatus =
   | 'in-sync'
@@ -112,7 +120,11 @@ export function sanitizeUiRepositoryMappings(input: unknown): UiRepositoryMappin
     const source = asRecord(candidate);
     const draft = sanitizeDraft(source);
     if (!draft || ids.has(draft.id)) { continue; }
-    mappings.push({ ...draft, lastVerified: sanitizeBaseline(source['lastVerified']) });
+    mappings.push({
+      ...draft,
+      lastVerified: sanitizeBaseline(source['lastVerified']),
+      lastImport: sanitizeImportReport(source['lastImport'], draft),
+    });
     ids.add(draft.id);
   }
   return mappings;
@@ -138,7 +150,8 @@ export function parseUiRepositoryMappingCommand(input: unknown): UiRepositoryMap
       ? { type: 'set-mapping', expectedRevision, mappingId: input['mappingId'], mapping }
       : undefined;
   }
-  if (input['type'] === 'delete-mapping' || input['type'] === 'verify-mapping') {
+  if (input['type'] === 'delete-mapping' || input['type'] === 'verify-mapping'
+      || input['type'] === 'import-mapping-evidence') {
     return validIdentifier(input['mappingId'])
       && exactKeys(input, ['type', 'expectedRevision', 'mappingId'])
       ? { type: input['type'], expectedRevision, mappingId: input['mappingId'] }
@@ -170,14 +183,18 @@ export function applyUiRepositoryMappingCommand(
     if (mappingSupportIssue(graph, command.mapping)) {
       return refused('unsupported-mapping', revision, current);
     }
-    return { ok: true, revision: revision + 1, mappings: [...current, { ...command.mapping, lastVerified: null }] };
+    return {
+      ok: true,
+      revision: revision + 1,
+      mappings: [...current, { ...command.mapping, lastVerified: null, lastImport: null }],
+    };
   }
   if (index < 0) { return refused('mapping-not-found', revision, current); }
   if (command.type === 'delete-mapping') {
     return { ok: true, revision: revision + 1, mappings: current.filter((_, candidate) => candidate !== index) };
   }
   if (command.type === 'set-mapping') {
-    const replacement: UiRepositoryMapping = { ...command.mapping, lastVerified: null };
+    const replacement: UiRepositoryMapping = { ...command.mapping, lastVerified: null, lastImport: null };
     if (!fingerprintUiRepositoryDesignTarget(graph, replacement.target)) {
       return refused('design-target-not-found', revision, current);
     }
@@ -195,15 +212,45 @@ export function applyUiRepositoryMappingCommand(
   const designFingerprint = fingerprintUiRepositoryDesignTarget(graph, mapping.target);
   if (!designFingerprint) { return refused('design-target-not-found', revision, current); }
   if (mappingSupportIssue(graph, mapping)) { return refused('unsupported-mapping', revision, current); }
-  const source = fingerprintUiRepositorySource(workspaceRoot, mapping.sourcePath);
+  const source = readUiRepositorySourceSnapshot(workspaceRoot, mapping.sourcePath);
   if (source.status === 'missing') { return refused('source-not-found', revision, current); }
   if (source.status !== 'ok') { return refused('source-unavailable', revision, current); }
-  mapping.lastVerified = {
-    graphRevision: graph.revision,
-    designFingerprint,
-    sourceFingerprint: source.fingerprint,
-    verifiedAt: now(),
-  };
+  if (command.type === 'verify-mapping') {
+    mapping.lastVerified = {
+      graphRevision: graph.revision,
+      designFingerprint,
+      sourceFingerprint: source.fingerprint,
+      verifiedAt: now(),
+    };
+  } else {
+    const importedAt = now();
+    let sourceText: string | undefined;
+    try {
+      sourceText = new TextDecoder('utf-8', { fatal: true }).decode(source.bytes);
+    } catch {
+      mapping.lastImport = {
+        adapterId: mapping.adapterId,
+        capability: 'unsupported',
+        graphRevision: graph.revision,
+        designFingerprint,
+        sourceFingerprint: source.fingerprint,
+        importedAt,
+        facts: [],
+        suggestedPropertyMappings: {},
+        suggestedSlotMappings: {},
+        findings: [{
+          code: 'source-not-utf8', severity: 'unsupported',
+          message: 'The bounded source snapshot is not valid UTF-8 and was not interpreted.',
+        }],
+      };
+    }
+    if (sourceText !== undefined) {
+      mapping.lastImport = analyzeUiRepositoryImport({
+        mapping, graph, sourceText, designFingerprint,
+        sourceFingerprint: source.fingerprint, importedAt,
+      });
+    }
+  }
   return { ok: true, revision: revision + 1, mappings: current };
 }
 
@@ -297,11 +344,25 @@ export type UiRepositorySourceFingerprint =
   | { status: 'ok'; fingerprint: string }
   | { status: 'missing' | 'unavailable' | 'refused' };
 
+type UiRepositorySourceSnapshot =
+  | { status: 'ok'; fingerprint: string; bytes: Uint8Array }
+  | { status: 'missing' | 'unavailable' | 'refused' };
+
 /** Read a bounded file after real-path containment checks and return only its hash. */
 export function fingerprintUiRepositorySource(
   workspaceRoot: string | undefined,
   sourcePath: string,
 ): UiRepositorySourceFingerprint {
+  const snapshot = readUiRepositorySourceSnapshot(workspaceRoot, sourcePath);
+  return snapshot.status === 'ok'
+    ? { status: 'ok', fingerprint: snapshot.fingerprint }
+    : snapshot;
+}
+
+function readUiRepositorySourceSnapshot(
+  workspaceRoot: string | undefined,
+  sourcePath: string,
+): UiRepositorySourceSnapshot {
   const normalized = normalizeWorkspaceRelativePath(sourcePath);
   if (!workspaceRoot || !normalized) { return { status: normalized ? 'unavailable' : 'refused' }; }
   let realRoot: string;
@@ -331,7 +392,8 @@ export function fingerprintUiRepositorySource(
       if (read === 0) { break; }
       offset += read;
     }
-    return { status: 'ok', fingerprint: fingerprintBytes(bytes.subarray(0, offset)) };
+    const snapshot = bytes.subarray(0, offset);
+    return { status: 'ok', fingerprint: fingerprintBytes(snapshot), bytes: snapshot };
   } catch (error) {
     return isMissingError(error) ? { status: 'missing' } : { status: 'unavailable' };
   } finally {
@@ -460,6 +522,89 @@ function sanitizeBaseline(input: unknown): UiRepositoryMapping['lastVerified'] {
       verifiedAt: source['verifiedAt'],
     }
     : null;
+}
+
+const IMPORT_FINDING_CODES = new Set<UiRepositoryImportFindingCode>([
+  'react-static-only',
+  'react-source-extension-unsupported',
+  'react-props-not-found',
+  'html-css-static-only',
+  'html-css-source-extension-unsupported',
+  'vscode-static-only',
+  'vscode-source-extension-unsupported',
+  'custom-adapter-unsupported',
+  'source-symbol-not-found',
+  'source-not-utf8',
+  'no-structural-facts',
+  'exact-relations-suggested',
+]);
+
+function sanitizeImportReport(
+  input: unknown,
+  mapping: UiRepositoryMappingDraft,
+): UiRepositoryImportReport | null {
+  if (!isRecord(input)
+      || input['adapterId'] !== mapping.adapterId
+      || (input['capability'] !== 'partial' && input['capability'] !== 'unsupported')
+      || !Number.isSafeInteger(input['graphRevision']) || (input['graphRevision'] as number) < 0
+      || (input['graphRevision'] as number) > UI_DESIGN_GRAPH_MAX_REVISION
+      || !isFingerprint(input['designFingerprint']) || !isFingerprint(input['sourceFingerprint'])
+      || typeof input['importedAt'] !== 'string' || !isIsoDate(input['importedAt'])
+      || !Array.isArray(input['facts']) || input['facts'].length > UI_REPOSITORY_IMPORT_MAX_FACTS
+      || !Array.isArray(input['findings']) || input['findings'].length > UI_REPOSITORY_IMPORT_MAX_FINDINGS
+      || !exactKeys(input, [
+        'adapterId', 'capability', 'graphRevision', 'designFingerprint', 'sourceFingerprint',
+        'importedAt', 'facts', 'suggestedPropertyMappings', 'suggestedSlotMappings', 'findings',
+      ])) {
+    return null;
+  }
+  const facts = input['facts'].map(candidate => {
+    const fact = asRecord(candidate);
+    const name = cleanText(fact['name'], 160);
+    return (fact['kind'] === 'export' || fact['kind'] === 'property' || fact['kind'] === 'slot'
+      || fact['kind'] === 'token' || fact['kind'] === 'selector')
+      && name && exactKeys(fact, ['kind', 'name'])
+      ? { kind: fact['kind'], name }
+      : undefined;
+  });
+  const findings = input['findings'].map(candidate => {
+    const item = asRecord(candidate);
+    const message = cleanText(item['message'], 500);
+    return typeof item['code'] === 'string' && IMPORT_FINDING_CODES.has(item['code'] as UiRepositoryImportFindingCode)
+      && (item['severity'] === 'info' || item['severity'] === 'loss' || item['severity'] === 'unsupported')
+      && message && exactKeys(item, ['code', 'severity', 'message'])
+      ? { code: item['code'] as UiRepositoryImportFindingCode, severity: item['severity'], message }
+      : undefined;
+  });
+  const suggestedPropertyMappings = sanitizeRelations(input['suggestedPropertyMappings']);
+  const suggestedSlotMappings = sanitizeRelations(input['suggestedSlotMappings']);
+  const propertyFacts = new Set(facts.filter(fact => fact?.kind === 'property').map(fact => fact!.name));
+  const slotFacts = new Set(facts.filter(fact => fact?.kind === 'slot').map(fact => fact!.name));
+  if (facts.some(fact => !fact) || findings.some(finding => !finding)
+      || new Set(facts.map(fact => `${fact!.kind}:${fact!.name}`)).size !== facts.length
+      || new Set(findings.map(finding => finding!.code)).size !== findings.length
+      || suggestedPropertyMappings === undefined || suggestedSlotMappings === undefined
+      || Object.values(suggestedPropertyMappings).some(sourceName => !propertyFacts.has(sourceName))
+      || Object.values(suggestedSlotMappings).some(sourceName => !slotFacts.has(sourceName))
+      || (mapping.target.kind !== 'component'
+        && (Object.keys(suggestedPropertyMappings).length > 0 || Object.keys(suggestedSlotMappings).length > 0))
+      || (input['capability'] === 'partial' && !findings.some(finding => finding?.severity === 'loss'))
+      || (input['capability'] === 'unsupported' && !findings.some(finding => finding?.severity === 'unsupported'))) {
+    return null;
+  }
+  const report: UiRepositoryImportReport = {
+    adapterId: mapping.adapterId,
+    capability: input['capability'],
+    graphRevision: input['graphRevision'] as number,
+    designFingerprint: input['designFingerprint'],
+    sourceFingerprint: input['sourceFingerprint'],
+    importedAt: input['importedAt'],
+    facts: facts as UiRepositoryImportReport['facts'],
+    suggestedPropertyMappings,
+    suggestedSlotMappings,
+    findings: findings as UiRepositoryImportReport['findings'],
+  };
+  return canonicalJson(report) === canonicalJson(input) ? report : null;
 }
 
 function fingerprintJson(value: unknown): string {

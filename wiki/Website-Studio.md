@@ -79,7 +79,17 @@ record says whether coverage is declared, partial, or unsupported and lists limi
 **Verify fingerprints** reads the bounded local file and stores hashes—not source—to establish a comparison
 baseline. The status then distinguishes design-only, code-only, conflict, in-sync, unassessed, and unsupported.
 It never chooses a side, parses or executes code, or writes the project. Editing a mapping clears its old
-baseline. Import and proposed source diffs are still later Phase 5 work, not implied by the mapping.
+baseline. Proposed source diffs remain later Phase 5 work and are not implied by the mapping.
+
+Format v13 adds **Import source evidence**. React recognizes exports and simple props/slots; static HTML/CSS
+recognizes literal selectors and custom properties; VS Code webview recognizes host exports and literal web
+facts; custom says unsupported. Every built-in report is partial and lists what it could not evaluate. It
+retains bounded facts, exact-match suggestions, adapter/graph/source provenance, and no source excerpt.
+
+Use **Copy exact-match suggestions into form** to review detected correspondences. Nothing becomes mapping
+authority until **Apply mapping** runs separately, and no import edits the graph or project source. Reports
+remain visible and are labelled stale after either side changes. Proposed source diffs and their approval/
+post-change verification boundary remain the next Phase 5 work.
 
 ---
 

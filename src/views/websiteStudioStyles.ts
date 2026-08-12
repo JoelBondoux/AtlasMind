@@ -122,6 +122,14 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .component-row summary { display:flex; justify-content:space-between; gap:12px; padding:12px; cursor:pointer; background:color-mix(in srgb, var(--studio-border) 35%, transparent); }
   .component-row summary span { color:var(--studio-muted); font-size:.8rem; }
   .component-fields { display:grid; gap:10px; padding:12px; }
+  .repository-mapping-authority { margin-top:14px; }
+  .repository-mapping-row .token-row-actions { flex-wrap:wrap; }
+  .mapping-import-report { display:grid; gap:8px; padding:12px; border:1px solid color-mix(in srgb, var(--studio-accent) 38%, var(--studio-border)); border-radius:8px; background:color-mix(in srgb, var(--studio-accent) 6%, transparent); }
+  .mapping-import-report p { margin:0; overflow-wrap:anywhere; }
+  .mapping-import-findings { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+  .mapping-import-findings li { padding:7px 9px; border-left:3px solid var(--studio-border); background:color-mix(in srgb, var(--vscode-editor-background) 76%, transparent); }
+  .mapping-import-findings li[data-severity="loss"] { border-left-color:var(--vscode-inputValidation-warningBorder, #b89500); }
+  .mapping-import-findings li[data-severity="unsupported"] { border-left-color:var(--vscode-inputValidation-errorBorder, #be1100); }
   .component-instance-inspector { display:grid; gap:9px; margin:12px 0; padding:10px; border:1px solid var(--studio-border); border-radius:8px; }
   .component-property-overrides { display:grid; gap:7px; }
   .component-property { display:grid; gap:3px; }

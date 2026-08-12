@@ -100,8 +100,20 @@ The host checks real-path containment, refuses non-files and files over 2 MiB, a
 and source fingerprints plus graph revision and verification time. Source content is not stored, rendered in
 the webview/Markdown mirror, or sent to a model. The resulting status is `in-sync`, `design-only`, `code-only`,
 `conflict`, `unassessed`, or `unsupported`. It is evidence, not reconciliation: no side is selected and no
-source is changed. Editing the mapping clears its baseline. Import and proposed diffs remain later Phase 5
-work and will require explicit capability/loss reporting and the normal approval path.
+source is changed. Editing the mapping clears its baseline. Adapter evidence and proposed diffs must retain
+explicit capability/loss reporting; applying a future source diff remains on the normal approval path.
+
+Format v13 adds **Import source evidence**. The host reads the same contained file snapshot used by
+verification and runs only the adapter already named by the mapping. React recognizes named exports and
+simple props/slots; static HTML/CSS recognizes literal selectors and custom properties; VS Code webview
+recognizes host exports and literal web facts; custom reports unsupported. Every built-in result remains
+`partial` and publishes what it did not evaluate. The report retains bounded facts, exact-match suggestions,
+closed findings, adapter id, graph revision, target/source fingerprints, and time—never source excerpts.
+
+Suggestions may be copied into the visible form, where they remain ordinary editable text until **Apply
+mapping** is pressed separately. Import does not change the graph, mapping, implementation, or source. A report
+is visibly stale when its design target or source fingerprint changes; it stays available as provenance.
+Proposed project-source diffs remain the next Phase 5 slice and will use normal approval and verification.
 
 ## The wireframe canvas
 
@@ -481,7 +493,7 @@ Fields may also be nested under `client` or `website`. Arrays are preferred for 
 
 ## SSOT Files
 
-- `project_memory/domain/website.json` is the structured source of truth, at **format version 12**.
+- `project_memory/domain/website.json` is the structured source of truth, at **format version 13**.
 - `project_memory/domain/website.md` is regenerated on every save as a human-readable review mirror. It carries the hierarchy as an indented outline, each page's outbound links, the navigation findings, and the design prompts — so "nothing links to the new Pricing page" shows up in a pull request rather than only on screen.
 
 Bootstrap never overwrites an existing website plan. Every dashboard save passes through the same sanitizer, whether the original values came from rendered controls or imported JSON.
@@ -500,7 +512,7 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   write a design intent on the author's behalf, and a guessed link would be indistinguishable from one
   they set.
 
-### Formats v2 → v12
+### Formats v2 → v13
 
 - v3 added the framework/platform stack choice and left it absent on migration rather than guessing.
 - v4 moved actual copy into separately managed Markdown files; migration created no files because
@@ -525,6 +537,8 @@ The migration is registered in `schemaMigration.ts` as the `website` kind and ru
   never scans files, fetches a source, or invents an assignment or alternative text.
 - v12 adds repository-mapping revision zero and an empty mapping collection. Migration never scans source,
   infers a file/symbol, parses code, or invents a component/token/node relationship.
+- v13 adds `lastImport: null` to each existing mapping. Migration preserves definitions and verification
+  baselines, reads no source, runs no adapter, and invents no facts, suggestions, capability, or loss report.
 
 A `website.json` written by a **newer** AtlasMind is refused rather than replaced: the Studio opens
 read-only and says so. The previous read path collapsed "corrupt" and "from the future" into the same
