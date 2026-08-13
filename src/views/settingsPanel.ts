@@ -1239,16 +1239,32 @@ export class SettingsPanel {
         await this.saveTestingConfig(message.payload);
         return;
 
+      // The three Testing-page actions repaint when they finish, whatever
+      // happened.
+      //
+      // Each shows a busy label and disables its button on click, and each has
+      // several early returns — no workspace, an unsaved matrix, a dismissed
+      // picker, a declined confirmation. Auto-assess repainted only on its one
+      // success path, so cancelling the quick pick left the button disabled and
+      // reading "Assessing…" until the panel was closed and reopened, with
+      // nothing on screen explaining why the control was dead.
+      //
+      // Repainting in a `finally` covers every path including a thrown one, and
+      // it is one place rather than one per early return — which is what makes
+      // it hold when the next early return is added.
       case 'autoAssessTestingConfig':
-        await this.runAutoAssessTestingConfig();
+        try { await this.runAutoAssessTestingConfig(); }
+        finally { this.panel.webview.html = this.getHtml(); }
         return;
 
       case 'syncTestingProtocols':
-        await this.runSyncTestingProtocols();
+        try { await this.runSyncTestingProtocols(); }
+        finally { this.panel.webview.html = this.getHtml(); }
         return;
 
       case 'scaffoldTestingFramework':
-        await this.runScaffoldTestingFramework();
+        try { await this.runScaffoldTestingFramework(); }
+        finally { this.panel.webview.html = this.getHtml(); }
         return;
 
       case 'openWorkspaceFile':
@@ -1461,51 +1477,8 @@ export class SettingsPanel {
   }
 
   private async runScaffoldTestingFramework(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
-      return;
-    }
-    const config = readProjectTestingConfig(workspaceRoot);
-    if (!config) {
-      void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
-      return;
-    }
-    const confirm = await vscode.window.showInformationMessage(
-      'Scaffold the testing framework for the enabled methodologies? This creates starter files only where absent, refreshes the managed strategy playbook, and syncs the enabled protocols into existing AI instruction files.',
-      {
-        modal: true,
-        detail: 'If the project already has Vitest or Jest and AtlasMind finds a small exported source target, it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.',
-      },
-      'Scaffold',
-    );
-    if (confirm !== 'Scaffold') {
-      return;
-    }
-    try {
-      const result = await scaffoldTestingFramework(workspaceRoot, config);
-      const protocolSync = await syncTestingProtocols(
-        workspaceRoot,
-        config,
-        this.atlasContext?.agentRegistry?.listAgents() ?? [],
-        parseCustomDebtMarkers(
-          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
-        ),
-        readWorkflowGuidanceInput(workspaceRoot),
-      );
-      const firstTestSummary = result.firstTestCandidate
-        ? await this.authorFirstScaffoldTest(result.firstTestCandidate, config)
-        : 'No codebase-specific first-test task was started: AtlasMind needs an existing Vitest or Jest runner and a small exported source module before it can safely nominate one.';
-      if (result.success) {
-        void vscode.window.showInformationMessage(`${result.summary} ${protocolSync.summary} ${firstTestSummary}`);
-      } else {
-        void vscode.window.showWarningMessage(result.summary);
-      }
-      this.panel.webview.html = this.getHtml();
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      void vscode.window.showErrorMessage(`Failed to scaffold testing framework: ${detail}`);
-    }
+    // The caller repaints in a `finally`, so this must not repaint again.
+    await runTestingScaffoldWithSync(this.atlasContext);
   }
 
   /**
@@ -1515,18 +1488,19 @@ export class SettingsPanel {
    * of a stable, observable behaviour. This call happens only after the
    * scaffold confirmation and the outbound instruction sync.
    */
-  private async authorFirstScaffoldTest(
+  static async authorFirstScaffoldTestFor(
+    atlasContext: import('../extension.js').AtlasMindContext | undefined,
     candidate: FirstTestCandidate,
     config: ProjectTestingConfig,
   ): Promise<string> {
-    if (!this.atlasContext) {
+    if (!atlasContext) {
       return 'The strategy and AI instruction files were prepared, but no live Atlas task runner is available to author the first test.';
     }
     const status = vscode.window.setStatusBarMessage(
       `AtlasMind is assessing ${candidate.sourcePath} for the first focused test…`,
     );
     try {
-      const result = await this.atlasContext.orchestrator.processTask({
+      const result = await atlasContext.orchestrator.processTask({
         id: `testing-scaffold-first-test-${Date.now()}`,
         userMessage: buildFirstTestAuthoringPrompt(candidate, config),
         context: {
@@ -4565,8 +4539,11 @@ export class SettingsPanel {
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
-          bindCommandButton('syncTestingProtocols', 'syncTestingProtocols');
-          bindCommandButton('scaffoldTestingFramework', 'scaffoldTestingFramework');
+          // syncTestingProtocols and scaffoldTestingFramework are deliberately
+          // NOT bound here: they are bound below with a busy state. Binding in
+          // both places would post the message twice and run the whole scaffold
+          // — filesystem pass, instruction sync and agent task — a second time
+          // on one click.
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
 
@@ -4628,14 +4605,28 @@ export class SettingsPanel {
               });
             });
 
-            const autoAssessBtn = document.getElementById('autoAssessTestingConfig');
-            if (autoAssessBtn) {
-              autoAssessBtn.addEventListener('click', function() {
-                autoAssessBtn.textContent = 'Assessing…';
-                autoAssessBtn.disabled = true;
-                vscode.postMessage({ type: 'autoAssessTestingConfig' });
+            // Busy state for the three long Testing actions. Scaffolding runs a
+            // filesystem pass, an outbound instruction sync, and sometimes an
+            // agent task, so a button that looked idle throughout invited a
+            // second click that would run the whole thing again.
+            //
+            // Safe to disable only because the host repaints on every path,
+            // including cancellations and errors. A busy label with a
+            // conditional reset is how a control ends up permanently dead
+            // after a dismissed dialog.
+            [
+              ['autoAssessTestingConfig', 'Assessing…'],
+              ['scaffoldTestingFramework', 'Scaffolding…'],
+              ['syncTestingProtocols', 'Syncing…'],
+            ].forEach(function(entry) {
+              const button = document.getElementById(entry[0]);
+              if (!(button instanceof HTMLButtonElement)) { return; }
+              button.addEventListener('click', function() {
+                button.textContent = entry[1];
+                button.disabled = true;
+                vscode.postMessage({ type: entry[0] });
               });
-            }
+            });
           })();
 
           // Delegated, not bound per element at load. The AI-instruction file
@@ -6043,6 +6034,77 @@ export async function persistTestingConfig(
     return result.success ? { syncSummary: result.summary } : {};
   } catch {
     return {};
+  }
+}
+
+/**
+ * The Scaffold framework action, in one place.
+ *
+ * There are two ways to reach it — the button on Settings → Testing and the
+ * `atlasmind.scaffoldTestingFramework` command — and they had drifted into
+ * doing different things. The command scaffolded the files and stopped: it
+ * never ran the outbound protocol sync, so every external AI tool
+ * (`CLAUDE.md`, Copilot, Cursor, …) carried on reading the *previous* set of
+ * methodologies while the repository had just been scaffolded for the new one.
+ * Its confirmation dialog did not mention the sync either, so nothing about the
+ * outcome contradicted what the user had been told.
+ *
+ * That is the same failure the auto-assess path was fixed for in v0.222.0 —
+ * "it previously wrote the file alone, which is how a project could enable
+ * thirteen methodologies in one click and leave every AI tool reading the old
+ * set" — reappearing at a second entry point. One function now, so a third
+ * entry point cannot reintroduce it.
+ *
+ * `atlasContext` is optional because the command palette can run without a
+ * panel: without it the scaffold and sync still happen and only the first-test
+ * authoring is skipped, which the returned message states rather than implies.
+ */
+export async function runTestingScaffoldWithSync(
+  atlasContext?: import('../extension.js').AtlasMindContext,
+): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    return;
+  }
+  const config = readProjectTestingConfig(workspaceRoot);
+  if (!config) {
+    void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
+    return;
+  }
+  const confirm = await vscode.window.showInformationMessage(
+    'Scaffold the testing framework for the enabled methodologies? This creates starter files only where absent, refreshes the managed strategy playbook, and syncs the enabled protocols into existing AI instruction files.',
+    {
+      modal: true,
+      detail: 'If the project already has Vitest or Jest and AtlasMind finds a small exported source target, it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.',
+    },
+    'Scaffold',
+  );
+  if (confirm !== 'Scaffold') {
+    return;
+  }
+  try {
+    const result = await scaffoldTestingFramework(workspaceRoot, config);
+    const protocolSync = await syncTestingProtocols(
+      workspaceRoot,
+      config,
+      atlasContext?.agentRegistry?.listAgents() ?? [],
+      parseCustomDebtMarkers(
+        vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+      ),
+      readWorkflowGuidanceInput(workspaceRoot),
+    );
+    const firstTestSummary = result.firstTestCandidate
+      ? await SettingsPanel.authorFirstScaffoldTestFor(atlasContext, result.firstTestCandidate, config)
+      : 'No codebase-specific first-test task was started: AtlasMind needs an existing Vitest or Jest runner and a small exported source module before it can safely nominate one.';
+    if (result.success) {
+      void vscode.window.showInformationMessage(`${result.summary} ${protocolSync.summary} ${firstTestSummary}`);
+    } else {
+      void vscode.window.showWarningMessage(result.summary);
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Failed to scaffold testing framework: ${detail}`);
   }
 }
 

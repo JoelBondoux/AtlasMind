@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.306.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.306.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.306.0
+## What's new in 0.306.1
 
 The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Scaffold framework button is now verified end to end.** Checking it turned up five real
+  faults: a starter file that did not parse, a Command Palette path that skipped the AI-instruction
+  sync, two buttons wired twice so one click ran everything twice, an Auto-assess button left dead
+  after you cancelled its dialog, and a strategy playbook that under-reported the files it had just
+  created. All fixed, and all now covered by tests that parse every file the button writes.
 
 - **Auto-assess now reads your code, not your README.** It used to match every signal word against one
   blob of text that included three kilobytes of your README — so a project got testing methodologies

@@ -24,8 +24,19 @@ import type { ProjectArchetype } from './projectArchetype.js';
 // score a documentary compliance policy, and a second copy of the path would
 // mean a scaffolded mapping that nothing ever finds.
 import { COMPLIANCE_EVIDENCE_DIR } from './testingPolicyCoverage.js';
+import { PRACTICE_ONLY } from './testingObligation.js';
 
 const PLAYBOOK_REL_PATH = 'project_memory/operations/testing-strategy.md';
+
+/**
+ * Methodologies that leave no artifact by nature, so "no starter file" is the
+ * correct answer rather than a missing recipe.
+ *
+ * Imported from the obligation module rather than restated: the same list
+ * already decides which methodologies are never reported as a coverage gap, and
+ * two copies would eventually disagree about whether a practice is a hole.
+ */
+const PRACTICE_ONLY_IDS = PRACTICE_ONLY;
 
 type Language = 'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'java' | 'unknown';
 /**
@@ -680,7 +691,7 @@ function nodeRecipeCompliance(id: TestingMethodologyId, stack: DetectedStack): S
     case 'rbac-compliance':
       return [{
         path: `tests/rbac.authorization.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Positive permission tests ("an admin can delete") are always written.\n// Negative ones ("a viewer cannot, by any route") rarely are — and privilege\n// escalation lives entirely in the untested half. This generates both.\nconst ACTIONS = ['read', 'write', 'delete', 'manageUsers'];\n\nconst ALLOWED = {\n  viewer: ['read'],\n  editor: ['read', 'write'],\n  admin: ['read', 'write', 'delete', 'manageUsers'],\n};\n\n// Replace with the real authorization check.\nconst can = (role, action) => ALLOWED[role].includes(action);\n\ndescribe('role matrix — both halves', () => {\n  for (const [role, permitted] of Object.entries(ALLOWED)) {\n    for (const action of ACTIONS) {\n      const shouldAllow = permitted.includes(action);\n      it(\`\${role} \${shouldAllow ? 'can' : 'CANNOT'} \${action}\`, () => {\n        expect(can(role, action)).toBe(shouldAllow);\n      });\n    }\n  }\n});\n\ndescribe('tenant isolation', () => {\n  it('never returns another tenant\\\\'s records', () => {\n    // Testing the policy layer proves nothing if a route bypasses it — assert\n    // at the data-access boundary, not only in the permission check.\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `import { describe, it, expect } from 'vitest';\n\n// Positive permission tests ("an admin can delete") are always written.\n// Negative ones ("a viewer cannot, by any route") rarely are — and privilege\n// escalation lives entirely in the untested half. This generates both.\nconst ACTIONS = ['read', 'write', 'delete', 'manageUsers'];\n\nconst ALLOWED = {\n  viewer: ['read'],\n  editor: ['read', 'write'],\n  admin: ['read', 'write', 'delete', 'manageUsers'],\n};\n\n// Replace with the real authorization check.\nconst can = (role, action) => ALLOWED[role].includes(action);\n\ndescribe('role matrix — both halves', () => {\n  for (const [role, permitted] of Object.entries(ALLOWED)) {\n    for (const action of ACTIONS) {\n      const shouldAllow = permitted.includes(action);\n      it(\`\${role} \${shouldAllow ? 'can' : 'CANNOT'} \${action}\`, () => {\n        expect(can(role, action)).toBe(shouldAllow);\n      });\n    }\n  }\n});\n\ndescribe('tenant isolation', () => {\n  it('never returns records belonging to another tenant', () => {\n    // Testing the policy layer proves nothing if a route bypasses it — assert\n    // at the data-access boundary, not only in the permission check.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'audit-trail':
       return [{
@@ -1430,11 +1441,26 @@ function buildPlaybook(config: ProjectTestingConfig, stack: DetectedStack): stri
     if (install) {
       lines.push(`- **Set up (${LANGUAGE_LABELS[stack.language]}):** ${install}`);
     }
+    // Every file, not just the first. A methodology can leave more than one
+    // behind — a compliance regime with a testable half writes its control
+    // mapping *and* a test, and the guardrail recipe writes its adversarial
+    // corpus alongside the suite that reads it. Naming only `files[0]` reported
+    // the mapping and silently omitted the test, so the playbook under-stated
+    // what the button had just created.
     const files = recipeFiles(methodConfig.id, stack);
-    if (files.length > 0) {
+    if (files.length === 1) {
       lines.push(`- **Starter file:** \`${files[0].path}\``);
-    } else if (stack.language !== 'node') {
-      lines.push('- **Starter file:** _guidance only for this methodology on the detected language — see Key tools above._');
+    } else if (files.length > 1) {
+      lines.push(`- **Starter files:** ${files.map(file => `\`${file.path}\``).join(', ')}`);
+    } else {
+      // Silence here used to mean two different things on Node — "this is a
+      // practice with no artifact" and "no recipe exists for it yet" — and a
+      // reader could not tell which, or whether anything had been created.
+      lines.push(
+        PRACTICE_ONLY_IDS.has(methodConfig.id)
+          ? '- **Starter file:** _none — this is a practice, not an artifact, so there is no file to create._'
+          : `- **Starter file:** _none for ${LANGUAGE_LABELS[stack.language]} — follow the set-up and key tools above._`,
+      );
     }
     if (methodConfig.notes && methodConfig.notes.trim()) {
       lines.push(`- **Project notes:** ${methodConfig.notes.trim()}`);

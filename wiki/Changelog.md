@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.306.1 — Scaffold framework, made actually reliable
+
+Verifying the Scaffold framework button end to end turned up five real faults, all now fixed and all
+now covered by tests.
+
+It wrote a **syntactically broken starter file** for RBAC — an over-escaped apostrophe closed the string
+early. Starter files are authored as strings, so the compiler checks the scaffolder and nothing about
+what it emits; every generated file is now parsed with the same engine that bundles this extension,
+across all seven stacks with every methodology enabled.
+
+Running the scaffold from the **Command Palette skipped the instruction sync**, so external AI tools kept
+reading your previous methodology set. Both entry points now share one path.
+
+The **Scaffold and Sync buttons were bound twice**, so one click ran the whole action — files, sync, and
+sometimes an agent task — a second time, invisibly.
+
+**Cancelling Auto-assess left its button dead**, stuck reading "Assessing…" until you reopened the panel.
+All three Testing actions now restore themselves however they exit, which is also what made it safe to
+give Scaffold and Sync the busy state they never had.
+
+And the **strategy playbook under-reported itself**: it named only the first file per methodology, hiding
+the test that sits beside a compliance control mapping, and said nothing at all where no starter file
+applies.
+
 ## v0.306.0 — 69 testing methodologies, and auto-assess that reads your code
 
 Auto-assess used to match every signal word against one blob of text that included three kilobytes of

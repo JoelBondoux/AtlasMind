@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.306.1] - 2026-08-13
+
+### Fixed
+
+- **The Scaffold framework button wrote a syntactically broken test file.** The RBAC starter had an
+  over-escaped apostrophe, so the string closed early and the emitted file did not parse. Every starter
+  file is authored as a string inside a template literal, which means the compiler validates the
+  *scaffolder* and validates nothing about the code it emits — so this shipped looking fine and would
+  have failed a user's test run on first use, for a reason that was not their fault. Every generated
+  file is now parsed with the same engine that bundles this extension, across all seven supported
+  stacks, with every methodology enabled.
+
+- **Running the scaffold from the Command Palette skipped the instruction sync.** The button and the
+  `atlasmind.scaffoldTestingFramework` command had drifted: the command scaffolded the files and
+  stopped, so every external AI tool (`CLAUDE.md`, Copilot, Cursor, …) carried on reading the previous
+  methodology set while the repository had just been scaffolded for the new one. Its dialog did not
+  mention a sync either, so nothing about the outcome contradicted what the user had been told. Both
+  entry points now call one function, so a third cannot reintroduce it.
+
+- **The Scaffold and Sync buttons were bound twice.** Each was wired through `bindCommandButton` *and*
+  through the busy-state handler beside it, so one click posted the message twice and ran the whole
+  action — filesystem pass, instruction sync, and sometimes an agent task — a second time. Nothing on
+  screen showed it, because the second run reports "already exists" for everything the first one wrote.
+
+- **A cancelled Auto-assess left its button permanently dead.** The button disabled itself and showed
+  "Assessing…" on click, and the panel repainted only on the single success path — so dismissing the
+  quick pick, the most likely thing a user does, left a disabled control reading "Assessing…" until the
+  panel was closed and reopened. All three Testing actions now repaint in a `finally`, covering every
+  early return and a thrown error alike, which is also what makes it safe to give Scaffold and Sync the
+  busy state they were missing.
+
+- **The strategy playbook under-reported what the scaffold created.** It named only the first file per
+  methodology, so a compliance regime with a testable half advertised its control mapping and silently
+  omitted the test beside it. It also said nothing at all for a methodology with no starter file on
+  Node, where silence meant two different things — "this is a practice, so there is no artifact" and
+  "no recipe exists for this stack" — and the reader could not tell which, or whether anything had been
+  created.
+
 ## [0.306.0] - 2026-08-13
 
 ### Added
