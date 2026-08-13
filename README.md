@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.306.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.307.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,25 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.306.1
+## What's new in 0.307.0
 
 The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Testing policy cards open up.** Each enabled policy on the Testing dashboard is now clickable. It
+  expands to show what the evidence actually is — a chart of passing, skipped and failing cases, a table
+  of the evidence found, and the failing cases with a link to each file. Every finding carries a
+  severity graded by a published rule you can read on the page, so a grade given today means the same
+  as one given last month.
+
+  From the card you can assign an owner (unassigned work falls back to you, and says so), add it to
+  that person's follow-ups with a due date matched to how bad it is, and — for a serious finding —
+  draft a GitHub issue. The issue is always shown before anything is posted; severity decides what gets
+  emphasised, never what gets filed. A policy you switched on but have not built yet gets its own
+  Scaffold framework button, which lists the exact files before creating any.
+
+  The page now leads with **Needs attention**, **Open gaps** and **Unowned** rather than file counts —
+  "43 test files" reads the same whether or not three are failing and nobody owns the gap.
 
 - **The Scaffold framework button is now verified end to end.** Checking it turned up five real
   faults: a starter file that did not parse, a Command Palette path that skipped the AI-instruction

@@ -12,7 +12,7 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../con
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
-import { scaffoldTestingFramework, type FirstTestCandidate } from '../core/testingScaffolder.js';
+import { scaffoldTestingFramework, scaffoldableMethodologies, type FirstTestCandidate } from '../core/testingScaffolder.js';
 import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/testingConfigLoader.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig } from '../types.js';
@@ -21,6 +21,7 @@ import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type Loc
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { COMPLIANCE_EVIDENCE_DIR, deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { assessTestingMethodologies, type ProjectTestingEvidence } from '../core/testingAutoAssess.js';
+import { deriveTestingPolicyDetails, type TestingPolicyDetailSet } from '../core/testingPolicyDetail.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
@@ -202,6 +203,13 @@ export interface TestingDashboardSnapshot {
    * {@link ../core/testingPolicyCoverage.ts}.
    */
   policyCoverage: TestingPolicyCoverage;
+  /**
+   * Per-policy severity, drafts and chart data.
+   *
+   * Derived here beside the coverage it grades, so the Testing page and the
+   * Settings page cannot disagree about how bad a policy's state is.
+   */
+  policyDetails: TestingPolicyDetailSet;
 }
 
 interface LocalHardwareSnapshot {
@@ -6317,6 +6325,9 @@ export function collectTestingDashboardSnapshot(
         scripts: [],
         configFiles: [],
       }),
+      // No workspace means nothing was assessed, which the derivation states in
+      // its own summary rather than reporting an empty set as a clean bill.
+      policyDetails: deriveTestingPolicyDetails(undefined),
     };
   }
 
@@ -6467,6 +6478,9 @@ export function collectTestingDashboardSnapshot(
     availableAgentSummaries,
     methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
+    policyDetails: deriveTestingPolicyDetails(policyCoverage, {
+      scaffoldable: scaffoldableMethodologies(workspaceRoot, policyCoverage.rows.map(row => row.id)),
+    }),
   };
 }
 

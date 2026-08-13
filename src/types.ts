@@ -3118,7 +3118,11 @@ export type DashboardWorkKind =
   | 'gap'
   | 'risk'
   | 'debt'
-  | 'document';
+  | 'document'
+  // A testing policy is work somebody owns, not just a row on a board. Without
+  // an owner a coverage gap belongs to everyone, which in practice means it
+  // belongs to nobody — this repository carried eight of them for seven weeks.
+  | 'testing-policy';
 
 /** A concrete dashboard record that a cross-surface link can reveal. */
 export type DashboardFocusKind = DashboardWorkKind | 'assignment' | 'follow-up';

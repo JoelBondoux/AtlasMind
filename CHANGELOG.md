@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.307.0] - 2026-08-13
+
+### Added
+
+- **Testing policy cards open.** Each enabled policy on the Testing dashboard is now a control: click it
+  and it expands to what the evidence actually is — a case-mix chart (passing / skipped / failing), an
+  evidence table (files, cases, skipped, failing, tooling detected), and a table of the failing cases
+  with a link straight to each file. Cards track independently rather than as an accordion, because
+  comparing two policies is the usual reason to open one at all.
+
+- **Every finding is graded by a published rule.** Severity comes from a declared table — failing tests,
+  or an enabled security/compliance policy with no evidence at all, are `serious`; any other unevidenced
+  policy is `moderate`; tooling with no tests, or a suite where every case is skipped, is `low`. Each
+  card names the rule that graded it, and the whole table is on the page under *How these are graded*.
+  No model is in this path: a grade given today has to be comparable with one given last month, which is
+  the entire value of grading.
+
+- **Policies have owners.** A card carries the same Director ownership picker the rest of the dashboard
+  uses, so a testing gap is assignable work rather than a paragraph on a board. Where nobody is
+  assigned, follow-ups fall back to the contact the Director marks as *you* — stated on the card, so a
+  default is never mistaken for a decision somebody made. This repository carried eight unowned testing
+  gaps for seven weeks, which is the failure the fallback exists to prevent.
+
+- **Add to follow-ups.** A finding becomes a Director follow-up owned by the policy's assignee, with a
+  due date derived from severity (3 / 14 / 30 days) and the grading rule carried into the notes. The
+  confirmation names the owner, the date and the reason before anything is written.
+
+- **File as issue.** A `serious` finding offers a GitHub issue with the draft shown before anything is
+  posted. **Offered, never automatic** — an issue is public, permanent and posted in your name, so
+  severity decides what is emphasised and never what is created; a severity rule that turns out too
+  eager can then only be noisy rather than damaging. The draft is model-free, so the same finding yields
+  byte-identical text, and suggested labels are intersected with the repository's declared taxonomy
+  because an unmatched label is *created* on the repository as a side effect of filing. Labels dropped
+  that way are stated in the issue body rather than silently omitted.
+
+- **Per-policy Scaffold framework.** A policy with a gap and a recipe for the detected stack gets its
+  own scaffold button, so a methodology switched on last week is actionable from the card that reports
+  it instead of requiring a whole-project scaffold. The confirmation lists the exact files it would
+  create and the ones it would leave alone.
+
+### Changed
+
+- **The Testing page leads with what needs a person.** The stat band opens with *Needs attention*, *Open
+  gaps*, *Unowned* and *Last run* before the descriptive cards. "43 test files" reads identically
+  whether or not three are failing and nobody owns the gap; these do not. *Last run* reports **No
+  report** rather than `0` when nothing has produced one — unknown and passing are different facts.
+
+### Fixed
+
+- **A follow-up linked to a testing policy lost its link on save.** The Director sanitizer whitelists
+  `linked.kind` and resets anything unrecognised to `none`, which is right for hand-edited or foreign
+  data and wrong here: the follow-up would persist while quietly forgetting which policy it was about,
+  and only a later read would reveal it. `testing-policy` is now a declared kind, pinned by a test.
+
 ## [0.306.1] - 2026-08-13
 
 ### Fixed

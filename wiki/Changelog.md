@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.307.0 — Testing policies you can open, own and act on
+
+Each enabled policy on the Testing dashboard is now a card you click. It opens to the evidence behind
+it: a chart of passing, skipped and failing cases, a table of what was found, and the failing cases with
+a link to each file.
+
+Every finding is graded — serious, moderate or low — by a rule published on the page, never by a model,
+so a grade means the same thing in July as it did in March.
+
+From an open card you can give the policy an owner (unassigned work falls back to you, and says so), put
+it on that person's follow-up list with a due date matched to the severity, and for a serious finding
+draft a GitHub issue. The issue draft is always shown first: severity decides what gets emphasised,
+never what gets filed. A policy you enabled but have not built yet gets its own Scaffold framework
+button that lists the exact files before creating any.
+
+The page now opens with **Needs attention**, **Open gaps** and **Unowned** instead of file counts, and
+reports **No report** rather than zero failures when nothing has been run — unknown and passing are not
+the same thing.
+
 ## v0.306.1 — Scaffold framework, made actually reliable
 
 Verifying the Scaffold framework button end to end turned up five real faults, all now fixed and all

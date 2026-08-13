@@ -1472,6 +1472,67 @@ function buildPlaybook(config: ProjectTestingConfig, stack: DetectedStack): stri
 }
 
 /**
+ * What scaffolding this one methodology would create, without creating it.
+ *
+ * The Testing dashboard offers a per-policy **Scaffold this** button, and it
+ * must only appear where pressing it would actually do something. Deciding that
+ * from the outside would mean a second copy of the recipe table — which would
+ * drift, and the first symptom would be a button that does nothing on a stack
+ * whose recipe was never written.
+ *
+ * `existing` distinguishes a file the scaffolder would skip from one it would
+ * write, so the confirmation can list what is genuinely about to appear rather
+ * than what the recipe nominally contains.
+ */
+export interface PlannedScaffold {
+  /** Files the recipe defines for this methodology on the detected stack. */
+  paths: string[];
+  /** Of those, the ones already present — the scaffolder never overwrites. */
+  existing: string[];
+  /** True when at least one file would actually be created. */
+  wouldCreate: boolean;
+  stackLabel: string;
+}
+
+/**
+ * Which of these methodologies would actually produce a file right now.
+ *
+ * Batched because the Testing dashboard asks for all sixty-nine on every
+ * render, and `planMethodologyScaffold` re-detects the stack each time — sixty-
+ * nine manifest probes per repaint is a cost the user did not ask for. One
+ * detection, then a cheap `existsSync` per candidate path.
+ */
+export function scaffoldableMethodologies(
+  workspaceRoot: string,
+  ids: readonly TestingMethodologyId[],
+): Set<TestingMethodologyId> {
+  const stack = detectStack(workspaceRoot);
+  const scaffoldable = new Set<TestingMethodologyId>();
+  for (const id of ids) {
+    const paths = recipeFiles(id, stack).map(file => file.path);
+    if (paths.some(rel => !existsSync(path.join(workspaceRoot, rel)))) {
+      scaffoldable.add(id);
+    }
+  }
+  return scaffoldable;
+}
+
+export function planMethodologyScaffold(
+  workspaceRoot: string,
+  id: TestingMethodologyId,
+): PlannedScaffold {
+  const stack = detectStack(workspaceRoot);
+  const paths = recipeFiles(id, stack).map(file => file.path);
+  const existing = paths.filter(rel => existsSync(path.join(workspaceRoot, rel)));
+  return {
+    paths,
+    existing,
+    wouldCreate: paths.length > existing.length,
+    stackLabel: stackLabel(stack),
+  };
+}
+
+/**
  * Constructs the testing framework for the enabled methodologies. Writes a
  * managed playbook (always) and per-methodology starter files (only when
  * absent). Never overwrites existing source/config files.

@@ -244,6 +244,31 @@ Declare the full standard you hold yourself to; block on the one or two you're w
 
 ### Seeing where you stand
 
+### Opening a policy card
+
+Every policy on the Testing page is clickable. Opening one shows what the evidence actually is: a chart
+of passing, skipped and failing cases, a table of the files, cases and tooling found, and the failing
+cases with a link to each file. Cards open independently, because comparing two is usually why you
+opened one.
+
+Each finding is graded **serious**, **moderate** or **low** by a rule published on the page under *How
+these are graded* — never by a model, so a grade means the same in July as it did in March. Serious is
+deliberately narrow: failing tests, or a security or compliance policy with nothing testing it at all.
+
+From an open card you can:
+
+- **Give it an owner.** The same picker the rest of the dashboard uses. With nobody assigned, follow-ups
+  fall back to whoever the Director marks as you — and the card says so, so a default is never mistaken
+  for somebody's decision.
+- **Add it to follow-ups.** Becomes a Director follow-up for the owner, due in 3, 14 or 30 days
+  depending on severity, with the grading rule written into the notes.
+- **File it as an issue.** Offered only for a serious finding, and the draft is always shown before
+  anything is posted. Severity decides what gets emphasised, never what gets filed — an issue is public
+  and permanent. Labels are checked against the ones your repository actually declares, because applying
+  a new one *creates* it.
+- **Scaffold its framework.** Shown when the policy has a gap and AtlasMind has a starter file for your
+  stack. It lists the exact files before creating any, and only touches that one policy.
+
 The **Policy coverage** board on the Testing page reports what each enabled methodology has to show:
 
 - **Tested** — matching test files exist, with case, skipped and failing counts
