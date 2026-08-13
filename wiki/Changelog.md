@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.308.2 — Instruction blocks current again
+
+The managed GitHub-workflow block in the AI instruction files was flagged stale. The workflow file had
+changed in a way that did not alter the guidance, so only the recorded digest needed refreshing — one
+line per file, with the guidance itself unchanged. The pre-commit check passes on its own again.
+
 ## v0.308.1 — Published baseline corrected
 
 Points the README's "last published" banner at v0.308.0, now live on the Marketplace. The banner can only

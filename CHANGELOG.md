@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.308.2] - 2026-08-13
+
+### Fixed
+
+- **The managed GitHub-workflow block is current again** in `CLAUDE.md`, `AGENTS.md` and
+  `.github/copilot-instructions.md`. `workflow.json` had changed in a way that did not alter the
+  rendered guidance, so only the recorded source digest was stale — the diff is one line per file and
+  the guidance itself is byte-identical. Five commits had been landing with
+  `ATLASMIND_SKIP_INSTRUCTION_CHECK=1` because of it; the pre-commit check now passes on its own.
+
 ## [0.308.1] - 2026-08-13
 
 ### Changed
