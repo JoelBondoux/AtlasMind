@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.308.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.308.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,9 +127,9 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.308.0
+## What's new in 0.308.1
 
-The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.308.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Your testing policies now react to your code.** Coverage used to be a yes/no per methodology — does

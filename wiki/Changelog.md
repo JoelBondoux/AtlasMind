@@ -19,6 +19,11 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.308.1 — Published baseline corrected
+
+Points the README's "last published" banner at v0.308.0, now live on the Marketplace. The banner can only
+be corrected after the tag exists, so it always trails the release it names by one commit.
+
 ## v0.308.0 — Testing policies that react to your code
 
 Coverage used to be one yes/no per methodology: does *anything* here test contracts? So a single contract

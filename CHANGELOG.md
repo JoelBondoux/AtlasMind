@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.308.1] - 2026-08-13
+
+### Changed
+
+- **README's published baseline now names v0.308.0**, which went live on the Marketplace today. The
+  banner tracks the last *publication*, so it can only be corrected after the tag exists — which is why
+  this trails the release it describes rather than shipping inside it.
+
 ## [0.308.0] - 2026-08-13
 
 ### Added
