@@ -460,14 +460,90 @@ export type TestingMethodologyId =
   | 'black-box'
   | 'gray-box'
   | 'exploratory'
-  | 'agile-testing';
+  | 'agile-testing'
+  // Structural — drift and integrity checks over the code's own shape.
+  | 'dead-field'
+  | 'type-drift'
+  | 'dependency-graph'
+  // Behavioral — parity and consistency across surfaces, representations, versions.
+  | 'cross-surface-parity'
+  | 'cross-representation'
+  | 'cross-version-parity'
+  | 'semantic-constraint'
+  | 'anti-uniformity'
+  | 'output-schema-drift'
+  | 'hallucination-detection'
+  // Non-functional
+  | 'chaos'
+  | 'accessibility'
+  | 'observability'
+  // Data & schema
+  | 'data-quality'
+  | 'schema-migration'
+  | 'compatibility'
+  | 'state-drift'
+  // AI-specific
+  | 'prompt-regression'
+  | 'model-routing'
+  | 'guardrail'
+  | 'agent-collaboration'
+  | 'determinism-boundary'
+  // Compliance — security & privacy
+  | 'iso-27001'
+  | 'soc2'
+  | 'gdpr'
+  | 'hipaa'
+  | 'pci-dss'
+  | 'nist-800-53'
+  // Compliance — operational & process
+  | 'change-management'
+  | 'audit-trail'
+  | 'rbac-compliance'
+  | 'data-retention'
+  // Compliance — software supply chain
+  | 'sbom'
+  | 'dependency-licensing'
+  | 'license-compatibility'
+  | 'secure-build-pipeline'
+  // Compliance — AI-specific
+  | 'ai-safety-compliance'
+  | 'model-output-risk'
+  | 'bias-fairness'
+  | 'explainability'
+  | 'ai-data-policy'
+  // Compliance — industry-specific
+  | 'financial-compliance'
+  | 'medical-compliance'
+  | 'automotive-compliance'
+  | 'aviation-compliance'
+  | 'energy-compliance';
 
 export interface TestingMethodologyDefinition {
   id: TestingMethodologyId;
   label: string;
   description: string;
-  /** Broad grouping for UI organisation. */
-  category: 'design-time' | 'structural' | 'behavioral' | 'non-functional' | 'exploratory';
+  /**
+   * Broad grouping for UI organisation.
+   *
+   * The compliance families are separate keys rather than one `compliance`
+   * bucket with a sub-field: twenty-four rows under a single heading is a list
+   * nobody reads, and the families answer genuinely different questions (a
+   * privacy regulator, a build pipeline, and a fairness review share no
+   * evidence). Splitting them here keeps the renderer a flat group-by.
+   */
+  category:
+    | 'design-time'
+    | 'structural'
+    | 'behavioral'
+    | 'non-functional'
+    | 'data-schema'
+    | 'ai-specific'
+    | 'exploratory'
+    | 'compliance-security'
+    | 'compliance-operational'
+    | 'compliance-supply-chain'
+    | 'compliance-ai'
+    | 'compliance-industry';
   /** Concise guidance on when this methodology is most appropriate. */
   whenToUse: string;
   /** Common tools and frameworks associated with this methodology. */
@@ -689,6 +765,440 @@ export const TESTING_METHODOLOGY_DEFINITIONS: TestingMethodologyDefinition[] = [
     autoDetectSignals: ['agile', 'scrum', 'kanban', 'sprint', 'three amigos', 'definition of done', 'dod', 'backlog refinement', 'story points', 'retrospective'],
     tokenImpactLevel: 'low',
     tokenImpact: 'DoD checklists, three-amigos facilitation notes, and retrospective summaries are short coordination artefacts. No per-test LLM cost — this methodology coordinates testing, it does not author it.',
+  },
+
+  // ── Structural: drift and integrity over the code's own shape ────
+  {
+    id: 'dead-field', label: 'Dead-Field / Dead-Prop Detection', description: 'Finds declared fields, props and config keys that nothing ever reads', category: 'structural',
+    whenToUse: 'Codebases where types, props or configuration have accumulated over several refactors. A field that is written but never read is a bug wearing a feature\'s clothes — the code that was supposed to consume it was renamed, moved, or never written.',
+    keyTools: 'ts-prune, knip, ts-unused-exports, eslint no-unused-vars, Vulture (Python), deadcode (Go), cargo-udeps (Rust)',
+    tradeoffs: 'Reflection, dynamic key access, and serialization boundaries produce false positives — a field read only by `JSON.parse` consumers looks dead. Needs an allowlist for public API surfaces, or it reports every exported type as unused.',
+    autoDetectSignals: ['knip', 'ts-prune', 'ts-unused-exports', 'vulture', 'cargo-udeps', 'refactor', 'legacy', 'typescript'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'The scan is entirely tooling-driven. LLM cost is limited to triaging whether a reported field is genuinely dead or reached dynamically — a short judgement per finding.',
+  },
+  {
+    id: 'type-drift', label: 'Type Drift Detection', description: 'Checks that static types still describe what actually arrives at runtime', category: 'structural',
+    whenToUse: 'Any TypeScript or typed-Python project consuming external JSON — an API response, a config file, a database row. The compiler checks the *assertion*, not the data, so a backend that renamed a field keeps compiling and fails in production.',
+    keyTools: 'Zod, Valibot, io-ts, ArkType, typia, Pydantic, attrs + cattrs, quicktype (schema → type generation)',
+    tradeoffs: 'Runtime validation costs latency on hot paths and duplicates the type declaration unless the schema is the single source both derive from. Validating everything is over-correction; the boundary is where it pays.',
+    autoDetectSignals: ['zod', 'valibot', 'io-ts', 'arktype', 'typia', 'pydantic', 'typescript', 'api', 'json', 'openapi'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Deriving a runtime schema from an existing type (or the reverse) is a per-boundary generation cost. Ongoing drift reports are cheap; the initial schema authoring pass is the spike.',
+  },
+  {
+    id: 'dependency-graph', label: 'Dependency Graph Integrity', description: 'Asserts the module graph has no cycles and respects declared layer boundaries', category: 'structural',
+    whenToUse: 'Layered or modular codebases where an architectural rule exists but nothing enforces it — "the domain layer must not import the UI". Without a test, the rule survives exactly as long as the person who remembers it.',
+    keyTools: 'dependency-cruiser, madge, eslint-plugin-boundaries, Nx module boundaries, import-linter (Python), go-arch-lint, ArchUnit (Java)',
+    tradeoffs: 'The rule set is the hard part, not the tool — an over-strict boundary produces constant justified violations and gets disabled. Cycles in generated or vendored code need exclusions.',
+    autoDetectSignals: ['dependency-cruiser', 'madge', 'nx', 'turborepo', 'lerna', 'monorepo', 'import-linter', 'archunit', 'hexagonal', 'clean architecture', 'ddd'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Graph analysis is tooling-driven. LLM involvement is limited to authoring the initial boundary rules and explaining a cycle\'s shortest path when one appears.',
+  },
+
+  // ── Behavioral: parity, consistency, and constraint ──────────────
+  {
+    id: 'cross-surface-parity', label: 'Cross-Surface Property Parity', description: 'Asserts the same rule produces the same answer on every surface that states it', category: 'behavioral',
+    whenToUse: 'Products where one fact is displayed in several places — a CLI and a web UI, a dashboard card and the detail page it links to, an API and the SDK wrapping it. The failure this catches is two surfaces disagreeing about the same number, which reads as a data bug and is really a duplicated rule.',
+    keyTools: 'Shared fixture suites, Vitest/Jest table-driven tests, golden files, contract-style shared assertions, Playwright + API cross-checks',
+    tradeoffs: 'Only pays where a rule is genuinely duplicated; forcing parity onto surfaces that legitimately differ produces tests that block valid divergence. Requires naming the canonical source, which is a design decision the test cannot make for you.',
+    autoDetectSignals: ['cli', 'dashboard', 'sdk', 'multi-surface', 'webview', 'api', 'monorepo', 'design system'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Identifying which rules are duplicated across surfaces takes cross-file reading; once the shared fixture exists, each added surface is cheap.',
+  },
+  {
+    id: 'cross-representation', label: 'Cross-Representation Consistency', description: 'Asserts a value survives every round trip between its representations', category: 'behavioral',
+    whenToUse: 'Anywhere one value has several forms — JSON and a database row, a domain object and its DTO, markdown and its parsed AST, a display string and the number behind it. Serialization asymmetry is the classic silent corruption: it writes fine, reads back subtly different, and nothing fails until much later.',
+    keyTools: 'fast-check / Hypothesis round-trip properties, snapshot fixtures, JSON Schema validation, protobuf/Avro conformance suites',
+    tradeoffs: 'Round-trip properties are only as good as the generator; a naive generator never produces the edge case (empty string, unicode, null vs absent) where asymmetry actually lives. Lossy-by-design conversions need explicit exclusion or they read as failures.',
+    autoDetectSignals: ['serialization', 'serde', 'protobuf', 'avro', 'dto', 'orm', 'prisma', 'typeorm', 'sqlalchemy', 'json', 'parser', 'codec'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Enumerating a type\'s representations and writing the round-trip property is a per-type cost; generative execution afterwards is free of LLM involvement.',
+  },
+  {
+    id: 'cross-version-parity', label: 'Cross-Version Parity', description: 'Asserts a new version still answers old inputs the way the old version did', category: 'behavioral',
+    whenToUse: 'Libraries, APIs and file formats with existing consumers. Distinct from compatibility testing: this replays *real recorded behaviour* from the previous version rather than checking a declared contract, so it catches the change nobody documented.',
+    keyTools: 'Golden/approval files, recorded request-response fixtures, API diffing (oasdiff, openapi-diff), semantic-release + api-extractor, Pact provider verification against prior consumer versions',
+    tradeoffs: 'Golden files record whatever the old version did, bugs included — a fixed bug looks like a regression until the baseline is deliberately re-approved. Requires discipline about *why* a baseline changed.',
+    autoDetectSignals: ['library', 'sdk', 'package', 'api', 'semver', 'api-extractor', 'oasdiff', 'openapi-diff', 'public api', 'backwards compatible'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Baseline capture is mechanical; the LLM cost is in adjudicating each diff — deciding whether a behaviour change is a fix or a break is a judgement call per finding.',
+  },
+  {
+    id: 'semantic-constraint', label: 'Semantic Constraint Testing', description: 'Asserts domain invariants that types allow but the domain forbids', category: 'behavioral',
+    whenToUse: 'Domains with rules the type system cannot express — an end date after its start, a total matching the sum of its parts, a state machine that never reaches a terminal state twice. The type says `Date`; the domain says "not before the other one".',
+    keyTools: 'Zod refinements, class-validator, Pydantic validators, database CHECK constraints, fast-check preconditions, invariant assertions in domain models',
+    tradeoffs: 'Constraints scattered across the code drift apart; they belong with the type they constrain. Over-constraining rejects legitimate historical data, which surfaces as a migration failure rather than a test one.',
+    autoDetectSignals: ['domain', 'ddd', 'invariant', 'business rule', 'zod', 'class-validator', 'pydantic', 'state machine', 'xstate', 'booking', 'ledger', 'finance'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Eliciting the real domain rules is the expensive part and needs domain-document reading. Once declared, constraint checks execute without LLM involvement.',
+  },
+  {
+    id: 'anti-uniformity', label: 'Anti-Uniformity Assertions', description: 'Fails when output is suspiciously identical — the shape a broken generator produces', category: 'behavioral',
+    whenToUse: 'Generators, seeders, recommendation output, batch transforms, and any AI-produced set. A function returning the same value for every input passes every "is it a string?" assertion ever written. This is the assertion that catches a pipeline silently returning its default.',
+    keyTools: 'Distinct-count assertions, entropy/variance checks, fast-check with distribution assertions, snapshot diversity checks, statistical spread assertions',
+    tradeoffs: 'Legitimately uniform output (a constant-by-design field, a single-item input) trips the check, so the assertion needs a threshold rather than a binary. Too loose and it never fires; too tight and it flakes on small samples.',
+    autoDetectSignals: ['generator', 'seed', 'faker', 'llm', 'openai', 'anthropic', 'recommendation', 'embedding', 'batch', 'etl', 'synthetic data'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'The assertions are small and statistical. Cost is limited to choosing a defensible threshold per output set, which is a one-off judgement.',
+  },
+  {
+    id: 'output-schema-drift', label: 'Output Schema Drift Detection', description: 'Detects when produced output stops matching its own published schema', category: 'behavioral',
+    whenToUse: 'Any producer with consumers it cannot see — a public API, an event stream, a webhook, a structured LLM response, an exported report. The producer\'s tests pass because they were updated alongside it; the consumer breaks because it was not.',
+    keyTools: 'JSON Schema / Ajv, OpenAPI response validation, oasdiff, Avro/protobuf schema registry compatibility checks, Zod parse on output, Great Expectations for tabular output',
+    tradeoffs: 'Only as strong as the schema\'s strictness — a schema permitting additional properties never detects an added field, which is exactly the change that breaks strict consumers. Requires deciding whether additive change is breaking for *your* consumers.',
+    autoDetectSignals: ['openapi', 'asyncapi', 'json schema', 'ajv', 'webhook', 'event', 'kafka', 'avro', 'protobuf', 'schema registry', 'public api', 'llm', 'structured output'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Schema authoring and drift adjudication carry moderate cost; the validation itself is tooling-driven and runs without LLM involvement.',
+  },
+  {
+    id: 'hallucination-detection', label: 'Hallucination Detection', description: 'Checks that model-stated facts are grounded in the sources actually provided', category: 'behavioral',
+    whenToUse: 'Any feature where a model states facts a user will act on — RAG answers, summarisation, extraction, citations. A fluent, specific, entirely invented answer is indistinguishable from a correct one to every assertion except one that checks it against the source.',
+    keyTools: 'RAGAS (faithfulness/groundedness), DeepEval, TruLens, Promptfoo assertions, LLM-as-judge with a citation requirement, entity overlap against source, Anthropic/OpenAI evals',
+    tradeoffs: 'The grader is itself a model and can be wrong in the same direction as the thing it grades. Needs a human-labelled seed set to trust the grader, and a groundedness score is a signal, not a verdict.',
+    autoDetectSignals: ['rag', 'retrieval', 'llm', 'openai', 'anthropic', 'langchain', 'llamaindex', 'embedding', 'vector', 'pinecone', 'chroma', 'summarisation', 'summarization', 'citation', 'agent'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Every graded case runs at least one extra model call, often against long source context. The most token-expensive methodology in the catalogue — budget it as a sampled suite, not a per-commit gate.',
+  },
+
+  // ── Non-functional ──────────────────────────────────────────────
+  {
+    id: 'chaos', label: 'Chaos / Resilience', description: 'Injects failure deliberately to test that degradation is graceful', category: 'non-functional',
+    whenToUse: 'Distributed systems and anything with a network dependency it does not control. Retry logic, timeouts, and circuit breakers are written once and never exercised — chaos testing is the only thing that runs them before production does.',
+    keyTools: 'Chaos Mesh, LitmusChaos, Gremlin, AWS Fault Injection Simulator, Toxiproxy, Pumba, k6 with fault injection, Chaos Toolkit',
+    tradeoffs: 'Dangerous without a blast radius and a stop button — chaos in production is a practice with prerequisites, not a starting point. Staging results only transfer if staging genuinely resembles production.',
+    autoDetectSignals: ['kubernetes', 'k8s', 'microservice', 'distributed', 'grpc', 'kafka', 'rabbitmq', 'circuit breaker', 'resilience', 'retry', 'istio', 'service mesh', 'aws', 'terraform'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Experiment design and hypothesis authoring are moderate; failure-mode analysis after a run can require multi-turn investigation.',
+  },
+  {
+    id: 'accessibility', label: 'Accessibility (a11y)', description: 'Automated and manual checks against WCAG success criteria', category: 'non-functional',
+    whenToUse: 'Every product with a user interface, and a legal requirement for public sector, education, and increasingly commercial software (EAA, ADA, Section 508). Automated tooling reliably catches roughly a third of WCAG issues, which makes it necessary and not sufficient.',
+    keyTools: 'axe-core, @axe-core/playwright, jest-axe, Pa11y, Lighthouse, WAVE, eslint-plugin-jsx-a11y, screen readers (NVDA, VoiceOver, JAWS) for the manual half',
+    tradeoffs: 'A clean automated run is routinely mistaken for an accessible product. Keyboard traps, focus order, and meaningful alt text need a human. Colour-contrast checks flag decorative elements that need exclusion.',
+    autoDetectSignals: ['react', 'vue', 'angular', 'svelte', 'axe-core', 'pa11y', 'lighthouse', 'wcag', 'a11y', 'accessibility', 'jsx-a11y', 'public sector', 'gov', 'storybook'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Rule violations come from tooling; the LLM cost is in remediation guidance — deciding the correct semantic markup or ARIA pattern is a per-violation judgement.',
+  },
+  {
+    id: 'observability', label: 'Observability / Telemetry', description: 'Tests that logs, metrics and traces are emitted, correlated and complete', category: 'non-functional',
+    whenToUse: 'Any service operated in production, and mandatory for anything with an on-call rotation. Telemetry is written once and verified never; the incident where a trace is missing its span is the wrong time to discover it.',
+    keyTools: 'OpenTelemetry SDK test exporters, in-memory span exporters, Prometheus test registries, structured-log assertions, Grafana/Loki query tests, alert-rule unit tests (promtool)',
+    tradeoffs: 'Asserting exact log strings makes refactoring painful — assert on structured fields and correlation ids, not on prose. Testing that a metric exists is easy; testing that it is *correct* under load is not.',
+    autoDetectSignals: ['opentelemetry', 'otel', 'prometheus', 'grafana', 'datadog', 'sentry', 'jaeger', 'loki', 'pino', 'winston', 'structlog', 'observability', 'tracing', 'sre', 'on-call'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Asserting span shape and log structure is straightforward once the pattern exists; establishing what *should* be emitted for a given operation is the reasoning cost.',
+  },
+
+  // ── Data & schema ───────────────────────────────────────────────
+  {
+    id: 'data-quality', label: 'Data Quality', description: 'Asserts completeness, uniqueness, range and referential integrity of data itself', category: 'data-schema',
+    whenToUse: 'Data pipelines, warehouses, ETL jobs, and any application whose correctness depends on the data being right rather than the code being right. Code tests pass on an empty table; a data-quality test does not.',
+    keyTools: 'Great Expectations, dbt tests, Soda Core, Pandera, Deequ, Monte Carlo, SQL assertion suites',
+    tradeoffs: 'Expectations drift from reality as the business changes, producing alert fatigue; they need an owner and a review cadence. Running full-table checks on large warehouses costs real money per run.',
+    autoDetectSignals: ['dbt', 'great_expectations', 'great expectations', 'soda', 'pandera', 'deequ', 'airflow', 'dagster', 'prefect', 'snowflake', 'bigquery', 'redshift', 'etl', 'warehouse', 'pipeline', 'pandas'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Expectation authoring per column or table is a front-loaded cost; scheduled runs afterwards are tooling-only.',
+  },
+  {
+    id: 'schema-migration', label: 'Schema Migration', description: 'Tests migrations apply, roll back, and preserve existing rows', category: 'data-schema',
+    whenToUse: 'Any project with a persistent store and more than one deployment. A migration is the least reversible code in the codebase and is routinely the least tested — it runs once, against data no test fixture resembles.',
+    keyTools: 'Testcontainers, Flyway/Liquibase test harness, Prisma Migrate, Alembic, Django migration tests, Atlas, pgTAP, sqitch verify scripts',
+    tradeoffs: 'Testing against an empty schema proves nothing — the value comes from a seeded fixture that resembles production shape, which is work to build and keep current. Down-migrations are often untested because they are rarely run, which is precisely when they fail.',
+    autoDetectSignals: ['prisma', 'flyway', 'liquibase', 'alembic', 'typeorm', 'knex', 'sequelize', 'django', 'activerecord', 'migration', 'postgres', 'mysql', 'sqlite', 'testcontainers', 'atlas'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Fixture design and reversibility reasoning per migration carry moderate cost; the harness runs without LLM involvement once established.',
+  },
+  {
+    id: 'compatibility', label: 'Backward / Forward Compatibility', description: 'Tests old and new versions against each other in both directions', category: 'data-schema',
+    whenToUse: 'Rolling deployments, event streams, mobile clients you cannot force-update, and persisted documents written by an older build. During any rolling deploy both versions run at once — forward compatibility (old code reading new data) is the half everyone forgets.',
+    keyTools: 'Confluent Schema Registry compatibility modes, Avro/protobuf compatibility checks, buf breaking, expand-contract migration patterns, versioned fixture corpora',
+    tradeoffs: 'Full N-1/N+1 matrix testing is expensive; most teams pick one direction and are surprised by the other. Forward compatibility constrains design permanently — unknown fields must be preserved, not dropped.',
+    autoDetectSignals: ['kafka', 'avro', 'protobuf', 'buf', 'schema registry', 'grpc', 'event', 'mobile', 'react-native', 'rolling deploy', 'blue-green', 'canary', 'versioned', 'migration'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Reasoning about which direction a change breaks is per-change analysis; the compatibility check itself is tooling-driven.',
+  },
+  {
+    id: 'state-drift', label: 'Memory / State Drift Detection', description: 'Detects when persisted state stops matching what the code believes it holds', category: 'data-schema',
+    whenToUse: 'Long-lived stores written by successive versions — agent memory, user preferences, caches, session documents, event-sourced aggregates. The document on disk was written by a build that no longer exists, and the reader assumes a shape nobody re-checked.',
+    keyTools: 'Versioned document schemas with migration ladders, Zod/Pydantic parse-on-read, snapshot corpora of historical documents, replay tests over an event log',
+    tradeoffs: 'Requires keeping a corpus of genuinely old documents, which teams discard. Detecting drift is cheap; deciding whether an unrecognised document is corrupt or merely *newer* is the hard part, and getting it wrong overwrites good data.',
+    autoDetectSignals: ['event sourcing', 'cqrs', 'redis', 'session', 'cache', 'localstorage', 'agent', 'memory', 'checkpoint', 'persisted', 'zustand', 'redux-persist', 'schema version'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Migration-ladder authoring per schema version is the cost; drift detection at read time runs without LLM involvement.',
+  },
+
+  // ── AI-specific ─────────────────────────────────────────────────
+  {
+    id: 'prompt-regression', label: 'Prompt Regression', description: 'Replays a graded case set so a prompt edit cannot silently degrade quality', category: 'ai-specific',
+    whenToUse: 'Any product with a prompt in it. Prompts are edited like prose and deployed like code, with no equivalent of a failing build — a wording change that fixes one case and breaks nine is invisible without a replay set.',
+    keyTools: 'Promptfoo, Braintrust, LangSmith, DeepEval, OpenAI Evals, Anthropic evals, Vitest + recorded fixtures with an LLM judge',
+    tradeoffs: 'Model nondeterminism makes exact-match assertions flaky, so most assertions become graded and fuzzy — which means the grader needs its own validation. Case sets go stale as the product changes and need curation, not just accumulation.',
+    autoDetectSignals: ['openai', 'anthropic', 'langchain', 'llamaindex', 'promptfoo', 'braintrust', 'langsmith', 'prompt', 'llm', 'gpt', 'claude', 'gemini', 'agent', 'eval'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Every case in the set is a model call, and graded assertions add a second. Cost scales linearly with case count — run on prompt change rather than on every commit.',
+  },
+  {
+    id: 'model-routing', label: 'Model Routing Correctness', description: 'Asserts the router picks the model the policy says it should, and fails over correctly', category: 'ai-specific',
+    whenToUse: 'Any system choosing between models on cost, capability, latency or availability. A router silently sending every request to the most expensive model still returns correct answers — the bug is only visible on the invoice, and only weeks later.',
+    keyTools: 'Table-driven tests over the routing function, fake provider adapters, budget-ceiling assertions, failover simulation with injected provider errors, cost-per-route snapshot tests',
+    tradeoffs: 'Only meaningful when routing is a pure function of declared inputs; a router reaching into live provider state cannot be tested without stubbing that state, which is the work. Asserting exact model ids makes vendor releases a test-maintenance event.',
+    autoDetectSignals: ['router', 'routing', 'openrouter', 'litellm', 'model selection', 'fallback', 'failover', 'openai', 'anthropic', 'ollama', 'multi-model', 'budget', 'cost'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Routing is a decision function — tests run against stubs with no model calls at all. One of the cheapest AI-specific policies to enforce.',
+  },
+  {
+    id: 'guardrail', label: 'Guardrail Enforcement', description: 'Tests that safety policies actually refuse, including under adversarial input', category: 'ai-specific',
+    whenToUse: 'Any model-backed feature reachable by untrusted input. A guardrail is written once, believed permanently, and bypassed by the first prompt injection nobody tried — a policy without a test is a comment.',
+    keyTools: 'Promptfoo red-team plugins, Garak, PyRIT, NeMo Guardrails test suites, Llama Guard, Rebuff, adversarial case corpora, refusal assertions',
+    tradeoffs: 'The adversarial case set is never complete, so passing means "not broken by what we tried". Grading a refusal is subtler than it looks — an over-refusing model passes the safety test and fails the product.',
+    autoDetectSignals: ['guardrail', 'moderation', 'prompt injection', 'jailbreak', 'llama guard', 'nemo', 'garak', 'pyrit', 'safety', 'content policy', 'openai', 'anthropic', 'agent', 'tool use'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Adversarial suites are large by necessity and every case is a model call, often with a graded judgement on top. Budget as a scheduled suite rather than a per-commit gate.',
+  },
+  {
+    id: 'agent-collaboration', label: 'Agent Collaboration Correctness', description: 'Tests hand-offs, delegation limits, and that agents share no authority they should not', category: 'ai-specific',
+    whenToUse: 'Multi-agent systems with delegation, sub-tasks, or tool sharing. The failure mode is authority accumulating across a hand-off — a restricted agent obtaining a capability by asking a permissive one — which every individual agent test passes.',
+    keyTools: 'Deterministic fake agents, hand-off depth/cycle assertions, permission-intersection property tests, transcript replay, LangGraph/CrewAI test harnesses, trace assertions',
+    tradeoffs: 'Requires the collaboration rules to be explicit before they can be tested; most systems discover their rules by writing this suite. End-to-end multi-agent runs are slow and nondeterministic — test the policy layer as a pure function wherever it can be extracted.',
+    autoDetectSignals: ['multi-agent', 'crewai', 'langgraph', 'autogen', 'agent', 'handoff', 'delegation', 'orchestrator', 'swarm', 'subagent', 'tool use', 'mcp'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Policy-layer tests run on stubs with no model calls; only full-loop collaboration tests spend tokens. Keep the split and this stays inexpensive.',
+  },
+  {
+    id: 'determinism-boundary', label: 'Determinism / Stochasticity Boundary', description: 'Asserts which parts of the system must be reproducible and which are allowed to vary', category: 'ai-specific',
+    whenToUse: 'Any system mixing deterministic logic with model output. Without a declared boundary, a flaky test is indistinguishable from a real regression, and teams respond by retrying until green — which disables the suite in effect while it still reports passing.',
+    keyTools: 'Seeded RNG, temperature-0 fixtures, cassette/VCR recording of model calls, canonical JSON hashing of deterministic stages, flake-detection reruns, snapshot tests on the deterministic side only',
+    tradeoffs: 'Drawing the boundary is a design decision the test cannot make; drawing it too generously means the stochastic half is never asserted at all. Recorded cassettes go stale and hide genuine provider behaviour changes.',
+    autoDetectSignals: ['llm', 'openai', 'anthropic', 'temperature', 'seed', 'random', 'nondeterministic', 'flaky', 'vcr', 'cassette', 'nock', 'msw', 'agent', 'simulation'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Deterministic stages are asserted with hashes and seeds at no model cost; recorded fixtures replace live calls on the stochastic side.',
+  },
+
+  // ── Compliance: security & privacy ──────────────────────────────
+  {
+    id: 'iso-27001', label: 'ISO/IEC 27001 Controls', description: 'Maps Annex A controls to the evidence that demonstrates each one', category: 'compliance-security',
+    whenToUse: 'Organisations certified or seeking certification, and any vendor whose enterprise customers ask for it in procurement. The certification is organisational, but a meaningful share of Annex A lands on the codebase — access control, cryptography, logging, secure development.',
+    keyTools: 'Control-mapping registers, Vanta, Drata, Secureframe, evidence-collection automation, internal audit checklists, Statement of Applicability',
+    tradeoffs: 'Largely documentary — most Annex A controls are policy and process, not assertions, so treating this as an automated suite over-promises. The value is a maintained mapping from control to evidence, reviewed on a cadence.',
+    autoDetectSignals: ['iso 27001', 'iso27001', 'isms', 'vanta', 'drata', 'secureframe', 'soa', 'statement of applicability', 'annex a', 'certification', 'enterprise'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Control-to-evidence mapping is a document-authoring cost, front-loaded and then reviewed periodically. No per-commit LLM involvement.',
+  },
+  {
+    id: 'soc2', label: 'SOC 2 Type I/II', description: 'Checks Trust Services Criteria are met and, for Type II, evidenced over time', category: 'compliance-security',
+    whenToUse: 'SaaS vendors selling to enterprises. Type I asks whether controls are designed correctly at a point in time; Type II asks whether they operated continuously over a period — which makes *evidence continuity* the thing to test, not just control existence.',
+    keyTools: 'Vanta, Drata, Secureframe, Tugboat Logic, CI evidence exports, access-review automation, change-management logs',
+    tradeoffs: 'Type II fails on gaps in evidence rather than on missing controls — a correctly-configured control with a three-week logging gap is a finding. Automation tooling reports readiness, which is not the same as an auditor\'s opinion.',
+    autoDetectSignals: ['soc 2', 'soc2', 'trust services', 'vanta', 'drata', 'secureframe', 'saas', 'enterprise', 'audit', 'type ii'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Criteria mapping and evidence-gap narration are document work. Continuous evidence collection is tooling-driven.',
+  },
+  {
+    id: 'gdpr', label: 'GDPR Data Handling', description: 'Tests lawful basis, minimisation, subject rights, and deletion actually work', category: 'compliance-security',
+    whenToUse: 'Any product processing personal data of people in the EU or UK, regardless of where the company is. Several obligations are genuinely executable — a deletion request that leaves rows in a backup index, or an export missing a data category, is a testable defect.',
+    keyTools: 'Data-flow mapping / RoPA, deletion-completeness tests across every store, export-completeness assertions, consent-state tests, retention-window checks, pseudonymisation verification',
+    tradeoffs: 'Deletion is the hard one: caches, search indexes, analytics, backups and logs each hold copies the primary-store test never sees. A passing deletion test that only checks the main database gives false assurance, which is worse than none.',
+    autoDetectSignals: ['gdpr', 'ccpa', 'privacy', 'personal data', 'pii', 'consent', 'ropa', 'data subject', 'dsar', 'right to erasure', 'eu', 'cookie'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Data-inventory reasoning is the front-loaded cost; deletion and export completeness tests then run as ordinary integration tests.',
+  },
+  {
+    id: 'hipaa', label: 'HIPAA Technical Safeguards', description: 'Tests the Security Rule technical safeguards over protected health information', category: 'compliance-security',
+    whenToUse: 'Any system handling PHI in the US — covered entities and their business associates alike. The technical safeguards (access control, audit controls, integrity, authentication, transmission security) are the most testable part of the rule.',
+    keyTools: 'Encryption-at-rest/in-transit assertions, audit-log completeness tests, unique-user-identification checks, automatic-logoff tests, integrity verification, BAA inventory',
+    tradeoffs: 'Technical safeguards are only part of the obligation — administrative and physical safeguards dominate and are not testable here. "Addressable" specifications require a documented decision, not a passing test.',
+    autoDetectSignals: ['hipaa', 'phi', 'protected health', 'ephi', 'baa', 'healthcare', 'hl7', 'fhir', 'ehr', 'emr', 'patient', 'medical'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Safeguard-to-evidence mapping is document work; the executable subset runs as ordinary integration and audit-log tests.',
+  },
+  {
+    id: 'pci-dss', label: 'PCI-DSS Application Security', description: 'Tests the application-layer requirements for handling cardholder data', category: 'compliance-security',
+    whenToUse: 'Anything storing, processing or transmitting cardholder data. Requirement 6 (secure development) and Requirement 3 (protect stored data) map directly onto testable application behaviour — most usefully, that a PAN never reaches a log.',
+    keyTools: 'PAN-in-logs scanners, tokenisation verification, TLS configuration tests, secret-scanning (gitleaks, trufflehog), SAST/DAST per Requirement 6, ASV scan reports, network segmentation tests',
+    tradeoffs: 'Scope reduction is the real strategy — the fewer systems that touch a PAN, the smaller the testable surface. Testing an application that should never have held card data at all is effort spent defending the wrong architecture.',
+    autoDetectSignals: ['pci', 'pci-dss', 'cardholder', 'payment', 'stripe', 'braintrust', 'adyen', 'checkout', 'pan', 'tokenisation', 'tokenization', 'merchant', 'ecommerce'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Requirement mapping is document work; PAN-leak and TLS assertions run as ordinary automated checks.',
+  },
+  {
+    id: 'nist-800-53', label: 'NIST 800-53 / 800-171', description: 'Maps control families to implementation evidence for federal work', category: 'compliance-security',
+    whenToUse: 'Federal systems (800-53) and contractors handling controlled unclassified information (800-171, required by DFARS). Also a well-structured control catalogue for anyone wanting one, independent of the US government context.',
+    keyTools: 'OSCAL control catalogues and SSP tooling, compliance-as-code (InSpec, Open Policy Agent), SSP templates, POA&M registers, CMMC assessment guides',
+    tradeoffs: 'The catalogue is very large — a control-by-control pass without tailoring to your baseline is months of documentation nobody reads. Start from the impact-level baseline, not the full catalogue.',
+    autoDetectSignals: ['nist', '800-53', '800-171', 'oscal', 'fedramp', 'cmmc', 'dfars', 'cui', 'ssp', 'poa&m', 'federal', 'government', 'inspec'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'The control catalogue is large and each mapping needs justification prose. The most document-heavy policy here — scope it to a tailored baseline before starting.',
+  },
+
+  // ── Compliance: operational & process ───────────────────────────
+  {
+    id: 'change-management', label: 'Change-Management Compliance', description: 'Tests that changes reached production through the approvals the policy requires', category: 'compliance-operational',
+    whenToUse: 'Regulated environments and any organisation asserting a change process to an auditor. Almost entirely checkable from repository and CI metadata — protected branches, required reviews, linked tickets, deployment approvals — which makes it the cheapest compliance policy to automate.',
+    keyTools: 'Branch-protection API assertions, required-review checks, CODEOWNERS verification, deployment-approval gates, commit-to-ticket traceability, git history analysis',
+    tradeoffs: 'Emergency changes are legitimate and will break a naive assertion — the policy needs a documented break-glass path, or the test trains people to bypass it. Measuring process compliance is not measuring change quality.',
+    autoDetectSignals: ['change management', 'itil', 'cab', 'branch protection', 'codeowners', 'approval', 'sox', 'audit', 'release process', 'gitops'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Repository and CI metadata assertions are mechanical. Cost is limited to declaring the policy once.',
+  },
+  {
+    id: 'audit-trail', label: 'Audit-Trail Completeness', description: 'Tests that every consequential action leaves an attributable, tamper-evident record', category: 'compliance-operational',
+    whenToUse: 'Systems where "who did what, when" is a requirement — finance, healthcare, admin tooling, anything with privileged operations. The failure is silent: an action path added later that nobody wired to the audit log, discovered during an incident.',
+    keyTools: 'Action-to-log coverage tests, append-only store verification, hash-chain/tamper-evidence checks, actor-attribution assertions, log-retention verification, structured audit-event schemas',
+    tradeoffs: 'Coverage is the hard part — asserting the log works is easy, asserting that *every* privileged path writes to it requires enumerating those paths and keeping the list current. Audit logs holding request payloads become a privacy liability of their own.',
+    autoDetectSignals: ['audit', 'audit log', 'auditlog', 'sox', 'hipaa', 'immutable', 'append-only', 'event log', 'admin', 'privileged', 'rbac', 'compliance'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Enumerating consequential actions is a reasoning pass over the codebase; the resulting assertions run as ordinary tests.',
+  },
+  {
+    id: 'rbac-compliance', label: 'Access Control & RBAC', description: 'Tests that every role can do exactly what it should and nothing more', category: 'compliance-operational',
+    whenToUse: 'Any multi-role system. Positive permission tests ("an admin can delete") are always written; negative ones ("a viewer cannot, via any route") rarely are — and privilege escalation lives entirely in the untested half.',
+    keyTools: 'Role-matrix table tests, negative-authorization suites, OPA/Cedar policy tests, IAM policy simulators, permission-lattice property tests, session/tenant isolation tests',
+    tradeoffs: 'A full role × resource × action matrix grows fast and much of it is uninteresting; property-based tests over the permission lattice cover more with less. Testing the policy layer proves nothing if a route bypasses it — the enforcement point must be single.',
+    autoDetectSignals: ['rbac', 'abac', 'authorization', 'permissions', 'roles', 'casbin', 'opa', 'cedar', 'oso', 'keycloak', 'auth0', 'multi-tenant', 'iam', 'admin'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Deriving the intended role matrix is the reasoning cost; the generated negative suite then runs without LLM involvement.',
+  },
+  {
+    id: 'data-retention', label: 'Data Retention & Deletion', description: 'Tests data is deleted when the policy says, and not before', category: 'compliance-operational',
+    whenToUse: 'Wherever a retention schedule exists — privacy regulation, sector rules, or a customer contract. Retention has two failure directions and most teams test neither: data surviving past its window, and data destroyed before a legal-hold period ends.',
+    keyTools: 'Retention-job tests with clock injection, cascade-deletion verification across every store, legal-hold override tests, backup-expiry verification, soft-delete purge tests',
+    tradeoffs: 'Requires a clock seam or the test cannot reach the window at all. Backups are the usual gap — a retention test that stops at the primary store misses the copies that actually persist.',
+    autoDetectSignals: ['retention', 'ttl', 'purge', 'legal hold', 'gdpr', 'archive', 'soft delete', 'cron', 'lifecycle', 's3 lifecycle', 'expiry', 'data lifecycle'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Retention rules are few and the tests are mechanical once a clock seam exists.',
+  },
+
+  // ── Compliance: software supply chain ───────────────────────────
+  {
+    id: 'sbom', label: 'SBOM Verification', description: 'Checks a software bill of materials is produced, complete and accurate', category: 'compliance-supply-chain',
+    whenToUse: 'Anything shipped to enterprise or government customers (US EO 14028, EU CRA), and good practice generally. The useful test is not that an SBOM exists but that it *matches the artifact* — a stale SBOM is worse than none, because it is trusted.',
+    keyTools: 'Syft, CycloneDX CLI, SPDX tools, Trivy, cdxgen, sbom-utility validation, GitHub dependency submission API',
+    tradeoffs: 'Generation is easy and completeness is not — vendored code, system packages, and dynamically loaded plugins routinely go unlisted. Format validity is machine-checkable; accuracy is only as good as the generator\'s view of the build.',
+    autoDetectSignals: ['sbom', 'cyclonedx', 'spdx', 'syft', 'grype', 'trivy', 'supply chain', 'eo 14028', 'cra', 'dependency-track', 'container', 'docker'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Generation and validation are entirely tooling-driven; LLM involvement is limited to explaining a completeness gap.',
+  },
+  {
+    id: 'dependency-licensing', label: 'Dependency Licensing', description: 'Checks every dependency\'s licence is known and permitted by policy', category: 'compliance-supply-chain',
+    whenToUse: 'Any product distributed to customers or sold commercially. A copyleft dependency added transitively by a minor version bump is the standard way this becomes a problem, and it is entirely preventable by a CI check.',
+    keyTools: 'license-checker, licensee, FOSSA, Snyk License Compliance, ScanCode, pip-licenses, cargo-deny, go-licenses, Dependency-Track',
+    tradeoffs: 'Declared licence metadata is often missing or wrong, so an unknown-licence list needs manual resolution rather than a blanket block. An allowlist that blocks the build on any unknown will be widened under deadline pressure unless someone owns triage.',
+    autoDetectSignals: ['license', 'licence', 'fossa', 'scancode', 'cargo-deny', 'license-checker', 'pip-licenses', 'go-licenses', 'commercial', 'distribution', 'oss'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Scanning is tooling-driven; LLM cost is limited to resolving unknown or ambiguous licence declarations.',
+  },
+  {
+    id: 'license-compatibility', label: 'Open-Source Licence Compatibility', description: 'Checks the combination of licences is compatible with how you distribute', category: 'compliance-supply-chain',
+    whenToUse: 'Distributed software, and especially anything linking or bundling. Distinct from licence *inventory*: each licence can be individually permitted while the combination is still incompatible — GPL and Apache-2.0 in the same linked binary being the classic case.',
+    keyTools: 'FOSSA policy engine, ScanCode + licensedcode, OSS Review Toolkit (ORT), SPDX licence expression evaluation, cargo-deny bans, copyleft-reach analysis',
+    tradeoffs: 'Compatibility depends on how you distribute — linking, bundling, SaaS-only, or shipping a binary all give different answers for the same dependency set. A tool cannot know your distribution model; it must be declared, and a wrong declaration produces confidently wrong results.',
+    autoDetectSignals: ['gpl', 'agpl', 'lgpl', 'copyleft', 'ort', 'fossa', 'spdx', 'distribution', 'binary', 'bundle', 'linking', 'proprietary', 'dual license'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Compatibility reasoning across a licence set is genuinely analytical and benefits from explanation per conflict; the scan feeding it is cheap.',
+  },
+  {
+    id: 'secure-build-pipeline', label: 'Secure Build Pipeline (SLSA)', description: 'Verifies build provenance, isolation and integrity against a SLSA level', category: 'compliance-supply-chain',
+    whenToUse: 'Any project whose consumers need to know an artifact came from the source it claims. SLSA levels give a concrete ladder — provenance generated (L1), hosted and authenticated build (L2), hardened and isolated (L3) — each with a checkable claim.',
+    keyTools: 'slsa-github-generator, Sigstore/cosign, in-toto attestations, SLSA verifier, GitHub artifact attestations, reproducible-build checks, pinned action digests',
+    tradeoffs: 'Level 3 requires build-platform properties most teams do not control, so the achievable target depends on the CI provider. Provenance nobody verifies at consumption time is documentation, not a control.',
+    autoDetectSignals: ['slsa', 'sigstore', 'cosign', 'in-toto', 'provenance', 'attestation', 'supply chain', 'reproducible build', 'github actions', 'docker', 'container', 'signing'],
+    tokenImpactLevel: 'low',
+    tokenImpact: 'Provenance generation and verification are pipeline configuration. LLM involvement is one-off setup guidance.',
+  },
+
+  // ── Compliance: AI-specific ─────────────────────────────────────
+  {
+    id: 'ai-safety-compliance', label: 'AI Safety & Guardrail Compliance', description: 'Evidences that declared AI safety commitments are implemented and enforced', category: 'compliance-ai',
+    whenToUse: 'Products making public safety claims, and anything in scope of the EU AI Act\'s obligations for high-risk or general-purpose systems. Distinct from guardrail *testing*: this asks whether the declared policy, the implementation, and the evidence agree.',
+    keyTools: 'EU AI Act conformity checklists, NIST AI RMF mapping, model cards, system cards, guardrail-policy registers, incident-reporting procedures, red-team evidence retention',
+    tradeoffs: 'Largely documentary and the regulatory picture is still moving, so a mapping built once goes stale. The executable half is already covered by guardrail enforcement testing — keep them distinct or you will duplicate evidence and still miss the policy gap.',
+    autoDetectSignals: ['ai act', 'eu ai act', 'nist ai rmf', 'model card', 'system card', 'high-risk ai', 'ai governance', 'responsible ai', 'llm', 'openai', 'anthropic'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Policy-to-implementation mapping is document authoring, reviewed on a cadence rather than per commit.',
+  },
+  {
+    id: 'model-output-risk', label: 'Model-Output Risk Classification', description: 'Tests that outputs are classified by risk and that the classification drives handling', category: 'compliance-ai',
+    whenToUse: 'Products where some model outputs need different treatment — human review, a disclaimer, a refusal, or a log. A classifier that is never tested tends toward one class, which silently removes the review step it exists to trigger.',
+    keyTools: 'Labelled risk corpora, confusion-matrix assertions, threshold calibration tests, Llama Guard / moderation-endpoint evaluation, escalation-path tests, anti-uniformity checks on classifier output',
+    tradeoffs: 'Needs a labelled ground-truth set, which is real annotation work and the reason this is usually skipped. Accuracy alone is a misleading metric when risk classes are rare — measure recall on the rare class.',
+    autoDetectSignals: ['moderation', 'classifier', 'risk', 'content policy', 'human review', 'escalation', 'llm', 'openai', 'anthropic', 'toxicity', 'safety'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Corpus evaluation means a model call per labelled case, repeated whenever thresholds change. Sample rather than running the full corpus per commit.',
+  },
+  {
+    id: 'bias-fairness', label: 'Bias, Fairness & Non-Discrimination', description: 'Tests outcomes across protected groups for unjustified disparity', category: 'compliance-ai',
+    whenToUse: 'Any system whose output affects people\'s access to something — hiring, lending, housing, pricing, moderation, ranking. Legally required in several jurisdictions (NYC LL144, EU AI Act) and the disparity is invisible in aggregate accuracy, which is the metric everyone reports.',
+    keyTools: 'Fairlearn, AI Fairness 360, What-If Tool, counterfactual/perturbation test sets, demographic parity and equalised-odds metrics, disparate-impact ratio, slice-based evaluation',
+    tradeoffs: 'Fairness definitions are mathematically incompatible — satisfying demographic parity and equalised odds simultaneously is generally impossible, so the choice is a stated value judgement, not a technical default. Testing needs protected-attribute data, which privacy rules restrict collecting.',
+    autoDetectSignals: ['fairness', 'bias', 'fairlearn', 'aif360', 'protected', 'demographic', 'hiring', 'lending', 'credit', 'ranking', 'recommendation', 'll144', 'eeoc', 'ml', 'model'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Slice evaluation multiplies the case set by the number of groups compared, and counterfactual perturbation multiplies it again.',
+  },
+  {
+    id: 'explainability', label: 'Explainability & Transparency', description: 'Tests that a decision can be explained to the person it affects', category: 'compliance-ai',
+    whenToUse: 'Automated decisions with legal or significant effect — GDPR Article 22, the EU AI Act, and sector rules like ECOA adverse-action notices all require a meaningful explanation. The test is that the explanation is faithful to the decision, not merely that one is produced.',
+    keyTools: 'SHAP, LIME, captum, counterfactual explanation generators, faithfulness/consistency assertions, model cards, decision-log inspection, reason-code verification',
+    tradeoffs: 'A plausible explanation that does not reflect the actual decision is worse than none — post-hoc explainers can be unfaithful, and a fluent LLM rationale is not evidence of the reasoning that produced the answer. Testing faithfulness is harder than producing explanations.',
+    autoDetectSignals: ['explainability', 'xai', 'shap', 'lime', 'captum', 'interpretability', 'article 22', 'adverse action', 'reason code', 'transparency', 'model card', 'ml'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Faithfulness checks run per sampled decision; the explainer itself is library code rather than a model call in classical ML settings.',
+  },
+  {
+    id: 'ai-data-policy', label: 'AI Memory & Data-Use Policy', description: 'Tests that what the system remembers and sends matches what was promised', category: 'compliance-ai',
+    whenToUse: 'Any AI product with memory, retrieval, or training feedback loops. Two commitments are routinely stated and rarely tested: that customer data does not train a model, and that a secret or another tenant\'s data never reaches a prompt.',
+    keyTools: 'Redaction-boundary tests, prompt-payload inspection, tenant-isolation tests over retrieval, training-opt-out verification, memory-retention window tests, provider zero-retention configuration checks',
+    tradeoffs: 'The boundary is only as good as its worst path — one un-redacted logging call or one retrieval query missing a tenant filter defeats the whole policy, so coverage matters more than depth here. Provider-side commitments cannot be tested locally, only configured and evidenced.',
+    autoDetectSignals: ['rag', 'retrieval', 'memory', 'embedding', 'vector', 'multi-tenant', 'redaction', 'pii', 'training data', 'opt-out', 'zero retention', 'llm', 'openai', 'anthropic'],
+    tokenImpactLevel: 'medium',
+    tokenImpact: 'Boundary tests inspect payloads before dispatch and need no model calls; enumerating every path that reaches a prompt is the reasoning cost.',
+  },
+
+  // ── Compliance: industry-specific ───────────────────────────────
+  {
+    id: 'financial-compliance', label: 'Financial Services (FFIEC, MiFID II)', description: 'Sector controls for financial systems — records, reporting, resilience', category: 'compliance-industry',
+    whenToUse: 'Banking, payments, brokerage and investment platforms. The testable core is record-keeping completeness, transaction reporting accuracy, timestamp precision, and operational resilience — MiFID II clock synchronisation and record retention being unusually precise requirements.',
+    keyTools: 'Transaction-reporting reconciliation suites, immutable record stores (WORM), clock-synchronisation verification, best-execution reporting checks, DORA resilience testing, SOX change controls',
+    tradeoffs: 'The obligations differ sharply by jurisdiction and licence type — a generic financial-compliance suite tests nothing precisely. Requires a compliance owner to state which obligations apply before any test is worth writing.',
+    autoDetectSignals: ['ffiec', 'mifid', 'dora', 'psd2', 'open banking', 'fca', 'finra', 'sec', 'trading', 'brokerage', 'banking', 'ledger', 'settlement', 'kyc', 'aml'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Regulation-to-control mapping is extensive document work and must be re-reviewed as rules change.',
+  },
+  {
+    id: 'medical-compliance', label: 'Medical (FDA 21 CFR Part 11)', description: 'Electronic records and signatures validation for regulated medical software', category: 'compliance-industry',
+    whenToUse: 'Software producing records submitted to the FDA, and medical device software more broadly (IEC 62304). Part 11 is unusually testable: audit trails, record integrity, signature binding, and access control are all assertions.',
+    keyTools: 'Computer System Validation (IQ/OQ/PQ) protocols, audit-trail integrity tests, electronic-signature binding verification, IEC 62304 lifecycle records, requirements traceability matrices, GAMP 5',
+    tradeoffs: 'Validation is a documented lifecycle, not a test suite — evidence of process is as regulated as evidence of function, which makes an agile workflow harder to evidence. Pairs necessarily with the V-Model.',
+    autoDetectSignals: ['fda', '21 cfr', 'part 11', 'iec 62304', 'gamp', 'medical device', 'clinical', 'gxp', 'gmp', 'validation', 'csv', 'ehr', 'patient'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Validation protocols and traceability matrices are large documents requiring per-requirement authoring.',
+  },
+  {
+    id: 'automotive-compliance', label: 'Automotive (ISO 26262)', description: 'Functional safety evidence for road-vehicle electronics by ASIL level', category: 'compliance-industry',
+    whenToUse: 'Automotive electronic control units and their software. The standard prescribes verification methods per ASIL level — including structural coverage requirements (MC/DC at ASIL D) that dictate exactly what the test suite must demonstrate.',
+    keyTools: 'MC/DC coverage tools (VectorCAST, LDRA, Cantata), MISRA C static analysis, HARA and safety-case tooling, requirements traceability, fault-injection at the hardware boundary, ASPICE process assessment',
+    tradeoffs: 'ASIL D structural coverage is expensive and non-negotiable — the level is determined by hazard analysis, not by preference. Toolchain qualification is itself a required activity, so unqualified tools cannot produce usable evidence.',
+    autoDetectSignals: ['iso 26262', 'asil', 'autosar', 'misra', 'automotive', 'ecu', 'can bus', 'vehicle', 'aspice', 'functional safety', 'hara', 'embedded'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Safety-case argumentation and per-requirement traceability are substantial document work alongside the coverage evidence.',
+  },
+  {
+    id: 'aviation-compliance', label: 'Aviation (DO-178C)', description: 'Airborne software certification evidence by Design Assurance Level', category: 'compliance-industry',
+    whenToUse: 'Software in certified aircraft systems. DO-178C defines objectives per DAL (A–E), with structural coverage — statement, decision, and MC/DC at Level A — and requirements-based testing as the backbone of the evidence package.',
+    keyTools: 'Qualified verification tools (LDRA, VectorCAST, Rapita), requirements-based test generation, MC/DC analysis, traceability from requirement to test to code, DO-330 tool qualification, DO-331 model-based supplement',
+    tradeoffs: 'The most demanding regime in this catalogue — Level A objectives require independence between development and verification, so the same person cannot write both. Certification cost is measured in engineer-years, not sprints.',
+    autoDetectSignals: ['do-178', 'do178', 'dal', 'avionics', 'arinc', 'faa', 'easa', 'airborne', 'aerospace', 'do-330', 'do-331', 'mc/dc', 'embedded', 'safety-critical'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Objective-by-objective evidence packages are the largest documentation burden here, with traceability required in both directions.',
+  },
+  {
+    id: 'energy-compliance', label: 'Energy (NERC CIP)', description: 'Critical infrastructure protection controls for bulk electric systems', category: 'compliance-industry',
+    whenToUse: 'Operators of bulk electric system cyber assets in North America. The testable core is asset inventory accuracy, electronic security perimeter enforcement, access revocation timeliness, and patch-management evidence — all with prescribed deadlines.',
+    keyTools: 'BES cyber asset inventory reconciliation, ESP firewall-rule verification, access-revocation timing tests, patch-assessment evidence (35-day cycle), configuration-change monitoring, CIP-013 supply chain evidence',
+    tradeoffs: 'Penalties are substantial and evidence is audited on fixed cycles, so gaps in *evidence continuity* matter as much as gaps in control. Operational technology environments often cannot run the tooling that IT compliance assumes.',
+    autoDetectSignals: ['nerc', 'cip', 'bulk electric', 'bes', 'scada', 'ics', 'ot security', 'iec 62443', 'utility', 'grid', 'substation', 'critical infrastructure'],
+    tokenImpactLevel: 'high',
+    tokenImpact: 'Control-family evidence mapping plus periodic re-attestation makes this document-heavy and recurring rather than one-off.',
   },
 ];
 

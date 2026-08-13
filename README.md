@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.305.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.306.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,39 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.305.3
+## What's new in 0.306.0
 
-The last Marketplace publication, **v0.305.2**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Auto-assess now reads your code, not your README.** It used to match every signal word against one
+  blob of text that included three kilobytes of your README — so a project got testing methodologies
+  because of what its own description said about it. On this repository that was twelve policies fired
+  by prose alone, including PCI-DSS and bias & fairness on a VS Code extension that handles neither.
+  It also matched words inside other words, so "rapid" switched on integration testing.
+
+  Now a signal found in your **code** — a dependency, a script, a config file, a directory that exists —
+  ticks the policy and says what it found. A signal found only in your **description** raises it as a
+  proposal, unticked, saying which words prompted it. Nothing is hidden and nothing is more than one
+  keystroke away; auto-assess just stops making the decision for you. Dependencies are read from every
+  manifest now, not only `package.json`, so Python, Rust, Go, Java and .NET projects get a real
+  assessment instead of one based almost entirely on their README.
+
+- **The testing matrix grew from 23 methodologies to 69.** Five new families: drift and integrity
+  checks over your code's own shape, parity and consistency across surfaces and versions, data and
+  schema testing, AI-specific testing (prompt regression, guardrails, model routing, hallucination
+  detection), and twenty-four compliance policies covering security and privacy, operational process,
+  software supply chain, AI governance, and five industry regimes. Each one arrives complete — a
+  plain-language explanation, evidence detection, a place in the archetype recommendations, and a
+  starter file the scaffolder can add to a new or existing project.
+
+- **Compliance policies scaffold a control mapping, not a fake test.** Most of a compliance regime has
+  no assertion behind it — "cryptography is governed by a policy" is not something a test can check, and
+  a stub written for it can never honestly pass or fail. Those policies get a control mapping instead:
+  control, status, evidence, owner, in `project_memory/operations/compliance/`. Controls a machine
+  *can* check — role permissions, audit trails, retention windows, erasure reaching every store, SBOM
+  accuracy, licence policy — still get a real test. Every row starts at **Not assessed**, never at a
+  pass, and the file is never rewritten once you have put decisions in it.
 
 - **A failed promotion step can now be handed straight to Atlas.** Promoting to production and having
   the tests fail used to leave you with a wall of output and no next move. Each failed step now carries
@@ -674,7 +703,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Project planning & Mission Control** | Dependency-aware task plans, previews, checkpoints, resumable runs, and goal evaluation inside limits you set. |
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
-| **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
+| **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
 | **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |

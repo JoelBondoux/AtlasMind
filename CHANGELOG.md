@@ -6,6 +6,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.306.0] - 2026-08-13
+
+### Added
+
+- **The testing matrix now carries 69 methodologies, up from 23** — and every one of the 46 new
+  policies arrives with the same machinery the original 23 had: a plain-language explanation, evidence
+  markers the coverage scanner reads, a place in the archetype packs, and a starter artifact the
+  scaffolder can create in a new or existing project.
+
+  Five families are new. **Drift and integrity** over the code's own shape (dead-field detection, type
+  drift between static types and what actually arrives at runtime, dependency-graph integrity).
+  **Parity and consistency** (cross-surface, cross-representation, cross-version, semantic constraints,
+  anti-uniformity, output schema drift, hallucination detection). **Data & schema** (data quality,
+  schema migration, backward/forward compatibility, memory/state drift). **AI-specific** (prompt
+  regression, model-routing correctness, guardrail enforcement, agent-collaboration correctness, the
+  determinism/stochasticity boundary). And **compliance & governance** — twenty-four policies across
+  security & privacy, operational process, software supply chain, AI governance, and five
+  industry-specific regimes.
+
+- **Compliance policies scaffold a control mapping, not an assertion-free test file.** This is the one
+  place the existing model did not fit. Every other policy answers "does the evidence exist in the file
+  tree?", and most of a compliance regime cannot — "cryptographic controls are governed by a policy"
+  has no assertion, and a test stub written for it can never honestly pass *or* fail. That is exactly
+  the permanent unclosable gap the archetype packs' `discouraged` list exists to prevent, and a
+  dashboard with a gap nobody can close teaches people to ignore gaps.
+
+  So the split is per policy and declared, never inferred: a control a machine can check (role
+  permissions, audit-trail completeness, retention windows, GDPR erasure reaching every store, an
+  account number never reaching a log, SBOM accuracy, licence policy) gets an ordinary test stub, and
+  the rest gets `project_memory/operations/compliance/<policy>.md` — control, status, evidence, owner.
+  A regime with both gets both. The mapping is **language-independent**, because the regime does not
+  change when the project is written in Go.
+
+  Three properties hold the mapping honest. Every row seeds as **Not assessed**, never as a pass —
+  an unassessed control and a satisfied one are different facts, and seeding "Satisfied" would assert
+  something nobody checked into a file an assessor reads. The scoping question comes **before** the
+  controls, because a mapping filled in before anyone decided what is in scope looks complete and
+  answers nothing. And the file is **never rewritten** once it exists: it fills with human decisions,
+  which is the entire point of it.
+
+- **The Testing dashboard scores a control mapping as real evidence.** `configIsEvidence` — the reading
+  continuous testing already needed for its pipeline definition — now applies to documentary compliance
+  policies too. Without it a project holding a complete, reviewed ISO 27001 mapping would have capped at
+  "No tests yet" forever.
+
+### Changed
+
+- **The methodology matrix groups into twelve categories instead of five**, mirroring the families
+  above. The compliance families are separate categories rather than one bucket: twenty-four rows under
+  a single heading is a list nobody reads, and a privacy regulator, a build pipeline and a fairness
+  review share no evidence.
+
+- **The archetype packs place the new policies by shape, and say when a shape cannot evidence one.**
+  An API recommends output-schema-drift, type-drift, schema-migration and RBAC checks, and now
+  discourages accessibility alongside visual regression — there is nothing to look at, so neither could
+  ever close. A library adds cross-version parity, cross-representation and dead-field detection, and
+  discourages chaos testing (no infrastructure to perturb). A game adds the determinism boundary.
+  Websites, web apps, desktop and mobile all add accessibility.
+
+- **Compliance and supply-chain policies are repository-level, not per-commit.** A change cannot satisfy
+  "Annex A.8.24 — cryptography governed by policy", and asking it to would make every commit owe
+  evidence nobody can produce. The machine-checkable compliance policies are deliberately excluded from
+  that list: those genuinely do owe a test when the behaviour they govern changes.
+
+- **Auto-assess decides from the codebase, not from the project's description of itself.** It matched
+  every `autoDetectSignals` entry as a bare substring against a single corpus that included three
+  kilobytes of `README.md`, so what a project *said about itself* was weighed identically to what it was
+  *built from*. Measured on this repository before the change: **twelve policies fired on README prose
+  alone**, among them PCI-DSS, bias & fairness, and model-output risk classification — on a VS Code
+  extension that touches no card data and makes no automated decision about any person. The 23 → 69
+  expansion made this sharply worse, because the new signal vocabulary includes words like `audit`,
+  `risk`, `agent`, `bias` and `retention` that appear in the prose of projects with no connection to
+  them.
+
+  The new `testingAutoAssess` module draws one distinction and hangs everything on it. A signal
+  **observed in the code** — a dependency, a script, a config file, a directory that exists — is a fact,
+  and it ticks. A signal **stated in prose** is a description, and it *offers*: the policy is still
+  listed, still one keystroke away, but arrives unticked and says which words prompted it. That is the
+  same rule `researchRegister` applies to an uncited claim, for the same reason.
+
+- **Signal matching has real word boundaries.** `api` matched inside `rapid`, so a sentence of ordinary
+  marketing copy switched on integration testing. Matching now treats only letters and digits as word
+  characters, which gives the two properties actually wanted: `api` matches in `rest api` and in
+  `api-first`, and matches neither `rapid` nor `openapi`. `\b` is deliberately not used — the signal
+  vocabulary is full of hyphens and slashes (`fast-check`, `ci/cd`, `do-178`, `mc/dc`, `800-53`) where
+  its behaviour is surprising.
+
+- **One ambiguous word is a hint; two are a pattern.** Found by running the new assessment over this
+  repository and reading what it ticked: `npm audit` in a script switched on SOC 2, change-management
+  and audit-trail testing, and a `.github/workflows` directory switched on data-quality testing and
+  SLSA provenance verification. None of those words is wrong in the catalogue — `pipeline` really does
+  belong to both CI and data engineering — it is simply not, alone, evidence of which meaning applies.
+  An ambiguous match now raises a policy for consideration rather than ticking it, while an unambiguous
+  signal (`stryker`, `cosign`, `fast-check`) still ticks on its own. Where a fact genuinely *is* its own
+  proof for one specific policy — a CI directory for continuous testing, `CODEOWNERS` for
+  change-management, `axe-core` for accessibility — the derived rule declares it.
+
+- **Dependencies are read from every manifest, not just `package.json`.** `pyproject.toml`,
+  `requirements.txt`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle, `Gemfile`, `composer.json`,
+  `pubspec.yaml` and `mix.exs` all contribute, so a non-Node project is no longer assessed almost
+  entirely on its README. Derived signals translate observed facts into the vocabulary the catalogue
+  speaks — nothing in `@anthropic-ai/sdk` contains the word `prompt`, and nothing in `cerbos` contains
+  `rbac` — which keeps the catalogue from decaying into a vendor package list.
+
+- **A project shape can withhold a policy, and existing evidence overrules the shape.** The archetype
+  packs already know which policies a shape can never evidence; auto-assess now honours that, so it
+  cannot create the permanent unclosable gap the packs exist to prevent. Suppression applies only when
+  archetype detection was *confident* — a `generic` fallback is not a finding — and never against a
+  policy the repository can already show evidence for, because a file on disk beats a heuristic about
+  what this kind of project usually needs.
+
+- **What could not be read is reported rather than swallowed.** An unparseable manifest yields a partial
+  reading that says so, because "we did not read your manifest" and "your manifest says nothing
+  relevant" are different facts and only the second supports a conclusion.
+
+- **The three copies of this logic became one.** The settings panel and the bootstrapper's intake and
+  import paths each had their own substring matcher, so the same bug lived in three places and a fix to
+  one would have left the others behind. All three now call `assessTestingMethodologies`. The bootstrap
+  pickers also stopped hardcoding `picked: true`: at intake there is no code yet, so every signal is a
+  stated intention, and ticking them all is how a brand-new project acquired a dozen methodologies and
+  eight permanent gaps before its first commit.
+
 ## [0.305.3] - 2026-08-12
 
 ### Fixed

@@ -19,7 +19,9 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig 
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
-import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { COMPLIANCE_EVIDENCE_DIR, deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { assessTestingMethodologies, type ProjectTestingEvidence } from '../core/testingAutoAssess.js';
+import { detectProjectArchetype } from '../core/projectArchetype.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
@@ -1551,26 +1553,38 @@ export class SettingsPanel {
       return;
     }
 
-    const corpus = await buildTestingAutoDetectCorpus(workspaceRoot);
+    // Evidence the repository can already show, from the same coverage
+    // derivation the Testing page renders — so what arrives ticked here and
+    // what reads as *Tested* there are the same judgement.
+    const snapshot = collectTestingDashboardSnapshot(this.atlasContext);
+    const alreadyEvidenced = (snapshot.policyCoverage?.rows ?? [])
+      .filter(row => row.status === 'covered' || row.status === 'tooling-only' || row.status === 'not-file-evident')
+      .map(row => row.id);
 
-    const inferred = TESTING_METHODOLOGY_DEFINITIONS
-      .filter(def =>
-        def.autoDetectSignals.includes('*') ||
-        def.autoDetectSignals.some(s => corpus.includes(s.toLowerCase())),
-      )
-      .map(def => ({
-        id: def.id,
-        label: def.label,
-        reason: def.autoDetectSignals.includes('*')
-          ? 'Recommended for all projects'
-          : `Detected: ${def.autoDetectSignals.filter(s => corpus.includes(s.toLowerCase())).slice(0, 2).join(', ')}`,
-      }));
+    const gathered = await gatherTestingEvidence(workspaceRoot);
+
+    // The shape is only allowed to *suppress* a policy when detection was
+    // confident. `generic` reached by fallback is not a finding about this
+    // project, and letting an unconfident guess withhold recommendations would
+    // silently narrow the assessment for a reason the user never sees.
+    const detection = detectProjectArchetype({
+      corpus: [...gathered.dependencies, ...gathered.paths].join(' ').toLowerCase(),
+      files: gathered.paths.map(p => p.toLowerCase()),
+    });
+
+    const assessment = assessTestingMethodologies({
+      ...gathered,
+      alreadyEvidenced,
+      ...(detection.confident ? { archetype: detection.archetype, traits: detection.traits } : {}),
+    });
+
+    const inferred = assessment.policies;
 
     const modeChoice = await vscode.window.showQuickPick(
       [
         {
           label: '$(sparkle) Auto',
-          description: `AtlasMind recommends ${inferred.length} methodolog${inferred.length === 1 ? 'y' : 'ies'} for this project`,
+          description: assessment.summary,
           value: 'auto' as const,
         },
         {
@@ -1594,34 +1608,26 @@ export class SettingsPanel {
     let selectedIds: import('../types.js').TestingMethodologyId[] | undefined;
 
     if (modeChoice.value === 'auto') {
-      // Pre-tick only what this project can already show evidence or tooling for.
+      // Ticked where the *code* shows it; offered where only the prose mentions
+      // it. Everything matching one flat corpus used to arrive ticked, and that
+      // corpus included the README — so a project could have thirteen
+      // methodologies switched on because of what its own marketing copy said
+      // about it, and be left with eight permanent gaps nobody read as gaps.
       //
-      // Everything matching the corpus used to arrive ticked, which is how one
-      // click could enable thirteen methodologies — including mutation, contract,
-      // model-based and end-to-end testing on a project with none of them — and
-      // leave eight permanent gaps that nobody read as gaps. The rest are still
-      // offered, and still one keystroke away; they simply arrive as proposals
-      // rather than as decisions already taken on the user's behalf.
-      //
-      // The evidence comes from the same coverage derivation the Testing page
-      // renders, so what is pre-ticked here and what reads as *Tested* there are
-      // the same judgement.
-      const evidenced = new Set(
-        (collectTestingDashboardSnapshot(this.atlasContext).policyCoverage?.rows ?? [])
-          .filter(row => row.status === 'covered' || row.status === 'tooling-only' || row.status === 'not-file-evident')
-          .map(row => row.id),
-      );
+      // Nothing is hidden: a prose match is still listed and still one keystroke
+      // away. It simply arrives as a proposal rather than as a decision already
+      // taken on the user's behalf.
       const accepted = await vscode.window.showQuickPick(
         inferred.map(item => ({
-          label: item.label,
-          description: evidenced.has(item.id)
-            ? `${item.reason} — evidence already present`
-            : `${item.reason} — nothing on disk yet, so enabling this declares an intention`,
-          picked: evidenced.has(item.id),
+          label: item.basis === 'discouraged' ? `$(circle-slash) ${item.label}` : item.label,
+          description: item.reason,
+          picked: item.recommended,
           id: item.id,
         })),
         {
-          placeHolder: 'Ticked where evidence already exists. Tick anything else you intend to practise, then press Enter',
+          placeHolder: assessment.unassessed.length > 0
+            ? `Ticked from the code. Could not read ${assessment.unassessed.join(', ')} — review before accepting`
+            : 'Ticked from what the code shows. Tick anything else you intend to practise, then press Enter',
           canPickMany: true,
           ignoreFocusOut: true,
           title: 'Auto-Assessed Methodologies',
@@ -5727,7 +5733,14 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
     { label: 'Structural (validate internal correctness)', key: 'structural' },
     { label: 'Behavioral (validate observable behavior)', key: 'behavioral' },
     { label: 'Non-functional (quality attributes)', key: 'non-functional' },
+    { label: 'Data & schema (the data, not the code)', key: 'data-schema' },
+    { label: 'AI-specific (model-backed behaviour)', key: 'ai-specific' },
     { label: 'Exploratory', key: 'exploratory' },
+    { label: 'Compliance — security & privacy', key: 'compliance-security' },
+    { label: 'Compliance — operational & process', key: 'compliance-operational' },
+    { label: 'Compliance — software supply chain', key: 'compliance-supply-chain' },
+    { label: 'Compliance — AI governance', key: 'compliance-ai' },
+    { label: 'Compliance — industry-specific', key: 'compliance-industry' },
   ];
 
   const enabledCount = TESTING_METHODOLOGY_DEFINITIONS.filter(def => {
@@ -6034,112 +6047,154 @@ export async function persistTestingConfig(
 }
 
 /**
- * Builds a lowercase corpus string used by the auto-assess heuristics.
- * Sources: package.json deps/scripts/private flag, test config file names,
- * UI/web surface presence, API spec presence, SECURITY.md, git contributor
- * count, and the first 3 kB of README.md for audience/context signals.
+ * Gathers what the *codebase* shows, kept apart from what its prose claims.
+ *
+ * The previous version returned one flat string with three kilobytes of README
+ * mixed into it, and only ever parsed `package.json` — so a Python, Rust, Go or
+ * Java project contributed no dependency evidence at all and was assessed
+ * almost entirely on its README. Measured on this repository, twelve policies
+ * fired on README text alone.
+ *
+ * Two things changed. Dependencies are read from **every** manifest, so the
+ * assessment works on projects that are not Node. And prose is returned as its
+ * own field rather than concatenated, because `assessTestingMethodologies`
+ * cannot apply the observed-versus-stated rule to a corpus that has already
+ * thrown the distinction away.
+ *
+ * Everything unreadable is *reported* rather than swallowed: "we could not
+ * parse your manifest" and "your manifest says nothing relevant" are different
+ * facts, and only the second one supports a conclusion.
  */
-async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<string> {
-  const parts: string[] = [];
+async function gatherTestingEvidence(workspaceRoot: string): Promise<ProjectTestingEvidence> {
+  const dependencies: string[] = [];
+  const scripts: string[] = [];
+  const paths: string[] = [];
+  const prose: string[] = [];
+  const unreadable: string[] = [];
 
-  // ── package.json ──────────────────────────────────────────────
-  try {
-    const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
-    const pkg = JSON.parse(raw) as Record<string, unknown>;
-    const allDeps = Object.assign(
-      {},
-      pkg['dependencies'] as Record<string, string> | undefined,
-      pkg['devDependencies'] as Record<string, string> | undefined,
-    );
-    parts.push(Object.keys(allDeps).join(' '));
-    if (typeof pkg['name'] === 'string') { parts.push(pkg['name']); }
-    const scripts = pkg['scripts'] as Record<string, string> | undefined;
-    if (scripts) { parts.push(Object.values(scripts).join(' ')); }
-    // Publishable (non-private) package → library / SDK heuristics apply
-    if (pkg['private'] !== true && typeof pkg['name'] === 'string') {
-      parts.push('library sdk package');
+  const readIfPresent = (rel: string): string | undefined => {
+    const abs = path.join(workspaceRoot, rel);
+    if (!existsSync(abs)) { return undefined; }
+    try {
+      return readFileSync(abs, 'utf8');
+    } catch {
+      unreadable.push(rel);
+      return undefined;
     }
-  } catch { /* no package.json or not parseable */ }
+  };
 
-  // ── Test framework config files ───────────────────────────────
+  // ── Node ──────────────────────────────────────────────────────
+  const pkgRaw = readIfPresent('package.json');
+  if (pkgRaw) {
+    try {
+      const pkg = JSON.parse(pkgRaw) as Record<string, unknown>;
+      dependencies.push(...Object.keys(Object.assign(
+        {},
+        pkg['dependencies'] as Record<string, string> | undefined,
+        pkg['devDependencies'] as Record<string, string> | undefined,
+      )));
+      const pkgScripts = pkg['scripts'] as Record<string, string> | undefined;
+      if (pkgScripts) {
+        scripts.push(...Object.keys(pkgScripts), ...Object.values(pkgScripts));
+      }
+      // A publishable package is a library, and libraries carry different
+      // obligations to their consumers than an application does.
+      if (pkg['private'] !== true && typeof pkg['name'] === 'string') {
+        dependencies.push('library', 'sdk', 'package');
+      }
+    } catch {
+      unreadable.push('package.json');
+    }
+  }
+
+  // ── Other language manifests ──────────────────────────────────
+  //
+  // Read as raw text rather than parsed. A full TOML/XML/Gradle parser for each
+  // is a lot of surface for a heuristic, and the only question being asked is
+  // whether a name appears — which the boundary-matched signal test answers
+  // correctly against raw manifest text.
+  for (const manifest of [
+    'pyproject.toml', 'requirements.txt', 'Pipfile', 'setup.py', 'setup.cfg',
+    'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle', 'build.gradle.kts',
+    'Gemfile', 'composer.json', 'pubspec.yaml', 'mix.exs',
+  ]) {
+    const text = readIfPresent(manifest);
+    if (text) {
+      dependencies.push(text.slice(0, 20_000));
+      paths.push(manifest);
+    }
+  }
+
+  // ── Files and directories that exist ──────────────────────────
+  //
+  // A fixed probe list rather than a walk: this runs on a button press, the
+  // paths a tool creates are well known, and a workspace walk on a large
+  // monorepo is a cost the user did not ask for.
+  for (const rel of [
+    '.github/workflows', '.github/CODEOWNERS', 'CODEOWNERS', '.gitlab-ci.yml', 'Jenkinsfile',
+    '.circleci', 'azure-pipelines.yml', '.buildkite', 'SECURITY.md', 'PRIVACY.md',
+    'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', 'k8s', 'charts', 'helm',
+    'migrations', 'db/migrate', 'prisma/migrations', 'alembic.ini', 'alembic',
+    'buf.yaml', 'sbom.cdx.json', 'sbom.json', 'deny.toml', 'MODEL_CARD.md',
+    'openapi.yaml', 'openapi.yml', 'openapi.json', 'swagger.json', 'asyncapi.yaml',
+    'project_memory/operations/compliance',
+  ]) {
+    if (existsSync(path.join(workspaceRoot, rel))) {
+      paths.push(rel);
+    }
+  }
+
+  // Terraform and proto files are conventionally scattered, so they need a scan
+  // rather than a probe. Bounded to one hit — presence is the whole question.
+  for (const [glob, token] of [
+    ['**/*.tf', 'terraform'],
+    ['**/*.proto', 'protobuf'],
+    ['**/*.{html,htm,svelte,vue,jsx,tsx}', 'web app frontend'],
+  ] as const) {
+    try {
+      const found = await vscode.workspace.findFiles(glob, '**/node_modules/**', 1);
+      if (found.length > 0) { paths.push(token); }
+    } catch {
+      unreadable.push(`scan for ${glob}`);
+    }
+  }
+
+  // Test-tool config files, by basename.
   try {
     const configFiles = await vscode.workspace.findFiles(
-      '**/{jest,vitest,cypress,playwright,mocha,.mocharc,karma,jasmine,stryker,k6,artillery,locust,pact,backstop,cucumber}.config.{js,ts,mjs,cjs,json}',
+      '**/{jest,vitest,cypress,playwright,mocha,.mocharc,karma,jasmine,stryker,k6,artillery,locust,pact,backstop,cucumber,knip,dependency-cruiser,promptfooconfig}.{config.,conf.,}{js,ts,mjs,cjs,json,yaml,yml}',
       '**/node_modules/**',
       40,
     );
-    parts.push(configFiles.map(f => path.basename(f.fsPath)).join(' '));
-  } catch { /* ignore */ }
-
-  // ── Web / UI surface detection ────────────────────────────────
-  // Presence of any UI source file → boost E2E and Visual Regression signals
-  try {
-    const uiFiles = await vscode.workspace.findFiles(
-      '**/*.{html,htm,svelte,vue,jsx,tsx}',
-      '**/node_modules/**',
-      1,
-    );
-    if (uiFiles.length > 0) {
-      parts.push('web app frontend');
-    }
-  } catch { /* ignore */ }
-
-  // ── API spec detection ────────────────────────────────────────
-  // OpenAPI / Swagger specs → Contract testing (consumer/provider) AND SDD (openapi/swagger)
-  try {
-    const apiSpecFiles = await vscode.workspace.findFiles(
-      '**/{openapi,swagger,api-spec}.{yaml,yml,json}',
-      '**/node_modules/**',
-      1,
-    );
-    if (apiSpecFiles.length > 0) {
-      parts.push('api consumer provider openapi swagger api-first');
-    }
-  } catch { /* ignore */ }
-
-  // ── CI / CD config detection ──────────────────────────────────
-  // Detects CI pipelines for Continuous / Shift-Left methodology
-  try {
-    const ciSignals: string[] = [];
-    if (existsSync(path.join(workspaceRoot, '.github', 'workflows'))) { ciSignals.push('github actions'); }
-    if (existsSync(path.join(workspaceRoot, '.gitlab-ci.yml'))) { ciSignals.push('gitlab ci'); }
-    if (existsSync(path.join(workspaceRoot, 'Jenkinsfile'))) { ciSignals.push('jenkins'); }
-    if (existsSync(path.join(workspaceRoot, '.circleci', 'config.yml'))) { ciSignals.push('circleci'); }
-    if (existsSync(path.join(workspaceRoot, 'azure-pipelines.yml'))) { ciSignals.push('azure devops'); }
-    if (existsSync(path.join(workspaceRoot, '.buildkite'))) { ciSignals.push('buildkite'); }
-    if (ciSignals.length > 0) {
-      parts.push(ciSignals.join(' ') + ' continuous integration pipeline');
-    }
-  } catch { /* ignore */ }
-
-  // ── Security posture ──────────────────────────────────────────
-  if (existsSync(path.join(workspaceRoot, 'SECURITY.md'))) {
-    parts.push('auth authentication pii');
+    paths.push(...configFiles.map(f => path.basename(f.fsPath)));
+  } catch {
+    unreadable.push('test tooling config scan');
   }
 
-  // ── Contributor count (git) ───────────────────────────────────
-  // Team projects benefit from BDD / ATDD stakeholder collaboration signals
-  try {
-    const { stdout } = await execFileAsync(
-      'git', ['shortlog', '-s', 'HEAD'],
-      { cwd: workspaceRoot, timeout: 4000 },
-    );
-    const count = stdout.trim().split('\n').filter(Boolean).length;
-    if (count > 1) {
-      parts.push('product team user story acceptance criteria');
-    }
-  } catch { /* git not available or no commits — assume solo, add no team signals */ }
+  // ── Prose: describes the goal, never decides the policy ───────
+  const readme = readIfPresent('README.md');
+  if (readme) { prose.push(readme.slice(0, 8000)); }
+  const soul = readIfPresent('project_memory/project_soul.md');
+  if (soul) { prose.push(soul.slice(0, 4000)); }
 
-  // ── README audience / context ─────────────────────────────────
-  // First 3 kB captures project type and audience without loading the whole file
+  // Contributor count is a fact about the repository, but it speaks to how the
+  // team works rather than to what the code contains — so it lands in prose,
+  // where it can suggest the collaboration-shaped policies without switching
+  // them on. A two-person repository is not evidence that anyone writes Gherkin.
   try {
-    const readmePath = path.join(workspaceRoot, 'README.md');
-    if (existsSync(readmePath)) {
-      parts.push(readFileSync(readmePath, 'utf8').slice(0, 3000));
+    const { stdout } = await execFileAsync('git', ['shortlog', '-s', 'HEAD'], { cwd: workspaceRoot, timeout: 4000 });
+    if (stdout.trim().split('\n').filter(Boolean).length > 1) {
+      prose.push('product team user story acceptance criteria');
     }
-  } catch { /* ignore */ }
+  } catch { /* no git or no commits — add nothing rather than guessing solo */ }
 
-  return parts.join(' ').toLowerCase();
+  return {
+    dependencies,
+    scripts,
+    paths,
+    prose: prose.join(' '),
+    unreadable,
+  };
 }
 
 export function collectTestingDashboardSnapshot(
@@ -6377,6 +6432,23 @@ function probePolicyConfigFiles(workspaceRoot: string): string[] {
     if (existsSync(path.join(workspaceRoot, dir))) {
       found.push(`${dir}/`);
     }
+  }
+  // Compliance control mappings are named per policy, so the directory marker
+  // trick above does not work — a `^…/compliance/gdpr\.md$` pattern has to see
+  // the actual filename or every compliance policy would match every mapping.
+  // Enumerated rather than probed by id: this module does not own the policy
+  // list, and a mapping written by hand should count exactly like a scaffolded
+  // one.
+  try {
+    const entries = readdirSync(path.join(workspaceRoot, COMPLIANCE_EVIDENCE_DIR), { withFileTypes: true, encoding: 'utf8' });
+    for (const entry of entries.slice(0, 80)) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        found.push(`${COMPLIANCE_EVIDENCE_DIR}/${entry.name}`);
+      }
+    }
+  } catch {
+    // No compliance mappings in this project — not an error, and deliberately
+    // not the same as an empty one: the policy simply reads as unassessed.
   }
   return found;
 }

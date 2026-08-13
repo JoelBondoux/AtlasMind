@@ -168,6 +168,21 @@ interface PolicyMarkers {
 const GENERIC_TEST_FILE = /(^|\/)(tests?|__tests__|spec)\//i;
 const TEST_FILE_SUFFIX = /\.(test|spec)\.[a-z0-9]+$/i;
 const E2E_MARKERS = [/(^|[./_-])e2e([./_-]|$)/i, /(^|\/)(cypress|playwright|e2e)\//i, /\.cy\.[a-z0-9]+$/i];
+
+/**
+ * Where a documentary compliance policy keeps its control-mapping evidence.
+ *
+ * Under `operations/` rather than a new top-level SSOT folder: `SSOT_FOLDERS`
+ * is a declared set and a control mapping is an operational record, not a new
+ * kind of memory. The scaffolder writes here and this module reads here, so the
+ * two cannot drift about where the evidence lives.
+ */
+export const COMPLIANCE_EVIDENCE_DIR = 'project_memory/operations/compliance';
+
+/** The one file that evidences a documentary compliance policy. */
+function COMPLIANCE_DOC(id: string): RegExp {
+  return new RegExp(`^${COMPLIANCE_EVIDENCE_DIR}/${id}\\.md$`, 'i');
+}
 const INTEGRATION_MARKERS = [/(^|[./_-])integration([./_-]|$)/i, /(^|\/)integration\//i];
 
 /**
@@ -268,6 +283,250 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
     dependencies: ['graphwalker', 'modeljunit', 'altwalker'],
     scriptPatterns: [/model-based/i, /mbt/i],
   },
+
+  // ── Structural drift and integrity ──────────────────────────────
+  'dead-field': {
+    dependencies: ['knip', 'ts-prune', 'ts-unused-exports', 'unimported', 'vulture', 'depcheck'],
+    scriptPatterns: [/knip/i, /ts-prune/i, /unused/i, /deadcode/i],
+    configPatterns: [/^knip\.(json|jsonc|ts|js)$/i, /^\.knip\./i, /^\.unimportedrc/i],
+  },
+  'type-drift': {
+    filePatterns: [/(^|[./_-])(schema|schemas)([./_-]|$)/i, /(^|\/)schemas?\//i],
+    dependencies: ['zod', 'valibot', 'io-ts', 'arktype', 'typia', 'runtypes', 'superstruct', 'pydantic', 'cattrs'],
+    scriptPatterns: [/type-?drift/i, /validate:schema/i],
+  },
+  'dependency-graph': {
+    dependencies: ['dependency-cruiser', 'madge', 'eslint-plugin-boundaries', 'import-linter', 'archunit', 'go-arch-lint'],
+    scriptPatterns: [/depcruise/i, /dependency-cruiser/i, /madge/i, /boundaries/i, /arch(itecture)?:?(test|lint)/i],
+    configPatterns: [/^\.dependency-cruiser\./i, /^\.importlinter$/i, /^\.madgerc$/i],
+  },
+
+  // ── Behavioral parity and consistency ───────────────────────────
+  // These leave ordinary test files behind, distinguished only by naming. The
+  // patterns are deliberately narrow: a bare /parity/ would match far too much.
+  'cross-surface-parity': {
+    filePatterns: [/(^|[./_-])(cross-?surface|surface-?parity|parity)([./_-]|$)/i],
+    scriptPatterns: [/parity/i],
+  },
+  'cross-representation': {
+    filePatterns: [/(^|[./_-])(round-?trip|roundtrip|cross-?representation)([./_-]|$)/i],
+    scriptPatterns: [/round-?trip/i],
+  },
+  'cross-version-parity': {
+    filePatterns: [/(^|\/)(__approvals__|approvals|golden|baselines?)\//i, /\.(approved|golden)\.[a-z0-9]+$/i],
+    dependencies: ['approvals', 'jest-image-snapshot', 'oasdiff', 'openapi-diff', '@microsoft/api-extractor', 'buf'],
+    scriptPatterns: [/api-?extractor/i, /oasdiff/i, /openapi-?diff/i, /version-?parity/i],
+    configPatterns: [/^api-extractor\.json$/i],
+  },
+  'semantic-constraint': {
+    filePatterns: [/(^|[./_-])(invariants?|constraints?)([./_-]|$)/i],
+    dependencies: ['class-validator', 'ajv-formats', 'pgtap'],
+    scriptPatterns: [/invariant/i, /constraint/i],
+  },
+  'anti-uniformity': {
+    filePatterns: [/(^|[./_-])(anti-?uniformity|diversity|distribution)([./_-]|$)/i],
+    scriptPatterns: [/anti-?uniformity/i],
+  },
+  'output-schema-drift': {
+    filePatterns: [/(^|[./_-])(schema-?drift|output-?schema)([./_-]|$)/i],
+    dependencies: ['ajv', 'oasdiff', 'openapi-diff', 'buf', '@apidevtools/swagger-parser', 'jsonschema'],
+    scriptPatterns: [/schema-?drift/i, /validate:output/i, /buf breaking/i],
+  },
+  'hallucination-detection': {
+    filePatterns: [/(^|[./_-])(groundedness|faithfulness|hallucination)([./_-]|$)/i],
+    dependencies: ['ragas', 'deepeval', 'trulens', 'trulens-eval', 'promptfoo', 'autoevals'],
+    scriptPatterns: [/groundedness/i, /faithfulness/i, /hallucination/i],
+  },
+
+  // ── Non-functional ──────────────────────────────────────────────
+  chaos: {
+    filePatterns: [/(^|\/)chaos\//i, /(^|[./_-])chaos([./_-]|$)/i],
+    dependencies: ['chaos-toolkit', 'chaostoolkit', 'toxiproxy-node-client', 'toxiproxy', 'litmus', 'gremlin'],
+    scriptPatterns: [/chaos/i, /resilience/i, /fault-?injection/i],
+  },
+  accessibility: {
+    filePatterns: [/(^|[./_-])(a11y|accessibility|axe)([./_-]|$)/i],
+    dependencies: ['axe-core', '@axe-core/playwright', '@axe-core/react', 'jest-axe', 'pa11y', 'lighthouse', 'eslint-plugin-jsx-a11y', 'cypress-axe', 'axe-playwright'],
+    scriptPatterns: [/a11y/i, /accessibility/i, /pa11y/i, /lighthouse/i],
+    configPatterns: [/^\.pa11yci/i, /^pa11y\.json$/i, /^lighthouserc\./i],
+  },
+  observability: {
+    filePatterns: [/(^|[./_-])(telemetry|observability|tracing|instrumentation)([./_-]|$)/i],
+    dependencies: ['@opentelemetry/sdk-node', '@opentelemetry/api', 'opentelemetry', 'prom-client', 'prometheus-client', 'promtool'],
+    scriptPatterns: [/telemetry/i, /observability/i, /promtool/i, /alert.*test/i],
+  },
+
+  // ── Data & schema ───────────────────────────────────────────────
+  'data-quality': {
+    filePatterns: [/(^|\/)(great_expectations|expectations)\//i, /(^|[./_-])data-?quality([./_-]|$)/i, /(^|\/)models\/.*\.yml$/i],
+    dependencies: ['great-expectations', 'great_expectations', 'soda-core', 'pandera', 'dbt-core', 'pydeequ'],
+    scriptPatterns: [/dbt test/i, /data-?quality/i, /soda/i, /expectations/i],
+    configPatterns: [/^great_expectations\.yml$/i, /^dbt_project\.yml$/i, /^soda\./i],
+  },
+  'schema-migration': {
+    filePatterns: [/(^|\/)migrations?\//i, /(^|[./_-])migration([./_-]|$)/i],
+    dependencies: ['prisma', 'knex', 'typeorm', 'sequelize', 'alembic', 'flyway', 'liquibase', 'testcontainers', 'db-migrate', 'atlas-provider'],
+    scriptPatterns: [/migrat/i],
+    configPatterns: [/^alembic\.ini$/i, /^flyway\.conf$/i, /^liquibase\.properties$/i, /^atlas\.hcl$/i],
+  },
+  compatibility: {
+    filePatterns: [/(^|[./_-])(compat|compatibility|backward|forward)([./_-]|$)/i],
+    dependencies: ['buf', '@confluentinc/schemaregistry', 'avro-js', 'avsc', 'protobufjs'],
+    scriptPatterns: [/compat/i, /breaking/i],
+    configPatterns: [/^buf\.ya?ml$/i, /^buf\.gen\.ya?ml$/i],
+  },
+  'state-drift': {
+    filePatterns: [/(^|[./_-])(state-?drift|schema-?version|persisted)([./_-]|$)/i, /(^|\/)fixtures?\/(legacy|historical|versions?)\//i],
+    scriptPatterns: [/state-?drift/i],
+  },
+
+  // ── AI-specific ─────────────────────────────────────────────────
+  'prompt-regression': {
+    filePatterns: [/(^|\/)(evals?|prompts?)\//i, /(^|[./_-])(eval|prompt)([./_-]|$)/i],
+    dependencies: ['promptfoo', 'braintrust', 'langsmith', 'deepeval', 'autoevals', 'evals'],
+    scriptPatterns: [/promptfoo/i, /^eval(s)?$/i, /^eval:/i, /prompt-?regression/i],
+    configPatterns: [/^promptfooconfig\.ya?ml$/i, /^\.promptfoo/i, /^braintrust\./i],
+  },
+  'model-routing': {
+    filePatterns: [/(^|[./_-])(routing|router|failover|fallback)([./_-]|$)/i],
+    scriptPatterns: [/routing/i],
+  },
+  guardrail: {
+    filePatterns: [/(^|[./_-])(guardrail|red-?team|jailbreak|injection)([./_-]|$)/i],
+    dependencies: ['nemoguardrails', 'garak', 'pyrit', 'rebuff', 'llm-guard', 'guardrails-ai'],
+    scriptPatterns: [/guardrail/i, /red-?team/i],
+  },
+  'agent-collaboration': {
+    filePatterns: [/(^|[./_-])(handoff|delegation|multi-?agent|collaboration)([./_-]|$)/i],
+    scriptPatterns: [/handoff/i, /multi-?agent/i],
+  },
+  'determinism-boundary': {
+    filePatterns: [/(^|[./_-])(determinism|deterministic|reproducib)([./_-]|$)/i, /(^|\/)(cassettes|__cassettes__|fixtures\/recorded)\//i],
+    dependencies: ['nock', 'msw', 'polly', '@pollyjs/core', 'vcrpy', 'betamax'],
+    scriptPatterns: [/determinism/i, /flake/i],
+  },
+
+  // ── Compliance ──────────────────────────────────────────────────
+  //
+  // Two shapes here, and the difference is deliberate. A control that a machine
+  // can check leaves a test file behind and is scored like any other policy. A
+  // control that only a person can attest to leaves a *control-mapping
+  // document* behind, and for those the document genuinely is the artifact —
+  // so they carry `configIsEvidence`, the same reading `continuous` needed for
+  // its pipeline definition. Without it a documentary policy would cap at "No
+  // tests yet" forever and read as a gap that can never close, which is exactly
+  // the outcome the archetype packs' `discouraged` list exists to prevent.
+  'iso-27001': {
+    configPatterns: [COMPLIANCE_DOC('iso-27001'), /^SECURITY\.md$/i],
+    dependencies: ['vanta', 'drata'],
+    configIsEvidence: true,
+  },
+  soc2: {
+    configPatterns: [COMPLIANCE_DOC('soc2')],
+    dependencies: ['vanta', 'drata', 'secureframe'],
+    configIsEvidence: true,
+  },
+  gdpr: {
+    filePatterns: [/(^|[./_-])(gdpr|privacy|erasure|dsar|retention|consent)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('gdpr'), /^PRIVACY\.md$/i],
+    scriptPatterns: [/gdpr/i, /privacy/i],
+  },
+  hipaa: {
+    filePatterns: [/(^|[./_-])(hipaa|phi|safeguard)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('hipaa')],
+    scriptPatterns: [/hipaa/i],
+  },
+  'pci-dss': {
+    filePatterns: [/(^|[./_-])(pci|cardholder|pan-?leak|tokeni[sz]ation)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('pci-dss')],
+    dependencies: ['gitleaks', 'trufflehog', 'detect-secrets'],
+    scriptPatterns: [/pci/i],
+  },
+  'nist-800-53': {
+    configPatterns: [COMPLIANCE_DOC('nist-800-53'), /(^|\/)oscal\//i],
+    dependencies: ['inspec', 'oscal', 'compliance-trestle'],
+    configIsEvidence: true,
+  },
+
+  'change-management': {
+    filePatterns: [/(^|[./_-])(change-?management|branch-?protection|codeowners)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('change-management'), /^\.github\/CODEOWNERS$/i, /^CODEOWNERS$/i],
+    scriptPatterns: [/change-?management/i],
+  },
+  'audit-trail': {
+    filePatterns: [/(^|[./_-])(audit-?trail|audit-?log|auditlog)([./_-]|$)/i],
+    scriptPatterns: [/audit-?trail/i, /audit-?log/i],
+  },
+  'rbac-compliance': {
+    filePatterns: [/(^|[./_-])(rbac|abac|authori[sz]ation|permissions?|roles?)([./_-]|$)/i],
+    dependencies: ['casbin', '@openfga/sdk', 'oso', 'cerbos', 'opa', '@cerbos/http'],
+    scriptPatterns: [/rbac/i, /authz/i, /permissions?/i],
+  },
+  'data-retention': {
+    filePatterns: [/(^|[./_-])(retention|purge|ttl|legal-?hold)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('data-retention')],
+    scriptPatterns: [/retention/i, /purge/i],
+  },
+
+  sbom: {
+    configPatterns: [/^(sbom|bom)[^/]*\.(json|xml|spdx)$/i, /\.(cdx|spdx)\.json$/i, /(^|\/)sbom\//i],
+    dependencies: ['@cyclonedx/cyclonedx-npm', 'cyclonedx-bom', 'syft', 'cdxgen', 'spdx-tools'],
+    scriptPatterns: [/sbom/i, /cyclonedx/i, /syft/i],
+    configIsEvidence: true,
+  },
+  'dependency-licensing': {
+    configPatterns: [/^\.?licen[cs]e-?(check|policy|allowlist)\./i, /^deny\.toml$/i, /^\.fossa\.ya?ml$/i],
+    dependencies: ['license-checker', 'license-checker-rseidelsohn', 'licensee', 'pip-licenses', 'cargo-deny', 'go-licenses', 'fossa-cli'],
+    scriptPatterns: [/licen[cs]e/i],
+    configIsEvidence: true,
+  },
+  'license-compatibility': {
+    configPatterns: [COMPLIANCE_DOC('license-compatibility'), /^\.ort\.ya?ml$/i, /(^|\/)ort\//i],
+    dependencies: ['ort', 'scancode-toolkit', 'licensed'],
+    scriptPatterns: [/licen[cs]e-?compat/i, /^ort$/i],
+    configIsEvidence: true,
+  },
+  'secure-build-pipeline': {
+    configPatterns: [/^\.github\/workflows\/.*(slsa|provenance|attest|sign).*\.ya?ml$/i, /^cosign\./i, /(^|\/)attestations?\//i, /^\.slsa/i],
+    dependencies: ['sigstore', '@sigstore/sign', 'cosign', 'slsa-verifier', 'in-toto'],
+    scriptPatterns: [/slsa/i, /cosign/i, /provenance/i, /attest/i],
+    configIsEvidence: true,
+  },
+
+  'ai-safety-compliance': {
+    configPatterns: [COMPLIANCE_DOC('ai-safety-compliance'), /^MODEL_CARD\.md$/i, /(^|\/)model-?cards?\//i],
+    configIsEvidence: true,
+  },
+  'model-output-risk': {
+    filePatterns: [/(^|[./_-])(risk-?classif|output-?risk|moderation)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('model-output-risk')],
+    scriptPatterns: [/risk-?classif/i, /moderation/i],
+  },
+  'bias-fairness': {
+    filePatterns: [/(^|[./_-])(bias|fairness|disparate|demographic)([./_-]|$)/i],
+    dependencies: ['fairlearn', 'aif360', 'aequitas', 'responsibleai'],
+    scriptPatterns: [/bias/i, /fairness/i],
+  },
+  explainability: {
+    filePatterns: [/(^|[./_-])(explainab|interpretab|shap|lime|reason-?code)([./_-]|$)/i],
+    dependencies: ['shap', 'lime', 'captum', 'interpret', 'eli5', 'alibi'],
+    scriptPatterns: [/explainab/i, /interpretab/i],
+  },
+  'ai-data-policy': {
+    filePatterns: [/(^|[./_-])(redaction|tenant-?isolation|data-?policy|prompt-?payload)([./_-]|$)/i],
+    configPatterns: [COMPLIANCE_DOC('ai-data-policy')],
+    scriptPatterns: [/redaction/i, /data-?policy/i],
+  },
+
+  // Industry regimes. Documentary by nature — the executable parts of each are
+  // already covered by the policies above (audit trail, RBAC, retention), and
+  // duplicating them here would double-count the same evidence.
+  'financial-compliance': { configPatterns: [COMPLIANCE_DOC('financial-compliance')], configIsEvidence: true },
+  'medical-compliance': { configPatterns: [COMPLIANCE_DOC('medical-compliance')], configIsEvidence: true },
+  'automotive-compliance': { configPatterns: [COMPLIANCE_DOC('automotive-compliance')], configIsEvidence: true },
+  'aviation-compliance': { configPatterns: [COMPLIANCE_DOC('aviation-compliance')], configIsEvidence: true },
+  'energy-compliance': { configPatterns: [COMPLIANCE_DOC('energy-compliance')], configIsEvidence: true },
+
   // Practices. Real, valuable, and invisible to a file scan — so never a "gap".
   'v-model': { practiceOnly: true },
   'white-box': { practiceOnly: true },
@@ -383,6 +642,200 @@ const POLICY_LAYMAN_COPY: Record<TestingMethodologyId, { whatItIs: string; expec
   'agile-testing': {
     whatItIs: 'Make quality a shared activity throughout each piece of work: clarify examples early, test while building, and include verification in the team’s definition of done.',
     expectedResult: 'Each work item carries agreed quality checks and evidence before it is called done, with gaps owned during the iteration rather than handed to a final testing phase.',
+  },
+
+  'dead-field': {
+    whatItIs: 'Search the code for pieces that are declared but never actually used — a setting nothing reads, a field filled in and never looked at, a prop passed to nothing.',
+    expectedResult: 'A list of unused declarations, each either removed or connected to the code that was meant to use it. A field written but never read usually means the part that should have consumed it was never finished.',
+  },
+  'type-drift': {
+    whatItIs: 'Check that the descriptions your code carries about incoming data still match the data that really arrives — from an interface, a config file, or a stored record.',
+    expectedResult: 'Data is checked as it enters the system rather than assumed. When an outside source changes a name or a shape, you get a clear error at the doorway instead of a confusing failure deep inside.',
+  },
+  'dependency-graph': {
+    whatItIs: 'Check that the parts of the codebase only depend on each other in the directions the design allows, and that no circular dependencies have formed.',
+    expectedResult: 'The intended structure is written down as a rule that runs automatically. Adding an import that crosses a boundary fails the check, instead of quietly making the code harder to change.',
+  },
+
+  'cross-surface-parity': {
+    whatItIs: 'Where the same fact appears in more than one place — a command line and a screen, a summary and the detail page behind it — check that both places give the same answer.',
+    expectedResult: 'One shared set of examples is run against every place that states the fact, so two screens can never disagree about the same number.',
+  },
+  'cross-representation': {
+    whatItIs: 'Take a value, convert it to another form and back again, and check that nothing was lost or changed on the way.',
+    expectedResult: 'Saving and reloading, or converting between formats, returns exactly what went in — including the awkward cases like empty text, accents and emoji, and the difference between "empty" and "not set".',
+  },
+  'cross-version-parity': {
+    whatItIs: 'Record what the current version does with a set of real inputs, then check the next version still answers the same way.',
+    expectedResult: 'Any change in behaviour is shown to you as a difference to approve or reject, so nothing changes for existing users without somebody deciding it should.',
+  },
+  'semantic-constraint': {
+    whatItIs: 'Write down the rules your subject area requires but the code cannot express on its own — an end date after its start, a total matching its parts — and check them.',
+    expectedResult: 'Impossible combinations are rejected where they are created rather than discovered later in a report, and the rules live next to the data they govern.',
+  },
+  'anti-uniformity': {
+    whatItIs: 'Check that output which should vary actually varies. A process that returns the same answer for every input still looks fine to most checks.',
+    expectedResult: 'A generator, recommendation, or batch process that quietly collapses to one repeated value fails, instead of passing because each individual value has the right shape.',
+  },
+  'output-schema-drift': {
+    whatItIs: 'Check that what your system produces still matches the published description others rely on to read it.',
+    expectedResult: 'A changed or removed field is caught before release, so the people consuming your output are not the ones who discover it.',
+  },
+  'hallucination-detection': {
+    whatItIs: 'Check that facts stated by an AI feature are actually supported by the source material given to it, rather than invented.',
+    expectedResult: 'Answers are scored for whether each claim traces back to a provided source. A confident, well-written, entirely made-up answer fails, where ordinary checks would pass it.',
+  },
+
+  chaos: {
+    whatItIs: 'Deliberately break something — a slow network, an unavailable service, a restarted machine — and check that the system copes instead of collapsing.',
+    expectedResult: 'Recovery behaviour that was written and never tried is actually exercised, with the system degrading in a controlled way rather than failing in an unplanned one.',
+  },
+  accessibility: {
+    whatItIs: 'Check the interface can be used by people using a screen reader, a keyboard only, magnification, or with limited colour vision.',
+    expectedResult: 'Automated checks catch missing labels, poor contrast and incorrect structure. A short keyboard and screen-reader pass covers what tools cannot see — roughly two thirds of real issues.',
+  },
+  observability: {
+    whatItIs: 'Check that the system records enough about what it did — logs, measurements and traces — to explain itself when something goes wrong later.',
+    expectedResult: 'Important actions are proven to emit records that can be linked together, so an investigation has the information it needs rather than discovering the gap during the incident.',
+  },
+
+  'data-quality': {
+    whatItIs: 'Check the data itself, not just the code: required values present, no duplicates, numbers in sensible ranges, references pointing at things that exist.',
+    expectedResult: 'Bad data is caught where it enters or is transformed, rather than surfacing as a wrong figure in a report that somebody has already acted on.',
+  },
+  'schema-migration': {
+    whatItIs: 'Rehearse the changes that alter how stored information is structured: apply them, undo them, and check existing records survive intact.',
+    expectedResult: 'Each change is proven to apply cleanly to realistic existing data and to be reversible, before it runs once against the real thing where mistakes are hard to undo.',
+  },
+  compatibility: {
+    whatItIs: 'Check that older and newer versions can work with each other\'s data — both the new reading the old, and the old reading the new.',
+    expectedResult: 'During an update, where both versions run at once, neither breaks on the other\'s data. Older clients that cannot be forced to update keep working.',
+  },
+  'state-drift': {
+    whatItIs: 'Check that information saved earlier can still be read correctly by the current version, including records written months ago by a build that no longer exists.',
+    expectedResult: 'Old saved data is recognised and upgraded rather than misread. Crucially, data written by a *newer* version is refused rather than overwritten, so an older build cannot destroy it.',
+  },
+
+  'prompt-regression': {
+    whatItIs: 'Keep a set of example inputs with known-good answers, and re-run them whenever the instructions given to an AI model are edited.',
+    expectedResult: 'Reworded instructions are measured against the whole example set, so a change that helps one case and harms nine is visible before release instead of after.',
+  },
+  'model-routing': {
+    whatItIs: 'Check that the rules choosing which AI model handles a request actually pick the intended one, and switch correctly when one is unavailable.',
+    expectedResult: 'The choice is proven against a table of expected outcomes. A rule quietly sending everything to the most expensive model fails here rather than appearing on an invoice weeks later.',
+  },
+  guardrail: {
+    whatItIs: 'Try to make the system do the things its safety rules forbid, including through deliberately tricky input, and check it refuses.',
+    expectedResult: 'Safety rules are demonstrated to hold under attack rather than assumed. Equally, the system is checked for refusing too much, which passes a safety test and fails the product.',
+  },
+  'agent-collaboration': {
+    whatItIs: 'Where several AI agents hand work to one another, check that each stays within its own permissions and that the chain cannot loop or run away.',
+    expectedResult: 'An agent asking another for help never gains an ability it was denied, hand-off depth is limited, and loops are refused — none of which is visible when each agent is tested alone.',
+  },
+  'determinism-boundary': {
+    whatItIs: 'Decide and write down which parts of the system must give exactly the same answer every time, and which are allowed to vary.',
+    expectedResult: 'The repeatable parts are checked exactly, and the variable parts are checked for qualities rather than exact wording. A flaky test becomes a real signal again instead of something to re-run until green.',
+  },
+
+  'iso-27001': {
+    whatItIs: 'Keep a maintained map from each information-security control to the actual evidence in this project that satisfies it.',
+    expectedResult: 'A reviewed document showing, control by control, what is in place, where the evidence lives, and what is still outstanding — ready for an audit rather than assembled during one.',
+  },
+  soc2: {
+    whatItIs: 'Map the trust criteria your customers ask about to the controls you operate, and keep evidence that they ran continuously rather than once.',
+    expectedResult: 'A control map plus an unbroken evidence record over the review period. Gaps in evidence are treated as findings in their own right, because for a Type II report they are.',
+  },
+  gdpr: {
+    whatItIs: 'Check the promises made about personal data actually hold: only what is needed is collected, people can get a copy, and deletion really deletes.',
+    expectedResult: 'A deletion request is proven to clear every place a copy is held — including caches, search indexes and analytics — not just the main database, which is the usual gap.',
+  },
+  hipaa: {
+    whatItIs: 'Check the technical protections around health information: who can reach it, what is recorded when they do, and that it is encrypted in transit and at rest.',
+    expectedResult: 'Access control, audit records, unique user identification and encryption are each demonstrated by a test or a documented decision, rather than assumed from the configuration.',
+  },
+  'pci-dss': {
+    whatItIs: 'Check the handling of payment card data — most importantly that a card number never reaches a log, an error report, or an analytics event.',
+    expectedResult: 'Card data is proven absent from everywhere it should not be, connections are properly encrypted, and the number of systems touching card data is as small as the design allows.',
+  },
+  'nist-800-53': {
+    whatItIs: 'Map the government control catalogue, narrowed to the level that applies to you, onto how this system actually implements each one.',
+    expectedResult: 'A tailored control map with implementation notes and a record of known gaps and their remediation plan — scoped to your baseline rather than the whole catalogue.',
+  },
+
+  'change-management': {
+    whatItIs: 'Check that changes reaching production went through the process you told people (and auditors) they go through — review, approval, and a link to why.',
+    expectedResult: 'Repository history proves every production change was reviewed and approved as required, with a documented emergency route for the cases that legitimately bypass it.',
+  },
+  'audit-trail': {
+    whatItIs: 'Check that every significant action leaves a record of who did it, what they did and when — and that the record cannot be quietly altered.',
+    expectedResult: 'Every privileged action is confirmed to write an attributable record. New action paths are caught when they miss the audit log, rather than during an investigation that needs it.',
+  },
+  'rbac-compliance': {
+    whatItIs: 'Check each role can do what it should — and, more importantly, that it cannot do anything else by any route.',
+    expectedResult: 'The "cannot" half is tested as thoroughly as the "can" half, because that is where privilege escalation lives. Separate customers\' or tenants\' data is proven not to reach each other.',
+  },
+  'data-retention': {
+    whatItIs: 'Check information is removed when the retention schedule says it should be, and kept when a hold requires it.',
+    expectedResult: 'Both failure directions are covered: nothing outlives its retention window, and nothing under legal hold is destroyed early. Backups are included, not just the live store.',
+  },
+
+  sbom: {
+    whatItIs: 'Produce a machine-readable list of everything your software is built from, and check the list actually matches what shipped.',
+    expectedResult: 'A current, valid inventory published with each release. The check that matters is accuracy — an out-of-date list is worse than none, because people trust it.',
+  },
+  'dependency-licensing': {
+    whatItIs: 'Check the licence of every third-party component you depend on, including the ones pulled in indirectly.',
+    expectedResult: 'The build fails when a component arrives with a licence your policy does not permit, or with none declared — catching it when it is added rather than at a customer review.',
+  },
+  'license-compatibility': {
+    whatItIs: 'Check that the combination of licences works for the way you actually distribute your software — which can fail even when each licence individually is allowed.',
+    expectedResult: 'Conflicting obligations are identified against your stated distribution model, with the reasoning recorded so the same question is not re-argued each release.',
+  },
+  'secure-build-pipeline': {
+    whatItIs: 'Check that a released artifact can be proven to have come from your source, built by your pipeline, without tampering along the way.',
+    expectedResult: 'Each release carries signed provenance that a consumer can verify. The verification step is exercised too — provenance nobody checks is paperwork, not protection.',
+  },
+
+  'ai-safety-compliance': {
+    whatItIs: 'Check that the AI safety commitments stated publicly or to regulators match what the system actually implements and can evidence.',
+    expectedResult: 'A maintained map from each stated commitment to its implementation and evidence, with a documented review cadence — since the rules in this area are still changing.',
+  },
+  'model-output-risk': {
+    whatItIs: 'Check that AI output needing special handling is correctly identified as such, and that the identification actually triggers the handling.',
+    expectedResult: 'Classification is measured against labelled examples, with particular attention to the rare risky cases — the ones a high overall accuracy score hides most effectively.',
+  },
+  'bias-fairness': {
+    whatItIs: 'Compare outcomes across groups of people to find differences the system cannot justify.',
+    expectedResult: 'Results are broken down by group rather than reported as one overall figure, with the chosen definition of fairness stated explicitly — since the available definitions genuinely conflict.',
+  },
+  explainability: {
+    whatItIs: 'Check that an automated decision can be explained to the person it affects, in terms that reflect what actually drove it.',
+    expectedResult: 'Explanations are tested for faithfulness, not just presence. A plausible explanation that does not match the real reasoning is worse than none, because it will be believed.',
+  },
+  'ai-data-policy': {
+    whatItIs: 'Check what the AI features remember and send matches what was promised — no customer data used for training, no secrets or other customers\' data reaching a prompt.',
+    expectedResult: 'Every path that reaches a model is proven to apply the redaction and separation rules, since a single missed path defeats the policy everywhere else it is applied.',
+  },
+
+  'financial-compliance': {
+    whatItIs: 'Map the financial-sector obligations that apply to your licence and jurisdiction onto the controls and records this system keeps.',
+    expectedResult: 'A control map covering record completeness, reporting accuracy, timekeeping precision and operational resilience — scoped to the obligations that genuinely apply.',
+  },
+  'medical-compliance': {
+    whatItIs: 'Map the electronic-records requirements for regulated medical software onto documented validation evidence.',
+    expectedResult: 'Validation records showing audit trails, record integrity, and signatures bound to their records — evidence of a controlled process, which is regulated as strictly as the function itself.',
+  },
+  'automotive-compliance': {
+    whatItIs: 'Map road-vehicle functional-safety requirements onto the verification evidence each safety level demands.',
+    expectedResult: 'A safety case with requirements traced to tests, and structural coverage evidence at the depth the assigned safety level requires — determined by hazard analysis, not by preference.',
+  },
+  'aviation-compliance': {
+    whatItIs: 'Map airborne-software certification objectives onto the verification evidence required at your assurance level.',
+    expectedResult: 'Requirements-based tests traced in both directions, with structural coverage evidence at the required depth and the independence between development and verification the level demands.',
+  },
+  'energy-compliance': {
+    whatItIs: 'Map critical-infrastructure protection requirements onto asset inventories, boundary controls and access records.',
+    expectedResult: 'Evidence that the asset inventory is accurate, the security boundary is enforced, access is revoked within the required window, and patches are assessed on the prescribed cycle.',
   },
 };
 

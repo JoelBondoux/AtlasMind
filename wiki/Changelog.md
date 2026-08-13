@@ -19,6 +19,41 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.306.0 — 69 testing methodologies, and auto-assess that reads your code
+
+Auto-assess used to match every signal word against one blob of text that included three kilobytes of
+your README, so a project got testing methodologies assigned because of what its own description said
+about it. On this repository that meant twelve policies fired on prose alone — including PCI-DSS and
+bias & fairness testing, on a VS Code extension that handles neither. Words also matched inside other
+words, so "rapid" switched on integration testing.
+
+Now a signal found in your **code** — a dependency, a script, a config file, a directory that exists —
+ticks the methodology and says what it found. A signal found only in your **description** raises it as
+a proposal, unticked, naming the words that prompted it. Nothing is hidden and nothing is more than one
+keystroke away.
+
+Three rules keep it honest: a word that means different things in different projects (`audit`,
+`pipeline`, `agent`) raises rather than ticks unless something corroborates it; a methodology your
+project shape can never evidence isn't offered at all, with the reason given; and anything unreadable
+is stated as a partial reading rather than reported as nothing found. Dependencies now come from every
+manifest, so Python, Rust, Go, Java and .NET projects get a real assessment instead of one based on
+their README.
+
+The testing matrix grew from 23 methodologies to 69. Five new families: drift and integrity checks over
+your code's own shape, parity and consistency across surfaces and versions, data and schema testing,
+AI-specific testing (prompt regression, guardrails, model routing, hallucination detection), and
+twenty-four compliance policies spanning security and privacy, operational process, software supply
+chain, AI governance, and five industry regimes.
+
+Every new policy arrives complete — plain-language explanation, evidence detection, a place in the
+archetype recommendations, and a starter artifact the scaffolder adds to a new or existing project.
+
+Compliance needed a different shape. Most of a regime has no assertion behind it, and a test stub
+written for one can never honestly pass or fail — it becomes a gap nobody can close. So those policies
+scaffold a **control mapping** instead (control, status, evidence, owner), while controls a machine
+genuinely can check still get a real test. Every row starts at *Not assessed*, never at a pass, and the
+file is never rewritten once your decisions are in it.
+
 ## v0.305.3 — Sync no longer scrambles matching files
 
 If your project keeps two instruction files identical on purpose, the sync used to rewrite each in its

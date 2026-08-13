@@ -172,19 +172,49 @@ Most built-in agents also carry a tests-first preference, tuned to what they do:
 
 ## Testing methodologies
 
-AtlasMind ships a registry of **23 testing methodologies**, and you choose which ones your project holds
+AtlasMind ships a registry of **69 testing methodologies**, and you choose which ones your project holds
 itself to. Configure them under **Settings → Testing** or on the **Project Dashboard → Testing** page.
 
 | Category | Methodologies |
 |---|---|
 | **Design-time** | TDD, BDD, ATDD, Spec-Driven, V-Model |
-| **Structural** | Unit, Integration, Mutation, Property-Based, Continuous / Shift-Left, White-Box |
-| **Behavioural** | End-to-End, Snapshot, Contract, Model-Based, Test Design Techniques, Black-Box, Gray-Box |
-| **Non-functional** | Performance, Security, Visual Regression |
+| **Structural** | Unit, Integration, Mutation, Property-Based, Continuous / Shift-Left, White-Box, Dead-Field Detection, Type Drift Detection, Dependency Graph Integrity |
+| **Behavioural** | End-to-End, Snapshot, Contract, Model-Based, Test Design Techniques, Black-Box, Gray-Box, Cross-Surface Parity, Cross-Representation Consistency, Cross-Version Parity, Semantic Constraints, Anti-Uniformity, Output Schema Drift, Hallucination Detection |
+| **Non-functional** | Performance, Security, Visual Regression, Chaos / Resilience, Accessibility (a11y), Observability / Telemetry |
+| **Data & schema** | Data Quality, Schema Migration, Backward/Forward Compatibility, Memory/State Drift Detection |
+| **AI-specific** | Prompt Regression, Model Routing Correctness, Guardrail Enforcement, Agent Collaboration Correctness, Determinism/Stochasticity Boundary |
 | **Exploratory** | Exploratory, Agile Testing |
+| **Compliance — security & privacy** | ISO/IEC 27001, SOC 2 Type I/II, GDPR, HIPAA, PCI-DSS, NIST 800-53 / 800-171 |
+| **Compliance — operational & process** | Change-Management, Audit-Trail Completeness, Access Control & RBAC, Data Retention & Deletion |
+| **Compliance — supply chain** | SBOM Verification, Dependency Licensing, Open-Source Licence Compatibility, Secure Build Pipeline (SLSA) |
+| **Compliance — AI governance** | AI Safety & Guardrail Compliance, Model-Output Risk Classification, Bias & Fairness, Explainability & Transparency, AI Memory & Data-Use Policy |
+| **Compliance — industry-specific** | Financial Services (FFIEC, MiFID II), Medical (FDA 21 CFR Part 11), Automotive (ISO 26262), Aviation (DO-178C), Energy (NERC CIP) |
 
 Each one carries a plain-English *what it is*, *when to use it*, *typical tools*, *trade-offs*, and an
 **AI token impact** rating so you know what it'll cost you to enable.
+
+### Compliance policies work differently, on purpose
+
+Every other policy answers one question: *does the evidence exist in the file tree?* Most of a
+compliance regime cannot answer it. "Cryptographic controls are governed by a policy" has no assertion
+behind it, and a test file written for it can never honestly pass or fail — it becomes a gap nobody can
+ever close, which teaches you to ignore gaps.
+
+So compliance policies split, per policy and declared in advance:
+
+- **Controls a machine can check** get a real test. Role permissions (both halves — what each role
+  *cannot* do is where privilege escalation lives), audit-trail completeness, retention windows and
+  legal holds, GDPR erasure reaching every store rather than only the primary database, account numbers
+  never reaching a log, SBOM accuracy against the actual dependency list, licence policy.
+- **Everything else** gets a **control mapping** at `project_memory/operations/compliance/<policy>.md`
+  — control reference, requirement, status, evidence, owner — which the Testing page reads as real
+  evidence. A regime with both halves gets both files.
+
+Three rules keep the mapping honest. Every row seeds as **Not assessed**, never as a pass, because an
+unassessed control and a satisfied one are different facts. The scoping question comes *before* the
+controls — a mapping filled in before anyone decided what is in scope looks complete and answers
+nothing. And once the file exists it is **never rewritten**: it fills with your decisions, so re-running
+the scaffolder leaves it exactly as you left it.
 
 ### What enabling one actually does
 
@@ -232,14 +262,36 @@ catalogue, so it uses **no model, no provider, and no metered API**. Only the fo
 
 ### Getting started with a methodology
 
-**Auto-assess project** scans your dependencies, scripts, test config, CI pipelines, UI sources, API
-specs and README, and proposes a set. Only methodologies your repository can already show evidence for
-arrive ticked — the rest are offered, one keystroke away, labelled as an intention rather than a fact.
+**Auto-assess project** reads what your project is *built from*, not what it says about itself.
+
+A methodology arrives **ticked** when something in the code shows it — a dependency, a script, a config
+file, a directory that exists — and the reason says what was found. A methodology arrives **unticked**
+when only your README or project description mentions it, saying which words prompted it, so you can
+tick it as an intention if that is what you mean. Nothing is hidden and nothing is more than one
+keystroke away; auto-assess simply stops deciding for you.
+
+It used to work the other way. Every signal word was matched against one blob of text that included
+three kilobytes of your README, so a project could acquire a dozen methodologies because of its own
+marketing copy — on this repository that included PCI-DSS and bias & fairness testing, on a VS Code
+extension that handles neither. Words also matched inside other words, so "rapid" switched on
+integration testing.
+
+Three further rules keep it honest. A word that means different things in different projects — `audit`,
+`pipeline`, `agent` — raises a methodology rather than ticking it, unless something else corroborates:
+`npm audit` in a script is not evidence of an audit trail. A methodology your project *shape* can never
+show evidence for is not offered at all, with the reason given, so you are never handed a gap you cannot
+close. And anything that could not be read is stated as a partial reading rather than reported as
+nothing found.
+
+Dependencies are read from every manifest — `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle,
+`Gemfile`, `composer.json` and more — so Python, Rust, Go, Java and .NET projects get a real assessment.
 
 **Scaffold Testing Framework** detects your language and project shape and creates idiomatic starter
 files for each enabled methodology — Vitest, Jest, Playwright, fast-check (Node); pytest, Hypothesis
-(Python); `cargo test`, proptest (Rust); `go test`; xUnit; JUnit 5 — plus a strategy playbook. It's
-non-destructive: files are created only when missing, no manifest is touched, and it asks first.
+(Python); `cargo test`, proptest (Rust); `go test`; xUnit; JUnit 5 — plus a strategy playbook. Enabled
+compliance policies also get their control mapping, which is language-independent: the regime does not
+change because the project is written in Go. It's non-destructive: files are created only when missing,
+no manifest is touched, and it asks first.
 
 **Sync Testing Protocols to AI Agents** writes your enabled protocols into the instruction files other
 tools read — `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, Cursor, Cline, Gemini,

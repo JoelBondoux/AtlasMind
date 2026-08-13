@@ -108,6 +108,23 @@ export const PRACTICE_ONLY: ReadonlySet<TestingMethodologyId> = new Set<TestingM
  */
 export const REPOSITORY_LEVEL: ReadonlySet<TestingMethodologyId> = new Set<TestingMethodologyId>([
   'continuous', 'security-testing', 'performance', 'visual',
+  // Scanner- and suite-configured: satisfied by the tool being wired up and
+  // running, not by a test travelling with each change.
+  'dead-field', 'dependency-graph', 'chaos', 'accessibility', 'observability', 'data-quality',
+  // Supply chain: the evidence is an artifact the pipeline produces per
+  // release, so demanding it per commit would report a gap on every commit
+  // while the policy is genuinely met.
+  'sbom', 'dependency-licensing', 'license-compatibility', 'secure-build-pipeline',
+  // Compliance regimes evidenced by a control mapping rather than by a test.
+  // A commit cannot satisfy "Annex A.8.24 — cryptography governed by policy",
+  // and asking it to would make every commit owe evidence nobody can produce.
+  // The machine-checkable compliance policies (RBAC, audit trail, retention,
+  // GDPR erasure, PCI, HIPAA) are deliberately *not* here: those genuinely do
+  // owe a test when the behaviour they govern changes.
+  'iso-27001', 'soc2', 'nist-800-53', 'change-management',
+  'ai-safety-compliance', 'explainability',
+  'financial-compliance', 'medical-compliance', 'automotive-compliance',
+  'aviation-compliance', 'energy-compliance',
 ]);
 
 /** Paths that never constitute a behaviour change. */

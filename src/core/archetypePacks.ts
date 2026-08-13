@@ -171,10 +171,10 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Produce a build per target platform', 'Verify assets load in a packaged build, not just in the editor'],
     },
     testing: {
-      recommended: ['unit', 'property', 'performance', 'snapshot'],
+      recommended: ['unit', 'property', 'performance', 'snapshot', 'determinism-boundary'],
       rationale: 'Unit tests for simulation and rules logic, property tests for state machines where the interesting bugs are combinatorial, performance as a first-class gate, and snapshots for deterministic rendering output.',
-      discouraged: ['bdd', 'atdd'],
-      discouragedReason: 'Scenario-style specifications describe user journeys well and describe a physics step or a render loop badly. Enabling them here produces gaps nobody will ever close.',
+      discouraged: ['bdd', 'atdd', 'contract'],
+      discouragedReason: 'Scenario-style specifications describe user journeys well and describe a physics step or a render loop badly, and a game publishes no contract for a consumer to verify. Enabling them here produces gaps nobody will ever close.',
     },
     documentation: [
       README,
@@ -221,10 +221,10 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Preview deploy per pull request', 'Verify the built site, not the dev server'],
     },
     testing: {
-      recommended: ['e2e', 'visual', 'unit'],
+      recommended: ['e2e', 'visual', 'unit', 'accessibility'],
       rationale: 'End-to-end for the handful of journeys that matter, visual regression because a site failing is usually a site looking wrong rather than throwing, and unit tests for whatever logic exists.',
-      discouraged: ['mutation', 'property'],
-      discouragedReason: 'Both target dense logic. A content site has little, so they measure almost nothing while reporting a gap.',
+      discouraged: ['mutation', 'property', 'chaos'],
+      discouragedReason: 'Mutation and property testing target dense logic, and a content site has little — they measure almost nothing while reporting a gap. Chaos testing needs a distributed system to perturb; a static site has no failure to inject.',
     },
     documentation: [
       README,
@@ -260,7 +260,7 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Preview deploy per pull request', 'Run migrations before the new build serves traffic'],
     },
     testing: {
-      recommended: ['unit', 'integration', 'e2e', 'visual'],
+      recommended: ['unit', 'integration', 'e2e', 'visual', 'accessibility', 'type-drift'],
       rationale: 'Integration tests matter most here: the defects live between components, which is exactly what unit tests are blind to.',
       discouraged: [],
     },
@@ -298,10 +298,10 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Apply migrations before serving traffic', 'Verify a health endpoint after deploy'],
     },
     testing: {
-      recommended: ['unit', 'integration', 'contract', 'security-testing', 'performance'],
+      recommended: ['unit', 'integration', 'contract', 'security-testing', 'performance', 'output-schema-drift', 'type-drift', 'schema-migration', 'rbac-compliance'],
       rationale: 'Contract tests protect consumers; security testing matters because this surface is reachable by anyone; performance because latency is part of the contract in practice.',
-      discouraged: ['visual'],
-      discouragedReason: 'There is nothing to look at, so a visual gap would never be closable.',
+      discouraged: ['visual', 'accessibility'],
+      discouragedReason: 'There is nothing to look at, so neither could ever produce evidence — the gap would never be closable.',
     },
     documentation: [README, KEEP_A_CHANGELOG, { path: 'docs/api.md', why: 'The contract, written for somebody who cannot read the source.' }, { path: 'docs/runbook.md', why: 'What to do at 3am, written while it is not 3am.' }],
     refactor: [
@@ -332,10 +332,10 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Verify the published package installs and runs from a clean environment'],
     },
     testing: {
-      recommended: ['unit', 'integration', 'snapshot'],
+      recommended: ['unit', 'integration', 'snapshot', 'cross-version-parity'],
       rationale: 'Snapshot tests suit a CLI unusually well: the output *is* the interface, so a diff in output is a diff in contract.',
-      discouraged: ['visual'],
-      discouragedReason: 'There is no rendered surface to compare. Snapshot testing already covers the equivalent concern here, since terminal output is the interface.',
+      discouraged: ['visual', 'accessibility'],
+      discouragedReason: 'There is no rendered surface to compare. Snapshot testing already covers the equivalent concern here, since terminal output is the interface — and an automated accessibility scan has no DOM to walk.',
     },
     documentation: [README, KEEP_A_CHANGELOG, { path: 'docs/usage.md', why: 'Every command and flag — the reference `--help` is too terse to be.' }],
     refactor: [
@@ -366,10 +366,10 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Verify the published package imports cleanly from a fresh install'],
     },
     testing: {
-      recommended: ['unit', 'property', 'mutation', 'contract'],
+      recommended: ['unit', 'property', 'mutation', 'contract', 'cross-version-parity', 'cross-representation', 'dead-field'],
       rationale: 'Mutation testing earns its cost here: a library\'s tests are its specification, and a mutant that survives is a promise nothing enforces.',
-      discouraged: ['e2e', 'visual'],
-      discouragedReason: 'A library has no application to drive and nothing to look at, so both would report gaps that can never close.',
+      discouraged: ['e2e', 'visual', 'accessibility', 'chaos'],
+      discouragedReason: 'A library has no application to drive, nothing to look at, and no infrastructure to perturb, so each would report a gap that can never close.',
     },
     documentation: [README, KEEP_A_CHANGELOG, { path: 'docs/api.md', why: 'Every exported symbol. For a library this is the product, not supporting material.' }, { path: 'MIGRATION.md', why: 'What to change on a major bump. Without it, consumers stay on the old version.' }],
     refactor: [
@@ -400,7 +400,7 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Sign and notarise where the platform requires it', 'Verify the auto-update path from the previous version'],
     },
     testing: {
-      recommended: ['unit', 'integration', 'e2e'],
+      recommended: ['unit', 'integration', 'e2e', 'accessibility', 'state-drift'],
       rationale: 'End-to-end against a packaged build rather than a dev server — packaging is where desktop applications break.',
       discouraged: [],
     },
@@ -433,7 +433,7 @@ const PACKS: Readonly<Record<ProjectArchetype, ArchetypePack>> = {
       extraSteps: ['Submit for store review', 'Stage the rollout rather than releasing to everyone at once'],
     },
     testing: {
-      recommended: ['unit', 'integration', 'e2e', 'visual'],
+      recommended: ['unit', 'integration', 'e2e', 'visual', 'accessibility', 'compatibility'],
       rationale: 'Visual regression matters here because layout breaks per device, and no unit test will notice.',
       discouraged: [],
     },

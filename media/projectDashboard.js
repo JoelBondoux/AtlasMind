@@ -4302,11 +4302,18 @@
   ];
 
   const METHODOLOGY_CATEGORIES = [
-    { key: 'design-time',    label: 'Design-time' },
-    { key: 'structural',     label: 'Structural' },
-    { key: 'behavioral',     label: 'Behavioral' },
-    { key: 'non-functional', label: 'Non-functional' },
-    { key: 'exploratory',    label: 'Exploratory' },
+    { key: 'design-time',              label: 'Design-time' },
+    { key: 'structural',               label: 'Structural' },
+    { key: 'behavioral',               label: 'Behavioral' },
+    { key: 'non-functional',           label: 'Non-functional' },
+    { key: 'data-schema',              label: 'Data & schema' },
+    { key: 'ai-specific',              label: 'AI-specific' },
+    { key: 'exploratory',              label: 'Exploratory' },
+    { key: 'compliance-security',      label: 'Compliance — security & privacy' },
+    { key: 'compliance-operational',   label: 'Compliance — operational' },
+    { key: 'compliance-supply-chain',  label: 'Compliance — supply chain' },
+    { key: 'compliance-ai',            label: 'Compliance — AI governance' },
+    { key: 'compliance-industry',      label: 'Compliance — industry' },
   ];
 
   function getMethodologyDefinitions(testing) {
