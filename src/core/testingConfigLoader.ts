@@ -191,7 +191,19 @@ export function resolveTestingModelOverride(
  *
  * Pure: takes the config, returns a string, reads nothing.
  */
-export function buildTestingObligationGuidance(config: ProjectTestingConfig | undefined): string {
+export function buildTestingObligationGuidance(
+  config: ProjectTestingConfig | undefined,
+  /**
+   * Declared work this project's policies cover that no test names yet.
+   *
+   * The reason this parameter exists: the guidance above names *methodologies*,
+   * and a model told "this project does contract testing" has no way to know
+   * that the endpoint it is about to add is a new thing needing one. Naming the
+   * uncovered subjects turns a standing policy into the specific obligation this
+   * turn has actually incurred.
+   */
+  uncoveredSubjects: ReadonlyArray<{ policyLabel: string; label: string; source: string }> = [],
+): string {
   if (!config) {
     return '';
   }
@@ -232,6 +244,28 @@ export function buildTestingObligationGuidance(config: ProjectTestingConfig | un
       + 'These leave no file behind, so nothing is expected on disk for them — apply them to how you approach the work.',
     );
     lines.push('');
+  }
+
+  if (uncoveredSubjects.length > 0) {
+    const shown = uncoveredSubjects.slice(0, 20);
+    lines.push(
+      'ALREADY OUTSTANDING — declared work with no test naming it:',
+      '',
+    );
+    for (const subject of shown) {
+      lines.push(`- ${subject.policyLabel}: \`${subject.label}\` (declared in ${subject.source})`);
+    }
+    if (uncoveredSubjects.length > shown.length) {
+      lines.push(`- …and ${uncoveredSubjects.length - shown.length} more.`);
+    }
+    lines.push(
+      '',
+      'These are facts about the repository, not a request. If your change touches',
+      'one of them, it owes a test that names it — a test that never mentions the',
+      'thing it covers is not evidence that it does. If your change adds another',
+      'such item, the same applies to it.',
+      '',
+    );
   }
 
   lines.push(

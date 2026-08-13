@@ -87,7 +87,7 @@ what it couldn't finish. See [[Tool Execution]].
 **Safety is the default, not a setting you find later.** Deny-by-default gates, secrets in the OS
 keychain, protected production, and untrusted input treated as untrusted everywhere. See [[Security]].
 
-**Testing is taken seriously.** 23 configurable methodologies that actually reach the agent writing the
+**Testing is taken seriously.** 69 configurable methodologies that actually reach the agent writing the
 code, get checked against your repository, and report honestly when nobody has looked yet.
 
 ---

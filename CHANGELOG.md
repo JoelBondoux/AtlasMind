@@ -6,6 +6,269 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.308.0] - 2026-08-13
+
+### Added
+
+- **A testing policy now reacts to the codebase, not just to a setting.** Coverage was a
+  *methodology-level* question — does anything here test contracts — so a project with one contract
+  test written in March reported `Tested` in December having added forty endpoints in between. The
+  obligation check had the same hole and admitted it in its own comment: any changed test file
+  satisfied any policy, because "a finer reading would need to understand what the test asserts, which
+  is not something a path can tell us".
+
+  A path cannot. A **subject** can. `testingSubjects.ts` reads the declared artifacts a project
+  contains — OpenAPI/AsyncAPI paths, GraphQL operations, gRPC methods, migrations, component schemas,
+  file-system routes, declared roles, prompt files — and each becomes a thing its policy must cover.
+  Add an endpoint and the obligation exists from that moment, with no rule for anybody to write.
+
+- **The agent is told the specific item, not just the methodology.** A model told "this project does
+  contract testing" has no way to know the endpoint it is about to touch is one of the untested ones.
+  The obligation prompt now names them, with the file each was declared in.
+
+- **Uncovered items appear on the policy card**, listed with a link to where each was declared, under
+  the count. A policy with evidence and new uncovered work is graded `moderate` by a new published
+  rule — *"Declared work this policy covers has appeared with no test naming it"* — so it stops reading
+  green.
+
+### Changed
+
+- **Coverage is judged by reference, and biased toward false negatives.** A test covers a subject when
+  its source *names* it; a test that never mentions the endpoint it supposedly tests is not evidence
+  that it does. The HTTP method counts too — a GET contract test says nothing about the POST, and
+  accepting it would rebuild the same looseness one level down. Method matching is case-insensitive so
+  ordinary `.post('/v1/orders')` style works; role, schema and path names are matched as declared,
+  because `Admin` and `admin` may be different roles.
+
+- **Only declared artifacts become subjects.** Nothing is inferred from source shape. Treating every
+  exported function as a unit-test subject would manufacture hundreds of obligations nobody agreed to,
+  and a methodology that cannot be evidenced becomes a permanent gap — the failure the archetype packs
+  already exist to prevent. Seven policies have extractors; the other 62 say they have nothing
+  enumerable rather than reporting zero, because zero uncovered reads as complete.
+
+- **One scan, shared.** The dashboard and the obligation prompt read the same
+  `scanTestingSubjects` — a page saying an endpoint is untested while the turn that touched it was
+  told nothing would be worse than neither existing. It is a bounded walk with a 30-second cache, so
+  asking on every turn costs nothing, and the dashboard forces a fresh read when the user refreshes.
+
+- **A policy a project has not declared is owed nothing.** Subjects are filtered to enabled policies,
+  so a repository with an OpenAPI spec and no contract policy is not handed obligations it can only
+  close by switching on a methodology it deliberately left off.
+
+## [0.307.0] - 2026-08-13
+
+### Added
+
+- **Testing policy cards open.** Each enabled policy on the Testing dashboard is now a control: click it
+  and it expands to what the evidence actually is — a case-mix chart (passing / skipped / failing), an
+  evidence table (files, cases, skipped, failing, tooling detected), and a table of the failing cases
+  with a link straight to each file. Cards track independently rather than as an accordion, because
+  comparing two policies is the usual reason to open one at all.
+
+- **Every finding is graded by a published rule.** Severity comes from a declared table — failing tests,
+  or an enabled security/compliance policy with no evidence at all, are `serious`; any other unevidenced
+  policy is `moderate`; tooling with no tests, or a suite where every case is skipped, is `low`. Each
+  card names the rule that graded it, and the whole table is on the page under *How these are graded*.
+  No model is in this path: a grade given today has to be comparable with one given last month, which is
+  the entire value of grading.
+
+- **Policies have owners.** A card carries the same Director ownership picker the rest of the dashboard
+  uses, so a testing gap is assignable work rather than a paragraph on a board. Where nobody is
+  assigned, follow-ups fall back to the contact the Director marks as *you* — stated on the card, so a
+  default is never mistaken for a decision somebody made. This repository carried eight unowned testing
+  gaps for seven weeks, which is the failure the fallback exists to prevent.
+
+- **Add to follow-ups.** A finding becomes a Director follow-up owned by the policy's assignee, with a
+  due date derived from severity (3 / 14 / 30 days) and the grading rule carried into the notes. The
+  confirmation names the owner, the date and the reason before anything is written.
+
+- **File as issue.** A `serious` finding offers a GitHub issue with the draft shown before anything is
+  posted. **Offered, never automatic** — an issue is public, permanent and posted in your name, so
+  severity decides what is emphasised and never what is created; a severity rule that turns out too
+  eager can then only be noisy rather than damaging. The draft is model-free, so the same finding yields
+  byte-identical text, and suggested labels are intersected with the repository's declared taxonomy
+  because an unmatched label is *created* on the repository as a side effect of filing. Labels dropped
+  that way are stated in the issue body rather than silently omitted.
+
+- **Per-policy Scaffold framework.** A policy with a gap and a recipe for the detected stack gets its
+  own scaffold button, so a methodology switched on last week is actionable from the card that reports
+  it instead of requiring a whole-project scaffold. The confirmation lists the exact files it would
+  create and the ones it would leave alone.
+
+### Changed
+
+- **The Testing page leads with what needs a person.** The stat band opens with *Needs attention*, *Open
+  gaps*, *Unowned* and *Last run* before the descriptive cards. "43 test files" reads identically
+  whether or not three are failing and nobody owns the gap; these do not. *Last run* reports **No
+  report** rather than `0` when nothing has produced one — unknown and passing are different facts.
+
+### Fixed
+
+- **A follow-up linked to a testing policy lost its link on save.** The Director sanitizer whitelists
+  `linked.kind` and resets anything unrecognised to `none`, which is right for hand-edited or foreign
+  data and wrong here: the follow-up would persist while quietly forgetting which policy it was about,
+  and only a later read would reveal it. `testing-policy` is now a declared kind, pinned by a test.
+
+## [0.306.1] - 2026-08-13
+
+### Fixed
+
+- **The Scaffold framework button wrote a syntactically broken test file.** The RBAC starter had an
+  over-escaped apostrophe, so the string closed early and the emitted file did not parse. Every starter
+  file is authored as a string inside a template literal, which means the compiler validates the
+  *scaffolder* and validates nothing about the code it emits — so this shipped looking fine and would
+  have failed a user's test run on first use, for a reason that was not their fault. Every generated
+  file is now parsed with the same engine that bundles this extension, across all seven supported
+  stacks, with every methodology enabled.
+
+- **Running the scaffold from the Command Palette skipped the instruction sync.** The button and the
+  `atlasmind.scaffoldTestingFramework` command had drifted: the command scaffolded the files and
+  stopped, so every external AI tool (`CLAUDE.md`, Copilot, Cursor, …) carried on reading the previous
+  methodology set while the repository had just been scaffolded for the new one. Its dialog did not
+  mention a sync either, so nothing about the outcome contradicted what the user had been told. Both
+  entry points now call one function, so a third cannot reintroduce it.
+
+- **The Scaffold and Sync buttons were bound twice.** Each was wired through `bindCommandButton` *and*
+  through the busy-state handler beside it, so one click posted the message twice and ran the whole
+  action — filesystem pass, instruction sync, and sometimes an agent task — a second time. Nothing on
+  screen showed it, because the second run reports "already exists" for everything the first one wrote.
+
+- **A cancelled Auto-assess left its button permanently dead.** The button disabled itself and showed
+  "Assessing…" on click, and the panel repainted only on the single success path — so dismissing the
+  quick pick, the most likely thing a user does, left a disabled control reading "Assessing…" until the
+  panel was closed and reopened. All three Testing actions now repaint in a `finally`, covering every
+  early return and a thrown error alike, which is also what makes it safe to give Scaffold and Sync the
+  busy state they were missing.
+
+- **The strategy playbook under-reported what the scaffold created.** It named only the first file per
+  methodology, so a compliance regime with a testable half advertised its control mapping and silently
+  omitted the test beside it. It also said nothing at all for a methodology with no starter file on
+  Node, where silence meant two different things — "this is a practice, so there is no artifact" and
+  "no recipe exists for this stack" — and the reader could not tell which, or whether anything had been
+  created.
+
+## [0.306.0] - 2026-08-13
+
+### Added
+
+- **The testing matrix now carries 69 methodologies, up from 23** — and every one of the 46 new
+  policies arrives with the same machinery the original 23 had: a plain-language explanation, evidence
+  markers the coverage scanner reads, a place in the archetype packs, and a starter artifact the
+  scaffolder can create in a new or existing project.
+
+  Five families are new. **Drift and integrity** over the code's own shape (dead-field detection, type
+  drift between static types and what actually arrives at runtime, dependency-graph integrity).
+  **Parity and consistency** (cross-surface, cross-representation, cross-version, semantic constraints,
+  anti-uniformity, output schema drift, hallucination detection). **Data & schema** (data quality,
+  schema migration, backward/forward compatibility, memory/state drift). **AI-specific** (prompt
+  regression, model-routing correctness, guardrail enforcement, agent-collaboration correctness, the
+  determinism/stochasticity boundary). And **compliance & governance** — twenty-four policies across
+  security & privacy, operational process, software supply chain, AI governance, and five
+  industry-specific regimes.
+
+- **Compliance policies scaffold a control mapping, not an assertion-free test file.** This is the one
+  place the existing model did not fit. Every other policy answers "does the evidence exist in the file
+  tree?", and most of a compliance regime cannot — "cryptographic controls are governed by a policy"
+  has no assertion, and a test stub written for it can never honestly pass *or* fail. That is exactly
+  the permanent unclosable gap the archetype packs' `discouraged` list exists to prevent, and a
+  dashboard with a gap nobody can close teaches people to ignore gaps.
+
+  So the split is per policy and declared, never inferred: a control a machine can check (role
+  permissions, audit-trail completeness, retention windows, GDPR erasure reaching every store, an
+  account number never reaching a log, SBOM accuracy, licence policy) gets an ordinary test stub, and
+  the rest gets `project_memory/operations/compliance/<policy>.md` — control, status, evidence, owner.
+  A regime with both gets both. The mapping is **language-independent**, because the regime does not
+  change when the project is written in Go.
+
+  Three properties hold the mapping honest. Every row seeds as **Not assessed**, never as a pass —
+  an unassessed control and a satisfied one are different facts, and seeding "Satisfied" would assert
+  something nobody checked into a file an assessor reads. The scoping question comes **before** the
+  controls, because a mapping filled in before anyone decided what is in scope looks complete and
+  answers nothing. And the file is **never rewritten** once it exists: it fills with human decisions,
+  which is the entire point of it.
+
+- **The Testing dashboard scores a control mapping as real evidence.** `configIsEvidence` — the reading
+  continuous testing already needed for its pipeline definition — now applies to documentary compliance
+  policies too. Without it a project holding a complete, reviewed ISO 27001 mapping would have capped at
+  "No tests yet" forever.
+
+### Changed
+
+- **The methodology matrix groups into twelve categories instead of five**, mirroring the families
+  above. The compliance families are separate categories rather than one bucket: twenty-four rows under
+  a single heading is a list nobody reads, and a privacy regulator, a build pipeline and a fairness
+  review share no evidence.
+
+- **The archetype packs place the new policies by shape, and say when a shape cannot evidence one.**
+  An API recommends output-schema-drift, type-drift, schema-migration and RBAC checks, and now
+  discourages accessibility alongside visual regression — there is nothing to look at, so neither could
+  ever close. A library adds cross-version parity, cross-representation and dead-field detection, and
+  discourages chaos testing (no infrastructure to perturb). A game adds the determinism boundary.
+  Websites, web apps, desktop and mobile all add accessibility.
+
+- **Compliance and supply-chain policies are repository-level, not per-commit.** A change cannot satisfy
+  "Annex A.8.24 — cryptography governed by policy", and asking it to would make every commit owe
+  evidence nobody can produce. The machine-checkable compliance policies are deliberately excluded from
+  that list: those genuinely do owe a test when the behaviour they govern changes.
+
+- **Auto-assess decides from the codebase, not from the project's description of itself.** It matched
+  every `autoDetectSignals` entry as a bare substring against a single corpus that included three
+  kilobytes of `README.md`, so what a project *said about itself* was weighed identically to what it was
+  *built from*. Measured on this repository before the change: **twelve policies fired on README prose
+  alone**, among them PCI-DSS, bias & fairness, and model-output risk classification — on a VS Code
+  extension that touches no card data and makes no automated decision about any person. The 23 → 69
+  expansion made this sharply worse, because the new signal vocabulary includes words like `audit`,
+  `risk`, `agent`, `bias` and `retention` that appear in the prose of projects with no connection to
+  them.
+
+  The new `testingAutoAssess` module draws one distinction and hangs everything on it. A signal
+  **observed in the code** — a dependency, a script, a config file, a directory that exists — is a fact,
+  and it ticks. A signal **stated in prose** is a description, and it *offers*: the policy is still
+  listed, still one keystroke away, but arrives unticked and says which words prompted it. That is the
+  same rule `researchRegister` applies to an uncited claim, for the same reason.
+
+- **Signal matching has real word boundaries.** `api` matched inside `rapid`, so a sentence of ordinary
+  marketing copy switched on integration testing. Matching now treats only letters and digits as word
+  characters, which gives the two properties actually wanted: `api` matches in `rest api` and in
+  `api-first`, and matches neither `rapid` nor `openapi`. `\b` is deliberately not used — the signal
+  vocabulary is full of hyphens and slashes (`fast-check`, `ci/cd`, `do-178`, `mc/dc`, `800-53`) where
+  its behaviour is surprising.
+
+- **One ambiguous word is a hint; two are a pattern.** Found by running the new assessment over this
+  repository and reading what it ticked: `npm audit` in a script switched on SOC 2, change-management
+  and audit-trail testing, and a `.github/workflows` directory switched on data-quality testing and
+  SLSA provenance verification. None of those words is wrong in the catalogue — `pipeline` really does
+  belong to both CI and data engineering — it is simply not, alone, evidence of which meaning applies.
+  An ambiguous match now raises a policy for consideration rather than ticking it, while an unambiguous
+  signal (`stryker`, `cosign`, `fast-check`) still ticks on its own. Where a fact genuinely *is* its own
+  proof for one specific policy — a CI directory for continuous testing, `CODEOWNERS` for
+  change-management, `axe-core` for accessibility — the derived rule declares it.
+
+- **Dependencies are read from every manifest, not just `package.json`.** `pyproject.toml`,
+  `requirements.txt`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle, `Gemfile`, `composer.json`,
+  `pubspec.yaml` and `mix.exs` all contribute, so a non-Node project is no longer assessed almost
+  entirely on its README. Derived signals translate observed facts into the vocabulary the catalogue
+  speaks — nothing in `@anthropic-ai/sdk` contains the word `prompt`, and nothing in `cerbos` contains
+  `rbac` — which keeps the catalogue from decaying into a vendor package list.
+
+- **A project shape can withhold a policy, and existing evidence overrules the shape.** The archetype
+  packs already know which policies a shape can never evidence; auto-assess now honours that, so it
+  cannot create the permanent unclosable gap the packs exist to prevent. Suppression applies only when
+  archetype detection was *confident* — a `generic` fallback is not a finding — and never against a
+  policy the repository can already show evidence for, because a file on disk beats a heuristic about
+  what this kind of project usually needs.
+
+- **What could not be read is reported rather than swallowed.** An unparseable manifest yields a partial
+  reading that says so, because "we did not read your manifest" and "your manifest says nothing
+  relevant" are different facts and only the second supports a conclusion.
+
+- **The three copies of this logic became one.** The settings panel and the bootstrapper's intake and
+  import paths each had their own substring matcher, so the same bug lived in three places and a fix to
+  one would have left the others behind. All three now call `assessTestingMethodologies`. The bootstrap
+  pickers also stopped hardcoding `picked: true`: at intake there is no code yet, so every signal is a
+  stated intention, and ticking them all is how a brand-new project acquired a dozen methodologies and
+  eight permanent gaps before its first commit.
+
 ## [0.305.3] - 2026-08-12
 
 ### Fixed

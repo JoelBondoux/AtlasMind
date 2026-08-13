@@ -416,6 +416,7 @@ export function assignmentDestinationCommand(
     gap: 'gapAnalysis',
     risk: 'risk',
     debt: 'debt',
+    'testing-policy': 'testing',
     document: 'documents',
   };
   return dashboardFocusCommand(pageByKind[destination], destination, targetId, 'Open assigned work');
