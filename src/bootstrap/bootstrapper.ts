@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { SSOT_FOLDERS, TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { assessTestingMethodologies } from '../core/testingAutoAssess.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
@@ -604,7 +605,11 @@ async function collectBootstrapIntake(
     if (modeChoice?.value === 'auto') {
       const autoItems = inferred.map(item => {
         const def = TESTING_METHODOLOGY_DEFINITIONS.find(d => d.id === item.id)!;
-        return { label: def.label, description: item.reason, picked: true, id: item.id };
+        // `picked: item.recommended`, never `true`. Ticking everything the
+        // matcher returned is how a project acquired a dozen methodologies
+        // from words in its own description, and eight permanent gaps with
+        // them. A proposal is still listed and still one keystroke away.
+        return { label: def.label, description: item.reason, picked: item.recommended, id: item.id };
       });
       const accepted = await vscode.window.showQuickPick(autoItems, {
         placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',
@@ -1496,55 +1501,49 @@ async function seedBootstrapIdeation(ssotRoot: vscode.Uri, intake: BootstrapProj
 
 // ── Testing Methodology Auto-Detection ───────────────────────────
 
-function buildSignalCorpus(...parts: (string | undefined)[]): string {
-  return parts.filter(Boolean).join(' ').toLowerCase();
-}
-
-function matchesSignals(corpus: string, signals: string[]): boolean {
-  if (signals.includes('*')) { return true; }
-  return signals.some(signal => corpus.includes(signal.toLowerCase()));
-}
-
 /**
- * Infers recommended testing methodologies from a bootstrap intake by matching
- * `autoDetectSignals` against the project's known tech stack, type, and tools.
+ * Infers recommended testing methodologies from a bootstrap intake.
+ *
+ * At intake there is, by definition, **no code yet** — every answer is a stated
+ * intention. So everything here goes in as prose, and `assessTestingMethodologies`
+ * classifies it as `stated`: raised for consideration, never pre-ticked. That is
+ * the honest reading of a description of a project that does not exist, and it
+ * is why this shares the matcher rather than keeping its own: the two used
+ * identical substring logic, so `api` matched `rapid` in both, and a wording fix
+ * in one would have silently left the other behind.
  */
 function inferTestingMethodologiesFromIntake(
   intake: BootstrapProjectIntake,
-): { id: TestingMethodologyId; reason: string }[] {
-  const corpus = buildSignalCorpus(
-    intake.techStack,
-    intake.projectType,
-    intake.thirdPartyTools,
-    intake.productSummary,
-  );
-  return TESTING_METHODOLOGY_DEFINITIONS
-    .filter(def => matchesSignals(corpus, def.autoDetectSignals))
-    .map(def => ({
-      id: def.id,
-      reason: def.autoDetectSignals.includes('*')
-        ? `Recommended for all projects`
-        : `Detected: ${def.autoDetectSignals.filter(s => corpus.includes(s)).slice(0, 2).join(', ')}`,
-    }));
+): { id: TestingMethodologyId; reason: string; recommended: boolean }[] {
+  const { policies } = assessTestingMethodologies({
+    dependencies: [],
+    scripts: [],
+    paths: [],
+    prose: [intake.techStack, intake.projectType, intake.thirdPartyTools, intake.productSummary]
+      .filter(Boolean).join(' '),
+  });
+  return policies.map(p => ({ id: p.id, reason: p.reason, recommended: p.recommended }));
 }
 
 /**
- * Infers recommended testing methodologies from an import snapshot by matching
- * `autoDetectSignals` against the detected project type and scanned file names.
+ * Infers recommended testing methodologies from an import snapshot.
+ *
+ * Unlike the intake path this one is looking at a real repository, so the
+ * scanned file names are code evidence and the declared project type is not.
+ * Splitting them is the whole point — the previous version merged both into one
+ * corpus, which meant a project *labelled* "fintech" got the same treatment as
+ * one that actually had a payment SDK in it.
  */
 function inferTestingMethodologiesFromSnapshot(
   snapshot: ImportBuildSnapshot,
-): { id: TestingMethodologyId; reason: string }[] {
-  const fileNames = [...snapshot.scanned.keys()].join(' ').toLowerCase();
-  const corpus = buildSignalCorpus(snapshot.projectType, fileNames);
-  return TESTING_METHODOLOGY_DEFINITIONS
-    .filter(def => matchesSignals(corpus, def.autoDetectSignals))
-    .map(def => ({
-      id: def.id,
-      reason: def.autoDetectSignals.includes('*')
-        ? `Recommended for all projects`
-        : `Detected: ${def.autoDetectSignals.filter(s => corpus.includes(s)).slice(0, 2).join(', ')}`,
-    }));
+): { id: TestingMethodologyId; reason: string; recommended: boolean }[] {
+  const { policies } = assessTestingMethodologies({
+    dependencies: [],
+    scripts: [],
+    paths: [...snapshot.scanned.keys()],
+    prose: snapshot.projectType,
+  });
+  return policies.map(p => ({ id: p.id, reason: p.reason, recommended: p.recommended }));
 }
 
 async function writeBootstrapTestingConfig(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<void> {
@@ -4556,7 +4555,11 @@ export async function importProject(
     if (modeChoice?.value === 'auto') {
       const autoItems = inferred.map(item => {
         const def = TESTING_METHODOLOGY_DEFINITIONS.find(d => d.id === item.id)!;
-        return { label: def.label, description: item.reason, picked: true, id: item.id };
+        // `picked: item.recommended`, never `true`. Ticking everything the
+        // matcher returned is how a project acquired a dozen methodologies
+        // from words in its own description, and eight permanent gaps with
+        // them. A proposal is still listed and still one keystroke away.
+        return { label: def.label, description: item.reason, picked: item.recommended, id: item.id };
       });
       const accepted = await vscode.window.showQuickPick(autoItems, {
         placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',

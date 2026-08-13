@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.305.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.308.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,74 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.305.3
+## What's new in 0.308.0
 
-The last Marketplace publication, **v0.305.2**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Your testing policies now react to your code.** Coverage used to be a yes/no per methodology — does
+  *anything* here test contracts? So one contract test written in March still reported "Tested" in
+  December, after forty endpoints had been added.
+
+  AtlasMind now reads what your project actually declares — API paths, GraphQL operations, gRPC methods,
+  migrations, schemas, routes, roles, prompt files — and each becomes something its policy has to cover.
+  Add an endpoint and the obligation exists from that moment; you never write a rule. Uncovered items are
+  listed on the policy card with a link to where each was declared, and the agent doing the work is told
+  the specific item rather than just the methodology name.
+
+  A test counts when it *names* the thing it covers, method included — a GET test says nothing about the
+  POST. Only declared artifacts count: nothing is guessed from your source, because inventing obligations
+  is worse than missing one.
+
+- **Testing policy cards open up.** Each enabled policy on the Testing dashboard is now clickable. It
+  expands to show what the evidence actually is — a chart of passing, skipped and failing cases, a table
+  of the evidence found, and the failing cases with a link to each file. Every finding carries a
+  severity graded by a published rule you can read on the page, so a grade given today means the same
+  as one given last month.
+
+  From the card you can assign an owner (unassigned work falls back to you, and says so), add it to
+  that person's follow-ups with a due date matched to how bad it is, and — for a serious finding —
+  draft a GitHub issue. The issue is always shown before anything is posted; severity decides what gets
+  emphasised, never what gets filed. A policy you switched on but have not built yet gets its own
+  Scaffold framework button, which lists the exact files before creating any.
+
+  The page now leads with **Needs attention**, **Open gaps** and **Unowned** rather than file counts —
+  "43 test files" reads the same whether or not three are failing and nobody owns the gap.
+
+- **The Scaffold framework button is now verified end to end.** Checking it turned up five real
+  faults: a starter file that did not parse, a Command Palette path that skipped the AI-instruction
+  sync, two buttons wired twice so one click ran everything twice, an Auto-assess button left dead
+  after you cancelled its dialog, and a strategy playbook that under-reported the files it had just
+  created. All fixed, and all now covered by tests that parse every file the button writes.
+
+- **Auto-assess now reads your code, not your README.** It used to match every signal word against one
+  blob of text that included three kilobytes of your README — so a project got testing methodologies
+  because of what its own description said about it. On this repository that was twelve policies fired
+  by prose alone, including PCI-DSS and bias & fairness on a VS Code extension that handles neither.
+  It also matched words inside other words, so "rapid" switched on integration testing.
+
+  Now a signal found in your **code** — a dependency, a script, a config file, a directory that exists —
+  ticks the policy and says what it found. A signal found only in your **description** raises it as a
+  proposal, unticked, saying which words prompted it. Nothing is hidden and nothing is more than one
+  keystroke away; auto-assess just stops making the decision for you. Dependencies are read from every
+  manifest now, not only `package.json`, so Python, Rust, Go, Java and .NET projects get a real
+  assessment instead of one based almost entirely on their README.
+
+- **The testing matrix grew from 23 methodologies to 69.** Five new families: drift and integrity
+  checks over your code's own shape, parity and consistency across surfaces and versions, data and
+  schema testing, AI-specific testing (prompt regression, guardrails, model routing, hallucination
+  detection), and twenty-four compliance policies covering security and privacy, operational process,
+  software supply chain, AI governance, and five industry regimes. Each one arrives complete — a
+  plain-language explanation, evidence detection, a place in the archetype recommendations, and a
+  starter file the scaffolder can add to a new or existing project.
+
+- **Compliance policies scaffold a control mapping, not a fake test.** Most of a compliance regime has
+  no assertion behind it — "cryptography is governed by a policy" is not something a test can check, and
+  a stub written for it can never honestly pass or fail. Those policies get a control mapping instead:
+  control, status, evidence, owner, in `project_memory/operations/compliance/`. Controls a machine
+  *can* check — role permissions, audit trails, retention windows, erasure reaching every store, SBOM
+  accuracy, licence policy — still get a real test. Every row starts at **Not assessed**, never at a
+  pass, and the file is never rewritten once you have put decisions in it.
 
 - **A failed promotion step can now be handed straight to Atlas.** Promoting to production and having
   the tests fail used to leave you with a wall of output and no next move. Each failed step now carries
@@ -674,7 +738,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Project planning & Mission Control** | Dependency-aware task plans, previews, checkpoints, resumable runs, and goal evaluation inside limits you set. |
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
-| **Testing strategy** | 23 configurable methodologies with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
+| **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
 | **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |

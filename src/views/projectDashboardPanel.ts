@@ -19,6 +19,7 @@ import {
   type TestingPolicyCoverage,
   type TestingPolicyRow,
 } from '../core/testingPolicyCoverage.js';
+import type { TestingPolicyDetail } from '../core/testingPolicyDetail.js';
 import {
   reconcileTestingPolicy,
   applyTestingReconciliation,
@@ -650,6 +651,13 @@ type ProjectDashboardMessage =
   | { type: 'openGapFiles'; payload: string }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
   | { type: 'reconcileTestingPolicy' }
+  // The webview posts an opaque policy id and nothing else. Every string the
+  // action needs — the scaffold paths, the follow-up text, the issue body — is
+  // rebuilt host-side from that id, so a crafted message can name a policy that
+  // does not exist but can never supply content.
+  | { type: 'scaffoldTestingPolicy'; payload: { policyId: string } }
+  | { type: 'createTestingFollowUp'; payload: { policyId: string } }
+  | { type: 'raiseTestingIssue'; payload: { policyId: string } }
   | { type: 'fixActivatedTesting' }
   | { type: 'openTestingFixChat' }
   | { type: 'discussTestingPolicy'; payload: { id: string } }
@@ -3727,6 +3735,18 @@ export class ProjectDashboardPanel {
       case 'closePullRequest':
         await this.handlePullRequestWrite(message);
         return;
+      case 'scaffoldTestingPolicy':
+        await this.handleScaffoldTestingPolicy(message.payload.policyId);
+        return;
+
+      case 'createTestingFollowUp':
+        await this.handleCreateTestingFollowUp(message.payload.policyId);
+        return;
+
+      case 'raiseTestingIssue':
+        await this.handleRaiseTestingIssue(message.payload.policyId);
+        return;
+
       case 'reconcileTestingPolicy':
         await this.handleReconcileTestingPolicy();
         return;
@@ -7916,6 +7936,208 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Assign (or clear) the Director-owned human owner of host-resolved dashboard work. */
+  /**
+   * Resolves a policy id posted by the webview back to everything an action
+   * needs, rebuilt from the current snapshot.
+   *
+   * Rebuilt rather than trusted: the page may have been open for an hour, and a
+   * severity, a follow-up date or an issue body derived from a stale render
+   * would be a claim about the repository as it no longer is.
+   */
+  private resolveTestingPolicy(policyId: string): {
+    workspaceRoot: string;
+    row: TestingPolicyRow;
+    detail: TestingPolicyDetail;
+  } | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) { return undefined; }
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const row = testing.policyCoverage?.rows.find(candidate => candidate.id === policyId);
+    const detail = testing.policyDetails.details.find(candidate => candidate.id === policyId);
+    if (!row || !detail) { return undefined; }
+    return { workspaceRoot, row, detail };
+  }
+
+  /**
+   * Scaffolds one policy's starter framework.
+   *
+   * Deliberately narrower than the Settings-page button, which scaffolds
+   * everything enabled: a policy switched on last week should be actionable
+   * from the card that reports it, without the user re-running a whole-project
+   * scaffold to reach it. The plan is computed first and the confirmation lists
+   * the exact paths, because "scaffold this" is otherwise a button whose effect
+   * on the working tree is unstated.
+   */
+  private async handleScaffoldTestingPolicy(policyId: string): Promise<void> {
+    const resolved = this.resolveTestingPolicy(policyId);
+    if (!resolved) { return; }
+    const { workspaceRoot, row } = resolved;
+
+    const { planMethodologyScaffold, scaffoldTestingFramework } = await import('../core/testingScaffolder.js');
+    const plan = planMethodologyScaffold(workspaceRoot, row.id);
+    if (!plan.wouldCreate) {
+      void vscode.window.showInformationMessage(
+        plan.paths.length === 0
+          ? `AtlasMind has no starter file for ${row.label} on this stack (${plan.stackLabel}). The strategy playbook carries its set-up guidance instead.`
+          : `${row.label} already has its starter file${plan.paths.length === 1 ? '' : 's'} — nothing to create.`,
+      );
+      return;
+    }
+
+    const willCreate = plan.paths.filter(candidate => !plan.existing.includes(candidate));
+    const confirm = await vscode.window.showInformationMessage(
+      `Create the starter framework for ${row.label}?`,
+      {
+        modal: true,
+        detail: [
+          `Detected stack: ${plan.stackLabel}`,
+          '',
+          `Creates:\n${willCreate.map(candidate => `  • ${candidate}`).join('\n')}`,
+          ...(plan.existing.length > 0 ? ['', `Left untouched (already present):\n${plan.existing.map(candidate => `  • ${candidate}`).join('\n')}`] : []),
+          '',
+          'Nothing existing is overwritten and no manifest is changed.',
+        ].join('\n'),
+      },
+      'Create',
+    );
+    if (confirm !== 'Create') { return; }
+
+    // A config containing only this policy, so the run cannot quietly scaffold
+    // the rest of the matrix as a side effect of one card's button.
+    const result = await scaffoldTestingFramework(workspaceRoot, {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      methodologies: [{ id: row.id, enabled: true }],
+    });
+    const created = result.files.filter(file => file.created).map(file => file.path);
+    void vscode.window.showInformationMessage(
+      created.length > 0
+        ? `${row.label}: created ${created.length} file${created.length === 1 ? '' : 's'}. The strategy playbook was refreshed too.`
+        : `${row.label}: nothing was created. ${result.summary}`,
+    );
+    await this.syncState();
+  }
+
+  /**
+   * Puts a finding on somebody's list.
+   *
+   * The owner is the Director assignment for this policy when one exists, and
+   * otherwise the contact the Director config marks as "me" (`selfContactId`).
+   * Falling back rather than refusing is the point: an unowned follow-up is one
+   * nobody sees, and this repository carried eight unowned testing gaps for
+   * seven weeks. The fallback is stated in the confirmation so a default is
+   * never mistaken for a decision somebody made.
+   */
+  private async handleCreateTestingFollowUp(policyId: string): Promise<void> {
+    const resolved = this.resolveTestingPolicy(policyId);
+    if (!resolved) { return; }
+    const { row, detail } = resolved;
+    if (!detail.followUp) {
+      void vscode.window.showInformationMessage(`${row.label} has nothing outstanding, so there is nothing to add to a list.`);
+      return;
+    }
+
+    const manager = this.atlas.projectDirectorManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      void vscode.window.showWarningMessage('Project Director is not set up yet, so there is no list to add this to. Open the Director page first.');
+      return;
+    }
+
+    const assignment = config.assignments.find(entry =>
+      entry.linkedWork?.kind === 'testing-policy' && entry.linkedWork.id === row.id);
+    const ownerContactId = assignment?.assigneeContactId ?? config.selfContactId;
+    const owner = config.contacts.find(contact => contact.id === ownerContactId);
+    const ownerLabel = owner
+      ? `${owner.name}${assignment?.assigneeContactId ? '' : ' (you — nobody is assigned to this policy)'}`
+      : 'nobody — no owner is configured';
+
+    const due = new Date();
+    due.setDate(due.getDate() + detail.followUp.dueInDays);
+    const dueDate = due.toISOString().slice(0, 10);
+
+    const confirm = await vscode.window.showInformationMessage(
+      `Add this to ${owner ? owner.name + "'s" : 'the'} follow-up list?`,
+      {
+        modal: true,
+        detail: [
+          detail.followUp.title,
+          '',
+          `Owner: ${ownerLabel}`,
+          `Due: ${dueDate} (${detail.followUp.dueInDays} days — from the ${detail.finding.severity} grade)`,
+          '',
+          detail.finding.statement,
+        ].join('\n'),
+      },
+      'Add follow-up',
+    );
+    if (confirm !== 'Add follow-up') { return; }
+
+    const now = new Date().toISOString();
+    const followUps = [...config.followUps, {
+      id: `fu-testing-${row.id}-${Date.now()}`,
+      title: detail.followUp.title,
+      ...(ownerContactId ? { ownerContactId } : {}),
+      dueDate,
+      cadence: 'once' as const,
+      status: 'open' as const,
+      linked: { kind: 'testing-policy', id: row.id },
+      createdAt: now,
+      updatedAt: now,
+      notes: detail.followUp.notes,
+    }];
+
+    const clean = sanitizeProjectDirectorConfig({ ...config, followUps });
+    if (!clean) {
+      void vscode.window.showWarningMessage('The follow-up could not be saved because the Director configuration did not validate. Nothing was changed.');
+      return;
+    }
+    await manager.save(clean);
+    void vscode.window.showInformationMessage(`Added to ${owner ? owner.name + "'s" : 'the'} follow-ups, due ${dueDate}.`);
+    await vscode.commands.executeCommand('atlasmind.refreshProjectState');
+    await this.syncState();
+  }
+
+  /**
+   * Offers to file a serious finding as a GitHub issue.
+   *
+   * Offered, never automatic. An issue is public, permanent and posted in the
+   * user's name, so severity decides what is *emphasised* and nothing more —
+   * which is also what keeps a too-eager severity rule merely noisy rather than
+   * damaging. The draft is built without a model, so the same finding yields
+   * the same text and there is something stable to review.
+   *
+   * Labels are intersected with the repository's own taxonomy before filing,
+   * because an unmatched label is *created* on the repository as a side effect,
+   * silently changing a shared vocabulary.
+   */
+  private async handleRaiseTestingIssue(policyId: string): Promise<void> {
+    const resolved = this.resolveTestingPolicy(policyId);
+    if (!resolved) { return; }
+    const { row, detail } = resolved;
+    if (!detail.issue) {
+      void vscode.window.showInformationMessage(
+        `${row.label} is graded ${detail.finding.severity}. Only a serious finding is offered as an issue — the tracker should not become a copy of this page.`,
+      );
+      return;
+    }
+
+    const declared = new Set((this.taxonomyState?.labels ?? []).map((label: LabelRecord) => label.name));
+    const labels = detail.issue.suggestedLabels.filter((label: string) => declared.has(label));
+    const dropped = detail.issue.suggestedLabels.filter((label: string) => !declared.has(label));
+
+    await this.handleIssueWrite({
+      type: 'createIssue',
+      payload: {
+        title: detail.issue.title,
+        body: dropped.length > 0
+          ? `${detail.issue.body}\n\n_Labels not applied because this repository does not declare them: ${dropped.join(', ')}._`
+          : detail.issue.body,
+        labels,
+      },
+    });
+  }
+
   private async handleAssignDashboardWorkOwner(payload: { targetId: string; contactId: string }): Promise<void> {
     const manager = this.atlas.projectDirectorManager;
     const config = manager?.getConfig();
@@ -8848,6 +9070,18 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['runId'] === 'string' && p['runId'].length > 0
       && typeof p['contactId'] === 'string';
+  }
+
+  if (candidate['type'] === 'scaffoldTestingPolicy'
+    || candidate['type'] === 'createTestingFollowUp'
+    || candidate['type'] === 'raiseTestingIssue') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    // Constrained to an identifier charset rather than merely to a string: the
+    // id is compared against the catalogue, but a permissive check here would
+    // let arbitrary text reach the lookup and any future path built from it.
+    return typeof p === 'object' && p !== null
+      && typeof p['policyId'] === 'string'
+      && /^[a-z0-9-]{1,64}$/.test(p['policyId']);
   }
 
   if (candidate['type'] === 'assignDashboardWorkOwner') {
@@ -10256,6 +10490,21 @@ function buildDashboardWorkTargets(
     add({
       kind: 'debt', stableId: entry.id, title: entry.title, page: 'debt',
       status: entry.status === 'scheduled' ? 'in-progress' : 'todo', priority: entry.severity,
+    });
+  }
+  // Only policies with something outstanding. Registering a clear one would put
+  // an assignable row on the board for work that does not exist, and the
+  // Director's list is only useful while everything on it is real.
+  for (const detail of (snapshot.testing.policyDetails?.details ?? []).filter(entry => entry.finding.severity !== 'none')) {
+    const row = snapshot.testing.policyCoverage?.rows.find(candidate => candidate.id === detail.id);
+    if (!row) { continue; }
+    add({
+      kind: 'testing-policy',
+      stableId: detail.id,
+      title: `Testing: ${row.label}`,
+      page: 'testing',
+      status: 'todo',
+      priority: detail.finding.severity === 'serious' ? 'high' : detail.finding.severity === 'low' ? 'low' : 'medium',
     });
   }
   for (const document of snapshot.documents.autoUpdate.filter(document => document.status === 'missing' || document.status === 'review-due')) {
@@ -19650,6 +19899,39 @@ const DASHBOARD_CSS = `
   .policy-card-detail { font-size: 0.8em; line-height: 1.4; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
   .policy-card-signals { font-size: 0.76em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
   .policy-card .tag-row { margin-top: 2px; gap: 6px; }
+
+  /* Expandable policy cards. The whole header is the control, so the target is
+     the card rather than a chevron somebody has to aim at. */
+  .policy-card-toggle { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 0; margin: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .policy-card-toggle:hover .policy-card-title strong { text-decoration: underline; }
+  .policy-card-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; border-radius: 6px; }
+  .policy-card-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .policy-card-chevron { font-size: 0.8em; opacity: 0.75; }
+  .policy-card-statement { font-size: 0.8em; line-height: 1.4; color: var(--vscode-foreground); overflow-wrap: anywhere; }
+  .policy-card.is-expanded { background: var(--vscode-editor-background, transparent); }
+  /* Severity is an emphasis on top of status, never a replacement: status says
+     what the evidence is, severity says how much it matters. */
+  .policy-card.severity-serious { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical, #f14c4c) 45%, transparent) inset; }
+  .policy-card-body { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); }
+  .policy-grade { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.8em; }
+  .policy-owner-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.8em; }
+  .policy-card-actions { margin-top: 2px; }
+  .policy-rule-table { margin-top: 12px; font-size: 0.82em; }
+  .policy-rule-table > summary { cursor: pointer; color: var(--vscode-textLink-foreground); }
+  .policy-rule-table > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+  /* Compact data table shared by the policy detail panes. */
+  .mini-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+  .mini-table caption { text-align: left; padding-bottom: 4px; }
+  .mini-table th, .mini-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); overflow-wrap: anywhere; vertical-align: top; }
+  .mini-table thead th { color: var(--vscode-descriptionForeground); font-weight: 600; }
+  .mini-table tbody th { color: var(--vscode-descriptionForeground); font-weight: 500; white-space: nowrap; }
+  .mini-table tr:last-child th, .mini-table tr:last-child td { border-bottom: 0; }
+
+  .tag.tag-muted { opacity: 0.75; }
+  /* The one action on a card that reaches outside the repository. It is still
+     a confirmation away, so this is emphasis rather than a warning. */
+  .action-link.action-link-strong { font-weight: 600; }
   .policy-report-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 0.84em; margin-top: 4px; }
   .policy-report-line code { font-size: 0.92em; overflow-wrap: anywhere; }
   /* An indeterminate progress element says "working" without pretending the

@@ -253,6 +253,14 @@
     repositoryRefreshBusy: false,
     /** Explicit remote-ref fetch progress; separate because it mutates cached refs. */
     branchFetchBusy: false,
+    /**
+     * Testing policy cards the reader has opened.
+     *
+     * Ids rather than a single open card: comparing two policies is the common
+     * reason to expand one at all, and an accordion that closes the other makes
+     * that impossible.
+     */
+    testingExpandedIds: [],
     /** Opaque branch id whose on-demand review evidence is currently loading. */
     branchInspectionBusyId: '',
     /** One host-backed branch write workflow at a time. */
@@ -798,6 +806,29 @@
         : state.branchExpandedIds.concat(payload);
       refocusAfterRender = 'button[data-action="branch-card-toggle"][data-payload="' + cssEscape(payload) + '"]';
       render();
+      return;
+    }
+    if (action === 'testing-policy-toggle') {
+      if (!payload) { return; }
+      state.testingExpandedIds = state.testingExpandedIds.includes(payload)
+        ? state.testingExpandedIds.filter(id => id !== payload)
+        : state.testingExpandedIds.concat(payload);
+      refocusAfterRender = 'button[data-action="testing-policy-toggle"][data-payload="' + cssEscape(payload) + '"]';
+      render();
+      return;
+    }
+    if (action === 'testing-policy-scaffold' || action === 'testing-policy-followup'
+      || action === 'testing-policy-issue') {
+      if (!payload) { return; }
+      // The webview posts the policy id and nothing else. Every string these
+      // actions need is rebuilt host-side, so a crafted message can name a
+      // policy but can never supply a command, a file path or an issue body.
+      vscode.postMessage({
+        type: action === 'testing-policy-scaffold' ? 'scaffoldTestingPolicy'
+          : action === 'testing-policy-followup' ? 'createTestingFollowUp'
+          : 'raiseTestingIssue',
+        payload: { policyId: payload },
+      });
       return;
     }
     if (action === 'branch-toggle-all') {
@@ -3854,7 +3885,59 @@
     // coverage report has been generated.
     const coverageParsed = parseFloat(String(testing.coveragePercent || ''));
     const coveragePercentValue = Number.isFinite(coverageParsed) ? Math.max(0, Math.min(100, coverageParsed)) : null;
+    // Severity-led, because the descriptive cards below cannot answer the
+    // question somebody opens this page with. "43 test files" reads identically
+    // whether or not three of them are failing and nobody owns the gap.
+    const detailSet = testing.policyDetails || { details: [], counts: {}, summary: '', rules: [] };
+    const findings = (detailSet.details || []).filter(entry => entry.finding && entry.finding.severity !== 'none');
+    const seriousCount = (detailSet.counts && detailSet.counts.serious) || 0;
+    const openCount = findings.length;
+    const unownedCount = findings.filter(entry => !policyHasOwner(entry.id)).length;
+    const reportKnown = testingHasReport();
+
     const testingStats = [
+      {
+        id: 'attention',
+        label: 'Needs attention',
+        value: String(seriousCount),
+        detail: seriousCount > 0
+          ? 'Failing tests, or a security/compliance policy with no evidence at all.'
+          : openCount > 0
+            ? 'Nothing serious. Some policies still have a gap to close.'
+            : 'No policy is failing or unevidenced.',
+        tone: seriousCount > 0 ? 'critical' : openCount > 0 ? 'warn' : 'good',
+      },
+      {
+        id: 'open-gaps',
+        label: 'Open gaps',
+        value: String(openCount),
+        detail: openCount > 0
+          ? 'Enabled policies with something outstanding. Open a card to see the evidence and act on it.'
+          : 'Every enabled policy has evidence.',
+        tone: openCount > 0 ? 'warn' : 'good',
+      },
+      {
+        id: 'unowned',
+        label: 'Unowned',
+        value: String(unownedCount),
+        detail: unownedCount > 0
+          ? `Gaps with nobody assigned. Follow-ups default to ${directorSelfName() || 'you'} until somebody is.`
+          : openCount > 0 ? 'Every open gap has an owner.' : 'Nothing outstanding to own.',
+        tone: unownedCount > 0 ? 'warn' : 'good',
+      },
+      {
+        id: 'verdict',
+        label: 'Last run',
+        // A project with no report has no verdict about failures, and reporting
+        // that as "0 failing" would be the one wrong answer that looks right.
+        value: reportKnown ? String((testing.policyCoverage && testing.policyCoverage.report.failed) || 0) : 'No report',
+        detail: reportKnown
+          ? 'Failing cases in the newest machine-readable report.'
+          : 'No test report has been produced, so pass/fail is unknown — which is not the same as passing.',
+        tone: reportKnown
+          ? (((testing.policyCoverage && testing.policyCoverage.report.failed) || 0) > 0 ? 'critical' : 'good')
+          : 'warn',
+      },
       { id: 'fw', label: 'Framework', value: testing.frameworkLabel, detail: 'Detected from scripts and dependencies.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
       { id: 'policy', label: 'Testing policy', value: testing.testingPolicyLabel || 'Red-Green TDD', detail: testing.testingPolicyDetail || 'Default Atlas tests-first policy.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
       { id: 'files', label: 'Discovered files', value: String(testing.totalFiles), detail: `${testing.unitFiles} unit • ${testing.integrationFiles} integration • ${testing.e2eFiles} e2e`, tone: testing.totalFiles > 0 ? 'good' : 'warn', command: 'atlasmind.openSettingsTesting' },
@@ -3867,7 +3950,7 @@
         ${renderPageIntro({
           kicker: 'Testing intelligence',
           title: 'How this project proves itself',
-          summary: `${testing.frameworkLabel} with ${testing.totalFiles} test file${testing.totalFiles === 1 ? '' : 's'} and ${testCount} individual test${testCount === 1 ? '' : 's'}. Policy: ${testing.testingPolicyLabel || 'Red-Green TDD'}. Verification is ${testing.verificationEnabled ? 'on' : 'off'}. Tap a card to open the matching settings, or browse every test below.`,
+          summary: `${detailSet.summary || ''} ${testing.frameworkLabel} with ${testing.totalFiles} test file${testing.totalFiles === 1 ? '' : 's'} and ${testCount} individual test${testCount === 1 ? '' : 's'}. Open a policy card below for its evidence, charts and actions.`.trim(),
           chips: [
             { label: `${testing.totalFiles} files`, tone: testing.totalFiles > 0 ? 'good' : 'warn' },
             { label: testing.verificationEnabled ? 'Verification on' : 'Verification off', tone: testing.verificationEnabled ? 'good' : 'warn' },
@@ -4147,6 +4230,173 @@
   // and is any of it failing? Deliberately distinguishes "no tests" from "no
   // report to read" — a panel that renders 0 failures when nothing ran is worse
   // than one that admits it has no verdict.
+  /**
+   * The opened half of a policy card: what the evidence actually is, who owns
+   * it, and the moves available.
+   *
+   * Rendered only when open. Sixty-nine collapsed cards each carrying a chart
+   * and three tables is a page nobody scrolls, and the whole reason the card
+   * collapses is that most policies are fine most of the time.
+   */
+  function renderPolicyCardDetail(row, detail) {
+    const finding = detail && detail.finding;
+    const caseMix = detail && detail.caseMix;
+
+    // Charts. A policy with no cases gets no bar at all rather than an empty
+    // one: "nothing runs" and "nothing could be measured" look identical as an
+    // empty bar and only one of them is a finding.
+    const mixBar = caseMix
+      ? renderDistributionBar(`policy-mix-${row.id}`, [
+        { label: 'Passing', value: caseMix.passing, tone: 'good' },
+        { label: 'Skipped', value: caseMix.skipped, tone: 'warn' },
+        { label: 'Failing', value: caseMix.failing, tone: 'critical' },
+      ], {
+        title: 'Cases in this policy’s tests',
+        caption: `${caseMix.passing + caseMix.skipped + caseMix.failing} case(s)`,
+      })
+      : `<div class="dist-empty">${escapeHtml(row.status === 'not-file-evident'
+        ? 'A practice, so there are no cases to chart — that is not a gap.'
+        : 'No test cases were found for this policy, so there is nothing to chart.')}</div>`;
+
+    const evidenceRows = [
+      ['Status', row.statusLabel],
+      ['Test files', String(row.fileCount)],
+      ['Cases', String(row.caseCount)],
+      ['Skipped', String(row.skippedCount)],
+      ['Failing', row.failedCount > 0 ? String(row.failedCount) : (testingHasReport() ? '0' : 'Unknown — no report')],
+      ['Tooling found', (row.toolingSignals || []).length > 0 ? row.toolingSignals.join(', ') : 'None detected'],
+    ];
+
+    const failures = (row.failures || []).slice(0, 12);
+
+    const ownerControl = renderDirectorOwnerControl('testing-policy', row.id);
+    const selfName = directorSelfName();
+
+    return `
+      <div class="policy-card-body">
+        <p class="policy-card-detail">${escapeHtml(row.detail)}</p>
+
+        ${finding && finding.severity !== 'none' ? `
+          <div class="policy-grade">
+            <span class="tag ${finding.severity === 'serious' ? 'tag-critical' : finding.severity === 'moderate' ? 'tag-warn' : 'tag-muted'}">${escapeHtml(finding.severity)}</span>
+            <span class="list-meta">Graded by the rule: ${escapeHtml(finding.rule)}</span>
+          </div>` : ''}
+        ${finding && finding.unverified ? `
+          <div class="policy-grade">
+            <span class="tag tag-warn">Unverified</span>
+            <span class="list-meta">Evidence exists, but no test report has been produced — so nothing here has actually been run.</span>
+          </div>` : ''}
+
+        <div class="panel-grid" style="margin-top:10px">
+          ${mixBar}
+          <table class="mini-table policy-evidence-table">
+            <caption class="section-kicker">Evidence</caption>
+            <tbody>
+              ${evidenceRows.map(entry => `
+                <tr><th scope="row">${escapeHtml(entry[0])}</th><td>${escapeHtml(entry[1])}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        ${renderPolicySubjects(row)}
+
+        ${failures.length > 0 ? `
+          <table class="mini-table policy-failure-table">
+            <caption class="section-kicker">Failing cases${row.failedCount > failures.length ? ` (first ${failures.length} of ${row.failedCount})` : ''}</caption>
+            <thead><tr><th scope="col">Case</th><th scope="col">Suite</th><th scope="col">File</th></tr></thead>
+            <tbody>
+              ${failures.map(failure => `
+                <tr>
+                  <td>${escapeHtml(failure.name || 'unnamed')}</td>
+                  <td>${escapeHtml(failure.suite || '—')}</td>
+                  <td>${failure.file
+                    ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(failure.file)}">${escapeHtml(failure.file)}</button>`
+                    : '—'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>` : ''}
+
+        <div class="policy-owner-row">
+          ${ownerControl || `<span class="list-meta">Add people in Project Director to assign an owner.</span>`}
+          ${ownerControl && !policyHasOwner(row.id) ? `<span class="list-meta">Unassigned — follow-ups default to ${escapeHtml(selfName || 'you')}.</span>` : ''}
+        </div>
+
+        <div class="tag-row policy-card-actions">
+          ${row.exampleFile ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(row.exampleFile)}">Open a test</button>` : ''}
+          ${detail && detail.scaffoldable ? `<button type="button" class="action-link" data-action="testing-policy-scaffold" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Create the starter framework for ${row.label} only. The exact files are listed before anything is written.`)}">Scaffold framework</button>` : ''}
+          ${detail && detail.followUp ? `<button type="button" class="action-link" data-action="testing-policy-followup" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Add ${row.label} to the owner’s follow-ups`)}">Add to follow-ups</button>` : ''}
+          ${detail && detail.issue ? `<button type="button" class="action-link action-link-strong" data-action="testing-policy-issue" data-payload="${escapeAttr(row.id)}" title="${escapeAttr('Draft a GitHub issue for this finding. The draft is shown before anything is posted.')}">File as issue…</button>` : ''}
+          ${renderAtlasDiscussAction('discuss-testing-policy', row.id, 'Ask Atlas', { title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options` })}
+          ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
+        </div>
+      </div>`;
+  }
+
+  /**
+   * The declared work this policy covers, and what has no test naming it.
+   *
+   * The case a methodology-level board cannot show: `contract` reads `Tested`
+   * because one contract test exists, while forty endpoints added since have
+   * nothing. Uncovered first, because that is the actionable half; covered ones
+   * are summarised rather than listed, since a hundred green rows bury them.
+   */
+  function renderPolicySubjects(row) {
+    const testing = (state.snapshot || {}).testing || {};
+    const view = testing.policySubjects || { coverage: [], extractablePolicies: [] };
+    const extractable = (view.extractablePolicies || []).includes(row.id);
+    if (!extractable) {
+      // Silence would read as "nothing outstanding". Most policies genuinely
+      // have nothing enumerable, and saying so is not the same as a clean bill.
+      return `<p class="list-meta">No declared items to enumerate for this policy — its evidence is judged at the policy level.</p>`;
+    }
+    const mine = (view.coverage || []).filter(entry => entry.subject && entry.subject.policyId === row.id);
+    if (mine.length === 0) {
+      return `<p class="list-meta">Nothing declared for this policy to cover yet. Adding an API path, migration, route or role here creates an item automatically.</p>`;
+    }
+    const uncovered = mine.filter(entry => !entry.covered);
+    const shown = uncovered.slice(0, 25);
+    if (uncovered.length === 0) {
+      return `<p class="list-meta">All ${mine.length} declared item${mine.length === 1 ? '' : 's'} ${mine.length === 1 ? 'has' : 'have'} a test naming ${mine.length === 1 ? 'it' : 'them'}.</p>`;
+    }
+    return `
+      <table class="mini-table policy-subject-table">
+        <caption class="section-kicker">Declared items with no test naming them (${uncovered.length} of ${mine.length})</caption>
+        <thead><tr><th scope="col">Item</th><th scope="col">Declared in</th></tr></thead>
+        <tbody>
+          ${shown.map(entry => `
+            <tr>
+              <td><code>${escapeHtml(entry.subject.label)}</code></td>
+              <td><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.subject.source)}">${escapeHtml(entry.subject.source)}</button></td>
+            </tr>`).join('')}
+          ${uncovered.length > shown.length ? `<tr><td colspan="2" class="list-meta">…and ${uncovered.length - shown.length} more.</td></tr>` : ''}
+        </tbody>
+      </table>
+      <p class="list-meta">A test counts when it names the item — a test that never mentions the endpoint it covers is not evidence that it does.</p>`;
+  }
+
+  /** True when the last snapshot carried a machine-readable test report. */
+  function testingHasReport() {
+    const testing = (state.snapshot || {}).testing || {};
+    return Boolean(testing.policyCoverage && testing.policyCoverage.report);
+  }
+
+  /** The name the Director config marks as "me", for the default-assignee line. */
+  function directorSelfName() {
+    const cfg = (state.snapshot || {}).director && state.snapshot.director.config;
+    if (!cfg || !cfg.selfContactId) { return ''; }
+    const self = (cfg.contacts || []).find(contact => contact.id === cfg.selfContactId);
+    return self ? self.name : '';
+  }
+
+  function policyHasOwner(policyId) {
+    const cfg = (state.snapshot || {}).director && state.snapshot.director.config;
+    if (!cfg) { return false; }
+    return (cfg.assignments || []).some(entry => entry.linkedWork
+      && entry.linkedWork.kind === 'testing-policy'
+      && entry.linkedWork.id === String(policyId)
+      && entry.assigneeContactId);
+  }
+
   function renderPolicyCoverage(testing) {
     const coverage = testing.policyCoverage;
     if (!coverage || !Array.isArray(coverage.rows)) {
@@ -4173,7 +4423,15 @@
         </div>
         <div class="policy-report-line"><code>${escapeHtml(coverage.reportHint)}</code></div>`;
 
+    const detailSet = testing.policyDetails || { details: [], counts: {}, rules: [] };
+    const detailById = new Map((detailSet.details || []).map(entry => [entry.id, entry]));
+
     const cards = rows.map(row => {
+      const detail = detailById.get(row.id);
+      const finding = detail && detail.finding;
+      const severity = finding ? finding.severity : 'none';
+      const expanded = state.testingExpandedIds.includes(row.id);
+
       const tone = row.failedCount > 0 ? 'tag-critical'
         : row.status === 'covered' ? 'tag-good'
         : row.status === 'tooling-only' ? 'tag-warn'
@@ -4186,29 +4444,27 @@
         if (row.skippedCount > 0) { counts.push(`${row.skippedCount} skipped`); }
         if (row.failedCount > 0) { counts.push(`${row.failedCount} failing`); }
       }
+
       return `
-        <div class="policy-card status-${escapeAttr(row.status)}${row.failedCount > 0 ? ' has-failures' : ''}">
-          <div class="policy-card-head">
-            <strong>${escapeHtml(row.label)}</strong>
-            <div class="policy-card-head-actions">
-              <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
-              ${renderAtlasDiscussAction(
-                'discuss-testing-policy',
-                row.id,
-                'Ask Atlas',
-                {
-                  title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options`,
-                },
-              )}
-            </div>
-          </div>
-          ${counts.length > 0 ? `<div class="policy-card-signals">${escapeHtml(counts.join(' · '))}</div>` : ''}
-          <div class="policy-card-detail">${escapeHtml(row.detail)}</div>
-          ${(row.toolingSignals || []).length > 0 ? `<div class="policy-card-signals">Tooling: ${escapeHtml(row.toolingSignals.join(', '))}</div>` : ''}
-          <div class="tag-row">
-            ${row.exampleFile ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(row.exampleFile)}">Open a test</button>` : ''}
-            ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this testing policy' : row.status === 'covered' ? 'Ask AtlasMind to review this testing policy' : 'Ask AtlasMind to write tests for this policy', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
-          </div>
+        <div class="policy-card status-${escapeAttr(row.status)} severity-${escapeAttr(severity)}${row.failedCount > 0 ? ' has-failures' : ''}${expanded ? ' is-expanded' : ''}"
+          data-dashboard-focus-kind="testing-policy" data-dashboard-focus-id="${escapeAttr(row.id)}">
+          <button type="button" class="policy-card-toggle" data-action="testing-policy-toggle" data-payload="${escapeAttr(row.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}"
+            title="${escapeAttr(expanded ? `Collapse ${row.label}` : `Show evidence, charts and actions for ${row.label}`)}">
+            <span class="policy-card-head">
+              <span class="policy-card-title">
+                <span class="policy-card-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+                <strong>${escapeHtml(row.label)}</strong>
+              </span>
+              <span class="policy-card-head-actions">
+                ${severity !== 'none' ? `<span class="tag ${severity === 'serious' ? 'tag-critical' : severity === 'moderate' ? 'tag-warn' : 'tag-muted'}">${escapeHtml(severity)}</span>` : ''}
+                <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+              </span>
+            </span>
+            ${counts.length > 0 ? `<span class="policy-card-signals">${escapeHtml(counts.join(' · '))}</span>` : ''}
+            ${finding && finding.statement ? `<span class="policy-card-statement">${escapeHtml(finding.statement)}</span>` : ''}
+          </button>
+          ${expanded ? renderPolicyCardDetail(row, detail) : ''}
         </div>`;
     }).join('');
 
@@ -4252,6 +4508,21 @@
           </div>
         </div>
         <div class="policy-grid">${cards || '<div class="dashboard-empty">Enable the policies this project follows to see what each has to show for itself.</div>'}</div>
+        ${(detailSet.rules || []).length > 0 ? `
+          <details class="policy-rule-table">
+            <summary>How these are graded</summary>
+            <p class="list-meta">Severity comes from this table and never from a model, so a grade given today is comparable with one given last month. Rules are evaluated in order and the first match wins.</p>
+            <table class="mini-table">
+              <thead><tr><th scope="col">Severity</th><th scope="col">Rule</th></tr></thead>
+              <tbody>
+                ${detailSet.rules.map(rule => `
+                  <tr>
+                    <td><span class="tag ${rule.severity === 'serious' ? 'tag-critical' : rule.severity === 'moderate' ? 'tag-warn' : rule.severity === 'low' ? 'tag-muted' : 'tag-good'}">${escapeHtml(rule.severity)}</span></td>
+                    <td>${escapeHtml(rule.label)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </details>` : ''}
         ${failureItems.length > 0 ? `
           <p class="section-kicker" style="margin-top:16px">Failing tests in the last report</p>
           <div class="policy-failure-list">
@@ -4302,11 +4573,18 @@
   ];
 
   const METHODOLOGY_CATEGORIES = [
-    { key: 'design-time',    label: 'Design-time' },
-    { key: 'structural',     label: 'Structural' },
-    { key: 'behavioral',     label: 'Behavioral' },
-    { key: 'non-functional', label: 'Non-functional' },
-    { key: 'exploratory',    label: 'Exploratory' },
+    { key: 'design-time',              label: 'Design-time' },
+    { key: 'structural',               label: 'Structural' },
+    { key: 'behavioral',               label: 'Behavioral' },
+    { key: 'non-functional',           label: 'Non-functional' },
+    { key: 'data-schema',              label: 'Data & schema' },
+    { key: 'ai-specific',              label: 'AI-specific' },
+    { key: 'exploratory',              label: 'Exploratory' },
+    { key: 'compliance-security',      label: 'Compliance — security & privacy' },
+    { key: 'compliance-operational',   label: 'Compliance — operational' },
+    { key: 'compliance-supply-chain',  label: 'Compliance — supply chain' },
+    { key: 'compliance-ai',            label: 'Compliance — AI governance' },
+    { key: 'compliance-industry',      label: 'Compliance — industry' },
   ];
 
   function getMethodologyDefinitions(testing) {

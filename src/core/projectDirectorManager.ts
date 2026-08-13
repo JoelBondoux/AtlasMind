@@ -319,7 +319,16 @@ const FOLLOWUP_CADENCES: FollowUpCadence[] = ['once', 'daily', 'weekly', 'biweek
 const TEAM_MODES: ProjectTeamMode[] = ['solo', 'team', 'auto'];
 const DIRECTORY_SOURCES = ['m365', 'slack', 'google', 'buzz', 'local'];
 const CONTACT_KINDS = ['person', 'group', 'org'];
-const LINKED_KINDS = ['stakeholder', 'teamMember', 'assignment', 'responsibility', 'run', 'none'];
+/**
+ * What a follow-up may point at.
+ *
+ * A whitelist, so an unrecognised kind becomes `none` rather than being carried
+ * through — the follow-up survives, but its link is dropped. That is the right
+ * failure for hand-edited or foreign data, and it means every surface that
+ * creates a linked follow-up has to be listed here or its link silently
+ * disappears on the first save.
+ */
+const LINKED_KINDS = ['stakeholder', 'teamMember', 'assignment', 'responsibility', 'run', 'testing-policy', 'none'];
 /** Deep-link schemes AtlasMind will launch. `http:` is intentionally excluded. */
 const ALLOWED_DEEPLINK_SCHEMES = ['mailto', 'tel', 'sms', 'slack', 'msteams', 'zoommtg', 'https'];
 

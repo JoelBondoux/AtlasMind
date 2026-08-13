@@ -344,30 +344,13 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.scaffoldTestingFramework', async () => {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!workspaceRoot) {
-        void vscode.window.showInformationMessage('No workspace open — open a folder first.');
-        return;
-      }
-      const { readProjectTestingConfig } = await import('./core/testingConfigLoader.js');
-      const config = readProjectTestingConfig(workspaceRoot);
-      if (!config) {
-        void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
-        return;
-      }
-      const confirm = await vscode.window.showInformationMessage(
-        'Scaffold the testing framework for the enabled methodologies? Existing files are never overwritten.',
-        { modal: true },
-        'Scaffold',
-      );
-      if (confirm !== 'Scaffold') { return; }
-      const { scaffoldTestingFramework } = await import('./core/testingScaffolder.js');
-      const result = await scaffoldTestingFramework(workspaceRoot, config);
-      if (result.success) {
-        void vscode.window.showInformationMessage(result.summary);
-      } else {
-        void vscode.window.showWarningMessage(result.summary);
-      }
+      // Delegates rather than reimplementing. This command used to scaffold the
+      // files and stop — no outbound protocol sync — so running it from the
+      // palette left every external AI tool reading the previous methodology
+      // set while the repository had just been scaffolded for the new one, and
+      // its dialog never mentioned a sync so nothing looked wrong.
+      const { runTestingScaffoldWithSync } = await import('./views/settingsPanel.js');
+      await runTestingScaffoldWithSync(getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.compareModels', async () => {
