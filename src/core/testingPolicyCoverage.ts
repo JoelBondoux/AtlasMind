@@ -70,6 +70,15 @@ export interface TestingPolicyRow {
   detail: string;
   /** A representative file to open, when one exists. */
   exampleFile?: string;
+  /**
+   * Every test file whose path evidences this policy.
+   *
+   * Exposed for subject-level coverage: deciding whether a *particular* endpoint
+   * or migration is tested means reading the sources that claim to test this
+   * policy, and recomputing the match outside would be a second copy of the
+   * marker rules. Bounded, because the list is carried into a webview payload.
+   */
+  files: string[];
   /** Chat prompt that addresses this row's gap (or reviews its failures). */
   actionPrompt: string;
   failures: TestingPolicyFailure[];
@@ -536,6 +545,28 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   exploratory: { practiceOnly: true },
   'agile-testing': { practiceOnly: true },
 };
+
+/**
+ * Which of these test files evidence which policy.
+ *
+ * Exported so subject-level coverage can be computed without a second copy of
+ * the marker rules — the Testing dashboard and the agent obligation prompt both
+ * need this mapping, and two implementations would eventually disagree about
+ * whether a given test counts, which is exactly the kind of drift that makes a
+ * dashboard number untrustworthy.
+ */
+export function matchTestFilesToPolicies(
+  enabled: readonly TestingMethodologyId[],
+  testFilePaths: readonly string[],
+): Map<TestingMethodologyId, string[]> {
+  const matched = new Map<TestingMethodologyId, string[]>();
+  for (const id of enabled) {
+    const markers = POLICY_MARKERS[id];
+    if (!markers || markers.practiceOnly) { continue; }
+    matched.set(id, testFilePaths.filter(candidate => fileEvidencesPolicy(candidate, markers)));
+  }
+  return matched;
+}
 
 // ── Plain-language guidance ──────────────────────────────────────
 
@@ -1172,6 +1203,7 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       toolingSignals,
       detail,
       ...(matchingFiles[0] ? { exampleFile: matchingFiles[0].relativePath } : {}),
+      files: matchingFiles.slice(0, 200).map(file => file.relativePath),
       actionPrompt: buildActionPrompt(id, label, status, failures),
       failures,
     };

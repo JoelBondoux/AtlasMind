@@ -62,6 +62,11 @@ export const TESTING_SEVERITY_RULES = [
     label: 'An enabled policy has no evidence at all',
   },
   {
+    id: 'uncovered-subjects',
+    severity: 'moderate' as const,
+    label: 'Declared work this policy covers has appeared with no test naming it',
+  },
+  {
     id: 'tooling-only',
     severity: 'low' as const,
     label: 'The tooling is installed but nothing tests with it yet',
@@ -125,7 +130,12 @@ const RULE_LABEL = new Map(TESTING_SEVERITY_RULES.map(rule => [rule.id, rule.lab
 /** Grades one policy against the declared table. */
 export function gradeTestingPolicy(
   row: Pick<TestingPolicyRow, 'id' | 'label' | 'category' | 'status' | 'caseCount' | 'skippedCount' | 'failedCount'>,
-  options: { hasReport: boolean },
+  options: {
+    hasReport: boolean;
+    /** Declared subjects for this policy with no test naming them. */
+    uncoveredSubjects?: number;
+    totalSubjects?: number;
+  },
 ): TestingPolicyFinding {
   const finish = (ruleId: TestingSeverityRuleId, statement: string): TestingPolicyFinding => {
     const rule = TESTING_SEVERITY_RULES.find(entry => entry.id === ruleId)!;
@@ -156,6 +166,16 @@ export function gradeTestingPolicy(
   }
   if (row.status === 'tooling-only') {
     return finish('tooling-only', `${row.label} has its tooling installed but no tests written with it yet.`);
+  }
+  // The case a methodology-level check cannot see: the policy has evidence, and
+  // the repository has since grown work that evidence does not reach. One
+  // contract test from March kept this green through forty new endpoints.
+  if (options.uncoveredSubjects && options.uncoveredSubjects > 0) {
+    const total = options.totalSubjects ?? options.uncoveredSubjects;
+    return finish(
+      'uncovered-subjects',
+      `${options.uncoveredSubjects} of ${total} thing${total === 1 ? '' : 's'} ${row.label} covers ${options.uncoveredSubjects === 1 ? 'has' : 'have'} no test naming ${options.uncoveredSubjects === 1 ? 'it' : 'them'}.`,
+    );
   }
   if (row.caseCount > 0 && row.skippedCount >= row.caseCount) {
     return finish('skipped', `Every test for ${row.label} is skipped, so none of it actually runs.`);
@@ -273,6 +293,14 @@ export interface TestingPolicyDetail {
    * does nothing.
    */
   scaffoldable: boolean;
+  /**
+   * Declared subjects for this policy, and how many lack a test naming them.
+   *
+   * Absent when no extractor exists for the policy — which is not the same as
+   * zero. Sixty-two of the sixty-nine have nothing enumerable, and reporting
+   * `0 uncovered` for exploratory testing would read as complete.
+   */
+  subjects?: { total: number; uncovered: number };
 }
 
 export interface TestingPolicyDetailSet {
@@ -296,13 +324,19 @@ export function deriveTestingPolicyDetails(
   options: {
     /** Ids for which a starter framework could still be created. */
     scaffoldable?: ReadonlySet<string>;
+    /** Per policy: declared subjects, and how many have no test naming them. */
+    subjects?: ReadonlyMap<string, { total: number; uncovered: number }>;
   } = {},
 ): TestingPolicyDetailSet {
   const rows = coverage?.rows ?? [];
   const hasReport = Boolean(coverage?.report);
 
   const details = rows.map((row): TestingPolicyDetail => {
-    const finding = gradeTestingPolicy(row, { hasReport });
+    const tally = options.subjects?.get(row.id);
+    const finding = gradeTestingPolicy(row, {
+      hasReport,
+      ...(tally ? { uncoveredSubjects: tally.uncovered, totalSubjects: tally.total } : {}),
+    });
     const passing = Math.max(0, row.caseCount - row.skippedCount - row.failedCount);
     return {
       id: row.id,
@@ -314,6 +348,7 @@ export function deriveTestingPolicyDetails(
       // evidenced does not need a starter file, and a practice never has one.
       scaffoldable: Boolean(options.scaffoldable?.has(row.id))
         && (row.status === 'missing' || row.status === 'tooling-only'),
+      ...(tally ? { subjects: tally } : {}),
     };
   });
 

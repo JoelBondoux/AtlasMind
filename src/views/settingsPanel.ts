@@ -22,6 +22,12 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { COMPLIANCE_EVIDENCE_DIR, deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { assessTestingMethodologies, type ProjectTestingEvidence } from '../core/testingAutoAssess.js';
 import { deriveTestingPolicyDetails, type TestingPolicyDetailSet } from '../core/testingPolicyDetail.js';
+import {
+  emptyTestingSubjectReport,
+  toTestingSubjectView,
+  type TestingSubjectView,
+} from '../core/testingSubjects.js';
+import { scanTestingSubjects } from '../core/testingSubjectScan.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
@@ -210,6 +216,14 @@ export interface TestingDashboardSnapshot {
    * Settings page cannot disagree about how bad a policy's state is.
    */
   policyDetails: TestingPolicyDetailSet;
+  /**
+   * Declared work each policy covers, and whether a test names it.
+   *
+   * Separate from `policyCoverage`, which answers the methodology-level
+   * question. A policy can be `covered` and still have twenty endpoints nothing
+   * tests — which is the case this exists to surface.
+   */
+  policySubjects: TestingSubjectView;
 }
 
 interface LocalHardwareSnapshot {
@@ -6328,6 +6342,7 @@ export function collectTestingDashboardSnapshot(
       // No workspace means nothing was assessed, which the derivation states in
       // its own summary rather than reporting an empty set as a clean bill.
       policyDetails: deriveTestingPolicyDetails(undefined),
+      policySubjects: toTestingSubjectView(emptyTestingSubjectReport()),
     };
   }
 
@@ -6440,6 +6455,14 @@ export function collectTestingDashboardSnapshot(
     configFiles: [...configFiles, ...probePolicyConfigFiles(workspaceRoot)],
   };
 
+  // The same scan the Orchestrator reads when it builds the obligation prompt,
+  // so a page saying an endpoint is untested and the turn that touched it can
+  // never disagree.
+  const policySubjects = scanTestingSubjects(
+    workspaceRoot,
+    policyCoverage.rows.map(row => row.id),
+  );
+
   const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
   const coverage = parseLcovCoverage(coverageInfoPath);
   const coverageReportRelativePath = existsSync(path.join(workspaceRoot, 'coverage', 'lcov-report', 'index.html'))
@@ -6480,7 +6503,9 @@ export function collectTestingDashboardSnapshot(
     policyCoverage,
     policyDetails: deriveTestingPolicyDetails(policyCoverage, {
       scaffoldable: scaffoldableMethodologies(workspaceRoot, policyCoverage.rows.map(row => row.id)),
+      subjects: policySubjects.byPolicy,
     }),
+    policySubjects: toTestingSubjectView(policySubjects),
   };
 }
 

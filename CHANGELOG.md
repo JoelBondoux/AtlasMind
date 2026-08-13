@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.308.0] - 2026-08-13
+
+### Added
+
+- **A testing policy now reacts to the codebase, not just to a setting.** Coverage was a
+  *methodology-level* question — does anything here test contracts — so a project with one contract
+  test written in March reported `Tested` in December having added forty endpoints in between. The
+  obligation check had the same hole and admitted it in its own comment: any changed test file
+  satisfied any policy, because "a finer reading would need to understand what the test asserts, which
+  is not something a path can tell us".
+
+  A path cannot. A **subject** can. `testingSubjects.ts` reads the declared artifacts a project
+  contains — OpenAPI/AsyncAPI paths, GraphQL operations, gRPC methods, migrations, component schemas,
+  file-system routes, declared roles, prompt files — and each becomes a thing its policy must cover.
+  Add an endpoint and the obligation exists from that moment, with no rule for anybody to write.
+
+- **The agent is told the specific item, not just the methodology.** A model told "this project does
+  contract testing" has no way to know the endpoint it is about to touch is one of the untested ones.
+  The obligation prompt now names them, with the file each was declared in.
+
+- **Uncovered items appear on the policy card**, listed with a link to where each was declared, under
+  the count. A policy with evidence and new uncovered work is graded `moderate` by a new published
+  rule — *"Declared work this policy covers has appeared with no test naming it"* — so it stops reading
+  green.
+
+### Changed
+
+- **Coverage is judged by reference, and biased toward false negatives.** A test covers a subject when
+  its source *names* it; a test that never mentions the endpoint it supposedly tests is not evidence
+  that it does. The HTTP method counts too — a GET contract test says nothing about the POST, and
+  accepting it would rebuild the same looseness one level down. Method matching is case-insensitive so
+  ordinary `.post('/v1/orders')` style works; role, schema and path names are matched as declared,
+  because `Admin` and `admin` may be different roles.
+
+- **Only declared artifacts become subjects.** Nothing is inferred from source shape. Treating every
+  exported function as a unit-test subject would manufacture hundreds of obligations nobody agreed to,
+  and a methodology that cannot be evidenced becomes a permanent gap — the failure the archetype packs
+  already exist to prevent. Seven policies have extractors; the other 62 say they have nothing
+  enumerable rather than reporting zero, because zero uncovered reads as complete.
+
+- **One scan, shared.** The dashboard and the obligation prompt read the same
+  `scanTestingSubjects` — a page saying an endpoint is untested while the turn that touched it was
+  told nothing would be worse than neither existing. It is a bounded walk with a 30-second cache, so
+  asking on every turn costs nothing, and the dashboard forces a fresh read when the user refreshes.
+
+- **A policy a project has not declared is owed nothing.** Subjects are filtered to enabled policies,
+  so a repository with an OpenAPI spec and no contract policy is not handed obligations it can only
+  close by switching on a methodology it deliberately left off.
+
 ## [0.307.0] - 2026-08-13
 
 ### Added

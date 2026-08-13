@@ -67,6 +67,8 @@ import {
 } from './projectVocabulary.js';
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
+import { scanTestingSubjects, uncoveredTestingSubjects } from './testingSubjectScan.js';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -4293,7 +4295,35 @@ export class Orchestrator {
    * must never take a turn down with it.
    */
   private buildTestingObligation(): string {
-    return buildTestingObligationGuidance(this.readTestingConfig());
+    return buildTestingObligationGuidance(this.readTestingConfig(), this.readUncoveredTestingSubjects());
+  }
+
+  /**
+   * Declared work the project's policies cover that no test names yet.
+   *
+   * Naming these is what turns a standing policy into the obligation *this turn*
+   * has incurred: a model told "this project does contract testing" has no way
+   * to know the endpoint it is about to touch is one of the untested ones. It is
+   * also the half that makes the policy react to the codebase rather than to a
+   * setting — a new endpoint becomes a named obligation the moment it is
+   * declared, with no rule for anybody to write.
+   *
+   * Best-effort by construction. Extraction reads files, and a turn must never
+   * fail because a spec was unreadable, so anything thrown here yields no
+   * subjects rather than no turn.
+   */
+  private readUncoveredTestingSubjects(): Array<{ policyLabel: string; label: string; source: string }> {
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    if (!workspaceRoot) { return []; }
+    const config = this.readTestingConfig();
+    const enabled = (config?.methodologies ?? []).filter(entry => entry.enabled).map(entry => entry.id);
+    if (enabled.length === 0) { return []; }
+    try {
+      const labels = new Map(TESTING_METHODOLOGY_DEFINITIONS.map(definition => [definition.id, definition.label] as const));
+      return uncoveredTestingSubjects(scanTestingSubjects(workspaceRoot, enabled), labels).slice(0, 40);
+    } catch {
+      return [];
+    }
   }
 
   /**

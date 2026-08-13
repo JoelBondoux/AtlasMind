@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.308.0 — Testing policies that react to your code
+
+Coverage used to be one yes/no per methodology: does *anything* here test contracts? So a single contract
+test written in March still reported "Tested" in December, with forty endpoints added in between. The
+obligation given to an agent had the same hole — any changed test file satisfied any policy.
+
+AtlasMind now reads what your project declares — OpenAPI and AsyncAPI paths, GraphQL operations, gRPC
+methods, migrations, component schemas, file-system routes, declared roles, prompt files — and each
+becomes an item its policy must cover. Add an endpoint and the obligation exists from that moment. You
+never write a rule.
+
+Uncovered items are listed on the policy card with a link to where each was declared, and the policy stops
+reading green. The agent doing the work is told the specific item, not just the methodology, because a
+model told "this project does contract testing" cannot know the endpoint it is touching is one of the
+untested ones.
+
+A test counts when it names the thing it covers — method included, since a GET test says nothing about the
+POST. Only declared artifacts count; nothing is inferred from source shape, because inventing obligations
+nobody agreed to is worse than missing one. Seven policies have extractors and the rest say plainly that
+they have nothing enumerable.
+
 ## v0.307.0 — Testing policies you can open, own and act on
 
 Each enabled policy on the Testing dashboard is now a card you click. It opens to the evidence behind

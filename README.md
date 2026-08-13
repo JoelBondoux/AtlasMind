@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.307.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.308.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,24 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.307.0
+## What's new in 0.308.0
 
 The last Marketplace publication, **v0.305.3**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Your testing policies now react to your code.** Coverage used to be a yes/no per methodology — does
+  *anything* here test contracts? So one contract test written in March still reported "Tested" in
+  December, after forty endpoints had been added.
+
+  AtlasMind now reads what your project actually declares — API paths, GraphQL operations, gRPC methods,
+  migrations, schemas, routes, roles, prompt files — and each becomes something its policy has to cover.
+  Add an endpoint and the obligation exists from that moment; you never write a rule. Uncovered items are
+  listed on the policy card with a link to where each was declared, and the agent doing the work is told
+  the specific item rather than just the methodology name.
+
+  A test counts when it *names* the thing it covers, method included — a GET test says nothing about the
+  POST. Only declared artifacts count: nothing is guessed from your source, because inventing obligations
+  is worse than missing one.
 
 - **Testing policy cards open up.** Each enabled policy on the Testing dashboard is now clickable. It
   expands to show what the evidence actually is — a chart of passing, skipped and failing cases, a table

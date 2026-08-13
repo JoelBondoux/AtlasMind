@@ -4298,6 +4298,8 @@
           </table>
         </div>
 
+        ${renderPolicySubjects(row)}
+
         ${failures.length > 0 ? `
           <table class="mini-table policy-failure-table">
             <caption class="section-kicker">Failing cases${row.failedCount > failures.length ? ` (first ${failures.length} of ${row.failedCount})` : ''}</caption>
@@ -4328,6 +4330,48 @@
           ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
         </div>
       </div>`;
+  }
+
+  /**
+   * The declared work this policy covers, and what has no test naming it.
+   *
+   * The case a methodology-level board cannot show: `contract` reads `Tested`
+   * because one contract test exists, while forty endpoints added since have
+   * nothing. Uncovered first, because that is the actionable half; covered ones
+   * are summarised rather than listed, since a hundred green rows bury them.
+   */
+  function renderPolicySubjects(row) {
+    const testing = (state.snapshot || {}).testing || {};
+    const view = testing.policySubjects || { coverage: [], extractablePolicies: [] };
+    const extractable = (view.extractablePolicies || []).includes(row.id);
+    if (!extractable) {
+      // Silence would read as "nothing outstanding". Most policies genuinely
+      // have nothing enumerable, and saying so is not the same as a clean bill.
+      return `<p class="list-meta">No declared items to enumerate for this policy — its evidence is judged at the policy level.</p>`;
+    }
+    const mine = (view.coverage || []).filter(entry => entry.subject && entry.subject.policyId === row.id);
+    if (mine.length === 0) {
+      return `<p class="list-meta">Nothing declared for this policy to cover yet. Adding an API path, migration, route or role here creates an item automatically.</p>`;
+    }
+    const uncovered = mine.filter(entry => !entry.covered);
+    const shown = uncovered.slice(0, 25);
+    if (uncovered.length === 0) {
+      return `<p class="list-meta">All ${mine.length} declared item${mine.length === 1 ? '' : 's'} ${mine.length === 1 ? 'has' : 'have'} a test naming ${mine.length === 1 ? 'it' : 'them'}.</p>`;
+    }
+    return `
+      <table class="mini-table policy-subject-table">
+        <caption class="section-kicker">Declared items with no test naming them (${uncovered.length} of ${mine.length})</caption>
+        <thead><tr><th scope="col">Item</th><th scope="col">Declared in</th></tr></thead>
+        <tbody>
+          ${shown.map(entry => `
+            <tr>
+              <td><code>${escapeHtml(entry.subject.label)}</code></td>
+              <td><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.subject.source)}">${escapeHtml(entry.subject.source)}</button></td>
+            </tr>`).join('')}
+          ${uncovered.length > shown.length ? `<tr><td colspan="2" class="list-meta">…and ${uncovered.length - shown.length} more.</td></tr>` : ''}
+        </tbody>
+      </table>
+      <p class="list-meta">A test counts when it names the item — a test that never mentions the endpoint it covers is not evidence that it does.</p>`;
   }
 
   /** True when the last snapshot carried a machine-readable test report. */
