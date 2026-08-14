@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.317.0 — Tool work goes to a model that can take the tools
+
+A subscription-backed agent costs nothing per token, so once it was allowed to count as tool-capable it
+won every routing comparison — and it cannot actually receive AtlasMind's own tools, it runs its own
+instead. Turns that need AtlasMind's tools now go to a provider that can take them, falling back to a
+subscription agent only when nothing else can do the work at all.
+
 ## v0.316.0 — Whose diagnostic is it, and where did the tools go
 
 "Model diagnostic: Exceeded skills context budget" appeared on nearly every turn and read as AtlasMind's

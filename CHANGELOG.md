@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.317.0] - 2026-08-14
+
+### Changed
+
+- **A turn that needs AtlasMind's tools prefers a model that can receive them.** A
+  `delegatedToolExecution` agent satisfies a `function_calling` requirement — correctly, since it can do
+  tool-backed work — but it satisfies it *differently*: it receives none of AtlasMind's tool schemas and
+  runs its own instead. Treated as an equal candidate it won essentially always, because a
+  subscription-backed agent reports **zero per-token cost** and therefore dominates every budget
+  comparison there is.
+
+  `preferNativeToolCandidates` now narrows the field: when the turn requires tools, candidates that can
+  receive them come first, and a delegated agent is used when and only when nothing else qualifies. It
+  narrows rather than scores, because a cost weight can always be tuned until it swamps a bonus — an empty
+  set cannot.
+
 ## [0.316.0] - 2026-08-14
 
 ### Changed

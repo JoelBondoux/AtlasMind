@@ -956,11 +956,11 @@ export class ModelRouter {
     }
 
     const hasRealCandidate = allCandidates.some(model => !isBuiltinLocalEchoModel(model));
-    if (hasRealCandidate) {
-      return allCandidates.filter(model => !isBuiltinLocalEchoModel(model));
-    }
+    const candidates = hasRealCandidate
+      ? allCandidates.filter(model => !isBuiltinLocalEchoModel(model))
+      : allCandidates;
 
-    return allCandidates;
+    return preferNativeToolCandidates(candidates, [...requiredCapabilities], constraints);
   }
 
   private scoreModel(model: ModelInfo, constraints: RoutingConstraints, taskProfile?: TaskProfile): number {
@@ -1521,6 +1521,44 @@ function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
  */
 export function isRoutableChatModel(model: ModelInfo): boolean {
   return model.capabilities.includes('chat');
+}
+
+/**
+ * Delegation is a fallback, not an equal.
+ *
+ * `modelSatisfiesRequiredCapability` lets a `delegatedToolExecution` model
+ * satisfy a `function_calling` requirement — correct, because such an agent
+ * genuinely can do tool-backed work. But it satisfies it *differently*: it
+ * receives none of AtlasMind's tool schemas, runs its own tools instead, and
+ * every AtlasMind-specific capability is simply absent for that turn.
+ *
+ * Treated as equals, delegation wins essentially always, because a
+ * subscription-backed agent reports **zero per-token cost** and therefore
+ * dominates every budget comparison there is. Observed in the field: a session
+ * where every turn routed to an ACP agent, with a large part of AtlasMind's own
+ * tooling dark and nothing saying so.
+ *
+ * So when the turn actually requires tools, candidates that can receive them
+ * come first — and a delegated agent is used when, and only when, nothing else
+ * qualifies. This narrows the field rather than scoring it, because a cost
+ * weight can always be tuned until it swamps a bonus; an empty set cannot.
+ */
+export function preferNativeToolCandidates(
+  candidates: ModelInfo[],
+  requiredCapabilities: readonly ModelCapability[],
+  constraints: RoutingConstraints,
+): ModelInfo[] {
+  if (!requiredCapabilities.includes('function_calling')) {
+    return candidates;
+  }
+  // Only relevant where delegation was permitted in the first place; without it
+  // the filter above has already excluded these.
+  if (constraints.allowDelegatedToolExecution !== true) {
+    return candidates;
+  }
+
+  const native = candidates.filter(model => model.capabilities.includes('function_calling'));
+  return native.length > 0 ? native : candidates;
 }
 
 function modelSatisfiesRequiredCapability(

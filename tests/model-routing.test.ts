@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ModelRouter } from '../src/core/modelRouter.js';
+import { ModelRouter, preferNativeToolCandidates } from '../src/core/modelRouter.js';
 import { ACP_EFFORT_TIERS, ACP_MODEL_CATEGORY, acpModelChoicesFor, acpModelRows, describeAcpModelStanding } from '../src/providers/acpModels.js';
-import type { ProviderConfig } from '../src/types.js';
+import type { ModelInfo, ProviderConfig } from '../src/types.js';
 
 /**
  * Which model gets the work, and whether that decision can be relied on.
@@ -231,5 +231,55 @@ describe('an unrecognised model is ranked unknown, never dropped', () => {
     const firstVariant = rows.findIndex(row => row.effort !== undefined);
     const lastBare = rows.map(row => row.effort === undefined).lastIndexOf(true);
     expect(lastBare).toBeLessThan(firstVariant === -1 ? rows.length : firstVariant);
+  });
+});
+
+describe('delegation is a fallback, not an equal', () => {
+  // A subscription-backed agent reports zero per-token cost, so treated as an
+  // equal candidate it dominates every budget comparison there is. Observed in
+  // the field: a session where every turn routed to an ACP agent, with much of
+  // AtlasMind's own tooling dark and nothing saying so. AtlasMind sends such an
+  // agent no tool schemas at all — it satisfies "function_calling" by running
+  // its own tools instead.
+  const native = (id: string): ModelInfo => ({
+    id, name: id, provider: 'openai', contextWindow: 128_000,
+    inputPricePer1k: 0.001, outputPricePer1k: 0.002,
+    capabilities: ['chat', 'code', 'function_calling'], enabled: true,
+  } as unknown as ModelInfo);
+  const delegated = (id: string): ModelInfo => ({
+    id, name: id, provider: 'acp', contextWindow: 200_000,
+    inputPricePer1k: 0, outputPricePer1k: 0,
+    capabilities: ['chat', 'code'], enabled: true, delegatedToolExecution: true,
+  } as unknown as ModelInfo);
+
+  const constraints = { budget: 'balanced', speed: 'balanced', allowDelegatedToolExecution: true } as never;
+
+  it('drops delegated candidates when a native one can take the tools', () => {
+    const kept = preferNativeToolCandidates(
+      [delegated('acp/codex'), native('openai/gpt-4.1')], ['function_calling'], constraints,
+    );
+    expect(kept.map(model => model.id)).toEqual(['openai/gpt-4.1']);
+  });
+
+  it('keeps the delegated candidate when nothing else qualifies', () => {
+    // The fallback half. Refusing the work outright would be worse than running
+    // it with the agent's own tools.
+    const kept = preferNativeToolCandidates([delegated('acp/codex')], ['function_calling'], constraints);
+    expect(kept.map(model => model.id)).toEqual(['acp/codex']);
+  });
+
+  it('leaves a turn that needs no tools alone', () => {
+    const kept = preferNativeToolCandidates(
+      [delegated('acp/codex'), native('openai/gpt-4.1')], ['chat'], constraints,
+    );
+    expect(kept).toHaveLength(2);
+  });
+
+  it('does nothing when delegation was not permitted in the first place', () => {
+    const kept = preferNativeToolCandidates(
+      [native('openai/gpt-4.1')], ['function_calling'],
+      { budget: 'balanced', speed: 'balanced' } as never,
+    );
+    expect(kept).toHaveLength(1);
   });
 });
