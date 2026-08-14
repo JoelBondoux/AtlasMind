@@ -1768,3 +1768,40 @@ describe('a long option is abbreviated, not dropped', () => {
     expect(first!.prompt.toLowerCase()).toContain('narrow the tool-failure predicate');
   });
 });
+
+describe('an offer without a question mark is still an offer', () => {
+  // Taken verbatim from a real session. Not one of that model's four turns ended
+  // with a question mark — every offer was declarative — and the detector keys
+  // on `?`, so the operator was shown three genuine offers and given no way to
+  // accept any of them. Every automated probe passed throughout, because their
+  // inputs were written by the same hand as the detector and all carried a `?`.
+  it.each([
+    'If you want, I can also add a short release notes heading for a specific type instead of Changed.',
+    'If you want, I can start a project run to validate the required checks locally.',
+    'Let me know if you want me to wire the same cache into the image path.',
+    "I can raise the TTL to five minutes if you'd prefer.",
+    "Happy to split that into two commits if you'd like.",
+  ])('offers Yes/No on %j', tail => {
+    const detected = detectResponseQuickReplies(`The change is in.\n\n${tail}`);
+    expect(detected?.quickReplies?.map(reply => reply.label)).toEqual(['Yes', 'No']);
+    expect(detected?.followupQuestion).toBe(tail);
+  });
+
+  it.each([
+    // Same conditional opening, but the main clause tells the *operator* what to
+    // do. A pill here submits an answer to a question nobody asked.
+    'If you want multi-instance durability next, use Cloudflare Cache API or KV.',
+    'If you want the full history, the changelog has every entry.',
+    // Narration, not an undertaking.
+    'I can see the lockfile was already at 0.4.2.',
+    'I can confirm the tests pass on this branch.',
+    'I can tell the working tree is dirty.',
+  ])('stays silent on %j', tail => {
+    expect(detectResponseQuickReplies(`Here is what I found.\n\n${tail}`)).toBeUndefined();
+  });
+
+  it('still prefers a real question when the turn has one', () => {
+    const detected = detectResponseQuickReplies('If you want, I can split it.\n\nWhich should I do first?\n\n- Split the commit\n- Land it as one');
+    expect(detected?.quickReplies).toHaveLength(2);
+  });
+});

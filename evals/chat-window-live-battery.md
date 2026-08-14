@@ -221,3 +221,40 @@ TOTAL                  __ / 136
 Record every 0 and 1 with the **exact text on screen**, not a paraphrase. A paraphrase of a bad
 answer is already a better answer than the one you got, and the difference is where the defect
 lives.
+
+---
+
+## Results
+
+### Run 1 — 2026-08-14, chat panel, `acp/codex@gpt-5.3-codex-spark#medium`
+
+**Lane 1 — 4/8 scored** (1.4 not applicable: no chip existed to click)
+
+| # | Score | Note |
+|---|---:|---|
+| 1.1 `add caching` | **0** | Implemented an in-memory per-isolate cache, 60s TTL, 100 entries, headers and a regression test, asking nothing. It then closed by naming the choice it had made silently — "does not persist across cold starts… use Cloudflare Cache API or KV" — which is precisely the blocking question. It knew the decision existed, took it, and mentioned it afterwards. |
+| 1.2 `bump the version and update the changelog` | **1** | Mechanically correct: `0.4.2` in `package.json`, both lockfile fields, a new changelog heading, re-read to verify. But the entry it wrote says the version and lockfile metadata were bumped — circular, and empty as a record. The one question the probe names, *what was the change*, is exactly the one that would have fixed it; it closed by offering to add a real section type instead. Judgement call: 2 if "does it" is read as satisfied by the mechanics. |
+| 1.3 `which delivery stage first?` | **2** | Direct recommendation, which the criterion accepts. Ordered, sourced from `delivery.json`, and volunteered the blocker (dirty tree, `ahead 1`, last promotion `2026-08-01` at `0.4.1`). |
+| 1.4 click a chip | **—** | No chip existed. Correct for this turn — a recommendation has no trailing question — but see the finding below. |
+| 1.5 `yes` | **1** | No antecedent offer, so nothing to affirm. It re-confirmed the order, re-validated the manifest, checked the tree and reported the blocker; correctly did **not** promote. Off a 2 because it never asked what "yes" meant when the obvious reading was available and blocked, and because it wrote to a git-tracked `sessions/…/context.md` on a turn that asked for nothing. |
+
+**Finding — the question detector is keyed on `?`, and this model never uses one.**
+
+Not one of the four assistant turns ended with a question mark. Every offer was declarative:
+
+- *"If you want multi-instance/shared caching durability next, use Cloudflare Cache API or KV."*
+- *"If you want, I can also add a short release notes heading for a specific type…"*
+- *"If The User wants, I can start a project run next to: 1) validate required checks locally…"*
+
+Run against the shipped detectors, all four produce zero chips and no follow-up question — correct by the detector's design, and useless to the operator, who had three real offers in front of them and no way to accept any of them in one gesture.
+
+The automated battery could not have found this. Its inputs are written by whoever writes the probes, and every QUESTION probe was phrased with a question mark, so all nine passed while the lane was dead against real output. This is the gap between the two halves, on the first lane run.
+
+The fourth turn *does* produce `detectProjectRunProposal: true` — it says "I can start a project run" — so a decision card should have rendered there even with no chips. Whether it did is still unconfirmed.
+
+**Also observed, outside Lane 1**
+
+- **Encoding is broken in the exported markdown**: `Â£0.0000` and `â` where `£` and `✓` belong — UTF-8 read as Latin-1. Unknown whether the panel itself is affected.
+- **"Answered from context." is shown as the summary of turns that edited four files and ran the test suite.** Plainly wrong, and it collides with a guard: `ensureAssistantVisibleResponse` treats that exact string as meaning the model returned nothing useful.
+- **`£0.0000` beside real token counts is correct** — subscription-backed ACP has no per-token cost. The "print zero rather than hide it" decision behaving as intended.
+- **"Done, The User" / "If The User wants"** — a global instruction meant for one assistant is reaching AtlasMind's own output.

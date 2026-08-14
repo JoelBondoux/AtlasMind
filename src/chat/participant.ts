@@ -3945,6 +3945,54 @@ function endsWithQuestion(line: string): boolean {
   return /\?\s*$/.test(stripMarkdownEmphasis(line));
 }
 
+/**
+ * A conditional opener addressed to the operator: "If you want, …",
+ * "Let me know if …", "Happy to …".
+ */
+const OFFER_CONDITION_PATTERN = /\b(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)|let\s+me\s+know\s+if|say\s+the\s+word)\b/i;
+
+/**
+ * Phrasings that are an offer on their own, needing no separate condition.
+ *
+ * "Happy to split that into two commits" is elliptical for "I would be happy
+ * to", so the undertaking and the offer are the same words — requiring a
+ * condition beside it would miss the shape entirely.
+ */
+const SELF_EVIDENT_OFFER_PATTERN = /\b(?:i'?d\s+be\s+(?:glad|happy)\s+to|i'?m\s+happy\s+to|happy\s+to)\s+\w/i;
+
+/**
+ * A first-person undertaking to *do* it: "I can …", "I'll …", "let me …".
+ *
+ * Required alongside the condition, and it is what separates an offer from
+ * advice. "If you want multi-instance durability, **use** Cloudflare KV" opens
+ * identically and then tells the operator what to do — turning that into a
+ * Yes/No prompt would submit an answer to a question nobody asked.
+ */
+const OFFER_UNDERTAKING_PATTERN = /\b(?:i\s+can|i\s+could|i'?ll|i\s+will|i'?d\s+be\s+glad\s+to|let\s+me)\s+(?!see\b|tell\b|confirm\b|report\b|find\b)\w/i;
+
+/**
+ * An offer the model made without a question mark.
+ *
+ * Every one of an ACP model's four turns in a real session closed this way —
+ * "If you want, I can also add a short release notes heading…", "If The User
+ * wants, I can start a project run next to…" — and the detector keys on `?`, so
+ * the operator was shown three genuine offers and given no way to accept any of
+ * them. The automated probes all passed throughout, because their inputs were
+ * written by the same hand that wrote the detector and every one carried a `?`.
+ *
+ * Both halves are required. A condition alone is advice; an undertaking alone is
+ * narration ("I can see the file is missing", excluded above by verb).
+ */
+function extractDeclarativeOffer(line: string): string | undefined {
+  const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
+  if (stripped.length < 12 || stripped.length > 300) {
+    return undefined;
+  }
+  const offered = SELF_EVIDENT_OFFER_PATTERN.test(stripped)
+    || (OFFER_CONDITION_PATTERN.test(stripped) && OFFER_UNDERTAKING_PATTERN.test(stripped));
+  return offered ? stripped : undefined;
+}
+
 /** Longest pill label shown before it is abbreviated. */
 const MAX_QUICK_REPLY_LABEL_CHARS = 48;
 
@@ -4020,7 +4068,7 @@ function extractQuestionClause(line: string): string | undefined {
  * Falls back to {@link RESPONSE_TRAILING_QUESTION_PATTERN} for a mid-line
  * question at the very end.
  */
-function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[] } | undefined {
+function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[]; isOffer?: boolean } | undefined {
   if (!text) { return undefined; }
   const lines = text.split('\n').map(line => line.trim());
   let end = lines.length - 1;
@@ -4052,7 +4100,14 @@ function analyzeTrailingQuestion(text: string): { question: string; optionLines:
 
   if (questionIdx < 0) {
     const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(text);
-    return match?.[1] ? { question: match[1].trim(), optionLines: [] } : undefined;
+    if (match?.[1]) {
+      return { question: match[1].trim(), optionLines: [] };
+    }
+    // No question mark anywhere. An offer can still have been made — models
+    // routinely close with "If you want, I can …" — and it takes a yes or no
+    // exactly as "Want me to …?" does.
+    const offer = extractDeclarativeOffer(lines[end]!);
+    return offer ? { question: offer, optionLines: [], isOffer: true } : undefined;
   }
 
   const question = extractQuestionClause(lines[questionIdx]);
@@ -4086,11 +4141,13 @@ export function detectResponseQuickReplies(responseText: string): {
 } | undefined {
   const analysis = analyzeTrailingQuestion(responseText.trim());
   if (!analysis) { return undefined; }
-  const { question, optionLines } = analysis;
+  const { question, optionLines, isOffer } = analysis;
 
   // Yes / No — confirmatory questions (checked first so a yes/no question that
-  // happens to sit above a list is never mistaken for a pick-one).
-  if (isYesNoQuestion(question)) {
+  // happens to sit above a list is never mistaken for a pick-one). A declarative
+  // offer is one of these by construction: it proposes a single action, and the
+  // only answers are take it or leave it.
+  if (isOffer || isYesNoQuestion(question)) {
     return {
       followupQuestion: question,
       quickReplies: [

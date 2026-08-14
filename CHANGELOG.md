@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.315.0] - 2026-08-14
+
+### Fixed
+
+- **An offer phrased as a statement is now answerable in one gesture.** Quick-reply detection keyed on a
+  trailing `?`, and a real session run through the panel produced four assistant turns of which **not one
+  ended with a question mark**. Every offer was declarative: *"If you want, I can also add a short release
+  notes heading…"*, *"If The User wants, I can start a project run next to…"*. Three genuine offers, no
+  chips, no follow-up question — nothing to click, and nothing recorded as having been asked.
+
+  A closing line is now read as an offer when it carries a condition addressed to the operator ("if you
+  want", "let me know if") **together with** a first-person undertaking ("I can", "I'll", "let me"), or
+  when it is self-evidently one ("happy to …"). It gets Yes/No, because an offer proposes a single action
+  and the only answers are take it or leave it.
+
+  Both halves are required, and that is what keeps advice out: *"If you want multi-instance durability
+  next, **use** Cloudflare Cache API or KV"* opens identically and then tells the operator what to do, so
+  it stays silent. Narration is excluded by verb — "I can see", "I can confirm", "I can tell" are reports,
+  not offers.
+
+  **The automated battery could not have found this.** Its inputs are written by whoever writes the
+  probes, and every question probe was phrased with a question mark, so all nine passed while the lane was
+  dead against real model output. Three probes taken verbatim from that session now pin it, including one
+  control for the advice shape.
+
 ## [0.314.1] - 2026-08-14
 
 ### Fixed

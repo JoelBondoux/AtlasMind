@@ -162,6 +162,9 @@ const SEVERITY_ASSIGNMENTS: Readonly<Record<string, SeverityRule['id']>> = {
   'S2-offer-without-vocabulary': 'misreports-what-happens-next',
   'S3-negation-veto': 'misreports-what-happens-next',
   'S4-waiting-in-silence': 'misreports-what-happens-next',
+  'Q10-declarative-offer': 'misreports-what-happens-next',
+  'Q11-declarative-run-offer': 'misreports-what-happens-next',
+  'Q12-advice-is-not-an-offer': 'affordance-lost-information-kept',
   'Q1-filename': 'misreports-what-happens-next',
   'Q2-source-path': 'misreports-what-happens-next',
   'Q4-version-number': 'misreports-what-happens-next',
@@ -322,6 +325,53 @@ const PROBES: Probe[] = [
       const raw = 'I have the plan ready.\n\n### Ready to proceed?';
       const question = questionFor(sanitizeResponseTail(raw));
       return question ? undefined : 'the tail sanitizer strips the closing heading, so the question is deleted before the user ever sees it';
+    },
+  },
+  // The three below are taken verbatim from a real session
+  // (`acp/codex@gpt-5.3-codex-spark`, 2026-08-14). Not one of that model's four
+  // turns ended with a question mark — every offer was declarative — so the
+  // whole lane was dead against real output while all nine probes above passed.
+  // The probes above are written by whoever writes the probes, and they were all
+  // written with question marks; this is the gap the live battery exists to
+  // close, found on the first lane run.
+  {
+    id: 'Q10-declarative-offer',
+    lane: 'QUESTION',
+    asks: 'An offer phrased as a statement is still answerable in one gesture.',
+    because: 'Real transcript: "If you want, I can also add a short release notes heading for a specific type … instead of `Changed`." That is an offer taking a yes or no, and the operator had no way to give one.',
+    check: () => {
+      const text = 'Updated `package.json` to 0.4.2 and added the changelog entry.\n\nIf you want, I can also add a short release notes heading for a specific type (e.g., Security, Added, Fixed) instead of Changed.';
+      const chips = chipsFor(text);
+      return chips?.join('/') === 'Yes/No'
+        ? undefined
+        : `expected Yes/No chips on a declarative offer, got ${JSON.stringify(chips)} (question: ${JSON.stringify(questionFor(text))})`;
+    },
+  },
+  {
+    id: 'Q11-declarative-run-offer',
+    lane: 'QUESTION',
+    asks: 'A declarative offer to start a run is answerable, not just card-able.',
+    because: 'Real transcript: "If The User wants, I can start a project run next to: 1) validate required checks locally…". The run card fires on this, but with no question mark there are no pills, so the card was the sole affordance — the exact state S4 exists to prevent.',
+    check: () => {
+      const text = 'Current blocker: clean/commit workspace before any promotion run.\n\nIf you want, I can start a project run next to validate the required checks locally and prepare a pre-promotion readiness checklist.';
+      const chips = chipsFor(text);
+      if (!detectProjectRunProposal(text)) { return 'the run card no longer fires on this shape'; }
+      return chips?.join('/') === 'Yes/No'
+        ? undefined
+        : `the card fires but the turn offers no answerable question, so the card is the only affordance (chips: ${JSON.stringify(chips)})`;
+    },
+  },
+  {
+    id: 'Q12-advice-is-not-an-offer',
+    lane: 'QUESTION',
+    asks: 'Advice addressed to the operator does not become a Yes/No prompt. [control]',
+    because: 'Real transcript: "If you want multi-instance/shared caching durability next, use Cloudflare Cache API or KV." Same conditional opening as a genuine offer, but the main clause tells the *operator* what to do rather than offering to do it. Widening the detector must not swallow this.',
+    check: () => {
+      const text = 'The cache is per-isolate and does not persist across cold starts.\n\nIf you want multi-instance/shared caching durability next, use Cloudflare Cache API or KV.';
+      const chips = chipsFor(text);
+      return chips === undefined
+        ? undefined
+        : `advice to the operator was turned into ${JSON.stringify(chips)} — a pill here submits an answer to a question nobody asked`;
     },
   },
   {

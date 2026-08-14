@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.314.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.315.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.314.1
+## What's new in 0.315.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **"If you want, I can…" is now something you can click.** Buttons only appeared when a reply ended in a
+  question mark, and against a real model that turned out to be almost never — four turns in a row closed
+  with offers phrased as statements, leaving nothing to click. Advice that opens the same way still
+  doesn't, because it is telling you what to do rather than offering to do it.
 
 - **Chat can change a setting you ask it to change** — behind a dialog naming the setting and both values,
   only for settings AtlasMind declares, written where a reviewer will see it. It also notices when a

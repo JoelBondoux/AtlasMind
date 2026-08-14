@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.315.0 — "If you want, I can…" is now something you can click
+
+AtlasMind only offered you buttons when a reply ended in a question mark. Run against a real model, that
+turned out to be almost never: four turns in a row closed with offers phrased as statements — "If you
+want, I can also add a release notes heading", "If you want, I can start a project run" — and every one
+of them left you with nothing to click and no record that anything had been asked.
+
+Offers like those now get Yes and No. Advice that happens to start the same way — "if you want durability,
+use KV" — still doesn't, because it is telling you what to do rather than offering to do it.
+
 ## v0.314.1 — The CLI starts again
 
 Two skills added over the last two releases imported the VS Code host at module scope, and the CLI loads
