@@ -14,25 +14,9 @@ A failure is a finding about the shipped surface, not a regression.
 | COMMANDS | 7 | 0 |
 | TOOLING | 5 | 0 |
 | ORCHESTRATION | 6 | 0 |
-| GUIDANCE | 2 | 6 |
+| GUIDANCE | 6 | 2 |
 
 ## Findings
-
-### G1-page-reach (GUIDANCE)
-
-**Asked:** Chat can open any page of AtlasMind, not a handful.
-
-**Why this shape:** Both panels take a page id — SETTINGS_PAGE_IDS has 13, DASHBOARD_PAGE_IDS has 22 — so the destinations exist and are named. Reaching two of them is a wiring gap, not a missing feature.
-
-**Observed:** chat can open 2 of 35 addressable pages (13 settings + 22 dashboard) — every other destination is somewhere the user has to find unaided
-
-### G2-anchor-reach (GUIDANCE)
-
-**Asked:** Chat can open a page at the place the answer actually is.
-
-**Why this shape:** `SettingsPanelTarget` carries `section` and `query`; `DashboardNavigationTarget` carries a `focus` record. Neither is ever supplied from chat, so the best it can do is drop the user at the top of a long page.
-
-**Observed:** no chat path passes a section, query or focus anchor — the deep-link space exists and is unused, so "it is on the Testing page" is as precise as chat gets
 
 ### G3-settings-reach (GUIDANCE)
 
@@ -41,22 +25,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** A user who says "turn off automatic research scans" is naming a setting that exists; nothing in the tool set can read or write one, so the request can only be answered with prose.
 
 **Observed:** no skill in the registry can read or write configuration — chat can describe all 134 settings and change none of them
-
-### G4-self-knowledge (GUIDANCE)
-
-**Asked:** The model is told what pages and settings AtlasMind has.
-
-**Why this shape:** Guiding someone to the right page requires knowing the page list. Neither id space is referenced outside the panel that owns it, so the model is guessing from its training data about a product that ships weekly.
-
-**Observed:** neither the orchestrator nor the participant references the page id spaces — nothing puts AtlasMind's own surface into the prompt, so every navigational answer is unverified recall
-
-### G5-command-reach (GUIDANCE)
-
-**Asked:** The commands chat can trigger are a meaningful share of the commands that exist.
-
-**Why this shape:** Every reachable command is hand-written into one slash-command handler, so reach grows only when somebody remembers to add a button.
-
-**Observed:** chat can trigger 26 of 108 declared commands (24%) — the rest are reachable only if the user already knows they exist
 
 ### G7-suggestion-breadth (GUIDANCE)
 

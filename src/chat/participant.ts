@@ -40,6 +40,7 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
@@ -527,6 +528,34 @@ export function buildNativeChatContextSummary(
   return sections.join('\n\n');
 }
 
+const ATLASMIND_EXTENSION_ID = 'JoelBondoux.atlasmind';
+
+/**
+ * AtlasMind's own surface, for the prompt.
+ *
+ * Read from the running extension's manifest rather than a bundled copy, so it
+ * cannot describe a previous release. Returns undefined when the manifest is not
+ * reachable (tests, the CLI) rather than falling back to a stale list — the
+ * model answering from its own recall is a known quantity, and a wrong list
+ * presented as authoritative is worse.
+ */
+function buildCapabilityIndexContext(): string | undefined {
+  try {
+    const manifest = vscode.extensions.getExtension(ATLASMIND_EXTENSION_ID)?.packageJSON as
+      | { contributes?: { configuration?: { properties?: Record<string, never> }; commands?: Array<{ command: string; title?: string }> } }
+      | undefined;
+    if (!manifest?.contributes) {
+      return undefined;
+    }
+    return buildCapabilityIndex({
+      settings: manifest.contributes.configuration?.properties,
+      commands: manifest.contributes.commands,
+    }).text;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildWorkstationContext(
   options?: { platform?: NodeJS.Platform; terminalProfile?: string },
 ): string | undefined {
@@ -546,7 +575,13 @@ export function buildWorkstationContext(
     lines.push(`When suggesting commands, default to ${terminalProfile} syntax and conventions unless the user asks for another shell or platform.`);
   }
 
-  return `Workstation context:\n- ${lines.join('\n- ')}`;
+  // Appended here rather than threaded through five call sites. Every surface
+  // that reaches a model already carries workstation context, so this is the one
+  // place that puts AtlasMind's own page and settings list in front of the model
+  // everywhere at once.
+  const capabilityIndex = buildCapabilityIndexContext();
+  const workstation = `Workstation context:\n- ${lines.join('\n- ')}`;
+  return capabilityIndex ? `${workstation}\n\n${capabilityIndex}` : workstation;
 }
 
 async function handleNativeChatRequest(

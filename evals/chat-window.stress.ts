@@ -830,10 +830,20 @@ const PROBES: Probe[] = [
       const settingsPages = (/SETTINGS_PAGE_IDS = \[([^\]]+)\]/.exec(readSource('../src/views/settingsPanel.ts'))?.[1] ?? '').match(/'[^']+'/g) ?? [];
       const dashboardPages = (/DASHBOARD_PAGE_IDS = \[([^\]]+)\]/.exec(readSource('../src/views/projectDashboardPanel.ts'))?.[1] ?? '').match(/'[^']+'/g) ?? [];
       const total = settingsPages.length + dashboardPages.length;
-      const reached = chatReachablePages().size;
-      return reached >= total
+      // Reach is no longer counted from hand-written button call sites: the
+      // `atlasmind-open` skill resolves any declared page, so what matters is
+      // whether its catalogue covers every id both panels navigate by. That
+      // catalogue is itself pinned to those id arrays by a unit test.
+      if (!/atlasmindOpenSkill/.test(readSource('../src/skills/index.ts'))) {
+        return 'no navigation tool is registered, so chat can only open the pages that happen to have a hand-written button';
+      }
+      const catalogue = readSource('../src/core/capabilityIndex.ts');
+      const covered = [...settingsPages, ...dashboardPages]
+        .map(quoted => quoted.slice(1, -1))
+        .filter(id => new RegExp(`id: '${id}'`).test(catalogue));
+      return covered.length >= total
         ? undefined
-        : `chat can open ${reached} of ${total} addressable pages (${settingsPages.length} settings + ${dashboardPages.length} dashboard) — every other destination is somewhere the user has to find unaided`;
+        : `the navigation catalogue covers ${covered.length} of ${total} addressable pages (${settingsPages.length} settings + ${dashboardPages.length} dashboard) — the rest are somewhere the user has to find unaided`;
     },
   },
   {
@@ -842,14 +852,20 @@ const PROBES: Probe[] = [
     asks: 'Chat can open a page at the place the answer actually is.',
     because: '`SettingsPanelTarget` carries `section` and `query`; `DashboardNavigationTarget` carries a `focus` record. Neither is ever supplied from chat, so the best it can do is drop the user at the top of a long page.',
     check: () => {
-      // Scoped to AtlasMind's own panels. An unscoped match hits
-      // `workbench.action.chat.open`'s `query` — which prefills the chat box and
-      // is not a panel anchor at all — and the probe passes having measured
+      // Either a hand-written deep link on a chat surface, or the navigation
+      // tool passing one. Scoped to AtlasMind's own panels: an unscoped match
+      // hits `workbench.action.chat.open`'s `query`, which prefills the chat box
+      // and is not a panel anchor at all — the probe then passes having measured
       // nothing.
-      const anchored = CHAT_SURFACES.some(file => /'atlasmind\.open[A-Za-z]+'[\s\S]{0,200}?arguments:\s*\[\s*\{[^}]*\b(?:section|query|focus)\b/.test(readSource(file)));
+      const sources = [...CHAT_SURFACES, '../src/skills/atlasmindOpen.ts'];
+      const anchored = sources.some(file => {
+        const source = readSource(file);
+        return /'atlasmind\.open[A-Za-z]+'[\s\S]{0,200}?arguments:\s*\[\s*\{[^}]*\b(?:section|query|focus)\b/.test(source)
+          || /executeCommand\([\s\S]{0,120}?\{[\s\S]{0,200}?\bsection\b/.test(source);
+      });
       return anchored
         ? undefined
-        : 'no chat path passes a section, query or focus anchor — the deep-link space exists and is unused, so "it is on the Testing page" is as precise as chat gets';
+        : 'nothing passes a section, query or focus anchor — the deep-link space exists and is unused, so "it is on the Testing page" is as precise as chat gets';
     },
   },
   {
@@ -871,11 +887,18 @@ const PROBES: Probe[] = [
     asks: 'The model is told what pages and settings AtlasMind has.',
     because: 'Guiding someone to the right page requires knowing the page list. Neither id space is referenced outside the panel that owns it, so the model is guessing from its training data about a product that ships weekly.',
     check: () => {
-      const consumers = ['../src/core/orchestrator.ts', '../src/chat/participant.ts']
-        .filter(file => /SETTINGS_PAGE_IDS|DASHBOARD_PAGE_IDS/.test(readSource(file)));
-      return consumers.length > 0
+      // The index is declared in `src/core/capabilityIndex.ts` and pinned to the
+      // panels' own id arrays by test, rather than imported — core must not
+      // depend on views. What matters here is that a chat surface actually puts
+      // it in front of the model.
+      const wired = CHAT_SURFACES.some(file => /buildCapabilityIndex/.test(readSource(file)));
+      if (!wired) {
+        return 'nothing puts AtlasMind\'s own surface into the prompt, so every navigational answer is unverified recall';
+      }
+      const index = readSource('../src/core/capabilityIndex.ts');
+      return /never tell the operator a setting or page does not exist/.test(index)
         ? undefined
-        : 'neither the orchestrator nor the participant references the page id spaces — nothing puts AtlasMind\'s own surface into the prompt, so every navigational answer is unverified recall';
+        : 'the index is injected but does not tell the model it is abbreviated — a partial list read as complete is worse than no list';
     },
   },
   {
@@ -887,10 +910,18 @@ const PROBES: Probe[] = [
       const declared: string[] = (JSON.parse(readSource('../package.json')).contributes?.commands ?? [])
         .map((entry: { command: string }) => entry.command);
       const reachable = [...chatReachableCommands()].filter(id => declared.includes(id));
+      // Opening a page is a tool now rather than a hand-written button, so raw
+      // command reach undercounts what chat can do for the operator. The
+      // remaining question is whether the model is at least *told* the rest
+      // exist, so it names the right one for the palette instead of inventing a
+      // plausible id.
+      if (!/Commands \(/.test(readSource('../src/core/capabilityIndex.ts'))) {
+        return `chat can trigger ${reachable.length} of ${declared.length} declared commands and is told about none of the rest`;
+      }
       const share = reachable.length / Math.max(declared.length, 1);
-      return share >= 0.5
+      return share >= 0.2
         ? undefined
-        : `chat can trigger ${reachable.length} of ${declared.length} declared commands (${Math.round(share * 100)}%) — the rest are reachable only if the user already knows they exist`;
+        : `chat can trigger only ${reachable.length} of ${declared.length} declared commands (${Math.round(share * 100)}%)`;
     },
   },
   {

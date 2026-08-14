@@ -3,6 +3,7 @@ import { fileReadSkill } from './fileRead.js';
 import { fileWriteSkill } from './fileWrite.js';
 import { fileSearchSkill } from './fileSearch.js';
 import { textSearchSkill } from './textSearch.js';
+import { atlasmindOpenSkill } from './atlasmindOpen.js';
 import { directoryListSkill } from './directoryList.js';
 import { terminalRunSkill } from './terminalRun.js';
 import { fileEditSkill } from './fileEdit.js';
@@ -57,6 +58,7 @@ export {
   fileSearchSkill,
   textSearchSkill,
   directoryListSkill,
+  atlasmindOpenSkill,
   terminalRunSkill,
   fileEditSkill,
   memoryQuerySkill,
@@ -99,6 +101,7 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(fileSearchSkill, 'Workspace Files'),
     withPanelPath(textSearchSkill, 'Search & Fetch'),
     withPanelPath(directoryListSkill, 'Workspace Files'),
+    withPanelPath(atlasmindOpenSkill, 'AtlasMind'),
     withPanelPath(terminalRunSkill, 'Execution & Testing'),
     withPanelPath(fileEditSkill, 'Workspace Files'),
     withPanelPath(memoryQuerySkill, 'Memory'),

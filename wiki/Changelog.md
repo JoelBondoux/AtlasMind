@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.313.0 — Chat knows what AtlasMind is, and can take you there
+
+Ask where a setting lives and you used to get prose — "that's under Settings → Safety" — which you then
+had to go and find, and which was recall rather than a lookup: nothing had ever told the model what pages
+AtlasMind actually has. It knows now, from the running extension's own manifest, and it can open the page
+for you and scroll to the card that answers your question.
+
+If it is not certain of a name it says so rather than telling you the setting does not exist. That rule is
+kept outside the size budget, because it was the first thing being cut.
+
 ## v0.312.1 — Two answers, and which one counts
 
 When a reply diverged from what had already been streamed, you got both, separated by a horizontal line

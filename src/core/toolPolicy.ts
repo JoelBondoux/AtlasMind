@@ -28,6 +28,18 @@ export function classifyToolInvocation(
     case 'specialist-guidance':
       return { category: toolName.startsWith('git-') ? 'git-read' : 'read', risk: 'low', summary: `run ${toolName}` };
 
+    // Opening one of AtlasMind's own panels changes nothing. Gating it would be
+    // friction with no risk behind it, and a navigation tool that prompts is one
+    // the model learns not to reach for — which puts the operator back to being
+    // told a menu path and finding it themselves. The destination is chosen from
+    // a declared page list inside the skill, so this is not a command bridge.
+    case 'atlasmind-open':
+      return {
+        category: 'read',
+        risk: 'low',
+        summary: `open the ${typeof args['page'] === 'string' ? args['page'] : 'requested'} page in AtlasMind`,
+      };
+
     case 'file-write':
     case 'file-edit':
     case 'file-move':

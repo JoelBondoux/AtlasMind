@@ -727,3 +727,21 @@ AtlasMind supports four practical extension paths today:
 4. **Add specialist integrations** through dedicated panels when the upstream API is not a good fit for the generic routed chat contract.
 
 The important distinction is that routed providers must support AtlasMind's chat, capability, pricing, and health model, while specialist integrations can remain workflow-specific.
+
+### `atlasmind-open` — take the operator to the page
+
+Chat could describe all 35 of AtlasMind's addressable pages and open two of them, so every navigational
+answer was prose the operator then had to act on themselves. This skill takes `{ page, section? }`, resolves
+the destination from the declared catalogue in `src/core/capabilityIndex.ts`, and opens it.
+
+Three properties make it safe to hand to a model. The destination is **chosen from a declared list, never
+composed** — an unrecognised page is refused with the candidates, and the only VS Code commands it can
+reach are the two panel openers, so it is not a general `executeCommand` bridge. An **ambiguous id is
+reported rather than resolved**: `testing` exists on both surfaces, and silently picking one sends the
+operator somewhere they did not ask for while telling them they arrived. And it is classified **`read`**,
+because opening a panel changes nothing and a navigation tool that prompts is one the model learns not to
+use — which puts the operator back where they started.
+
+The catalogue it resolves against is pinned by test to `SETTINGS_PAGE_IDS` and `DASHBOARD_PAGE_IDS` in
+both directions, so a page added to a panel and not to the catalogue fails the build rather than shipping
+as a page the model confidently names and nothing can open.

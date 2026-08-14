@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.312.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.313.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.312.1
+## What's new in 0.313.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Chat knows what AtlasMind is, and can take you there.** Ask where a setting lives and you used to get
+  prose you then had to go and find — and it was recall, not a lookup, because nothing had ever told the
+  model what pages AtlasMind has. It can now open the page and scroll to the card that answers your
+  question, and it says when it is unsure of a name rather than telling you the setting does not exist.
 
 - **The footer says what the turn cost**, reading through an MCP server no longer prompts as loudly as
   deleting a file, `/Cost` and `/runs?` are commands rather than questions for a model, the closing
@@ -815,7 +820,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | | |
 |---|---|
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
-| **43 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
+| **44 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |

@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.313.0] - 2026-08-14
+
+### Added
+
+- **Chat knows what AtlasMind is, and can take you there.** Two changes that only work together.
+
+  `src/core/capabilityIndex.ts` declares every page both panels can be opened at — 13 settings, 22
+  dashboard — each with *what it answers* rather than what it contains, because "where do I turn off
+  automatic research scans?" has to match on the question. Settings and commands are read from the running
+  extension's manifest rather than a bundled copy, so the index cannot describe a previous release. It is
+  appended to the workstation context every surface already carries, which puts it in front of the model
+  everywhere in one place.
+
+  Until now neither `SETTINGS_PAGE_IDS` nor `DASHBOARD_PAGE_IDS` was referenced outside the panel that
+  owns it, so every navigational answer chat gave was recall about a product that ships weekly —
+  plausible, specific, and unverifiable by the person reading it.
+
+  The catalogue is *declared* in `src/core` rather than imported, because core must not depend on views —
+  and a second copy is how the slash-command list once came to describe commands the panel had never heard
+  of. `capabilityIndex.test.ts` asserts it matches both panels' id arrays in both directions, so drift
+  fails the build rather than shipping as a page the model confidently names and nothing can open.
+
+  The closing instruction — *this index is abbreviated, never tell the operator a setting does not exist* —
+  is held out of the size budget and appended after truncation. It was inside the budget first, and the
+  clamp cut from the end, so the larger the manifest grew the more certainly the one rule worth stating
+  was the first thing dropped.
+
+- **`atlasmind-open`, a skill that opens the page instead of describing it.** `{ page, section? }`, with
+  the destination resolved from the declared catalogue and refused with candidates when it does not match.
+  An ambiguous id (`testing` exists on both surfaces) is reported rather than resolved, because silently
+  picking one sends the operator somewhere they did not ask for while telling them they arrived. It passes
+  `SettingsPanelTarget.section`, so chat can now land on the card that answers the question rather than the
+  top of a long page — an anchor space that has existed since the panels were written and had never once
+  been used from chat.
+
+  Classified `read`: opening a panel changes nothing, and a navigation tool that prompts is one the model
+  learns not to reach for. It is not a command bridge — the only commands it can reach are the two panel
+  openers, and the page comes from a declared list.
+
 ## [0.312.1] - 2026-08-14
 
 ### Fixed
