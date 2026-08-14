@@ -47,6 +47,26 @@ export const DASHBOARD_TOKENS_CSS = `
     --dash-radius-sm: 12px;
     --dash-radius-xs: 8px;
     --dash-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+    /* Layout measures.
+
+       Every dashboard grid used to be a fixed column count of 1fr — six stat
+       cards, three charts, two panels — which behaves badly at both ends. On a
+       narrow editor six columns squeeze to something too thin to read; on an
+       ultrawide monitor two columns of 1fr stretch a paragraph to 900px and
+       the page reads as though it were designed for a different screen.
+
+       Naming the *minimum* each kind of cell needs turns those into auto-fit
+       grids that reflow instead: the column count follows the space rather than
+       the other way round. --dash-content-max then stops the whole page
+       growing past a readable measure, which is the single change that fixes
+       most of the "why is this so wide" cases at once. */
+    --dash-content-max: 1680px;
+    --dash-col-stat: 190px;
+    --dash-col-chart: 320px;
+    --dash-col-panel: 340px;
+    /* Prose is capped tighter than a panel: a line much past this stops being
+       comfortably readable however much room the window has. */
+    --dash-measure: 78ch;
     /* Motion scale. Three tiers: a micro-interaction (hover/border/focus), a
        value that changed (meter, ring, progress), an element that entered. */
     --dash-dur-fast: 140ms;

@@ -182,7 +182,7 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 > Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
 > changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
 
-This project enforces **7** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+This project enforces **32** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
 
 ### TDD
 
@@ -205,6 +205,13 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
 - **Primary owner:** Test Developer
 
+### Mutation Testing
+
+- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
+- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
+- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
+- **Primary owner:** Test Developer
+
 ### Property-Based
 
 - **What:** Generative input testing (fast-check, Hypothesis)
@@ -217,6 +224,20 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **What:** Automated testing embedded throughout CI/CD — tests run on every commit, earliest possible feedback
 - **When to apply:** Any project with a CI/CD pipeline. Essential for teams delivering frequent releases or practising trunk-based development. Shift-left means pushing tests earlier: linting, type checks, and unit tests on pre-commit; integration and E2E on PR; performance and security on merge.
 - **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
+- **Primary owner:** Test Developer
+
+### End-to-End
+
+- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
+- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
+- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
+- **Primary owner:** Test Developer
+
+### Contract
+
+- **What:** Consumer-driven API contract verification (Pact)
+- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
+- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
 - **Primary owner:** Test Developer
 
 ### Security
@@ -233,7 +254,156 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:21a574f088b98221 -->
+### Dead-Field / Dead-Prop Detection
+
+- **What:** Finds declared fields, props and config keys that nothing ever reads
+- **When to apply:** Codebases where types, props or configuration have accumulated over several refactors. A field that is written but never read is a bug wearing a feature's clothes — the code that was supposed to consume it was renamed, moved, or never written.
+- **Key tools:** ts-prune, knip, ts-unused-exports, eslint no-unused-vars, Vulture (Python), deadcode (Go), cargo-udeps (Rust)
+- **Primary owner:** Test Developer
+
+### Type Drift Detection
+
+- **What:** Checks that static types still describe what actually arrives at runtime
+- **When to apply:** Any TypeScript or typed-Python project consuming external JSON — an API response, a config file, a database row. The compiler checks the *assertion*, not the data, so a backend that renamed a field keeps compiling and fails in production.
+- **Key tools:** Zod, Valibot, io-ts, ArkType, typia, Pydantic, attrs + cattrs, quicktype (schema → type generation)
+- **Primary owner:** Test Developer
+
+### Cross-Surface Property Parity
+
+- **What:** Asserts the same rule produces the same answer on every surface that states it
+- **When to apply:** Products where one fact is displayed in several places — a CLI and a web UI, a dashboard card and the detail page it links to, an API and the SDK wrapping it. The failure this catches is two surfaces disagreeing about the same number, which reads as a data bug and is really a duplicated rule.
+- **Key tools:** Shared fixture suites, Vitest/Jest table-driven tests, golden files, contract-style shared assertions, Playwright + API cross-checks
+- **Primary owner:** Test Developer
+
+### Cross-Representation Consistency
+
+- **What:** Asserts a value survives every round trip between its representations
+- **When to apply:** Anywhere one value has several forms — JSON and a database row, a domain object and its DTO, markdown and its parsed AST, a display string and the number behind it. Serialization asymmetry is the classic silent corruption: it writes fine, reads back subtly different, and nothing fails until much later.
+- **Key tools:** fast-check / Hypothesis round-trip properties, snapshot fixtures, JSON Schema validation, protobuf/Avro conformance suites
+- **Primary owner:** Test Developer
+
+### Cross-Version Parity
+
+- **What:** Asserts a new version still answers old inputs the way the old version did
+- **When to apply:** Libraries, APIs and file formats with existing consumers. Distinct from compatibility testing: this replays *real recorded behaviour* from the previous version rather than checking a declared contract, so it catches the change nobody documented.
+- **Key tools:** Golden/approval files, recorded request-response fixtures, API diffing (oasdiff, openapi-diff), semantic-release + api-extractor, Pact provider verification against prior consumer versions
+- **Primary owner:** Test Developer
+
+### Semantic Constraint Testing
+
+- **What:** Asserts domain invariants that types allow but the domain forbids
+- **When to apply:** Domains with rules the type system cannot express — an end date after its start, a total matching the sum of its parts, a state machine that never reaches a terminal state twice. The type says `Date`; the domain says "not before the other one".
+- **Key tools:** Zod refinements, class-validator, Pydantic validators, database CHECK constraints, fast-check preconditions, invariant assertions in domain models
+- **Primary owner:** Test Developer
+
+### Output Schema Drift Detection
+
+- **What:** Detects when produced output stops matching its own published schema
+- **When to apply:** Any producer with consumers it cannot see — a public API, an event stream, a webhook, a structured LLM response, an exported report. The producer's tests pass because they were updated alongside it; the consumer breaks because it was not.
+- **Key tools:** JSON Schema / Ajv, OpenAPI response validation, oasdiff, Avro/protobuf schema registry compatibility checks, Zod parse on output, Great Expectations for tabular output
+- **Primary owner:** Test Developer
+
+### Hallucination Detection
+
+- **What:** Checks that model-stated facts are grounded in the sources actually provided
+- **When to apply:** Any feature where a model states facts a user will act on — RAG answers, summarisation, extraction, citations. A fluent, specific, entirely invented answer is indistinguishable from a correct one to every assertion except one that checks it against the source.
+- **Key tools:** RAGAS (faithfulness/groundedness), DeepEval, TruLens, Promptfoo assertions, LLM-as-judge with a citation requirement, entity overlap against source, Anthropic/OpenAI evals
+- **Primary owner:** Test Developer
+
+### Accessibility (a11y)
+
+- **What:** Automated and manual checks against WCAG success criteria
+- **When to apply:** Every product with a user interface, and a legal requirement for public sector, education, and increasingly commercial software (EAA, ADA, Section 508). Automated tooling reliably catches roughly a third of WCAG issues, which makes it necessary and not sufficient.
+- **Key tools:** axe-core, @axe-core/playwright, jest-axe, Pa11y, Lighthouse, WAVE, eslint-plugin-jsx-a11y, screen readers (NVDA, VoiceOver, JAWS) for the manual half
+- **Primary owner:** Test Developer
+
+### Memory / State Drift Detection
+
+- **What:** Detects when persisted state stops matching what the code believes it holds
+- **When to apply:** Long-lived stores written by successive versions — agent memory, user preferences, caches, session documents, event-sourced aggregates. The document on disk was written by a build that no longer exists, and the reader assumes a shape nobody re-checked.
+- **Key tools:** Versioned document schemas with migration ladders, Zod/Pydantic parse-on-read, snapshot corpora of historical documents, replay tests over an event log
+- **Primary owner:** Test Developer
+
+### Prompt Regression
+
+- **What:** Replays a graded case set so a prompt edit cannot silently degrade quality
+- **When to apply:** Any product with a prompt in it. Prompts are edited like prose and deployed like code, with no equivalent of a failing build — a wording change that fixes one case and breaks nine is invisible without a replay set.
+- **Key tools:** Promptfoo, Braintrust, LangSmith, DeepEval, OpenAI Evals, Anthropic evals, Vitest + recorded fixtures with an LLM judge
+
+### Model Routing Correctness
+
+- **What:** Asserts the router picks the model the policy says it should, and fails over correctly
+- **When to apply:** Any system choosing between models on cost, capability, latency or availability. A router silently sending every request to the most expensive model still returns correct answers — the bug is only visible on the invoice, and only weeks later.
+- **Key tools:** Table-driven tests over the routing function, fake provider adapters, budget-ceiling assertions, failover simulation with injected provider errors, cost-per-route snapshot tests
+
+### Guardrail Enforcement
+
+- **What:** Tests that safety policies actually refuse, including under adversarial input
+- **When to apply:** Any model-backed feature reachable by untrusted input. A guardrail is written once, believed permanently, and bypassed by the first prompt injection nobody tried — a policy without a test is a comment.
+- **Key tools:** Promptfoo red-team plugins, Garak, PyRIT, NeMo Guardrails test suites, Llama Guard, Rebuff, adversarial case corpora, refusal assertions
+- **Primary owner:** Test Developer
+
+### Agent Collaboration Correctness
+
+- **What:** Tests hand-offs, delegation limits, and that agents share no authority they should not
+- **When to apply:** Multi-agent systems with delegation, sub-tasks, or tool sharing. The failure mode is authority accumulating across a hand-off — a restricted agent obtaining a capability by asking a permissive one — which every individual agent test passes.
+- **Key tools:** Deterministic fake agents, hand-off depth/cycle assertions, permission-intersection property tests, transcript replay, LangGraph/CrewAI test harnesses, trace assertions
+- **Primary owner:** Test Developer
+
+### ISO/IEC 27001 Controls
+
+- **What:** Maps Annex A controls to the evidence that demonstrates each one
+- **When to apply:** Organisations certified or seeking certification, and any vendor whose enterprise customers ask for it in procurement. The certification is organisational, but a meaningful share of Annex A lands on the codebase — access control, cryptography, logging, secure development.
+- **Key tools:** Control-mapping registers, Vanta, Drata, Secureframe, evidence-collection automation, internal audit checklists, Statement of Applicability
+
+### SOC 2 Type I/II
+
+- **What:** Checks Trust Services Criteria are met and, for Type II, evidenced over time
+- **When to apply:** SaaS vendors selling to enterprises. Type I asks whether controls are designed correctly at a point in time; Type II asks whether they operated continuously over a period — which makes *evidence continuity* the thing to test, not just control existence.
+- **Key tools:** Vanta, Drata, Secureframe, Tugboat Logic, CI evidence exports, access-review automation, change-management logs
+
+### GDPR Data Handling
+
+- **What:** Tests lawful basis, minimisation, subject rights, and deletion actually work
+- **When to apply:** Any product processing personal data of people in the EU or UK, regardless of where the company is. Several obligations are genuinely executable — a deletion request that leaves rows in a backup index, or an export missing a data category, is a testable defect.
+- **Key tools:** Data-flow mapping / RoPA, deletion-completeness tests across every store, export-completeness assertions, consent-state tests, retention-window checks, pseudonymisation verification
+
+### Change-Management Compliance
+
+- **What:** Tests that changes reached production through the approvals the policy requires
+- **When to apply:** Regulated environments and any organisation asserting a change process to an auditor. Almost entirely checkable from repository and CI metadata — protected branches, required reviews, linked tickets, deployment approvals — which makes it the cheapest compliance policy to automate.
+- **Key tools:** Branch-protection API assertions, required-review checks, CODEOWNERS verification, deployment-approval gates, commit-to-ticket traceability, git history analysis
+- **Primary owner:** Test Developer
+
+### AI Safety & Guardrail Compliance
+
+- **What:** Evidences that declared AI safety commitments are implemented and enforced
+- **When to apply:** Products making public safety claims, and anything in scope of the EU AI Act's obligations for high-risk or general-purpose systems. Distinct from guardrail *testing*: this asks whether the declared policy, the implementation, and the evidence agree.
+- **Key tools:** EU AI Act conformity checklists, NIST AI RMF mapping, model cards, system cards, guardrail-policy registers, incident-reporting procedures, red-team evidence retention
+- **Primary owner:** Test Developer
+
+### Model-Output Risk Classification
+
+- **What:** Tests that outputs are classified by risk and that the classification drives handling
+- **When to apply:** Products where some model outputs need different treatment — human review, a disclaimer, a refusal, or a log. A classifier that is never tested tends toward one class, which silently removes the review step it exists to trigger.
+- **Key tools:** Labelled risk corpora, confusion-matrix assertions, threshold calibration tests, Llama Guard / moderation-endpoint evaluation, escalation-path tests, anti-uniformity checks on classifier output
+- **Primary owner:** Test Developer
+
+### Explainability & Transparency
+
+- **What:** Tests that a decision can be explained to the person it affects
+- **When to apply:** Automated decisions with legal or significant effect — GDPR Article 22, the EU AI Act, and sector rules like ECOA adverse-action notices all require a meaningful explanation. The test is that the explanation is faithful to the decision, not merely that one is produced.
+- **Key tools:** SHAP, LIME, captum, counterfactual explanation generators, faithfulness/consistency assertions, model cards, decision-log inspection, reason-code verification
+- **Primary owner:** Test Developer
+
+### AI Memory & Data-Use Policy
+
+- **What:** Tests that what the system remembers and sends matches what was promised
+- **When to apply:** Any AI product with memory, retrieval, or training feedback loops. Two commitments are routinely stated and rarely tested: that customer data does not train a model, and that a secret or another tenant's data never reaches a prompt.
+- **Key tools:** Redaction-boundary tests, prompt-payload inspection, tenant-isolation tests over retrieval, training-opt-out verification, memory-retention window tests, provider zero-retention configuration checks
+- **Primary owner:** Test Developer
+
+<!-- atlasmind:source-digest:3131e9d7e7504f6f -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->
@@ -321,7 +491,7 @@ Testing requirements are **not** duplicated here. They live in
 of this same file. Follow those.
 
 
-<!-- atlasmind:source-digest:04ac1c6059209df5 -->
+<!-- atlasmind:source-digest:c560b753ccbb3939 -->
 <!-- atlasmind:workflow:end -->
 
 <!-- atlasmind:shared-instructions:start -->

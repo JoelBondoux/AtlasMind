@@ -137,11 +137,29 @@ export interface TestingPolicyEvidenceInput {
   newestTestFileMs?: number;
   /** Detected framework label, used to suggest the right report command. */
   frameworkLabel?: string;
+  /**
+   * Policies with at least one control **verified against the stack** by
+   * `complianceTechnicalControls`.
+   *
+   * A documentary regime is mostly human attestation, but not entirely: "a
+   * backup is taken before a production promotion" and "no declared endpoint
+   * uses plaintext http" are facts about a stack, and a check that ran and
+   * passed is evidence in exactly the sense this module means. Without this,
+   * a project whose pipeline genuinely enforces four ISO controls read as
+   * having nothing to show for the regime — the withholding failure, which is
+   * the mirror of the false-covered one.
+   *
+   * Supplied by the caller rather than computed here, so this module stays pure
+   * and does not grow a dependency on the delivery pipeline, the endpoint file
+   * and the audit ledger. A `gap` or `unknown` result must never appear in this
+   * list; only a control that was checked and passed.
+   */
+  technicallyEvidenced?: readonly TestingMethodologyId[];
 }
 
 // ── Markers ──────────────────────────────────────────────────────
 
-interface PolicyMarkers {
+export interface PolicyMarkers {
   /** Paths that evidence this policy. */
   filePatterns?: RegExp[];
   /** Paths that look like this policy but belong to a more specific one. */
@@ -192,6 +210,44 @@ export const COMPLIANCE_EVIDENCE_DIR = 'project_memory/operations/compliance';
 function COMPLIANCE_DOC(id: string): RegExp {
   return new RegExp(`^${COMPLIANCE_EVIDENCE_DIR}/${id}\\.md$`, 'i');
 }
+
+/** Statuses a control row can carry once somebody has actually looked at it. */
+const ASSESSED_CONTROL_STATUSES = ['satisfied', 'partial', 'gap', 'not applicable'];
+
+/**
+ * Has anybody assessed a single control in this mapping?
+ *
+ * The mapping's own preamble says it: *"Every row starts at **Not assessed**,
+ * which is deliberately not the same as compliant."* But `configIsEvidence`
+ * promotes a policy to `covered` on the file's mere existence — so scaffolding
+ * a mapping and touching nothing reported SOC 2 or ISO 27001 as met, which is
+ * the document contradicting itself through the dashboard. All four mappings in
+ * this repository were in exactly that state.
+ *
+ * Presence means the form exists; this asks whether it has been filled in. The
+ * check is deliberately generous — **one** assessed row is enough, because the
+ * alternative is grading partial work as nothing and the register already
+ * distinguishes `Partial` and `Gap` from `Satisfied`. A mapping that is
+ * genuinely half done should read as evidenced and imperfect, not as absent.
+ *
+ * Only table rows count. The preamble lists every status as a legend, so a
+ * substring search over the document would find `Satisfied` in the instructions
+ * and mark every untouched mapping as assessed — the precise bug this closes,
+ * reintroduced by a simpler implementation.
+ */
+export function isAssessedControlMapping(markdown: string): boolean {
+  for (const line of markdown.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|')) {
+      continue;
+    }
+    const cells = trimmed.split('|').map(cell => cell.trim().replace(/[`*_]/g, '').toLowerCase());
+    if (cells.some(cell => ASSESSED_CONTROL_STATUSES.includes(cell))) {
+      return true;
+    }
+  }
+  return false;
+}
 const INTEGRATION_MARKERS = [/(^|[./_-])integration([./_-]|$)/i, /(^|\/)integration\//i];
 
 /**
@@ -202,7 +258,7 @@ const INTEGRATION_MARKERS = [/(^|[./_-])integration([./_-]|$)/i, /(^|\/)integrat
  * directory), not by being a word that might appear in a filename. A false
  * "covered" is the one outcome this panel must not produce.
  */
-const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
+export const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   // TDD's artifact is simply that tests exist and are maintained alongside code.
   tdd: {
     filePatterns: [TEST_FILE_SUFFIX, GENERIC_TEST_FILE, /_test\.[a-z0-9]+$/i, /(^|\/)test_[^/]+\.py$/i],
@@ -294,7 +350,22 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   },
 
   // ── Structural drift and integrity ──────────────────────────────
+  //
+  // `filePatterns` matters here more than it looks. Without one, this policy
+  // has no way to reach `covered` at all: `fileEvidencesPolicy` returns false
+  // when there are no patterns to match, so the best a project could ever
+  // score was `tooling-only` — which the summary counts as a gap. The row
+  // would then read as a gap that can never close however much work was done,
+  // the same dead end `configIsEvidence` was added to fix for the documentary
+  // compliance policies.
+  //
+  // And "entirely tooling-driven" is not quite true in practice. The check
+  // this policy describes — a declared field, prop or config key that nothing
+  // reads — is often cheaper to write as a test over the project's own
+  // manifest than to obtain by adopting a scanner, and a project that wrote
+  // one has evidence whether or not `knip` is in its lockfile.
   'dead-field': {
+    filePatterns: [/(^|[./_-])(dead-?field|dead-?prop|dead-?code|unused-?export|unreferenced)([./_-]|$)/i],
     dependencies: ['knip', 'ts-prune', 'ts-unused-exports', 'unimported', 'vulture', 'depcheck'],
     scriptPatterns: [/knip/i, /ts-prune/i, /unused/i, /deadcode/i],
     configPatterns: [/^knip\.(json|jsonc|ts|js)$/i, /^\.knip\./i, /^\.unimportedrc/i],
@@ -304,7 +375,15 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
     dependencies: ['zod', 'valibot', 'io-ts', 'arktype', 'typia', 'runtypes', 'superstruct', 'pydantic', 'cattrs'],
     scriptPatterns: [/type-?drift/i, /validate:schema/i],
   },
+  // Given `filePatterns` for the same reason as `dead-field` above: an
+  // architecture rule can be written as an ordinary test asserting which module
+  // may import which, and without a file pattern this policy could never read
+  // as anything better than a permanent gap. The ruleset files stay a *tooling*
+  // signal rather than evidence — `.madgerc` configures a tool without stating
+  // a single rule, and promoting it would report a project as covered for
+  // having installed something.
   'dependency-graph': {
+    filePatterns: [/(^|[./_-])(dependency-?graph|import-?boundar(y|ies)|architecture|archunit|layering)([./_-]|$)/i],
     dependencies: ['dependency-cruiser', 'madge', 'eslint-plugin-boundaries', 'import-linter', 'archunit', 'go-arch-lint'],
     scriptPatterns: [/depcruise/i, /dependency-cruiser/i, /madge/i, /boundaries/i, /arch(itecture)?:?(test|lint)/i],
     configPatterns: [/^\.dependency-cruiser\./i, /^\.importlinter$/i, /^\.madgerc$/i],
@@ -425,8 +504,21 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   // its pipeline definition. Without it a documentary policy would cap at "No
   // tests yet" forever and read as a gap that can never close, which is exactly
   // the outcome the archetype packs' `discouraged` list exists to prevent.
+  // `SECURITY.md` is deliberately **not** here.
+  //
+  // It was, and because `configIsEvidence` promotes every matched config file
+  // to evidence, any repository with a vulnerability-reporting policy read as
+  // *covered* for ISO 27001 — a certification claim resting on a file that says
+  // where to email a bug. That is the false "covered" this whole table is built
+  // to avoid, and it is worst here: an unevidenced gap is a prompt to do the
+  // work, while a false pass on a compliance regime is something somebody
+  // repeats to a customer or an auditor.
+  //
+  // The only evidence for a documentary regime is its control mapping. A
+  // project with `SECURITY.md` and no mapping now reads `missing`, which is
+  // the true answer.
   'iso-27001': {
-    configPatterns: [COMPLIANCE_DOC('iso-27001'), /^SECURITY\.md$/i],
+    configPatterns: [COMPLIANCE_DOC('iso-27001')],
     dependencies: ['vanta', 'drata'],
     configIsEvidence: true,
   },
@@ -516,8 +608,13 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
     dependencies: ['fairlearn', 'aif360', 'aequitas', 'responsibleai'],
     scriptPatterns: [/bias/i, /fairness/i],
   },
+  // `explainab` and `interpretab` are stems, and a stem cannot carry the same
+  // trailing boundary as a whole word: `(explainab)([./_-]|$)` requires the
+  // token to *end* there, so `explainability` — the obvious thing to call the
+  // file — never matched, and the policy read as a permanent gap. Written out
+  // in full instead, which is what every other entry in this table does.
   explainability: {
-    filePatterns: [/(^|[./_-])(explainab|interpretab|shap|lime|reason-?code)([./_-]|$)/i],
+    filePatterns: [/(^|[./_-])(explainab(le|ility)|interpretab(le|ility)|shap|lime|reason-?code)([./_-]|$)/i],
     dependencies: ['shap', 'lime', 'captum', 'interpret', 'eli5', 'alibi'],
     scriptPatterns: [/explainab/i, /interpretab/i],
   },
@@ -1180,15 +1277,21 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       ? configSignalsFor(markers, input)
       : [];
 
+    // A control checked against the stack and found to pass. Counted alongside
+    // the mapping rather than instead of it: the card states both, so "four
+    // controls verified, six still for a person" is what a reader sees.
+    const technicallyEvidenced = !markers.practiceOnly
+      && (input.technicallyEvidenced ?? []).includes(id);
+
     const status: TestingPolicyStatus = markers.practiceOnly
       ? 'not-file-evident'
-      : matchingFiles.length > 0 || configEvidence.length > 0
+      : matchingFiles.length > 0 || configEvidence.length > 0 || technicallyEvidenced
         ? 'covered'
         : toolingSignals.length > 0
           ? 'tooling-only'
           : 'missing';
 
-    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length });
+    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length, technicallyEvidenced });
 
     return {
       id,
@@ -1270,6 +1373,7 @@ function buildDetail(input: {
   toolingSignals: string[];
   configEvidence: string[];
   failureCount: number;
+  technicallyEvidenced?: boolean;
 }): string {
   if (input.status === 'not-file-evident') {
     return 'A way of working rather than a file — AtlasMind cannot confirm it from the repository, so it is not counted as a gap.';
@@ -1284,6 +1388,12 @@ function buildDetail(input: {
   // "3 files · 0 cases" would be a nonsense reading of a pipeline definition.
   if (input.matchingFileCount === 0 && input.configEvidence.length > 0) {
     return `Evidenced by ${input.configEvidence.slice(0, 3).join(', ')} — the pipeline is the artifact for this policy.`;
+  }
+  // Verified against the stack rather than by a file. Worth naming explicitly:
+  // a reader seeing "covered" on a compliance regime needs to know it came
+  // from a machine check and that the human controls are still outstanding.
+  if (input.matchingFileCount === 0 && input.technicallyEvidenced === true) {
+    return 'Controls in this regime were verified against the stack. The rest still need a person — see the control list.';
   }
   const parts = [`${input.matchingFileCount} file${input.matchingFileCount === 1 ? '' : 's'}`, `${input.caseCount} case${input.caseCount === 1 ? '' : 's'}`];
   if (input.skippedCount > 0) {

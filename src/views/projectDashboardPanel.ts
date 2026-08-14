@@ -16340,10 +16340,17 @@ const DASHBOARD_CSS = `
     font-family: var(--dash-body);
   }
 
+  /* Centred and capped. Without this every panel on the page inherits the
+     window width, and on a wide monitor a two-column grid of prose becomes two
+     900px paragraphs — the "why does this look off" complaint, which is a
+     measure problem rather than a per-panel one. Capping here fixes it in one
+     place instead of adding a max-width to forty cards. */
   .dashboard-shell {
     min-height: 100vh;
     padding: 24px;
     box-sizing: border-box;
+    max-width: var(--dash-content-max);
+    margin: 0 auto;
   }
 
   .no-project-banner {
@@ -17072,8 +17079,12 @@ const DASHBOARD_CSS = `
     gap: 16px;
   }
 
+  /* Column count follows the space, rather than the space being divided by a
+     fixed count. Six stat cards at 1fr are unreadable in a narrow editor and
+     absurd on an ultrawide; auto-fit with a stated minimum gives six when
+     six fit and three when they do not, with no media query to keep in sync. */
   .stats-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-stat)), 1fr));
   }
 
   .chart-grid,
@@ -17081,7 +17092,7 @@ const DASHBOARD_CSS = `
   .runtime-grid,
   .security-grid,
   .review-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-chart)), 1fr));
   }
 
   .director-roster {
@@ -17123,7 +17134,7 @@ const DASHBOARD_CSS = `
   }
   .privacy-model-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-panel)), 1fr));
     gap: 8px;
     max-height: 320px;
     overflow-y: auto;
@@ -17207,7 +17218,7 @@ const DASHBOARD_CSS = `
   .action-grid,
   .panel-grid,
   .repo-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-panel)), 1fr));
   }
 
   .stat-card,
@@ -17279,6 +17290,27 @@ const DASHBOARD_CSS = `
   .section-copy {
     color: var(--dash-muted);
     font-size: 13px;
+  }
+
+  /* Prose stops at a readable measure even when its panel does not.
+     A full-width card is often right — a table or a chart wants the room — but
+     the sentence above it does not, and an 1100px line of 13px text is the
+     single thing that makes a wide panel look wrong. Capping the text rather
+     than the card keeps both correct. */
+  .stat-detail,
+  .section-copy,
+  .signal-detail,
+  .dashboard-copy,
+  .panel-card > p,
+  .stat-card > p {
+    max-width: var(--dash-measure);
+  }
+  /* Inside a grid cell the column already provides the measure, and a second
+     cap would leave a ragged gap on the right of every card. */
+  .panel-grid .panel-card > p,
+  .chart-grid .panel-card > p,
+  .stats-grid .stat-card > p {
+    max-width: none;
   }
 
   .chart-card {
@@ -17757,7 +17789,7 @@ const DASHBOARD_CSS = `
 
   .ci-concept-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-chart)), 1fr));
     gap: 8px;
   }
 
@@ -19446,7 +19478,7 @@ const DASHBOARD_CSS = `
   .signal-grid {
     display: grid;
     gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-panel)), 1fr));
   }
 
   .signal-card.good { border-color: color-mix(in srgb, var(--dash-good) 46%, var(--dash-border)); }
@@ -19501,7 +19533,7 @@ const DASHBOARD_CSS = `
   }
 
   .score-recommendation-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-chart)), 1fr));
   }
 
   .score-component-list {
@@ -19535,7 +19567,7 @@ const DASHBOARD_CSS = `
   }
 
   .score-outcome-card .mini-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-stat)), 1fr));
     margin-top: 12px;
   }
 
@@ -19551,7 +19583,7 @@ const DASHBOARD_CSS = `
   }
 
   .ideation-lower-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-chart)), 1fr));
   }
 
   .ideation-panel {
@@ -19797,7 +19829,7 @@ const DASHBOARD_CSS = `
   .ideation-inspector-grid {
     display: grid;
     gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dash-col-panel)), 1fr));
   }
 
   .ideation-response-box {
@@ -19824,17 +19856,17 @@ const DASHBOARD_CSS = `
     font-size: 12px;
   }
 
+  /* Only the bespoke layouts need a breakpoint now.
+     Every grid above reflows on its own stated minimum, and listing one here
+     would *undo* that: pinning .stats-grid to three columns at 1280px throws
+     away two that fit, and collapsing the panel grids to 1fr on a 1200px
+     editor — an entirely ordinary width — leaves half the window empty. That
+     was a large part of why these pages read as badly proportioned.
+
+     .hero-grid and .ideation-shell are asymmetric two-column layouts rather
+     than repeating tracks, so they cannot express "reflow when you no longer
+     fit" and still need to be told. */
   @media (max-width: 1280px) {
-    .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .chart-grid,
-    .delivery-grid,
-    .runtime-grid,
-    .security-grid,
-    .review-grid,
-    .ideation-lower-grid { grid-template-columns: 1fr; }
-    .action-grid,
-    .panel-grid,
-    .repo-grid,
     .hero-grid,
     .ideation-shell { grid-template-columns: 1fr; }
   }
@@ -19847,11 +19879,10 @@ const DASHBOARD_CSS = `
      page's outcome grid to one column at all widths. */
   @media (max-width: 820px) {
     .dashboard-shell { padding: 16px; }
-    .stats-grid,
-    .signal-grid { grid-template-columns: 1fr; }
-    .score-summary-grid,
-    .score-recommendation-grid,
-    .score-outcome-card .mini-grid { grid-template-columns: 1fr; }
+    /* .score-summary-grid is the only one left that cannot reflow itself:
+       it is a deliberate 0.95/1.05 split rather than repeating tracks. The
+       rest reach one column on their own once the space is gone. */
+    .score-summary-grid { grid-template-columns: 1fr; }
   }
 
   @keyframes dashBarRise {
@@ -19886,7 +19917,21 @@ const DASHBOARD_CSS = `
      Each enabled policy gets a card whose left edge carries its status, so the
      shape of the board is readable before any label is: a column of green edges
      is a covered suite, a run of red ones is the gap the page exists to show. */
-  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+  /* 210px was too narrow for what these cards now carry. A collapsed card is
+     a title, a status tag and a counts line; an expanded one holds a
+     distribution bar, an evidence table and a control table with four columns.
+     At the old minimum a wide window produced six columns of roughly 220px and
+     every table inside wrapped to one word per line.
+
+     auto-fill is deliberately kept over auto-fit: with auto-fit a board
+     showing two enabled policies stretches both cards across the whole row,
+     which looks like a layout bug rather than a short list.
+
+     An expanded card takes the full row. It is a reading surface at that point
+     — tables, charts and prose — and squeezing that into one column of a
+     six-column grid is the thin-panel problem in its worst form. */
+  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
+  .policy-card.is-expanded { grid-column: 1 / -1; }
   .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
   .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
   .policy-card.status-tooling-only { border-left-color: var(--dash-warn); }
@@ -19920,8 +19965,39 @@ const DASHBOARD_CSS = `
   .policy-rule-table > summary { cursor: pointer; color: var(--vscode-textLink-foreground); }
   .policy-rule-table > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 
+  /* ── Testing statistics ───────────────────────────────────────────
+     Ranked horizontal bars rather than a chart library: they inherit theme
+     colours, stay readable at any zoom, and degrade to a legible row of labels
+     and numbers if the CSS never loads. */
+  .policy-stats-grid { align-items: start; }
+  .policy-bar-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .policy-bar-row { display: grid; grid-template-columns: minmax(90px, 0.9fr) minmax(0, 2fr) auto; align-items: center; gap: 10px; font-size: 0.78em; }
+  .policy-bar-label { color: var(--dash-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .policy-bar-track { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--dash-muted) 22%, transparent); }
+  .policy-bar-fill { display: block; height: 100%; border-radius: 999px; transition: width var(--dash-dur-value) var(--dash-ease); }
+  .policy-stack-seg { display: block; height: 100%; }
+  .policy-bar-value { font-variant-numeric: tabular-nums; text-align: right; }
+
+  /* The strip on a collapsed card. Deliberately thin: it is a shape to scan,
+     not a chart to read, and the numbers are already on the line above it. */
+  .policy-glance { display: block; margin-top: 2px; }
+  .policy-glance .policy-bar-track { height: 5px; }
+
+  /* ── Governance controls checked against the stack ────────────────
+     Sits inside an expanded policy card, beside the human control mapping
+     rather than instead of it. The table can be four columns wide, which is
+     the main reason an expanded card takes the whole row. */
+  .policy-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); }
+  .policy-control-table { margin-top: 4px; }
+  .policy-control-table th:first-child, .policy-control-table td:first-child { white-space: nowrap; width: 1%; }
+  .policy-control-table td:nth-child(3) { white-space: nowrap; width: 1%; }
+  .policy-control-table code { font-size: 0.95em; }
+
   /* Compact data table shared by the policy detail panes. */
   .mini-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+  /* A four-column table in a narrow card is the thin-panel problem in
+     miniature. Scrolling the table beats wrapping every cell to one word. */
+  .policy-controls, .policy-evidence-table, .policy-failure-table { overflow-x: auto; }
   .mini-table caption { text-align: left; padding-bottom: 4px; }
   .mini-table th, .mini-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); overflow-wrap: anywhere; vertical-align: top; }
   .mini-table thead th { color: var(--vscode-descriptionForeground); font-weight: 600; }

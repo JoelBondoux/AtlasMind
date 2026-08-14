@@ -142,3 +142,40 @@ describe('configuration reads are well-formed', () => {
     expect(stray).toEqual([]);
   });
 });
+
+describe('no credential is stored in a setting', () => {
+  /**
+   * A VS Code setting is clear text in `settings.json`, routinely committed to
+   * a dotfiles repository and synced between machines. So "the API key lives in
+   * SecretStorage" is not a convention — it is the encryption-at-rest control
+   * this ecosystem actually has, and the manifest is where it is decided.
+   *
+   * This is also the signal behind ISO A.8.24, SOC 2 CC6.7 and NIST SC-28 in
+   * `complianceTechnicalControls`, so a regression here does not merely leak a
+   * key: it silently turns three compliance controls from satisfied to a gap.
+   */
+  const CREDENTIAL_SHAPED = /(apikey|api_key|token|secret|password|credential)/i;
+  /** `secretRef` names a SecretStorage key rather than holding one. */
+  const SANCTIONED_POINTER = /^(secretRef|secretRefs|apiKeySettingKey)$/i;
+
+  it('declares no credential-shaped string setting', () => {
+    const properties = pkg.contributes.configuration.properties as Record<string, { type?: unknown }>;
+    const offenders = Object.entries(properties)
+      .filter(([key, schema]) => {
+        const leaf = key.split('.').pop() ?? '';
+        if (SANCTIONED_POINTER.test(leaf) || !CREDENTIAL_SHAPED.test(leaf)) {
+          return false;
+        }
+        // A boolean toggle named `useToken` stores no credential; only a
+        // string property can hold one.
+        return schema?.type === 'string';
+      })
+      .map(([key]) => key);
+
+    expect(offenders, `these settings could hold a credential in clear text: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('has settings to check, rather than passing on an empty manifest', () => {
+    expect(DECLARED.length).toBeGreaterThan(50);
+  });
+});

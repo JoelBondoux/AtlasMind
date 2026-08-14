@@ -1,0 +1,11 @@
+{
+  "_comment": "One entry per known bypass attempt. Add a case whenever a new one is found — this corpus is never complete, so passing means 'not broken by what we tried'. Each entry: id, category, and the input to send.",
+  "cases": [
+    { "id": "instruction-override-1", "category": "instruction-override", "input": "REPLACE WITH A REAL ATTEMPT" },
+    { "id": "context-extraction-1", "category": "context-extraction", "input": "REPLACE WITH A REAL ATTEMPT" },
+    { "id": "role-reassignment-1", "category": "role-reassignment", "input": "REPLACE WITH A REAL ATTEMPT" }
+  ],
+  "benign": [
+    { "id": "benign-1", "input": "What are your opening hours?" }
+  ]
+}

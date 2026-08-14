@@ -144,6 +144,7 @@ the identity has authenticated once, which is what the verify workflow is for.
 | `LocalModelArbiter` | `src/core/localModelArbiter.ts` | Who gets the GPU, and who waits. AtlasMind issues local calls from at least six places that never meet — the scheduler's five-way fan-out, the bootstrapper's four *unbounded* parallel completions, the skill auto-assigner's unbounded sweep, two background timers, the comparison panel, every chat turn — and all land on one card. Both runtimes arbitrate internally but each against whatever free memory it sees, neither seeing the other, and neither reserving anything for the desktop (measured: 9.2 GB of 24 GB committed to Windows, a browser and antivirus with **no model loaded**). Five properties in order: **a slot wraps one HTTP call and nothing else** — a leaf awaiting nothing that could need a slot, which makes deadlock structurally impossible rather than merely unobserved; **the scarce resource is residency, not requests** — two calls to a resident model cost one context cache each, so weights are charged once per distinct model with a refcount, since charging per request would serialise the bootstrapper's four *same-model* completions while still permitting three different models to load; **cold loads run one at a time, globally**, which is what makes a load *attributable* (poll before, poll after, and a model that appeared with no other cold load in flight was ours) — the only mechanism available, because Windows cannot attribute VRAM per process at all; **a wait is bounded and expiry refuses**, failing the turn over rather than wedging or over-committing; and **unknown is never unlimited** — with no free-memory reading it caps *distinct resident models*, not concurrency, since Ollama holds a model for five minutes and three sequential calls to three models leave all three resident. **Only models AtlasMind loaded are ever evicted**; anything resident at session start is the user's. The budget's second limb is a ceiling on *AtlasMind's own share*, not an OS reserve — `total − reserve` alone is a constant and therefore inert once anything loads, so it must subtract what AtlasMind holds, taken from the residency poll rather than local bookkeeping. A capacity refusal travels the failover path, so `isCapacityDeferral` guards the endpoint circuit, `recordModelFailure` and struggle memory — **structurally, not by message**, because all three of those guards match on wording. Gate lives in the adapter, not the Orchestrator, because most call sites bypass it. Eviction is guarded four ways — **only models AtlasMind loaded** (a hand-loaded model is never touched, asserted by a property test over arbitrary candidate sets), never one in use, never one served inside the cooldown, and never one whose resident size was not measured; a plan that would not free enough is **not executed**, since unloading two models and still not fitting costs both reloads for nothing. Pure policy in `vramBudget.ts` + unit-tested |
 | `TestingAutoAssess` | `src/core/testingAutoAssess.ts` | What the project's *code* says its testing policy should be — as opposed to what its README says about itself. The old matcher ran every signal as a bare substring over one corpus that included three kilobytes of README, so a description and a dependency weighed the same: measured here, **twelve policies fired on prose alone**, PCI-DSS and bias & fairness among them, on an extension that touches neither. Five rules. **Code decides, prose proposes** — split at the *input* boundary, since a merged corpus cannot recover the distinction afterwards; a prose match is still listed and one keystroke away, because the goal is to stop the tool deciding for you, not to stop it suggesting. **Boundaries are real** — `(?<![a-z0-9])` rather than ``, whose behaviour is surprising around the hyphens and slashes this vocabulary is full of (`fast-check`, `ci/cd`, `800-53`); `api` now matches `rest api` and neither `rapid` nor `openapi`. **One ambiguous word is a hint, two are a pattern** — `AMBIGUOUS_SIGNALS` derived empirically by reading what it ticked here (`npm audit` in a script switched on SOC 2; a workflows directory switched on SLSA provenance), and the count is over **literal** matches only, since a derived rule expands one dependency into a vocabulary and counting the expansion lets one ambiguous fact manufacture its own corroboration. **Ambiguity is per (word, policy)** and only exceptions are declared — `decisiveFor` for the few facts that are their own proof. **Shape can withhold, evidence overrules shape** — checked before signals so a stray keyword cannot reintroduce a gap the packs exist to prevent, never against a policy already evidenced on disk, and skipped when detection was not confident. Pure + unit-tested |
 | `TestingPolicyDetail` | `src/core/testingPolicyDetail.ts` | What a testing policy needs a *person* to do about it — `testingPolicyCoverage` says whether anything tests it, this says how bad it is, whose it is, and the next move, which a board of nine equally-weighted gaps could not (this repository carried eight unowned ones for seven weeks). **Severity from a declared table, never a model**, evaluated in order where the order *is* the policy: a failing test outranks a missing one, because a test that runs and fails is a statement about the code while a test never written is a statement about the plan. The table travels in the payload so the renderer publishes the rules that actually graded the cards rather than a copy that drifts. **`serious` is deliberately narrow** — failing tests, or an enabled security/compliance policy with no evidence — matched on *category* so a new compliance policy grades right unedited, with visual regression explicitly excluded or the count means nothing; making every gap serious is how nothing is. **Nothing here files anything**: severity decides what is offered and emphasised, never what is created, which keeps a too-eager rule noisy rather than damaging; the issue draft is model-free (byte-identical, reviewable) and its labels are *suggested*, intersected by the caller with the declared taxonomy since an unmatched label is created on the repository as a side effect. **Unassessed is not healthy** — `unverified` marks a clear grade resting on a report that does not exist, and `caseMix` is absent rather than zeroed, since an empty bar and an uncomputable one look identical. Pure + unit-tested |
+| `ComplianceTechnicalControls` | `src/core/complianceTechnicalControls.ts` | The controls in a governance regime a machine can check. A documentary policy is mostly human attestation — but *mostly* is not *entirely*, and "a backup is taken before a production promotion", "no declared endpoint uses plaintext http off the loopback" and "changes are reviewed before merge" are facts about a stack this project already models in `deliveryManager`, `lensEndpoints` and `workflowConfig`. None of it reached the compliance board, so a regime with ten controls sat entirely at *Not assessed* while several were verifiable from disk — the mirror of the false-covered failure, and why a regime looked unautomatable when it was not. Four rules. **A signal that was not gathered is `unknown`, never `satisfied`** — every input is optional and absent means "not looked at", the one place on a compliance surface where guessing in the reassuring direction must be refused. **Every result names the declared rule that decided it.** **A control with no technical check is absent rather than passed**, with `humanControlCount` stating the remainder so "4 of 7 verified" cannot read as the whole regime. **One question asked by three standards shares one implementation** — ISO A.8.8, SOC 2 CC7.2 and NIST RA-5 are the same check, and three copies would eventually disagree about one repository. `hasTechnicalControls` answers "is this protocol worth keeping on?". Results feed `deriveTestingPolicyCoverage` via `technicallyEvidenced`, and **only `satisfied` is passed** — a `gap` is a finding, an `unknown` is silence, and promoting on either rebuilds the false pass. Writes nothing: recording a passed check in the mapping is a separate human act. Pure + unit-tested |
 | `TestingSubjects` / `TestingSubjectScan` | `src/core/testingSubjects.ts`, `src/core/testingSubjectScan.ts` | The individual things a policy must cover. Coverage was **methodology-level** — does anything test contracts — so one contract test from March read `covered` in December after forty endpoints landed, and the obligation check conceded the same hole in its own comment. A path cannot tell you what a test asserts; a **subject** can. **Declared artifacts only, never inferred code shape** — OpenAPI paths, GraphQL operations, gRPC methods, migrations, schemas, file-system routes, declared roles, prompt files; treating every export as a subject would manufacture obligations nobody agreed to, and a methodology that cannot be evidenced is the permanent gap the archetype packs exist to prevent. Seven policies have extractors; the other 62 report *not extractable* rather than zero, since zero uncovered reads as complete. **Matching is by reference and biased to false negatives** — a test that never names the endpoint it tests is not evidence that it does; `requiredTokens` carries the method, because any-of matching let a GET test cover the POST, rebuilding the same looseness one level down; case-insensitive for methods, as-declared for roles and schemas (`Admin` ≠ `admin`). **One scan, shared** by the dashboard and the agent obligation prompt — a page calling an endpoint untested while the turn that touched it heard nothing is worse than neither, because one is lying; `fs`-only, 30-second cache keyed on the enabled set, forced on explicit refresh, and filtered to *declared* policies so a spec never conjures obligations for a methodology the project left off. Throwing yields an empty report: under-reporting is the safe direction. Pure + `fs`-only + unit-tested |
 | `AgentHandoff` | `src/core/agentHandoff.ts` | Delegated execution, and the authorization that does **not** come with it. **A handoff transfers the question, not the permissions:** the delegate runs with `intersection(caller's skills, target's skills)`, never the union — if it granted the union, any restricted agent could obtain any capability by asking a permissive one and every restriction in the system would become a suggestion (an exhaustive subset-lattice test walks the property rather than arguing it). What it *does* buy is the delegate's expertise applied within the caller's authority. An empty intersection **refuses** rather than running a tool-less delegate, because a model unable to check anything produces confident prose. Depth capped at 3; cycles refused; both name the chain. Three properties live in the wiring, where a mistake would leave the policy intact and route around it: the caller **cannot name itself** (identity from `currentExecution`, carrying *resolved* skills, since a planner subtask is ephemeral and a registry lookup would hand back an empty ceiling that refused everything for a reason resembling policy); the delegate is a **narrowed copy** so this run's ceiling cannot leak into later uses; and the caller's **budget is not inherited**, or a handoff would be an unbounded cost multiplier. The answer comes back fenced — another agent's opinion, not a verified result. Classified explicitly in `toolPolicy` so it is not mislabelled `network`; the risk approved is *spend*, since the delegate's own tool use is gated separately. Pure + unit-tested |
 | `DebtRegister` | `src/core/debtRegister.ts` | Stage 7 — what was deferred, and how long ago. **Severity from a declared rule table, never a model:** a score assigned last Tuesday is not comparable with one assigned today, and comparability is the register's entire value; every entry names the rule that graded it and the table is published in the markdown mirror. Severity **does not drift with age** for the same reason — an entry whose grade changed while the code did not could not be compared with last month's, so age is reported as its own fact. Entries **transition, never delete**; `resolved` (somebody did the work) stays distinct from `obsolete` (the evidence vanished and nobody said they fixed it), because collapsing them would report progress the register cannot attest to. Reconciliation only marks an entry obsolete if its file was in the scan. Ids exclude the line number so moving code does not orphan an entry's history. **A marker only counts when it opens a comment** — learned by running the scanner over this repository, which reported its own rule table, its own tests and the dashboard copy as debt (29 entries, all false): markers in strings/templates/regexes are data, markers discussed in prose are documentation. `commentStartIndex` is a small quote-tracking scanner, not a regex, because "is this delimiter inside a string" is not a regular language. `deriveDebtFromSignals` covers what nobody wrote down — a dependency update unmerged past its threshold, a testing methodology declared and not evidenced, a document past review, an absent pipeline — all graded by the **same** rule table, because a register holding two scales is worse than one holding half the entries; bots are matched on author/label/branch and **never on title**, since they rename their own templates between versions. `buildDebtMarkerGuidance` puts the marker vocabulary in front of every code-writing agent — appended to AtlasMind's role prompts and written as a **second managed block** into external tools' instruction files (separate from the testing block: different questions, different change rates, and a file with one and not the other keeps what it has). An agent marking a shortcut its own way produces debt the register cannot see, and emptiness then reads as "no debt" rather than "not detected". A project declares its own markers in `atlasmind.debt.markers` (`NAME` or `NAME:severity`); each becomes a **declared rule** published in the mirror, charset-constrained because the marker enters a regex, unable to redefine the built-in four (that would make two registers incomparable), and still subject to the security override — a credential mention is high whatever it was called. `buildDebtWorkPrompt` fences an entry as a **record, not a work order**: the risk is the inverse of an issue body's — not that the text is hostile but that the agent mistakes a deferred decision for a mandate — so "worth keeping, with the reason it was the right call" is a first-class answer and the standing rule is propose, never apply. Pure + `fs`-only + unit-tested |
@@ -318,7 +319,7 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 > Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
 > changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
 
-This project enforces **7** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+This project enforces **32** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
 
 ### TDD
 
@@ -341,6 +342,13 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
 - **Primary owner:** Test Developer
 
+### Mutation Testing
+
+- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
+- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
+- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
+- **Primary owner:** Test Developer
+
 ### Property-Based
 
 - **What:** Generative input testing (fast-check, Hypothesis)
@@ -353,6 +361,20 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **What:** Automated testing embedded throughout CI/CD — tests run on every commit, earliest possible feedback
 - **When to apply:** Any project with a CI/CD pipeline. Essential for teams delivering frequent releases or practising trunk-based development. Shift-left means pushing tests earlier: linting, type checks, and unit tests on pre-commit; integration and E2E on PR; performance and security on merge.
 - **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
+- **Primary owner:** Test Developer
+
+### End-to-End
+
+- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
+- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
+- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
+- **Primary owner:** Test Developer
+
+### Contract
+
+- **What:** Consumer-driven API contract verification (Pact)
+- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
+- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
 - **Primary owner:** Test Developer
 
 ### Security
@@ -369,7 +391,156 @@ This project enforces **7** testing methodologies. When writing or verifying tes
 - **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:21a574f088b98221 -->
+### Dead-Field / Dead-Prop Detection
+
+- **What:** Finds declared fields, props and config keys that nothing ever reads
+- **When to apply:** Codebases where types, props or configuration have accumulated over several refactors. A field that is written but never read is a bug wearing a feature's clothes — the code that was supposed to consume it was renamed, moved, or never written.
+- **Key tools:** ts-prune, knip, ts-unused-exports, eslint no-unused-vars, Vulture (Python), deadcode (Go), cargo-udeps (Rust)
+- **Primary owner:** Test Developer
+
+### Type Drift Detection
+
+- **What:** Checks that static types still describe what actually arrives at runtime
+- **When to apply:** Any TypeScript or typed-Python project consuming external JSON — an API response, a config file, a database row. The compiler checks the *assertion*, not the data, so a backend that renamed a field keeps compiling and fails in production.
+- **Key tools:** Zod, Valibot, io-ts, ArkType, typia, Pydantic, attrs + cattrs, quicktype (schema → type generation)
+- **Primary owner:** Test Developer
+
+### Cross-Surface Property Parity
+
+- **What:** Asserts the same rule produces the same answer on every surface that states it
+- **When to apply:** Products where one fact is displayed in several places — a CLI and a web UI, a dashboard card and the detail page it links to, an API and the SDK wrapping it. The failure this catches is two surfaces disagreeing about the same number, which reads as a data bug and is really a duplicated rule.
+- **Key tools:** Shared fixture suites, Vitest/Jest table-driven tests, golden files, contract-style shared assertions, Playwright + API cross-checks
+- **Primary owner:** Test Developer
+
+### Cross-Representation Consistency
+
+- **What:** Asserts a value survives every round trip between its representations
+- **When to apply:** Anywhere one value has several forms — JSON and a database row, a domain object and its DTO, markdown and its parsed AST, a display string and the number behind it. Serialization asymmetry is the classic silent corruption: it writes fine, reads back subtly different, and nothing fails until much later.
+- **Key tools:** fast-check / Hypothesis round-trip properties, snapshot fixtures, JSON Schema validation, protobuf/Avro conformance suites
+- **Primary owner:** Test Developer
+
+### Cross-Version Parity
+
+- **What:** Asserts a new version still answers old inputs the way the old version did
+- **When to apply:** Libraries, APIs and file formats with existing consumers. Distinct from compatibility testing: this replays *real recorded behaviour* from the previous version rather than checking a declared contract, so it catches the change nobody documented.
+- **Key tools:** Golden/approval files, recorded request-response fixtures, API diffing (oasdiff, openapi-diff), semantic-release + api-extractor, Pact provider verification against prior consumer versions
+- **Primary owner:** Test Developer
+
+### Semantic Constraint Testing
+
+- **What:** Asserts domain invariants that types allow but the domain forbids
+- **When to apply:** Domains with rules the type system cannot express — an end date after its start, a total matching the sum of its parts, a state machine that never reaches a terminal state twice. The type says `Date`; the domain says "not before the other one".
+- **Key tools:** Zod refinements, class-validator, Pydantic validators, database CHECK constraints, fast-check preconditions, invariant assertions in domain models
+- **Primary owner:** Test Developer
+
+### Output Schema Drift Detection
+
+- **What:** Detects when produced output stops matching its own published schema
+- **When to apply:** Any producer with consumers it cannot see — a public API, an event stream, a webhook, a structured LLM response, an exported report. The producer's tests pass because they were updated alongside it; the consumer breaks because it was not.
+- **Key tools:** JSON Schema / Ajv, OpenAPI response validation, oasdiff, Avro/protobuf schema registry compatibility checks, Zod parse on output, Great Expectations for tabular output
+- **Primary owner:** Test Developer
+
+### Hallucination Detection
+
+- **What:** Checks that model-stated facts are grounded in the sources actually provided
+- **When to apply:** Any feature where a model states facts a user will act on — RAG answers, summarisation, extraction, citations. A fluent, specific, entirely invented answer is indistinguishable from a correct one to every assertion except one that checks it against the source.
+- **Key tools:** RAGAS (faithfulness/groundedness), DeepEval, TruLens, Promptfoo assertions, LLM-as-judge with a citation requirement, entity overlap against source, Anthropic/OpenAI evals
+- **Primary owner:** Test Developer
+
+### Accessibility (a11y)
+
+- **What:** Automated and manual checks against WCAG success criteria
+- **When to apply:** Every product with a user interface, and a legal requirement for public sector, education, and increasingly commercial software (EAA, ADA, Section 508). Automated tooling reliably catches roughly a third of WCAG issues, which makes it necessary and not sufficient.
+- **Key tools:** axe-core, @axe-core/playwright, jest-axe, Pa11y, Lighthouse, WAVE, eslint-plugin-jsx-a11y, screen readers (NVDA, VoiceOver, JAWS) for the manual half
+- **Primary owner:** Test Developer
+
+### Memory / State Drift Detection
+
+- **What:** Detects when persisted state stops matching what the code believes it holds
+- **When to apply:** Long-lived stores written by successive versions — agent memory, user preferences, caches, session documents, event-sourced aggregates. The document on disk was written by a build that no longer exists, and the reader assumes a shape nobody re-checked.
+- **Key tools:** Versioned document schemas with migration ladders, Zod/Pydantic parse-on-read, snapshot corpora of historical documents, replay tests over an event log
+- **Primary owner:** Test Developer
+
+### Prompt Regression
+
+- **What:** Replays a graded case set so a prompt edit cannot silently degrade quality
+- **When to apply:** Any product with a prompt in it. Prompts are edited like prose and deployed like code, with no equivalent of a failing build — a wording change that fixes one case and breaks nine is invisible without a replay set.
+- **Key tools:** Promptfoo, Braintrust, LangSmith, DeepEval, OpenAI Evals, Anthropic evals, Vitest + recorded fixtures with an LLM judge
+
+### Model Routing Correctness
+
+- **What:** Asserts the router picks the model the policy says it should, and fails over correctly
+- **When to apply:** Any system choosing between models on cost, capability, latency or availability. A router silently sending every request to the most expensive model still returns correct answers — the bug is only visible on the invoice, and only weeks later.
+- **Key tools:** Table-driven tests over the routing function, fake provider adapters, budget-ceiling assertions, failover simulation with injected provider errors, cost-per-route snapshot tests
+
+### Guardrail Enforcement
+
+- **What:** Tests that safety policies actually refuse, including under adversarial input
+- **When to apply:** Any model-backed feature reachable by untrusted input. A guardrail is written once, believed permanently, and bypassed by the first prompt injection nobody tried — a policy without a test is a comment.
+- **Key tools:** Promptfoo red-team plugins, Garak, PyRIT, NeMo Guardrails test suites, Llama Guard, Rebuff, adversarial case corpora, refusal assertions
+- **Primary owner:** Test Developer
+
+### Agent Collaboration Correctness
+
+- **What:** Tests hand-offs, delegation limits, and that agents share no authority they should not
+- **When to apply:** Multi-agent systems with delegation, sub-tasks, or tool sharing. The failure mode is authority accumulating across a hand-off — a restricted agent obtaining a capability by asking a permissive one — which every individual agent test passes.
+- **Key tools:** Deterministic fake agents, hand-off depth/cycle assertions, permission-intersection property tests, transcript replay, LangGraph/CrewAI test harnesses, trace assertions
+- **Primary owner:** Test Developer
+
+### ISO/IEC 27001 Controls
+
+- **What:** Maps Annex A controls to the evidence that demonstrates each one
+- **When to apply:** Organisations certified or seeking certification, and any vendor whose enterprise customers ask for it in procurement. The certification is organisational, but a meaningful share of Annex A lands on the codebase — access control, cryptography, logging, secure development.
+- **Key tools:** Control-mapping registers, Vanta, Drata, Secureframe, evidence-collection automation, internal audit checklists, Statement of Applicability
+
+### SOC 2 Type I/II
+
+- **What:** Checks Trust Services Criteria are met and, for Type II, evidenced over time
+- **When to apply:** SaaS vendors selling to enterprises. Type I asks whether controls are designed correctly at a point in time; Type II asks whether they operated continuously over a period — which makes *evidence continuity* the thing to test, not just control existence.
+- **Key tools:** Vanta, Drata, Secureframe, Tugboat Logic, CI evidence exports, access-review automation, change-management logs
+
+### GDPR Data Handling
+
+- **What:** Tests lawful basis, minimisation, subject rights, and deletion actually work
+- **When to apply:** Any product processing personal data of people in the EU or UK, regardless of where the company is. Several obligations are genuinely executable — a deletion request that leaves rows in a backup index, or an export missing a data category, is a testable defect.
+- **Key tools:** Data-flow mapping / RoPA, deletion-completeness tests across every store, export-completeness assertions, consent-state tests, retention-window checks, pseudonymisation verification
+
+### Change-Management Compliance
+
+- **What:** Tests that changes reached production through the approvals the policy requires
+- **When to apply:** Regulated environments and any organisation asserting a change process to an auditor. Almost entirely checkable from repository and CI metadata — protected branches, required reviews, linked tickets, deployment approvals — which makes it the cheapest compliance policy to automate.
+- **Key tools:** Branch-protection API assertions, required-review checks, CODEOWNERS verification, deployment-approval gates, commit-to-ticket traceability, git history analysis
+- **Primary owner:** Test Developer
+
+### AI Safety & Guardrail Compliance
+
+- **What:** Evidences that declared AI safety commitments are implemented and enforced
+- **When to apply:** Products making public safety claims, and anything in scope of the EU AI Act's obligations for high-risk or general-purpose systems. Distinct from guardrail *testing*: this asks whether the declared policy, the implementation, and the evidence agree.
+- **Key tools:** EU AI Act conformity checklists, NIST AI RMF mapping, model cards, system cards, guardrail-policy registers, incident-reporting procedures, red-team evidence retention
+- **Primary owner:** Test Developer
+
+### Model-Output Risk Classification
+
+- **What:** Tests that outputs are classified by risk and that the classification drives handling
+- **When to apply:** Products where some model outputs need different treatment — human review, a disclaimer, a refusal, or a log. A classifier that is never tested tends toward one class, which silently removes the review step it exists to trigger.
+- **Key tools:** Labelled risk corpora, confusion-matrix assertions, threshold calibration tests, Llama Guard / moderation-endpoint evaluation, escalation-path tests, anti-uniformity checks on classifier output
+- **Primary owner:** Test Developer
+
+### Explainability & Transparency
+
+- **What:** Tests that a decision can be explained to the person it affects
+- **When to apply:** Automated decisions with legal or significant effect — GDPR Article 22, the EU AI Act, and sector rules like ECOA adverse-action notices all require a meaningful explanation. The test is that the explanation is faithful to the decision, not merely that one is produced.
+- **Key tools:** SHAP, LIME, captum, counterfactual explanation generators, faithfulness/consistency assertions, model cards, decision-log inspection, reason-code verification
+- **Primary owner:** Test Developer
+
+### AI Memory & Data-Use Policy
+
+- **What:** Tests that what the system remembers and sends matches what was promised
+- **When to apply:** Any AI product with memory, retrieval, or training feedback loops. Two commitments are routinely stated and rarely tested: that customer data does not train a model, and that a secret or another tenant's data never reaches a prompt.
+- **Key tools:** Redaction-boundary tests, prompt-payload inspection, tenant-isolation tests over retrieval, training-opt-out verification, memory-retention window tests, provider zero-retention configuration checks
+- **Primary owner:** Test Developer
+
+<!-- atlasmind:source-digest:3131e9d7e7504f6f -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->
@@ -457,7 +628,7 @@ Testing requirements are **not** duplicated here. They live in
 of this same file. Follow those.
 
 
-<!-- atlasmind:source-digest:04ac1c6059209df5 -->
+<!-- atlasmind:source-digest:c560b753ccbb3939 -->
 <!-- atlasmind:workflow:end -->
 
 <!-- atlasmind:shared-instructions:start -->
