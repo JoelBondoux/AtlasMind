@@ -13,7 +13,7 @@ A failure is a finding about the shipped surface, not a regression.
 | STOP | 2 | 6 |
 | COMMANDS | 5 | 2 |
 | TOOLING | 2 | 3 |
-| ORCHESTRATION | 4 | 2 |
+| ORCHESTRATION | 5 | 1 |
 | GUIDANCE | 1 | 7 |
 
 ## Findings
@@ -209,14 +209,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** ask-on-write is the default; if every MCP read prompts, a session with a connected server is a wall of dialogs and the mode stops meaning anything.
 
 **Observed:** a read-only MCP call requires approval under ask-on-write, identically to a delete
-
-### O3-file-contents-are-not-failures (ORCHESTRATION)
-
-**Asked:** Reading an ordinary source file does not count as a tool failure.
-
-**Why this shape:** The failure test is a substring match on raw tool output, and file-read returns file contents. When every result in the final round tests as failed, the model's answer is replaced by a failure dump and the turn is stamped finishReason:'error', which permanently penalises the agent and model that did nothing wrong.
-
-**Observed:** 2/3 ordinary files read as tool failures — ../src/views/chatSlashRouting.ts on keyword ("cannot"); ../package.json on substring ("failed")
 
 ### O5-ask-on-external-covers-writes (ORCHESTRATION)
 

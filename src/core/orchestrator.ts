@@ -2951,25 +2951,35 @@ export class Orchestrator {
           };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
-          // Instrumentation, not a guard: this branch DISCARDS the model's answer, and
-          // `looksLikeToolFailure` decides on a substring of raw tool output — so a
-          // `file-read` returning source that merely contains "cannot" or "failed" is
-          // enough to trip it. Logging which tool and which token matched is the only
-          // way to tell a genuine failure from a false positive after the fact, because
-          // the answer that would have shown the difference is gone by then.
+          // The failure summary is APPENDED, never substituted, and the error stamp
+          // is reserved for a turn that produced nothing.
+          //
+          // This branch used to replace `completion.content` outright and stamp
+          // `finishReason: 'error'` unconditionally. Both halves were wrong in the
+          // same direction. The replacement deleted a good answer whenever the
+          // failure test misfired — and it misfired on reading a source file. The
+          // stamp then propagated to `agents.recordOutcome` and
+          // `router.recordExecutionOutcome`, so the agent and model that answered
+          // correctly were permanently penalised for it. That is the one defect in
+          // this file that outlived its own turn.
+          //
+          // Appending is also right when the failure is genuine: an answer written
+          // in spite of a failing tool is worth reading, and the summary underneath
+          // says what went wrong. The stamp still fires when there is no answer to
+          // keep, which is the case it was always meant for.
+          const answer = completion.content.trim();
+          const summary = summarizeFailedToolResults(lastToolResults);
           // Names and trigger tokens only — never tool output, which can carry secrets.
           console.warn(
-            `[AtlasMind] Replaced the model's answer with a tool-failure summary `
-            + `(${lastToolResults.length} tool result(s), discarded ${completion.content.trim().length} chars): `
+            `[AtlasMind] Appended a tool-failure summary to the model's answer `
+            + `(${lastToolResults.length} tool result(s), kept ${answer.length} chars): `
             + lastToolResults
               .map(entry => `${entry.toolCall.name} → ${describeToolFailureTrigger(entry)}`)
               .join('; '),
           );
-          completion = {
-            ...completion,
-            content: summarizeFailedToolResults(lastToolResults),
-            finishReason: 'error',
-          };
+          completion = answer.length === 0
+            ? { ...completion, content: summary, finishReason: 'error' }
+            : { ...completion, content: `${completion.content}\n\n---\n\n${summary}` };
         }
         loopCapped = false;
         break;
@@ -4824,6 +4834,15 @@ const TOOL_FAILURE_DECLARED_PREFIXES: ReadonlyArray<{ prefix: string; label: str
 ];
 
 /**
+ * Ceiling on output the undeclared-failure heuristic will judge at all.
+ *
+ * A failure message a tool did not prefix is still a message — one sentence,
+ * occasionally two. Beyond this it is a payload, and matching keywords inside a
+ * payload is how reading a source file came to count as a failed tool call.
+ */
+const TOOL_FAILURE_HEURISTIC_MAX_CHARS = 400;
+
+/**
  * Capturing so {@link classifyToolFailure} can name the keyword that fired.
  * Non-capturing previously; `.test()` is unaffected by the change.
  */
@@ -4895,6 +4914,24 @@ export function classifyToolFailure(result: string): string | undefined {
     if (normalized.startsWith(prefix)) {
       return label;
     }
+  }
+
+  // Below here the classification is a *guess* about output that never declared
+  // itself a failure, so it is bounded by length.
+  //
+  // It used to be unbounded, and `file-read` returns file contents: reading an
+  // ordinary source file that happens to contain "cannot" or "failed" anywhere
+  // classified the read as a failure. Measured on this repository, two of three
+  // ordinary files tripped it — `package.json` on "failed". One tool call per
+  // round is the common case, so the `every()` at the call site was trivially
+  // satisfied and the model's answer was discarded for having read a file.
+  //
+  // A genuine undeclared failure is a sentence. A payload is not. Anything
+  // longer than this is content the tool returned successfully, whatever words
+  // are in it — and the right long-term fix is for tools to declare failure with
+  // a prefix rather than have it inferred from their payload at all.
+  if (normalized.length > TOOL_FAILURE_HEURISTIC_MAX_CHARS) {
+    return undefined;
   }
 
   if (normalized.includes('failed')) {
@@ -5388,7 +5425,12 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (trimmed.length === 0) {
     return 'Subtask produced no output.';
   }
-  if (trimmed.startsWith(TOOL_EXECUTION_FAILURE_PREFIX)) {
+  // `includes`, not `startsWith`: the summary is appended below the model's answer
+  // rather than replacing it, so a subtask that ended on a real tool failure no
+  // longer *begins* with this sentence. Anchoring on the start here would have
+  // made the subtask boundary stop noticing failures the moment the answer was
+  // preserved — trading one silent loss for another.
+  if (trimmed.includes(TOOL_EXECUTION_FAILURE_PREFIX)) {
     return 'Subtask ended on a tool-execution failure without recovering.';
   }
   if (looksLikePreambleOnly(trimmed)) {

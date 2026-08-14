@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.3] - 2026-08-14
+
+### Fixed
+
+- **The model's answer is no longer discarded because a tool result contained the word "failed".** When
+  every tool result in a round tested as a failure, the orchestrator replaced `completion.content` with a
+  failure dump and stamped `finishReason: 'error'`. The failure test is a substring match on **raw tool
+  output**, and `file-read` returns file contents — so reading an ordinary source file counted as a failed
+  call. Measured on this repository, two of three ordinary files tripped it, `package.json` among them.
+  One tool call per round is the common case, so the `every()` was trivially satisfied.
+
+  Two changes. The undeclared-failure heuristic is now bounded to 400 characters: a failure a tool did not
+  prefix is a sentence, and beyond that length it is a payload whose words prove nothing. A declared
+  prefix (`Error:`, a skill refusal) is start-anchored and still classifies at any length, so a long stack
+  trace under `Error:` is still a failure. And the summary is **appended** below the answer rather than
+  replacing it, with `finishReason: 'error'` reserved for a turn that produced no text at all.
+
+  The stamp is why this mattered beyond the turn: it propagated to `agents.recordOutcome` and
+  `router.recordExecutionOutcome`, permanently penalising the agent and model that had answered correctly.
+  Appending also matches what the verification-contradiction gate a few lines earlier already does — a
+  claim of success and the evidence against it are both worth seeing.
+
+  `classifySubTaskFailure` now finds the summary with `includes` rather than `startsWith`, since it no
+  longer begins the response; anchoring on the start would have traded a discarded answer for a missed
+  failure.
+
 ## [0.310.2] - 2026-08-14
 
 ### Added

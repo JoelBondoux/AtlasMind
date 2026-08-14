@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.3 — A good answer is no longer thrown away
+
+If every tool result in a step looked like a failure, AtlasMind deleted the assistant's answer, replaced
+it with a failure dump, and marked the turn an error. "Looked like a failure" meant the output contained
+words such as *failed* or *cannot* — which file contents routinely do, so reading an ordinary source file
+was enough. The answer is kept now, the failure is reported underneath it, and the error mark is reserved
+for a turn that produced nothing. That mark also fed model and agent scoring, so the mistake used to
+outlive the conversation it happened in.
+
 ## v0.310.2 — A stress battery for the chat window
 
 A measuring instrument, not a gate. 57 probes across ten lanes ask whether the chat window does right by

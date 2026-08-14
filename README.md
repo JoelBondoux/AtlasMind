@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.310.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.2
+## What's new in 0.310.3
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A good answer is no longer thrown away because a tool read a file.** When a step's tool results all
+  looked like failures, AtlasMind replaced the assistant's answer with a failure dump and marked the turn
+  an error — and "looked like a failure" was any output containing words like *failed* or *cannot*, which
+  file contents routinely do. The answer is kept now, with the failure reported underneath it, and the
+  error mark is reserved for a turn that produced nothing. That mark also fed model and agent scoring, so
+  the mistake used to outlive the conversation it happened in.
 
 - **The chat window now has a stress battery held to a higher bar than the code.** 57 probes across ten
   lanes ask whether chat does right by the person reading it — does a question it asks reach you as

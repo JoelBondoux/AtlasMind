@@ -2033,7 +2033,18 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('I hit a tool-execution problem');
     expect(result.response).toContain('timer_start: Project "test" does not exist. Re-run with confirm_new_project=true to create it.');
     expect(result.response).not.toContain('The requested tool action did not complete successfully.');
-    expect(result.response).not.toContain('started successfully');
+
+    // The false narration is now shown *with* the authoritative failure under it,
+    // rather than deleted. This assertion was `not.toContain('started
+    // successfully')`, which pinned replacement — and replacement was the defect:
+    // the failure test decides on a substring of raw tool output, so reading an
+    // ordinary source file counted as a failed call and discarded a correct
+    // answer. Keeping both makes the contradiction visible instead of hiding one
+    // side of it, which is exactly what `appendVerificationCaveat` already does
+    // a few lines earlier in the same loop for the same shape of problem.
+    expect(result.response).toContain('started successfully');
+    expect(result.response.indexOf('started successfully'))
+      .toBeLessThan(result.response.indexOf('I hit a tool-execution problem'));
   });
 
   it('keeps natural-language MCP cues in the selected schema instead of duplicating them in the prompt', async () => {
@@ -5332,7 +5343,11 @@ describe('classifyToolFailure', () => {
   });
 
   it('clamps the dynamic capture, because it reaches a log line', () => {
-    const classified = classifyToolFailure(`requires ${'x'.repeat(500)} true`);
+    // Kept under the heuristic's length bound on purpose. The capture still needs
+    // clamping — 200 characters is far more than a log line should carry — but a
+    // 500-character *result* is a payload, and payloads are no longer judged by
+    // the words inside them at all.
+    const classified = classifyToolFailure(`requires ${'x'.repeat(200)} true`);
     expect(classified).toBeDefined();
     expect(classified!.length).toBeLessThan(80);
   });
@@ -5353,6 +5368,54 @@ describe('classifyToolFailure', () => {
     for (const { result } of TRIGGERS) {
       expect(classifyToolFailure(result), result).toBeDefined();
     }
+  });
+
+  // The undeclared-failure heuristic is bounded by length, because `file-read`
+  // returns file contents and this repository's own sources trip every keyword
+  // in the list. Two of three ordinary files did, `package.json` among them.
+  describe('does not judge a payload by the words inside it', () => {
+    const longBodyContaining = (word: string): string =>
+      `${'const value = 1; // ordinary source line\n'.repeat(40)}\nconst message = '${word}';\n`;
+
+    it.each(['failed', 'cannot', 'not found', 'unable to'])(
+      'reads a long result containing "%s" as ordinary output',
+      word => {
+        const body = longBodyContaining(word);
+        expect(body.length).toBeGreaterThan(400);
+        expect(classifyToolFailure(body)).toBeUndefined();
+      },
+    );
+
+    it('still classifies a short undeclared failure', () => {
+      // The bound removes payloads, not messages: a genuine failure a tool did
+      // not prefix is one sentence and must keep being caught.
+      expect(classifyToolFailure('The requested path was not found on disk')).toBeDefined();
+    });
+
+    it('still classifies a long result that DECLARES its own failure', () => {
+      // A declared prefix is start-anchored and a statement by the tool about
+      // itself, so length is irrelevant to it — a long stack trace under
+      // "Error:" is still a failure.
+      const declared = `Error: the build failed\n${'    at frame\n'.repeat(200)}`;
+      expect(declared.length).toBeGreaterThan(400);
+      expect(classifyToolFailure(declared)).toBe('declared (error:)');
+    });
+  });
+});
+
+describe('classifySubTaskFailure finds an appended tool-failure summary', () => {
+  // The summary is appended below the model's answer rather than replacing it,
+  // so a subtask that ended on a real tool failure no longer *begins* with the
+  // prefix. Anchoring on the start here would trade a discarded answer for a
+  // missed failure.
+  it('classifies a failure summary that follows a real answer', () => {
+    const response = `The router picks the cheapest model above the capability floor.\n\n---\n\n${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- file-read: Error: no such file`;
+    expect(classifySubTaskFailure(response)).toBe('Subtask ended on a tool-execution failure without recovering.');
+  });
+
+  it('still classifies the summary when it is the whole response', () => {
+    expect(classifySubTaskFailure(`${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- terminal-run: Error: blocked`))
+      .toBe('Subtask ended on a tool-execution failure without recovering.');
   });
 });
 
