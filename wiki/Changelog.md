@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.319.0 — The model can ask for a tool it wasn't given
+
+Only a couple of dozen tools fit in a turn, so AtlasMind guesses from your request which ones it will
+need. When the guess is wrong the assistant simply cannot call what it was not told about, and works
+around the gap instead of asking.
+
+It can now ask. One extra tool lets it describe what it is trying to do and get the matching tools
+immediately — limited to what your agent is already allowed to use, still subject to every approval, and
+never offered on a turn that was deliberately given no tools at all.
+
 ## v0.318.0 — Turning a subscription agent off actually turns it off
 
 The Models tree said "model disabled" while every turn still went to that agent, and it survived a

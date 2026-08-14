@@ -28,6 +28,7 @@ import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
+import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
 import { classifyToolInvocation } from './toolPolicy.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
@@ -448,6 +449,17 @@ interface TaskAttemptContext {
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
   turnCapabilities?: TurnCapabilityEnvelope;
+  /**
+   * Every skill this agent *may* use, whether or not its schema was sent.
+   *
+   * Selection sends at most 24 schemas and guesses from the prompt which the
+   * turn will need. When it guesses wrong the model has no recourse — it cannot
+   * call what it was not told about. This is the pool `find-tool` searches, and
+   * it is the eligible pool rather than the registry on purpose: a tool the
+   * agent may not use must not even be nameable, or the model plans around one
+   * it can never call.
+   */
+  discoverableSkills?: SkillDefinition[];
 }
 
 interface TaskExecutionAttempt {
@@ -1372,6 +1384,9 @@ export class Orchestrator {
       baseTaskProfile = { ...baseTaskProfile, modality: 'text' };
     }
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
+    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length)) {
+      tools.push(TOOL_DISCOVERY_DEFINITION);
+    }
     // The setting authorizes a different execution shape, not a wider function
     // schema: an ACP agent may satisfy the task with its own tools, each coming
     // back through the ACP permission broker. Without it ACP remains a
@@ -1874,6 +1889,10 @@ export class Orchestrator {
               userMessage: request.userMessage,
               signal: request.signal,
               turnCapabilities,
+              // What `find-tool` may reach. The eligible pool, not the registry:
+              // a skill this agent may not use must not be nameable, or the
+              // model plans around one it can never call.
+              discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
@@ -3107,6 +3126,32 @@ export class Orchestrator {
               isFailure: true,
             };
           }
+          if (toolCall.name === TOOL_DISCOVERY_SKILL_ID) {
+            // Answered here rather than by a registered skill, because the pool
+            // being searched is this turn's, and a skill has no way to see it.
+            const query = typeof toolArguments['query'] === 'string' ? toolArguments['query'] : '';
+            const discovery = discoverTools(
+              query,
+              context.discoverableSkills ?? [],
+              new Set(tools.map(definition => definition.name)),
+            );
+            for (const granted of discovery.granted) {
+              // Same mechanism the synthesised-skill path uses below: push the
+              // schema so the model can call it on the next iteration.
+              tools.push(...buildToolDefinitions([granted]));
+            }
+            if (discovery.granted.length > 0) {
+              onProgress?.(`Added ${discovery.granted.length} tool(s) the model asked for: ${discovery.granted.map(entry => entry.id).join(', ')}.`);
+            }
+            return {
+              toolCall,
+              result: discovery.message,
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+            };
+          }
+
           if (!skill) {
             const args = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
             const synthesisResult = await this.synthesizeSkillForTool(
@@ -5990,6 +6035,32 @@ export function selectTaskScopedSkills(
 
   return selected;
 }
+
+/**
+ * The one schema a turn spends to make the rest reachable.
+ *
+ * Described in terms of *what the model is trying to do* rather than what it
+ * searches, because that is the sentence a model recognises when it finds
+ * itself without a tool it needs.
+ */
+const TOOL_DISCOVERY_DEFINITION: ToolDefinition = {
+  name: TOOL_DISCOVERY_SKILL_ID,
+  description:
+    'Find a tool you have not been given. Only some of the tools this agent may use are listed above - '
+    + 'if none of them can do what you need, describe the action here and any matching tools '
+    + 'become callable immediately. Searching grants nothing on its own: results are still '
+    + 'subject to the same approvals as any other tool.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'What you are trying to do, in a few words — e.g. "commit changes", "read a file", "run the tests".',
+      },
+    },
+    required: ['query'],
+  },
+};
 
 function buildToolDefinitions(skills: SkillDefinition[]): ToolDefinition[] {
   return skills.map(skill => {

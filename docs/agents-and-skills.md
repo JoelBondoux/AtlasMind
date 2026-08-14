@@ -781,3 +781,27 @@ Every input is optional and **absent means not observed, never zero**. A rule in
 needed" from an absent count would fire on every fresh session, which is how a suggestion becomes
 something people learn to ignore. Nothing in the module writes: applying a suggestion goes through
 `atlasmind-settings` and its modal.
+
+### `find-tool` — progressive disclosure of the tool set
+
+A turn sends at most `MAX_TURN_TOOL_SCHEMAS` (24) schemas, chosen from the prompt. When that guess is
+wrong the model cannot call what it was not told about, so it works around the gap rather than asking.
+`find-tool` costs one schema and makes the remainder reachable: the model describes the action, matching
+skills are appended to the turn's tool set, and it can call them on the next iteration — the same
+mechanism the synthesised-skill path uses.
+
+Four rules, in `src/core/toolDiscovery.ts`:
+
+- **Discovery grants nothing.** It searches the agent's *eligible* pool, never the registry, so a skill
+  the agent may not use is not nameable — otherwise the model plans around one it can never call. Every
+  authorization gate still applies at invocation.
+- **Already-sent tools are excluded**, or the model rediscovers what it holds and searches again.
+- **A miss is final and says so**, rather than reading like an error and inviting a reworded retry against
+  an unchanged pool.
+- **At most five tools per search**, so a broad query cannot undo the cap in one call.
+
+`shouldOfferToolDiscovery` withholds it in two cases: when nothing was withheld in the first place, and —
+importantly — when the turn was given **no** tools at all. Zero is a decision rather than a small number:
+Change Story mode clears the skill set so a committed-ref answer cannot be contaminated by the
+checked-out workspace, and a search there would let the model reacquire exactly what that mode withholds,
+against a different revision.

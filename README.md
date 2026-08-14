@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.318.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.319.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.318.0
+## What's new in 0.319.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The assistant can ask for a tool it wasn't given.** Only a couple of dozen tools fit in a turn, so
+  AtlasMind guesses which ones your request needs — and when the guess was wrong the assistant quietly
+  worked around the gap. It can now ask for what it needs, limited to what your agent may already use and
+  still subject to every approval.
 
 - **Turning a subscription agent off actually turns it off.** The Models tree could say "model disabled"
   while every turn still routed to it, surviving a reload — the switch touched the agent's base entry

@@ -2114,7 +2114,11 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Likely tool matches for this request');
     expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Skills:\n');
     expect(recordedRequests[0]?.tools?.[0]?.description).toContain('Natural language cues:');
-    expect(recordedRequests[0]?.tools).toHaveLength(1);
+    // One *skill* schema. The turn also carries `find-tool`, because selection
+    // withheld schemas from the eligible pool and the model needs a way to ask
+    // for one it was not given. What this test pins is that the cues live in the
+    // schema rather than being restated in the prompt, which is unaffected.
+    expect(recordedRequests[0]?.tools?.filter(tool => tool.name !== 'find-tool')).toHaveLength(1);
   });
 
   it('stores successful MCP intent mappings in SSOT memory for future turns', async () => {

@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.319.0] - 2026-08-14
+
+### Added
+
+- **`find-tool` — the model can ask for a tool it was not given.** A turn sends at most 24 schemas, and
+  selection guesses from the prompt which the turn will need. When it guesses wrong the model has no
+  recourse: it cannot call what it was not told about, so it does without or plans around the gap. One
+  extra schema now buys the rest — describe the action, and matching tools become callable on the next
+  iteration, using the same mechanism the synthesised-skill path already used.
+
+  Four rules. **Discovery grants nothing**: it searches the agent's *eligible* pool rather than the
+  registry, so a skill the agent may not use is not even nameable — otherwise the model plans around one
+  it can never call — and every gate still applies when the tool is actually invoked. **Already-sent tools
+  are excluded**, or the model rediscovers what it is holding and searches again, a round trip each time.
+  **A miss is final** and says so, rather than reading like an error and inviting a reworded retry against
+  an unchanged pool. And **a search adds at most five tools**, so a broad query cannot undo the cap in one
+  call.
+
+  It is offered only when schemas were actually withheld. Advertising a search guaranteed to return
+  nothing costs a schema and teaches the model to spend a round trip discovering that.
+
+  **A turn given no tools is never offered it.** Zero is a decision, not a small number: Change Story mode
+  clears the skill set so a committed-ref answer cannot be contaminated by the checked-out workspace, and
+  a search there would have let the model reacquire the very tools that mode exists to withhold — against
+  a different revision. Caught by an existing test, and now pinned by its own.
+
+  This is the third strategy for the schema-budget problem, alongside the two AtlasMind already used:
+  curate up front by relevance, and widen after the model visibly struggles. This one is driven by the
+  model, which knows what it is trying to do.
+
 ## [0.318.0] - 2026-08-14
 
 ### Fixed
