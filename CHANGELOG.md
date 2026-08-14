@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.317.1] - 2026-08-14
+
+### Fixed
+
+- **The live battery no longer names one repository's files.** Two ANSWER probes asked the assistant to
+  read `src/core/localModelArbiter.ts` — an AtlasMind file — so running the battery in any other workspace
+  tested nothing: the assistant correctly reported the file missing, and both probes passed without
+  exercising what they were written for. The failure-dump probe in particular needs a file that *exists*,
+  whose contents contain a word like "cannot" or "failed", to put the tool-failure predicate under any
+  load at all. Both are now phrased against whatever repository the battery is run in.
+
+### Notes
+
+- Lane 2 recorded at **9/10**. Three separate turns declined to fabricate — a missing module, a missing
+  file, and a pipeline stage that was never named — and each said how it knew. Deducted only for `stop`,
+  which replaces the whole turn with "Request stopped." and keeps nothing partial, while the panel
+  simultaneously reports the model has not stopped.
+
 ## [0.317.0] - 2026-08-14
 
 ### Changed

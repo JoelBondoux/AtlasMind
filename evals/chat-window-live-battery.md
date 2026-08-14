@@ -37,9 +37,9 @@ becomes a chip. These probes ask the harder question: does it ask *at the right 
 
 | # | Type this | Pass looks like | Score |
 |---|---|---|---|
-| 2.1 | `explain how the local model arbiter decides who waits, with the code` | One answer. Not an answer, a horizontal rule, and a second complete answer below it (the divergent-stream failure the harness reproduces at A4). Code block renders closed; the turn after it renders as prose, not as code. | |
+| 2.1 | `explain how <a real subsystem in THIS repo> works, with the code` | One answer. Not an answer, a horizontal rule, and a second complete answer below it (the divergent-stream failure the harness reproduces at A4). Code block renders closed; the turn after it renders as prose, not as code. | |
 | 2.2 | `now give me that again but much shorter` | Shorter, and about the same subject. A generic answer here means the deictic follow-up lost its referent. | |
-| 2.3 | `read src/core/localModelArbiter.ts and tell me what the eviction guards are` | Answers from the file. **Watch for the answer being replaced by a failure dump** — the audit's top finding was that reading an ordinary file counts as a tool failure and overwrites the model's answer. If you see a canned failure summary where an answer should be, score 0 and record the exact text. | |
+| 2.3 | `read <a real source file in THIS repo> and tell me what it guards against` | Answers from the file. **Watch for the answer being replaced by a failure dump** — the audit's top finding was that reading an ordinary file counts as a tool failure and overwrites the model's answer. If you see a canned failure summary where an answer should be, score 0 and record the exact text. | |
 | 2.4 | Ask something with no answer: `what did I name the third stage in the pipeline?` (you have not said) | Says it does not know or asks. Inventing a plausible stage name is a 0 — and it is the failure that matters most, because it is indistinguishable from a correct answer. | |
 | 2.5 | `stop` mid-stream (send while it is still writing) | Stops. The partial answer stays readable and the next turn is not confused by it. | |
 
@@ -260,3 +260,36 @@ So the turn was detected as pending a run and showed nothing at all: no chips, n
 - **"Answered from context." is shown as the summary of turns that edited four files and ran the test suite.** Plainly wrong, and it collides with a guard: `ensureAssistantVisibleResponse` treats that exact string as meaning the model returned nothing useful.
 - **`£0.0000` beside real token counts is correct** — subscription-backed ACP has no per-token cost. The "print zero rather than hide it" decision behaving as intended.
 - **"Done, The User" / "If The User wants"** — a global instruction meant for one assistant is reaching AtlasMind's own output.
+
+**Lane 2 — 9/10** *(run in the `pleiades` workspace)*
+
+| # | Score | Note |
+|---|---:|---|
+| 2.1 explain a subsystem with code | **2** | One answer, no duplicate below a rule — the A4 divergence did not occur. It searched, found nothing, listed the files it had checked, and asked to be pointed at the right module rather than inventing one. |
+| 2.2 `now give me that again but much shorter` | **2** | Genuinely shorter and on the same subject; the footer confirms it used session history. 18,054 input tokens carried. |
+| 2.3 read a file and report its guards | **2** | **No failure dump.** The answer survived a miss, which is what W1 was for — though see the caveat below. It also volunteered the real eviction logic it *did* find (TTL gate, 200-only, `MAX_CACHE_ENTRIES = 100`, oldest-key eviction), accurately. |
+| 2.4 ask something with no answer | **2** | The highest-value probe in the lane, passed convincingly. It did not invent a fourth stage: it read `delivery.json`, enumerated the three that exist, and said there is no fourth to report. The follow-up "I meant 3rd stage" was answered correctly from session history. |
+| 2.5 `stop` mid-stream | **1** | It stopped, and the next turn was not confused. But the whole turn became **"Request stopped."** with no partial answer preserved, and the panel simultaneously read *"The model has not stopped; waiting for the next token batch"* — two surfaces disagreeing about the same fact. |
+
+**Caveat on 2.1 and 2.3 — my probes were wrong, not the answers.** Both named
+`src/core/localModelArbiter.ts`, which is an *AtlasMind* file, while the battery was being run in
+another workspace. The model was right that it does not exist there. So the divergence check (2.1) and
+the failure-dump check (2.3) both passed, but neither exercised what it was written for: 2.3 in
+particular needs a file that *does* exist, whose contents contain a word like "cannot" or "failed", to
+put W1 under any real load. Both probes are now phrased workspace-agnostically. A battery that names one
+repository's files cannot be run against another, which is most of the point of having it.
+
+**What this lane shows working.** Three separate turns declined to fabricate — a missing module, a
+missing file, a stage that was never named — and each said *how* it knew. That is the failure mode with
+no external symptom, and it is the one this lane exists to catch.
+
+**Also observed**
+
+- **Three different model ids in one session**: `acp/codex@gpt-5.3-codex-spark`,
+  `acp/codex@gpt-5.3-codex-spark#medium`, `acp/codex@gpt-5.4-mini` — while the Models tree shows a single
+  `codex` row marked *disabled*. Strong support for the id-mismatch hypothesis: the enabled flag lives on
+  the base row and routing resolves composed `agent@model#effort` ids that vary per turn.
+- **"Request stopped." replaces the whole turn.** Nothing partial is kept, so a long answer interrupted
+  near its end leaves nothing at all.
+- **The stop status contradicts itself** across the transcript and the panel.
+- The third-person "If The User points me to…" leak continues.

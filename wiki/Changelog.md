@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.317.1 — The live battery stops naming one repository's files
+
+Two of the manual battery's probes asked the assistant to read an AtlasMind source file, so running the
+battery against any other project tested nothing — the assistant correctly said the file was missing and
+the probes passed without checking anything. They now refer to whatever repository you are running in.
+
 ## v0.317.0 — Tool work goes to a model that can take the tools
 
 A subscription-backed agent costs nothing per token, so once it was allowed to count as tool-capable it
