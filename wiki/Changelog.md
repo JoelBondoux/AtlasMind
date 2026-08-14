@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.314.0 — Chat can change a setting, and notice when one is wrong
+
+Ask it to turn something off and it can now do it — behind a dialog naming the setting, the current value
+and the new one, written into your project's own settings where a reviewer will see it. It can only touch
+settings AtlasMind actually declares, and only with values they actually accept.
+
+It also notices when a setting is wrong for the work in front of it: a run that stopped at a ceiling
+rather than because it finished, a context window smaller than the file being discussed, an approval mode
+raising more dialogs than changing it would cost. Those are suggestions with a named value, never changes.
+
 ## v0.313.0 — Chat knows what AtlasMind is, and can take you there
 
 Ask where a setting lives and you used to get prose — "that's under Settings → Safety" — which you then

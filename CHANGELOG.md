@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.314.0] - 2026-08-14
+
+### Added
+
+- **`atlasmind-settings` — chat can change a setting you ask it to change, and only that one.** Reading is
+  free; a change goes behind a `{ modal: true }` dialog naming the key, the current value and the new one,
+  and nothing is written until it returns. Four rules make the write half safe to hand to a model: the key
+  must exist in the running extension's manifest under `atlasmind.` (so a model cannot invent a setting or
+  reach another extension's configuration), the value must match the declared type and enum — checked here
+  so the refusal can name the permitted values — the modal is the gate rather than a notification, and the
+  write is workspace-scoped so it lands in the project's own `.vscode/settings.json` where a reviewer will
+  see it, never in a user profile where it silently follows you to every other project.
+
+  Until now chat could describe all 134 settings and change none of them. The gap was real, but the wrong
+  fix was worse than it: this repository shipped a path until v0.310.4 that wrote two chat settings at
+  workspace scope on a signal that fired on politeness, naming neither in anything the operator read.
+
+- **Suggestions when the session shows a setting is wrong for the work.** `sessionFitSuggestions` holds
+  four declared rules — the tool-iteration ceiling, the tool-calls-per-turn ceiling, a context window
+  smaller than the material under discussion, and an approval mode raising more dialogs than a mode change
+  would cost. Each names the setting and the value it proposes, and the turn footer renders them under
+  *Worth changing*.
+
+  Every input is optional and absent means *not observed*, never zero: a rule inferring "no approvals were
+  needed" from an absent count would nag on every fresh session. Nothing here writes — applying a
+  suggestion goes through `atlasmind-settings` and its modal. What was worth keeping about the automatic
+  path removed in v0.310.4 was the noticing, not the acting.
+
+### Changed
+
+- **The stress battery grades its findings from a declared rule table.** Five rules, evaluated in order,
+  published in the report so the grading can be checked rather than trusted — the treatment `debtRegister`
+  and `researchScanCatalog` already give severity, and for the same reason: a grade assigned today must be
+  comparable with one assigned in March. Findings are ranked by that table, in its declared order, so the
+  list cannot shuffle between runs. A probe nobody graded falls to the least alarming rule, so an ungraded
+  finding under-reports rather than crying wolf.
+
+  All 57 probes now pass. The baseline three days of work ago was 24 passing, 33 findings.
+
 ## [0.313.0] - 2026-08-14
 
 ### Added

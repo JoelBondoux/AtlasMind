@@ -40,6 +40,24 @@ export function classifyToolInvocation(
         summary: `open the ${typeof args['page'] === 'string' ? args['page'] : 'requested'} page in AtlasMind`,
       };
 
+    // Reading a setting is a read; changing one is a write to a file the project
+    // usually commits, and it changes how the operator's tools behave from then
+    // on. The skill additionally puts a modal naming the key and both values in
+    // front of every write — this classification is the approval gate, not the
+    // consent, and both have to hold.
+    case 'atlasmind-settings':
+      return args['action'] === 'set'
+        ? {
+            category: 'workspace-write',
+            risk: 'high',
+            summary: `change the AtlasMind setting ${typeof args['key'] === 'string' ? args['key'] : ''} (you will be asked to confirm the exact values)`.trim(),
+          }
+        : {
+            category: 'read',
+            risk: 'low',
+            summary: `read the AtlasMind setting ${typeof args['key'] === 'string' ? args['key'] : ''}`.trim(),
+          };
+
     case 'file-write':
     case 'file-edit':
     case 'file-move':

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.313.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.314.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.313.0
+## What's new in 0.314.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Chat can change a setting you ask it to change** — behind a dialog naming the setting and both values,
+  only for settings AtlasMind declares, written where a reviewer will see it. It also notices when a
+  setting is wrong for the work in front of it and suggests the value, rather than changing anything.
 
 - **Chat knows what AtlasMind is, and can take you there.** Ask where a setting lives and you used to get
   prose you then had to go and find — and it was recall, not a lookup, because nothing had ever told the
@@ -820,7 +824,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | | |
 |---|---|
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
-| **44 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
+| **45 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |

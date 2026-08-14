@@ -40,6 +40,7 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
@@ -4468,6 +4469,22 @@ export function renderAssistantResponseFooter(
   if (metadata.timelineNotes?.length) {
     const notes = metadata.timelineNotes.map(note => `- ${note.label}: ${note.summary}`).join('\n');
     sections.push(`\n\n**Session timeline:**\n${notes}`);
+  }
+
+  // Suggestions, never changes. The automatic path that used to act on this kind
+  // of signal wrote settings into a committed file without naming them; what was
+  // worth keeping about it was the noticing. Applying one goes through
+  // `atlasmind-settings`, which puts a modal naming both values in front of the
+  // operator.
+  const fit = deriveSessionFitSuggestions({
+    ...(metadata.iterationLimitHit ? { iterationLimitHit: true } : {}),
+    ...(typeof metadata.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: metadata.suggestedIterationLimit } : {}),
+    ...(typeof metadata.suggestedToolCallsPerTurnLimit === 'number'
+      ? { toolCallsPerTurnLimitHit: true, suggestedToolCallsPerTurnLimit: metadata.suggestedToolCallsPerTurnLimit }
+      : {}),
+  });
+  if (fit.length > 0) {
+    sections.push(`\n\n**Worth changing:**\n${fit.map(entry => `- ${entry.message}`).join('\n')}`);
   }
 
   return sections.join('');

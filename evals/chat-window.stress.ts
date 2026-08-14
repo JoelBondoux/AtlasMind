@@ -94,6 +94,105 @@ const chatReachablePages = (): Set<string> => {
   return found;
 };
 
+/**
+ * Grades, and the declared rules that assign them.
+ *
+ * Evaluated in order, first match wins. A severity a model assigns today is not
+ * comparable with one it assigns in March — the argument `debtRegister` and
+ * `researchScanCatalog` already make in this codebase — so this is a table, each
+ * finding names the rule that graded it, and the table travels in the report so
+ * a reader can check the grading rather than trust it.
+ *
+ * A useful check on it: the phases of the remediation plan were argued before
+ * this table existed, and `serious` picks out exactly the findings that plan put
+ * first.
+ */
+type Severity = 'serious' | 'high' | 'medium' | 'low';
+
+interface SeverityRule {
+  id: string;
+  grade: Severity;
+  /** What distinguishes this rule from the one below it. */
+  because: string;
+}
+
+const SEVERITY_RULES: readonly SeverityRule[] = [
+  {
+    id: 'outlives-the-conversation',
+    grade: 'serious',
+    because: 'The defect corrupts state a later session reads — routing history, a committed settings file. Nothing else here survives the turn.',
+  },
+  {
+    id: 'acts-without-showing',
+    grade: 'serious',
+    because: 'An action is taken that the operator was not shown. A run planned against a fragment nobody saw is not a bad answer, it is an unaudited action.',
+  },
+  {
+    id: 'misreports-what-happens-next',
+    grade: 'high',
+    because: 'The turn misreports what will happen: a stop that says nothing, a question deleted before it renders.',
+  },
+  {
+    id: 'affordance-lost-information-kept',
+    grade: 'medium',
+    because: 'An affordance is lost but the information survives — chips missing from a question the operator can still read and answer by typing.',
+  },
+  {
+    id: 'told-less-than-the-system-knows',
+    grade: 'low',
+    because: 'The operator is told less than the system knows: cost absent from the footer, a question printed twice.',
+  },
+];
+
+/**
+ * Which rule grades a failure of each probe.
+ *
+ * Declared as a map rather than a field on every probe so that adding a probe
+ * without grading it is visible — anything unlisted falls to the last rule,
+ * which is the least alarming grade, so an ungraded finding under-reports rather
+ * than crying wolf.
+ */
+const SEVERITY_ASSIGNMENTS: Readonly<Record<string, SeverityRule['id']>> = {
+  'O3-file-contents-are-not-failures': 'outlives-the-conversation',
+  'G8-no-unannounced-settings-writes': 'outlives-the-conversation',
+  'R2-no-false-positive': 'outlives-the-conversation',
+  'S6-goal-is-a-goal': 'acts-without-showing',
+  'S5-deferral-honoured': 'acts-without-showing',
+  'S8-goal-is-recognisable': 'acts-without-showing',
+  'S2-offer-without-vocabulary': 'misreports-what-happens-next',
+  'S3-negation-veto': 'misreports-what-happens-next',
+  'S4-waiting-in-silence': 'misreports-what-happens-next',
+  'Q1-filename': 'misreports-what-happens-next',
+  'Q2-source-path': 'misreports-what-happens-next',
+  'Q4-version-number': 'misreports-what-happens-next',
+  'Q7-two-questions': 'misreports-what-happens-next',
+  'Q8-heading-question': 'misreports-what-happens-next',
+  'A1-empty-answer': 'misreports-what-happens-next',
+  'A2-heading-tail': 'misreports-what-happens-next',
+  'A4-divergent-streams': 'misreports-what-happens-next',
+  'M3-capitalised-command': 'misreports-what-happens-next',
+  'M4-trailing-punctuation': 'misreports-what-happens-next',
+  'O5-approval-modes-describe-themselves': 'misreports-what-happens-next',
+  'G4-self-knowledge': 'misreports-what-happens-next',
+  'R1-frustration-corpus': 'affordance-lost-information-kept',
+  'Q6-long-options': 'affordance-lost-information-kept',
+  'C1-lexical-gap': 'affordance-lost-information-kept',
+  'T1-mcp-read-is-graded-as-a-read': 'affordance-lost-information-kept',
+  'T3-read-detection-is-reachable': 'affordance-lost-information-kept',
+  'T4-mcp-read-prompts-every-time': 'affordance-lost-information-kept',
+  'G1-page-reach': 'affordance-lost-information-kept',
+  'G2-anchor-reach': 'affordance-lost-information-kept',
+  'G3-settings-reach': 'affordance-lost-information-kept',
+  'G5-command-reach': 'affordance-lost-information-kept',
+  'G7-suggestion-breadth': 'told-less-than-the-system-knows',
+  'I1-cost-attribution': 'told-less-than-the-system-knows',
+  'I2-question-echo': 'told-less-than-the-system-knows',
+};
+
+const gradeOf = (probe: Probe): SeverityRule =>
+  SEVERITY_RULES.find(rule => rule.id === SEVERITY_ASSIGNMENTS[probe.id])
+  ?? SEVERITY_RULES[SEVERITY_RULES.length - 1]!;
+
 interface Probe {
   id: string;
   lane: Lane;
@@ -871,14 +970,24 @@ const PROBES: Probe[] = [
   {
     id: 'G3-settings-reach',
     lane: 'GUIDANCE',
-    asks: 'Chat can change a setting the user asks it to change.',
-    because: 'A user who says "turn off automatic research scans" is naming a setting that exists; nothing in the tool set can read or write one, so the request can only be answered with prose.',
+    asks: 'Chat can change a setting the user asks it to change — and never one they did not.',
+    because: 'A user who says "turn off automatic research scans" is naming a setting that exists, and nothing in the tool set could read or write one. The gap is real, but the wrong fix is worse than it: this repository already shipped a path that wrote two chat settings at workspace scope on a signal that fired on politeness, naming neither in anything the operator read.',
     check: () => {
-      const skills = readSource('../src/skills/index.ts');
-      const capable = /getConfiguration|executeCommand|configuration\.update/.test(skills);
-      return capable
+      if (!/atlasmindSettingsSkill/.test(readSource('../src/skills/index.ts'))) {
+        return 'no skill in the registry can read or write configuration — chat can describe all 134 settings and change none of them';
+      }
+      const skill = readSource('../src/skills/atlasmindSettings.ts');
+      if (!/modal:\s*true/.test(skill)) {
+        return 'the settings tool writes without a modal confirmation — a change nobody is told about cannot be reviewed, reverted or attributed';
+      }
+      if (!/ConfigurationTarget\.Workspace/.test(skill) || /ConfigurationTarget\.Global/.test(skill)) {
+        return 'the settings tool writes outside workspace scope, where a reviewer will not see the change';
+      }
+      // A model must not be able to invent a key, or reach another extension's
+      // configuration.
+      return /is not a declared AtlasMind setting/.test(skill)
         ? undefined
-        : 'no skill in the registry can read or write configuration — chat can describe all 134 settings and change none of them';
+        : 'the settings tool does not check the key against the manifest, so a model can write an undeclared key';
     },
   },
   {
@@ -944,13 +1053,19 @@ const PROBES: Probe[] = [
     asks: 'When the session shows a setting is wrong for this work, chat says so.',
     because: 'The pattern already exists and works: hitting the tool-iteration ceiling produces a named suggestion and a button that applies it. It fires for exactly one setting, so every other misconfiguration is silent — a budget mode starving a refactor, an approval mode prompting on every MCP read, a context window too small for the file being discussed.',
     check: () => {
-      const source = readSource('../src/chat/participant.ts');
-      const suggested = new Set(
-        [...source.matchAll(/suggested([A-Z][a-zA-Z]*)Limit/g)].map(match => match[1]!),
-      );
-      return suggested.size >= 3
+      const rules = readSource('../src/core/sessionFitSuggestions.ts');
+      const keys = new Set([...rules.matchAll(/key:\s*'(atlasmind\.[a-zA-Z.]+)'/g)].map(match => match[1]!));
+      if (keys.size < 4) {
+        return `only ${keys.size} setting families are ever suggested from a session (${[...keys].join(', ') || 'none'}) out of 134 declared settings`;
+      }
+      // Suggestions, never changes: the automatic path that used to act on this
+      // kind of signal wrote settings into a committed file without naming them.
+      if (/configuration\.update/.test(rules)) {
+        return 'the suggestion module writes settings itself rather than proposing them';
+      }
+      return CHAT_SURFACES.some(file => /deriveSessionFitSuggestions/.test(readSource(file)))
         ? undefined
-        : `only ${suggested.size} setting families are ever suggested from a session (${[...suggested].join(', ') || 'none'}) out of 134 declared settings`;
+        : 'the rules exist but no chat surface renders them, so the operator is never told';
     },
   },
   {
@@ -1006,13 +1121,37 @@ describe('chat window stress battery', () => {
       const inLane = results.filter(entry => entry.probe.lane === lane);
       lines.push(`| ${lane} | ${inLane.filter(entry => !entry.failure).length} | ${inLane.filter(entry => entry.failure).length} |`);
     }
+    const failures = results
+      .filter(entry => entry.failure)
+      // Ranked by the declared table, in its own order, so the list cannot
+      // shuffle between runs.
+      .sort((a, b) =>
+        SEVERITY_RULES.findIndex(rule => rule.id === gradeOf(a.probe).id)
+        - SEVERITY_RULES.findIndex(rule => rule.id === gradeOf(b.probe).id));
+
+    if (failures.length > 0) {
+      lines.push('', '## How findings are graded', '',
+        'Evaluated in order, first match wins. Published here rather than kept in the harness so the grading can be checked rather than trusted.',
+        '',
+        '| Grade | Rule | What distinguishes it |', '|---|---|---|');
+      for (const rule of SEVERITY_RULES) {
+        lines.push(`| ${rule.grade} | \`${rule.id}\` | ${rule.because} |`);
+      }
+    }
+
     lines.push('', '## Findings', '');
-    const failures = results.filter(entry => entry.failure);
     if (failures.length === 0) {
       lines.push('None — every probe passed.');
     }
     for (const { probe, failure } of failures) {
-      lines.push(`### ${probe.id} (${probe.lane})`, '', `**Asked:** ${probe.asks}`, '', `**Why this shape:** ${probe.because}`, '', `**Observed:** ${failure}`, '');
+      const grade = gradeOf(probe);
+      lines.push(
+        `### ${probe.id} (${probe.lane}) — ${grade.grade}`, '',
+        `**Graded by:** \`${grade.id}\``, '',
+        `**Asked:** ${probe.asks}`, '',
+        `**Why this shape:** ${probe.because}`, '',
+        `**Observed:** ${failure}`, '',
+      );
     }
     writeFileSync(new URL('./chat-window-stress-report.md', import.meta.url), `${lines.join('\n')}\n`, 'utf8');
     console.log(`\n${lines.slice(5, 12).join('\n')}\n`);

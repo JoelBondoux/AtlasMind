@@ -745,3 +745,39 @@ use — which puts the operator back where they started.
 The catalogue it resolves against is pinned by test to `SETTINGS_PAGE_IDS` and `DASHBOARD_PAGE_IDS` in
 both directions, so a page added to a panel and not to the catalogue fails the build rather than shipping
 as a page the model confidently names and nothing can open.
+
+### `atlasmind-settings` — read freely, change only after asking
+
+Chat could describe all 134 AtlasMind settings and change none of them, so "turn off automatic research
+scans" could only be answered with prose telling the operator where to click. The gap was real, but the
+wrong fix is worse than it: a path that wrote two chat settings at workspace scope on a signal that fired
+on ordinary politeness shipped until v0.310.4, and named neither key in anything the operator read. A
+settings change nobody is told about cannot be reviewed, reverted, or attributed.
+
+Reading is a `read` and free. A change rests on four rules:
+
+- **Only declared keys.** The key must exist in the running extension's manifest under `atlasmind.`, so a
+  model cannot invent a setting, reach another extension's configuration, or write a key no code reads.
+- **The value must match what the manifest declares** — type, and enum membership — checked in the skill
+  so the refusal names the permitted values rather than failing silently at the write.
+- **A `{ modal: true }` dialog names the key, the current value and the new one, and is the gate.** Nothing
+  is written until it returns. A toast can be missed, and this changes how the operator's tools behave from
+  then on.
+- **Workspace scope, never global**, so the change lands in the project's own `.vscode/settings.json` where
+  a reviewer sees it rather than in a user profile where it follows them everywhere.
+
+`classifyToolInvocation` grades `action: 'set'` as a high-risk `workspace-write` and `action: 'get'` as a
+`read`. The modal is the consent and the classification is the approval gate; both have to hold.
+
+### Session-fit suggestions
+
+`sessionFitSuggestions` derives, from what the session actually did, the settings that are wrong for the
+work: a run that stopped at the tool-iteration or tool-calls ceiling rather than because it finished, a
+carry-forward window smaller than the material under discussion, an approval mode raising more dialogs
+than a mode change would cost. Four declared rules, ranked in declaration order — a run that stopped
+outranks a session that was merely noisy, because the first has already cost something.
+
+Every input is optional and **absent means not observed, never zero**. A rule inferring "no approvals were
+needed" from an absent count would fire on every fresh session, which is how a suggestion becomes
+something people learn to ignore. Nothing in the module writes: applying a suggestion goes through
+`atlasmind-settings` and its modal.

@@ -14,23 +14,8 @@ A failure is a finding about the shipped surface, not a regression.
 | COMMANDS | 7 | 0 |
 | TOOLING | 5 | 0 |
 | ORCHESTRATION | 6 | 0 |
-| GUIDANCE | 6 | 2 |
+| GUIDANCE | 8 | 0 |
 
 ## Findings
 
-### G3-settings-reach (GUIDANCE)
-
-**Asked:** Chat can change a setting the user asks it to change.
-
-**Why this shape:** A user who says "turn off automatic research scans" is naming a setting that exists; nothing in the tool set can read or write one, so the request can only be answered with prose.
-
-**Observed:** no skill in the registry can read or write configuration — chat can describe all 134 settings and change none of them
-
-### G7-suggestion-breadth (GUIDANCE)
-
-**Asked:** When the session shows a setting is wrong for this work, chat says so.
-
-**Why this shape:** The pattern already exists and works: hitting the tool-iteration ceiling produces a named suggestion and a button that applies it. It fires for exactly one setting, so every other misconfiguration is silent — a budget mode starving a refactor, an approval mode prompting on every MCP read, a context window too small for the file being discussed.
-
-**Observed:** only 2 setting families are ever suggested from a session (Iteration, ToolCallsPerTurn) out of 134 declared settings
-
+None — every probe passed.
