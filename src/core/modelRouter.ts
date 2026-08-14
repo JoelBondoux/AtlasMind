@@ -393,6 +393,40 @@ export class ModelRouter {
     return this.providers.get(providerId);
   }
 
+  /**
+   * Whether a model may be routed to *at all*.
+   *
+   * A variant is the same agent on the same plan, so switching the agent off
+   * must switch off everything it routes as. `discoverModels` returns the base
+   * row plus one entry per model x effort, each a separate `ModelInfo` with its
+   * own `enabled` — and the Models tree toggles the base. So an operator could
+   * turn an agent off, watch the tree report "model disabled", and have every
+   * turn continue to route to `agent@model#effort`: a switch that could not be
+   * operated correctly, only appear to be. It survived a window reload, because
+   * nothing was stale — the flag was simply on a different id from the one being
+   * selected, and three different composed ids appeared in one session.
+   *
+   * Enforced here rather than by cascading at toggle time, because variants
+   * appear as the agent reports its `configOptions`: a cascade would miss every
+   * one discovered after the switch was thrown, which is the case most likely to
+   * matter and least likely to be noticed.
+   *
+   * Only ever *removes* permission. A base row that does not exist leaves the
+   * variant judged on its own flag, so a provider whose ids carry no separator
+   * is unaffected.
+   */
+  private isModelRoutable(model: ModelInfo): boolean {
+    if (!model.enabled) {
+      return false;
+    }
+    const baseId = baseModelIdOf(model.id);
+    if (baseId === model.id) {
+      return true;
+    }
+    const base = this.getModelInfo(baseId);
+    return base === undefined || base.enabled;
+  }
+
   getModelInfo(modelId: string): ModelInfo | undefined {
     for (const provider of this.providers.values()) {
       const model = provider.models.find(candidate => candidate.id === modelId);
@@ -865,7 +899,7 @@ export class ModelRouter {
       return undefined;
     }
     const info = this.getModelInfo(modelId);
-    if (!info || !info.enabled) {
+    if (!info || !this.isModelRoutable(info)) {
       return undefined;
     }
     if (!isRoutableChatModel(info)) {
@@ -921,7 +955,7 @@ export class ModelRouter {
       }
 
       for (const model of provider.models) {
-        if (!model.enabled) {
+        if (!this.isModelRoutable(model)) {
           continue;
         }
         if (!isRoutableChatModel(model)) {
@@ -1603,3 +1637,26 @@ function baseModelIdOf(modelId: string): string {
   const cuts = [modelId.indexOf('@'), modelId.indexOf('#')].filter(index => index >= 0);
   return cuts.length === 0 ? modelId : modelId.slice(0, Math.min(...cuts));
 }
+
+/**
+ * Whether a model may be routed to *at all*.
+ *
+ * A variant is the same agent on the same plan, so switching the agent off must
+ * switch off everything it routes as. `discoverModels` returns the base row plus
+ * one entry per model × effort, each a separate `ModelInfo` with its own
+ * `enabled` — and the Models tree toggles the base. So an operator could turn an
+ * agent off, watch the tree report "model disabled", and have every turn
+ * continue to route to `agent@model#effort`: a switch that could not be operated
+ * correctly, only appear to be. It survived a window reload, because nothing was
+ * stale — the flag was simply on a different id from the one being selected.
+ *
+ * Enforced here rather than by cascading at toggle time, because variants appear
+ * as the agent reports its `configOptions`: a cascade would miss every one
+ * discovered after the switch was thrown, which is the case most likely to
+ * matter and least likely to be noticed.
+ *
+ * Only ever *removes* permission. A base row that does not exist leaves the
+ * variant judged on its own flag, so a provider whose ids carry no separator is
+ * unaffected.
+ */
+

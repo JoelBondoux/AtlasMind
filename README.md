@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.317.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.318.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.317.1
+## What's new in 0.318.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Turning a subscription agent off actually turns it off.** The Models tree could say "model disabled"
+  while every turn still routed to it, surviving a reload — the switch touched the agent's base entry
+  while routing used one of its model-and-effort variants. Switching it off now stops every variant.
 
 - **"If you want, I can…" is now something you can click.** Buttons only appeared when a reply ended in a
   question mark, and against a real model that turned out to be almost never — four turns in a row closed

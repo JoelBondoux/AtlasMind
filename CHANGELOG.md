@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.318.0] - 2026-08-14
+
+### Fixed
+
+- **Disabling a subscription agent now disables everything it routes as.** The Models tree read
+  *"(ACP — model disabled)"* while every turn in the session routed to
+  `acp/codex@gpt-5.3-codex-spark#medium`, and it survived a window reload.
+
+  Nothing was stale. `discoverModels` returns the base row **plus one entry per model x effort** — each a
+  separate `ModelInfo` carrying its own `enabled` — and the tree toggles the base. So the flag sat on
+  `acp/codex` while routing selected `acp/codex@gpt-5.3-codex-spark#medium`, a different id entirely.
+  Three different composed ids appeared in one session, so there was no row to toggle for the one actually
+  in use: the switch could not be operated correctly, only appear to be.
+
+  `isModelRoutable` now refuses a variant whose base row is disabled, at both the candidate filter and the
+  single-model resolution. Enforced in the router rather than by cascading at toggle time, because
+  variants appear as the agent reports its `configOptions` — a cascade would miss every one discovered
+  after the switch was thrown, which is the case most likely to matter and least likely to be noticed. It
+  only ever removes permission: a model whose id carries no separator, or whose base row does not exist,
+  is judged on its own flag exactly as before.
+
+  This is why nothing shipped in 0.316.0 or 0.317.0 appeared to change anything: turns kept landing on an
+  agent the operator had switched off.
+
 ## [0.317.1] - 2026-08-14
 
 ### Fixed

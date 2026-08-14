@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.318.0 — Turning a subscription agent off actually turns it off
+
+The Models tree said "model disabled" while every turn still went to that agent, and it survived a
+reload. Nothing was stale: an ACP agent is registered as a base row *plus* one entry for every
+model-and-effort combination it offers, and the tree's switch only ever touched the base. The flag was on
+one id and routing was using another — with three different ones appearing in a single session, there was
+no row you could have toggled to stop it.
+
+Switching the agent off now stops every variant it routes as, including ones discovered afterwards.
+
 ## v0.317.1 — The live battery stops naming one repository's files
 
 Two of the manual battery's probes asked the assistant to read an AtlasMind source file, so running the
