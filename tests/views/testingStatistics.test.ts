@@ -123,3 +123,89 @@ describe('layout: columns reflow rather than being divided by a fixed count', ()
     expect(HOST).toContain('max-width: none');
   });
 });
+
+describe('an expanded policy card is the only one open', () => {
+  /**
+   * An expanded card is a reading surface — a distribution bar, an evidence
+   * table and a four-column control table — and it takes the full row. Several
+   * open at once turned the board into a stack of tall panels with the grid of
+   * remaining policies pushed off screen.
+   */
+  it('replaces the open card rather than adding to it', () => {
+    expect(WEBVIEW).toContain('state.testingExpandedIds.includes(payload)');
+    // The shape that matters: closing yields an empty list, opening yields a
+    // list of exactly one. A `.concat(payload)` here is the multi-open bug.
+    expect(WEBVIEW).toMatch(/testingExpandedIds\.includes\(payload\)\s*\?\s*\[\]\s*:\s*\[payload\]/);
+  });
+
+  it('still closes the card that is already open', () => {
+    // Clicking the open card must collapse it, not re-open it. The `[]` branch
+    // is that, and its absence would make an opened card impossible to close.
+    expect(WEBVIEW).toMatch(/\?\s*\[\]/);
+  });
+});
+
+describe('the policy tables are readable rather than shredded', () => {
+  it('stops the control table shrinking past legibility', () => {
+    // `width: 100%` alone means the table always fits its container and simply
+    // crushes each cell; with `overflow-wrap: anywhere` inherited from
+    // `.mini-table` the result was one or two characters per line.
+    expect(HOST).toContain('.policy-controls .mini-table { min-width: 640px; }');
+  });
+
+  it('scrolls the container, not the table element', () => {
+    // `overflow` on a `display: table` element is ill-defined and silently does
+    // nothing, so the scroll has to live on the wrapping div.
+    expect(HOST).toContain('.policy-controls { overflow-x: auto; }');
+    expect(HOST).not.toMatch(/\.policy-failure-table\s*\{[^}]*overflow-x/);
+  });
+
+  it('breaks words only where a path actually appears', () => {
+    expect(HOST).toContain('.policy-control-table th, .policy-control-table td { overflow-wrap: normal; word-break: normal; }');
+    expect(HOST).toContain('.policy-control-table td:last-child { overflow-wrap: anywhere; }');
+  });
+
+  it('gives a collapsed card room for its own contents', () => {
+    const match = HOST.match(/\.policy-grid \{[^}]*minmax\(min\(100%, (\d+)px\)/);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(380);
+  });
+});
+
+describe('the Pull Requests page explains an incomplete read', () => {
+  /**
+   * The bug this guards: `gh pr list` at `--limit 100` with the nested
+   * `reviews` / `statusCheckRollup` / `reviewRequests` connections returned
+   * HTTP 502 from the GraphQL API, the failure was swallowed, and the page said
+   * "not loaded yet" forever — including after a manual refresh, with nothing
+   * to indicate why.
+   */
+  it('bounds the rich query below the limit that failed', () => {
+    const rich = HOST.match(/const PR_RICH_LIMIT = '(\d+)'/);
+    expect(rich, 'the rich pull-request limit is no longer declared').not.toBeNull();
+    expect(Number(rich![1])).toBeLessThanOrEqual(50);
+  });
+
+  it('falls back to a lean query with no nested connections', () => {
+    const lean = HOST.match(/const PR_LEAN_FIELDS = '([^']+)'/);
+    expect(lean).not.toBeNull();
+    for (const expensive of ['reviews', 'statusCheckRollup', 'reviewRequests']) {
+      expect(lean![1], `${expensive} is what made the query too expensive`).not.toContain(expensive);
+    }
+    // And it must still carry what the list is actually for.
+    for (const needed of ['number', 'title', 'state', 'author']) {
+      expect(lean![1]).toContain(needed);
+    }
+  });
+
+  it('records why the read is incomplete rather than swallowing it', () => {
+    expect(HOST).toContain('pullRequestsNotice');
+    expect(WEBVIEW, 'the notice is recorded but never shown').toContain('wf.pullRequestsNotice');
+  });
+
+  it('does not empty a previously-read list when a refresh fails', () => {
+    // A failed refresh must not turn a list somebody already has into a
+    // confident "none".
+    expect(HOST).toMatch(/Left as-is rather than emptied/);
+  });
+});

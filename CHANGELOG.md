@@ -6,6 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.0] - 2026-08-14
+
+### Added
+
+- **Scaffold now picks the test runner your project actually uses.** It knew two runners out of six —
+  `has('vitest') ? 'vitest' : has('jest') ? 'jest' : undefined`, with `?? 'vitest'` downstream — so a Mocha
+  project got Vitest files it could not run, a React project with no runner was pointed at Vitest for a
+  stack with no Vite in it, and a project already on Vitest could be handed `npm install -D jest`. That
+  last one is how a repository ends up with two runners and a suite only one of them can execute.
+
+  `complianceTechnicalControls`' sibling, `testingFrameworkDetection`, now makes that decision once and
+  everything reads the result. It detects Vitest, Jest, Mocha + Chai, the Node built-in runner, Playwright
+  and Cypress from dependencies, config files, scripts and test files. Four rules hold it honest:
+
+  - **What the project already uses always wins.** A Vite project on Mocha keeps Mocha. The recommendation
+    ladder is consulted only when nothing is installed.
+  - **Ambiguity is a question, never a coin toss.** Two runners installed with no majority in the test
+    files, or a Node backend where the built-in runner and Jest are both reasonable, produce a QuickPick
+    before anything is written. Dismissing it cancels the scaffold rather than falling back to a default.
+  - **Unit and end-to-end are separate choices**, so "already uses Cypress" no longer reads as "needs no
+    unit runner".
+  - **Forbidden installs are data, not a comment.** The plan carries what must not be added and why, and
+    the installer reads it.
+
+- **Generated tests are written in the selected runner's dialect.** Fixing the import line alone would not
+  have been enough: `expect().toBe()` is not Chai and `vi.mock` is not `jest.mock`, so a corrected import
+  would produce a file that fails on line two instead of line one. A starter is now described neutrally —
+  what it establishes, what it asserts — and rendered per framework, including no import at all for Jest
+  and Cypress, which inject their globals and for which an import is an error rather than a style choice.
+
+- **A filter above the methodology matrix.** Sixty-nine rows is more than anyone scans. It matches on
+  name, id, category and description, hides rows rather than re-rendering (the matrix is a form, and a
+  rebuild would discard a half-typed note), hides a category heading whose rows have all gone, reports how
+  many matched, and clears on Escape.
+
+### Changed
+
+- **The Testing dashboard and Testing settings page name every framework installed, not the first one
+  matched.** A project running Vitest for units and Playwright for end-to-end has two, and a card naming
+  one read as though the other were absent. Both surfaces now list all of them, pluralise the label, and
+  fall back to the single detected label rather than rendering an empty card.
+
+## [0.309.2] - 2026-08-14
+
+### Fixed
+
+- **The Pull Requests page never populated.** `gh pr list` was asked for 100 pull requests *with* the
+  nested `reviews`, `statusCheckRollup` and `reviewRequests` connections, so the query cost scaled as
+  limit × per-pull-request sub-resources — and GitHub's GraphQL API answered `HTTP 502` every time.
+  Measured on this repository: the same query succeeds at 50 and fails at 100, and the lean field set
+  succeeds at 100, so it is the nested connections rather than the row count.
+
+  The failure was caught and discarded, which is the half that made it invisible: `pullRequestsState`
+  stayed `undefined`, the page said "Pull requests have not been loaded", and pressing refresh silently
+  did the same thing again with nothing to indicate why.
+
+  Now the rich read is bounded to 30, and if it still fails a lean read fetches the wider list without
+  review state — a page listing every pull request without its checks beats a page listing none. Either
+  way the reason is recorded and shown. A failed refresh still never empties a list somebody already has:
+  that would turn "we could not look" into a confident "none".
+
+- **Opening a Policy Coverage card no longer leaves the others open.** An expanded card is a reading
+  surface — a distribution bar, an evidence table and a four-column control table — and it takes the full
+  row, so several open at once became a stack of tall panels with the remaining policies pushed off
+  screen. One opens at a time now; clicking the open one still closes it.
+
+- **The policy control table is readable.** `width: 100%` meant it always fitted its container and simply
+  crushed each cell, and with `overflow-wrap: anywhere` inherited from `.mini-table` the result was one or
+  two characters per line. It now states a minimum width and scrolls its container instead — the
+  container, because `overflow` on a `display: table` element is ill-defined and silently does nothing.
+  Word breaking is back to normal except in the evidence column, where a long path genuinely should break
+  rather than push the table wider. Collapsed cards went from a 340px to a 380px minimum.
+
 ## [0.309.1] - 2026-08-14
 
 ### Security

@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.0 — Scaffold uses your runner, not its favourite
+
+The Scaffold button knew two test runners: Vitest and Jest. Anything else got Vitest files it could not
+run, and a project already using Vitest could be told to install Jest — which is how a repository ends
+up with two runners and a suite only one of them executes.
+
+It now detects Vitest, Jest, Mocha, the Node built-in runner, Playwright and Cypress from your
+dependencies, config files, scripts and test files, and writes starter tests in that runner's syntax
+rather than always in Vitest's. What you already use always wins. Where the choice is genuinely open —
+two runners installed, or a Node backend where either would do — it asks before writing anything, and
+cancelling the question cancels the scaffold. It will not add a second runner to a project that has one.
+
+Both Testing surfaces now list every framework installed rather than the first one matched, and the
+methodology matrix has a filter above it, because sixty-nine rows is more than anyone scans.
+
+## v0.309.2 — The Pull Requests page works
+
+It never populated. AtlasMind asked GitHub for 100 pull requests together with their reviews and
+checks, which is expensive enough that the API returned an error every time — and the error was
+discarded, so the page said "not loaded" forever and refreshing did nothing visible. It now asks for
+fewer, falls back to a lighter request if that still fails, and tells you when the answer is
+incomplete instead of looking empty.
+
+Two Testing dashboard fixes alongside it: opening a policy card closes whichever was already open
+rather than stacking them, and the control table no longer squeezes itself down to two characters per
+line.
+
 ## v0.309.1 — Dependency security bumps
 
 Takes the two outstanding Dependabot security updates — mysql2 3.23.3 and

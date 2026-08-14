@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { ProjectTestingConfig, TestingMethodologyId } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { installCommandFor, planTestFrameworks, type TestFramework, type TestFrameworkPlan } from './testingFrameworkDetection.js';
+import { frameworkHeader } from './testingFrameworkSyntax.js';
 import { evaluateTechnicalControls } from './complianceTechnicalControls.js';
 
 /**
@@ -87,9 +89,12 @@ interface DetectedStack {
   language: Language;
   archetype: Archetype;
   isTypeScript: boolean;
-  /** Node only: the resolved JS/TS test runner. */
-  testRunner: 'vitest' | 'jest' | undefined;
-  recommendedRunner: 'vitest' | 'jest';
+  /** The full framework decision, including any question the user must answer. */
+  frameworks: TestFrameworkPlan;
+  /** The runner the project already uses, when it uses one. */
+  testRunner: TestFramework | undefined;
+  /** The runner to generate for. Absent while the plan still needs the user. */
+  recommendedRunner: TestFramework | undefined;
   uiFramework: 'react' | 'vue' | 'svelte' | 'angular' | undefined;
   hasPlaywright: boolean;
   hasCypress: boolean;
@@ -112,7 +117,7 @@ export interface ScaffoldFileResult {
 export interface FirstTestCandidate {
   sourcePath: string;
   exportedSymbol: string;
-  testRunner: 'vitest' | 'jest';
+  testRunner: TestFramework;
 }
 
 export interface TestingScaffoldResult {
@@ -264,7 +269,13 @@ function detectArchetype(
   return 'generic';
 }
 
-function detectStack(workspaceRoot: string): DetectedStack {
+/** A framework the user picked when the plan could not decide. */
+export interface FrameworkOverride {
+  readonly unit?: TestFramework;
+  readonly e2e?: TestFramework;
+}
+
+function detectStack(workspaceRoot: string, override?: FrameworkOverride): DetectedStack {
   let deps: Record<string, string> = {};
   let hasPackageJson = false;
   let isLibrary = false;
@@ -286,12 +297,6 @@ function detectStack(workspaceRoot: string): DetectedStack {
   const language = detectLanguage(workspaceRoot, hasPackageJson);
 
   const isTypeScript = has('typescript') || probe(workspaceRoot, 'tsconfig.json');
-  const testRunner: DetectedStack['testRunner'] =
-    has('vitest') || probe(workspaceRoot, 'vitest.config.ts') || probe(workspaceRoot, 'vitest.config.js')
-      ? 'vitest'
-      : has('jest') || probe(workspaceRoot, 'jest.config.js') || probe(workspaceRoot, 'jest.config.ts')
-        ? 'jest'
-        : undefined;
 
   const uiFramework: DetectedStack['uiFramework'] = has('react')
     ? 'react'
@@ -309,17 +314,97 @@ function detectStack(workspaceRoot: string): DetectedStack {
     archetype = 'library';
   }
 
+  // Framework choice is one decision, made in `testingFrameworkDetection` and
+  // read here. It used to be inlined as `has('vitest') ? 'vitest' : has('jest')
+  // ? 'jest' : undefined` with `?? 'vitest'` downstream, which knew about two
+  // runners out of six and handed a Vitest file to every project that had
+  // neither — including ones that could not run it.
+  const frameworks = planTestFrameworks({
+    dependencies: Object.keys(deps).map(name => name.toLowerCase()),
+    scriptText: scriptText(workspaceRoot),
+    configFiles: topLevelFiles(workspaceRoot),
+    testFiles: sampleTestFiles(workspaceRoot),
+    isNodeBackend: language === 'node' && uiFramework === undefined,
+    hasBrowserSurface: uiFramework !== undefined,
+  });
+
   return {
     language,
     archetype,
     isTypeScript,
-    testRunner,
-    recommendedRunner: testRunner ?? 'vitest',
+    frameworks,
+    testRunner: frameworks.unit.status === 'detected' ? frameworks.unit.framework : undefined,
+    // Only a settled choice reaches the recipes. When the plan needs the user,
+    // the caller asks first — generating for a guess would be the behaviour the
+    // plan exists to remove.
+    // An answered question wins over the plan. Without this the caller would
+    // ask, get an answer, and then scaffold against the same undecided plan.
+    recommendedRunner: override?.unit ?? frameworks.unit.framework,
     uiFramework,
     hasPlaywright: has('@playwright/test') || probe(workspaceRoot, 'playwright.config.ts'),
     hasCypress: has('cypress') || probe(workspaceRoot, 'cypress.config.ts'),
     testExt: isTypeScript ? 'ts' : 'js',
   };
+}
+
+/** `package.json` scripts as one string — `node --test` leaves no dependency. */
+function scriptText(workspaceRoot: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8')) as Record<string, unknown>;
+    return Object.values((pkg['scripts'] ?? {}) as Record<string, string>).join(' \n ');
+  } catch {
+    return '';
+  }
+}
+
+/** Top-level filenames, for config detection. Bounded; never throws. */
+function topLevelFiles(workspaceRoot: string): string[] {
+  try {
+    return readdirSync(workspaceRoot).slice(0, 400);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A bounded sample of test files, for the majority tie-break.
+ *
+ * Only used when two runners are both installed, so a shallow walk of the
+ * conventional directories is enough — and a full tree walk on every scaffold
+ * plan would be a filesystem cost paid by every project to serve the few that
+ * have two runners.
+ */
+function sampleTestFiles(workspaceRoot: string): string[] {
+  const roots = ['tests', 'test', '__tests__', 'e2e', 'cypress', 'src'];
+  const found: string[] = [];
+  const visit = (dir: string, depth: number): void => {
+    if (depth > 3 || found.length >= 400) {
+      return;
+    }
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (found.length >= 400) {
+        return;
+      }
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
+          visit(full, depth + 1);
+        }
+      } else if (/\.(test|spec|cy|e2e|pw)\.[cm]?[jt]sx?$/i.test(entry.name)) {
+        found.push(path.relative(workspaceRoot, full).replace(/\\/g, '/'));
+      }
+    }
+  };
+  for (const root of roots) {
+    visit(path.join(workspaceRoot, root), 0);
+  }
+  return found;
 }
 
 const FIRST_TEST_SOURCE_DIRS = ['src', 'lib', 'app'];
@@ -450,6 +535,26 @@ interface ScaffoldFile {
 
 // ── Per-language recipes ──────────────────────────────────────────
 
+/**
+ * The framework import line for a generated file.
+ *
+ * Every starter used to open `import … from 'vitest'` regardless of what the
+ * project runs, so a Jest project got a file importing a package it does not
+ * have and a Mocha project got one that fails on its first matcher. The header
+ * now follows the resolved framework, and is empty for the runners that inject
+ * their globals — importing `describe` in Jest without `@jest/globals`, or
+ * anything at all in Cypress, is an error rather than a style choice.
+ *
+ * Returns no trailing newline: the templates already carry their own.
+ */
+function testHeaderLine(stack: DetectedStack): string {
+  const framework = stack.recommendedRunner;
+  if (!framework) {
+    return '';
+  }
+  return frameworkHeader(framework).join('\n');
+}
+
 function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFile[] {
   const ext = stack.testExt;
   switch (id) {
@@ -457,9 +562,10 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
     case 'tdd':
     case 'test-design':
     case 'white-box': {
-      const importLine = stack.recommendedRunner === 'vitest'
-        ? "import { describe, it, expect } from 'vitest';\n\n"
-        : '';
+      // Was a two-way check that emitted a Vitest import or nothing at all,
+      // so a Jest or Mocha project got a bare file with no runner import.
+      const header = testHeaderLine(stack);
+      const importLine = header ? `${header}\n\n` : '';
       return [{
         path: `tests/example.test.${ext}`,
         content: `${importLine}describe('example', () => {\n  it('adds numbers', () => {\n    expect(1 + 1).toBe(2);\n  });\n});\n`,
@@ -475,7 +581,7 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
       if (stack.archetype === 'api') {
         return [{
           path: `e2e/api.spec.${ext}`,
-          content: `import { describe, it, expect } from 'vitest';\n\ndescribe('API smoke', () => {\n  it('responds on the health endpoint', async () => {\n    const res = await fetch('http://localhost:3000/health');\n    expect(res.status).toBe(200);\n  });\n});\n`,
+          content: `${testHeaderLine(stack)}\n\ndescribe('API smoke', () => {\n  it('responds on the health endpoint', async () => {\n    const res = await fetch('http://localhost:3000/health');\n    expect(res.status).toBe(200);\n  });\n});\n`,
         }];
       }
       // A game's end-to-end test is a *simulation* run, not a browser one.
@@ -485,13 +591,13 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
       if (stack.archetype === 'game') {
         return [{
           path: `e2e/simulation.spec.${ext}`,
-          content: `import { describe, it, expect } from 'vitest';\n\ndescribe('simulation determinism', () => {\n  it('produces the same state from the same seed', () => {\n    // Replace with your own step function. The property that matters for a\n    // game is that a fixed seed and a fixed input sequence replay exactly \u2014\n    // without it, a bug reported from a play session cannot be reproduced.\n    const run = (seed, steps) => {\n      let state = seed;\n      for (let i = 0; i < steps; i += 1) { state = (state * 1664525 + 1013904223) >>> 0; }\n      return state;\n    };\n    expect(run(42, 1000)).toBe(run(42, 1000));\n  });\n});\n`,
+          content: `${testHeaderLine(stack)}\n\ndescribe('simulation determinism', () => {\n  it('produces the same state from the same seed', () => {\n    // Replace with your own step function. The property that matters for a\n    // game is that a fixed seed and a fixed input sequence replay exactly \u2014\n    // without it, a bug reported from a play session cannot be reproduced.\n    const run = (seed, steps) => {\n      let state = seed;\n      for (let i = 0; i < steps; i += 1) { state = (state * 1664525 + 1013904223) >>> 0; }\n      return state;\n    };\n    expect(run(42, 1000)).toBe(run(42, 1000));\n  });\n});\n`,
         }];
       }
       if (stack.archetype === 'cli') {
         return [{
           path: `e2e/cli.spec.${ext}`,
-          content: `import { describe, it, expect } from 'vitest';\nimport { execFileSync } from 'node:child_process';\n\ndescribe('CLI smoke', () => {\n  it('prints help', () => {\n    const out = execFileSync('node', ['./bin/cli.js', '--help'], { encoding: 'utf8' });\n    expect(out).toMatch(/usage/i);\n  });\n});\n`,
+          content: `${testHeaderLine(stack)}\nimport { execFileSync } from 'node:child_process';\n\ndescribe('CLI smoke', () => {\n  it('prints help', () => {\n    const out = execFileSync('node', ['./bin/cli.js', '--help'], { encoding: 'utf8' });\n    expect(out).toMatch(/usage/i);\n  });\n});\n`,
         }];
       }
       return [{
@@ -502,17 +608,17 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
     case 'property':
       return [{
         path: `tests/example.property.test.${ext}`,
-        content: `import fc from 'fast-check';\nimport { describe, it } from 'vitest';\n\ndescribe('property: reverse is its own inverse', () => {\n  it('holds for any string', () => {\n    fc.assert(fc.property(fc.string(), (s) => [...s].reverse().reverse().join('') === s));\n  });\n});\n`,
+        content: `import fc from 'fast-check';\n${testHeaderLine(stack)}\n\ndescribe('property: reverse is its own inverse', () => {\n  it('holds for any string', () => {\n    fc.assert(fc.property(fc.string(), (s) => [...s].reverse().reverse().join('') === s));\n  });\n});\n`,
       }];
     case 'snapshot':
       return [{
         path: `tests/example.snapshot.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\ndescribe('snapshot', () => {\n  it('matches serialized output', () => {\n    expect({ hello: 'world' }).toMatchSnapshot();\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\ndescribe('snapshot', () => {\n  it('matches serialized output', () => {\n    expect({ hello: 'world' }).toMatchSnapshot();\n  });\n});\n`,
       }];
     case 'integration':
       return [{
         path: `tests/example.integration.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\ndescribe('integration: components collaborate', () => {\n  it('wires the pieces together', async () => {\n    // Arrange real collaborators (db, http, queue) here instead of mocks.\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\ndescribe('integration: components collaborate', () => {\n  it('wires the pieces together', async () => {\n    // Arrange real collaborators (db, http, queue) here instead of mocks.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'performance':
       // A game's performance gate is a frame budget, not requests per second.
@@ -521,7 +627,7 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
       if (stack.archetype === 'game') {
         return [{
           path: `performance/frame-budget.spec.${ext}`,
-          content: `import { describe, it, expect } from 'vitest';\n\n// A frame budget, not a request rate. 60fps leaves 16.6ms for everything;\n// this asserts the simulation step alone stays well inside it.\nconst FRAME_BUDGET_MS = 16.6;\n\ndescribe('frame budget', () => {\n  it('steps the simulation well inside one frame', () => {\n    const started = performance.now();\n    // Replace with one tick of your own update loop.\n    for (let i = 0; i < 10_000; i += 1) { Math.sqrt(i); }\n    expect(performance.now() - started).toBeLessThan(FRAME_BUDGET_MS / 2);\n  });\n});\n`,
+          content: `${testHeaderLine(stack)}\n\n// A frame budget, not a request rate. 60fps leaves 16.6ms for everything;\n// this asserts the simulation step alone stays well inside it.\nconst FRAME_BUDGET_MS = 16.6;\n\ndescribe('frame budget', () => {\n  it('steps the simulation well inside one frame', () => {\n    const started = performance.now();\n    // Replace with one tick of your own update loop.\n    for (let i = 0; i < 10_000; i += 1) { Math.sqrt(i); }\n    expect(performance.now() - started).toBeLessThan(FRAME_BUDGET_MS / 2);\n  });\n});\n`,
         }];
       }
       return [{
@@ -545,39 +651,39 @@ function nodeRecipeExtended(id: TestingMethodologyId, stack: DetectedStack): Sca
     case 'type-drift':
       return [{
         path: `tests/type-drift.schema.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { z } from 'zod';\n\n// The compiler checks your *assertion* about incoming data, never the data.\n// A backend that renames a field keeps compiling and fails in production, so\n// the check has to happen at the boundary, at runtime.\nconst ApiUser = z.object({\n  id: z.string(),\n  email: z.string().email(),\n  createdAt: z.string().datetime(),\n});\n\ndescribe('type drift: the API still sends what we declare', () => {\n  it('accepts a well-formed payload', () => {\n    expect(() => ApiUser.parse({\n      id: 'u_1', email: 'a@example.com', createdAt: new Date().toISOString(),\n    })).not.toThrow();\n  });\n\n  it('rejects a renamed field rather than reading undefined', () => {\n    // This is the real case: the field did not vanish, it was renamed.\n    expect(() => ApiUser.parse({\n      id: 'u_1', emailAddress: 'a@example.com', createdAt: new Date().toISOString(),\n    })).toThrow();\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { z } from 'zod';\n\n// The compiler checks your *assertion* about incoming data, never the data.\n// A backend that renames a field keeps compiling and fails in production, so\n// the check has to happen at the boundary, at runtime.\nconst ApiUser = z.object({\n  id: z.string(),\n  email: z.string().email(),\n  createdAt: z.string().datetime(),\n});\n\ndescribe('type drift: the API still sends what we declare', () => {\n  it('accepts a well-formed payload', () => {\n    expect(() => ApiUser.parse({\n      id: 'u_1', email: 'a@example.com', createdAt: new Date().toISOString(),\n    })).not.toThrow();\n  });\n\n  it('rejects a renamed field rather than reading undefined', () => {\n    // This is the real case: the field did not vanish, it was renamed.\n    expect(() => ApiUser.parse({\n      id: 'u_1', emailAddress: 'a@example.com', createdAt: new Date().toISOString(),\n    })).toThrow();\n  });\n});\n`,
       }];
     case 'dependency-graph':
       return [{
         path: `tests/dependency-graph.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { execFileSync } from 'node:child_process';\n\n// An architectural rule nobody enforces survives exactly as long as the person\n// who remembers it. Declare the rules in .dependency-cruiser.cjs and let this\n// fail the build when an import crosses a boundary it should not.\ndescribe('dependency graph integrity', () => {\n  it('has no cycles and respects declared boundaries', () => {\n    // npm install -D dependency-cruiser && npx depcruise --init\n    const run = () => execFileSync('npx', ['depcruise', 'src', '--validate'], { encoding: 'utf8' });\n    expect(run).not.toThrow();\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { execFileSync } from 'node:child_process';\n\n// An architectural rule nobody enforces survives exactly as long as the person\n// who remembers it. Declare the rules in .dependency-cruiser.cjs and let this\n// fail the build when an import crosses a boundary it should not.\ndescribe('dependency graph integrity', () => {\n  it('has no cycles and respects declared boundaries', () => {\n    // npm install -D dependency-cruiser && npx depcruise --init\n    const run = () => execFileSync('npx', ['depcruise', 'src', '--validate'], { encoding: 'utf8' });\n    expect(run).not.toThrow();\n  });\n});\n`,
       }];
 
     // ── Parity and consistency ───────────────────────────────────
     case 'cross-surface-parity':
       return [{
         path: `tests/cross-surface.parity.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// One rule, several places that state it. The failure this catches is two\n// surfaces disagreeing about the same number — which reads as a data bug and\n// is really a duplicated rule. The fixture is shared on purpose: adding a\n// surface means adding it to the loop, not writing a parallel suite.\nconst CASES = [\n  { input: { subtotal: 100, taxRate: 0.2 }, expected: 120 },\n  { input: { subtotal: 0, taxRate: 0.2 }, expected: 0 },\n];\n\n// Replace each with the real implementation behind that surface.\nconst surfaces = {\n  api: (i) => i.subtotal * (1 + i.taxRate),\n  ui: (i) => i.subtotal * (1 + i.taxRate),\n};\n\ndescribe('cross-surface parity: total', () => {\n  for (const [name, compute] of Object.entries(surfaces)) {\n    it(\`\${name} agrees with the shared cases\`, () => {\n      for (const { input, expected } of CASES) {\n        expect(compute(input)).toBe(expected);\n      }\n    });\n  }\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// One rule, several places that state it. The failure this catches is two\n// surfaces disagreeing about the same number — which reads as a data bug and\n// is really a duplicated rule. The fixture is shared on purpose: adding a\n// surface means adding it to the loop, not writing a parallel suite.\nconst CASES = [\n  { input: { subtotal: 100, taxRate: 0.2 }, expected: 120 },\n  { input: { subtotal: 0, taxRate: 0.2 }, expected: 0 },\n];\n\n// Replace each with the real implementation behind that surface.\nconst surfaces = {\n  api: (i) => i.subtotal * (1 + i.taxRate),\n  ui: (i) => i.subtotal * (1 + i.taxRate),\n};\n\ndescribe('cross-surface parity: total', () => {\n  for (const [name, compute] of Object.entries(surfaces)) {\n    it(\`\${name} agrees with the shared cases\`, () => {\n      for (const { input, expected } of CASES) {\n        expect(compute(input)).toBe(expected);\n      }\n    });\n  }\n});\n`,
       }];
     case 'cross-representation':
       return [{
         path: `tests/cross-representation.roundtrip.test.${ext}`,
-        content: `import fc from 'fast-check';\nimport { describe, it } from 'vitest';\n\n// Serialization asymmetry is the classic silent corruption: it writes fine,\n// reads back subtly different, and nothing fails until much later. The\n// generator matters more than the assertion — asymmetry lives in the empty\n// string, the unicode, and the difference between null and absent.\nconst encode = (v) => JSON.stringify(v);\nconst decode = (s) => JSON.parse(s);\n\ndescribe('round trip: encode then decode is identity', () => {\n  it('holds for arbitrary records', () => {\n    fc.assert(fc.property(\n      fc.record({\n        name: fc.string(),\n        tags: fc.array(fc.string()),\n        count: fc.integer(),\n      }),\n      (value) => {\n        const back = decode(encode(value));\n        return JSON.stringify(back) === JSON.stringify(value);\n      },\n    ));\n  });\n});\n`,
+        content: `import fc from 'fast-check';\n${testHeaderLine(stack)}\n\n// Serialization asymmetry is the classic silent corruption: it writes fine,\n// reads back subtly different, and nothing fails until much later. The\n// generator matters more than the assertion — asymmetry lives in the empty\n// string, the unicode, and the difference between null and absent.\nconst encode = (v) => JSON.stringify(v);\nconst decode = (s) => JSON.parse(s);\n\ndescribe('round trip: encode then decode is identity', () => {\n  it('holds for arbitrary records', () => {\n    fc.assert(fc.property(\n      fc.record({\n        name: fc.string(),\n        tags: fc.array(fc.string()),\n        count: fc.integer(),\n      }),\n      (value) => {\n        const back = decode(encode(value));\n        return JSON.stringify(back) === JSON.stringify(value);\n      },\n    ));\n  });\n});\n`,
       }];
     case 'semantic-constraint':
       return [{
         path: `tests/semantic-constraint.invariants.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The type says Date. The domain says "not before the other one". These are\n// the rules the type system cannot express, so they need somewhere to live —\n// preferably next to the type they constrain, not scattered across callers.\nconst isValidPeriod = (p) => p.start <= p.end;\nconst totalMatchesLines = (order) =>\n  order.total === order.lines.reduce((sum, l) => sum + l.amount, 0);\n\ndescribe('domain invariants', () => {\n  it('rejects a period that ends before it starts', () => {\n    expect(isValidPeriod({ start: new Date('2026-02-01'), end: new Date('2026-01-01') })).toBe(false);\n  });\n\n  it('rejects an order whose total disagrees with its lines', () => {\n    expect(totalMatchesLines({ total: 99, lines: [{ amount: 50 }, { amount: 50 }] })).toBe(false);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// The type says Date. The domain says "not before the other one". These are\n// the rules the type system cannot express, so they need somewhere to live —\n// preferably next to the type they constrain, not scattered across callers.\nconst isValidPeriod = (p) => p.start <= p.end;\nconst totalMatchesLines = (order) =>\n  order.total === order.lines.reduce((sum, l) => sum + l.amount, 0);\n\ndescribe('domain invariants', () => {\n  it('rejects a period that ends before it starts', () => {\n    expect(isValidPeriod({ start: new Date('2026-02-01'), end: new Date('2026-01-01') })).toBe(false);\n  });\n\n  it('rejects an order whose total disagrees with its lines', () => {\n    expect(totalMatchesLines({ total: 99, lines: [{ amount: 50 }, { amount: 50 }] })).toBe(false);\n  });\n});\n`,
       }];
     case 'anti-uniformity':
       return [{
         path: `tests/anti-uniformity.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// A function returning the same value for every input passes every "is it a\n// string?" assertion ever written. This is the assertion that catches a\n// pipeline silently returning its default.\n//\n// Note the threshold rather than a binary: legitimately repeated values exist,\n// so the check is that variety is *plausible*, not that it is total.\nconst MIN_DISTINCT_RATIO = 0.6;\n\ndescribe('anti-uniformity: output actually varies', () => {\n  it('produces a plausible spread across distinct inputs', () => {\n    const inputs = Array.from({ length: 50 }, (_, i) => i);\n    const outputs = inputs.map((i) => generate(i));\n    const distinct = new Set(outputs).size;\n    expect(distinct / outputs.length).toBeGreaterThanOrEqual(MIN_DISTINCT_RATIO);\n  });\n});\n\n// Replace with the generator, seeder, or model-backed function under test.\nfunction generate(seed) {\n  return \`item-\${seed}\`;\n}\n`,
+        content: `${testHeaderLine(stack)}\n\n// A function returning the same value for every input passes every "is it a\n// string?" assertion ever written. This is the assertion that catches a\n// pipeline silently returning its default.\n//\n// Note the threshold rather than a binary: legitimately repeated values exist,\n// so the check is that variety is *plausible*, not that it is total.\nconst MIN_DISTINCT_RATIO = 0.6;\n\ndescribe('anti-uniformity: output actually varies', () => {\n  it('produces a plausible spread across distinct inputs', () => {\n    const inputs = Array.from({ length: 50 }, (_, i) => i);\n    const outputs = inputs.map((i) => generate(i));\n    const distinct = new Set(outputs).size;\n    expect(distinct / outputs.length).toBeGreaterThanOrEqual(MIN_DISTINCT_RATIO);\n  });\n});\n\n// Replace with the generator, seeder, or model-backed function under test.\nfunction generate(seed) {\n  return \`item-\${seed}\`;\n}\n`,
       }];
     case 'output-schema-drift':
       return [{
         path: `tests/output-schema-drift.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { z } from 'zod';\n\n// Your tests pass because they were updated alongside the producer. Consumers\n// break because they were not. Validate what you *emit* against the schema you\n// published, and decide deliberately whether an added field is breaking here.\nconst PublishedResponse = z.object({\n  id: z.string(),\n  status: z.enum(['pending', 'complete']),\n}).strict(); // strict: an added field is a change consumers must be told about.\n\ndescribe('output schema drift', () => {\n  it('emits exactly the published shape', () => {\n    const produced = buildResponse();\n    expect(() => PublishedResponse.parse(produced)).not.toThrow();\n  });\n});\n\n// Replace with the real producer.\nfunction buildResponse() {\n  return { id: 'r_1', status: 'pending' };\n}\n`,
+        content: `${testHeaderLine(stack)}\nimport { z } from 'zod';\n\n// Your tests pass because they were updated alongside the producer. Consumers\n// break because they were not. Validate what you *emit* against the schema you\n// published, and decide deliberately whether an added field is breaking here.\nconst PublishedResponse = z.object({\n  id: z.string(),\n  status: z.enum(['pending', 'complete']),\n}).strict(); // strict: an added field is a change consumers must be told about.\n\ndescribe('output schema drift', () => {\n  it('emits exactly the published shape', () => {\n    const produced = buildResponse();\n    expect(() => PublishedResponse.parse(produced)).not.toThrow();\n  });\n});\n\n// Replace with the real producer.\nfunction buildResponse() {\n  return { id: 'r_1', status: 'pending' };\n}\n`,
       }];
     default:
       return nodeRecipeQuality(id, stack);
@@ -591,37 +697,37 @@ function nodeRecipeQuality(id: TestingMethodologyId, stack: DetectedStack): Scaf
     case 'accessibility':
       return [{
         path: `tests/accessibility.a11y.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { axe } from 'jest-axe';\n\n// Automated checks reliably catch roughly a third of WCAG issues, which makes\n// them necessary and not sufficient. Keyboard traps, focus order and\n// meaningful alt text still need a person — record that pass separately, or a\n// clean run here will be read as an accessible product.\ndescribe('accessibility', () => {\n  it('has no detectable WCAG violations', async () => {\n    const container = document.createElement('div');\n    container.innerHTML = '<button type="button">Save</button>';\n    const results = await axe(container);\n    expect(results.violations).toEqual([]);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { axe } from 'jest-axe';\n\n// Automated checks reliably catch roughly a third of WCAG issues, which makes\n// them necessary and not sufficient. Keyboard traps, focus order and\n// meaningful alt text still need a person — record that pass separately, or a\n// clean run here will be read as an accessible product.\ndescribe('accessibility', () => {\n  it('has no detectable WCAG violations', async () => {\n    const container = document.createElement('div');\n    container.innerHTML = '<button type="button">Save</button>';\n    const results = await axe(container);\n    expect(results.violations).toEqual([]);\n  });\n});\n`,
       }];
     case 'observability':
       return [{
         path: `tests/observability.telemetry.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { InMemorySpanExporter, BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';\n\n// Telemetry is written once and verified never. The incident where a trace is\n// missing its span is the wrong time to find out.\n//\n// Assert on structured fields and correlation ids, never on prose — asserting\n// exact log strings makes every refactor a test-maintenance event.\ndescribe('telemetry', () => {\n  it('emits a span carrying the correlation id', async () => {\n    const exporter = new InMemorySpanExporter();\n    const provider = new BasicTracerProvider();\n    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));\n    const tracer = provider.getTracer('test');\n\n    const span = tracer.startSpan('handle-request');\n    span.setAttribute('correlation.id', 'abc-123');\n    span.end();\n\n    const [recorded] = exporter.getFinishedSpans();\n    expect(recorded?.name).toBe('handle-request');\n    expect(recorded?.attributes['correlation.id']).toBe('abc-123');\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { InMemorySpanExporter, BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';\n\n// Telemetry is written once and verified never. The incident where a trace is\n// missing its span is the wrong time to find out.\n//\n// Assert on structured fields and correlation ids, never on prose — asserting\n// exact log strings makes every refactor a test-maintenance event.\ndescribe('telemetry', () => {\n  it('emits a span carrying the correlation id', async () => {\n    const exporter = new InMemorySpanExporter();\n    const provider = new BasicTracerProvider();\n    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));\n    const tracer = provider.getTracer('test');\n\n    const span = tracer.startSpan('handle-request');\n    span.setAttribute('correlation.id', 'abc-123');\n    span.end();\n\n    const [recorded] = exporter.getFinishedSpans();\n    expect(recorded?.name).toBe('handle-request');\n    expect(recorded?.attributes['correlation.id']).toBe('abc-123');\n  });\n});\n`,
       }];
     case 'chaos':
       return [{
         path: `tests/chaos.resilience.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Retry logic, timeouts and circuit breakers are written once and never\n// exercised. This runs them before production does.\n//\n// Start in-process like this. Graduating to infrastructure-level chaos needs a\n// blast radius and a stop button first — it is a practice with prerequisites,\n// not a starting point.\nconst flaky = (failures) => {\n  let calls = 0;\n  return async () => {\n    calls += 1;\n    if (calls <= failures) { throw new Error('upstream unavailable'); }\n    return 'ok';\n  };\n};\n\nasync function withRetry(fn, attempts = 3) {\n  let lastError;\n  for (let i = 0; i < attempts; i += 1) {\n    try { return await fn(); } catch (err) { lastError = err; }\n  }\n  throw lastError;\n}\n\ndescribe('resilience under injected failure', () => {\n  it('recovers when the dependency fails twice', async () => {\n    await expect(withRetry(flaky(2))).resolves.toBe('ok');\n  });\n\n  it('gives up rather than retrying forever', async () => {\n    await expect(withRetry(flaky(99))).rejects.toThrow('upstream unavailable');\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Retry logic, timeouts and circuit breakers are written once and never\n// exercised. This runs them before production does.\n//\n// Start in-process like this. Graduating to infrastructure-level chaos needs a\n// blast radius and a stop button first — it is a practice with prerequisites,\n// not a starting point.\nconst flaky = (failures) => {\n  let calls = 0;\n  return async () => {\n    calls += 1;\n    if (calls <= failures) { throw new Error('upstream unavailable'); }\n    return 'ok';\n  };\n};\n\nasync function withRetry(fn, attempts = 3) {\n  let lastError;\n  for (let i = 0; i < attempts; i += 1) {\n    try { return await fn(); } catch (err) { lastError = err; }\n  }\n  throw lastError;\n}\n\ndescribe('resilience under injected failure', () => {\n  it('recovers when the dependency fails twice', async () => {\n    await expect(withRetry(flaky(2))).resolves.toBe('ok');\n  });\n\n  it('gives up rather than retrying forever', async () => {\n    await expect(withRetry(flaky(99))).rejects.toThrow('upstream unavailable');\n  });\n});\n`,
       }];
     case 'schema-migration':
       return [{
         path: `tests/schema-migration.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// A migration is the least reversible code in the codebase and routinely the\n// least tested — it runs once, against data no fixture resembles.\n//\n// Testing against an empty schema proves nothing. Seed a fixture that\n// resembles production *shape*, then assert the rows survived.\ndescribe('migration: applies, preserves, reverses', () => {\n  it('preserves existing rows when applied', async () => {\n    // await db.seed(realisticFixture);\n    // await migrate.up();\n    // expect(await db.count('users')).toBe(realisticFixture.users.length);\n    expect(true).toBe(true);\n  });\n\n  it('reverses cleanly', async () => {\n    // Down-migrations are rarely run, which is exactly when they fail.\n    // await migrate.down();\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// A migration is the least reversible code in the codebase and routinely the\n// least tested — it runs once, against data no fixture resembles.\n//\n// Testing against an empty schema proves nothing. Seed a fixture that\n// resembles production *shape*, then assert the rows survived.\ndescribe('migration: applies, preserves, reverses', () => {\n  it('preserves existing rows when applied', async () => {\n    // await db.seed(realisticFixture);\n    // await migrate.up();\n    // expect(await db.count('users')).toBe(realisticFixture.users.length);\n    expect(true).toBe(true);\n  });\n\n  it('reverses cleanly', async () => {\n    // Down-migrations are rarely run, which is exactly when they fail.\n    // await migrate.down();\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'compatibility':
       return [{
         path: `tests/compatibility.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// During any rolling deploy both versions run at once. Forward compatibility —\n// old code reading new data — is the half everyone forgets.\nconst readV1 = (doc) => ({ name: doc.name });\nconst writeV2 = () => ({ name: 'a', nickname: 'b' });\n\ndescribe('compatibility in both directions', () => {\n  it('old code reads new data without failing (forward)', () => {\n    expect(readV1(writeV2())).toEqual({ name: 'a' });\n  });\n\n  it('new code reads old data (backward)', () => {\n    expect(() => readV1({ name: 'a' })).not.toThrow();\n  });\n\n  it('preserves fields it does not understand', () => {\n    // Dropping unknown fields on write is how a rolling deploy loses data.\n    const incoming = { name: 'a', addedByNewerVersion: 42 };\n    const roundTripped = { ...incoming, ...readV1(incoming) };\n    expect(roundTripped.addedByNewerVersion).toBe(42);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// During any rolling deploy both versions run at once. Forward compatibility —\n// old code reading new data — is the half everyone forgets.\nconst readV1 = (doc) => ({ name: doc.name });\nconst writeV2 = () => ({ name: 'a', nickname: 'b' });\n\ndescribe('compatibility in both directions', () => {\n  it('old code reads new data without failing (forward)', () => {\n    expect(readV1(writeV2())).toEqual({ name: 'a' });\n  });\n\n  it('new code reads old data (backward)', () => {\n    expect(() => readV1({ name: 'a' })).not.toThrow();\n  });\n\n  it('preserves fields it does not understand', () => {\n    // Dropping unknown fields on write is how a rolling deploy loses data.\n    const incoming = { name: 'a', addedByNewerVersion: 42 };\n    const roundTripped = { ...incoming, ...readV1(incoming) };\n    expect(roundTripped.addedByNewerVersion).toBe(42);\n  });\n});\n`,
       }];
     case 'state-drift':
       return [{
         path: `tests/state-drift.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The document on disk was written by a build that no longer exists, and the\n// reader assumes a shape nobody re-checked.\n//\n// The load-bearing distinction is invalid (corrupt or foreign — safe to\n// replace) versus refused (written by a *newer* build — never safe to replace).\n// Collapsing them is how an older build overwrites good data.\nconst CURRENT_VERSION = 2;\n\nfunction interpret(doc) {\n  if (typeof doc?.version !== 'number') { return { kind: 'invalid' }; }\n  if (doc.version > CURRENT_VERSION) { return { kind: 'refused' }; }\n  return { kind: 'usable', doc };\n}\n\ndescribe('state drift', () => {\n  it('upgrades a document from an older version', () => {\n    expect(interpret({ version: 1 }).kind).toBe('usable');\n  });\n\n  it('refuses a document from a newer version rather than overwriting it', () => {\n    expect(interpret({ version: 99 }).kind).toBe('refused');\n  });\n\n  it('treats an unversioned document as invalid, not as version zero', () => {\n    expect(interpret({}).kind).toBe('invalid');\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// The document on disk was written by a build that no longer exists, and the\n// reader assumes a shape nobody re-checked.\n//\n// The load-bearing distinction is invalid (corrupt or foreign — safe to\n// replace) versus refused (written by a *newer* build — never safe to replace).\n// Collapsing them is how an older build overwrites good data.\nconst CURRENT_VERSION = 2;\n\nfunction interpret(doc) {\n  if (typeof doc?.version !== 'number') { return { kind: 'invalid' }; }\n  if (doc.version > CURRENT_VERSION) { return { kind: 'refused' }; }\n  return { kind: 'usable', doc };\n}\n\ndescribe('state drift', () => {\n  it('upgrades a document from an older version', () => {\n    expect(interpret({ version: 1 }).kind).toBe('usable');\n  });\n\n  it('refuses a document from a newer version rather than overwriting it', () => {\n    expect(interpret({ version: 99 }).kind).toBe('refused');\n  });\n\n  it('treats an unversioned document as invalid, not as version zero', () => {\n    expect(interpret({}).kind).toBe('invalid');\n  });\n});\n`,
       }];
     case 'data-quality':
       return [{
         path: `tests/data-quality.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Code tests pass on an empty table; a data-quality test does not.\nconst rows = [\n  { id: 1, email: 'a@example.com', amount: 10 },\n  { id: 2, email: 'b@example.com', amount: 20 },\n];\n\ndescribe('data quality', () => {\n  it('has no missing required values', () => {\n    expect(rows.every(r => r.id != null && r.email != null)).toBe(true);\n  });\n\n  it('has unique keys', () => {\n    expect(new Set(rows.map(r => r.id)).size).toBe(rows.length);\n  });\n\n  it('keeps amounts within a plausible range', () => {\n    expect(rows.every(r => r.amount >= 0 && r.amount < 1_000_000)).toBe(true);\n  });\n\n  it('is not empty — the check that catches a silently failed load', () => {\n    expect(rows.length).toBeGreaterThan(0);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Code tests pass on an empty table; a data-quality test does not.\nconst rows = [\n  { id: 1, email: 'a@example.com', amount: 10 },\n  { id: 2, email: 'b@example.com', amount: 20 },\n];\n\ndescribe('data quality', () => {\n  it('has no missing required values', () => {\n    expect(rows.every(r => r.id != null && r.email != null)).toBe(true);\n  });\n\n  it('has unique keys', () => {\n    expect(new Set(rows.map(r => r.id)).size).toBe(rows.length);\n  });\n\n  it('keeps amounts within a plausible range', () => {\n    expect(rows.every(r => r.amount >= 0 && r.amount < 1_000_000)).toBe(true);\n  });\n\n  it('is not empty — the check that catches a silently failed load', () => {\n    expect(rows.length).toBeGreaterThan(0);\n  });\n});\n`,
       }];
     default:
       return nodeRecipeAi(id, stack);
@@ -635,12 +741,12 @@ function nodeRecipeAi(id: TestingMethodologyId, stack: DetectedStack): ScaffoldF
     case 'prompt-regression':
       return [{
         path: `evals/prompt-regression.eval.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Prompts are edited like prose and deployed like code, with no equivalent of a\n// failing build. A reword that fixes one case and breaks nine is invisible\n// without a replay set.\n//\n// Assert on properties, not exact wording — exact-match assertions on model\n// output flake, and a flaky suite gets re-run until green, which disables it.\nconst CASES = [\n  { input: 'Reset my password', expectLabel: 'account' },\n  { input: 'I was charged twice', expectLabel: 'billing' },\n];\n\ndescribe('prompt regression', () => {\n  for (const testCase of CASES) {\n    it(\`classifies: \${testCase.input}\`, async () => {\n      expect(await classify(testCase.input)).toBe(testCase.expectLabel);\n    });\n  }\n});\n\n// Replace with the real call. Record fixtures so this suite can run without\n// spending tokens on every commit.\nasync function classify(_input) {\n  return 'account';\n}\n`,
+        content: `${testHeaderLine(stack)}\n\n// Prompts are edited like prose and deployed like code, with no equivalent of a\n// failing build. A reword that fixes one case and breaks nine is invisible\n// without a replay set.\n//\n// Assert on properties, not exact wording — exact-match assertions on model\n// output flake, and a flaky suite gets re-run until green, which disables it.\nconst CASES = [\n  { input: 'Reset my password', expectLabel: 'account' },\n  { input: 'I was charged twice', expectLabel: 'billing' },\n];\n\ndescribe('prompt regression', () => {\n  for (const testCase of CASES) {\n    it(\`classifies: \${testCase.input}\`, async () => {\n      expect(await classify(testCase.input)).toBe(testCase.expectLabel);\n    });\n  }\n});\n\n// Replace with the real call. Record fixtures so this suite can run without\n// spending tokens on every commit.\nasync function classify(_input) {\n  return 'account';\n}\n`,
       }];
     case 'model-routing':
       return [{
         path: `tests/model-routing.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// A router silently sending every request to the most expensive model still\n// returns correct answers. The bug only shows up on the invoice, weeks later.\n//\n// Routing is a decision function, so this runs against stubs and costs nothing.\nconst route = (task) => {\n  if (task.budget === 'low') { return 'small'; }\n  if (task.complexity > 7) { return 'large'; }\n  return 'medium';\n};\n\ndescribe('model routing', () => {\n  const cases = [\n    { task: { budget: 'low', complexity: 9 }, expected: 'small' },\n    { task: { budget: 'normal', complexity: 9 }, expected: 'large' },\n    { task: { budget: 'normal', complexity: 2 }, expected: 'medium' },\n  ];\n\n  for (const { task, expected } of cases) {\n    it(\`routes \${JSON.stringify(task)} to \${expected}\`, () => {\n      expect(route(task)).toBe(expected);\n    });\n  }\n\n  it('honours the budget ceiling even when complexity argues otherwise', () => {\n    expect(route({ budget: 'low', complexity: 10 })).toBe('small');\n  });\n\n  it('falls back when the preferred provider is unavailable', () => {\n    // Inject a provider error and assert the next choice, not a thrown error.\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// A router silently sending every request to the most expensive model still\n// returns correct answers. The bug only shows up on the invoice, weeks later.\n//\n// Routing is a decision function, so this runs against stubs and costs nothing.\nconst route = (task) => {\n  if (task.budget === 'low') { return 'small'; }\n  if (task.complexity > 7) { return 'large'; }\n  return 'medium';\n};\n\ndescribe('model routing', () => {\n  const cases = [\n    { task: { budget: 'low', complexity: 9 }, expected: 'small' },\n    { task: { budget: 'normal', complexity: 9 }, expected: 'large' },\n    { task: { budget: 'normal', complexity: 2 }, expected: 'medium' },\n  ];\n\n  for (const { task, expected } of cases) {\n    it(\`routes \${JSON.stringify(task)} to \${expected}\`, () => {\n      expect(route(task)).toBe(expected);\n    });\n  }\n\n  it('honours the budget ceiling even when complexity argues otherwise', () => {\n    expect(route({ budget: 'low', complexity: 10 })).toBe('small');\n  });\n\n  it('falls back when the preferred provider is unavailable', () => {\n    // Inject a provider error and assert the next choice, not a thrown error.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'guardrail':
       // The adversarial corpus lives in its own data file rather than inline.
@@ -654,23 +760,23 @@ function nodeRecipeAi(id: TestingMethodologyId, stack: DetectedStack): ScaffoldF
         },
         {
           path: `tests/guardrail.test.${ext}`,
-          content: `import { describe, it, expect } from 'vitest';\nimport { readFileSync } from 'node:fs';\n\n// A guardrail is written once, believed permanently, and bypassed by the first\n// attempt nobody tried. A policy without a test is a comment.\nconst corpus = JSON.parse(readFileSync('tests/fixtures/adversarial-prompts.json', 'utf8'));\n\ndescribe('guardrail enforcement', () => {\n  for (const testCase of corpus.cases) {\n    it(\`refuses \${testCase.category}: \${testCase.id}\`, async () => {\n      expect((await respond(testCase.input)).refused).toBe(true);\n    });\n  }\n\n  // The other half, and the one that gets skipped: an over-refusing model\n  // passes every safety assertion above and fails the product.\n  for (const testCase of corpus.benign) {\n    it(\`still answers: \${testCase.id}\`, async () => {\n      expect((await respond(testCase.input)).refused).toBe(false);\n    });\n  }\n});\n\n// Replace with the real guarded entry point.\nasync function respond(_input) {\n  return { refused: true };\n}\n`,
+          content: `${testHeaderLine(stack)}\nimport { readFileSync } from 'node:fs';\n\n// A guardrail is written once, believed permanently, and bypassed by the first\n// attempt nobody tried. A policy without a test is a comment.\nconst corpus = JSON.parse(readFileSync('tests/fixtures/adversarial-prompts.json', 'utf8'));\n\ndescribe('guardrail enforcement', () => {\n  for (const testCase of corpus.cases) {\n    it(\`refuses \${testCase.category}: \${testCase.id}\`, async () => {\n      expect((await respond(testCase.input)).refused).toBe(true);\n    });\n  }\n\n  // The other half, and the one that gets skipped: an over-refusing model\n  // passes every safety assertion above and fails the product.\n  for (const testCase of corpus.benign) {\n    it(\`still answers: \${testCase.id}\`, async () => {\n      expect((await respond(testCase.input)).refused).toBe(false);\n    });\n  }\n});\n\n// Replace with the real guarded entry point.\nasync function respond(_input) {\n  return { refused: true };\n}\n`,
         },
       ];
     case 'agent-collaboration':
       return [{
         path: `tests/agent-collaboration.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The failure mode is authority accumulating across a hand-off — a restricted\n// agent obtaining a capability by asking a permissive one. Every individual\n// agent test passes while this is broken.\nconst MAX_DEPTH = 3;\n\nfunction handoff(caller, target, chain = []) {\n  if (chain.includes(target.id)) { throw new Error('cycle refused: ' + [...chain, target.id].join(' -> ')); }\n  if (chain.length >= MAX_DEPTH) { throw new Error('depth refused'); }\n  // The intersection, never the union. A union would make every restriction in\n  // the system a suggestion.\n  const skills = target.skills.filter(s => caller.skills.includes(s));\n  if (skills.length === 0) { throw new Error('refused: empty capability intersection'); }\n  return { ...target, skills, chain: [...chain, target.id] };\n}\n\ndescribe('agent hand-off', () => {\n  it('grants the intersection, not the union', () => {\n    const caller = { id: 'a', skills: ['read'] };\n    const target = { id: 'b', skills: ['read', 'write'] };\n    expect(handoff(caller, target).skills).toEqual(['read']);\n  });\n\n  it('refuses rather than running a delegate with no capabilities', () => {\n    expect(() => handoff({ id: 'a', skills: ['read'] }, { id: 'b', skills: ['write'] })).toThrow(/intersection/);\n  });\n\n  it('refuses a cycle and names the chain', () => {\n    expect(() => handoff({ id: 'a', skills: ['read'] }, { id: 'a', skills: ['read'] }, ['a'])).toThrow(/cycle refused/);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// The failure mode is authority accumulating across a hand-off — a restricted\n// agent obtaining a capability by asking a permissive one. Every individual\n// agent test passes while this is broken.\nconst MAX_DEPTH = 3;\n\nfunction handoff(caller, target, chain = []) {\n  if (chain.includes(target.id)) { throw new Error('cycle refused: ' + [...chain, target.id].join(' -> ')); }\n  if (chain.length >= MAX_DEPTH) { throw new Error('depth refused'); }\n  // The intersection, never the union. A union would make every restriction in\n  // the system a suggestion.\n  const skills = target.skills.filter(s => caller.skills.includes(s));\n  if (skills.length === 0) { throw new Error('refused: empty capability intersection'); }\n  return { ...target, skills, chain: [...chain, target.id] };\n}\n\ndescribe('agent hand-off', () => {\n  it('grants the intersection, not the union', () => {\n    const caller = { id: 'a', skills: ['read'] };\n    const target = { id: 'b', skills: ['read', 'write'] };\n    expect(handoff(caller, target).skills).toEqual(['read']);\n  });\n\n  it('refuses rather than running a delegate with no capabilities', () => {\n    expect(() => handoff({ id: 'a', skills: ['read'] }, { id: 'b', skills: ['write'] })).toThrow(/intersection/);\n  });\n\n  it('refuses a cycle and names the chain', () => {\n    expect(() => handoff({ id: 'a', skills: ['read'] }, { id: 'a', skills: ['read'] }, ['a'])).toThrow(/cycle refused/);\n  });\n});\n`,
       }];
     case 'determinism-boundary':
       return [{
         path: `tests/determinism-boundary.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Without a declared boundary, a flaky test is indistinguishable from a real\n// regression — and teams respond by re-running until green, which disables the\n// suite in effect while it still reports passing.\n//\n// Deterministic side: assert exactly. Stochastic side: assert properties.\nconst seeded = (seed) => {\n  let state = seed;\n  return () => (state = (state * 1664525 + 1013904223) >>> 0);\n};\n\ndescribe('determinism boundary', () => {\n  it('the deterministic stage reproduces exactly from a fixed seed', () => {\n    const a = seeded(42); const b = seeded(42);\n    expect([a(), a(), a()]).toEqual([b(), b(), b()]);\n  });\n\n  it('the stochastic stage is asserted on properties, never exact output', async () => {\n    const answer = await generate('summarise this');\n    expect(answer.length).toBeGreaterThan(0);\n    expect(answer).not.toMatch(/undefined/);\n  });\n});\n\nasync function generate(_prompt) {\n  return 'a summary';\n}\n`,
+        content: `${testHeaderLine(stack)}\n\n// Without a declared boundary, a flaky test is indistinguishable from a real\n// regression — and teams respond by re-running until green, which disables the\n// suite in effect while it still reports passing.\n//\n// Deterministic side: assert exactly. Stochastic side: assert properties.\nconst seeded = (seed) => {\n  let state = seed;\n  return () => (state = (state * 1664525 + 1013904223) >>> 0);\n};\n\ndescribe('determinism boundary', () => {\n  it('the deterministic stage reproduces exactly from a fixed seed', () => {\n    const a = seeded(42); const b = seeded(42);\n    expect([a(), a(), a()]).toEqual([b(), b(), b()]);\n  });\n\n  it('the stochastic stage is asserted on properties, never exact output', async () => {\n    const answer = await generate('summarise this');\n    expect(answer.length).toBeGreaterThan(0);\n    expect(answer).not.toMatch(/undefined/);\n  });\n});\n\nasync function generate(_prompt) {\n  return 'a summary';\n}\n`,
       }];
     case 'hallucination-detection':
       return [{
         path: `evals/hallucination.groundedness.eval.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// A fluent, specific, entirely invented answer is indistinguishable from a\n// correct one to every assertion except one that checks it against the source.\n//\n// The grader is itself a model and can be wrong in the same direction as the\n// thing it grades — keep a human-labelled seed set to know whether to trust it.\nconst CASES = [\n  {\n    sources: ['The office is open Monday to Friday, 9am to 5pm.'],\n    question: 'When is the office open?',\n  },\n];\n\ndescribe('groundedness', () => {\n  for (const { sources, question } of CASES) {\n    it(\`answers "\${question}" only from the sources\`, async () => {\n      const answer = await answerFrom(sources, question);\n      expect((await gradeGroundedness(answer, sources)).unsupportedClaims).toEqual([]);\n    });\n  }\n\n  it('says it does not know rather than inventing', async () => {\n    const answer = await answerFrom(['The office is open weekdays.'], 'What is the phone number?');\n    expect(answer).toMatch(/not|unknown|does not say/i);\n  });\n});\n\nasync function answerFrom(_sources, _question) { return 'The office is open weekdays, 9am to 5pm.'; }\nasync function gradeGroundedness(_answer, _sources) { return { unsupportedClaims: [] }; }\n`,
+        content: `${testHeaderLine(stack)}\n\n// A fluent, specific, entirely invented answer is indistinguishable from a\n// correct one to every assertion except one that checks it against the source.\n//\n// The grader is itself a model and can be wrong in the same direction as the\n// thing it grades — keep a human-labelled seed set to know whether to trust it.\nconst CASES = [\n  {\n    sources: ['The office is open Monday to Friday, 9am to 5pm.'],\n    question: 'When is the office open?',\n  },\n];\n\ndescribe('groundedness', () => {\n  for (const { sources, question } of CASES) {\n    it(\`answers "\${question}" only from the sources\`, async () => {\n      const answer = await answerFrom(sources, question);\n      expect((await gradeGroundedness(answer, sources)).unsupportedClaims).toEqual([]);\n    });\n  }\n\n  it('says it does not know rather than inventing', async () => {\n    const answer = await answerFrom(['The office is open weekdays.'], 'What is the phone number?');\n    expect(answer).toMatch(/not|unknown|does not say/i);\n  });\n});\n\nasync function answerFrom(_sources, _question) { return 'The office is open weekdays, 9am to 5pm.'; }\nasync function gradeGroundedness(_answer, _sources) { return { unsupportedClaims: [] }; }\n`,
       }];
     default:
       return nodeRecipeCompliance(id, stack);
@@ -692,62 +798,62 @@ function nodeRecipeCompliance(id: TestingMethodologyId, stack: DetectedStack): S
     case 'rbac-compliance':
       return [{
         path: `tests/rbac.authorization.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Positive permission tests ("an admin can delete") are always written.\n// Negative ones ("a viewer cannot, by any route") rarely are — and privilege\n// escalation lives entirely in the untested half. This generates both.\nconst ACTIONS = ['read', 'write', 'delete', 'manageUsers'];\n\nconst ALLOWED = {\n  viewer: ['read'],\n  editor: ['read', 'write'],\n  admin: ['read', 'write', 'delete', 'manageUsers'],\n};\n\n// Replace with the real authorization check.\nconst can = (role, action) => ALLOWED[role].includes(action);\n\ndescribe('role matrix — both halves', () => {\n  for (const [role, permitted] of Object.entries(ALLOWED)) {\n    for (const action of ACTIONS) {\n      const shouldAllow = permitted.includes(action);\n      it(\`\${role} \${shouldAllow ? 'can' : 'CANNOT'} \${action}\`, () => {\n        expect(can(role, action)).toBe(shouldAllow);\n      });\n    }\n  }\n});\n\ndescribe('tenant isolation', () => {\n  it('never returns records belonging to another tenant', () => {\n    // Testing the policy layer proves nothing if a route bypasses it — assert\n    // at the data-access boundary, not only in the permission check.\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Positive permission tests ("an admin can delete") are always written.\n// Negative ones ("a viewer cannot, by any route") rarely are — and privilege\n// escalation lives entirely in the untested half. This generates both.\nconst ACTIONS = ['read', 'write', 'delete', 'manageUsers'];\n\nconst ALLOWED = {\n  viewer: ['read'],\n  editor: ['read', 'write'],\n  admin: ['read', 'write', 'delete', 'manageUsers'],\n};\n\n// Replace with the real authorization check.\nconst can = (role, action) => ALLOWED[role].includes(action);\n\ndescribe('role matrix — both halves', () => {\n  for (const [role, permitted] of Object.entries(ALLOWED)) {\n    for (const action of ACTIONS) {\n      const shouldAllow = permitted.includes(action);\n      it(\`\${role} \${shouldAllow ? 'can' : 'CANNOT'} \${action}\`, () => {\n        expect(can(role, action)).toBe(shouldAllow);\n      });\n    }\n  }\n});\n\ndescribe('tenant isolation', () => {\n  it('never returns records belonging to another tenant', () => {\n    // Testing the policy layer proves nothing if a route bypasses it — assert\n    // at the data-access boundary, not only in the permission check.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'audit-trail':
       return [{
         path: `tests/audit-trail.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Asserting the log works is easy. Asserting that *every* privileged path\n// writes to it requires enumerating those paths and keeping the list current —\n// which is the actual work, and what fails silently when it lapses.\nconst CONSEQUENTIAL_ACTIONS = ['user.delete', 'role.grant', 'export.create', 'settings.update'];\n\nconst recorded = [];\nconst perform = (action, actor) => {\n  recorded.push({ action, actor, at: new Date().toISOString() });\n};\n\ndescribe('audit trail completeness', () => {\n  for (const action of CONSEQUENTIAL_ACTIONS) {\n    it(\`records \${action} with an attributable actor\`, () => {\n      recorded.length = 0;\n      perform(action, 'user_42');\n      expect(recorded).toHaveLength(1);\n      expect(recorded[0].actor).toBe('user_42');\n      expect(recorded[0].at).toBeTruthy();\n    });\n  }\n\n  it('does not record request payloads', () => {\n    // An audit log holding payloads becomes a privacy liability of its own.\n    recorded.length = 0;\n    perform('user.delete', 'user_42');\n    expect(JSON.stringify(recorded)).not.toMatch(/credential|secret/i);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Asserting the log works is easy. Asserting that *every* privileged path\n// writes to it requires enumerating those paths and keeping the list current —\n// which is the actual work, and what fails silently when it lapses.\nconst CONSEQUENTIAL_ACTIONS = ['user.delete', 'role.grant', 'export.create', 'settings.update'];\n\nconst recorded = [];\nconst perform = (action, actor) => {\n  recorded.push({ action, actor, at: new Date().toISOString() });\n};\n\ndescribe('audit trail completeness', () => {\n  for (const action of CONSEQUENTIAL_ACTIONS) {\n    it(\`records \${action} with an attributable actor\`, () => {\n      recorded.length = 0;\n      perform(action, 'user_42');\n      expect(recorded).toHaveLength(1);\n      expect(recorded[0].actor).toBe('user_42');\n      expect(recorded[0].at).toBeTruthy();\n    });\n  }\n\n  it('does not record request payloads', () => {\n    // An audit log holding payloads becomes a privacy liability of its own.\n    recorded.length = 0;\n    perform('user.delete', 'user_42');\n    expect(JSON.stringify(recorded)).not.toMatch(/credential|secret/i);\n  });\n});\n`,
       }];
     case 'data-retention':
       return [{
         path: `tests/data-retention.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Retention has two failure directions and most teams test neither: data\n// surviving past its window, and data destroyed before a hold is released.\n//\n// A clock seam is required — without one the test cannot reach the window.\nconst DAY = 86_400_000;\nconst RETENTION_DAYS = 30;\n\nconst shouldDelete = (record, now) =>\n  !record.legalHold && now - record.createdAt > RETENTION_DAYS * DAY;\n\ndescribe('retention', () => {\n  const now = Date.UTC(2026, 0, 31);\n\n  it('deletes a record past its window', () => {\n    expect(shouldDelete({ createdAt: now - 40 * DAY }, now)).toBe(true);\n  });\n\n  it('keeps a record inside its window', () => {\n    expect(shouldDelete({ createdAt: now - 10 * DAY }, now)).toBe(false);\n  });\n\n  it('keeps a record under legal hold however old', () => {\n    expect(shouldDelete({ createdAt: now - 900 * DAY, legalHold: true }, now)).toBe(false);\n  });\n\n  it('cascades to caches and indexes, not just the primary store', () => {\n    // A retention test stopping at the primary store misses the copies that\n    // actually persist.\n    expect(true).toBe(true);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Retention has two failure directions and most teams test neither: data\n// surviving past its window, and data destroyed before a hold is released.\n//\n// A clock seam is required — without one the test cannot reach the window.\nconst DAY = 86_400_000;\nconst RETENTION_DAYS = 30;\n\nconst shouldDelete = (record, now) =>\n  !record.legalHold && now - record.createdAt > RETENTION_DAYS * DAY;\n\ndescribe('retention', () => {\n  const now = Date.UTC(2026, 0, 31);\n\n  it('deletes a record past its window', () => {\n    expect(shouldDelete({ createdAt: now - 40 * DAY }, now)).toBe(true);\n  });\n\n  it('keeps a record inside its window', () => {\n    expect(shouldDelete({ createdAt: now - 10 * DAY }, now)).toBe(false);\n  });\n\n  it('keeps a record under legal hold however old', () => {\n    expect(shouldDelete({ createdAt: now - 900 * DAY, legalHold: true }, now)).toBe(false);\n  });\n\n  it('cascades to caches and indexes, not just the primary store', () => {\n    // A retention test stopping at the primary store misses the copies that\n    // actually persist.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'gdpr':
       return [{
         path: `tests/gdpr.subject-rights.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Erasure is the hard one: caches, search indexes, analytics, backups and logs\n// each hold copies the primary-store test never sees. A passing deletion test\n// that only checks the main database gives false assurance, which is worse\n// than none.\nconst STORES = ['primary', 'cache', 'searchIndex', 'analytics', 'auditLog'];\n\nconst holdings = new Map(STORES.map(s => [s, new Set(['user_42'])]));\nconst eraseEverywhere = (id) => { for (const store of STORES) { holdings.get(store).delete(id); } };\n\ndescribe('right to erasure', () => {\n  it('removes the subject from every store, not only the primary', () => {\n    eraseEverywhere('user_42');\n    for (const store of STORES) {\n      expect(holdings.get(store).has('user_42'), \`still present in \${store}\`).toBe(false);\n    }\n  });\n});\n\ndescribe('right of access', () => {\n  it('exports every category recorded in the RoPA', () => {\n    const declared = ['orders', 'profile', 'supportMessages'];\n    const exported = Object.keys({ profile: {}, orders: [], supportMessages: [] });\n    expect(exported.sort()).toEqual(declared);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Erasure is the hard one: caches, search indexes, analytics, backups and logs\n// each hold copies the primary-store test never sees. A passing deletion test\n// that only checks the main database gives false assurance, which is worse\n// than none.\nconst STORES = ['primary', 'cache', 'searchIndex', 'analytics', 'auditLog'];\n\nconst holdings = new Map(STORES.map(s => [s, new Set(['user_42'])]));\nconst eraseEverywhere = (id) => { for (const store of STORES) { holdings.get(store).delete(id); } };\n\ndescribe('right to erasure', () => {\n  it('removes the subject from every store, not only the primary', () => {\n    eraseEverywhere('user_42');\n    for (const store of STORES) {\n      expect(holdings.get(store).has('user_42'), \`still present in \${store}\`).toBe(false);\n    }\n  });\n});\n\ndescribe('right of access', () => {\n  it('exports every category recorded in the RoPA', () => {\n    const declared = ['orders', 'profile', 'supportMessages'];\n    const exported = Object.keys({ profile: {}, orders: [], supportMessages: [] });\n    expect(exported.sort()).toEqual(declared);\n  });\n});\n`,
       }];
     case 'pci-dss':
       return [{
         path: `tests/pci.pan-handling.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The single most useful application-layer assertion here: an account number\n// never reaches a log, an error report, or an analytics event.\n//\n// Use a synthetic value from your gateway's published test range — never a\n// real one, and never one committed to this repository.\nconst ACCOUNT_NUMBER_SHAPE = /\\\\b(?:\\\\d[ -]*?){13,19}\\\\b/;\nconst SYNTHETIC = process.env.TEST_ACCOUNT_NUMBER ?? '';\n\nconst captured = [];\nconst log = (message) => captured.push(message);\n\ndescribe('account number handling', () => {\n  it('masks the value when displayed', () => {\n    expect(mask('0000000000009999')).toBe('************9999');\n  });\n\n  it('never writes an unmasked value to a log', () => {\n    captured.length = 0;\n    log(\`charge failed for \${mask(SYNTHETIC || '0000000000009999')}\`);\n    expect(captured.some(line => ACCOUNT_NUMBER_SHAPE.test(line))).toBe(false);\n  });\n\n  it('keeps it out of error messages', () => {\n    const err = new Error(\`declined: \${mask('0000000000009999')}\`);\n    expect(ACCOUNT_NUMBER_SHAPE.test(err.message)).toBe(false);\n  });\n});\n\nfunction mask(value) {\n  return value.slice(-4).padStart(value.length, '*');\n}\n`,
+        content: `${testHeaderLine(stack)}\n\n// The single most useful application-layer assertion here: an account number\n// never reaches a log, an error report, or an analytics event.\n//\n// Use a synthetic value from your gateway's published test range — never a\n// real one, and never one committed to this repository.\nconst ACCOUNT_NUMBER_SHAPE = /\\\\b(?:\\\\d[ -]*?){13,19}\\\\b/;\nconst SYNTHETIC = process.env.TEST_ACCOUNT_NUMBER ?? '';\n\nconst captured = [];\nconst log = (message) => captured.push(message);\n\ndescribe('account number handling', () => {\n  it('masks the value when displayed', () => {\n    expect(mask('0000000000009999')).toBe('************9999');\n  });\n\n  it('never writes an unmasked value to a log', () => {\n    captured.length = 0;\n    log(\`charge failed for \${mask(SYNTHETIC || '0000000000009999')}\`);\n    expect(captured.some(line => ACCOUNT_NUMBER_SHAPE.test(line))).toBe(false);\n  });\n\n  it('keeps it out of error messages', () => {\n    const err = new Error(\`declined: \${mask('0000000000009999')}\`);\n    expect(ACCOUNT_NUMBER_SHAPE.test(err.message)).toBe(false);\n  });\n});\n\nfunction mask(value) {\n  return value.slice(-4).padStart(value.length, '*');\n}\n`,
       }];
     case 'hipaa':
       return [{
         path: `tests/hipaa.safeguards.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The technical safeguards are the most testable part of the Security Rule.\n// The administrative and physical ones are not — record those in the control\n// mapping instead of writing an assertion that cannot fail.\ndescribe('technical safeguards', () => {\n  it('identifies every user uniquely — no shared accounts', () => {\n    const sessions = [{ user: 'u1' }, { user: 'u2' }];\n    expect(sessions.every(s => s.user && s.user !== 'shared')).toBe(true);\n  });\n\n  it('records access to protected records with actor and timestamp', () => {\n    const entry = { actor: 'u1', record: 'record_7', at: new Date().toISOString() };\n    expect(Boolean(entry.actor && entry.record && entry.at)).toBe(true);\n  });\n\n  it('logs the session off automatically after inactivity', () => {\n    const IDLE_LIMIT_MS = 15 * 60_000;\n    const isExpired = (lastSeen, now) => now - lastSeen > IDLE_LIMIT_MS;\n    expect(isExpired(0, IDLE_LIMIT_MS + 1)).toBe(true);\n  });\n\n  it('refuses to transmit protected records without encryption', () => {\n    const permitted = (url) => url.startsWith('https://');\n    expect(permitted('http://example.com/records')).toBe(false);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// The technical safeguards are the most testable part of the Security Rule.\n// The administrative and physical ones are not — record those in the control\n// mapping instead of writing an assertion that cannot fail.\ndescribe('technical safeguards', () => {\n  it('identifies every user uniquely — no shared accounts', () => {\n    const sessions = [{ user: 'u1' }, { user: 'u2' }];\n    expect(sessions.every(s => s.user && s.user !== 'shared')).toBe(true);\n  });\n\n  it('records access to protected records with actor and timestamp', () => {\n    const entry = { actor: 'u1', record: 'record_7', at: new Date().toISOString() };\n    expect(Boolean(entry.actor && entry.record && entry.at)).toBe(true);\n  });\n\n  it('logs the session off automatically after inactivity', () => {\n    const IDLE_LIMIT_MS = 15 * 60_000;\n    const isExpired = (lastSeen, now) => now - lastSeen > IDLE_LIMIT_MS;\n    expect(isExpired(0, IDLE_LIMIT_MS + 1)).toBe(true);\n  });\n\n  it('refuses to transmit protected records without encryption', () => {\n    const permitted = (url) => url.startsWith('https://');\n    expect(permitted('http://example.com/records')).toBe(false);\n  });\n});\n`,
       }];
     case 'change-management':
       return [{
         path: `tests/change-management.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { execFileSync } from 'node:child_process';\n\n// Almost entirely checkable from repository metadata, which makes this the\n// cheapest compliance policy to automate.\nconst git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();\n\ndescribe('change management', () => {\n  it('has a readable history to assert against', () => {\n    expect(git('log', '-1', '--format=%H').length).toBeGreaterThan(0);\n  });\n\n  it('links changes to an issue or ticket', () => {\n    const subjects = git('log', '-10', '--format=%s').split('\\\\n').filter(Boolean);\n    const unlinked = subjects.filter(s => !/#\\\\d+|[A-Z]+-\\\\d+/.test(s));\n    // Tighten to \`toEqual([])\` once the convention is established. Leaving it\n    // loose is deliberate: a check that fails on day one gets deleted.\n    expect(unlinked.length).toBeLessThanOrEqual(subjects.length);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { execFileSync } from 'node:child_process';\n\n// Almost entirely checkable from repository metadata, which makes this the\n// cheapest compliance policy to automate.\nconst git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();\n\ndescribe('change management', () => {\n  it('has a readable history to assert against', () => {\n    expect(git('log', '-1', '--format=%H').length).toBeGreaterThan(0);\n  });\n\n  it('links changes to an issue or ticket', () => {\n    const subjects = git('log', '-10', '--format=%s').split('\\\\n').filter(Boolean);\n    const unlinked = subjects.filter(s => !/#\\\\d+|[A-Z]+-\\\\d+/.test(s));\n    // Tighten to \`toEqual([])\` once the convention is established. Leaving it\n    // loose is deliberate: a check that fails on day one gets deleted.\n    expect(unlinked.length).toBeLessThanOrEqual(subjects.length);\n  });\n});\n`,
       }];
     case 'sbom':
       return [{
         path: `tests/sbom.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { existsSync, readFileSync } from 'node:fs';\n\n// The useful test is not that an SBOM exists but that it *matches the\n// artifact*. A stale SBOM is worse than none, because it is trusted.\n// Generate with: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json\nconst SBOM_PATH = 'sbom.cdx.json';\n\ndescribe('SBOM', () => {\n  it('exists', () => {\n    expect(existsSync(SBOM_PATH)).toBe(true);\n  });\n\n  it('is valid and identifies its format', () => {\n    const bom = JSON.parse(readFileSync(SBOM_PATH, 'utf8'));\n    expect(bom.bomFormat).toBe('CycloneDX');\n    expect(Array.isArray(bom.components)).toBe(true);\n  });\n\n  it('covers every direct dependency', () => {\n    const bom = JSON.parse(readFileSync(SBOM_PATH, 'utf8'));\n    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));\n    const listed = new Set(bom.components.map((c) => c.name));\n    const missing = Object.keys(pkg.dependencies ?? {}).filter((d) => !listed.has(d));\n    expect(missing).toEqual([]);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { existsSync, readFileSync } from 'node:fs';\n\n// The useful test is not that an SBOM exists but that it *matches the\n// artifact*. A stale SBOM is worse than none, because it is trusted.\n// Generate with: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json\nconst SBOM_PATH = 'sbom.cdx.json';\n\ndescribe('SBOM', () => {\n  it('exists', () => {\n    expect(existsSync(SBOM_PATH)).toBe(true);\n  });\n\n  it('is valid and identifies its format', () => {\n    const bom = JSON.parse(readFileSync(SBOM_PATH, 'utf8'));\n    expect(bom.bomFormat).toBe('CycloneDX');\n    expect(Array.isArray(bom.components)).toBe(true);\n  });\n\n  it('covers every direct dependency', () => {\n    const bom = JSON.parse(readFileSync(SBOM_PATH, 'utf8'));\n    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));\n    const listed = new Set(bom.components.map((c) => c.name));\n    const missing = Object.keys(pkg.dependencies ?? {}).filter((d) => !listed.has(d));\n    expect(missing).toEqual([]);\n  });\n});\n`,
       }];
     case 'dependency-licensing':
       return [{
         path: `tests/dependency-licensing.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\nimport { execFileSync } from 'node:child_process';\n\n// A copyleft dependency arriving transitively on a minor version bump is the\n// standard way this becomes a problem, and it is entirely preventable here.\n//\n// An unknown licence needs triage, not a blanket block — an allowlist that\n// fails the build on anything unrecognised gets widened under deadline pressure.\nconst ALLOWED = ['MIT', 'ISC', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', '0BSD', 'CC0-1.0', 'Unlicense'];\n\ndescribe('dependency licensing', () => {\n  it('uses only permitted licences', () => {\n    // npm install -D license-checker-rseidelsohn\n    const raw = execFileSync('npx', ['license-checker-rseidelsohn', '--json', '--production'], { encoding: 'utf8' });\n    const offenders = Object.entries(JSON.parse(raw))\n      .filter(([, meta]) => {\n        const licenses = [meta.licenses].flat().join(' OR ');\n        return !ALLOWED.some(allowed => licenses.includes(allowed));\n      })\n      .map(([name, meta]) => \`\${name}: \${meta.licenses}\`);\n    expect(offenders).toEqual([]);\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\nimport { execFileSync } from 'node:child_process';\n\n// A copyleft dependency arriving transitively on a minor version bump is the\n// standard way this becomes a problem, and it is entirely preventable here.\n//\n// An unknown licence needs triage, not a blanket block — an allowlist that\n// fails the build on anything unrecognised gets widened under deadline pressure.\nconst ALLOWED = ['MIT', 'ISC', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', '0BSD', 'CC0-1.0', 'Unlicense'];\n\ndescribe('dependency licensing', () => {\n  it('uses only permitted licences', () => {\n    // npm install -D license-checker-rseidelsohn\n    const raw = execFileSync('npx', ['license-checker-rseidelsohn', '--json', '--production'], { encoding: 'utf8' });\n    const offenders = Object.entries(JSON.parse(raw))\n      .filter(([, meta]) => {\n        const licenses = [meta.licenses].flat().join(' OR ');\n        return !ALLOWED.some(allowed => licenses.includes(allowed));\n      })\n      .map(([name, meta]) => \`\${name}: \${meta.licenses}\`);\n    expect(offenders).toEqual([]);\n  });\n});\n`,
       }];
     case 'bias-fairness':
       return [{
         path: `tests/bias-fairness.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// Disparity is invisible in aggregate accuracy, which is the metric everyone\n// reports. Break results down by group.\n//\n// Fairness definitions are mathematically incompatible — satisfying\n// demographic parity and equalised odds at once is generally impossible. The\n// rule chosen below is a stated value judgement, not a technical default.\nconst SELECTION_RATE_FLOOR = 0.8; // the four-fifths rule\n\nconst outcomes = [\n  { group: 'A', selected: 80, total: 100 },\n  { group: 'B', selected: 70, total: 100 },\n];\n\ndescribe('fairness across groups', () => {\n  it('meets the four-fifths rule on selection rate', () => {\n    const rates = outcomes.map(o => o.selected / o.total);\n    expect(Math.min(...rates) / Math.max(...rates)).toBeGreaterThanOrEqual(SELECTION_RATE_FLOOR);\n  });\n\n  it('gives the same answer when only the protected attribute changes', () => {\n    // Counterfactual: identical applicant, different group.\n    const decide = (applicant) => applicant.income > 30_000;\n    expect(decide({ income: 40_000, group: 'A' })).toBe(decide({ income: 40_000, group: 'B' }));\n  });\n});\n`,
+        content: `${testHeaderLine(stack)}\n\n// Disparity is invisible in aggregate accuracy, which is the metric everyone\n// reports. Break results down by group.\n//\n// Fairness definitions are mathematically incompatible — satisfying\n// demographic parity and equalised odds at once is generally impossible. The\n// rule chosen below is a stated value judgement, not a technical default.\nconst SELECTION_RATE_FLOOR = 0.8; // the four-fifths rule\n\nconst outcomes = [\n  { group: 'A', selected: 80, total: 100 },\n  { group: 'B', selected: 70, total: 100 },\n];\n\ndescribe('fairness across groups', () => {\n  it('meets the four-fifths rule on selection rate', () => {\n    const rates = outcomes.map(o => o.selected / o.total);\n    expect(Math.min(...rates) / Math.max(...rates)).toBeGreaterThanOrEqual(SELECTION_RATE_FLOOR);\n  });\n\n  it('gives the same answer when only the protected attribute changes', () => {\n    // Counterfactual: identical applicant, different group.\n    const decide = (applicant) => applicant.income > 30_000;\n    expect(decide({ income: 40_000, group: 'A' })).toBe(decide({ income: 40_000, group: 'B' }));\n  });\n});\n`,
       }];
     case 'model-output-risk':
       return [{
         path: `tests/model-output-risk.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// A classifier that is never tested tends toward one class, which silently\n// removes the review step it exists to trigger.\n//\n// Measure recall on the rare high-risk class. Overall accuracy is misleading\n// precisely where it matters: a classifier calling everything 'low' scores 95%\n// on a corpus that is 95% low-risk, and catches nothing.\nconst LABELLED = [\n  { input: 'routine question', expected: 'low' },\n  { input: 'needs a human', expected: 'high' },\n];\n\ndescribe('output risk classification', () => {\n  it('recalls the high-risk class', () => {\n    const high = LABELLED.filter(c => c.expected === 'high');\n    const caught = high.filter(c => classify(c.input) === 'high');\n    expect(caught.length / high.length).toBeGreaterThanOrEqual(0.9);\n  });\n\n  it('routes a high-risk output to human review', () => {\n    expect(handlingFor('high')).toBe('human-review');\n  });\n\n  it('does not collapse to a single class', () => {\n    expect(new Set(LABELLED.map(c => classify(c.input))).size).toBeGreaterThan(1);\n  });\n});\n\nfunction classify(input) { return /human/.test(input) ? 'high' : 'low'; }\nfunction handlingFor(risk) { return risk === 'high' ? 'human-review' : 'auto'; }\n`,
+        content: `${testHeaderLine(stack)}\n\n// A classifier that is never tested tends toward one class, which silently\n// removes the review step it exists to trigger.\n//\n// Measure recall on the rare high-risk class. Overall accuracy is misleading\n// precisely where it matters: a classifier calling everything 'low' scores 95%\n// on a corpus that is 95% low-risk, and catches nothing.\nconst LABELLED = [\n  { input: 'routine question', expected: 'low' },\n  { input: 'needs a human', expected: 'high' },\n];\n\ndescribe('output risk classification', () => {\n  it('recalls the high-risk class', () => {\n    const high = LABELLED.filter(c => c.expected === 'high');\n    const caught = high.filter(c => classify(c.input) === 'high');\n    expect(caught.length / high.length).toBeGreaterThanOrEqual(0.9);\n  });\n\n  it('routes a high-risk output to human review', () => {\n    expect(handlingFor('high')).toBe('human-review');\n  });\n\n  it('does not collapse to a single class', () => {\n    expect(new Set(LABELLED.map(c => classify(c.input))).size).toBeGreaterThan(1);\n  });\n});\n\nfunction classify(input) { return /human/.test(input) ? 'high' : 'low'; }\nfunction handlingFor(risk) { return risk === 'high' ? 'human-review' : 'auto'; }\n`,
       }];
     case 'ai-data-policy':
       return [{
         path: `tests/ai-data-policy.test.${ext}`,
-        content: `import { describe, it, expect } from 'vitest';\n\n// The boundary is only as good as its worst path — one un-redacted logging\n// call or one retrieval query missing a tenant filter defeats the policy\n// everywhere else it is applied. Coverage matters more than depth here.\nconst SENSITIVE_KEYS = /(api[_-]?key|password|authorization|private[_-]?key)/i;\n\nconst redact = (payload) => JSON.parse(JSON.stringify(payload, (key, value) =>\n  SENSITIVE_KEYS.test(key) ? '[redacted]' : value));\n\ndescribe('what reaches the model', () => {\n  it('carries no credential-shaped field', () => {\n    const outgoing = redact({ prompt: 'hello', config: { apiKey: 'value-from-storage' } });\n    expect(JSON.stringify(outgoing)).not.toContain('value-from-storage');\n  });\n\n  it('filters retrieval by tenant on every query path', () => {\n    const retrieve = (query, tenantId) => DOCS.filter(d => d.tenantId === tenantId && d.text.includes(query));\n    expect(retrieve('report', 't1').every(d => d.tenantId === 't1')).toBe(true);\n  });\n\n  it('honours the retention window on stored memory', () => {\n    const WINDOW_DAYS = 90;\n    const expired = (ageDays) => ageDays > WINDOW_DAYS;\n    expect(expired(120)).toBe(true);\n  });\n});\n\nconst DOCS = [\n  { tenantId: 't1', text: 'quarterly report' },\n  { tenantId: 't2', text: 'quarterly report' },\n];\n`,
+        content: `${testHeaderLine(stack)}\n\n// The boundary is only as good as its worst path — one un-redacted logging\n// call or one retrieval query missing a tenant filter defeats the policy\n// everywhere else it is applied. Coverage matters more than depth here.\nconst SENSITIVE_KEYS = /(api[_-]?key|password|authorization|private[_-]?key)/i;\n\nconst redact = (payload) => JSON.parse(JSON.stringify(payload, (key, value) =>\n  SENSITIVE_KEYS.test(key) ? '[redacted]' : value));\n\ndescribe('what reaches the model', () => {\n  it('carries no credential-shaped field', () => {\n    const outgoing = redact({ prompt: 'hello', config: { apiKey: 'value-from-storage' } });\n    expect(JSON.stringify(outgoing)).not.toContain('value-from-storage');\n  });\n\n  it('filters retrieval by tenant on every query path', () => {\n    const retrieve = (query, tenantId) => DOCS.filter(d => d.tenantId === tenantId && d.text.includes(query));\n    expect(retrieve('report', 't1').every(d => d.tenantId === 't1')).toBe(true);\n  });\n\n  it('honours the retention window on stored memory', () => {\n    const WINDOW_DAYS = 90;\n    const expired = (ageDays) => ageDays > WINDOW_DAYS;\n    expect(expired(120)).toBe(true);\n  });\n});\n\nconst DOCS = [\n  { tenantId: 't1', text: 'quarterly report' },\n  { tenantId: 't2', text: 'quarterly report' },\n];\n`,
       }];
     default:
       return [];
@@ -1390,9 +1496,11 @@ function installHint(id: TestingMethodologyId, stack: DetectedStack): string | u
         case 'white-box':
         case 'snapshot':
         case 'integration':
-          return stack.recommendedRunner === 'vitest' ? 'npm install -D vitest' : 'npm install -D jest';
+          // The command follows the resolved framework rather than a two-way
+          // guess — and the built-in Node runner correctly needs none.
+          return stack.recommendedRunner ? installCommandFor(stack.recommendedRunner) : undefined;
         case 'e2e':
-          return stack.hasCypress ? 'npm install -D cypress' : 'npm install -D @playwright/test && npx playwright install';
+          return installCommandFor(stack.frameworks.e2e.framework ?? (stack.hasCypress ? 'cypress' : 'playwright'));
         case 'property':
           return 'npm install -D fast-check';
         case 'performance':
@@ -1640,11 +1748,22 @@ export function scaffoldableMethodologies(
   return scaffoldable;
 }
 
+/**
+ * The framework decision for this workspace, without scaffolding anything.
+ *
+ * The caller reads this *before* offering to scaffold: when the plan needs the
+ * user, asking has to happen before a file is written, not after.
+ */
+export function detectScaffoldFrameworks(workspaceRoot: string): TestFrameworkPlan {
+  return detectStack(workspaceRoot).frameworks;
+}
+
 export function planMethodologyScaffold(
   workspaceRoot: string,
   id: TestingMethodologyId,
+  override?: FrameworkOverride,
 ): PlannedScaffold {
-  const stack = detectStack(workspaceRoot);
+  const stack = detectStack(workspaceRoot, override);
   const paths = recipeFiles(id, stack).map(file => file.path);
   const existing = paths.filter(rel => existsSync(path.join(workspaceRoot, rel)));
   return {
@@ -1663,8 +1782,9 @@ export function planMethodologyScaffold(
 export async function scaffoldTestingFramework(
   workspaceRoot: string,
   config: ProjectTestingConfig,
+  override?: FrameworkOverride,
 ): Promise<TestingScaffoldResult> {
-  const stack = detectStack(workspaceRoot);
+  const stack = detectStack(workspaceRoot, override);
   const label = stackLabel(stack);
   const enabled = config.methodologies.filter(m => m.enabled);
 

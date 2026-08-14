@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.309.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.310.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.309.1
+## What's new in 0.310.0
 
 The last Marketplace publication, **v0.308.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
@@ -139,6 +139,17 @@ capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
   its evidence and the rule behind it, and the ones still needing a person are counted separately so
   "4 of 7 verified" is never mistaken for the whole regime. A signal nobody gathered reads *not assessed*,
   never a pass.
+
+- **Scaffold picks the test runner your project actually uses.** It now detects Vitest, Jest, Mocha,
+  the Node built-in runner, Playwright and Cypress from your dependencies, config, scripts and test
+  files — and generates starter tests in that runner's syntax rather than always in Vitest's. What you
+  already use always wins; where the choice is genuinely open it asks rather than guessing; and it will
+  never add a second runner to a project that already has one.
+
+- **Both Testing surfaces list every framework installed**, not just the first one matched — a project
+  with a unit runner and a browser runner has two, and naming one implied the other was missing.
+
+- **A filter above the methodology matrix**, because sixty-nine rows is more than anyone scans.
 
 - **ISO 27001 and SOC 2 ship with a control mapping — including the governance half.** Both regimes were
   declared as engineering checklists (ISO had nine technological controls and one organisational; SOC 2
