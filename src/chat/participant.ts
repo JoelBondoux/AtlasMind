@@ -3497,14 +3497,23 @@ async function handleCostCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
+  // Headed for what it actually counts.
+  //
+  // `costTracker.getSummary()` is a running total for the workspace, not for the
+  // conversation — it survives new chats and reloads, and it was headed "Session
+  // Cost Summary". Measured one turn apart: 501 requests / £81.82 and then 502 /
+  // £81.84, in a chat holding three messages. A number that cannot be reconciled
+  // with what is on screen is worse than no number, because the reader either
+  // distrusts every figure AtlasMind reports or, worse, believes this one.
   const summary = atlas.costTracker.getSummary();
   stream.markdown(
-    `### Session Cost Summary\n\n` +
+    `### Cost so far — this workspace, all sessions\n\n` +
     `| Metric | Value |\n|---|---|\n` +
     `| Total cost | ${formatCostAdaptive(summary.totalCostUsd)} |\n` +
     `| Requests | ${summary.totalRequests} |\n` +
     `| Input tokens | ${summary.totalInputTokens.toLocaleString()} |\n` +
-    `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |`,
+    `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |\n\n` +
+    `_Running totals since tracking began, not this conversation. Each reply's own cost is in its footer._`,
   );
 }
 

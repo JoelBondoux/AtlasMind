@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.321.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.322.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.321.0
+## What's new in 0.322.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A busy GPU no longer ends the turn.** A local runtime refusing for capacity was counted as a failed
+  model, burning the failover budget on refusals from the same card. It is not a failure, and the rest of
+  that runtime's models are now skipped for the turn.
 
 - **The assistant can ask for a tool it wasn't given.** Only a couple of dozen tools fit in a turn, so
   AtlasMind guesses which ones your request needs — and when the guess was wrong the assistant quietly

@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.322.0] - 2026-08-15
+
+### Fixed
+
+- **A busy GPU no longer kills the turn.** The failover budget was charged on every failure path,
+  including a capacity deferral — which is not a failure: nothing is sent, and no model is asked
+  anything. Observed: a 30b refused for GPU capacity, then the 4b, then the 14b, all contending for the
+  **same card**, 45 seconds each, followed by *"All 5 model attempts failed"* when none of them had been
+  attempted at all.
+
+  Two changes. A deferral no longer spends the failover budget — this file already excluded it from
+  `recordModelFailure`, struggle memory and the endpoint circuit for exactly this reason, and the budget
+  was the one consequence left. And a deferring runtime is now added to `blockedEndpointScopes` for the
+  rest of the turn, so its *other* models are skipped: the deferral is about the shared resource, not the
+  model, and a sibling on the same card will refuse identically. It is skipped rather than *failed* —
+  `recordEndpointFailure` is deliberately not called, so nothing is held against the endpoint later.
+  Termination is unaffected: `MAX_TASK_MODEL_ATTEMPTS` still bounds the loop.
+
+- **A reply that reports having answered is treated as not having answered.** Observed verbatim: *"The
+  user's request … has already been fully addressed with direct workspace evidence from the file read
+  operation. No code changes or additional tool calls are needed as the analysis is complete."* Three tool
+  calls ran, a file was read, and the operator was told the analysis was finished without ever being given
+  it.
+
+  `looksLikePreambleOnly` does not catch this and should not — it looks for a *future* announcement ("let
+  me inspect…") never followed through. `looksLikeAnswerlessCompletionClaim` is the mirror image: a
+  past-tense completion claim with nothing delivered. The two fail at opposite ends of the same turn, and
+  both now trigger the completion-integrity re-prompt.
+
+- **`/cost` says what it is counting.** It was headed **"Session Cost Summary"** while reporting a running
+  workspace total that survives new chats and reloads. Measured one turn apart: 501 requests / £81.82,
+  then 502 / £81.84, in a conversation holding three messages. A figure that cannot be reconciled with
+  what is on screen is worse than none, because the reader either distrusts every number AtlasMind reports
+  or believes this one. Now headed *"Cost so far — this workspace, all sessions"*, with a line pointing at
+  the per-reply cost in each footer.
+
 ## [0.321.0] - 2026-08-14
 
 ### Fixed

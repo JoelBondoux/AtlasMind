@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -5647,5 +5647,43 @@ describe('a third-party diagnostic says whose it is', () => {
   it('still keeps the diagnostic out of the answer prose', () => {
     const { content } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`, 'acp/codex');
     expect(content.trim()).toBe('Here is the answer.');
+  });
+});
+
+describe('a reply that reports having answered is not an answer', () => {
+  // Observed verbatim. Three tool calls ran, a file was read, and the operator
+  // was told the analysis was finished without ever being given it.
+  it('catches a past-tense completion claim with nothing delivered', () => {
+    expect(looksLikeAnswerlessCompletionClaim(
+      "The user's request to \"tell me about tests\" referencing rendered-html.test.mjs has already been "
+      + 'fully addressed with direct workspace evidence from the file read operation. No code changes or '
+      + 'additional tool calls are needed as the analysis is complete.',
+    )).toBe(true);
+  });
+
+  it.each([
+    // Delivered something, whatever it says about itself.
+    'The request has already been addressed. Here is the code:\n\n```ts\nconst x = 1;\n```',
+    // A list is a delivery.
+    'The question is answered by these three files:\n- a.ts\n- b.ts\n- c.ts',
+    // About the subject, not about the exchange.
+    'The test renders the page and asserts the cache header is MISS on the first request and HIT on the second.',
+    // Long enough to have said something.
+    `The analysis is complete. ${'It checks the rendered HTML against a stored fixture. '.repeat(12)}`,
+  ])('leaves a real answer alone: %j', response => {
+    expect(looksLikeAnswerlessCompletionClaim(response)).toBe(false);
+  });
+
+  it('is not the same test as looksLikePreambleOnly', () => {
+    // The two fail at opposite ends of a turn: one announces work it never does,
+    // the other reports work it never shows.
+    const preamble = "Let me inspect the test file and check what it asserts.";
+    expect(looksLikePreambleOnly(preamble)).toBe(true);
+    expect(looksLikeAnswerlessCompletionClaim(preamble)).toBe(false);
+  });
+
+  it('says nothing about an empty response', () => {
+    // Emptiness is handled elsewhere; claiming it here would double-report.
+    expect(looksLikeAnswerlessCompletionClaim('')).toBe(false);
   });
 });

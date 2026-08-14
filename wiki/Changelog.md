@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.322.0 — A busy GPU no longer ends the turn
+
+If your local runtime was busy, AtlasMind treated each refusal as a failed model and burned its failover
+budget on them — trying two more models on the same card, which were refused for the same reason, then
+reporting "all 5 model attempts failed" when nothing had been sent anywhere. A refusal for capacity is now
+not a failure, and the rest of that runtime's models are skipped for the turn.
+
+Also: a reply that says your request "has already been fully addressed" without addressing it is now
+caught and re-prompted, and `/cost` no longer calls a running workspace total a session total.
+
 ## v0.321.0 — It no longer invents where a setting lives
 
 Asked where to turn off automatic research scans, AtlasMind confidently named a file that does not exist,

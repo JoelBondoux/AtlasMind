@@ -2090,7 +2090,16 @@ export class Orchestrator {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
           if (capacityDeferral) {
-            onProgress?.('The local GPU budget is committed; trying another provider for this turn.');
+            // Skip this runtime's *other* models for the rest of the turn.
+            //
+            // A deferral is about the shared resource, not the model: nothing was
+            // sent anywhere. Observed in the field — a busy GPU refused a 30b,
+            // then the 4b, then the 14b, all contending for the same card, 45
+            // seconds each, learning nothing three times over. The endpoint is
+            // skipped rather than *failed*: `recordEndpointFailure` is
+            // deliberately not called, so nothing is held against it later.
+            blockedEndpointScopes.add(endpointScope);
+            onProgress?.('The local GPU budget is committed; skipping the other models on this runtime and trying another provider for this turn.');
           }
 
           if (isBillingError(error)) {
@@ -2164,7 +2173,22 @@ export class Orchestrator {
           if (autoDisabledProvider && !autoDisabledProvider.failoverModelUsed) {
             autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
           }
-          failoverAttempts += 1;
+          // A capacity deferral does not spend the failover budget.
+          //
+          // The budget exists to stop a turn walking the whole model list when
+          // models keep failing. A deferral is not a failure: nothing was sent,
+          // no model was asked anything, and this file already excludes it from
+          // `recordModelFailure`, struggle memory and the endpoint circuit for
+          // exactly that reason. Charging it here anyway is what let three
+          // refusals from one busy GPU exhaust a budget of three and end the
+          // turn with "all 5 model attempts failed" — when none of them had.
+          //
+          // Termination is unaffected: `MAX_TASK_MODEL_ATTEMPTS` still bounds the
+          // loop, and the deferring runtime is now skipped for the rest of the
+          // turn, so there is a finite supply of these.
+          if (!capacityDeferral) {
+            failoverAttempts += 1;
+          }
           currentModel = failoverModel;
           (onModelSelected ?? this.onModelSelected)?.(currentModel);
         }
@@ -2989,7 +3013,8 @@ export class Orchestrator {
         if (
           !completionIntegrityRepromptDone
           && completion.content.length > 0
-          && looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
+          && (looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
+            || looksLikeAnswerlessCompletionClaim(completion.content))
         ) {
           completionIntegrityRepromptDone = true;
           onProgress?.('AtlasMind detected an incomplete delivery signal — re-prompting the agent to finish outstanding work or declare explicit blockers.');
@@ -5490,6 +5515,39 @@ function matchesSafeCompletionPattern(response: string, source: string): boolean
  * truncations the integrity reprompt did not recover, and they must not be reported
  * as completed subtasks.
  */
+/**
+ * A reply that reports having answered instead of answering.
+ *
+ * Observed verbatim: *"The user's request … has already been fully addressed
+ * with direct workspace evidence from the file read operation. No code changes
+ * or additional tool calls are needed as the analysis is complete."* Three tool
+ * calls ran, a file was read, and the operator was told the analysis was
+ * finished without ever being given it.
+ *
+ * {@link looksLikePreambleOnly} does not catch this and should not: it looks for
+ * a *future* announcement ("let me inspect…") with no follow-through. This is the
+ * mirror image — a **past-tense completion claim** with nothing delivered — and
+ * the two fail at opposite ends of the same turn.
+ *
+ * Bounded by length and by the absence of a code fence for the same reason as
+ * its sibling: a long reply, or one carrying a diff, has delivered something
+ * whatever it says about itself. What is left is a short paragraph whose entire
+ * subject is the request rather than its answer.
+ */
+export function looksLikeAnswerlessCompletionClaim(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0 || trimmed.length > 400) {
+    return false;
+  }
+  if (/```/.test(trimmed) || /^\s*[-*\d]/m.test(trimmed)) {
+    return false;
+  }
+  // It has to be *about* the exchange, not about the subject.
+  const referencesTheRequest = /\b(?:the (?:user'?s )?request|the question|this query|the ask)\b/i.test(trimmed);
+  const claimsCompletion = /\b(?:already (?:been )?(?:fully )?(?:addressed|answered|covered|provided)|analysis is complete|has been completed|no (?:further|additional) (?:tool calls?|action|changes?|steps?) (?:are|is) (?:needed|required))\b/i.test(trimmed);
+  return referencesTheRequest && claimsCompletion;
+}
+
 export function looksLikePreambleOnly(response: string): boolean {
   const trimmed = response.trim();
   if (trimmed.length === 0) { return true; }
