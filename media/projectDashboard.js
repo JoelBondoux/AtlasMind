@@ -426,10 +426,13 @@
     requestRepositoryRefresh('refresh');
   });
 
-  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘⇧R' : 'Ctrl⇧R';
-  const shortcutHint = refreshButton?.querySelector('.dashboard-refresh-shortcut');
-  if (shortcutHint) {
-    shortcutHint.textContent = shortcutLabel;
+  // The shortcut is in the tooltip and in `aria-keyshortcuts`, not printed on
+  // the button. A `<kbd>` chip beside a one-word label is most of the control's
+  // width for something the user reads once, and it was the first thing to
+  // break when the panel narrowed.
+  const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘⇧R' : 'Ctrl+⇧+R';
+  if (refreshButton) {
+    refreshButton.title = `Refresh dashboard from anywhere in this panel (${shortcutLabel})`;
   }
 
   // Available wherever focus sits inside the dashboard, so refreshing never

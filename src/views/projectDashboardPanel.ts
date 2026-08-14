@@ -8732,7 +8732,6 @@ ${buildCardEvidenceSection(source, derivation)}`;
                 aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
                 title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
                 <span class="refresh-button-label">Refresh</span>
-                <kbd class="dashboard-refresh-shortcut" aria-hidden="true">Ctrl⇧R</kbd>
               </button>
             </div>
           </div>
@@ -16461,12 +16460,35 @@ const DASHBOARD_CSS = `
     background: var(--vscode-list-hoverBackground);
   }
 
+  /* Wraps rather than crushes.
+     Without flex-wrap the action group is a flex item free to shrink below
+     its content, and at a narrow width the browser does the only thing left to
+     it: breaks the label. "Refresh" came out one letter per line. The heading
+     column takes the slack (min-width:0 lets it shrink, which is what stops
+     the buttons being squeezed), and past that the group drops to its own row
+     at full size. */
   .dashboard-topbar {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 24px;
     align-items: flex-start;
     margin-bottom: 24px;
+  }
+
+  .dashboard-topbar > :first-child {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
+
+  .dashboard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    /* Never below its own content: a shrunk button is what produced the
+       one-letter-per-line label in the first place. */
+    flex: 0 0 auto;
   }
 
   .dashboard-kicker,
@@ -16563,24 +16585,22 @@ const DASHBOARD_CSS = `
     border-radius: 999px;
     padding: 10px 18px;
     font-weight: 600;
+    /* A button label is a name, not prose. Breaking it mid-word never helps —
+       if there is not room, the button should move, and the wrapping topbar
+       above lets it. */
+    white-space: nowrap;
+  }
+
+  /* Below this the padding is the only thing left to give, and giving it keeps
+     the label whole rather than letting the button wrap again. */
+  @media (max-width: 520px) {
+    .dashboard-button { padding: 8px 12px; }
   }
 
   .dashboard-button-ghost {
     background: transparent;
     border: 1px solid var(--dash-border);
     color: var(--vscode-foreground);
-  }
-
-  .dashboard-refresh-shortcut {
-    position: relative;
-    z-index: 1;
-    margin-left: 7px;
-    padding: 1px 5px;
-    border: 1px solid color-mix(in srgb, var(--dash-border) 78%, transparent);
-    border-radius: 5px;
-    color: var(--dash-muted);
-    background: color-mix(in srgb, var(--dash-panel) 66%, transparent);
-    font: 500 10px/1.4 var(--vscode-editor-font-family, monospace);
   }
 
   /* One refresh language everywhere: the progress bar lives inside the button

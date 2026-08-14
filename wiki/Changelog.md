@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.1 — A Refresh button that fits
+
+The dashboard Refresh button printed its keyboard shortcut next to a one-word label, which was most of
+the button for something you read once — and in a narrow panel the whole thing broke to one letter per
+line. The shortcut still works and still shows in the tooltip; the button no longer prints it. Narrow
+panels now move controls onto their own row rather than crushing them.
+
 ## v0.310.0 — Scaffold uses your runner, not its favourite
 
 The Scaffold button knew two test runners: Vitest and Jest. Anything else got Vitest files it could not

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.310.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,9 +127,9 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.0
+## What's new in 0.310.1
 
-The last Marketplace publication, **v0.308.0**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Your governance regimes are now checked against your stack.** ISO 27001, SOC 2, NIST 800-53 and AI

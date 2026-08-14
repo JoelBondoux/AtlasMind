@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.1] - 2026-08-14
+
+### Changed
+
+- **The dashboard Refresh button no longer prints its keyboard shortcut.** A `Ctrl⇧R` chip beside a
+  one-word label was most of the control's width, for something a user reads once. The shortcut still
+  works, still appears in the tooltip — now with the right symbols for the platform — and is still
+  declared to assistive technology through `aria-keyshortcuts`.
+
+### Fixed
+
+- **A narrow panel moved the buttons instead of shredding their labels.** The action group was a flex item
+  free to shrink below its own content, so at a narrow width the browser did the only thing left to it and
+  broke the text: "Refresh" came out one letter per line, with the shortcut chip doing the same underneath.
+  The topbar wraps now, the heading column takes the slack, the action group refuses to shrink past its
+  content, and a button label never breaks mid-word — a label is a name, not prose, so if there is no room
+  the button should move rather than the word.
+
+- **The README's published baseline names v0.310.0**, which went live earlier today. As ever the banner
+  trails the release it describes: it tracks the last *publication*, so it can only be corrected once the
+  tag exists.
+
 ## [0.310.0] - 2026-08-14
 
 ### Added
