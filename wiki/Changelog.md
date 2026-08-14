@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.314.1 — The CLI starts again
+
+Two skills added over the last two releases imported the VS Code host at module scope, and the CLI loads
+the whole skill registry on startup — so `atlasmind chat` failed immediately with a module-not-found
+error. Every test passed throughout, because the test runner substitutes a stub for that module and the
+compiler resolves it from type definitions; the only way to see it was to run the CLI.
+
 ## v0.314.0 — Chat can change a setting, and notice when one is wrong
 
 Ask it to turn something off and it can now do it — behind a dialog naming the setting, the current value

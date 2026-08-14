@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
-
 import type { SkillDefinition } from '../types.js';
+
+type VsCode = typeof import('vscode');
 
 /**
  * Read AtlasMind's own settings freely; change one only after the operator says
@@ -46,7 +46,7 @@ interface DeclaredSetting {
   default?: unknown;
 }
 
-function declaredSettings(): Record<string, DeclaredSetting> | undefined {
+function declaredSettings(vscode: VsCode): Record<string, DeclaredSetting> | undefined {
   const manifest = vscode.extensions.getExtension(ATLASMIND_EXTENSION_ID)?.packageJSON as
     | { contributes?: { configuration?: { properties?: Record<string, DeclaredSetting> } } }
     | undefined;
@@ -109,6 +109,10 @@ export const atlasmindSettingsSkill: SkillDefinition = {
     required: ['action', 'key'],
   },
   async execute(params) {
+    // Lazily imported: a module-scope `from 'vscode'` here breaks the CLI, which
+    // loads the whole skills index through `runtime/core`. See the note in
+    // `atlasmindOpen.ts` and the guard in `tests/skills/hostImports.test.ts`.
+    const vscode = await import('vscode');
     const action = params['action'];
     const key = params['key'];
     if (action !== 'get' && action !== 'set') {
@@ -118,7 +122,7 @@ export const atlasmindSettingsSkill: SkillDefinition = {
       return `Error: "key" must be a declared AtlasMind setting beginning "${SETTINGS_PREFIX}".`;
     }
 
-    const settings = declaredSettings();
+    const settings = declaredSettings(vscode);
     if (!settings) {
       return 'Error: AtlasMind\'s settings manifest is not available in this host.';
     }

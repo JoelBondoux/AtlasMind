@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.314.1] - 2026-08-14
+
+### Fixed
+
+- **The CLI starts again.** `atlasmind-open` and `atlasmind-settings` imported `vscode` at module scope,
+  and `src/skills/index.ts` is loaded by `runtime/core`, which the CLI loads on startup — so
+  `atlasmind chat` died with `MODULE_NOT_FOUND` before doing anything at all. They were the only two
+  skills in the registry to import the host directly; every other one reaches it through the injected
+  `SkillExecutionContext`.
+
+  Nothing caught it. Vitest aliases `vscode` to a stub for every test file, so all 6392 tests imported
+  these modules happily, and `tsc` resolved the types from `@types/vscode` and was equally content. The
+  only thing that notices is running the CLI, which no test did. Both imports are now lazy, inside
+  `execute`, where they only run in the extension host — and `tests/skills/hostImports.test.ts` fails the
+  build on a module-scope host import anywhere in `src/skills/`.
+
 ## [0.314.0] - 2026-08-14
 
 ### Added

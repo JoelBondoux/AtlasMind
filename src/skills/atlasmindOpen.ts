@@ -1,5 +1,3 @@
-import * as vscode from 'vscode';
-
 import { CAPABILITY_PAGES, findCapabilityPages, type CapabilityPage } from '../core/capabilityIndex.js';
 import type { SkillDefinition } from '../types.js';
 
@@ -68,6 +66,17 @@ export const atlasmindOpenSkill: SkillDefinition = {
     required: ['page'],
   },
   async execute(params) {
+    // `vscode` is imported lazily, inside execute.
+    //
+    // Every other skill in the registry reaches the host through the injected
+    // SkillExecutionContext and imports nothing; these two need commands, which
+    // the context does not expose. A module-scope import is the obvious way to
+    // get it and it breaks the CLI outright — `src/skills/index.ts` is loaded by
+    // `runtime/core`, so one top-level `from 'vscode'` makes `atlasmind chat`
+    // fail to start with MODULE_NOT_FOUND before it does anything. The whole
+    // test suite aliases the module, so nothing catches it;
+    // `tests/skills/hostImports.test.ts` now does.
+    const vscode = await import('vscode');
     const page = params['page'];
     if (typeof page !== 'string' || page.trim().length === 0) {
       return 'Error: "page" is required. Use one of the ids from the AtlasMind surface index.';
