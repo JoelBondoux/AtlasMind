@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.316.0] - 2026-08-14
+
+### Changed
+
+- **A diagnostic from the model now says whose it is, and is shown once.** *"Model diagnostic: Exceeded
+  skills context budget of 2%…"* read as AtlasMind reporting its own problem. It is not: these lines are
+  emitted by the provider or agent runtime and stripped out of the answer here, and the skills they refer
+  to are the **agent's own**. AtlasMind sends an ACP agent no tool schemas at all, and caps its own at 24
+  for every other provider — it has no path that produces 182. The diagnostic is now prefixed with the
+  model that emitted it, so it is clear which of the two to go and fix.
+
+  The dedupe set moved from the task to the session. It was local, so it suppressed repeats within one
+  turn and reset on the next — and a third-party warning that does not change between turns was reprinted
+  on every one of them. Once is informative; every turn is noise somebody learns to look past, which is
+  how the next diagnostic gets missed as well.
+
+- **AtlasMind says when the routed model runs its own tools instead of its.** An ACP agent cannot receive
+  AtlasMind `ToolDefinition` schemas — the protocol has nowhere to put them — so when delegated execution
+  is authorized the tool loop stands down and the agent uses its own, gated by approval. That is correct
+  and it was invisible: AtlasMind's tools were simply absent, and a session routed entirely to an ACP
+  agent ran with a large part of the tooling dark with nothing saying so. Now stated once per session,
+  with the count and what to do about it.
+
+  This matters most for `atlasmind-open` and `atlasmind-settings`, added in 0.313.0 and 0.314.0: on an ACP
+  route they never reach the model. The capability index still does, because it is prompt text, so chat
+  can describe the right page accurately — it just cannot open it.
+
 ## [0.315.1] - 2026-08-14
 
 ### Fixed

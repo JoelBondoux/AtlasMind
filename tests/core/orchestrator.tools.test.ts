@@ -5618,3 +5618,30 @@ describe('GitHub work selects the tools that can reach GitHub', () => {
     expect(skillsFor('what changed since the last commit?').map(s => s.id)).toContain('git-diff');
   });
 });
+
+describe('a third-party diagnostic says whose it is', () => {
+  // "Model diagnostic: Exceeded skills context budget" read as AtlasMind
+  // reporting its own problem. It is not: the line is emitted by the agent
+  // runtime and stripped out here, and the skills it refers to are the agent's
+  // own — AtlasMind sends an ACP agent no tool schemas at all, and caps its own
+  // at 24 for every other provider. Somebody reading it had no way to tell which
+  // of the two to go and fix.
+  const WARNING = 'Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 182 additional skills were not included in the model-visible skills list.';
+
+  it('names the model that emitted it', () => {
+    const { diagnostics } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`, 'acp/codex@gpt-5.3-codex-spark');
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatch(/^acp\/codex@gpt-5\.3-codex-spark reported: /);
+    expect(diagnostics[0]).toContain('182 additional skills');
+  });
+
+  it('keeps the old wording when the source is unknown', () => {
+    const { diagnostics } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`);
+    expect(diagnostics[0]).toMatch(/^Model diagnostic: /);
+  });
+
+  it('still keeps the diagnostic out of the answer prose', () => {
+    const { content } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`, 'acp/codex');
+    expect(content.trim()).toBe('Here is the answer.');
+  });
+});

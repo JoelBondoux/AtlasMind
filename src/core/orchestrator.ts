@@ -616,6 +616,19 @@ export class Orchestrator {
   private currentExecution: { agentId: string; taskId: string; skillIds: string[] } | undefined;
 
   /**
+   * Diagnostics already shown, keyed by session.
+   *
+   * Held on the orchestrator rather than inside a turn so a warning that does
+   * not change between turns is shown once. Unbounded only in the number of
+   * sessions a window has held, which is the same order as the session list
+   * itself.
+   */
+  private readonly reportedDiagnosticsByScope = new Map<string, Set<string>>();
+
+  /** Sessions already told that the routed model runs its own tools. */
+  private readonly reportedDelegatedToolNotice = new Set<string>();
+
+  /**
    * Run another agent on a question, within the caller's authority.
    *
    * The caller's identity comes from `currentExecution` — what the
@@ -1678,7 +1691,20 @@ export class Orchestrator {
     // Seeded from earlier turns: an endpoint that has failed hard twice should
     // not be rediscovered from scratch on every message.
     const blockedEndpointScopes = this.quarantinedEndpointScopes();
-    const reportedModelDiagnostics = new Set<string>();
+    // Per session, not per task.
+    //
+    // This set used to be local, so it deduped within one turn and reset on the
+    // next — and a third-party warning that does not change between turns was
+    // reprinted on every one of them. Once is informative; every time is noise
+    // somebody learns to look past, which is how the *next* diagnostic gets
+    // missed too. Falls back to the task id when no session is in play, which
+    // preserves the old behaviour for one-shot runs.
+    const diagnosticScope = typeof request.context['sessionId'] === 'string'
+      ? request.context['sessionId']
+      : request.id;
+    const reportedModelDiagnostics = this.reportedDiagnosticsByScope.get(diagnosticScope)
+      ?? new Set<string>();
+    this.reportedDiagnosticsByScope.set(diagnosticScope, reportedModelDiagnostics);
 
     if (dailyBudget?.blocked) {
       finalAttempt = {
@@ -1752,6 +1778,22 @@ export class Orchestrator {
         // the adapter's scoped permission policy. A non-ACP failover receives the
         // original tools again on its next iteration.
         const attemptTools = usesDelegatedAcpTools ? [] : tools;
+        // Say so, once per session.
+        //
+        // Standing this loop down is correct, but from the chair it is
+        // invisible: AtlasMind's own tools simply are not there, and a surface
+        // that has just told the model about `atlasmind-open` in its capability
+        // index will describe a page it cannot open. Somebody whose routing
+        // sends every turn to an ACP agent was running with a large part of
+        // AtlasMind's tooling dark and nothing saying so.
+        if (usesDelegatedAcpTools && tools.length > 0 && !this.reportedDelegatedToolNotice.has(diagnosticScope)) {
+          this.reportedDelegatedToolNotice.add(diagnosticScope);
+          onProgress?.(
+            `${currentModel} runs its own tools, so AtlasMind's ${tools.length} tool${tools.length === 1 ? '' : 's'} `
+            + 'are not available on this turn — the agent uses its own, gated by approval. '
+            + 'Route to a provider with function calling if you need AtlasMind\'s own tools.',
+          );
+        }
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
           : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
@@ -1841,7 +1883,10 @@ export class Orchestrator {
             chunk => { attemptStream += chunk; },
             onProgress,
           );
-          const sanitizedAttempt = sanitizeAssistantResponse(taskAttempt.completion.content || attemptStream);
+          const sanitizedAttempt = sanitizeAssistantResponse(
+            taskAttempt.completion.content || attemptStream,
+            taskAttempt.completion.model || currentModel,
+          );
           taskAttempt = {
             ...taskAttempt,
             completion: { ...taskAttempt.completion, content: sanitizedAttempt.content },
@@ -2126,7 +2171,7 @@ export class Orchestrator {
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
 
-    const sanitizedCompletion = sanitizeAssistantResponse(completion.content);
+    const sanitizedCompletion = sanitizeAssistantResponse(completion.content, completion.model);
     for (const diagnostic of sanitizedCompletion.diagnostics) {
       if (!reportedModelDiagnostics.has(diagnostic)) {
         reportedModelDiagnostics.add(diagnostic);
@@ -6593,7 +6638,19 @@ export function collapseDuplicatedTrailingBlock(text: string): string {
  * long-form paragraphs outside code fences. Diagnostics are returned
  * separately so callers can surface each once as progress.
  */
-export function sanitizeAssistantResponse(text: string): { content: string; diagnostics: string[] } {
+export function sanitizeAssistantResponse(
+  text: string,
+  /**
+   * The model the text came from, named in the diagnostic.
+   *
+   * "Model diagnostic: Exceeded skills context budget" reads as AtlasMind
+   * reporting its own problem. It is not: these lines are emitted by the
+   * provider or agent runtime and stripped out here, and the skills they refer
+   * to are the agent's own — AtlasMind sends an ACP agent no tool schemas at
+   * all. Somebody reading it had no way to know which of the two to go and fix.
+   */
+  source?: string,
+): { content: string; diagnostics: string[] } {
   if (!text) {
     return { content: text, diagnostics: [] };
   }
@@ -6603,7 +6660,7 @@ export function sanitizeAssistantResponse(text: string): { content: string; diag
     .filter(line => {
       const normalized = line.trim().replace(/^>\s*/, '');
       if (/^(?:warning:\s*)?(?:exceeded skills context budget|skill descriptions were shortened)\b/i.test(normalized)) {
-        diagnostics.push(normalized.replace(/^warning:\s*/i, 'Model diagnostic: '));
+        diagnostics.push(normalized.replace(/^warning:\s*/i, source ? `${source} reported: ` : 'Model diagnostic: '));
         return false;
       }
       return true;

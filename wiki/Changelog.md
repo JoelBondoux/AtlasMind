@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.316.0 — Whose diagnostic is it, and where did the tools go
+
+"Model diagnostic: Exceeded skills context budget" appeared on nearly every turn and read as AtlasMind's
+own problem. It isn't — it comes from the agent you are routed to, about that agent's own skills, and
+AtlasMind sends an ACP agent no tools at all. It now names the model that said it, and shows it once per
+session rather than every turn.
+
+Relatedly: when you are routed to a subscription agent, AtlasMind's own tools are not available — the
+agent uses its own instead. That was true before and invisible. It now says so once, with the count.
+
 ## v0.315.1 — The card appears when the run is offered as a statement
 
 AtlasMind recognised "If you want, I can start a project run…" as an offer, but the Start / Save / Cancel
