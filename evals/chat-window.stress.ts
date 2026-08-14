@@ -164,6 +164,8 @@ const SEVERITY_ASSIGNMENTS: Readonly<Record<string, SeverityRule['id']>> = {
   'S2-offer-without-vocabulary': 'misreports-what-happens-next',
   'S3-negation-veto': 'misreports-what-happens-next',
   'S4-waiting-in-silence': 'misreports-what-happens-next',
+  'Q13-question-with-a-trailing-aside': 'misreports-what-happens-next',
+  'Q14-long-tail-is-prose': 'affordance-lost-information-kept',
   'Q10-declarative-offer': 'misreports-what-happens-next',
   'Q11-declarative-run-offer': 'misreports-what-happens-next',
   'Q12-advice-is-not-an-offer': 'affordance-lost-information-kept',
@@ -374,6 +376,35 @@ const PROBES: Probe[] = [
       return chips === undefined
         ? undefined
         : `advice to the operator was turned into ${JSON.stringify(chips)} — a pill here submits an answer to a question nobody asked`;
+    },
+  },
+  {
+    id: 'Q13-question-with-a-trailing-aside',
+    lane: 'QUESTION',
+    asks: 'A question followed by a short aside on the same line is still a question.',
+    because: 'Real transcript: "Would you like me to inspect the exact agent configuration for you? If so, I can fetch and analyze `agents/customer-researcher.md` directly." The question is there, it simply is not last, and every check anchored on the line *ending* in a question mark. Third shape of one mistake: a full stop before the question mark (v0.311.1), no question mark at all (v0.315.0), and now something after it.',
+    check: () => {
+      const text = [
+        'The setting lives under the research page.',
+        '',
+        'Would you like me to inspect the exact agent configuration for you? If so, I can fetch and analyze it directly.',
+      ].join('\n');
+      const chips = chipsFor(text);
+      return chips?.join('/') === 'Yes/No'
+        ? undefined
+        : `expected Yes/No chips, got ${JSON.stringify(chips)} (question: ${JSON.stringify(questionFor(text))})`;
+    },
+  },
+  {
+    id: 'Q14-long-tail-is-prose',
+    lane: 'QUESTION',
+    asks: 'A rhetorical question followed by a paragraph does not become a prompt. [control]',
+    because: 'The aside has to be an aside. Turning a long explanation into a Yes/No would put buttons under a sentence nobody was being asked to answer.',
+    check: () => {
+      const text = 'So why does the cache miss? Because it is per-isolate, it does not survive a cold start, and every region keeps its own copy, which is why the hit rate looks worse in production than it did locally.';
+      return chipsFor(text) === undefined
+        ? undefined
+        : `a rhetorical question with a full explanation after it produced ${JSON.stringify(chipsFor(text))}`;
     },
   },
   {

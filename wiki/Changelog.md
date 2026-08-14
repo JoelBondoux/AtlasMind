@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.320.0 — A question with something after it is still a question
+
+"Would you like me to inspect the configuration? If so, I can fetch it directly." — you got no buttons,
+because the reply did not *end* with the question. A short clause after it is now ignored when looking for
+one. A long paragraph after a rhetorical question still is not treated as a prompt.
+
 ## v0.319.0 — The model can ask for a tool it wasn't given
 
 Only a couple of dozen tools fit in a turn, so AtlasMind guesses from your request which ones it will

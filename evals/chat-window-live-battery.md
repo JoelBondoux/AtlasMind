@@ -293,3 +293,41 @@ no external symptom, and it is the one this lane exists to catch.
   near its end leaves nothing at all.
 - **The stop status contradicts itself** across the transcript and the panel.
 - The third-person "If The User points me to…" leak continues.
+
+**Lane 3 — 8/10** *(first run after the disable fix; routing reached `mistral/*` and `local/ollama`, no `acp/codex` anywhere)*
+
+| # | Score | Note |
+|---|---:|---|
+| 3.1 footer | **2** | Model **and** cost: `£0.0001 · 3,917 in / 370 out`. The transcript states its own spend for the first time. |
+| 3.2 question printed once | **2** | No duplicate "Next step" block. |
+| 3.3 `/cost` | **0** | Headed **"Session Cost Summary"** and reported **£81.82, 501 requests, 107,028,478 input tokens**. That is not this session by three orders of magnitude. Either the label is wrong and it is a lifetime total, or the accounting is. "A number that cannot be reconciled with the session is worse than none" is the criterion, and this is that. |
+| 3.4 `merge pr 12089` | **2** | Told *the operator*, with evidence: no `refs/pull/12089/head`, no matching branch on origin, and what to supply instead. Seven tool calls including git ops — the S2 failure from the August audit is gone. |
+| 3.5 `/nonsense` | **2** | Refused and listed the real commands. |
+
+**The disable fix is confirmed working.** Three different providers appear across the lane and ACP appears
+nowhere. It also unblocked everything downstream: AtlasMind's own tools are being sent again (seven tool
+calls on 3.4), and the thought summary is now genuinely informative — *"3 model attempts; final model
+mistral/magistral-small-latest. Did not complete: local/ollama@@qwen3 (error). Superseded after a struggle
+signal: mistral/ministral-8b-latest."*
+
+**Finding — a 3B model answered a product-knowledge question by inventing one.** The Lane 3 opener was
+routed to `mistral/ministral-3b-2512`, which located the setting in `agents/customer-researcher.md`,
+proposed an `enabled` flag, and offered an environment variable `RESEARCH_SCANS=false`. None of it exists;
+the real answer is `atlasmind.research.enabled`.
+
+The capability index *did* reach it — the reply uses `settings:agents`, `dashboard:agents` and
+`settings:project`, which are its id syntax — so the model had the page list and fabricated a file path
+anyway. Two things follow. The index tells the model never to say a setting does not exist, but says
+nothing about inventing where one lives. And routing sent a question that is entirely about product
+knowledge to the smallest model available, which is what a cost-weighted score does with a question that
+looks cheap.
+
+**Finding — a question with a short aside after it produced no chips.** *"Would you like me to inspect the
+exact agent configuration for you? If so, I can fetch and analyze `agents/customer-researcher.md`
+directly."* The question is present but not last, and every check anchored on the line *ending* in `?`.
+Third shape of one mistake — a full stop before the question mark (v0.311.1), no question mark at all
+(v0.315.0), and now something after it. Fixed in v0.320.0; pinned by `Q13`, with `Q14` as the control that
+a rhetorical question followed by a full paragraph stays prose.
+
+**Withdrawn:** `local/ollama@@qwen3:…` is not a malformed id. `@@` is `LOCAL_MODEL_ID_DELIMITER`, separating
+endpoint from model on purpose.

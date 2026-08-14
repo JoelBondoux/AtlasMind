@@ -3945,6 +3945,40 @@ function endsWithQuestion(line: string): boolean {
   return /\?\s*$/.test(stripMarkdownEmphasis(line));
 }
 
+/** Longest trailing clause that may follow the question and still be an aside. */
+const MAX_POST_QUESTION_CLAUSE_CHARS = 120;
+
+/**
+ * Drop a short clause that follows the question on the same line.
+ *
+ * *"Would you like me to inspect the exact agent configuration for you? If so, I
+ * can fetch and analyze `agents/customer-researcher.md` directly."* — taken from
+ * a real session. The question is there; it simply is not last, and every check
+ * in this file anchored on the line *ending* in `?`, so the operator got no
+ * chips and no recorded follow-up.
+ *
+ * That is the third shape of one mistake. A question mark preceded by a full
+ * stop was fixed in v0.311.1, an offer with no question mark at all in v0.315.0,
+ * and this is a question mark with something after it. Each was found by running
+ * real output rather than by writing another probe, because a probe corpus
+ * written by the same hand as the detector shares its assumptions about what
+ * output looks like.
+ *
+ * Bounded, because the aside has to *be* an aside: a long paragraph following a
+ * rhetorical question is prose, and turning it into a prompt would put a
+ * Yes/No under a sentence nobody was being asked to answer.
+ */
+function trimClauseAfterQuestion(line: string): string {
+  const lastQuestion = line.lastIndexOf('?');
+  if (lastQuestion < 0 || lastQuestion === line.trimEnd().length - 1) {
+    return line;
+  }
+  const trailing = line.slice(lastQuestion + 1).trim();
+  return trailing.length > 0 && trailing.length <= MAX_POST_QUESTION_CLAUSE_CHARS
+    ? line.slice(0, lastQuestion + 1)
+    : line;
+}
+
 /**
  * A conditional opener addressed to the operator: "If you want, …",
  * "Let me know if …", "Happy to …".
@@ -4075,7 +4109,9 @@ function extractQuestionClause(line: string): string | undefined {
  */
 function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[]; isOffer?: boolean } | undefined {
   if (!text) { return undefined; }
-  const lines = text.split('\n').map(line => line.trim());
+  // The trailing aside is dropped before anything else looks at the line, so
+  // every check below still sees a line that ends in its question.
+  const lines = text.split('\n').map(line => trimClauseAfterQuestion(line.trim()));
   let end = lines.length - 1;
   while (end >= 0 && lines[end] === '') { end -= 1; }
   if (end < 0) { return undefined; }

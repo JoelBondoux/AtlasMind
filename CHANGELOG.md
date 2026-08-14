@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.320.0] - 2026-08-14
+
+### Fixed
+
+- **A question with a short aside after it is still a question.** *"Would you like me to inspect the exact
+  agent configuration for you? If so, I can fetch and analyze `agents/customer-researcher.md` directly."*
+  — from a real session. The question is present; it simply is not last, and every check in the detector
+  anchored on the line *ending* in `?`. No chips, no recorded follow-up.
+
+  A trailing clause of 120 characters or fewer is now dropped before the line is examined, so every
+  existing check still sees a line that ends in its question. Bounded because the aside has to *be* an
+  aside: a long paragraph after a rhetorical question is prose, and turning it into a Yes/No would put
+  buttons under a sentence nobody was being asked to answer.
+
+  This is the third shape of one mistake — a full stop *before* the question mark (v0.311.1), no question
+  mark *at all* (v0.315.0), and now something *after* it. All three were found by running real model
+  output, none by adding another probe, because a probe corpus written by the same hand as the detector
+  shares its assumptions about what output looks like.
+
 ## [0.319.0] - 2026-08-14
 
 ### Added

@@ -5,7 +5,7 @@ A failure is a finding about the shipped surface, not a regression.
 
 | Lane | Passed | Failed |
 |---|---:|---:|
-| QUESTION | 12 | 0 |
+| QUESTION | 14 | 0 |
 | ANSWER | 4 | 0 |
 | INFO | 3 | 0 |
 | CONTINUITY | 5 | 0 |
