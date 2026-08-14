@@ -102,7 +102,7 @@ describe('operator frustration adaptation', () => {
     vscodeMock.configurationState.set('chatSessionContextChars', 2000);
   });
 
-  it('persists workspace learning, settings tuning, and SSOT feedback for frustrated prompts', async () => {
+  it('persists workspace learning and SSOT feedback for frustrated prompts, and changes no settings', async () => {
     const atlas = makeAtlas();
 
     const adaptation = await applyOperatorFrustrationAdaptation(
@@ -121,10 +121,14 @@ describe('operator frustration adaptation', () => {
     expect(storedProfile?.answers?.defaultActionBias).toEqual(expect.stringContaining('prefer the most concrete safe tool-backed action'));
     expect(storedProfile?.answers?.rememberLongTerm).toEqual(expect.stringContaining('bias toward concrete action'));
 
-    expect(vscodeMock.configurationUpdates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: 'chatSessionTurnLimit', value: 8 }),
-      expect.objectContaining({ key: 'chatSessionContextChars', value: 4000 }),
-    ]));
+    // No settings are written. This assertion was the inverse — it required
+    // `chatSessionTurnLimit: 8` and `chatSessionContextChars: 4000` — and that
+    // write went to ConfigurationTarget.Workspace, i.e. `.vscode/settings.json`,
+    // a file most repositories commit, with nothing in the turn naming either
+    // key. The detector also fired on ordinary polite requests, so it happened on
+    // turns where nothing had gone wrong. The signal still shapes how the turn is
+    // answered; it no longer edits the operator's configuration to do it.
+    expect(vscodeMock.configurationUpdates).toEqual([]);
 
     expect(vscodeMock.createDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: '/workspace/project_memory/operations' }));
     expect(vscodeMock.writeFile).toHaveBeenCalledWith(
@@ -156,5 +160,81 @@ describe('operator frustration adaptation', () => {
     expect(vscodeMock.writeFile).not.toHaveBeenCalled();
     expect(atlas.memoryManager.loadFromDisk).not.toHaveBeenCalled();
     expect(atlas.memoryRefresh.fire).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'can you do this for me when you have a moment',
+    'could you do that for me please',
+    'just do it the simple way, no need to over-engineer',
+    'just do that in a single pass',
+  ])('treats %j as an ordinary request, not frustration', async prompt => {
+    // Measured false positives. Each fired the whole adaptation — a rewritten
+    // system prompt, a learned preference written to the personality profile, an
+    // operator-feedback note in git-tracked memory, and a settings write — on a
+    // turn where nothing had gone wrong. "Just do it *the simple way*" says how;
+    // it is an instruction, not a complaint.
+    const atlas = makeAtlas();
+    const adaptation = await applyOperatorFrustrationAdaptation(prompt, atlas as unknown as AtlasMindContext, {});
+
+    expect(adaptation).toBeUndefined();
+    expect(vscodeMock.writeFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "you're not listening to me",
+    "that's the third time you've ignored my question",
+    'I asked you to fix it, not explain it',
+    "forget it, I'll do it myself",
+    'why do you keep offering instead of doing',
+    'stop asking and just do it',
+  ])('recognises %j as friction', async prompt => {
+    // How people actually complain. Five of these eight shapes went unrecognised,
+    // and an undetected signal means the next turn repeats whatever caused the
+    // friction — the adaptation only runs on a detected one.
+    const atlas = makeAtlas();
+    const adaptation = await applyOperatorFrustrationAdaptation(prompt, atlas as unknown as AtlasMindContext, {});
+
+    expect(adaptation?.contextPatch.userFrustrationSignal).toContain('Operator frustration signal');
+  });
+
+  it('restores settings an earlier build wrote without asking, once', async () => {
+    // Anyone who hit the old path has 8/4000 sitting in their committed
+    // `.vscode/settings.json`. Putting the originals back is owed, and it happens
+    // on the next turn either way — a frustrated one or an ordinary one.
+    const atlas = makeAtlas();
+    workspaceStateStore.set('atlasmind.frustrationSettingsSnapshot', {
+      originalTurnLimit: 4,
+      originalContextChars: 2000,
+      lastFrustrationAt: new Date().toISOString(),
+    });
+    vscodeMock.configurationState.set('chatSessionTurnLimit', 8);
+    vscodeMock.configurationState.set('chatSessionContextChars', 4000);
+
+    await applyOperatorFrustrationAdaptation('Please update the chat panel styles.', atlas as unknown as AtlasMindContext, {});
+
+    expect(vscodeMock.configurationUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'chatSessionTurnLimit', value: 4 }),
+      expect.objectContaining({ key: 'chatSessionContextChars', value: 2000 }),
+    ]));
+    expect(workspaceStateStore.has('atlasmind.frustrationSettingsSnapshot')).toBe(false);
+  });
+
+  it('leaves a value the operator has since chosen alone', async () => {
+    // Conservative in the same way the old cooling logic was: only put a value
+    // back if it still equals what was written.
+    const atlas = makeAtlas();
+    workspaceStateStore.set('atlasmind.frustrationSettingsSnapshot', {
+      originalTurnLimit: 4,
+      originalContextChars: 2000,
+      lastFrustrationAt: new Date().toISOString(),
+    });
+    vscodeMock.configurationState.set('chatSessionTurnLimit', 12);
+    vscodeMock.configurationState.set('chatSessionContextChars', 4000);
+
+    await applyOperatorFrustrationAdaptation('Please update the chat panel styles.', atlas as unknown as AtlasMindContext, {});
+
+    expect(vscodeMock.configurationUpdates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'chatSessionTurnLimit' }),
+    ]));
   });
 });

@@ -9,12 +9,12 @@ A failure is a finding about the shipped surface, not a regression.
 | ANSWER | 2 | 2 |
 | INFO | 1 | 2 |
 | CONTINUITY | 4 | 1 |
-| REPAIR | 0 | 2 |
+| REPAIR | 2 | 0 |
 | STOP | 2 | 6 |
 | COMMANDS | 5 | 2 |
 | TOOLING | 2 | 3 |
 | ORCHESTRATION | 5 | 1 |
-| GUIDANCE | 1 | 7 |
+| GUIDANCE | 2 | 6 |
 
 ## Findings
 
@@ -105,22 +105,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** Carry-forward is decided on lexical overlap with the last three prompts, and a genuine follow-up often shares no words with them.
 
 **Observed:** context dropped on a direct follow-up — the next turn answers with no memory of what "instead" refers to
-
-### R1-frustration-corpus (REPAIR)
-
-**Asked:** The window notices when the user is unhappy, in the words people actually use.
-
-**Why this shape:** The adaptation only fires on a detected signal, so an undetected line means the next turn repeats whatever caused the friction.
-
-**Observed:** only 3/8 recognised; missed: "that's the third time you've ignored my question", "you're not listening to me", "I asked you to fix it, not explain it", "forget it, I'll do it myself", "why do you keep offering instead of doing"
-
-### R2-no-false-positive (REPAIR)
-
-**Asked:** Ordinary instructions are not misread as frustration. [control]
-
-**Why this shape:** A false positive rewrites the system prompt and tunes settings on a turn where nothing was wrong.
-
-**Observed:** benign phrasing flagged as frustration: "can you do this for me when you have a moment", "just do it the simple way, no need to over-engineer"
 
 ### S2-offer-without-vocabulary (STOP)
 
@@ -265,12 +249,4 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** The pattern already exists and works: hitting the tool-iteration ceiling produces a named suggestion and a button that applies it. It fires for exactly one setting, so every other misconfiguration is silent — a budget mode starving a refactor, an approval mode prompting on every MCP read, a context window too small for the file being discussed.
 
 **Observed:** only 2 setting families are ever suggested from a session (Iteration, ToolCallsPerTurn) out of 134 declared settings
-
-### G8-silent-settings-writes (GUIDANCE)
-
-**Asked:** A setting changed on the user's behalf is named where the user is reading.
-
-**Why this shape:** The frustration path writes `chatSessionTurnLimit` and `chatSessionContextChars` at ConfigurationTarget.Workspace — i.e. into `.vscode/settings.json`, which is usually committed — and the only trace in the turn is a timeline note reading "Learned from friction". Read with the REPAIR lane, a polite "can you do this for me when you have a moment" is enough to trigger it.
-
-**Observed:** these settings are written on the user's behalf and never named in anything the user reads: chatSessionTurnLimit, chatSessionContextChars
 

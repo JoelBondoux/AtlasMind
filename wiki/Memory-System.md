@@ -150,10 +150,17 @@ because the extra room went to older turns.
 ## When you're frustrated, it learns
 
 If AtlasMind detects that you're visibly frustrated with how a conversation is going, it updates your
-saved Personality Profile, increases how much recent context it carries if it was retaining too little,
-and writes what it learned to `operations/operator-feedback.md`.
+saved Personality Profile and writes what it learned to `operations/operator-feedback.md`.
 
 That gives it both an immediate correction and something retrievable next time.
+
+**It does not change your settings to do it.** Until v0.310.4 the same signal quietly raised two chat
+settings in your workspace — writing them into `.vscode/settings.json`, which most projects commit —
+without naming either one anywhere you'd see it. It also mistook ordinary polite requests for
+frustration, so this happened on turns where nothing had gone wrong. If it already did that to your
+project, AtlasMind puts the original values back the next time you chat, unless you've since chosen a
+different number yourself. When a setting genuinely doesn't suit the work, AtlasMind suggests the change
+and leaves the decision with you.
 
 ---
 

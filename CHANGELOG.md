@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.4] - 2026-08-14
+
+### Changed
+
+- **Detecting frustration no longer edits your settings.** The signal raised `chatSessionTurnLimit` and
+  `chatSessionContextChars` at `ConfigurationTarget.Workspace` — into `.vscode/settings.json`, a file most
+  repositories commit — and named neither key in anything the operator read; the only trace in the turn
+  was a note reading "Learned from friction". A settings change nobody is told about cannot be reviewed,
+  reverted, or attributed. The signal still shapes how the turn is answered and still writes its learned
+  preference to the Personality Profile and `operations/operator-feedback.md`.
+
+  `restoreSettingsWrittenWithoutAsking` puts the earlier values back on the next turn, frustrated or not,
+  and only where the current value still equals what was written — an operator who has since chosen their
+  own number keeps it.
+
+### Fixed
+
+- **Ordinary polite requests are no longer read as frustration.** `can you do this for me when you have a
+  moment` and `just do it the simple way` both fired the full adaptation — a rewritten system prompt, a
+  learned preference in the Personality Profile, an operator-feedback note in git-tracked memory, and the
+  settings write above — on turns where nothing had gone wrong. The polite-request cue is gone (its
+  negated form, "can you *not* do this for me", stays, because that is a complaint), and `just do it`
+  now requires that it not be followed by a qualifier: "just do it *the simple way*" says how, and is an
+  instruction rather than a complaint.
+
+- **Five ways people actually complain are now recognised.** Measured against a corpus of realistic
+  phrasings, the detector caught three of eight. It missed repetition ("that's the third time you've
+  ignored my question"), plain statements of the problem ("you're not listening to me"), corrections
+  naming what was asked for instead ("I asked you to fix it, not explain it"), giving up ("forget it,
+  I'll do it myself"), and the offer-instead-of-doing pattern ("why do you keep offering instead of
+  doing"). An undetected signal means the next turn repeats whatever caused the friction, because the
+  recovery only runs on a detected one.
+
 ## [0.310.3] - 2026-08-14
 
 ### Fixed

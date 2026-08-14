@@ -54,7 +54,9 @@ The identity document. Contains project type, vision, principles, and links to k
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences are both present even when the current request does not explicitly mention memory.
 
-When Atlas detects explicit operator frustration during chat, it also updates the saved workspace Personality Profile, raises chat carry-forward settings if the workspace was retaining too little recent context, and writes the learned behavior into `operations/operator-feedback.md`. That gives Atlas both a live prompt-level correction and a retrievable SSOT record of the preference for future turns.
+When Atlas detects explicit operator frustration during chat, it updates the saved workspace Personality Profile and writes the learned behavior into `operations/operator-feedback.md`. That gives Atlas both a live prompt-level correction and a retrievable SSOT record of the preference for future turns.
+
+It no longer changes settings to do it. Until v0.310.4 the same signal raised `chatSessionTurnLimit` and `chatSessionContextChars` at `ConfigurationTarget.Workspace` — into `.vscode/settings.json`, which most repositories commit — and named neither key in anything the operator read. The detector also fired on ordinary polite requests ("can you do this for me when you have a moment"), so the write happened on turns where nothing had gone wrong, and a settings change nobody is told about cannot be reviewed, reverted, or attributed. A tuning *suggestion* is the right shape for this and already exists elsewhere: the tool-iteration ceiling names a value and offers a button. `restoreSettingsWrittenWithoutAsking` puts the earlier values back once, on the next turn, and only where the current value still equals what was written.
 
 ### `architecture/`
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
@@ -102,7 +104,7 @@ for something somebody checked.
 ### `operations/`
 Deployment procedures, environment setup, monitoring, incident response.
 
-AtlasMind also records durable operator-feedback notes here when chat detects explicit frustration with advice-only responses. The current note path is `operations/operator-feedback.md`, and it captures the learned recovery rule plus any workspace-level context-retention adjustments so future retrieval can bias toward direct corrective action.
+AtlasMind also records durable operator-feedback notes here when chat detects explicit frustration with advice-only responses. The current note path is `operations/operator-feedback.md`, and it captures the learned recovery rule so future retrieval can bias toward direct corrective action. It records no settings change, because there is none to record: see the note above on why that path was removed in v0.310.4.
 
 ### `agents/`
 Per-agent configuration files. Each agent can have a markdown file defining its custom system prompt, behaviour rules, and allowed skills.

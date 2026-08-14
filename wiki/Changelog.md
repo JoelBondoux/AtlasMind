@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.4 — Frustration no longer edits your settings
+
+When AtlasMind decided you sounded frustrated, it quietly raised two chat settings in your workspace —
+writing them into `.vscode/settings.json`, which most projects commit — and told you nothing about it.
+It also mistook ordinary polite requests for frustration ("can you do this for me when you have a
+moment"), so it happened on turns where nothing had gone wrong. That path is gone, and if it already
+changed your project, the original values come back the next time you chat.
+
+It is also much better at noticing when you *are* unhappy: five common phrasings went unrecognised,
+including "you're not listening to me" and "that's the third time you've ignored my question".
+
 ## v0.310.3 — A good answer is no longer thrown away
 
 If every tool result in a step looked like a failure, AtlasMind deleted the assistant's answer, replaced

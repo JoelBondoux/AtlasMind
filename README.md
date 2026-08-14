@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.310.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.3
+## What's new in 0.310.4
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Reacting to how you sound no longer changes your settings.** If AtlasMind decided you were
+  frustrated, it quietly raised two chat settings in your workspace — into `.vscode/settings.json`, which
+  most projects commit — and said nothing about it. It also mistook ordinary polite requests for
+  frustration, so this happened on turns where nothing had gone wrong. That path is gone, earlier values
+  are restored, and it is now much better at noticing when you genuinely are unhappy.
 
 - **A good answer is no longer thrown away because a tool read a file.** When a step's tool results all
   looked like failures, AtlasMind replaced the assistant's answer with a failure dump and marked the turn

@@ -131,10 +131,14 @@ const LOOP_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
+/**
+ * The values an earlier build wrote on the operator's behalf. Kept only so
+ * {@link restoreSettingsWrittenWithoutAsking} can recognise its own handiwork
+ * and put the originals back; nothing writes them any more.
+ */
 const MIN_FRUSTRATION_SESSION_TURNS = 8;
 const MIN_FRUSTRATION_SESSION_CHARS = 4000;
 const FRUSTRATION_SETTINGS_STORAGE_KEY = 'atlasmind.frustrationSettingsSnapshot';
-const FRUSTRATION_COOLING_PERIOD_MS = 30 * 60 * 1000;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
@@ -4355,14 +4359,28 @@ export function detectUserFrustrationSignal(prompt: string): UserFrustrationSign
   const cues: Array<{ level: UserFrustrationSignal['level']; pattern: RegExp; matchedCue: string; summary: string; guidance: string }> = [
     {
       level: 'high',
-      pattern: /\b(?:frustrat(?:ed|ing)|annoy(?:ed|ing)|useless|stop giving me|just do (?:it|that)|not doing what i ask|doesn'?t want to do|why aren'?t you doing)\b/i,
+      // `just do it` carries a lookahead because it is the one phrase here that is
+      // just as often an ordinary instruction: "just do it the simple way" says
+      // *how*, and reading that as a complaint was one of two false positives
+      // measured against benign phrasing.
+      pattern: /\b(?:frustrat(?:ed|ing)|annoy(?:ed|ing)|useless|stop giving me|just do (?:it|that)\b(?!\s+(?:the|a|an|in|with|using|for)\b)|not doing what i ask|doesn'?t want to do|why aren'?t you doing|you'?re not listening|you are not listening|forget it|i'?ll do it myself)\b/i,
       matchedCue: 'explicit-frustration',
       summary: 'The operator explicitly signaled frustration with Atlas failing to act.',
       guidance: 'Acknowledge the miss briefly, then move straight to the most concrete safe action instead of repeating advisory prose.',
     },
     {
       level: 'moderate',
-      pattern: /\b(?:can you not do (?:this|that|it|them) for me|can you do (?:this|that|it|them) for me|could you do (?:this|that|it|them) for me|i want .* resolved|i want the reason .* resolved|no,? i want|instead of (?:advice|explaining)|not doing what i asked)\b/i,
+      // `can you do this for me` is NOT here, deliberately. It is an ordinary
+      // polite request — the other measured false positive — and it used to fire
+      // this whole adaptation on a turn where nothing had gone wrong. Its negated
+      // form ("can you *not* do this for me") stays, because that is a complaint.
+      //
+      // The additions are shapes taken from how people actually complain, all of
+      // which went unrecognised: repetition ("that's the third time"), a
+      // correction naming what was asked for instead ("I asked you to fix it, not
+      // explain it"), and the offer-instead-of-doing pattern this codebase
+      // produces often enough to have its own probe.
+      pattern: /\b(?:can you not do (?:this|that|it|them) for me|i want .* resolved|i want the reason .* resolved|no,? i want|instead of (?:advice|explaining)|not doing what i asked|(?:that'?s|this is) the (?:second|third|fourth|fifth|\d+(?:st|nd|rd|th)) time|for the (?:second|third|fourth|fifth) time|i asked you (?:to|for) [^,]{2,60},? not\b|you keep (?:offering|asking|suggesting|telling)|why do you keep)\b/i,
       matchedCue: 'frustrated-correction',
       summary: 'The operator corrected Atlas toward concrete execution after a disappointing response.',
       guidance: 'Prefer direct execution, recover from the missed expectation immediately, and avoid asking another redundant follow-up question.',
@@ -4387,12 +4405,16 @@ export async function applyOperatorFrustrationAdaptation(
   atlas: AtlasMindContext,
   routingContext: Record<string, unknown>,
 ): Promise<{ signal: UserFrustrationSignal; contextPatch: Record<string, unknown>; policySnapshot: SessionPolicySnapshot } | undefined> {
+  // Runs whichever way the branch below goes: it is undoing writes an earlier
+  // build made without asking, and that is owed regardless of what this turn
+  // says.
+  const workspaceState = atlas.extensionContext?.workspaceState;
+  if (workspaceState) {
+    await restoreSettingsWrittenWithoutAsking(workspaceState);
+  }
+
   const signal = detectUserFrustrationSignal(prompt);
   if (!signal) {
-    const workspaceState = atlas.extensionContext?.workspaceState;
-    if (workspaceState) {
-      await maybeCoolFrustrationSettings(workspaceState);
-    }
     return undefined;
   }
 
@@ -4460,7 +4482,6 @@ async function persistFrustrationLearning(atlas: AtlasMindContext, prompt: strin
   );
 
   await workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, profile);
-  await applyFrustrationSettingsTuning(workspaceState);
   await writeFrustrationFeedbackToSsot(atlas, prompt, signal, profile, now);
 }
 
@@ -4488,48 +4509,36 @@ function appendLearnedPreference(existing: unknown, addition: string): string {
   return `${current}\n- ${normalizedAddition}`;
 }
 
-async function applyFrustrationSettingsTuning(workspaceState: vscode.Memento): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
-  const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
-
-  // Save original values before any boost so we can restore them later.
-  const existing = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
-  if (!isFrustrationSettingsSnapshot(existing)) {
-    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
-      originalTurnLimit: currentTurnLimit,
-      originalContextChars: currentContextChars,
-      lastFrustrationAt: new Date().toISOString(),
-    } satisfies FrustrationSettingsSnapshot);
-  } else {
-    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
-      ...existing,
-      lastFrustrationAt: new Date().toISOString(),
-    } satisfies FrustrationSettingsSnapshot);
-  }
-
-  if (currentTurnLimit < MIN_FRUSTRATION_SESSION_TURNS) {
-    await configuration.update('chatSessionTurnLimit', MIN_FRUSTRATION_SESSION_TURNS, vscode.ConfigurationTarget.Workspace);
-  }
-
-  if (currentContextChars < MIN_FRUSTRATION_SESSION_CHARS) {
-    await configuration.update('chatSessionContextChars', MIN_FRUSTRATION_SESSION_CHARS, vscode.ConfigurationTarget.Workspace);
-  }
-}
-
-async function maybeCoolFrustrationSettings(workspaceState: vscode.Memento): Promise<void> {
+/**
+ * Undo the settings an earlier build wrote on the operator's behalf.
+ *
+ * Until v0.310.4 a detected frustration signal raised `chatSessionTurnLimit` and
+ * `chatSessionContextChars` automatically, at
+ * `ConfigurationTarget.Workspace` — i.e. into `.vscode/settings.json`, a file
+ * most repositories commit — and named neither in anything the operator read.
+ * The only trace in the turn was a timeline note reading "Learned from friction".
+ *
+ * Two things made that indefensible rather than merely brisk. The detector fired
+ * on ordinary polite requests ("can you do this for me when you have a moment"),
+ * so the write happened on turns where nothing had gone wrong. And a settings
+ * change nobody is told about cannot be reviewed, reverted, or even attributed —
+ * it just appears in somebody's diff.
+ *
+ * A tuning suggestion is the right shape for this, and that already exists: the
+ * tool-iteration ceiling names a value and offers a button. This restores what
+ * was written, once, and clears the snapshot; the suggestion path carries the
+ * intent from here.
+ *
+ * Restoration is conservative in the same way the old cooling logic was — a
+ * value is only put back if it still equals what was written, so an operator who
+ * has since chosen their own number keeps it.
+ */
+async function restoreSettingsWrittenWithoutAsking(workspaceState: vscode.Memento): Promise<void> {
   const stored = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
   if (!isFrustrationSettingsSnapshot(stored)) {
     return;
   }
 
-  const msSinceFrustration = Date.now() - new Date(stored.lastFrustrationAt).getTime();
-  if (msSinceFrustration < FRUSTRATION_COOLING_PERIOD_MS) {
-    return;
-  }
-
-  // Cooling period elapsed: restore original values — but only if they still
-  // equal what we boosted them to (so a user's manual change is not overwritten).
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
   const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;

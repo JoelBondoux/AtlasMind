@@ -877,30 +877,25 @@ const PROBES: Probe[] = [
     },
   },
   {
-    id: 'G8-silent-settings-writes',
+    id: 'G8-no-unannounced-settings-writes',
     lane: 'GUIDANCE',
-    asks: 'A setting changed on the user\'s behalf is named where the user is reading.',
-    because: 'The frustration path writes `chatSessionTurnLimit` and `chatSessionContextChars` at ConfigurationTarget.Workspace — i.e. into `.vscode/settings.json`, which is usually committed — and the only trace in the turn is a timeline note reading "Learned from friction". Read with the REPAIR lane, a polite "can you do this for me when you have a moment" is enough to trigger it.',
+    asks: 'Reacting to how the user sounds does not change their settings.',
+    because: 'Until v0.310.4 a detected frustration signal wrote `chatSessionTurnLimit` and `chatSessionContextChars` at ConfigurationTarget.Workspace — into `.vscode/settings.json`, which is usually committed — with no trace in the turn beyond a note reading "Learned from friction". Read with the REPAIR lane, a polite "can you do this for me when you have a moment" was enough to trigger it. A tuning *suggestion* is the right shape; a silent write cannot be reviewed, reverted or even attributed.',
     check: () => {
       const source = readSource('../src/chat/participant.ts');
-      // Anchored on the declaration, not the first mention: the call site appears
-      // earlier, and matching that captured a block with no writes in it — a
-      // vacuous pass.
-      const tuning = /async function applyFrustrationSettingsTuning[\s\S]*?\n}/.exec(source)?.[0] ?? '';
-      if (!/configuration\.update/.test(tuning)) {
-        return 'could not locate the settings-tuning function — this probe is measuring nothing, fix it before trusting the lane';
+      const frustrationPath = [
+        /export async function applyOperatorFrustrationAdaptation[\s\S]*?\n}/,
+        /async function persistFrustrationLearning[\s\S]*?\n}/,
+      ].map(pattern => pattern.exec(source)?.[0] ?? '');
+      if (frustrationPath.some(block => block.length === 0)) {
+        return 'could not locate the frustration path — this probe is measuring nothing, fix it before trusting the lane';
       }
-      const writtenKeys = [...tuning.matchAll(/configuration\.update\('([^']+)'/g)].map(match => match[1]!);
-      if (writtenKeys.length === 0) { return undefined; }
-      // A key is "named to the user" only if it appears somewhere other than the
-      // config calls that read and write it. Anything looser passes on the
-      // `configuration.get('chatSessionTurnLimit')` lines themselves, which is a
-      // false pass of exactly the kind this battery exists to catch.
-      const withoutConfigCalls = source.replace(/configuration\.(?:get<[^>]*>|get|update)\(\s*'[^']+'/g, 'configuration.call(');
-      const unnamed = writtenKeys.filter(key => !withoutConfigCalls.includes(key));
-      return unnamed.length === 0
+      const written = frustrationPath
+        .flatMap(block => [...block.matchAll(/configuration\.update\('([^']+)'/g)])
+        .map(match => match[1]!);
+      return written.length === 0
         ? undefined
-        : `these settings are written on the user's behalf and never named in anything the user reads: ${unnamed.join(', ')}`;
+        : `the frustration path still writes settings on the user's behalf: ${written.join(', ')}`;
     },
   },
 ];
