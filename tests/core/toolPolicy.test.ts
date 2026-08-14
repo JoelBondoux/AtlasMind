@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyToolInvocation } from '../../src/core/toolPolicy.ts';
+import { classifyToolInvocation, requiresToolApproval } from '../../src/core/toolPolicy.ts';
 
 describe('classifyToolInvocation terminal safety', () => {
   it('classifies node inline execution as terminal-write', () => {
@@ -99,5 +99,56 @@ describe('gh is graded by verb, as git is', () => {
 
   it('names what will run, so an approval prompt can be read', () => {
     expect(gh('pr', 'merge', '42').summary).toContain('gh pr merge');
+  });
+});
+
+describe('MCP tools are graded for what they do, not for their namespace', () => {
+  // Every MCP tool arrives as `mcp:<server>:<tool>`, and READ_LIKE_PREFIXES
+  // matches with startsWith — so the read list was unreachable for exactly the
+  // tools it was written for, and `mcp:supabase:list_tables` graded network/high,
+  // identically to a delete. With a couple of servers connected a single question
+  // became a wall of dialogs, which is how an approval mode stops meaning
+  // anything.
+  it.each([
+    'mcp:supabase:list_tables',
+    'mcp:github:get_issue',
+    'mcp:learn:microsoft_docs_search',
+    'mcp:m365:outlook_email_search',
+  ])('grades %s as network-read', name => {
+    const policy = classifyToolInvocation(name, {});
+    expect(policy.category).toBe('network-read');
+    expect(policy.risk).toBe('low');
+  });
+
+  it('never grades a remote read as a plain local read', () => {
+    // The distinction is the point: it mutates nothing, but it always leaves the
+    // machine and may be carrying the operator's data out with it.
+    expect(classifyToolInvocation('mcp:gmail:get_message', {}).category).not.toBe('read');
+  });
+
+  it.each([
+    'mcp:gmail:send_message',
+    'mcp:supabase:apply_migration',
+    'mcp:shopify:create-product',
+    'mcp:supabase:execute_sql',
+  ])('keeps %s at high risk', name => {
+    expect(classifyToolInvocation(name, {}).risk).toBe('high');
+  });
+
+  it('keeps the segment rule away from local tools', () => {
+    // `web-fetch` contains "fetch". Matching a read verb anywhere in a *local*
+    // tool name would make it a plain read — and the CLI gate, which permits
+    // read-only tooling without opt-in, would start permitting network calls.
+    expect(classifyToolInvocation('web-fetch', { url: 'https://example.com' }).category).toBe('network');
+    expect(classifyToolInvocation('http-request', {}).category).toBe('network');
+  });
+
+  it('lets a remote read through ask-on-write but not ask-on-external', () => {
+    // The two modes ask different questions, and this category has different
+    // answers for them: it changes nothing, and it left the machine.
+    const policy = classifyToolInvocation('mcp:github:get_issue', {});
+    expect(requiresToolApproval('ask-on-write', policy)).toBe(false);
+    expect(requiresToolApproval('ask-on-external', policy)).toBe(true);
+    expect(requiresToolApproval('always-ask', policy)).toBe(true);
   });
 });

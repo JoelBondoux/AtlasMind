@@ -7,13 +7,13 @@ A failure is a finding about the shipped surface, not a regression.
 |---|---:|---:|
 | QUESTION | 9 | 0 |
 | ANSWER | 3 | 1 |
-| INFO | 1 | 2 |
-| CONTINUITY | 4 | 1 |
+| INFO | 3 | 0 |
+| CONTINUITY | 5 | 0 |
 | REPAIR | 2 | 0 |
 | STOP | 8 | 0 |
-| COMMANDS | 5 | 2 |
-| TOOLING | 2 | 3 |
-| ORCHESTRATION | 5 | 1 |
+| COMMANDS | 7 | 0 |
+| TOOLING | 5 | 0 |
+| ORCHESTRATION | 6 | 0 |
 | GUIDANCE | 2 | 6 |
 
 ## Findings
@@ -25,78 +25,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** When the streamed text and the committed completion diverge, the reconciler appends the whole authoritative answer below a rule.
 
 **Observed:** the user reads a complete second answer appended below the first, with no indication which is authoritative (103 extra characters)
-
-### I1-cost-attribution (INFO)
-
-**Asked:** The turn footer says what the turn cost.
-
-**Why this shape:** AtlasMind routes across paid providers and ships a cost dashboard; the transcript is where the spend is actually incurred.
-
-**Observed:** footer names the model but never the cost or token count: "\n\n---\n_Model: claude-sonnet-5_"
-
-### I2-question-echo (INFO)
-
-**Asked:** The closing question is put to the user once, not twice.
-
-**Why this shape:** Detection lifts the trailing question into metadata, and the footer then renders it again under "Next step" directly beneath it.
-
-**Observed:** the same question is printed 2 times in one turn
-
-### C1-lexical-gap (CONTINUITY)
-
-**Asked:** A follow-up that changes the tool but not the topic keeps its context.
-
-**Why this shape:** Carry-forward is decided on lexical overlap with the last three prompts, and a genuine follow-up often shares no words with them.
-
-**Observed:** context dropped on a direct follow-up — the next turn answers with no memory of what "instead" refers to
-
-### M3-capitalised-command (COMMANDS)
-
-**Asked:** A command typed with a capital letter is still a command.
-
-**Why this shape:** Autocorrect capitalises the first letter after a newline on every touch keyboard and several editors; `/Cost` is a typo people make, not a path.
-
-**Observed:** `/Cost` is treated as prose and goes to a model — the user is billed for a model call that answers a question about billing
-
-### M4-trailing-punctuation (COMMANDS)
-
-**Asked:** A command with a trailing question mark is still a command, or is corrected.
-
-**Why this shape:** `/runs?` is how somebody asks what the command does; it currently reaches a model instead of the router.
-
-**Observed:** these reach a model instead of being dispatched or corrected: /runs?, /cost., /ship!
-
-### T1-mcp-read-is-a-read (TOOLING)
-
-**Asked:** A read-only MCP tool is graded as a read.
-
-**Why this shape:** The project's own gh comment sets the standard: grading a read like a write is "the kind of friction that gets a gate switched off wholesale".
-
-**Observed:** graded as network/high: mcp:supabase:list_tables, mcp:github:get_issue, mcp:learn:microsoft_docs_search
-
-### T3-read-detection-is-reachable (TOOLING)
-
-**Asked:** The read-name detection can actually fire on the tools it was written for.
-
-**Why this shape:** READ_LIKE_PREFIXES matches with startsWith, and every MCP tool name starts with the `mcp:` namespace — so the prefix list is unreachable for exactly the tools that need it.
-
-**Observed:** the same tool grades read bare and network namespaced — the namespace alone decides
-
-### T4-mcp-read-prompts-every-time (TOOLING)
-
-**Asked:** Under the default approval mode, reading through MCP does not require approval.
-
-**Why this shape:** ask-on-write is the default; if every MCP read prompts, a session with a connected server is a wall of dialogs and the mode stops meaning anything.
-
-**Observed:** a read-only MCP call requires approval under ask-on-write, identically to a delete
-
-### O5-ask-on-external-covers-writes (ORCHESTRATION)
-
-**Asked:** No approval mode leaves workspace deletion and commits unprompted.
-
-**Why this shape:** ask-on-external prompts on terminal, network and audio — file-delete, file-write and git-commit are none of those, so the mode permits unattended destructive local changes.
-
-**Observed:** under ask-on-external these run with no prompt: file-delete, file-write, git-commit, rollback-checkpoint
 
 ### G1-page-reach (GUIDANCE)
 

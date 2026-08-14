@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.311.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.312.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.311.1
+## What's new in 0.312.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The footer says what the turn cost**, reading through an MCP server no longer prompts as loudly as
+  deleting a file, `/Cost` and `/runs?` are commands rather than questions for a model, the closing
+  question is asked once instead of twice, and "use Playwright instead" keeps its context.
 
 - **A full stop inside a filename no longer deletes the question.** "Want me to update README.md?"
   reached you as nothing at all — no buttons, no follow-up prompt. The extractor could not read past a

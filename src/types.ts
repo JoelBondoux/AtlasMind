@@ -288,6 +288,18 @@ export type ToolRiskCategory =
   | 'git-read'
   | 'git-write'
   | 'network'
+  /**
+   * A remote call that changes nothing — an MCP `list_tables`, a docs search.
+   *
+   * Its own category because the two questions the gate asks have different
+   * answers for it: *will this change something* (no) and *does this leave the
+   * machine* (yes, always). Collapsing it into `read` throws away the second,
+   * which is the one that matters for a tool pulling the operator's mail into
+   * model context; leaving it as `network` made every MCP read prompt exactly as
+   * loudly as a delete, which is the friction that gets a gate switched off
+   * wholesale.
+   */
+  | 'network-read'
   | 'audio-input'
   | 'audio-output';
 

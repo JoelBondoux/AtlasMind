@@ -322,7 +322,8 @@ const PROBES: Probe[] = [
         modelUsed: 'claude-sonnet-5',
         followupQuestion: detected?.followupQuestion,
         suggestedFollowups: [{ label: 'Yes', prompt: 'yes' }],
-      }));
+        // The reply the footer sits beneath, exactly as the call site passes it.
+      }), answer);
       const occurrences = rendered.split(/shall i fix the banner\?/i).length - 1;
       return occurrences <= 1 ? undefined : `the same question is printed ${occurrences} times in one turn`;
     },
@@ -663,14 +664,14 @@ const PROBES: Probe[] = [
   // MCP tools reach the approval gate as `mcp:<server>:<tool>` — they never
   // match a case in the switch, so every one of them is graded by name alone.
   {
-    id: 'T1-mcp-read-is-a-read',
+    id: 'T1-mcp-read-is-graded-as-a-read',
     lane: 'TOOLING',
-    asks: 'A read-only MCP tool is graded as a read.',
-    because: "The project's own gh comment sets the standard: grading a read like a write is \"the kind of friction that gets a gate switched off wholesale\".",
+    asks: 'A read-only MCP tool is graded as a read that leaves the machine.',
+    because: "Two questions with different answers: it mutates nothing, and it always reaches a third party. Grading it plain `read` would drop the second — it may be pulling the operator's mail into model context. Grading it `network`/high, which is what it did, made it prompt exactly as loudly as a delete, and the project's own gh comment names that as \"the kind of friction that gets a gate switched off wholesale\".",
     check: () => {
       const graded = ['mcp:supabase:list_tables', 'mcp:github:get_issue', 'mcp:learn:microsoft_docs_search']
         .map(name => ({ name, policy: classifyToolInvocation(name, {}) }))
-        .filter(entry => entry.policy.category !== 'read');
+        .filter(entry => entry.policy.category !== 'network-read');
       return graded.length === 0
         ? undefined
         : `graded as ${graded[0]!.policy.category}/${graded[0]!.policy.risk}: ${graded.map(entry => entry.name).join(', ')}`;
@@ -695,9 +696,13 @@ const PROBES: Probe[] = [
     check: () => {
       const bare = classifyToolInvocation('list_tables', {}).category;
       const namespaced = classifyToolInvocation('mcp:supabase:list_tables', {}).category;
-      return bare === namespaced
+      // The namespace may legitimately change the *category* — a remote read is
+      // not a local one — but it must not decide whether the name reads as a
+      // read at all. Both must land in a read category.
+      const reads = ['read', 'network-read'];
+      return reads.includes(bare) && reads.includes(namespaced)
         ? undefined
-        : `the same tool grades ${bare} bare and ${namespaced} namespaced — the namespace alone decides`;
+        : `the same tool grades ${bare} bare and ${namespaced} namespaced — the namespace is deciding whether the name is readable at all`;
     },
   },
   {
@@ -773,16 +778,25 @@ const PROBES: Probe[] = [
     },
   },
   {
-    id: 'O5-ask-on-external-covers-writes',
+    id: 'O5-approval-modes-describe-themselves',
     lane: 'ORCHESTRATION',
-    asks: 'No approval mode leaves workspace deletion and commits unprompted.',
-    because: 'ask-on-external prompts on terminal, network and audio — file-delete, file-write and git-commit are none of those, so the mode permits unattended destructive local changes.',
+    asks: 'A mode\'s description tells you what it lets through, not only what it adds.',
+    because: '`ask-on-external` leaving file writes, deletes and commits unprompted is the mode working as chosen — it gates what leaves the editor. The defect was the presentation: the manifest enum order drives the dropdown, so the four render as a descending ladder, while the last two are orthogonal axes. Tightening your setting from ask-on-write to ask-on-external silently loses the write gate, and the description named only the additions.',
     check: () => {
-      const unprompted = ['file-delete', 'file-write', 'git-commit', 'rollback-checkpoint']
-        .filter(tool => !requiresToolApproval('ask-on-external', classifyToolInvocation(tool, {})));
-      return unprompted.length === 0
-        ? undefined
-        : `under ask-on-external these run with no prompt: ${unprompted.join(', ')}`;
+      const manifest = JSON.parse(readSource('../package.json'));
+      const property = manifest.contributes?.configuration?.properties?.['atlasmind.toolApprovalMode'];
+      const copy = `${property?.description ?? ''}\n${property?.markdownDescription ?? ''}`.toLowerCase();
+      if (!copy.trim()) { return 'no description found — this probe is measuring nothing'; }
+
+      // The one fact a person choosing this setting most needs and was never told.
+      if (!/file write|file writes|writes, deletes/.test(copy)) {
+        return 'the copy never says that ask-on-external allows local file writes, which is the fact somebody tightening their setting most needs';
+      }
+      // And that the last two do not sit on one scale.
+      if (!/different ax(?:i|e)s|not a stricter|neither gates a superset/.test(copy)) {
+        return 'the copy still presents the four modes as one ladder, though the last two gate neither a superset nor a subset of each other';
+      }
+      return undefined;
     },
   },
   {

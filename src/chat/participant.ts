@@ -213,6 +213,16 @@ const DEICTIC_FIX_EXECUTION_PATTERN = /^\s*(?:please\s+)?(?:fix|implement|resolv
 const CONTEXTUAL_FOLLOWUP_HINT_PATTERN = /\b(?:based\s+on\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|from\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|using\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(?:the\s+)?(?:chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 const AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN = /^\s*(?:(?:why|how|what|which|where|when)\b|(?:and|also|instead)\b|(?:that|this|it|them|those|these)\b|(?:can|could|would|will)\s+you\s+(?:do|fix|change|update|explain|summari[sz]e|show|handle)\s+(?:that|this|it|them|those|these)\b)/i;
 const STRONG_SUBJECT_SHIFT_HINT_PATTERN = /\b(?:create|generate|design|draw|make)\b[\s\S]{0,80}\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b|\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b[\s\S]{0,80}\b(?:create|generate|design|draw|make)\b/i;
+/**
+ * A short instruction that substitutes one thing for another — "use Playwright
+ * instead", "switch to Vitest", "do it with fast-check rather than by hand".
+ *
+ * These carry a new noun and almost none of the previous turn's vocabulary, so
+ * lexical overlap scores them as a change of subject when they are the opposite:
+ * unanswerable *without* the previous turn. Bounded in length so a long prompt
+ * that merely contains "instead" is still judged on its content.
+ */
+const INSTRUMENTAL_SUBSTITUTION_PATTERN = /^[\s\S]{0,120}\b(?:instead|rather than|in place of|switch to|swap (?:it |that )?(?:for|to)|use .{1,40} (?:instead|rather))\b[\s\S]{0,40}$/i;
 const CONTEXT_TOKEN_SKIP_WORDS = new Set([
   'a', 'about', 'after', 'all', 'alternative', 'an', 'and', 'any', 'are', 'atlas', 'atlasmind', 'based', 'be', 'before', 'but', 'by', 'can', 'change', 'chat',
   'continue', 'create', 'current', 'design', 'do', 'does', 'earlier', 'explain', 'fix', 'for', 'from', 'generate', 'go', 'had', 'handle', 'help', 'here', 'how',
@@ -776,6 +786,15 @@ export function shouldCarryForwardConversationContext(
     || DEICTIC_EXECUTION_FOLLOWUP_PATTERN.test(trimmed)
     || CONTEXTUAL_FOLLOWUP_HINT_PATTERN.test(trimmed)
     || AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  // A short instruction that swaps one thing for another is contextual by
+  // construction: "use Playwright instead" is unanswerable without knowing what
+  // it replaces, and it shares no words with the prompts that set the topic. The
+  // overlap test was measuring vocabulary rather than continuity, and dropped
+  // the thread on exactly the turn that needed it most.
+  if (INSTRUMENTAL_SUBSTITUTION_PATTERN.test(trimmed)) {
     return true;
   }
 
@@ -3642,7 +3661,7 @@ async function runChatTask(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
-  stream.markdown(renderAssistantResponseFooter(assistantMeta));
+  stream.markdown(renderAssistantResponseFooter(assistantMeta, reconciled.transcriptText));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, sessionId, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
@@ -4274,6 +4293,11 @@ export function buildAssistantResponseMetadata(
 
   return {
     modelUsed: result.modelUsed,
+    // Carried so the footer can say what the turn cost. Zero is meaningful — a
+    // local or subscription-backed turn — so this is not conditional on truthiness.
+    ...(typeof result.costUsd === 'number' ? { costUsd: result.costUsd } : {}),
+    ...(typeof result.inputTokens === 'number' ? { inputTokens: result.inputTokens } : {}),
+    ...(typeof result.outputTokens === 'number' ? { outputTokens: result.outputTokens } : {}),
     ...(attempts.length > 1
       ? { modelsUsed: [...new Set(attempts.map(attempt => attempt.model))] }
       : {}),
@@ -4347,14 +4371,33 @@ export function buildProjectResponseMetadata(goal: string, result?: Pick<Project
   };
 }
 
-export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadata | undefined): string {
+/**
+ * @param answerText the reply this footer will sit beneath, when the caller has
+ * it. Used only to suppress a "Next step" that would repeat a question the
+ * operator has just read.
+ */
+export function renderAssistantResponseFooter(
+  metadata: SessionTranscriptMetadata | undefined,
+  answerText?: string,
+): string {
   if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length) {
     return '';
   }
 
   const sections: string[] = [];
   if (metadata.modelUsed) {
-    sections.push(`\n\n---\n_Model: ${metadata.modelUsed}_`);
+    // The transcript is where the spend is actually incurred, and it was the one
+    // surface that never mentioned it: the footer named the model and stopped,
+    // on a product that routes across paid providers and ships a cost dashboard.
+    // Zero is worth printing — a local or subscription-backed turn costing
+    // nothing is a fact about the routing, not an absence of information.
+    const spend = typeof metadata.costUsd === 'number'
+      ? ` · ${formatCost(metadata.costUsd, 4)}`
+      : '';
+    const tokens = typeof metadata.inputTokens === 'number' && typeof metadata.outputTokens === 'number'
+      ? ` · ${metadata.inputTokens.toLocaleString()} in / ${metadata.outputTokens.toLocaleString()} out`
+      : '';
+    sections.push(`\n\n---\n_Model: ${metadata.modelUsed}${spend}${tokens}_`);
   }
 
   if (metadata.thoughtSummary) {
@@ -4368,8 +4411,18 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.followupQuestion) {
+    // The question is lifted out of the reply's own tail, so restating it under
+    // "Next step" printed it twice in one turn, the two copies separated by a
+    // few lines. Where the answer already ends with it, only the options are
+    // worth adding.
     const labels = metadata.suggestedFollowups?.map(item => `- ${item.label}`).join('\n') ?? '';
-    sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
+    const alreadyAsked = typeof answerText === 'string'
+      && answerText.trimEnd().toLowerCase().endsWith(metadata.followupQuestion.trim().toLowerCase());
+    if (!alreadyAsked) {
+      sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
+    } else if (labels) {
+      sections.push(`\n\n${labels}`);
+    }
   }
 
   if (metadata.timelineNotes?.length) {

@@ -75,10 +75,14 @@ export function requiresToolApproval(mode: ToolApprovalMode, policy: ToolInvocat
     case 'always-ask':
       return true;
     case 'ask-on-write':
-      return policy.category !== 'read' && policy.category !== 'git-read';
+      // `network-read` passes: it mutates nothing, which is the question this
+      // mode asks. `ask-on-external` is the mode that cares that it left the
+      // machine, and it still gates it below.
+      return policy.category !== 'read' && policy.category !== 'git-read' && policy.category !== 'network-read';
     case 'ask-on-external':
       return policy.category === 'terminal-read' || policy.category === 'terminal-write' ||
-        policy.category === 'network' || policy.category === 'audio-input' || policy.category === 'audio-output';
+        policy.category === 'network' || policy.category === 'network-read' ||
+        policy.category === 'audio-input' || policy.category === 'audio-output';
     case 'allow-safe-readonly':
       return policy.category !== 'read' && policy.category !== 'git-read' && policy.category !== 'terminal-read';
   }
@@ -94,16 +98,51 @@ const WRITE_LIKE_SUBSTRINGS = ['write', 'create', 'update', 'delete', 'remove', 
   'post', 'put', 'patch', 'insert', 'upsert', 'push', 'send', 'publish', 'execute',
   'exec', 'run', 'invoke', 'deploy', 'drop', 'truncate'] as const;
 
+/**
+ * Strip the `mcp:<server>:` namespace before judging a tool by its name.
+ *
+ * `READ_LIKE_PREFIXES` matches with `startsWith`, and **every** MCP tool arrives
+ * here as `mcp:<server>:<tool>` — so the read list was unreachable for exactly
+ * the tools it was written for, and `mcp:supabase:list_tables` graded `network`
+ * / high, identically to a delete. With a couple of servers connected, a single
+ * question became a wall of dialogs, which is how an approval mode stops meaning
+ * anything.
+ */
+function toolNameForClassification(toolName: string): string {
+  const mcp = /^mcp:[^:]+:(.+)$/.exec(toolName);
+  return (mcp?.[1] ?? toolName).toLowerCase().replace(/[-_]/g, '-');
+}
+
 function classifyUnknownToolName(toolName: string): ToolInvocationPolicy {
-  const n = toolName.toLowerCase().replace(/[-_]/g, '-');
+  const n = toolNameForClassification(toolName);
+  const remote = toolName.startsWith('mcp:');
 
   // Anything with a write-like token wins over read-like prefix to stay safe.
   if (WRITE_LIKE_SUBSTRINGS.some(sub => n.includes(sub))) {
     return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
   }
 
-  if (READ_LIKE_PREFIXES.some(prefix => n.startsWith(prefix))) {
-    return { category: 'read', risk: 'low', summary: `run ${toolName}` };
+  // A read verb anywhere in the name counts — but only for a namespaced MCP
+  // tool, and only into `network-read`.
+  //
+  // MCP servers put the verb wherever it reads best (`microsoft_docs_search`,
+  // `outlook_email_search`, `hub_repo_details`), so a prefix test misses most of
+  // them. Local tools keep the prefix rule, because widening it there promotes
+  // things that genuinely reach out: `web-fetch` contains "fetch" and would
+  // become a plain local read, which is how a CLI gate that permits only
+  // read-only tooling would start permitting network calls.
+  const segments = n.split('-');
+  const namedAsRead = remote
+    ? READ_LIKE_PREFIXES.some(prefix => n.startsWith(prefix) || segments.includes(prefix))
+    : READ_LIKE_PREFIXES.some(prefix => n.startsWith(prefix));
+
+  if (namedAsRead) {
+    // A remote read is `network-read`, never plain `read`: it mutates nothing,
+    // but it always leaves the machine, and often carries the operator's data
+    // out with it.
+    return remote
+      ? { category: 'network-read', risk: 'low', summary: `read from external tool ${toolName}` }
+      : { category: 'read', risk: 'low', summary: `run ${toolName}` };
   }
 
   return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };

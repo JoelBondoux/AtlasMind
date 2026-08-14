@@ -69,6 +69,18 @@ export interface SessionTranscriptMetadata {
   modelUsed?: string;
   /** All models that contributed to this reply, in order of first use. */
   modelsUsed?: string[];
+  /**
+   * What this turn cost, and what it spent it on.
+   *
+   * Carried so the transcript footer can say so. The footer named the model and
+   * nothing else, on a product that routes across paid providers and ships a
+   * cost dashboard — and the transcript is where the spend is actually incurred.
+   * Zero is a real value here (a local or subscription-backed turn), not an
+   * absence.
+   */
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   thoughtSummary?: SessionThoughtSummary;
   userVote?: SessionAssistantVote;
   votedAt?: string;

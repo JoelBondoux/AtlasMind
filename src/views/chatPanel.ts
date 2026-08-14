@@ -3262,7 +3262,7 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
         : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
       const timelineBlock = renderTimelineNotesMarkdown(entry.meta?.timelineNotes);
-      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
+      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups, entry.content);
       return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${attachmentBlock}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
     })
     .join('\n\n');
@@ -3293,9 +3293,17 @@ function renderTimelineNotesMarkdown(timelineNotes: readonly SessionTimelineNote
 function renderSuggestedFollowupsMarkdown(
   followupQuestion: string | undefined,
   suggestedFollowups: readonly ChatPanelSuggestedFollowup[] | undefined,
+  answerText?: string,
 ): string {
   if (!followupQuestion || !suggestedFollowups || suggestedFollowups.length === 0) {
     return '';
+  }
+
+  // The question is lifted out of the reply's own tail, so restating it here
+  // printed it twice in one exported turn.
+  if (typeof answerText === 'string'
+    && answerText.trimEnd().toLowerCase().endsWith(followupQuestion.trim().toLowerCase())) {
+    return `\n\n${suggestedFollowups.map(item => `- ${escapeMarkdownHtml(item.label)}`).join('\n')}`;
   }
 
   return `\n\n**Next step:** ${escapeMarkdownHtml(followupQuestion)}\n\n${suggestedFollowups

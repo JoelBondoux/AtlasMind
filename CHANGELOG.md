@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.312.0] - 2026-08-14
+
+### Added
+
+- **The turn footer says what the turn cost.** It named the model and stopped, on a product that routes
+  across paid providers and ships a cost dashboard — and the transcript is where the spend is actually
+  incurred. Cost and token counts are carried on the transcript metadata and rendered beside the model.
+  Zero is printed rather than hidden: a local or subscription-backed turn costing nothing is a fact about
+  the routing, not an absence of one.
+
+- **`network-read`, a category for a remote call that changes nothing.** Every MCP tool reaches the
+  approval gate as `mcp:<server>:<tool>`, and `READ_LIKE_PREFIXES` matches with `startsWith` — so the read
+  list was unreachable for exactly the tools it was written for, and `mcp:supabase:list_tables` graded
+  `network`/high, identically to a delete. With two servers connected a single question became a wall of
+  dialogs, which is how an approval mode stops meaning anything.
+
+  Neither existing category was right. It mutates nothing, so `network`/high overstates it; it always
+  leaves the machine and may be carrying the operator's mail into model context, so `read` understates it.
+  The new category passes `ask-on-write` and is still gated by `ask-on-external` and `always-ask`. For
+  namespaced tools a read verb counts anywhere in the name, because MCP servers write
+  `microsoft_docs_search` — local tools keep the prefix rule, since widening it there would make
+  `web-fetch` a plain read and the CLI's read-only gate would start permitting network calls.
+
+### Changed
+
+- **The approval modes describe what they let through, not only what they add.** `ask-on-external` allows
+  local file writes, deletes and commits — that is the mode working as chosen, since it gates what leaves
+  the editor — but nothing said so, and the manifest enum order renders the four as a descending ladder.
+  The last two are orthogonal axes: `ask-on-external` asks *did this leave the machine?* and
+  `allow-safe-readonly` asks *did this change something?*, and neither gates a superset of the other. So
+  tightening from `ask-on-write` to `ask-on-external` silently loses the write gate. Both descriptions now
+  say what each mode permits, and that the last two do not sit on one scale.
+
+### Fixed
+
+- **`/Cost` and `/runs?` are commands.** The router matched `[a-z][a-z-]*` with nothing after it, so a
+  capital — which is what a touch keyboard's autocapitalisation produces — or a trailing `?`, `.` or `!`
+  fell through to a model. `/cost` doing that means the operator pays for a model call answering a
+  question about billing. The path guard is unchanged and still load-bearing: `/usr/bin/x`, `/README.md`
+  and `/etc/hosts has the wrong entry` remain prose.
+
+- **The closing question is asked once.** Detection lifts the trailing question into metadata and the
+  footer restated it under "Next step", printing it twice in one turn. Where the answer already ends with
+  it, only the options are added.
+
+- **A follow-up that swaps the tool keeps its context.** Carry-forward is decided on lexical overlap with
+  the last three prompts, and "use Playwright instead" shares no words with any of them — so the thread
+  was dropped on a turn that is unanswerable without it. A short instruction carrying a substitution cue
+  now carries context by construction.
+
 ## [0.311.1] - 2026-08-14
 
 ### Fixed

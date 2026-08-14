@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.311.1",
+  "version": "0.312.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1859,8 +1859,8 @@
             "ask-on-external",
             "allow-safe-readonly"
           ],
-          "description": "How AtlasMind requests approval before running tools with side effects or external execution.",
-          "markdownDescription": "How AtlasMind requests approval before running tools with side effects or external execution. This is the main safety dial for automation.\n\nModes:\n- `always-ask`: prompt for every tool action\n- `ask-on-write`: allow reads but prompt before writes\n- `ask-on-external`: prompt when leaving the editor boundary, such as terminal or network activity\n- `allow-safe-readonly`: allow only safe read operations without prompts\n\nExamples:\n- Highly regulated repo: `always-ask`\n- Normal coding workflow: `ask-on-write`\n- Trusted internal automation with careful review: `ask-on-external`\n- Read-only investigation or audits: `allow-safe-readonly`"
+          "description": "How AtlasMind requests approval before running tools with side effects or external execution. Each mode is described by what it does NOT prompt for. The last two are different axes, not a stricter and a looser setting: ask-on-external gates anything leaving the editor but allows local file writes, while allow-safe-readonly does the opposite.",
+          "markdownDescription": "How AtlasMind requests approval before running tools with side effects or external execution. This is the main safety dial for automation.\n\n**Each mode is described by what it lets through without asking** — that is the part you need to know, and naming only the additions is how a mode came to be chosen for the wrong reason.\n\n- `always-ask`: nothing. Every tool action prompts.\n- `ask-on-write`: reads — local reads, git reads, and remote reads that change nothing.\n- `ask-on-external`: everything local, **including file writes, deletes and commits**. It prompts for anything that leaves the editor: terminal, network, audio.\n- `allow-safe-readonly`: local reads, git reads and terminal reads. Writes and external calls prompt.\n\n**The last two are different axes, not a stricter and a looser setting.** `ask-on-external` asks *did this leave the machine?*; `allow-safe-readonly` asks *did this change something?* Neither gates a superset of the other, so moving between them tightens one thing and loosens another.\n\nExamples:\n- Highly regulated repo: `always-ask`\n- Normal coding workflow: `ask-on-write`\n- Trusted local automation where the risk you care about is reaching outside: `ask-on-external`\n- Read-only investigation or audits: `allow-safe-readonly`"
         },
         "atlasmind.allowTerminalWrite": {
           "type": "boolean",

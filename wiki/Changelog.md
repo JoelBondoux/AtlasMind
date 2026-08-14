@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.312.0 — What the turn cost, and which tools actually need asking about
+
+The footer named the model and never the cost, on a product that routes across paid providers. It says
+both now.
+
+Reading through an MCP server used to prompt exactly as loudly as deleting a file — every MCP tool was
+graded high-risk network, because the rule that recognises a read could never match a name beginning
+`mcp:`. Remote reads have their own category now: they pass the default mode and are still gated by the
+one that cares about anything leaving your machine.
+
+Also: `/Cost` and `/runs?` are commands rather than questions for a model, the closing question is asked
+once instead of twice, "use Playwright instead" keeps its context, and the approval modes now describe
+what they let through — `ask-on-external` allows local file writes, which nothing used to say.
+
 ## v0.311.1 — A full stop no longer deletes the question
 
 "Want me to update README.md?" reached you as nothing at all — no buttons, no follow-up prompt, no sign
