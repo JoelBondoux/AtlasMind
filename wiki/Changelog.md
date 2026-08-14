@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.315.1 — The card appears when the run is offered as a statement
+
+AtlasMind recognised "If you want, I can start a project run…" as an offer, but the Start / Save / Cancel
+card needs a goal, and the code that works out what was offered still required a question mark. With none
+it found no goal, so the card never appeared — and the turn ended having been detected as waiting on you
+while showing nothing at all. That is the original complaint, by a second route.
+
 ## v0.315.0 — "If you want, I can…" is now something you can click
 
 AtlasMind only offered you buttons when a reply ended in a question mark. Run against a real model, that

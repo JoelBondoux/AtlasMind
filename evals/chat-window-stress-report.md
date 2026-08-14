@@ -10,7 +10,7 @@ A failure is a finding about the shipped surface, not a regression.
 | INFO | 3 | 0 |
 | CONTINUITY | 5 | 0 |
 | REPAIR | 2 | 0 |
-| STOP | 8 | 0 |
+| STOP | 9 | 0 |
 | COMMANDS | 7 | 0 |
 | TOOLING | 5 | 0 |
 | ORCHESTRATION | 6 | 0 |

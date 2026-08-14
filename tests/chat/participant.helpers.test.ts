@@ -1778,6 +1778,10 @@ describe('an offer without a question mark is still an offer', () => {
   it.each([
     'If you want, I can also add a short release notes heading for a specific type instead of Changed.',
     'If you want, I can start a project run to validate the required checks locally.',
+    // Verbatim shape from a real session. Every hand-written case used "if you
+    // want," where the comma supplied the word boundary; this one inflects the
+    // verb, and a bare \b after it cannot fire between "want" and "s".
+    'If The User wants, I can start a project run next to: validate the required checks locally.',
     'Let me know if you want me to wire the same cache into the image path.',
     "I can raise the TTL to five minutes if you'd prefer.",
     "Happy to split that into two commits if you'd like.",

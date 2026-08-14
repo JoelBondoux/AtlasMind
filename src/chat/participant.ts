@@ -3949,7 +3949,12 @@ function endsWithQuestion(line: string): boolean {
  * A conditional opener addressed to the operator: "If you want, …",
  * "Let me know if …", "Happy to …".
  */
-const OFFER_CONDITION_PATTERN = /\b(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)|let\s+me\s+know\s+if|say\s+the\s+word)\b/i;
+// `s?` on the verb, not a bare `\b` after it. "If **The User wants**, I can …"
+// is a real transcript, and `\b` cannot fire between the "t" of "want" and the
+// "s" that follows it — both are word characters. Every hand-written probe used
+// "if you want," where the comma supplied the boundary, so the whole shape
+// passed while the real one did not.
+const OFFER_CONDITION_PATTERN = /\b(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)(?:s|ed)?\b|let\s+me\s+know\s+if\b|say\s+the\s+word\b)/i;
 
 /**
  * Phrasings that are an offer on their own, needing no separate condition.
@@ -5547,9 +5552,13 @@ function normalizeProjectRunProposalAction(action: string | undefined): string |
   if (!action) {
     return undefined;
   }
-  const meta = PROJECT_RUN_META_ACTION_PREFIX.test(action)
+  const meta = (PROJECT_RUN_META_ACTION_PREFIX.test(action)
     ? action.replace(PROJECT_RUN_META_ACTION_PREFIX, '').trim()
-    : action.trim();
+    : action.trim())
+    // "…a project run **next to:** validate the checks" — a connector the meta
+    // prefix leaves behind, which would otherwise open the stated goal.
+    .replace(/^(?:next\s+)?to:?\s+/i, '')
+    .trim();
   // "Shall I go ahead and update the README?" leaves "go ahead and update the
   // README". The affirmation is a preamble to the action, not part of it.
   const normalized = meta.replace(GO_AHEAD_PREFIX_PATTERN, '').trim();
@@ -5596,15 +5605,42 @@ export function extractAssistantProposedAction(
     return undefined;
   }
 
-  const questionMatch = RESPONSE_TRAILING_QUESTION_PATTERN.exec(lastAssistant.content.trim());
+  const content = lastAssistant.content.trim();
+  const questionMatch = RESPONSE_TRAILING_QUESTION_PATTERN.exec(content);
   const question = questionMatch?.[1]?.trim();
-  if (!question || !ASSISTANT_OFFER_LEAD_IN_PATTERN.test(question)) {
+
+  if (question && ASSISTANT_OFFER_LEAD_IN_PATTERN.test(question)) {
+    const action = question
+      .replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '')
+      .replace(/\?+\s*$/, '')
+      .trim();
+    return action.length >= 3 ? action : undefined;
+  }
+
+  // No question mark, but the reply may still have offered something.
+  //
+  // This is where the decision card was being lost. `detectProjectRunProposal`
+  // correctly returned true for "If The User wants, I can start a project run
+  // next to: …", but `resolveProjectRunProposal` also needs a *goal*, and this
+  // function keyed on the trailing `?` alone — so it returned undefined, goal
+  // resolution fell through to the prior user prompts (an affirmation and an
+  // informational question, both skipped by design), and the card silently
+  // never rendered. Detection said a decision was pending and nothing on screen
+  // said so: exactly the symptom the STOP lane exists for, arriving by a
+  // different route from the one it already closed.
+  const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
+  const offer = extractDeclarativeOffer(lines[lines.length - 1] ?? '');
+  if (!offer) {
     return undefined;
   }
 
-  const action = question
-    .replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '')
-    .replace(/\?+\s*$/, '')
+  const action = offer
+    // "If you want, " / "If The User wants, " / "Let me know if you want me to "
+    .replace(/^\s*(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)[^,]{0,40},\s*|let\s+me\s+know\s+if\s+(?:you'?d\s+like\s+me\s+to|you\s+want\s+me\s+to)\s*)/i, '')
+    // "I can " / "I'll " / "happy to " — the undertaking, not the work.
+    .replace(/^\s*(?:i\s+can|i\s+could|i'?ll|i\s+will|let\s+me|i'?d\s+be\s+(?:glad|happy)\s+to|i'?m\s+happy\s+to|happy\s+to)\s+/i, '')
+    .replace(/\s+if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)\s*[.!]?\s*$/i, '')
+    .replace(/[.!]\s*$/, '')
     .trim();
   return action.length >= 3 ? action : undefined;
 }

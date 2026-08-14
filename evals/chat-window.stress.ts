@@ -38,6 +38,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import {
+  resolveProjectRunProposal,
   detectResponseQuickReplies,
   buildQuickReplyPayload,
   reconcileAssistantResponse,
@@ -157,6 +158,7 @@ const SEVERITY_ASSIGNMENTS: Readonly<Record<string, SeverityRule['id']>> = {
   'G8-no-unannounced-settings-writes': 'outlives-the-conversation',
   'R2-no-false-positive': 'outlives-the-conversation',
   'S6-goal-is-a-goal': 'acts-without-showing',
+  'S9-declarative-offer-gets-a-card': 'misreports-what-happens-next',
   'S5-deferral-honoured': 'acts-without-showing',
   'S8-goal-is-recognisable': 'acts-without-showing',
   'S2-offer-without-vocabulary': 'misreports-what-happens-next',
@@ -678,6 +680,29 @@ const PROBES: Probe[] = [
       return /^(?:go\s+ahead|proceed|continue|yes|ok(?:ay)?|sure|do\s+it|carry\s+on)$/i.test(goal)
         ? `the run is planned against the goal ${JSON.stringify(goal)} — the affirmation itself, not anything anyone asked for`
         : undefined;
+    },
+  },
+  {
+    id: 'S9-declarative-offer-gets-a-card',
+    lane: 'STOP',
+    asks: 'A turn that offers a run without a question mark still shows the decision card.',
+    because: 'Taken from a real session. `detectProjectRunProposal` returned true on "If The User wants, I can start a project run next to: …" — but the card also needs a *goal*, and the action extractor keyed on the trailing `?`. So goal resolution fell through to the prior user prompts, an affirmation and an informational question that are both skipped by design, and the card silently never rendered. Detection said a decision was pending and nothing on screen said so.',
+    check: () => {
+      const reply = 'Current blocker: clean/commit workspace before any promotion run.\n\nIf The User wants, I can start a project run next to: 1) validate required checks locally, and 2) prepare a clean pre-promotion readiness checklist.';
+      const conversation = transcriptOf([
+        ['which of the delivery stages should I promote first?', 'Promote in order: Local, then Private preview.'],
+      ]);
+      conversation.recordTurn('yes', reply);
+      const transcript = conversation.getTranscript();
+
+      if (!detectProjectRunProposal(reply)) { return 'the offer is no longer detected at all'; }
+      const proposal = resolveProjectRunProposal(reply, transcript);
+      if (!proposal) {
+        return 'the offer is detected but no goal resolves, so the panel renders no decision card — the turn is waiting and says nothing';
+      }
+      return /validate required checks/i.test(proposal.goal)
+        ? undefined
+        : `the card would run against ${JSON.stringify(proposal.goal)}, which is not what was offered`;
     },
   },
   {

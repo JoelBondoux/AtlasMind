@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.315.1] - 2026-08-14
+
+### Fixed
+
+- **A run offered without a question mark now shows its decision card.** `detectProjectRunProposal`
+  correctly returned true for *"If The User wants, I can start a project run next to: …"*, but the card
+  also needs a **goal**, and `extractAssistantProposedAction` keyed on the trailing `?` alone. With none,
+  goal resolution fell through to the prior user prompts — an affirmation and an informational question,
+  both skipped by design — so no goal resolved and the card silently never rendered.
+
+  The turn was therefore recognised as pending a run and showed *nothing*: no chips, no card, no follow-up
+  question. That is the originally reported symptom arriving by a different route from the one the STOP
+  lane had already closed. The action extractor now falls back to the declarative offer, stripping the
+  condition and the undertaking so the goal is the work rather than the offer of it.
+
+- **A word boundary that could not fire.** `OFFER_CONDITION_PATTERN` ended `(?:want|like|prefer|wish)`,
+  and `` cannot match between the "t" of "want" and the "s" of "wants" — both are word characters. Every
+  hand-written probe used *"if you want,"*, where the comma supplied the boundary, so the shape passed
+  while the inflected form in the real transcript did not. The verb now takes an optional `s`/`ed`, and
+  the plural form is a test case.
+
+  Two rounds of this now: a probe corpus written by the same hand as the detector agrees with it about
+  what output looks like. Real transcripts do not.
+
 ## [0.315.0] - 2026-08-14
 
 ### Fixed

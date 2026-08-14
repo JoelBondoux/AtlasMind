@@ -250,7 +250,9 @@ Run against the shipped detectors, all four produce zero chips and no follow-up 
 
 The automated battery could not have found this. Its inputs are written by whoever writes the probes, and every QUESTION probe was phrased with a question mark, so all nine passed while the lane was dead against real output. This is the gap between the two halves, on the first lane run.
 
-The fourth turn *does* produce `detectProjectRunProposal: true` — it says "I can start a project run" — so a decision card should have rendered there even with no chips. Whether it did is still unconfirmed.
+**Confirmed: no decision card either.** The fourth turn produces `detectProjectRunProposal: true` — the offer *is* recognised — but `resolveProjectRunProposal` also needs a goal, and `extractAssistantProposedAction` keyed on the same trailing `?`. With none, goal resolution fell through to the prior user prompts, an affirmation and an informational question, both skipped by design. No goal, no card.
+
+So the turn was detected as pending a run and showed nothing at all: no chips, no card, no follow-up question. That is the original reported symptom, arriving by a different route from the one the STOP lane had already closed — and it is the reason running this lane was worth more than any number of synthesised probes. Fixed in v0.315.1; pinned by `S9-declarative-offer-gets-a-card`.
 
 **Also observed, outside Lane 1**
 
