@@ -53,6 +53,7 @@ import {
   detectResponseQuickReplies,
   buildQuickReplyPayload,
   detectProjectRunProposal,
+  sanitizeResponseTail,
   buildProjectRunAutoFlowNotice,
   resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
@@ -1695,5 +1696,70 @@ describe('a run goal is a goal, not the word used to agree', () => {
     ]]);
 
     expect(resolveAutonomousContinuationGoal('yes on 0.310.5', transcript)).toBeDefined();
+  });
+});
+
+describe('a full stop inside a name is not a sentence boundary', () => {
+  // One regex took out the whole question lane. `[^.!?]*\?` cannot cross a full
+  // stop, so "Want me to update README.md?" yielded "md?" — three characters,
+  // below the length guard, discarded — and the question reached the operator as
+  // nothing at all. Every closing offer naming a file, a path or a version went
+  // the same way, which is most of what Atlas offers to do in a codebase.
+  it.each([
+    ['I can bring the banner in line.\n\nWant me to update README.md?', 'want me to update readme.md?'],
+    ['That logic lives in the participant.\n\nDo you want me to open src/chat/participant.ts?', 'do you want me to open src/chat/participant.ts?'],
+    ['The commit range warrants a patch bump.\n\nReady to tag v0.310.2?', 'ready to tag v0.310.2?'],
+    ['That would cost about $0.42. Proceed?', 'proceed?'],
+  ])('recovers the whole question from %j', (response, expected) => {
+    expect(detectResponseQuickReplies(response)?.followupQuestion?.toLowerCase()).toBe(expected);
+  });
+
+  it('does not split on an abbreviation followed by a lower-case word', () => {
+    const question = detectResponseQuickReplies('Should I add a Playwright suite, i.e. end-to-end coverage?')?.followupQuestion;
+    expect(question).toContain('Should I');
+  });
+
+  it('surfaces every trailing question, not only the last', () => {
+    // Surfacing one made "yes" answer a question the operator never saw singled out.
+    const question = detectResponseQuickReplies('That is committed.\n\nShould I update the wiki as well? And do you want a changelog entry?')?.followupQuestion;
+    expect(question).toContain('wiki');
+    expect(question).toContain('changelog');
+  });
+});
+
+describe('sanitizeResponseTail keeps what it used to take', () => {
+  it('keeps a closing question formatted as a heading', () => {
+    // It runs before quick-reply detection, so striking this deleted the question
+    // before the operator could see it.
+    expect(sanitizeResponseTail('I have the plan ready.\n\n### Ready to proceed?')).toContain('Ready to proceed?');
+  });
+
+  it('keeps a heading that answers a lead-in', () => {
+    // Otherwise the reply ends on a colon pointing at nothing.
+    expect(sanitizeResponseTail('Here is what I would change:\n\n## Next steps')).toContain('Next steps');
+  });
+
+  it('still strips a genuinely dangling heading', () => {
+    expect(sanitizeResponseTail('The router picks the cheapest model above the floor.\n\n## Notes')).not.toContain('Notes');
+  });
+});
+
+describe('a long option is abbreviated, not dropped', () => {
+  it('keeps a two-way choice clickable when the options are described', () => {
+    const detected = detectResponseQuickReplies([
+      'There are two ways to close this.',
+      '',
+      'Which approach do you prefer?',
+      '',
+      '- Narrow the tool-failure predicate to an exit code so ordinary file reads stop counting',
+      '- Append the failure dump instead of overwriting the model answer',
+    ].join('\n'));
+
+    expect(detected?.quickReplies).toHaveLength(2);
+    const [first] = detected!.quickReplies!;
+    expect(first!.label.length).toBeLessThanOrEqual(49);
+    expect(first!.label.endsWith('…')).toBe(true);
+    // The pill submits the whole option; the ellipsis says the label is short of it.
+    expect(first!.prompt.toLowerCase()).toContain('narrow the tool-failure predicate');
   });
 });

@@ -3717,13 +3717,22 @@ export function sanitizeResponseTail(text: string): string {
     result = result.trimEnd() + '\n```';
   }
 
-  // Strip a trailing bare section header (heading line with nothing after it).
-  result = result.replace(/\n(#{1,6}\s+[^\n]+)\n?\s*$/, (_, header) => {
-    // Keep the header only if there is non-whitespace content after it — i.e.,
-    // the regex matched because the header is the last non-empty line.  We
-    // unconditionally drop it here to remove the dangling heading.
-    void header;
-    return '';
+  // Strip a trailing bare section header (heading line with nothing after it) —
+  // but not where dropping it takes content with it.
+  //
+  // Two cases it used to destroy. A closing prompt formatted as a heading
+  // ("### Ready to proceed?") *is* the question, and models format one that way
+  // constantly; because this runs before quick-reply detection, striking it
+  // deleted the question before the operator could ever see it. And a heading
+  // that answers a lead-in ("Here is what I would change:\n\n## Next steps")
+  // leaves the reply ending on a colon pointing at nothing, which reads as a
+  // truncation bug rather than as tidying.
+  result = result.replace(/\n(#{1,6}\s+[^\n]+)\n?\s*$/, (whole: string, header: string) => {
+    if (/\?\s*$/.test(header.trim())) {
+      return whole;
+    }
+    const before = result.slice(0, result.length - whole.length).trimEnd();
+    return /[:—-]$/.test(before) ? whole : '';
   });
 
   return result;
@@ -3876,6 +3885,24 @@ function endsWithQuestion(line: string): boolean {
   return /\?\s*$/.test(stripMarkdownEmphasis(line));
 }
 
+/** Longest pill label shown before it is abbreviated. */
+const MAX_QUICK_REPLY_LABEL_CHARS = 48;
+
+/**
+ * Abbreviate a pill label on a word boundary, marking it as abbreviated.
+ *
+ * A mid-word cut reads as a rendering bug; the ellipsis reads as "there is more
+ * here", which is true — the full text is what the pill submits.
+ */
+function clampQuickReplyLabel(label: string): string {
+  if (label.length <= MAX_QUICK_REPLY_LABEL_CHARS) {
+    return label;
+  }
+  const head = label.slice(0, MAX_QUICK_REPLY_LABEL_CHARS - 1);
+  const lastSpace = head.lastIndexOf(' ');
+  return `${(lastSpace > 20 ? head.slice(0, lastSpace) : head).trimEnd()}…`;
+}
+
 /** Extract a clean pick-one label from a list-item line (lead phrase before any "— explanation"). */
 function extractOptionLabel(line: string): string {
   let label = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '');
@@ -3884,11 +3911,43 @@ function extractOptionLabel(line: string): string {
   return label.replace(/[.,;:!?]+\s*$/, '').trim();
 }
 
-/** Extract the question clause (last sentence ending in "?") from a line. */
+/**
+ * Split a line into sentences, treating a full stop as a boundary only where a
+ * human would.
+ *
+ * A bare `[^.!?]*` — which is what this replaced — cannot cross a full stop at
+ * all, so "Want me to update README.md?" yielded `md?`: three characters, below
+ * the length guard, discarded. The question then reached the operator as
+ * nothing at all — no pills, no follow-up prompt. Every closing offer naming a
+ * file, a path or a version disappeared the same way, which is most of what
+ * Atlas offers to do in a codebase.
+ *
+ * Requiring whitespace *and* a capital after the stop is what distinguishes a
+ * sentence boundary from the dots inside `README.md`, `src/chat/participant.ts`
+ * and `v0.310.2` — none of which is followed by a space — and from `i.e.` and
+ * `e.g.`, which are followed by a lower-case word.
+ */
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+(?=["'“(\[]?[A-Z0-9])/).map(part => part.trim()).filter(Boolean);
+}
+
+/**
+ * Extract the question clause from a line.
+ *
+ * Where the line ends with several questions ("Should I update the wiki as well?
+ * And do you want a changelog entry?") all of the trailing consecutive ones are
+ * returned together. Surfacing only the last made the operator's "yes" answer a
+ * question they had never seen singled out.
+ */
 function extractQuestionClause(line: string): string | undefined {
   const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
-  const match = /([^.!?]*\?)\s*$/.exec(stripped);
-  const question = (match?.[1] ?? stripped).trim();
+  const sentences = splitSentences(stripped);
+
+  let start = sentences.length;
+  while (start > 0 && /\?\s*$/.test(sentences[start - 1]!)) {
+    start -= 1;
+  }
+  const question = (start < sentences.length ? sentences.slice(start).join(' ') : stripped).trim();
   return question.length >= 6 && question.length <= 300 ? question : undefined;
 }
 
@@ -3984,11 +4043,22 @@ export function detectResponseQuickReplies(responseText: string): {
   // Enumerated markdown / numbered list — "Which …?\n- A\n- B\n- C" (2–5 options),
   // in either order. Only for selection-style questions.
   if (optionLines.length >= 2 && isSelectionQuestion(question)) {
-    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2 && label.length <= 48);
+    // A long option is truncated for the pill, not dropped.
+    //
+    // The cap used to discard the whole set: asked to explain its options a model
+    // writes clauses rather than nouns ("Narrow the tool-failure predicate to an
+    // exit code so ordinary file reads stop counting"), every label exceeded 48
+    // characters, and a genuine two-way choice arrived with nothing to click. The
+    // submitted prompt stays the full label, and the ellipsis tells the operator
+    // the pill is showing them an abbreviation.
+    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2);
     if (labels.length === optionLines.length && labels.length >= 2 && labels.length <= 5) {
       return {
         followupQuestion: question,
-        quickReplies: labels.map(label => ({ label: capitalizeFirst(label), prompt: label })),
+        quickReplies: labels.map(label => ({
+          label: capitalizeFirst(clampQuickReplyLabel(label)),
+          prompt: label,
+        })),
       };
     }
   }

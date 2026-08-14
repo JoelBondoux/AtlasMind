@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.311.1] - 2026-08-14
+
+### Fixed
+
+- **A full stop inside a filename no longer deletes the question.** `extractQuestionClause` matched
+  `([^.!?]*\?)\s*$`, which cannot cross a full stop — so "Want me to update README.md?" yielded `md?`,
+  three characters, below the `>= 6` guard, and was discarded. The question then reached the operator as
+  *nothing*: no quick replies, no follow-up prompt, no record that anything had been asked. Every closing
+  offer naming a file, a source path or a version went the same way, which is most of what Atlas offers to
+  do in a codebase. Sentences are now split on a full stop followed by whitespace **and** a capital, which
+  is exactly what distinguishes a boundary from the dots inside `README.md`, `src/chat/participant.ts` and
+  `v0.310.2`, and from `i.e.` and `e.g.`, which are followed by a lower-case word.
+
+- **A turn ending in two questions surfaces both.** Only the last was lifted out, so clicking Yes answered
+  a question the operator had never seen singled out. All trailing consecutive questions are returned
+  together.
+
+- **A closing question formatted as a heading survives.** `sanitizeResponseTail` strips a dangling
+  trailing heading and runs *before* quick-reply detection, so "### Ready to proceed?" was deleted before
+  the operator could see it. A heading ending in a question mark is kept, as is one that answers a lead-in
+  ("Here is what I would change:
+
+## Next steps"), which otherwise left the reply ending on a colon
+  pointing at nothing.
+
+- **A long option is abbreviated rather than dropped.** Labels over 48 characters discarded the whole pill
+  set, so a genuine two-way choice arrived with nothing to click — and a model asked to explain its
+  options writes clauses, not nouns. The label is now cut on a word boundary with an ellipsis, while the
+  pill still submits the full option text.
+
 ## [0.311.0] - 2026-08-14
 
 ### Changed

@@ -38,7 +38,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * notch at a time, and the number is here rather than in a config file so that
  * doing it shows up in review.
  */
-const UNREFERENCED_EXPORT_CEILING = 95;
+const UNREFERENCED_EXPORT_CEILING = 94;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

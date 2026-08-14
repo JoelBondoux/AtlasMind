@@ -233,7 +233,16 @@ const PROBES: Probe[] = [
     check: () => {
       const payload = buildQuickReplyPayload('Which should I start with?\n\n- Fix the router\n- Update the wiki\n- Ship the release');
       if (!payload) { return 'no payload produced'; }
-      const mismatched = payload.replies.filter(reply => reply.prompt.toLowerCase() !== reply.label.toLowerCase());
+      // A label may be an abbreviation of its prompt, and says so with an
+      // ellipsis — a long option is shortened for the pill rather than dropped.
+      // What it must never be is *different* text.
+      const mismatched = payload.replies.filter(reply => {
+        const label = reply.label.toLowerCase();
+        const prompt = reply.prompt.toLowerCase();
+        return label.endsWith('…')
+          ? !prompt.startsWith(label.slice(0, -1).trimEnd())
+          : label !== prompt;
+      });
       return mismatched.length === 0 ? undefined : `pill submits text the user cannot see: ${JSON.stringify(mismatched)}`;
     },
   },

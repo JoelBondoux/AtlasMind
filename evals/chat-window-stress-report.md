@@ -5,74 +5,18 @@ A failure is a finding about the shipped surface, not a regression.
 
 | Lane | Passed | Failed |
 |---|---:|---:|
-| QUESTION | 3 | 6 |
-| ANSWER | 2 | 2 |
+| QUESTION | 9 | 0 |
+| ANSWER | 3 | 1 |
 | INFO | 1 | 2 |
 | CONTINUITY | 4 | 1 |
 | REPAIR | 2 | 0 |
-| STOP | 7 | 1 |
+| STOP | 8 | 0 |
 | COMMANDS | 5 | 2 |
 | TOOLING | 2 | 3 |
 | ORCHESTRATION | 5 | 1 |
 | GUIDANCE | 2 | 6 |
 
 ## Findings
-
-### Q1-filename (QUESTION)
-
-**Asked:** A question naming a file still reaches the user as a question.
-
-**Why this shape:** Half of what Atlas offers to do names a file — the doc contract alone names README.md, CHANGELOG.md and package.json in the same breath.
-
-**Observed:** no question detected at all — the user gets no chips and no follow-up prompt
-
-### Q2-source-path (QUESTION)
-
-**Asked:** A question naming a source path reaches the user as a question.
-
-**Why this shape:** Every code answer in this repo ends by offering to open or edit a `src/**/*.ts` path.
-
-**Observed:** expected Yes/No chips, got undefined (question: undefined)
-
-### Q4-version-number (QUESTION)
-
-**Asked:** A question naming a version reaches the user as a question.
-
-**Why this shape:** Every commit in this repo bumps a SemVer version, so the release turn always ends this way.
-
-**Observed:** no question detected — the release turn ends with no way to say yes
-
-### Q6-long-options (QUESTION)
-
-**Asked:** A genuine choice between two real options is clickable even when the options are described, not named.
-
-**Why this shape:** A model asked to explain its options writes clauses, not nouns — the 48-character label cap silently drops the chips.
-
-**Observed:** expected 2 chips, got undefined — a real choice arrived with no way to click it
-
-### Q7-two-questions (QUESTION)
-
-**Asked:** When a turn ends with two questions, the user is not silently answering only one.
-
-**Why this shape:** A model wrapping up a change routinely asks about the wiki and the changelog in the same paragraph.
-
-**Observed:** only one of the two questions is surfaced ("And do you want a changelog entry?"); clicking Yes answers a question the user never saw singled out
-
-### Q8-heading-question (QUESTION)
-
-**Asked:** A question written as a closing heading survives the sanitizer and still reaches the user.
-
-**Why this shape:** Models format a closing prompt as a heading constantly; the tail sanitizer runs before detection.
-
-**Observed:** the tail sanitizer strips the closing heading, so the question is deleted before the user ever sees it
-
-### A2-heading-tail (ANSWER)
-
-**Asked:** The answer is not left dangling when its last section header is stripped.
-
-**Why this shape:** A model cut off at the token limit ends on a heading; the sanitizer removes the heading and leaves a colon pointing at nothing.
-
-**Observed:** answer now ends mid-sentence with nothing after it: "Here is what I would change:"
 
 ### A4-divergent-streams (ANSWER)
 
@@ -105,14 +49,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** Carry-forward is decided on lexical overlap with the last three prompts, and a genuine follow-up often shares no words with them.
 
 **Observed:** context dropped on a direct follow-up — the next turn answers with no memory of what "instead" refers to
-
-### S4-waiting-in-silence (STOP)
-
-**Asked:** A turn recognised as waiting on a decision offers something to decide with.
-
-**Why this shape:** The panel deletes followupQuestion and quickReplies when it sets a pending proposal, so the decision card becomes the only affordance — and the question detector is already silent on any offer naming a file.
-
-**Observed:** the turn is waiting on a decision and surfaces no question and no chips — nothing on screen says a run is pending
 
 ### M3-capitalised-command (COMMANDS)
 

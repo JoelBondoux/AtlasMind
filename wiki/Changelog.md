@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.311.1 — A full stop no longer deletes the question
+
+"Want me to update README.md?" reached you as nothing at all — no buttons, no follow-up prompt, no sign
+anything had been asked. The clause extractor could not read past a full stop, so it saw `md?`, decided
+that was too short to be a question, and dropped it. Every offer naming a file, a path or a version did
+the same, which is most of what Atlas offers to do.
+
+Also fixed: a turn ending in two questions now surfaces both, a closing question written as a heading is
+no longer stripped before you see it, and a long option is shortened onto its button instead of the whole
+set of buttons disappearing.
+
 ## v0.311.0 — A turn that is waiting on you says so
 
 Chat could stop before a project run without telling you, and typing "continue" would then start one.

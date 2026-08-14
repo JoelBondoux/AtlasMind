@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.311.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.311.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.311.0
+## What's new in 0.311.1
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A full stop inside a filename no longer deletes the question.** "Want me to update README.md?"
+  reached you as nothing at all — no buttons, no follow-up prompt. The extractor could not read past a
+  full stop, saw `md?`, and judged it too short to be a question; every offer naming a file, a path or a
+  version went the same way. Turns ending in two questions now surface both, and a long option is
+  shortened onto its button rather than the buttons disappearing.
 
 - **A turn that is waiting on you now says so.** Chat could stop before a project run and tell you
   nothing, and typing "continue" would then start one. Any offer to do work now shows a decision card —
