@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.309.1] - 2026-08-14
+
+### Security
+
+- **`mysql2` 3.23.2 → 3.23.3** and **`@typescript-eslint/eslint-plugin` 8.66.0 → 8.67.0**, taken locally
+  rather than by merging the two Dependabot pull requests, so the bumps were compiled, linted and tested
+  before landing rather than after. Both were already inside their declared ranges; the plugin bump also
+  **realigns it with `@typescript-eslint/parser`**, which was already at 8.67.0 — a mismatched
+  plugin/parser pair is a known source of confusing lint behaviour, and npm was carrying two copies of the
+  shared internals to satisfy it.
+
+  The lockfile shrinks by more than it grows: `denque` disappears (mysql2 replaced it with a local ring
+  buffer) and six duplicated `@typescript-eslint/*` packages deduplicate once the versions agree.
+
+  Production dependencies audit clean. One high-severity advisory remains in the dev tree — `nanoid`
+  below 3.3.18, reached only through `vitest → vite → postcss`. It is not shipped in the VSIX, and the
+  fault needs a custom generator called with size zero, which postcss does not do. Left rather than
+  forced, because the fix is a transitive override on a build-time dependency with no exposure.
+
 ## [0.309.0] - 2026-08-13
 
 ### Added

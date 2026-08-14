@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.309.1 — Dependency security bumps
+
+Takes the two outstanding Dependabot security updates — mysql2 3.23.3 and
+@typescript-eslint/eslint-plugin 8.67.0 — applied locally so they were compiled, linted and tested
+before landing rather than after. The plugin bump also realigns it with the parser, which had already
+moved to 8.67.0. Production dependencies audit clean.
+
 ## v0.309.0 — Governance checked against the stack, and a dashboard that fits the window
 
 Governance regimes are mostly human judgement, but not entirely. Whether a backup runs before a
