@@ -810,9 +810,15 @@
     }
     if (action === 'testing-policy-toggle') {
       if (!payload) { return; }
+      // One at a time. An expanded card is a reading surface — a distribution
+      // bar, an evidence table and a four-column control table — and it takes
+      // the full row, so several open at once turned the board into a stack of
+      // tall panels with the grid of remaining policies pushed out of sight.
+      // Opening a card now closes whichever was open, and clicking the open one
+      // still closes it.
       state.testingExpandedIds = state.testingExpandedIds.includes(payload)
-        ? state.testingExpandedIds.filter(id => id !== payload)
-        : state.testingExpandedIds.concat(payload);
+        ? []
+        : [payload];
       refocusAfterRender = 'button[data-action="testing-policy-toggle"][data-payload="' + cssEscape(payload) + '"]';
       render();
       return;
@@ -5438,9 +5444,17 @@
         : [],
     });
 
+    // Why the read is incomplete, when it is. An empty state with no reason is
+    // one somebody retries forever — which is exactly what happened while a
+    // GraphQL 502 was being swallowed and the page just said "not loaded".
+    const notice = wf.pullRequestsNotice
+      ? `<div class="policy-report-line"><span class="tag tag-warn">Incomplete</span><span class="list-meta">${escapeHtml(wf.pullRequestsNotice)}</span></div>`
+      : '';
+
     if (!metrics) {
       return `${pageSectionOpen('pullRequests')}
         ${intro}
+        ${notice}
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
@@ -5496,6 +5510,7 @@
 
     return `${pageSectionOpen('pullRequests')}
       ${intro}
+      ${notice}
       <div class="tag-row">
         ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…' })}
       </div>

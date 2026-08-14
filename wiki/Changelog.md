@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.309.2 — The Pull Requests page works
+
+It never populated. AtlasMind asked GitHub for 100 pull requests together with their reviews and
+checks, which is expensive enough that the API returned an error every time — and the error was
+discarded, so the page said "not loaded" forever and refreshing did nothing visible. It now asks for
+fewer, falls back to a lighter request if that still fails, and tells you when the answer is
+incomplete instead of looking empty.
+
+Two Testing dashboard fixes alongside it: opening a policy card closes whichever was already open
+rather than stacking them, and the control table no longer squeezes itself down to two characters per
+line.
+
 ## v0.309.1 — Dependency security bumps
 
 Takes the two outstanding Dependabot security updates — mysql2 3.23.3 and

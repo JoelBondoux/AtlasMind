@@ -1672,6 +1672,14 @@ interface DashboardGuidedWorkflowSnapshot {
    */
   pullRequestRecords?: PullRequestRecord[];
   /**
+   * Why the pull-request read is incomplete, when it is.
+   *
+   * Absent on a clean read. Present when the fuller query failed — either the
+   * lean fallback carried the list without review state, or nothing could be
+   * read at all. The page shows it instead of an unexplained empty state.
+   */
+  pullRequestsNotice?: string;
+  /**
    * Line-level review comments, keyed by pull-request number.
    *
    * Absent until fetched. An empty array for a number means that pull request
@@ -3378,6 +3386,30 @@ export class ProjectDashboardPanel {
   private pullRequestsState: PullRequestRecord[] | undefined;
 
   /**
+   * Why the pull-request read is incomplete, when it is.
+   *
+   * Set when the rich query failed — either because the lean fallback carried
+   * the list without review state, or because neither succeeded. A page that
+   * says "not loaded" with no reason is one somebody retries forever, which is
+   * exactly what happened here when a GraphQL 502 was being swallowed.
+   */
+  private pullRequestsNotice: string | undefined;
+
+  /**
+   * A `gh` failure in one short line, safe to render.
+   *
+   * Bounded and control-stripped because the text comes from a subprocess and
+   * lands in a webview. Only the first line is kept: `gh` puts the useful part
+   * there ("HTTP 502", "not authenticated") and follows it with a usage dump
+   * nobody reads.
+   */
+  private static describeGhFailure(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error ?? '');
+    const firstLine = raw.split('\n').map(line => line.trim()).find(line => line.length > 0) ?? 'no reason given';
+    return firstLine.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
+  }
+
+  /**
    * Recent CI runs and the latest classified failure.
    *
    * Loaded alongside issues and pull requests on the same explicit refresh.
@@ -4001,7 +4033,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -4028,7 +4060,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -4054,7 +4086,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -4080,7 +4112,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -4139,7 +4171,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
@@ -4993,6 +5025,7 @@ export class ProjectDashboardPanel {
       { register: this.debtManager.get(), scanning: this.debtScanning },
       this.reviewCommentsState,
       this.taxonomyState,
+      this.pullRequestsNotice,
     );
     const evidence = snapshot.ideation.availableEvidence.find(candidate => candidate.id === evidenceId);
     if (!evidence) {
@@ -5166,17 +5199,44 @@ export class ProjectDashboardPanel {
       // have issues readable and pull requests not (a permissions split, or an
       // older `gh`), and failing the whole refresh over the secondary read would
       // hide the primary one that succeeded.
+      //
+      // **Two queries, because one was too expensive to succeed.** `reviews`,
+      // `statusCheckRollup` and `reviewRequests` are nested GraphQL connections,
+      // so the cost is limit × per-pull-request sub-resources. At `--limit 100`
+      // this repository got `HTTP 502` from the GraphQL API every time — and
+      // because the failure was swallowed here, `pullRequestsState` stayed
+      // `undefined` and the Pull Requests page said "not loaded yet" forever,
+      // including after a manual refresh, with nothing to indicate why.
+      //
+      // So: the rich read is bounded to a limit that comfortably succeeds, and
+      // if it still fails a lean read (no nested connections) fetches the wider
+      // list. A page listing every pull request without its review state beats a
+      // page listing none.
+      const PR_RICH_LIMIT = '30';
+      const PR_LEAN_LIMIT = '100';
+      const PR_RICH_FIELDS = 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews,reviewDecision,mergeable,statusCheckRollup,reviewRequests';
+      const PR_LEAN_FIELDS = 'number,title,state,author,headRefName,baseRefName,labels,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviewDecision,mergeable';
+
       try {
         const prRaw = await runGh(workspaceRoot, [
-          'pr', 'list',
-          '--state', 'all',
-          '--limit', '100',
-          '--json', 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews,reviewDecision,mergeable,statusCheckRollup,reviewRequests',
+          'pr', 'list', '--state', 'all', '--limit', PR_RICH_LIMIT, '--json', PR_RICH_FIELDS,
         ]);
         this.pullRequestsState = parseGhPullRequestList(prRaw);
-      } catch {
-        // Left as-is rather than emptied: a failed refresh must not turn a
-        // previously-read list into a confident "none".
+        this.pullRequestsNotice = undefined;
+      } catch (richError) {
+        try {
+          const leanRaw = await runGh(workspaceRoot, [
+            'pr', 'list', '--state', 'all', '--limit', PR_LEAN_LIMIT, '--json', PR_LEAN_FIELDS,
+          ]);
+          this.pullRequestsState = parseGhPullRequestList(leanRaw);
+          this.pullRequestsNotice = 'Review state and checks could not be read — GitHub declined the fuller query, so this list shows everything else.';
+        } catch (leanError) {
+          // Left as-is rather than emptied: a failed refresh must not turn a
+          // previously-read list into a confident "none". But the reason is now
+          // recorded, because a page that says "not loaded" without saying why
+          // is one somebody retries forever.
+          this.pullRequestsNotice = `GitHub could not be read: ${ProjectDashboardPanel.describeGhFailure(leanError ?? richError)}`;
+        }
       }
 
       // CI intelligence, also best-effort. A repository can have readable
@@ -9223,6 +9283,8 @@ function buildGuidedWorkflowSnapshot(input: {
   testing: TestingDashboardSnapshot;
   issues: DashboardIssuesSnapshot;
   pullRequests?: readonly PullRequestRecord[];
+  /** Why the pull-request read is incomplete, when it is. */
+  pullRequestsNotice?: string;
   /** Line-level review comments, by pull-request number, once fetched. */
   reviewComments?: Record<string, ReviewCommentRecord[]>;
   ci?: DashboardCiIntelligence;
@@ -9526,6 +9588,7 @@ function buildGuidedWorkflowSnapshot(input: {
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),
+    ...(input.pullRequestsNotice === undefined ? {} : { pullRequestsNotice: input.pullRequestsNotice }),
     ...(input.reviewComments === undefined ? {} : { reviewComments: input.reviewComments }),
     ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
     archetype: {
@@ -9850,6 +9913,9 @@ async function collectDashboardSnapshot(
   debt?: { register: import('../core/debtRegister.js').DebtRegister; scanning: boolean },
   reviewComments?: Record<string, ReviewCommentRecord[]>,
   taxonomy?: { labels: LabelRecord[]; milestones: MilestoneRecord[] },
+  // Why the pull-request read is incomplete, when it is. Trailing and optional
+  // so the seven existing call sites are unaffected.
+  pullRequestsNotice?: string,
 ): Promise<DashboardSnapshot> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const workspaceRoot = workspaceFolder?.uri.fsPath;
@@ -10328,6 +10394,7 @@ async function collectDashboardSnapshot(
       ...(releases && 'records' in releases ? { releases: releases.records, loadedAt: releases.loadedAt } : {}),
       ...(releases && 'failure' in releases ? { loadFailure: releases.failure } : {}),
       ...(pullRequests === undefined ? {} : { pullRequests }),
+      ...(pullRequestsNotice === undefined ? {} : { pullRequestsNotice }),
       ...(reviewComments === undefined ? {} : { reviewComments }),
       // Already derived for the Testing page on this same pass, so the release
       // gate and the page it would send you to cannot disagree about a number.
@@ -19930,7 +19997,7 @@ const DASHBOARD_CSS = `
      An expanded card takes the full row. It is a reading surface at that point
      — tables, charts and prose — and squeezing that into one column of a
      six-column grid is the thin-panel problem in its worst form. */
-  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
+  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
   .policy-card.is-expanded { grid-column: 1 / -1; }
   .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
   .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
@@ -19993,11 +20060,30 @@ const DASHBOARD_CSS = `
   .policy-control-table td:nth-child(3) { white-space: nowrap; width: 1%; }
   .policy-control-table code { font-size: 0.95em; }
 
+  /* A four-column table cannot be squeezed into a card column and stay
+     readable. width:100% alone meant the table always fitted its container
+     and simply crushed each cell, and with overflow-wrap:anywhere inherited
+     from .mini-table the result was one or two characters per line — legible
+     as a shape, not as text.
+
+     Two changes together, and both are needed. A stated min-width makes the
+     table refuse to shrink past readability, which is what finally lets the
+     scroll container do anything. And word breaking goes back to normal for
+     these cells: anywhere exists for a long unbroken path, and it should
+     apply where a path actually appears rather than shredding ordinary prose. */
+  .policy-controls .mini-table { min-width: 640px; }
+  .policy-control-table th, .policy-control-table td { overflow-wrap: normal; word-break: normal; }
+  /* The exception: a path is the one thing that genuinely needs to break
+     rather than push the table wider, and the evidence column carries them. */
+  .policy-control-table td:last-child { overflow-wrap: anywhere; }
+
   /* Compact data table shared by the policy detail panes. */
   .mini-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
-  /* A four-column table in a narrow card is the thin-panel problem in
-     miniature. Scrolling the table beats wrapping every cell to one word. */
-  .policy-controls, .policy-evidence-table, .policy-failure-table { overflow-x: auto; }
+  /* Scrolling beats wrapping every cell to one word. The container scrolls,
+     not the table: overflow on a display:table element is ill-defined and
+     silently does nothing, which is why the earlier attempt at this changed
+     nothing on screen. */
+  .policy-controls { overflow-x: auto; }
   .mini-table caption { text-align: left; padding-bottom: 4px; }
   .mini-table th, .mini-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); overflow-wrap: anywhere; vertical-align: top; }
   .mini-table thead th { color: var(--vscode-descriptionForeground); font-weight: 600; }

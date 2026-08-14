@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.309.2] - 2026-08-14
+
+### Fixed
+
+- **The Pull Requests page never populated.** `gh pr list` was asked for 100 pull requests *with* the
+  nested `reviews`, `statusCheckRollup` and `reviewRequests` connections, so the query cost scaled as
+  limit × per-pull-request sub-resources — and GitHub's GraphQL API answered `HTTP 502` every time.
+  Measured on this repository: the same query succeeds at 50 and fails at 100, and the lean field set
+  succeeds at 100, so it is the nested connections rather than the row count.
+
+  The failure was caught and discarded, which is the half that made it invisible: `pullRequestsState`
+  stayed `undefined`, the page said "Pull requests have not been loaded", and pressing refresh silently
+  did the same thing again with nothing to indicate why.
+
+  Now the rich read is bounded to 30, and if it still fails a lean read fetches the wider list without
+  review state — a page listing every pull request without its checks beats a page listing none. Either
+  way the reason is recorded and shown. A failed refresh still never empties a list somebody already has:
+  that would turn "we could not look" into a confident "none".
+
+- **Opening a Policy Coverage card no longer leaves the others open.** An expanded card is a reading
+  surface — a distribution bar, an evidence table and a four-column control table — and it takes the full
+  row, so several open at once became a stack of tall panels with the remaining policies pushed off
+  screen. One opens at a time now; clicking the open one still closes it.
+
+- **The policy control table is readable.** `width: 100%` meant it always fitted its container and simply
+  crushed each cell, and with `overflow-wrap: anywhere` inherited from `.mini-table` the result was one or
+  two characters per line. It now states a minimum width and scrolls its container instead — the
+  container, because `overflow` on a `display: table` element is ill-defined and silently does nothing.
+  Word breaking is back to normal except in the evidence column, where a long path genuinely should break
+  rather than push the table wider. Collapsed cards went from a 340px to a 380px minimum.
+
 ## [0.309.1] - 2026-08-14
 
 ### Security
