@@ -12,7 +12,7 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../con
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
-import { scaffoldTestingFramework, scaffoldableMethodologies, type FirstTestCandidate } from '../core/testingScaffolder.js';
+import { detectScaffoldFrameworks, scaffoldTestingFramework, scaffoldableMethodologies, type FirstTestCandidate } from '../core/testingScaffolder.js';
 import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/testingConfigLoader.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig, TestingMethodologyId } from '../types.js';
@@ -28,6 +28,7 @@ import {
   type TestingSubjectView,
 } from '../core/testingSubjects.js';
 import { scanTestingSubjects } from '../core/testingSubjectScan.js';
+import { detectedFrameworks, E2E_FRAMEWORKS, FRAMEWORK_LABEL, installCommandFor, type TestFramework, type TestFrameworkPlan } from '../core/testingFrameworkDetection.js';
 import {
   evaluateTechnicalControls,
   policiesWithTechnicalControls,
@@ -172,6 +173,15 @@ export interface TestingDashboardCategoryCount {
 
 export interface TestingDashboardSnapshot {
   frameworkLabel: string;
+  /**
+   * Every test framework the project actually has.
+   *
+   * `frameworkLabel` names one, which is true and incomplete: a project
+   * running Vitest for units and Playwright for end-to-end has two, and a
+   * page naming one reads as though the other is not installed. Ordered by
+   * the detection ladder so the list is stable between renders.
+   */
+  frameworks?: { id: string; label: string; role: 'unit' | 'e2e' }[];
   testingPolicyLabel: string;
   testingPolicyDetail: string;
   totalFiles: number;
@@ -4610,6 +4620,50 @@ export class SettingsPanel {
             });
           });
 
+          // Filtering the methodology matrix.
+          //
+          // Hides rows rather than re-rendering the table: the matrix is a form,
+          // and rebuilding it would discard a half-typed note or a dropdown the
+          // user had open. A category whose every row is hidden is hidden too —
+          // a heading with nothing under it reads as an empty section rather
+          // than as a filtered one.
+          (function() {
+            const box = document.getElementById('methodologySearch');
+            const count = document.getElementById('methodologySearchCount');
+            if (!box) { return; }
+            const rows = Array.from(document.querySelectorAll('.methodology-row'));
+            const groups = Array.from(document.querySelectorAll('.methodology-category-group'));
+
+            function apply() {
+              const query = box.value.trim().toLowerCase();
+              let shown = 0;
+              rows.forEach(function(row) {
+                const hay = row.getAttribute('data-search') || '';
+                const match = query === '' || hay.indexOf(query) !== -1;
+                row.classList.toggle('is-filtered-out', !match);
+                if (match) { shown += 1; }
+              });
+              groups.forEach(function(group) {
+                const visible = group.querySelector('.methodology-row:not(.is-filtered-out)');
+                group.classList.toggle('is-filtered-out', !visible);
+              });
+              if (count) {
+                count.textContent = query === ''
+                  ? ''
+                  : shown + ' of ' + rows.length + ' shown';
+              }
+            }
+
+            box.addEventListener('input', apply);
+            // Escape clears, which is what every filter box in the editor does.
+            box.addEventListener('keydown', function(event) {
+              if (event.key === 'Escape' && box.value !== '') {
+                event.stopPropagation();
+                box.value = '';
+                apply();
+              }
+            });
+          })();
           (function() {
             const saveBtn = document.getElementById('saveTestingStrategy');
             if (!saveBtn) return;
@@ -5808,7 +5862,7 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
       const infoRowId = `info-row-${escapeHtml(def.id)}`;
       return `
-        <tr class="methodology-row${isEnabled ? ' methodology-enabled' : ''}" data-methodology-id="${escapeHtml(def.id)}">
+        <tr class="methodology-row${isEnabled ? ' methodology-enabled' : ''}" data-methodology-id="${escapeHtml(def.id)}" data-search="${escapeHtml(`${def.label} ${def.id} ${def.category} ${def.description}`.toLowerCase())}">
           <td class="methodology-toggle-cell">
             <label class="toggle-switch" title="${isEnabled ? 'Enabled' : 'Disabled'}">
               <input type="checkbox" class="methodology-enabled-checkbox" data-id="${escapeHtml(def.id)}"${isEnabled ? ' checked' : ''}>
@@ -5882,7 +5936,15 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
             </div>
 
             <div class="stats-grid">
-              ${renderTestingStatCard('Framework', snapshot.frameworkLabel, 'Detected from package scripts and dependencies.')}
+              ${renderTestingStatCard(
+                (snapshot.frameworks ?? []).length > 1 ? 'Frameworks' : 'Framework',
+                (snapshot.frameworks ?? []).length > 0
+                  ? (snapshot.frameworks ?? []).map(entry => entry.label).join(' · ')
+                  : snapshot.frameworkLabel,
+                (snapshot.frameworks ?? []).length > 1
+                  ? 'Every runner detected here. A project can legitimately have a unit runner and a browser one.'
+                  : 'Detected from package scripts and dependencies.',
+              )}
               ${renderTestingStatCard('Active methodologies', String(enabledCount), `${TESTING_METHODOLOGY_DEFINITIONS.length} available across 5 categories`)}
               ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`)}
               ${renderTestingStatCard('Test cases', String(snapshot.totalCases), `${snapshot.totalSuites} describe blocks across the visible suite.`)}
@@ -5898,6 +5960,12 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
                 Enable the methodologies your project uses. Assign an agent as the primary handler and optionally override the model used for test-generation or verification tasks under that methodology.
                 ${savedConfig ? `<em>Last saved: ${escapeHtml(new Date(savedConfig.updatedAt).toLocaleString())}</em>` : '<em>No config saved yet — defaults shown. Save to persist.</em>'}
               </p>
+              <div class="methodology-search-row">
+                <input type="search" id="methodologySearch" class="methodology-search"
+                  placeholder="Filter ${TESTING_METHODOLOGY_DEFINITIONS.length} methodologies by name, category or description…"
+                  aria-label="Filter the methodology list" autocomplete="off">
+                <span id="methodologySearchCount" class="info-note" aria-live="polite"></span>
+              </div>
               <div class="methodology-table-wrapper">
                 <table class="methodology-table">
                   <thead>
@@ -5983,6 +6051,17 @@ function renderTestingPageStyles(): string {
     .methodology-table th { padding: 6px 10px; text-align: left; font-weight: 600; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
     .methodology-table td { padding: 6px 10px; vertical-align: middle; border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 40%, transparent); }
     .methodology-category-label { font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vscode-descriptionForeground); padding: 12px 10px 4px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
+    /* Filtering 69 rows. The search hides rows rather than re-rendering the
+       table, so a half-typed note or an open dropdown is not thrown away
+       mid-edit — the matrix is a form, not a read-only list. */
+    .methodology-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .methodology-search { flex: 1 1 260px; min-width: 220px; padding: 6px 10px; border-radius: 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4));
+      background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+    .methodology-search:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .methodology-row.is-filtered-out { display: none; }
+    /* A category heading with nothing under it reads as an empty section. */
+    .methodology-category-group.is-filtered-out { display: none; }
     .methodology-row { transition: background 0.15s; }
     .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
     .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
@@ -6120,11 +6199,45 @@ export async function runTestingScaffoldWithSync(
     void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
     return;
   }
+  // Which runner, decided before anything is written.
+  //
+  // The plan answers this itself whenever the project already uses a runner
+  // or its shape implies one. It comes back `ask` only where guessing would
+  // produce a confidently wrong install — two runners already present, or a
+  // Node backend where the built-in runner and Jest are both reasonable.
+  // Asking has to happen here, before a file exists, not after.
+  const frameworkPlan = detectScaffoldFrameworks(workspaceRoot);
+  const override: { unit?: TestFramework; e2e?: TestFramework } = {};
+
+  for (const slot of ['unit', 'e2e'] as const) {
+    const choice = frameworkPlan[slot];
+    if (choice.status !== 'ask' || !choice.options || choice.options.length === 0) {
+      continue;
+    }
+    const picked = await vscode.window.showQuickPick(
+      choice.options.map((framework): vscode.QuickPickItem & { framework: TestFramework } => ({
+        label: FRAMEWORK_LABEL[framework],
+        description: installCommandFor(framework) ?? 'No dependency to install',
+        framework,
+      })),
+      {
+        title: slot === 'unit' ? 'Test runner' : 'End-to-end runner',
+        placeHolder: choice.question ?? 'Which framework should AtlasMind use?',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!picked) {
+      // Cancelling the question cancels the scaffold. Falling through to a
+      // default here is exactly the behaviour the question exists to remove.
+      return;
+    }
+    override[slot] = picked.framework;
+  }
   const confirm = await vscode.window.showInformationMessage(
     'Scaffold the testing framework for the enabled methodologies? This creates starter files only where absent, refreshes the managed strategy playbook, and syncs the enabled protocols into existing AI instruction files.',
     {
       modal: true,
-      detail: 'If the project already has Vitest or Jest and AtlasMind finds a small exported source target, it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.',
+      detail: `${describeFrameworkDecision(frameworkPlan, override)}\n\nIf AtlasMind finds a small exported source target it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.`,
     },
     'Scaffold',
   );
@@ -6132,7 +6245,7 @@ export async function runTestingScaffoldWithSync(
     return;
   }
   try {
-    const result = await scaffoldTestingFramework(workspaceRoot, config);
+    const result = await scaffoldTestingFramework(workspaceRoot, config, override);
     const protocolSync = await syncTestingProtocols(
       workspaceRoot,
       config,
@@ -6376,6 +6489,7 @@ export function collectTestingDashboardSnapshot(
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
+  let detectedFrameworkList: { id: string; label: string; role: 'unit' | 'e2e' }[] = [];
   const configFiles: string[] = [];
   // Every script and dependency name, not just the test-shaped ones: the policy
   // readout below asks "is this policy's tooling installed at all", which the
@@ -6400,6 +6514,20 @@ export function collectTestingDashboardSnapshot(
         .filter(name => /(test|coverage|vitest|jest|playwright|cypress|watch)/i.test(name))
         .slice(0, 8);
       frameworkLabel = inferTestingFramework(packageJson);
+      detectedFrameworkList = detectedFrameworks({
+        dependencies: Object.keys({ ...(packageJson.dependencies ?? {}), ...(packageJson.devDependencies ?? {}) })
+          .map(name => name.toLowerCase()),
+        scriptText: Object.values(packageJson.scripts ?? {}).join(' '),
+        configFiles,
+        // The tie-break sample is not needed for a label list: it only
+        // matters when two unit runners are both installed, and that is
+        // decided by the scaffolder against a full walk.
+        testFiles: [],
+      }).map(id => ({
+        id,
+        label: FRAMEWORK_LABEL[id],
+        role: (E2E_FRAMEWORKS as readonly string[]).includes(id) ? 'e2e' as const : 'unit' as const,
+      }));
     } catch {
       frameworkLabel = 'Workspace tests';
     }
@@ -6544,6 +6672,7 @@ export function collectTestingDashboardSnapshot(
     policyEvidence,
     technicalControls,
     frameworkLabel,
+    frameworks: detectedFrameworkList,
     testingPolicyLabel,
     testingPolicyDetail,
     totalFiles: discoveredFiles.length,
@@ -7016,6 +7145,36 @@ function discoverTestFiles(workspaceRoot: string): string[] {
   return results
     .sort((left, right) => right.mtimeMs - left.mtimeMs)
     .map(item => item.filePath);
+}
+
+/**
+ * What the scaffold is about to use, for the confirmation dialog.
+ *
+ * Names the runner *and* how it was decided. "Vitest, because the project
+ * already uses it" and "Vitest, because this is a Vite project" are
+ * different claims, and only the second is a suggestion worth arguing with.
+ */
+function describeFrameworkDecision(
+  plan: TestFrameworkPlan,
+  override: { unit?: TestFramework; e2e?: TestFramework },
+): string {
+  const parts: string[] = [];
+  const unit = override.unit ?? plan.unit.framework;
+  if (unit) {
+    parts.push(override.unit
+      ? `Unit tests: ${FRAMEWORK_LABEL[unit]} (your choice).`
+      : `Unit tests: ${FRAMEWORK_LABEL[unit]} — ${plan.unit.rule}`);
+  }
+  const e2e = override.e2e ?? plan.e2e.framework;
+  if (e2e) {
+    parts.push(override.e2e
+      ? `End-to-end: ${FRAMEWORK_LABEL[e2e]} (your choice).`
+      : `End-to-end: ${FRAMEWORK_LABEL[e2e]} — ${plan.e2e.rule}`);
+  }
+  if (plan.forbidden.length > 0) {
+    parts.push(`Nothing else is installed: ${plan.forbidden.map(entry => FRAMEWORK_LABEL[entry.framework]).join(', ')} would leave this project with two runners.`);
+  }
+  return parts.join('\n');
 }
 
 function inferTestingFramework(packageJson: { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): string {

@@ -3944,7 +3944,22 @@
           ? (((testing.policyCoverage && testing.policyCoverage.report.failed) || 0) > 0 ? 'critical' : 'good')
           : 'warn',
       },
-      { id: 'fw', label: 'Framework', value: testing.frameworkLabel, detail: 'Detected from scripts and dependencies.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
+      // Every runner, not just the first one matched. A project running Vitest
+      // for units and Playwright for end-to-end has two, and naming one reads
+      // as though the other is not installed.
+      (() => {
+        const frameworks = testing.frameworks || [];
+        return {
+          id: 'fw',
+          label: frameworks.length > 1 ? 'Frameworks' : 'Framework',
+          value: frameworks.length > 0 ? frameworks.map(entry => entry.label).join(' · ') : testing.frameworkLabel,
+          detail: frameworks.length > 1
+            ? `${frameworks.filter(e => e.role === 'unit').length} unit · ${frameworks.filter(e => e.role === 'e2e').length} browser`
+            : 'Detected from scripts and dependencies.',
+          tone: 'accent',
+          command: 'atlasmind.openSettingsTesting',
+        };
+      })(),
       { id: 'policy', label: 'Testing policy', value: testing.testingPolicyLabel || 'Red-Green TDD', detail: testing.testingPolicyDetail || 'Default Atlas tests-first policy.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
       { id: 'files', label: 'Discovered files', value: String(testing.totalFiles), detail: `${testing.unitFiles} unit • ${testing.integrationFiles} integration • ${testing.e2eFiles} e2e`, tone: testing.totalFiles > 0 ? 'good' : 'warn', command: 'atlasmind.openSettingsTesting' },
       { id: 'tests', label: 'Individual tests', value: String(testCount), detail: `${testing.totalSuites} suites, ${testing.averageCasesPerFile} avg cases/file`, tone: testCount > 0 ? 'good' : 'warn' },
