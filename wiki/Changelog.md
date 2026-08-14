@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.321.0 — It no longer invents where a setting lives
+
+Asked where to turn off automatic research scans, AtlasMind confidently named a file that does not exist,
+a flag that does not exist, and an environment variable that does not exist. The real answer is a setting
+called `atlasmind.research.enabled`.
+
+The cause was simple and invisible: the list of pages had grown large enough to consume the whole context
+budget, so the settings half was being dropped entirely — every one of the 134 keys. It was asked where a
+setting lived while holding no settings vocabulary at all.
+
+It now always carries the settings areas, and is told to read the exact key rather than name one from
+memory — and told, specifically, never to invent a file path or an environment variable.
+
 ## v0.320.0 — A question with something after it is still a question
 
 "Would you like me to inspect the configuration? If so, I can fetch it directly." — you got no buttons,

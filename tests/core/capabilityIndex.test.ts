@@ -7,6 +7,7 @@ import {
   DEFAULT_CAPABILITY_INDEX_CHARS,
   findCapabilityPages,
   selectIndexedSettings,
+  buildSettingsNamespaceSummary,
 } from '../../src/core/capabilityIndex.ts';
 
 const readSource = (relative: string): string =>
@@ -144,5 +145,55 @@ describe('findCapabilityPages', () => {
   it('returns nothing rather than guessing from one letter', () => {
     expect(findCapabilityPages('a')).toEqual([]);
     expect(findCapabilityPages('   ')).toEqual([]);
+  });
+});
+
+describe('the settings vocabulary survives the budget', () => {
+  const manifest = JSON.parse(readSource('../../package.json'));
+  const settings = manifest.contributes.configuration.properties;
+  const commands = manifest.contributes.commands;
+
+  // Measured before this existed: `omitted.settings: 134` — every key dropped,
+  // because 35 pages consumed the whole 4000-character budget. A model asked
+  // where a setting lived therefore had a page list, no key vocabulary at all,
+  // and an instruction that only forbade saying a setting did not exist. It
+  // invented a file path, a flag, and an environment variable.
+  it('names the settings areas at the real default budget', () => {
+    const { text } = buildCapabilityIndex({ settings, commands });
+    expect(text).toMatch(/Settings: \d+ keys/);
+    expect(text).toContain('research');
+    expect(text).toContain('buzz');
+  });
+
+  it('survives a budget far too small for anything else', () => {
+    // Reserved, like the closing instruction: it is the half that was being
+    // silently lost, so it must not be the first thing a cap removes.
+    const { text } = buildCapabilityIndex({ settings, commands, maxChars: 1200 });
+    expect(text).toMatch(/Settings: \d+ keys/);
+    expect(text).toMatch(/atlasmind-settings/);
+  });
+
+  it('does not name a key, because a key named from memory is the guess that caused this', () => {
+    const { text } = buildCapabilityIndex({ settings, commands });
+    expect(text).toMatch(/exact key is NOT listed/i);
+  });
+
+  it('forbids inventing a location, not merely denying existence', () => {
+    const { text } = buildCapabilityIndex({ settings, commands });
+    expect(text).toMatch(/never invent where one lives/i);
+    expect(text).toMatch(/file path or an environment variable/i);
+  });
+
+  it('says nothing about settings when there are none to describe', () => {
+    expect(buildSettingsNamespaceSummary(undefined)).toBeUndefined();
+    expect(buildSettingsNamespaceSummary({})).toBeUndefined();
+  });
+
+  it('groups a top-level key without inventing an area for it', () => {
+    const summary = buildSettingsNamespaceSummary({
+      'atlasmind.budgetMode': {}, 'atlasmind.research.enabled': {},
+    });
+    expect(summary).toContain('general');
+    expect(summary).toContain('research');
   });
 });

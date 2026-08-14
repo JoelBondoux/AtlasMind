@@ -143,6 +143,46 @@ export function selectIndexedSettings(
     }));
 }
 
+/**
+ * The settings vocabulary, as areas rather than keys.
+ *
+ * 134 keys with their descriptions do not fit beside 35 pages, and when they did
+ * not fit they were dropped **entirely** — measured: `omitted.settings: 134`,
+ * zero keys reaching the model. Asked where a setting lived, it therefore had a
+ * page list, no key vocabulary at all, and an instruction that only forbade
+ * saying a setting did not exist. It invented a file path, a flag and an
+ * environment variable, which is close to the expected outcome given what it was
+ * handed.
+ *
+ * The areas cost about 230 characters for all eighteen, so they always fit. They
+ * do not name the key — nothing here should, because a key named from memory is
+ * exactly the guess that caused this — but they establish that the vocabulary
+ * exists, which half of the question, and point at the tool that can read the
+ * exact value.
+ */
+export function buildSettingsNamespaceSummary(
+  settings: CapabilityIndexInput['settings'],
+): string | undefined {
+  const keys = Object.keys(settings ?? {});
+  if (keys.length === 0) {
+    return undefined;
+  }
+  const areas = new Map<string, number>();
+  for (const key of keys) {
+    const parts = key.split('.');
+    const area = parts.length > 2 ? parts[1]! : 'general';
+    areas.set(area, (areas.get(area) ?? 0) + 1);
+  }
+  const listed = [...areas.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([area, count]) => `${area} (${count})`)
+    .join(', ');
+
+  return `\nSettings: ${keys.length} keys, all named \`atlasmind.<area>.<name>\`, across — ${listed}.`
+    + '\nThe exact key is NOT listed here. Read one with the `atlasmind-settings` tool (`action: "get"`) '
+    + 'before naming it, and change one with `action: "set"`, which asks the operator first.';
+}
+
 export interface CapabilityIndex {
   text: string;
   /** Entries the cap left out, so the caller can say so rather than imply completeness. */
@@ -191,10 +231,22 @@ export function buildCapabilityIndex(input: CapabilityIndexInput = {}): Capabili
   // partial, which is precisely the state in which it tells the operator a
   // setting does not exist. The rule most worth stating is the one a size cap is
   // most likely to remove.
+  // Reserved, and never truncated.
+  //
+  // The namespace summary joins the closing instruction outside the budget
+  // because it is the half that was silently lost: when the settings section did
+  // not fit it was dropped *entirely* — measured at `omitted.settings: 134`,
+  // zero keys reaching the model — so a model asked where a setting lives had no
+  // setting vocabulary whatsoever. All eighteen areas cost about 230 characters.
+  // Losing them is what produced an invented file path and an invented
+  // environment variable.
+  const namespaceSummary = buildSettingsNamespaceSummary(input.settings) ?? '';
   const closing = '\nUse these ids exactly when directing the operator to a page. '
-    + 'This index is abbreviated: settings and commands not listed here still exist, '
-    + 'so never tell the operator a setting or page does not exist — say you are not certain of the exact name and point at the surface that owns it.';
-  const budget = Math.max(0, maxChars - closing.length - 1);
+    + 'This index is abbreviated: settings and commands not listed here still exist. '
+    + 'Never tell the operator a setting or page does not exist, and never invent where one lives — '
+    + 'do not name a settings key, a file path or an environment variable you have not read. '
+    + 'If you are not certain, say so and point at the surface that owns it, or read the exact value with `atlasmind-settings`.';
+  const budget = Math.max(0, maxChars - namespaceSummary.length - closing.length - 2);
 
   let body = sections.join('\n');
   if (body.length > budget) {
@@ -209,7 +261,7 @@ export function buildCapabilityIndex(input: CapabilityIndexInput = {}): Capabili
     body = clamp(body, budget);
   }
 
-  return { text: `${body}\n${closing}`, omitted };
+  return { text: `${body}${namespaceSummary}\n${closing}`, omitted };
 }
 
 /**

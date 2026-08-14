@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.321.0] - 2026-08-14
+
+### Fixed
+
+- **The model was told nothing at all about settings, and invented them.** Asked *"where do I turn off
+  automatic research scans?"*, a routed model located the setting in `agents/customer-researcher.md`,
+  proposed an `enabled` flag, and offered an environment variable `RESEARCH_SCANS=false`. None of it
+  exists; the answer is `atlasmind.research.enabled`.
+
+  Measured cause: `omitted.settings: 134`. **Every key was being dropped.** The 35-page catalogue consumed
+  the entire 4000-character budget, and the settings section is truncated before it. So a model asked
+  where a setting lived received a page list, no settings vocabulary whatsoever, and a closing instruction
+  that only forbade saying a setting *did not exist* — which is not the mistake it made.
+
+  Two changes. The index now carries a **settings namespace summary** — 134 keys across 18 areas, about
+  230 characters for all of them — reserved outside the budget alongside the closing instruction, because
+  it is precisely the half that was being silently lost. It deliberately does **not** name a key: a key
+  named from memory is the guess that caused this. It points at `atlasmind-settings` to read the exact
+  value instead.
+
+  And the closing instruction now forbids the failure that actually happened: *never invent where a
+  setting lives — do not name a settings key, a file path or an environment variable you have not read.*
+
+  A test asserted `omitted.settings > 0` and passed throughout, because "some were omitted" and "all of
+  them were" are the same assertion.
+
 ## [0.320.0] - 2026-08-14
 
 ### Fixed

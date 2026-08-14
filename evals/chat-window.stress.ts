@@ -1111,9 +1111,18 @@ const PROBES: Probe[] = [
         return 'nothing puts AtlasMind\'s own surface into the prompt, so every navigational answer is unverified recall';
       }
       const index = readSource('../src/core/capabilityIndex.ts');
-      return /never tell the operator a setting or page does not exist/.test(index)
+      if (!/never tell the operator a setting or page does not exist/i.test(index)) {
+        return 'the index is injected but does not tell the model it is abbreviated — a partial list read as complete is worse than no list';
+      }
+      // Denying existence was never the failure that happened. Asked where a
+      // setting lived, a model with no key vocabulary invented a file path, a
+      // flag and an environment variable.
+      if (!/never invent where one lives/i.test(index)) {
+        return 'the index forbids denying a setting exists but not inventing where it lives, which is the failure actually observed';
+      }
+      return /Settings: \$\{keys.length\} keys|Settings: \${.*} keys/.test(index) || /buildSettingsNamespaceSummary/.test(index)
         ? undefined
-        : 'the index is injected but does not tell the model it is abbreviated — a partial list read as complete is worse than no list';
+        : 'the index carries no settings vocabulary at all, so the model has only page ids to answer a settings question with';
     },
   },
   {
