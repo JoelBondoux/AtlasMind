@@ -59,7 +59,7 @@ import {
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
-import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
+import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -1622,5 +1622,57 @@ describe('the file-count approval gate is reachable from chat', () => {
       failedSubtaskTitles: [],
     });
     expect(followups.map(f => f.label)).not.toContain('Approve and run');
+  });
+});
+
+describe('a run goal is a goal, not the word used to agree', () => {
+  // Built literally rather than through SessionConversation: this file mocks
+  // `vscode` narrowly and the manager wants an EventEmitter it does not provide.
+  const transcriptOf = (turns: Array<[string, string]>): SessionTranscriptEntry[] =>
+    turns.flatMap(([prompt, reply], index) => ([
+      { id: `u${index}`, role: 'user' as const, content: prompt, timestamp: new Date(index * 2000).toISOString() },
+      { id: `a${index}`, role: 'assistant' as const, content: reply, timestamp: new Date(index * 2000 + 1000).toISOString() },
+    ]));
+
+  it('refuses an affirmation fragment as the goal', () => {
+    // "Shall I go ahead?" strips its offer lead-in to "go ahead", and that became
+    // the project goal — so the plan, the file estimate and the cost estimate were
+    // all derived from the word the operator used to agree.
+    const transcript = transcriptOf([[
+      'the banner is out of date with the manifest',
+      'I can implement this across the four files and update the changelog.\n\nShall I go ahead?',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes', transcript))
+      .toBe('the banner is out of date with the manifest');
+  });
+
+  it('keeps the work when the affirmation is only a preamble to it', () => {
+    const transcript = transcriptOf([[
+      'the banner is stale',
+      'Shall I go ahead and update the README banner?',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes', transcript)).toBe('update the README banner');
+  });
+
+  it('does not start a run the assistant said it was not ready to start', () => {
+    const transcript = transcriptOf([[
+      'can you ship the release?',
+      'Once you confirm the version number, I can start a project run to ship it.',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('continue', transcript)).toBeUndefined();
+  });
+
+  it('allows a continuation that answers the precondition', () => {
+    // The deferral asked for something. A bare "continue" supplies nothing; a
+    // continuation carrying detail does.
+    const transcript = transcriptOf([[
+      'can you ship the release?',
+      'Once you confirm the version number, I can start a project run to ship it.',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes on 0.310.5', transcript)).toBeDefined();
   });
 });

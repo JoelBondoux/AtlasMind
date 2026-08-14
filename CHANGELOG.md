@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.5] - 2026-08-14
+
+### Fixed
+
+- **A project run is no longer planned against the word you used to agree.** When a reply closed "Shall I
+  go ahead?", `extractAssistantProposedAction` stripped the offer lead-in and left `go ahead`, which
+  `normalizeProjectRunProposalAction` accepted as the goal — so the plan, the subtask table, the file
+  estimate and the cost estimate were all derived from that fragment. It is also why such a run read as
+  unannounced: its stated goal was a piece of a sentence rather than anything anybody had asked for.
+
+  A normalized action that is *only* an affirmation (`go ahead`, `proceed`, `do it`, `start`, …) is now
+  refused and the resolver falls back to the last actionable user prompt. A leading `go ahead and` is
+  stripped rather than rejected, so "Shall I go ahead and update the README banner?" still resolves to the
+  work — there the affirmation is a preamble, not the whole of it.
+
+- **"Continue" no longer overrides a precondition the assistant just stated.** "Once you confirm the
+  version number, I can start a project run to ship it" is the model declining to proceed, and the
+  continuation prompt was accepted unconditionally — so the run began on precisely the information the
+  model had said it did not have. `assistantDeferredPendingInput` checks the tail of the last assistant
+  turn, and a bare continuation is refused. A continuation carrying detail ("yes, use 0.310.5") answers
+  the precondition and is allowed through, because the deferral asked for something and that supplies it.
+
 ## [0.310.4] - 2026-08-14
 
 ### Changed

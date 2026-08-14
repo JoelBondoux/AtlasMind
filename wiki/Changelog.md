@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.5 — A run is planned against the work, not the word you agreed with
+
+Say "yes" to an offer ending "Shall I go ahead?" and the run that started had the goal `go ahead` — with
+its plan, its file estimate and its cost estimate all derived from that fragment. That is also why such a
+run seemed to come from nowhere: its stated goal was a piece of a sentence. An affirmation on its own is
+now refused as a goal.
+
+And if AtlasMind said it was waiting on you — "once you confirm the version number" — typing "continue"
+no longer starts the run anyway. Answering with the detail still does.
+
 ## v0.310.4 — Frustration no longer edits your settings
 
 When AtlasMind decided you sounded frustrated, it quietly raised two chat settings in your workspace —

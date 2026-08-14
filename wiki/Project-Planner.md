@@ -48,6 +48,19 @@ matching the project pattern was approved for you and went straight past the thr
 no control on it at all, only an instruction to retype the goal with a `--approve` token, so the obvious
 retry stopped in the same place every time.
 
+**The goal a run starts with is the work, never the word you agreed with.** When you say "yes" to a
+closing offer, AtlasMind resolves the goal from what the assistant proposed. Until v0.310.5, an offer that
+ended "Shall I go ahead?" resolved to the goal `go ahead` — and the plan, the subtask table, the file
+estimate and the cost estimate were all derived from that fragment, which is also why such a run read as
+having come from nowhere. An affirmation on its own is now refused as a goal and the resolver falls back
+to what you actually asked for; "Shall I go ahead **and update the README banner**?" still resolves to the
+work, because there the affirmation is only a preamble.
+
+**A stated precondition is honoured.** If the assistant said it was waiting on you — "once you confirm the
+version number, I can start a run" — a bare "continue" no longer overrides it, because it supplies none of
+what was asked for and the run would begin on exactly the information the model said it lacked. A reply
+that carries the detail ("yes, use 0.310.5") answers the precondition and proceeds.
+
 Detection is deliberately conservative: it needs explicit project vocabulary *and* a first-person offer,
 ignores a generic "I'll build this", backs off on declines, and never fires while requirements are still
 being gathered.

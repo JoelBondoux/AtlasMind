@@ -10,7 +10,7 @@ A failure is a finding about the shipped surface, not a regression.
 | INFO | 1 | 2 |
 | CONTINUITY | 4 | 1 |
 | REPAIR | 2 | 0 |
-| STOP | 2 | 6 |
+| STOP | 4 | 4 |
 | COMMANDS | 5 | 2 |
 | TOOLING | 2 | 3 |
 | ORCHESTRATION | 5 | 1 |
@@ -112,7 +112,7 @@ A failure is a finding about the shipped surface, not a regression.
 
 **Why this shape:** A model wrapping up says "shall I go ahead", not "shall I kick off a project run" — the proposal detector requires the literal run vocabulary.
 
-**Observed:** "yes" starts a project run (goal: "go ahead") from a turn that never mentioned one — the user consents to an edit and gets a planned multi-subtask run
+**Observed:** "yes" starts a project run (goal: "the banner is out of date with the manifest") from a turn that never mentioned one — the user consents to an edit and gets a planned multi-subtask run
 
 ### S3-negation-veto (STOP)
 
@@ -129,22 +129,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** The panel deletes followupQuestion and quickReplies when it sets a pending proposal, so the decision card becomes the only affordance — and the question detector is already silent on any offer naming a file.
 
 **Observed:** the turn is waiting on a decision and surfaces no question and no chips — nothing on screen says a run is pending
-
-### S5-deferral-honoured (STOP)
-
-**Asked:** When the model says it is waiting on the user, "continue" does not start the run anyway.
-
-**Why this shape:** "Once you confirm X, I can start a run" is the model declining to proceed — and the continuation prompt is accepted unconditionally.
-
-**Observed:** "continue" starts a run (goal: "can you ship the release?") the model had just said it was not ready to start
-
-### S6-goal-is-a-goal (STOP)
-
-**Asked:** The goal a run starts with is a goal, not the word the user used to agree.
-
-**Why this shape:** The goal is resolved from the trailing question with the offer lead-in stripped, so "Shall I go ahead?" leaves "go ahead" — and the plan, file estimate and cost are all derived from that string.
-
-**Observed:** the run is planned against the goal "go ahead" — the affirmation itself, not anything anyone asked for
 
 ### S8-answer-is-always-accepted (STOP)
 

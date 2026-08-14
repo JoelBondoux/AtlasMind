@@ -173,6 +173,29 @@ const PROJECT_RUN_OFFER_PATTERN = /\b(?:want\s+me\s+to|would\s+you\s+like\s+me\s
 const PROJECT_RUN_PROPOSAL_NEGATION_PATTERN = /\b(?:won'?t|will\s+not|cannot|can'?t|do\s+not|don'?t|shouldn'?t|not\s+ready|hold\s+off|before\s+(?:i|we)\s+(?:start|begin|run|proceed)|once\s+you|after\s+you)\b/i;
 const PROJECT_RUN_META_ACTION_PREFIX = /^\s*(?:(?:go\s+ahead\s+and\s+)?(?:kick\s+off|start|launch|begin)\s+)?(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run\b(?:\s+(?:to|for|on|about))?\s*/i;
 const DEICTIC_PROJECT_RUN_ACTION = /^(?:(?:build|implement|fix|do|run|execute|handle|complete)\s+)?(?:this|that|it)(?:\s+(?:out|work|plan|change|implementation))?$/i;
+/**
+ * A closing offer whose whole content is the *permission being asked for* rather
+ * than the work.
+ *
+ * "Shall I go ahead?" strips its offer lead-in to `go ahead`, and that string
+ * used to become the project goal — so the plan, the subtask table, the file
+ * estimate and the cost estimate were all derived from the word the operator
+ * used to agree. It also explains why such a run reads as unannounced: its
+ * stated goal is a fragment of a sentence rather than anything anybody asked
+ * for.
+ */
+const BARE_AFFIRMATION_ACTION = /^(?:go\s+ahead|proceed|continue|carry\s+on|do\s+it|do\s+that|start|begin|run\s+it|yes|ok(?:ay)?|sure|please)[.!]?$/i;
+/** "go ahead and <work>" — the affirmation is a preamble, the work follows it. */
+const GO_AHEAD_PREFIX_PATTERN = /^(?:go\s+ahead\s+and|please\s+go\s+ahead\s+and)\s+/i;
+/**
+ * The assistant stating it is waiting on the operator before it can start.
+ *
+ * A bare "continue" supplies none of what was asked for, so it must not override
+ * the precondition — the run would begin on exactly the information the model
+ * said it did not have. A continuation that *carries* detail is different, and
+ * is allowed through.
+ */
+const ASSISTANT_DEFERRAL_PATTERN = /\b(?:once you|after you|when you(?:'ve| have)|as soon as you|before (?:i|we) (?:start|begin|run|proceed))\b/i;
 const SAVE_PROPOSED_RUN_PATTERN = /^\s*save\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run\s+for\s+later[.!?]*\s*$/i;
 const CANCEL_PROPOSED_RUN_PATTERN = /^\s*(?:cancel|dismiss|skip)\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run[.!?]*\s*$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
@@ -5224,6 +5247,14 @@ export function resolveAutonomousContinuationGoal(
 
   const followupDetail = match[1]?.trim();
 
+  // The assistant said it was waiting on the operator. A bare continuation
+  // supplies nothing, so honouring the word would start the run on precisely the
+  // information the model had just said it lacked. A continuation carrying
+  // detail ("yes, use 0.310.5") answers the precondition and is allowed.
+  if (!followupDetail && assistantDeferredPendingInput(transcript)) {
+    return undefined;
+  }
+
   // A bare affirmation ("yes", "go ahead") accepts whatever the assistant just
   // offered, so the assistant's closing proposal is the real goal. Without this the
   // resolver fell back to the most recent *user* message — typically the question
@@ -5251,10 +5282,15 @@ function normalizeProjectRunProposalAction(action: string | undefined): string |
   if (!action) {
     return undefined;
   }
-  const normalized = PROJECT_RUN_META_ACTION_PREFIX.test(action)
+  const meta = PROJECT_RUN_META_ACTION_PREFIX.test(action)
     ? action.replace(PROJECT_RUN_META_ACTION_PREFIX, '').trim()
     : action.trim();
-  if (!normalized || DEICTIC_PROJECT_RUN_ACTION.test(normalized)) {
+  // "Shall I go ahead and update the README?" leaves "go ahead and update the
+  // README". The affirmation is a preamble to the action, not part of it.
+  const normalized = meta.replace(GO_AHEAD_PREFIX_PATTERN, '').trim();
+  if (!normalized
+    || DEICTIC_PROJECT_RUN_ACTION.test(normalized)
+    || BARE_AFFIRMATION_ACTION.test(normalized)) {
     return undefined;
   }
   return normalized;
@@ -5267,6 +5303,24 @@ function normalizeProjectRunProposalAction(action: string | undefined): string |
  * "?" stripped. Returns undefined when the last assistant turn made no actionable offer
  * (e.g. it ended with a statement or a non-offer question like "Is that correct?").
  */
+/**
+ * True when the most recent assistant turn made its offer conditional on
+ * something the operator has not yet supplied.
+ *
+ * Scoped to the tail of the reply, where the offer lives, so a deferral
+ * mentioned in passing halfway through a long answer does not veto a genuine
+ * closing offer.
+ */
+function assistantDeferredPendingInput(transcript: SessionTranscriptEntry[]): boolean {
+  const lastAssistant = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.content.trim().length > 0);
+  if (!lastAssistant) {
+    return false;
+  }
+  return ASSISTANT_DEFERRAL_PATTERN.test(lastAssistant.content.trim().slice(-400));
+}
+
 export function extractAssistantProposedAction(
   transcript: SessionTranscriptEntry[],
 ): string | undefined {
