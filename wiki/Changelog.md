@@ -19,6 +19,50 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.309.0 — Governance checked against the stack, and a dashboard that fits the window
+
+Governance regimes are mostly human judgement, but not entirely. Whether a backup runs before a
+production promotion, whether any declared endpoint still speaks plaintext http, whether dependencies are
+scanned, whether changes are reviewed before merge — those are facts about a stack, and AtlasMind already
+knew all of them without ever showing them on the compliance board. It now runs 26 such checks across ISO
+27001, SOC 2, NIST 800-53 and AI safety, each reported with its evidence and the rule behind it. Controls
+that still need a person are counted separately, so a partly-automated regime cannot read as a finished
+one, and a signal nobody gathered reads *not assessed* rather than passing.
+
+ISO 27001 and SOC 2 also gained control mappings — and, more to the point, the governance half they were
+missing. Both were declared as engineering checklists: ISO listed nine technological controls and one
+organisational, SOC 2 had no CC1–CC5 at all. An auditor opens with the control environment and the risk
+assessment, so a mapping that never mentions them describes a project that has not started. ISO now
+covers all four Annex A themes and SOC 2 covers CC1–CC9, grouped with governance first, and nine further
+automated checks arrived with them for the governance controls that can actually be answered from a
+stack — supplier terms, risk identification, incident response, personal-data protection and enforced
+secure coding.
+
+The Testing dashboard gained statistics to go with it — where the test cases actually are, evidence by
+category, a governance breakdown, and a status strip on every policy card — and the whole Project
+Dashboard now fits the window it is in. Grids reflow on a stated minimum instead of dividing the width by
+a fixed column count, the page is capped and centred, and prose stops at a readable measure rather than
+stretching across an ultrawide monitor.
+
+A compliance regime could read as *met* on evidence that proved nothing, in two ways. ISO 27001 accepted
+`SECURITY.md` — a file saying where to email a bug — as evidence of the certification. And a scaffolded
+control mapping counted before anybody had filled it in, even though the mapping's own preamble says an
+unassessed row is not the same as a compliant one. Both are fixed; a mapping now counts once at least one
+control has a real status. AtlasMind's own AI-safety mapping consequently reads as a gap, which is true.
+
+Three testing policies could not read as covered whatever anybody wrote. `dead-field` and
+`dependency-graph` declared no file patterns at all, so the best either could score was "tooling
+installed, nothing tests with it" — counted as a gap. `explainability` failed for a different reason: its
+pattern matched the stem `explainab` as a whole word, so a file called `explainability` never matched it.
+All three now match a test named after them, and two invariants keep it that way.
+
+Alongside that, every one of AtlasMind's 27 file-evidenced policies now has a real test behind it rather
+than the scaffolder's starting point. A placeholder counts as evidence on the dashboard while asserting
+nothing about the code, which is worse than an honest gap — one of them passed regardless of behaviour,
+and one imported a package the project does not depend on. Where a policy's honest state was a backlog
+rather than a clean sheet (97 unreferenced exports, 52 untyped buttons) the test records a ceiling that
+may only go down, because a check that fails on day one gets deleted rather than fixed.
+
 ## v0.308.2 — Instruction blocks current again
 
 The managed GitHub-workflow block in the AI instruction files was flagged stale. The workflow file had

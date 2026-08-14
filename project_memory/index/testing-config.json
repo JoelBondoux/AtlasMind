@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-08-05T20:59:08.557Z",
+  "updatedAt": "2026-08-13T17:14:13.587Z",
   "methodologies": [
     {
       "id": "tdd",
@@ -36,7 +36,7 @@
     },
     {
       "id": "mutation",
-      "enabled": false,
+      "enabled": true,
       "assignedAgentId": "test-developer"
     },
     {
@@ -56,7 +56,7 @@
     },
     {
       "id": "e2e",
-      "enabled": false,
+      "enabled": true,
       "assignedAgentId": "test-developer"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "id": "contract",
-      "enabled": false,
+      "enabled": true,
       "assignedAgentId": "test-developer"
     },
     {
@@ -106,6 +106,208 @@
     },
     {
       "id": "agile-testing",
+      "enabled": false
+    },
+    {
+      "id": "dead-field",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "type-drift",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "dependency-graph",
+      "enabled": false
+    },
+    {
+      "id": "cross-surface-parity",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "cross-representation",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "cross-version-parity",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "semantic-constraint",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "anti-uniformity",
+      "enabled": false
+    },
+    {
+      "id": "output-schema-drift",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "hallucination-detection",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "chaos",
+      "enabled": false
+    },
+    {
+      "id": "accessibility",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "observability",
+      "enabled": false
+    },
+    {
+      "id": "data-quality",
+      "enabled": false
+    },
+    {
+      "id": "schema-migration",
+      "enabled": false
+    },
+    {
+      "id": "compatibility",
+      "enabled": false
+    },
+    {
+      "id": "state-drift",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "prompt-regression",
+      "enabled": true
+    },
+    {
+      "id": "model-routing",
+      "enabled": true
+    },
+    {
+      "id": "guardrail",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "agent-collaboration",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "determinism-boundary",
+      "enabled": false
+    },
+    {
+      "id": "iso-27001",
+      "enabled": true
+    },
+    {
+      "id": "soc2",
+      "enabled": true
+    },
+    {
+      "id": "gdpr",
+      "enabled": true
+    },
+    {
+      "id": "hipaa",
+      "enabled": false
+    },
+    {
+      "id": "pci-dss",
+      "enabled": false
+    },
+    {
+      "id": "nist-800-53",
+      "enabled": false
+    },
+    {
+      "id": "change-management",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "audit-trail",
+      "enabled": false
+    },
+    {
+      "id": "rbac-compliance",
+      "enabled": false
+    },
+    {
+      "id": "data-retention",
+      "enabled": false
+    },
+    {
+      "id": "sbom",
+      "enabled": false
+    },
+    {
+      "id": "dependency-licensing",
+      "enabled": false
+    },
+    {
+      "id": "license-compatibility",
+      "enabled": false
+    },
+    {
+      "id": "secure-build-pipeline",
+      "enabled": false
+    },
+    {
+      "id": "ai-safety-compliance",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "model-output-risk",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "bias-fairness",
+      "enabled": false,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "explainability",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "ai-data-policy",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "financial-compliance",
+      "enabled": false
+    },
+    {
+      "id": "medical-compliance",
+      "enabled": false
+    },
+    {
+      "id": "automotive-compliance",
+      "enabled": false
+    },
+    {
+      "id": "aviation-compliance",
+      "enabled": false
+    },
+    {
+      "id": "energy-compliance",
       "enabled": false
     }
   ]

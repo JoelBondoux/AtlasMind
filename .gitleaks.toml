@@ -1,0 +1,45 @@
+# Gitleaks configuration for AtlasMind.
+#
+# Runs in CI on every push and pull request (`.github/workflows/ci.yml`), over
+# the full history rather than the working tree — a credential that was
+# committed and later removed is still a credential that leaked.
+#
+# This file exists mostly because of the allowlist below. AtlasMind's own tests
+# assert that its redaction boundary catches API keys, so the repository
+# necessarily contains strings shaped like API keys. Without an allowlist the
+# scan fails on day one, and a check that fails on day one gets switched off —
+# which would leave the real credentials unguarded to protect a test fixture.
+#
+# The allowlist is by **path**, never by pattern. Allowlisting a pattern would
+# switch off detection of that shape everywhere, including where it matters;
+# allowlisting a file says "this one file is understood", and a new file has to
+# be added deliberately.
+
+title = "AtlasMind"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic secrets that exist so the redaction boundary can be tested"
+
+paths = [
+  # `redactSecrets` is asserted against one example of every shape it claims to
+  # know. Every value is invented and none has ever been valid.
+  '''tests/ai-data-policy\.test\.ts''',
+  # The secret redactor's own pattern table.
+  '''src/utils/secretRedactor\.ts''',
+  # Compliance-pack detectors: card numbers, IBANs and the like, all synthetic
+  # and several deliberately checksum-valid so the validators can be exercised.
+  '''src/core/compliancePacks\.ts''',
+  '''tests/core/compliancePacks\.test\.ts''',
+  # The privacy suite classifies personal data, so it carries example
+  # addresses and identifiers — all invented.
+  '''tests/gdpr\.privacy\.test\.ts''',
+  # Nostr/Buzz key handling is tested against the published NIP-19 vectors,
+  # which are public test data by design.
+  '''tests/core/buzzSigner\.test\.ts''',
+  # The JUnit reader is asserted not to surface a failure message containing a
+  # key, which requires a fixture containing one.
+  '''tests/core/testingPolicyCoverage\.test\.ts''',
+]

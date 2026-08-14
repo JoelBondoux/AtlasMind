@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.308.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.309.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,47 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.308.2
+## What's new in 0.309.0
 
 The last Marketplace publication, **v0.308.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Your governance regimes are now checked against your stack.** ISO 27001, SOC 2, NIST 800-53 and AI
+  safety are mostly human judgement — but "a backup is taken before a production promotion", "no endpoint
+  uses plaintext http", "dependencies are scanned", "changes are reviewed before merge" are facts about a
+  stack, and AtlasMind already knows all of them. 26 controls are now verified automatically, each with
+  its evidence and the rule behind it, and the ones still needing a person are counted separately so
+  "4 of 7 verified" is never mistaken for the whole regime. A signal nobody gathered reads *not assessed*,
+  never a pass.
+
+- **ISO 27001 and SOC 2 ship with a control mapping — including the governance half.** Both regimes were
+  declared as engineering checklists (ISO had nine technological controls and one organisational; SOC 2
+  had no CC1–CC5 at all). They now cover all four ISO themes and CC1–CC9, grouped so the organisational
+  half is the first thing you see, with the controls AtlasMind can verify pointing at the live result
+  rather than copying a verdict into a file that is never rewritten.
+
+- **Statistics on the Testing dashboard**, so protocol state reads at a glance: where the test cases
+  actually are, evidence by category, a governance-control breakdown, and a status strip on every card.
+
+- **The dashboard fits your window.** Grids now reflow on a stated minimum instead of dividing the width
+  by a fixed column count, the page is capped and centred, and prose stops at a readable measure. Testing
+  policy cards are wider, and an expanded one takes the full row.
+
+- **Compliance could read as met on evidence that proved nothing.** ISO 27001 counted a `SECURITY.md` —
+  a file saying where to email a bug — as evidence of the certification, and a scaffolded control mapping
+  counted before anyone had filled a single row in. Both are fixed: only the control mapping counts, and
+  only once a control has actually been assessed. An unevidenced gap is a prompt to do the work; a false
+  pass is something somebody repeats to an auditor.
+
+- **Three testing policies could never read as covered.** `dead-field`, `dependency-graph` and
+  `explainability` had marker patterns that no test file could ever match, so each stayed a gap however
+  much work was done — the thing that teaches people to stop trusting a board. All three now match a test
+  named after them, and two invariants keep it that way.
+
+- **Every file-evidenced testing policy now has a real test behind it**, not a scaffolded placeholder.
+  A placeholder counts as evidence on the dashboard while asserting nothing about your code, which is
+  worse than an honest gap. AtlasMind's own 27 enabled policies are now evidenced against the modules
+  that own each property.
 
 - **Your testing policies now react to your code.** Coverage used to be a yes/no per methodology — does
   *anything* here test contracts? So one contract test written in March still reported "Tested" in

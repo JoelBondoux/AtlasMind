@@ -6,6 +6,177 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.309.0] - 2026-08-13
+
+### Added
+
+- **Governance regimes are now checked against your stack, not only attested to on paper.** A
+  documentary policy — ISO 27001, SOC 2, NIST 800-53, AI safety — is mostly human judgement, but *mostly*
+  is not *entirely*. "A backup is taken before a production promotion", "no declared endpoint uses
+  plaintext http", "dependencies are scanned for known vulnerabilities", "changes are reviewed before
+  merge" are facts about a stack, and AtlasMind already models every one of them somewhere.
+
+  None of it reached the compliance board, so a regime with ten controls sat entirely at *Not assessed*
+  while several were verifiable from disk. `complianceTechnicalControls` runs 26 checks across the four
+  regimes and reports each with the evidence and the declared rule behind it. On this repository 17 pass
+  — and the ones that do not are specific and actionable rather than a shrug: no workflow audit ledger,
+  no backup required before a production promotion, no secret scanner, no model card.
+
+  Four rules hold it honest. **A signal nobody gathered is `unknown`, never satisfied** — every input is
+  optional and absent means "not looked at", which on a compliance board is the one place guessing in the
+  reassuring direction must be refused. **Every result names the rule that decided it.** **A control with
+  no automated check is counted as still needing a person**, so "4 of 7 verified" cannot be misread as the
+  whole regime. And **one question asked by three standards gets one answer** — ISO A.8.8, SOC 2 CC7.2 and
+  NIST RA-5 share an implementation, because three copies would eventually disagree about one repository.
+
+  This also answers "is this protocol worth keeping switched on?" directly: `hasTechnicalControls` reports
+  whether a regime has anything a machine can check at all.
+
+- **ISO 27001 and SOC 2 have control mappings, and both regimes gained their governance half.** The
+  declared control sets were an engineering checklist: ISO listed nine A.8 controls and one A.5, and SOC 2
+  had no CC1–CC5 at all. That is not a curated subset, it is half a regime — an auditor opens with the
+  control environment and the risk assessment, and a mapping that never mentions them describes a project
+  that has not started.
+
+  ISO now declares 25 controls across all four Annex A themes (organisational, people, physical,
+  technological) and SOC 2 declares 24 across CC1–CC9 and A1. The mapping document groups them by theme
+  with governance first, because an ungrouped list of twenty-five reads as a backlog and the
+  organisational half gets skimmed past.
+
+  Nine further checks came with them, for the governance controls that *are* machine-answerable:
+  supplier and sub-processor terms (ISO A.5.19/A.5.23, SOC 2 CC9.2) from the recorded provider data
+  governance; risk identification (CC3.2) from the risk register, where **assessed** rather than *empty*
+  is the test, since a register nobody has run also reports zero findings; ongoing evaluation (CC4.1);
+  incident response (A.5.26); personal-data protection (A.5.34), which requires the privacy gate to be on
+  *and* armed with a pack, because on-with-no-pack detects nothing while looking like protection; and
+  secure coding (A.8.28), which requires a linter to be **enforced** rather than merely installed.
+
+  On this repository that is 10 of 12 ISO controls and 8 of 10 SOC 2 controls verified automatically,
+  with 13 and 14 respectively still needing a person — and the mapping says so rather than implying the
+  automated ones were the whole job. Rows with an automated check point at the live result instead of
+  copying it: the mapping is never rewritten, so a verdict recorded in it would be a fact about the day it
+  was scaffolded quietly presented as a current one.
+
+- **A secret scan runs in CI**, over the full history rather than the working tree — a credential that was
+  committed and later removed is still one that leaked. It is a separate job rather than a matrix step,
+  because a secret is a secret on every platform and three identical scans would treble the cost of the
+  job most likely to be the reason somebody rotates a key today. `.gitleaks.toml` allowlists the handful of
+  files that contain *synthetic* secrets so the redaction boundary can be tested — by **path, never by
+  pattern**, since allowlisting a pattern would switch that shape off everywhere including where it counts.
+
+- **A system card**, `MODEL_CARD.md`. It opens by saying it is not a model card: AtlasMind trains nothing
+  and ships no weights, so training data and benchmark tables have no subject here. What it documents
+  instead is what the system actually decides — routing, context assembly, and where authority stops —
+  along with the limitations worth knowing and a table pointing each claim at the test that enforces it.
+
+- **Credentials in settings are now a checked control.** A VS Code setting is clear text in
+  `settings.json`, routinely committed and synced — so "the API key lives in SecretStorage" is the
+  encryption-at-rest control this ecosystem actually has. It is now asserted against the manifest and
+  feeds ISO A.8.24, SOC 2 CC6.7 and NIST SC-28, so a regression does not merely leak a key, it visibly
+  turns three controls red.
+
+- **Statistics on the Testing dashboard.** Where the test cases actually are (ranked, capped, remainder
+  stated), evidence by category so a lopsided board is visible, a governance-control donut, and a strip on
+  every collapsed policy card. The strip is the point: twenty cards each reading "12 files · 340 cases" is
+  a wall of numbers, while a row of strips is a shape, and a red or grey segment needs no reading.
+
+### Changed
+
+- **The dashboard fits the window again.** Every grid was a fixed column count of `1fr`, which behaves
+  badly at both ends — six stat cards squeeze to unreadable in a narrow editor, and two columns stretch a
+  paragraph across an ultrawide. Grids now state a *minimum* per cell and reflow; the shell is capped and
+  centred; and prose stops at a readable measure even where its panel does not.
+
+  The breakpoints that pinned `.stats-grid` to three columns and collapsed the panel grids to one at
+  1280px are gone. They were actively undoing the reflow at an entirely ordinary editor width, which was a
+  large part of why these pages read as badly proportioned.
+
+- **Testing policy cards are wide enough for what they hold.** The minimum went from 210px to 340px, and
+  an expanded card now takes the whole row — it is a reading surface at that point, with tables and
+  charts, and one column of a six-column grid is the thin-panel problem at its worst.
+
+### Fixed
+
+- **A control that cannot apply is no longer reported as a failure.** The backup check graded a project
+  holding no application data as a gap, which is the mirror of a false pass and just as corrosive: a board
+  that reports a data-loss risk to a project with no data is one people learn to skim, and then the real
+  findings go past too. Controls now carry a fourth state, `not applicable`, and — following the rule the
+  control mapping already states for a `Not applicable` row — it must carry the reason. The exclusion is
+  deliberately narrow: a project that *does* hold data and has simply not configured a backup is still a
+  gap, because that is the case the control exists for.
+
+- **A compliance regime could read as met on evidence that proved nothing.** Two separate causes, same
+  outcome, and it is the worst direction for this board to fail in: an unevidenced gap is a prompt to do
+  the work, while a false pass on a certification is something somebody repeats to a customer or an
+  auditor.
+
+  `iso-27001` accepted **`SECURITY.md`** as evidence. Because `configIsEvidence` promotes every matched
+  config file, any repository with a vulnerability-reporting policy — a file saying where to email a bug —
+  read as covered for ISO 27001. Only the control mapping counts now.
+
+  Separately, **a scaffolded control mapping counted before anybody had filled it in**. The mapping's own
+  preamble says it — *"Every row starts at Not assessed, which is deliberately not the same as
+  compliant"* — but the policy was promoted on the file's existence, so the document contradicted itself
+  through the dashboard. All four mappings in this repository were in that state. `isAssessedControlMapping`
+  now requires at least one control row to carry a real status; one is enough, because grading partial
+  work as nothing would tell somebody halfway through that they had done none of it. It reads table rows
+  only — the preamble lists every status as a legend, so a substring search would mark every untouched
+  mapping as assessed, which is the bug a simpler implementation reintroduces.
+
+  As a result `ai-safety-compliance` now reads as a gap. That is the true answer: its mapping exists and
+  has never been assessed.
+
+- **Three testing policies could never read as covered, whatever anybody wrote.** `dead-field` and
+  `dependency-graph` declared no `filePatterns` at all, and `fileEvidencesPolicy` returns false when a
+  policy has none — so the best either could ever score was "tooling installed, nothing tests with it",
+  which the summary counts as a gap. `explainability` had the same outcome from a different cause: its
+  pattern matched the *stem* `explainab` with a whole-word trailing boundary, so `explainability` — the
+  obvious thing to call the file — never matched.
+
+  All three now match a test named after them. This is the dead end `configIsEvidence` was added to fix
+  for the documentary compliance policies, reappearing in the structural and AI ones: a row that reads as
+  a gap however much work is done teaches people to ignore the board.
+
+  Two invariants now hold the fix in place — every non-practice policy must have a route to `covered`,
+  and every policy must match a test named after its own id (with artifact-named policies such as `bdd`
+  and `continuous` listed as explicit exemptions rather than silently skipped).
+
+### Added
+
+- **Real tests for all 27 file-evidenced testing policies**, replacing the scaffolder's starting points.
+  The scaffolded files were placeholders by design — self-contained stubs that assert nothing about this
+  codebase — and left in place they are worse than a gap, because the dashboard counts them as evidence.
+  One always passed regardless of behaviour; one imported a package this project does not depend on.
+
+  Each now exercises the AtlasMind module that actually owns the property, and the two kinds of check are
+  kept apart: what is enforced in code, and what is merely recorded. Highlights —
+
+  - **Guardrail** asserts the boundary this product genuinely has: third-party text reaches a tool-using
+    model as data, fenced and labelled, with the instruction ahead of the content rather than after it.
+  - **Contract** checks every provider adapter against the declared interface, including the arity of
+    optional members — a zero-argument `streamComplete` type-checks and silently streams nothing.
+  - **Cross-version parity** adds approved baselines for the managed instruction blocks, the bytes
+    AtlasMind writes into every project's `CLAUDE.md`. Re-approve deliberately with `APPROVE_BASELINES=1`.
+  - **Hallucination detection** states the citation gate generatively: across hundreds of generated model
+    replies, nothing uncited is ever promoted to a finding.
+  - **Explainability** checks the property no single register can — that every grading surface names the
+    declared rule behind its answer.
+  - **Mutation** targets the three modules Stryker mutates with the whole approval matrix rather than
+    representative pairs, which is what a conditional-boundary mutant survives on.
+  - **Dead-field** and **accessibility** carry ratchets rather than clean-up demands: 97 unreferenced
+    exports and 52 untyped buttons are recorded as ceilings that may only go down. A check that fails on
+    day one gets deleted.
+  - **GDPR** covers the controls that are code rather than the ones a policy document would claim:
+    personal data is classified before anything is sent, an unknown model is never trusted, the gate is
+    off until switched on, and every provider publishes a data-subject route. Its fixtures deliberately
+    avoid `example.com` and `203.0.113.42` — the detectors reject documentation values on purpose, so the
+    reflexive fixture would have tested nothing and passed.
+  - **Prompt regression** pins the text actually sent to models as approved baselines. A prompt is
+    behaviour, and editing one changes what every model does on that path while nothing fails.
+  - **Model routing** asks the two questions a case-by-case suite cannot: does the decision collapse to
+    one answer, and can a hard capability requirement be satisfied approximately. (These began as the
+    `bias-fairness` tests; that policy is now off, and the router is where the real decision is made.)
+
 ## [0.308.2] - 2026-08-13
 
 ### Fixed

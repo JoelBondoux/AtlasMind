@@ -9,6 +9,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Runs once rather than across the OS matrix: a secret in the history is a
+  # secret on every platform, and three identical scans would treble the cost
+  # of the job most likely to be the reason somebody rotates a key today.
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history: a credential that was committed and then removed is
+          # still a credential that leaked, and a shallow clone cannot see it.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   quality:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

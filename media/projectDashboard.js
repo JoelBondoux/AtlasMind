@@ -4238,7 +4238,58 @@
    * and three tables is a page nobody scrolls, and the whole reason the card
    * collapses is that most policies are fine most of the time.
    */
-  function renderPolicyCardDetail(row, detail) {
+  /**
+   * Controls in a governance regime that were checked against the stack.
+   *
+   * Rendered beside the human control mapping rather than instead of it. Three
+   * states, and the third is the point: `unknown` means the signal was never
+   * gathered, which is a different fact from "checked and failed" and must not
+   * be drawn as a pass. The summary line states how many controls remain for a
+   * person, so "4 of 7 verified" cannot be misread as the whole regime.
+   */
+  function renderTechnicalControls(entry) {
+    if (!entry || !Array.isArray(entry.results) || entry.results.length === 0) {
+      return '';
+    }
+    const summary = entry.summary || {};
+    const toneFor = (state) => state === 'satisfied' ? 'tag-good' : state === 'gap' ? 'tag-critical' : 'tag-muted';
+    // "Not applicable" and "Not assessed" both read muted, because neither is a
+    // finding — but they say different things, so the label carries the
+    // distinction rather than the colour.
+    const labelFor = (state) => state === 'satisfied' ? 'Verified'
+      : state === 'gap' ? 'Not met'
+      : state === 'not-applicable' ? 'Not applicable'
+      : 'Not assessed';
+
+    return `
+      <div class="policy-controls">
+        <div class="dist-title">
+          <span>Controls checked against the stack</span>
+          <span class="list-meta">${escapeHtml(summary.summary || '')}</span>
+        </div>
+        ${renderDistributionBar(`policy-controls-${entry.policyId}`, [
+          { label: 'Verified', value: summary.satisfied || 0, tone: 'good' },
+          { label: 'Not met', value: summary.gaps || 0, tone: 'critical' },
+          { label: 'Not assessed', value: summary.unknown || 0, tone: 'muted' },
+          { label: 'Not applicable', value: summary.notApplicable || 0, tone: 'muted' },
+          { label: 'For a person', value: summary.humanControlCount || 0, tone: 'accent' },
+        ], { caption: 'Automated checks vs. human attestation' })}
+        <table class="mini-table policy-control-table">
+          <thead><tr><th scope="col">Ref</th><th scope="col">Control</th><th scope="col">State</th><th scope="col">Evidence</th></tr></thead>
+          <tbody>
+            ${entry.results.map(result => `
+              <tr>
+                <td><code>${escapeHtml(result.controlRef)}</code></td>
+                <td>${escapeHtml(result.question)}<br><span class="list-meta">${escapeHtml(result.rule)}</span></td>
+                <td><span class="tag ${toneFor(result.state)}">${escapeHtml(labelFor(result.state))}</span></td>
+                <td>${escapeHtml(result.evidence || 'Nothing was gathered for this check.')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderPolicyCardDetail(row, detail, technicalEntry) {
     const finding = detail && detail.finding;
     const caseMix = detail && detail.caseMix;
 
@@ -4297,6 +4348,8 @@
             </tbody>
           </table>
         </div>
+
+        ${renderTechnicalControls(technicalEntry)}
 
         ${renderPolicySubjects(row)}
 
@@ -4397,6 +4450,200 @@
       && entry.assigneeContactId);
   }
 
+  /**
+   * A horizontal bar of the policies carrying the most test cases.
+   *
+   * Answers a question the status board cannot: *where the testing effort
+   * actually is*. Ten policies all reading "Tested" look identical on the
+   * status grid while one of them holds four thousand cases and another holds
+   * three — and the three-case one is the risk.
+   *
+   * Ranked and capped, with the remainder stated. Policies with no cases are
+   * excluded rather than drawn as zero-length bars: an empty bar and an
+   * unmeasurable one look the same, and only one of them is a finding (the
+   * status board already reports it as a gap).
+   */
+  function renderPolicyCaseBars(rows) {
+    const scored = rows
+      .filter(row => row.caseCount > 0)
+      .sort((left, right) => right.caseCount - left.caseCount);
+    if (scored.length === 0) {
+      return '<div class="dist-empty">No policy has any test cases yet, so there is nothing to rank.</div>';
+    }
+    const shown = scored.slice(0, 8);
+    const max = shown[0].caseCount || 1;
+    const rest = scored.length - shown.length;
+
+    return `
+      <div class="dist-block">
+        <div class="dist-title">
+          <span>Where the test cases are</span>
+          <span class="list-meta">${escapeHtml(rest > 0 ? `Top ${shown.length} of ${scored.length}` : `${scored.length} polic${scored.length === 1 ? 'y' : 'ies'}`)}</span>
+        </div>
+        <div class="policy-bar-rows">
+          ${shown.map(row => {
+            const percent = Math.max(2, Math.round((row.caseCount / max) * 100));
+            const tone = row.failedCount > 0 ? 'critical' : row.skippedCount > 0 ? 'warn' : 'good';
+            return `
+              <div class="policy-bar-row" title="${escapeAttr(`${row.label}: ${row.caseCount} case(s)${row.failedCount > 0 ? `, ${row.failedCount} failing` : ''}${row.skippedCount > 0 ? `, ${row.skippedCount} skipped` : ''}`)}">
+                <span class="policy-bar-label">${escapeHtml(row.label)}</span>
+                <span class="policy-bar-track">
+                  <span class="policy-bar-fill dist-${escapeAttr(tone)}"
+                    data-anim-key="policy-cases:${escapeAttr(row.id)}" data-anim-to="${percent}%" style="width:0%"></span>
+                </span>
+                <strong class="policy-bar-value">${escapeHtml(formatNumber(row.caseCount))}</strong>
+              </div>`;
+          }).join('')}
+        </div>
+        ${rest > 0 ? `<div class="list-meta">${escapeHtml(`${rest} further polic${rest === 1 ? 'y' : 'ies'} with cases are not shown.`)}</div>` : ''}
+      </div>`;
+  }
+
+  /**
+   * Evidence by category, so a lopsided board is visible at a glance.
+   *
+   * A project can be strong on structural testing and have nothing at all
+   * behind its compliance regimes, and the flat status grid averages that away.
+   */
+  function renderPolicyCategoryBars(rows) {
+    const byCategory = new Map();
+    rows.forEach(row => {
+      const key = row.category || 'other';
+      const bucket = byCategory.get(key) || { covered: 0, gap: 0, practice: 0 };
+      if (row.status === 'covered') { bucket.covered += 1; }
+      else if (row.status === 'not-file-evident') { bucket.practice += 1; }
+      else { bucket.gap += 1; }
+      byCategory.set(key, bucket);
+    });
+    if (byCategory.size === 0) { return ''; }
+
+    const entries = [...byCategory.entries()].sort((left, right) => {
+      const gaps = right[1].gap - left[1].gap;
+      return gaps !== 0 ? gaps : left[0].localeCompare(right[0]);
+    });
+
+    return `
+      <div class="dist-block">
+        <div class="dist-title">
+          <span>Evidence by category</span>
+          <span class="list-meta">Most gaps first</span>
+        </div>
+        <div class="policy-bar-rows">
+          ${entries.map(entry => {
+            const name = entry[0];
+            const bucket = entry[1];
+            const total = bucket.covered + bucket.gap + bucket.practice;
+            const seg = (value, tone) => value > 0
+              ? `<span class="policy-stack-seg dist-${tone}" style="width:${(value / total) * 100}%" title="${escapeAttr(`${value} ${tone === 'good' ? 'with evidence' : tone === 'critical' ? 'without' : 'practice'}`)}"></span>`
+              : '';
+            return `
+              <div class="policy-bar-row">
+                <span class="policy-bar-label">${escapeHtml(name.replace(/-/g, ' '))}</span>
+                <span class="policy-bar-track">${seg(bucket.covered, 'good')}${seg(bucket.gap, 'critical')}${seg(bucket.practice, 'muted')}</span>
+                <strong class="policy-bar-value">${escapeHtml(`${bucket.covered}/${total}`)}</strong>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Governance controls rolled up across every regime that declares one.
+   *
+   * Kept apart from the test-evidence charts on purpose: a control verified
+   * against the stack and a test file are different kinds of evidence, and
+   * adding them into one number would let a strong pipeline hide an untested
+   * regime. `Not assessed` is drawn, never omitted — a signal nobody gathered
+   * is the state most worth seeing on a compliance board.
+   */
+  function renderGovernanceRollup(technicalById) {
+    const entries = Object.keys(technicalById || {});
+    if (entries.length === 0) { return ''; }
+
+    let satisfied = 0; let gaps = 0; let unknown = 0; let human = 0; let notApplicable = 0;
+    entries.forEach(key => {
+      const summary = (technicalById[key] || {}).summary || {};
+      satisfied += summary.satisfied || 0;
+      gaps += summary.gaps || 0;
+      unknown += summary.unknown || 0;
+      notApplicable += summary.notApplicable || 0;
+      human += summary.humanControlCount || 0;
+    });
+    // Excludes what cannot apply: a control out of scope is not a control
+    // this project failed to verify.
+    const automated = satisfied + gaps + unknown;
+    if (automated === 0) { return ''; }
+
+    return `
+      <div class="dist-block">
+        <div class="dist-title">
+          <span>Governance controls</span>
+          <span class="list-meta">${escapeHtml(`${entries.length} regime${entries.length === 1 ? '' : 's'} with automated checks`)}</span>
+        </div>
+        ${renderDonutChart('governance-controls', [
+          { label: 'Verified against the stack', value: satisfied, tone: 'good' },
+          { label: 'Not met', value: gaps, tone: 'critical' },
+          { label: 'Not assessed', value: unknown, tone: 'muted' },
+          { label: 'Not applicable', value: notApplicable, tone: 'muted' },
+          { label: 'For a person', value: human, tone: 'accent' },
+        ], {
+          centerValue: `${satisfied}/${automated}`,
+          centerLabel: 'verified',
+          emptyLabel: 'No governance control could be checked automatically.',
+        })}
+      </div>`;
+  }
+
+  /**
+   * A single strip on the collapsed card saying where this policy stands.
+   *
+   * The point is scanning. A grid of twenty cards each showing "12 files · 340
+   * cases" is a wall of numbers nobody reads; a row of strips is a shape, and a
+   * red segment or a grey one is visible without reading anything.
+   *
+   * Two kinds of policy get two different strips, because they are measured by
+   * different things — cases for a tested policy, controls for a governance
+   * regime. A policy with neither gets none rather than an empty track, since
+   * an empty bar reads as "measured, and zero" when the truth is "nothing to
+   * measure".
+   */
+  function renderPolicyGlanceMeter(row, technicalEntry) {
+    const summary = technicalEntry && technicalEntry.summary;
+    if (summary && summary.checked > 0) {
+      const total = summary.checked + (summary.humanControlCount || 0);
+      const seg = (value, tone, label) => value > 0
+        ? `<span class="policy-stack-seg dist-${tone}" style="width:${(value / total) * 100}%" title="${escapeAttr(`${label}: ${value}`)}"></span>`
+        : '';
+      return `
+        <span class="policy-glance" role="img" aria-label="${escapeAttr(summary.summary || '')}">
+          <span class="policy-bar-track">
+            ${seg(summary.satisfied, 'good', 'Verified')}
+            ${seg(summary.gaps, 'critical', 'Not met')}
+            ${seg(summary.notApplicable, 'muted', 'Not applicable')}
+            ${seg(summary.unknown, 'muted', 'Not assessed')}
+            ${seg(summary.humanControlCount, 'accent', 'For a person')}
+          </span>
+        </span>`;
+    }
+
+    const passing = Math.max(0, (row.caseCount || 0) - (row.skippedCount || 0) - (row.failedCount || 0));
+    const total = passing + (row.skippedCount || 0) + (row.failedCount || 0);
+    if (total === 0) {
+      return '';
+    }
+    const seg = (value, tone, label) => value > 0
+      ? `<span class="policy-stack-seg dist-${tone}" style="width:${(value / total) * 100}%" title="${escapeAttr(`${label}: ${value}`)}"></span>`
+      : '';
+    return `
+      <span class="policy-glance" role="img" aria-label="${escapeAttr(`${passing} passing, ${row.skippedCount || 0} skipped, ${row.failedCount || 0} failing`)}">
+        <span class="policy-bar-track">
+          ${seg(passing, 'good', 'Passing')}
+          ${seg(row.skippedCount || 0, 'warn', 'Skipped')}
+          ${seg(row.failedCount || 0, 'critical', 'Failing')}
+        </span>
+      </span>`;
+  }
+
   function renderPolicyCoverage(testing) {
     const coverage = testing.policyCoverage;
     if (!coverage || !Array.isArray(coverage.rows)) {
@@ -4425,6 +4672,11 @@
 
     const detailSet = testing.policyDetails || { details: [], counts: {}, rules: [] };
     const detailById = new Map((detailSet.details || []).map(entry => [entry.id, entry]));
+    const technicalById = testing.technicalControls || {};
+    const technicalEntryFor = (policyId) => {
+      const entry = technicalById[policyId];
+      return entry ? Object.assign({ policyId }, entry) : null;
+    };
 
     const cards = rows.map(row => {
       const detail = detailById.get(row.id);
@@ -4462,9 +4714,10 @@
               </span>
             </span>
             ${counts.length > 0 ? `<span class="policy-card-signals">${escapeHtml(counts.join(' · '))}</span>` : ''}
+            ${renderPolicyGlanceMeter(row, technicalEntryFor(row.id))}
             ${finding && finding.statement ? `<span class="policy-card-statement">${escapeHtml(finding.statement)}</span>` : ''}
           </button>
-          ${expanded ? renderPolicyCardDetail(row, detail) : ''}
+          ${expanded ? renderPolicyCardDetail(row, detail, technicalEntryFor(row.id)) : ''}
         </div>`;
     }).join('');
 
@@ -4505,7 +4758,13 @@
             ${renderMetricPill('Failing tests', report ? String(report.failed) : 'Unknown', { tone: report ? (report.failed > 0 ? 'critical' : 'good') : 'warn' })}
             ${renderMetricPill('Skipped in tree', String(coverage.totalSkipped || 0), { tone: (coverage.totalSkipped || 0) > 0 ? 'warn' : 'good' })}
             ${renderMetricPill('Policies with no tests', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Total cases', formatNumber(rows.reduce((sum, row) => sum + (row.caseCount || 0), 0)), { tone: 'accent' })}
           </div>
+        </div>
+        <div class="panel-grid policy-stats-grid" style="margin-top:12px">
+          ${renderPolicyCaseBars(rows)}
+          ${renderPolicyCategoryBars(rows)}
+          ${renderGovernanceRollup(technicalById)}
         </div>
         <div class="policy-grid">${cards || '<div class="dashboard-empty">Enable the policies this project follows to see what each has to show for itself.</div>'}</div>
         ${(detailSet.rules || []).length > 0 ? `

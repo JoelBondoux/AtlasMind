@@ -3,6 +3,9 @@ import {
   buildTestingPolicyLaymanGuide,
   deriveTestingPolicyCoverage,
   parseJUnitReport,
+  POLICY_MARKERS,
+  COMPLIANCE_EVIDENCE_DIR,
+  isAssessedControlMapping,
   type TestingPolicyEvidenceInput,
 } from '../../src/core/testingPolicyCoverage.ts';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../../src/types.ts';
@@ -317,5 +320,226 @@ describe('continuous testing — configuration is the artifact', () => {
       configFiles: ['playwright.config.ts'],
     }));
     expect(coverage.rows[0]!.status).toBe('tooling-only');
+  });
+});
+
+
+describe('no policy is a gap that can never close', () => {
+  /**
+   * Every policy must have *some* route to `covered`.
+   *
+   * `fileEvidencesPolicy` returns false when a policy declares no
+   * `filePatterns`, so a policy with neither file patterns nor
+   * `configIsEvidence` caps at `tooling-only` — which the summary counts as a
+   * gap. The row then reads as a gap that can never close however much work
+   * somebody does, which is exactly the dead end `configIsEvidence` was added
+   * to fix for the documentary compliance policies, reappearing in the
+   * structural ones. `dead-field` and `dependency-graph` both sat in it: a
+   * project could adopt `knip`, wire it into CI, and still be told it had
+   * nothing to show.
+   *
+   * Checked against the marker table rather than by feeding paths in, because
+   * a probe has to guess each policy's filename convention and a wrong guess
+   * reports a reachable policy as unreachable.
+   *
+   * A practice is exempt: `not-file-evident` is its own status and is
+   * deliberately never counted as a gap.
+   */
+  it('gives every non-practice policy either file patterns or config evidence', () => {
+    const unreachable = Object.entries(POLICY_MARKERS)
+      .filter(([, markers]) => markers.practiceOnly !== true)
+      .filter(([, markers]) => (markers.filePatterns ?? []).length === 0 && markers.configIsEvidence !== true)
+      .map(([id]) => id);
+
+    expect(unreachable, 'these policies can never read as covered').toEqual([]);
+  });
+
+  it('declares markers for every methodology the matrix offers', () => {
+    // A methodology a project can enable but the matcher has never heard of is
+    // dropped from the board entirely by `deriveTestingPolicyCoverage`, so it
+    // reads as "not enabled" rather than as "not assessed".
+    const missing = TESTING_METHODOLOGY_DEFINITIONS
+      .map(definition => definition.id)
+      .filter(id => POLICY_MARKERS[id] === undefined);
+
+    expect(missing, 'enabled-able methodologies with no markers').toEqual([]);
+  });
+
+  it('evidences the dead-field policy from a test rather than only from tooling', () => {
+    // The concrete case behind the invariant above, and the one this project
+    // relies on: its dead-field check is a test over its own manifest, not an
+    // adopted scanner.
+    const coverage = deriveTestingPolicyCoverage(baseInput({
+      enabledMethodologies: ['dead-field'],
+      testFiles: [{ relativePath: 'tests/dead-field/unreadDeclarations.test.ts', cases: 7, skipped: 0 }],
+    }));
+
+    expect(coverage.rows[0]!.status).toBe('covered');
+  });
+});
+
+describe('a policy matches the filename somebody would actually use', () => {
+  /**
+   * A stem in `filePatterns` must not carry a whole-word trailing boundary.
+   *
+   * `explainability` shipped as `(explainab)([./_-]|$)`, which requires the
+   * token to *end* at `explainab` — so `tests/explainability/…` never matched
+   * and the policy read as a gap nothing could close. The bug is invisible in
+   * review because the stem looks right; it only shows when a real filename is
+   * fed through it.
+   *
+   * So: for each policy, the obvious directory and suffix names are checked
+   * against its own markers. Policies whose artifact is a config file or a
+   * specific tool output are exempt — `bdd` wants a `.feature`, `continuous`
+   * wants a pipeline — and are listed rather than skipped silently.
+   */
+  const NAMED_BY_ARTIFACT_NOT_BY_POLICY = new Set([
+    // Named after the artifact the tooling produces, not after the policy:
+    // `bdd` wants a `.feature`, `mbt` a model file, `sbom` a CycloneDX
+    // document, `continuous` a pipeline definition.
+    'bdd', 'atdd', 'sdd', 'mbt', 'continuous', 'type-drift', 'cross-version-parity',
+    'sbom', 'dependency-licensing', 'license-compatibility', 'secure-build-pipeline',
+    // Documentary regimes: the control mapping is the artifact, and it is
+    // deliberately the *only* thing that evidences them.
+    'iso-27001', 'soc2', 'nist-800-53', 'ai-safety-compliance',
+    'financial-compliance', 'medical-compliance', 'automotive-compliance',
+    'aviation-compliance', 'energy-compliance',
+  ]);
+
+  it('matches a test named after the policy id', () => {
+    const unmatched: string[] = [];
+
+    for (const [id, markers] of Object.entries(POLICY_MARKERS)) {
+      if (markers.practiceOnly === true || NAMED_BY_ARTIFACT_NOT_BY_POLICY.has(id)) {
+        continue;
+      }
+      const candidates = [
+        `tests/${id}/something.test.ts`,
+        `tests/${id}.test.ts`,
+      ];
+      if (!candidates.some(candidate => (markers.filePatterns ?? []).some(pattern => pattern.test(candidate)))) {
+        unmatched.push(id);
+      }
+    }
+
+    expect(unmatched, 'these policies cannot match a test named after themselves').toEqual([]);
+  });
+
+  it('keeps the exemption list honest', () => {
+    // An id listed as exempt but no longer in the table is a stale exemption
+    // hiding a policy that is not being checked.
+    const stale = [...NAMED_BY_ARTIFACT_NOT_BY_POLICY].filter(id => POLICY_MARKERS[id as keyof typeof POLICY_MARKERS] === undefined);
+    expect(stale, 'exemptions naming a policy that no longer exists').toEqual([]);
+  });
+});
+
+describe('a documentary compliance regime is evidenced only by its control mapping', () => {
+  /**
+   * The false-covered case, which is the one that matters most.
+   *
+   * `configIsEvidence` promotes *every* matched config file to evidence, so a
+   * loose pattern on a documentary policy does not merely over-count — it
+   * reports a certification as met. `iso-27001` listed `SECURITY.md`, which is
+   * a vulnerability-reporting policy, so any repository with one read as
+   * covered for ISO 27001.
+   *
+   * An unevidenced gap is a prompt to do the work. A false pass on a compliance
+   * regime is something somebody repeats to an auditor.
+   */
+  const DOCUMENTARY = ['iso-27001', 'soc2', 'nist-800-53', 'ai-safety-compliance'] as const;
+
+  it('does not accept SECURITY.md as evidence of any compliance regime', () => {
+    for (const id of DOCUMENTARY) {
+      const coverage = deriveTestingPolicyCoverage(baseInput({
+        enabledMethodologies: [id],
+        configFiles: ['SECURITY.md', 'README.md'],
+      }));
+      expect(coverage.rows[0]!.status, `${id} was evidenced by SECURITY.md`).not.toBe('covered');
+    }
+  });
+
+  it('accepts the control mapping, which is the actual artifact', () => {
+    for (const id of DOCUMENTARY) {
+      const coverage = deriveTestingPolicyCoverage(baseInput({
+        enabledMethodologies: [id],
+        configFiles: [`${COMPLIANCE_EVIDENCE_DIR}/${id}.md`],
+      }));
+      expect(coverage.rows[0]!.status, `${id} did not accept its own control mapping`).toBe('covered');
+    }
+  });
+
+  it('does not let one regime’s mapping evidence another', () => {
+    // Every mapping lives in one directory, so a pattern that matched the
+    // directory rather than the filename would mark all of them covered the
+    // moment any one existed.
+    const coverage = deriveTestingPolicyCoverage(baseInput({
+      enabledMethodologies: ['soc2'],
+      configFiles: [`${COMPLIANCE_EVIDENCE_DIR}/iso-27001.md`],
+    }));
+    expect(coverage.rows[0]!.status).not.toBe('covered');
+  });
+});
+
+describe('a control mapping is evidence once it has been filled in', () => {
+  /**
+   * The mapping's own preamble states the rule this enforces: *"Every row
+   * starts at Not assessed, which is deliberately not the same as compliant."*
+   * `configIsEvidence` promotes on the file's existence, so before this a
+   * scaffolded, untouched mapping reported the regime as met — the document
+   * contradicting itself through the dashboard.
+   */
+  const PREAMBLE = [
+    '# SOC 2 — control mapping',
+    '',
+    'Status is one of: `Not assessed` · `Satisfied` · `Partial` · `Gap` · `Not applicable`.',
+    'A `Not applicable` needs a justification in the Evidence column.',
+    '',
+    '| Ref | Requirement | Status | Evidence | Owner |',
+    '|---|---|---|---|---|',
+  ].join('\n');
+
+  const withRows = (...rows: string[]): string => [PREAMBLE, ...rows].join('\n');
+
+  it('does not count a mapping where every row is unassessed', () => {
+    expect(isAssessedControlMapping(withRows(
+      '| `CC6.1` | Logical access controls | Not assessed | _none recorded_ | _unassigned_ |',
+      '| `CC6.2` | Registration authorised | Not assessed | _none recorded_ | _unassigned_ |',
+    ))).toBe(false);
+  });
+
+  it('is not fooled by the status legend in the preamble', () => {
+    // The exact bug a substring search reintroduces: every scaffolded mapping
+    // names `Satisfied` in its own instructions.
+    expect(PREAMBLE).toContain('Satisfied');
+    expect(isAssessedControlMapping(PREAMBLE)).toBe(false);
+  });
+
+  for (const status of ['Satisfied', 'Partial', 'Gap', 'Not applicable']) {
+    it(`counts a mapping with one row marked ${status}`, () => {
+      // One assessed row is enough on purpose. Grading partial work as nothing
+      // would tell somebody halfway through that they had done none of it.
+      expect(isAssessedControlMapping(withRows(
+        '| `CC6.1` | Logical access controls | Not assessed | _none recorded_ | _unassigned_ |',
+        `| \`CC6.2\` | Registration authorised | ${status} | reviewed 2026-01-04 | joel |`,
+      ))).toBe(true);
+    });
+  }
+
+  it('reads a status regardless of case or emphasis', () => {
+    expect(isAssessedControlMapping(withRows(
+      '| `CC6.1` | Logical access | **satisfied** | reviewed | joel |',
+    ))).toBe(true);
+  });
+
+  it('does not count an empty or absent mapping', () => {
+    for (const text of ['', '# SOC 2\n\nNothing here yet.', '|---|---|']) {
+      expect(isAssessedControlMapping(text), JSON.stringify(text.slice(0, 20))).toBe(false);
+    }
+  });
+
+  it('does not count prose that merely mentions a status outside a table', () => {
+    expect(isAssessedControlMapping(
+      '# Notes\n\nWe think CC6.1 is probably Satisfied but nobody has checked.\n',
+    )).toBe(false);
   });
 });
