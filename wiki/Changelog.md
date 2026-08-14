@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.310.2 — A stress battery for the chat window
+
+A measuring instrument, not a gate. 57 probes across ten lanes ask whether the chat window does right by
+the person reading it — does a question it asks reach you as something answerable, does the answer arrive
+whole, does a turn that stops waiting say so, can it reach the product it is part of. It lives in `evals/`
+and runs from its own config, because its failures are findings about the shipped surface rather than
+regressions, and putting them in the suite would turn each one into a blocked commit.
+
+Baseline at this version: 24 held, 33 findings.
+
 ## v0.310.1 — A Refresh button that fits
 
 The dashboard Refresh button printed its keyboard shortcut next to a one-word label, which was most of

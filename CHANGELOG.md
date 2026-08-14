@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.310.2] - 2026-08-14
+
+### Added
+
+- **A stress battery for the chat window, in `evals/` where it cannot block a commit.** `tests/**` asks
+  whether the code does what it is contracted to do; this asks whether the window does right by the person
+  reading it, which is a deliberately higher bar. 57 probes across ten lanes — question, answer, information,
+  continuity, repair, stop, commands, tooling, orchestration, guidance — each carrying the question it asks
+  on the user's behalf and why that shape is realistic here, so a failure reads as a defect report rather
+  than a red assertion. Every lane interleaves controls, because a lane where nothing holds is broken
+  outright rather than at the edges and you cannot tell those apart from failures alone.
+
+  It runs from its own Vitest config and is excluded from `tsconfig.json` and the pre-commit hook by
+  construction: wiring findings into the suite would make each one a blocked commit, and the battery would
+  be deleted within a week. Baseline at this version is **24 held, 33 findings**, written to
+  `evals/chat-window-stress-report.md` on every run.
+
+  The half no harness reaches — whether an answer was worth reading, whether a task was abandoned halfway,
+  whether turn seven still knows what turn two was about — is `evals/chat-window-live-battery.md`, a scored
+  manual battery of twelve lanes. `evals/chat-stress-remediation-plan.md` groups the findings by root cause
+  into sixteen changes.
+
 ## [0.310.1] - 2026-08-14
 
 ### Changed

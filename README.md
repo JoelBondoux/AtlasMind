@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.310.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.1
+## What's new in 0.310.2
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The chat window now has a stress battery held to a higher bar than the code.** 57 probes across ten
+  lanes ask whether chat does right by the person reading it — does a question it asks reach you as
+  something you can answer, does the answer arrive whole, does a turn that stops waiting say so, can it
+  reach the product it is part of. It lives in `evals/` and runs from its own config, because its failures
+  are findings about the shipped surface rather than regressions.
 
 - **Your governance regimes are now checked against your stack.** ISO 27001, SOC 2, NIST 800-53 and AI
   safety are mostly human judgement — but "a backup is taken before a production promotion", "no endpoint
