@@ -1493,9 +1493,30 @@ describe('detectProjectRunProposal', () => {
     expect(detectProjectRunProposal('The checkout flow lives in src/checkout.ts and looks correct.')).toBe(false);
   });
 
-  it('does not fire on a generic build statement without project-run vocabulary', () => {
-    // "build this out" alone must never escalate an ordinary edit into a multi-step run.
-    expect(detectProjectRunProposal('Sure, I can build this out for you. Want me to start?')).toBe(false);
+  it('announces a generic offer as a pending decision, but never auto-starts one', () => {
+    // The concern this test was written for — "build this out" must not escalate
+    // an ordinary edit into a multi-step run — is now carried by auto-flow rather
+    // than by detection, because the two questions have different answers.
+    //
+    // *Should the operator be told a decision is waiting?* Always: saying yes to
+    // this offer starts a run today, and a turn that offers work while showing no
+    // control is the silence that made a run seem to come from nowhere.
+    //
+    // *May it start on its own?* Only when the reply said a run is what starts.
+    const reply = 'Sure, I can build this out for you. Want me to start?';
+    const transcript = [
+      { id: 'u1', role: 'user' as const, content: 'add pagination to the results list', timestamp: new Date(0).toISOString() },
+      { id: 'a1', role: 'assistant' as const, content: reply, timestamp: new Date(1000).toISOString() },
+    ];
+
+    expect(detectProjectRunProposal(reply)).toBe(true);
+    expect(resolveProjectRunAutoFlow(reply, transcript, { enabled: true, autopilot: true })).toBeUndefined();
+  });
+
+  it('does not fire on an offer to talk rather than to act', () => {
+    // Saying yes to this is a conversation. Drawing a Start-run card on it would
+    // make the card mean nothing.
+    expect(detectProjectRunProposal('That is how the router picks. Shall I explain the failover path too?')).toBe(false);
   });
 
   it('vetoes a proposal that is being declined or deferred', () => {

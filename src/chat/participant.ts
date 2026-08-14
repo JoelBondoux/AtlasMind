@@ -185,6 +185,12 @@ const DEICTIC_PROJECT_RUN_ACTION = /^(?:(?:build|implement|fix|do|run|execute|ha
  * for.
  */
 const BARE_AFFIRMATION_ACTION = /^(?:go\s+ahead|proceed|continue|carry\s+on|do\s+it|do\s+that|start|begin|run\s+it|yes|ok(?:ay)?|sure|please)[.!]?$/i;
+/**
+ * An offer to talk rather than to act. Saying yes to "Shall I explain the
+ * routing?" is a conversation, and drawing a Start-run card on it would make the
+ * card mean nothing.
+ */
+const NON_EXECUTING_OFFER_ACTION = /^(?:explain|describe|show you|tell you|walk (?:you )?through|summari[sz]e|clarify|answer|go over|talk through|outline)\b/i;
 /** "go ahead and <work>" — the affirmation is a preamble, the work follows it. */
 const GO_AHEAD_PREFIX_PATTERN = /^(?:go\s+ahead\s+and|please\s+go\s+ahead\s+and)\s+/i;
 /**
@@ -1170,6 +1176,13 @@ export async function runProjectCommand(
   );
   stream.markdown(
     `### Preview\n\n` +
+    // The goal is printed before anything happens, because it is not always
+    // something the operator typed: when a run starts from "yes", it is resolved
+    // from what the assistant proposed. A resolved goal that reads oddly is the
+    // one thing a person can catch instantly and no gate can, and until this line
+    // existed the plan, the file estimate and the cost were all derived from a
+    // string nobody had seen.
+    `Goal: **${escapeMd(truncateForSummary(goal, 200))}**\n\n` +
     `Estimated files to touch: **~${estimatedFiles}**\n\n` +
     `Execution policy: **tests first where behavior changes**. Atlas will try to follow a red-green-refactor loop autonomously and report the verification evidence it found.\n\n`,
   );
@@ -5255,6 +5268,21 @@ export function resolveAutonomousContinuationGoal(
     return undefined;
   }
 
+  // Deliberately NOT gated on the last turn having made an offer.
+  //
+  // Requiring one was tried and reverted: it broke the ordinary case where the
+  // assistant describes a plan without a closing offer and the operator says
+  // "proceed", which is the operator instructing rather than agreeing. Six tests
+  // pinned that as intended, and they are right.
+  //
+  // The defect the STOP lane found was never that a continuation is accepted —
+  // it is that a turn which *had* made an offer said nothing about a run being
+  // pending. That is fixed by widening the announcement
+  // ({@link detectProjectRunProposal}) and by keeping the question and its pills
+  // beside the decision card, not by narrowing what the operator may type. What
+  // a resolved goal must always be is something the operator can recognise from
+  // the conversation, which is what the checks above enforce.
+
   // A bare affirmation ("yes", "go ahead") accepts whatever the assistant just
   // offered, so the assistant's closing proposal is the real goal. Without this the
   // resolver fell back to the most recent *user* message — typically the question
@@ -5358,12 +5386,42 @@ export interface ProjectRunProposal {
 }
 
 /**
- * True when the assistant's reply ends by offering to start an autonomous project
- * run. Conservative by construction: it requires explicit project/autonomous-run
- * vocabulary {@link PROJECT_RUN_PROPOSAL_INTENT_PATTERN} **and** a first-person
- * go-ahead offer, vetoes negation/deferral, and — when the reply closes with a
- * question — only matches if that question is itself an offer (so requirement-
- * gathering questions never trigger an auto-run).
+ * The sentence the offer is made in — the trailing question if there is one,
+ * otherwise the last sentence of the reply.
+ *
+ * Exists so the deferral/negation veto can be scoped to it. The veto used to run
+ * over the last 400 characters, which meant an ordinary "I don't need anything
+ * else from you." two sentences above a genuine offer deleted the decision card,
+ * leaving the offer on screen with no control behind it. Those words appear in
+ * ordinary prose constantly; the *offer* is where a refusal actually lives.
+ */
+function extractOfferSentence(trimmed: string): string {
+  const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
+  if (trailingQuestion) {
+    return trailingQuestion;
+  }
+  const sentences = trimmed.split(/(?<=[.!?])\s+/);
+  return sentences[sentences.length - 1]?.trim() ?? trimmed;
+}
+
+/**
+ * True when the assistant's reply ends by offering to do work the operator can
+ * accept — the single test the decision card, the quick-reply pills and the
+ * acceptance of "yes"/"continue" are all now derived from.
+ *
+ * **It used to require the literal words "project run".** Three detectors decided
+ * independently whether a turn was waiting: this one drew the card,
+ * `detectResponseQuickReplies` drew the pills, and `isAutonomousContinuationPrompt`
+ * *accepted the answer* — unconditionally. The acceptor was strictly the widest,
+ * so a reply closing "I can implement this across the four files. Shall I go
+ * ahead?" got no card, no notice and no mention of a run, while "yes" started a
+ * planned multi-subtask one. That gap is the whole "it stops and never tells me"
+ * symptom, and closing it means widening the announcement rather than narrowing
+ * what the operator may type.
+ *
+ * So an explicit run offer still matches, and now so does any first-person offer
+ * to act. An offer to *talk* ("Shall I explain the routing?") does not: saying
+ * yes to that is a conversation, not a run.
  */
 export function detectProjectRunProposal(responseText: string): boolean {
   const trimmed = responseText.trim();
@@ -5374,24 +5432,35 @@ export function detectProjectRunProposal(responseText: string): boolean {
   // The offer/readiness line lives at the tail of the reply; bound the scan so an
   // unrelated mid-reply mention of "project run" can't trip detection.
   const window = trimmed.slice(-400);
-  if (!PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
-    return false;
-  }
-  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(window)) {
+  const offerSentence = extractOfferSentence(trimmed);
+
+  // Scoped to the offer, not the window: see extractOfferSentence.
+  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(offerSentence)
+    || ASSISTANT_DEFERRAL_PATTERN.test(offerSentence)) {
     return false;
   }
 
-  // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
-  // not an information-seeking one ("What stack are you using?"). An info question
-  // means the model is still gathering requirements — don't auto-start.
   const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
-  if (trailingQuestion) {
-    return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
-      || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+
+  if (PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
+    // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
+    // not an information-seeking one ("What stack are you using?"). An info question
+    // means the model is still gathering requirements — don't auto-start.
+    if (trailingQuestion) {
+      return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
+        || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+    }
+    // No closing question: accept a first-person readiness statement that offers to run.
+    return PROJECT_RUN_OFFER_PATTERN.test(window);
   }
 
-  // No closing question: accept a first-person readiness statement that offers to run.
-  return PROJECT_RUN_OFFER_PATTERN.test(window);
+  // No run vocabulary, but a first-person offer to act is still a pending
+  // decision — because saying yes to it starts a run.
+  if (!trailingQuestion || !ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)) {
+    return false;
+  }
+  const action = trailingQuestion.replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '').replace(/\?+\s*$/, '').trim();
+  return action.length >= 3 && !NON_EXECUTING_OFFER_ACTION.test(action);
 }
 
 /**
@@ -5426,6 +5495,25 @@ export function buildProjectRunAutoFlowNotice(goal: string, autopilot: boolean):
  * Returns undefined (no auto-flow) when disabled, when no run was proposed, or when no
  * actionable goal resolves.
  */
+/**
+ * The narrow test: the reply offered a **project run** in so many words.
+ *
+ * {@link detectProjectRunProposal} was widened so that any first-person offer to
+ * act announces itself as a pending decision — that is what stops a turn ending
+ * in silence. Auto-flow keeps the narrow test, because the two questions are
+ * different: *should the operator be told a decision is waiting* (yes, always)
+ * is not *may this start on its own* (only when the reply said a run is what
+ * starts). Without the split, widening the announcement would also mean an
+ * ordinary "Want me to start?" escalating into an unattended multi-subtask run
+ * under Autopilot, which is an escalation nobody asked for.
+ */
+function offersExplicitProjectRun(responseText: string): boolean {
+  const trimmed = responseText.trim();
+  return trimmed.length > 0
+    && PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(trimmed.slice(-400))
+    && detectProjectRunProposal(trimmed);
+}
+
 export function resolveProjectRunAutoFlow(
   responseText: string,
   transcript: SessionTranscriptEntry[],
@@ -5435,6 +5523,9 @@ export function resolveProjectRunAutoFlow(
   // The legacy setting still controls whether Autopilot may flow straight
   // through; it no longer bypasses the operator when approvals are interactive.
   if (!options.enabled || !options.autopilot) {
+    return undefined;
+  }
+  if (!offersExplicitProjectRun(responseText)) {
     return undefined;
   }
   const proposal = resolveProjectRunProposal(responseText, transcript);

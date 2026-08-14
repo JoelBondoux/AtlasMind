@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.311.0 — A turn that is waiting on you says so
+
+Chat could stop before a project run without telling you, and typing "continue" would then start one.
+Three separate rules decided whether a turn was pending, and the one that *accepted your answer* was the
+widest: a reply ending "I can implement this across the four files. Shall I go ahead?" showed no card and
+mentioned no run, while "yes" started a planned multi-subtask one.
+
+Any offer to do work now shows the decision card, and it no longer deletes the question and quick replies
+it is about. A stray "don't" earlier in the reply no longer removes the card either. And a run prints its
+goal before it does anything, which matters most when the goal came from what the assistant proposed
+rather than from anything you typed.
+
 ## v0.310.5 — A run is planned against the work, not the word you agreed with
 
 Say "yes" to an offer ending "Shall I go ahead?" and the run that started had the goal `go ahead` — with

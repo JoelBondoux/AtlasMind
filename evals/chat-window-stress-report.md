@@ -10,7 +10,7 @@ A failure is a finding about the shipped surface, not a regression.
 | INFO | 1 | 2 |
 | CONTINUITY | 4 | 1 |
 | REPAIR | 2 | 0 |
-| STOP | 4 | 4 |
+| STOP | 7 | 1 |
 | COMMANDS | 5 | 2 |
 | TOOLING | 2 | 3 |
 | ORCHESTRATION | 5 | 1 |
@@ -106,22 +106,6 @@ A failure is a finding about the shipped surface, not a regression.
 
 **Observed:** context dropped on a direct follow-up — the next turn answers with no memory of what "instead" refers to
 
-### S2-offer-without-vocabulary (STOP)
-
-**Asked:** When "yes" would start a project run, the turn said a project run is what starts.
-
-**Why this shape:** A model wrapping up says "shall I go ahead", not "shall I kick off a project run" — the proposal detector requires the literal run vocabulary.
-
-**Observed:** "yes" starts a project run (goal: "the banner is out of date with the manifest") from a turn that never mentioned one — the user consents to an edit and gets a planned multi-subtask run
-
-### S3-negation-veto (STOP)
-
-**Asked:** An unrelated "don't" earlier in the reply does not delete the pending-run notice.
-
-**Why this shape:** The veto pattern scans the last 400 characters for don't/can't/once you — words that appear in ordinary prose all the time.
-
-**Observed:** a stray negation elsewhere in the reply vetoed the decision card, so the offer stands on screen with no control behind it
-
 ### S4-waiting-in-silence (STOP)
 
 **Asked:** A turn recognised as waiting on a decision offers something to decide with.
@@ -129,14 +113,6 @@ A failure is a finding about the shipped surface, not a regression.
 **Why this shape:** The panel deletes followupQuestion and quickReplies when it sets a pending proposal, so the decision card becomes the only affordance — and the question detector is already silent on any offer naming a file.
 
 **Observed:** the turn is waiting on a decision and surfaces no question and no chips — nothing on screen says a run is pending
-
-### S8-answer-is-always-accepted (STOP)
-
-**Asked:** The set of answers the window accepts is not wider than the set of turns that asked. [documentation]
-
-**Why this shape:** This probe records the asymmetry itself: the acceptor is unconditional while both announcers are pattern-gated.
-
-**Observed:** 7 continuation words start a run regardless of whether the previous turn announced one: continue, proceed, yes, ok, sure, go ahead, carry on
 
 ### M3-capitalised-command (COMMANDS)
 

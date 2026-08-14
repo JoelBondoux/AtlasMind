@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.311.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.5
+## What's new in 0.311.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A turn that is waiting on you now says so.** Chat could stop before a project run and tell you
+  nothing, and typing "continue" would then start one. Any offer to do work now shows a decision card —
+  it no longer has to say the words "project run" — and the card no longer deletes the question it is
+  about. Runs also state their goal before doing anything.
 
 - **A project run is planned against the work, not the word you agreed with.** Saying "yes" to an offer that ended "Shall I go ahead?" started a run whose goal was literally `go ahead` — plan, file estimate and cost all derived from that fragment, which is why such runs read as coming from nowhere. And if AtlasMind said it was waiting on you, "continue" no longer overrides that.
 

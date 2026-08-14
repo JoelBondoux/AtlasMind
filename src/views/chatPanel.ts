@@ -1297,15 +1297,20 @@ export class ChatPanel {
       const autopilotEnabled = this.atlas.toolApprovalManager?.isAutopilot?.() ?? false;
       const autoStartProposedRuns = configuration.get<boolean>('autoStartProposedProjectRuns', true);
       if (proposedRun && (!autopilotEnabled || !autoStartProposedRuns)) {
+        // The question and its pills are KEPT alongside the decision card.
+        //
+        // They used to be deleted here, leaving the card as the only affordance —
+        // and the question detector is silent on any offer naming a file, so a
+        // turn ending "Want me to update README.md?" could surface neither. The
+        // card is a control, the question is what was asked; dropping the second
+        // is how a turn came to be waiting with nothing on screen saying so.
+        // Double-triggering is not a risk here: the card resolves once, host-side.
         this.atlas.sessionConversation.updateMessage(
           assistantMessageId,
           visibleTranscriptText,
           activeSessionId,
           {
             ...assistantMeta,
-            followupQuestion: undefined,
-            quickReplies: undefined,
-            suggestedFollowups: undefined,
             projectRunProposal: { goal: proposedRun.goal, status: 'pending' },
           },
         );

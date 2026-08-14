@@ -529,16 +529,35 @@ const PROBES: Probe[] = [
     },
   },
   {
-    id: 'S8-answer-is-always-accepted',
+    id: 'S8-goal-is-recognisable',
     lane: 'STOP',
-    asks: 'The set of answers the window accepts is not wider than the set of turns that asked. [documentation]',
-    because: 'This probe records the asymmetry itself: the acceptor is unconditional while both announcers are pattern-gated.',
+    asks: 'Whatever a continuation word starts, its goal is something the operator can recognise from the conversation.',
+    because: 'Accepting a continuation is not the defect — the assistant describing a plan and the operator saying "proceed" is ordinary, and narrowing the vocabulary would make the window worse without touching the asymmetry. What must hold is that the goal came from the exchange: either the operator asked for it or the assistant proposed it. A goal neither of them would recognise is the shape that made a run read as coming from nowhere.',
     check: () => {
-      const alwaysAccepted = ['continue', 'proceed', 'yes', 'ok', 'sure', 'go ahead', 'carry on']
-        .filter(word => isAutonomousContinuationPrompt(word));
-      return alwaysAccepted.length === 0
+      const words = ['continue', 'proceed', 'yes', 'ok', 'sure', 'go ahead', 'carry on'];
+      const conversations = [
+        transcriptOf([['the banner is out of date with the manifest', 'I can bring it in line across the four files.\n\nShall I go ahead?']]),
+        transcriptOf([['add pagination to the results list', "Here is the plan: paginate server-side, 25 per page, keep the cursor in the query string."]]),
+      ];
+
+      // Every word must still be understood as a continuation.
+      const unread = words.filter(word => !isAutonomousContinuationPrompt(word));
+      if (unread.length > 0) { return `no longer recognised as continuations at all: ${unread.join(', ')}`; }
+
+      const unrecognisable: string[] = [];
+      for (const conversation of conversations) {
+        const transcript = conversation.getTranscript();
+        const said = transcript.map(entry => entry.content.toLowerCase()).join('\n');
+        for (const word of words) {
+          const goal = resolveProjectExecutionGoal(word, transcript)?.trim().toLowerCase();
+          if (goal && !said.includes(goal)) {
+            unrecognisable.push(`${JSON.stringify(word)} → ${JSON.stringify(goal)}`);
+          }
+        }
+      }
+      return unrecognisable.length === 0
         ? undefined
-        : `${alwaysAccepted.length} continuation words start a run regardless of whether the previous turn announced one: ${alwaysAccepted.join(', ')}`;
+        : `these resolve to a goal nobody in the conversation said: ${[...new Set(unrecognisable)].join(', ')}`;
     },
   },
   // ── COMMANDS ───────────────────────────────────────────────────────────────

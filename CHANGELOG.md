@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.311.0] - 2026-08-14
+
+### Changed
+
+- **A turn that is waiting on you now says so.** Three detectors independently decided whether a turn was
+  pending a project run: `detectProjectRunProposal` drew the decision card, `detectResponseQuickReplies`
+  drew the pills, and `isAutonomousContinuationPrompt` *accepted the answer*. The acceptor was
+  unconditional and therefore strictly the widest, so a reply closing "I can implement this across the
+  four files. Shall I go ahead?" produced no card, no notice and no mention of a run — while "yes" started
+  a planned multi-subtask one. The run was always a word away; whether the turn admitted it was a lottery
+  on wording.
+
+  `detectProjectRunProposal` now matches any first-person offer to act, not only one carrying the literal
+  words "project run". An offer to *talk* ("Shall I explain the failover path?") still does not match:
+  saying yes to that is a conversation.
+
+  **Auto-flow keeps the narrow test.** Announcing a pending decision and permitting an unattended start
+  are different questions, and widening both together would have turned an ordinary "Want me to start?"
+  into an autonomous run under Autopilot. `offersExplicitProjectRun` gates that half.
+
+- **The decision card no longer deletes the question it is about.** Setting a pending proposal cleared
+  `followupQuestion`, `quickReplies` and `suggestedFollowups`, leaving the card as the only affordance —
+  and the question detector is silent on any offer naming a file, so a turn could surface neither. Both
+  are kept now; the card resolves once, host-side, so there is nothing to double-trigger.
+
+- **A project run states its goal before it does anything.** The Preview block prints the resolved goal
+  above the file estimate. When a run starts from "yes" the goal is resolved from what the assistant
+  proposed rather than from anything the operator typed, so it is the one thing a person can sanity-check
+  instantly and no gate can.
+
+### Fixed
+
+- **A stray "don't" no longer deletes the pending-run notice.** The negation veto scanned the last 400
+  characters, so an ordinary "I don't need anything else from you." two sentences above a genuine offer
+  removed the card and left the offer on screen with no control behind it. The veto is now scoped to the
+  offer sentence itself, where a refusal actually lives.
+
 ## [0.310.5] - 2026-08-14
 
 ### Fixed
