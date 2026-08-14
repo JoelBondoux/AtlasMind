@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.312.1 — Two answers, and which one counts
+
+When a reply diverged from what had already been streamed, you got both, separated by a horizontal line
+and nothing else — so the natural read was to trust the first, which was the wrong one. The second is now
+labelled as the answer AtlasMind committed.
+
 ## v0.312.0 — What the turn cost, and which tools actually need asking about
 
 The footer named the model and never the cost, on a product that routes across paid providers. It says

@@ -419,7 +419,12 @@ describe('native chat participant', () => {
     );
 
     expect(stream.markdown).toHaveBeenNthCalledWith(1, 'I will inspect the code path.');
-    expect(stream.markdown).toHaveBeenNthCalledWith(2, '\n\n---\n\nThe response was getting dropped after the first streamed chunk.');
+    // Labelled, not merely separated by a rule: two answers to one question with
+    // nothing saying which is real leaves the operator trusting the first, which
+    // is the wrong one.
+    const secondChunk = String(stream.markdown.mock.calls[1]?.[0] ?? '');
+    expect(secondChunk).toContain('superseded');
+    expect(secondChunk).toContain('The response was getting dropped after the first streamed chunk.');
     expect(recordTurn).toHaveBeenCalledWith(
       'Why did the previous run stop early?',
       'The response was getting dropped after the first streamed chunk.',

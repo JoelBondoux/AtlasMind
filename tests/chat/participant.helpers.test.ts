@@ -1120,14 +1120,19 @@ describe('participant helper logic', () => {
     ]);
   });
 
-  it('visually separates a divergent legacy stream while keeping only the final response in history', () => {
-    expect(reconcileAssistantResponse(
+  it('labels a divergent legacy stream while keeping only the final response in history', () => {
+    // A horizontal rule alone left the operator reading two different answers to
+    // one question with nothing saying which was real — and the first, the one
+    // they had already read, was the wrong one. Retracting is impossible on an
+    // append-only stream; saying so is not.
+    const { additionalText, transcriptText } = reconcileAssistantResponse(
       'I will inspect the code path.',
       'The response was getting dropped after the first streamed chunk.',
-    )).toEqual({
-      additionalText: '\n\n---\n\nThe response was getting dropped after the first streamed chunk.',
-      transcriptText: 'The response was getting dropped after the first streamed chunk.',
-    });
+    );
+
+    expect(additionalText).toContain('superseded');
+    expect(additionalText).toContain('The response was getting dropped after the first streamed chunk.');
+    expect(transcriptText).toBe('The response was getting dropped after the first streamed chunk.');
   });
 
   it('reconciles prefixed streamed text without duplicating the suffix', () => {

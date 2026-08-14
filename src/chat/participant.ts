@@ -3710,9 +3710,14 @@ export function reconcileAssistantResponse(
   // legacy caller has already rendered divergent text we cannot retract it from
   // VS Code's append-only stream. Separate the authoritative completion
   // visually, while retaining only that completion in conversation history.
+  //
+  // It is **labelled**, because a horizontal rule alone left the operator
+  // reading two different answers to one question with nothing saying which was
+  // real — and the first one, the one they had already read, was the wrong one.
+  // Retracting is impossible on an append-only stream; saying so is not.
   const authoritative = sanitizeResponseTail(finalResponse);
   return {
-    additionalText: `\n\n---\n\n${authoritative}`,
+    additionalText: `\n\n---\n\n_The reply above was superseded while it was being written. This is the answer AtlasMind committed:_\n\n${authoritative}`,
     transcriptText: authoritative,
   };
 }

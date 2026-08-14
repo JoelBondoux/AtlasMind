@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.312.1] - 2026-08-14
+
+### Fixed
+
+- **When two answers reach the screen, the second says why.** If a legacy caller had already streamed text
+  that diverges from the committed completion, the reconciler appended the authoritative answer below a
+  horizontal rule and nothing else — leaving the operator reading two different answers to one question
+  with no way to tell which was real, and the one they had already read was the wrong one. VS Code's
+  response stream is append-only so the first cannot be retracted, but saying so costs nothing. Only the
+  committed answer reaches conversation history, as before.
+
 ## [0.312.0] - 2026-08-14
 
 ### Added

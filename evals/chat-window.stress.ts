@@ -285,15 +285,19 @@ const PROBES: Probe[] = [
   {
     id: 'A4-divergent-streams',
     lane: 'ANSWER',
-    asks: 'The user is not shown two different answers to one question.',
-    because: 'When the streamed text and the committed completion diverge, the reconciler appends the whole authoritative answer below a rule.',
+    asks: 'When two answers reach the screen, the user is told which one counts.',
+    because: "VS Code's response stream is append-only, so a reply already rendered cannot be retracted when the committed completion diverges from it. Showing both is therefore forced; leaving the operator to guess which is real is not, and the one they have already read is the wrong one.",
     check: () => {
       const streamed = 'The router picks the cheapest model that clears the capability floor.';
       const final = 'The router picks the cheapest model above the capability floor, then applies the budget ceiling.';
-      const { additionalText } = reconcileAssistantResponse(streamed, final);
-      return additionalText.includes(final)
-        ? `the user reads a complete second answer appended below the first, with no indication which is authoritative (${additionalText.length} extra characters)`
-        : undefined;
+      const { additionalText, transcriptText } = reconcileAssistantResponse(streamed, final);
+      if (!additionalText.includes(final)) { return undefined; }
+      if (!/supersed|committed/i.test(additionalText)) {
+        return 'a complete second answer is appended below the first with no indication which is authoritative';
+      }
+      return transcriptText === sanitizeResponseTail(final)
+        ? undefined
+        : 'the superseded reply reached the conversation history';
     },
   },
 

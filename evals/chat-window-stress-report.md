@@ -6,7 +6,7 @@ A failure is a finding about the shipped surface, not a regression.
 | Lane | Passed | Failed |
 |---|---:|---:|
 | QUESTION | 9 | 0 |
-| ANSWER | 3 | 1 |
+| ANSWER | 4 | 0 |
 | INFO | 3 | 0 |
 | CONTINUITY | 5 | 0 |
 | REPAIR | 2 | 0 |
@@ -17,14 +17,6 @@ A failure is a finding about the shipped surface, not a regression.
 | GUIDANCE | 2 | 6 |
 
 ## Findings
-
-### A4-divergent-streams (ANSWER)
-
-**Asked:** The user is not shown two different answers to one question.
-
-**Why this shape:** When the streamed text and the committed completion diverge, the reconciler appends the whole authoritative answer below a rule.
-
-**Observed:** the user reads a complete second answer appended below the first, with no indication which is authoritative (103 extra characters)
 
 ### G1-page-reach (GUIDANCE)
 
