@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.326.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.327.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.326.0
+## What's new in 0.327.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Chat no longer writes to tracked files on its own.** Two things used to happen silently and outlast the
+  conversation: `/buzz local` wrote a workspace setting, and signalling frustration wrote a note quoting
+  your own words into project memory. Both now ask first, and the note is shown to you in full when it is
+  saved.
 
 - **A failed turn no longer deletes your question.** A provider failing mid-turn used to remove the whole
   exchange from your history — your own message included — leaving a generic error banner. The failure is

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.327.0] - 2026-08-15
+
+### Changed
+
+- **Nothing in chat writes to a tracked file on its own any more.** Two writes outlived the conversation
+  without ever appearing in it, which is the one category of chat defect that survives closing the window.
+
+  **`/buzz local` and `/buzz hosted`** wrote `atlasmind.buzz.relayMode` straight into workspace settings —
+  a file most repositories commit — with no confirmation and no mention in the reply, eighty lines above
+  the same handler's own promise that none of these guides switches anything on for you. It now asks, in
+  the same modal shape every other outward-facing write here uses, naming the key, both values and the
+  scope; declining says which value was kept. Asking for the mode it is already in changes nothing and says
+  so. A failed update used to be swallowed, leaving the guide describing a mode that was never set.
+
+  **The frustration signal** wrote `project_memory/operations/operator-feedback.md` — tracked by git,
+  containing a 180-character excerpt of the operator's own prompt — on any cue match, announced only as
+  "Learned from friction". That is the settings write `DECISION-2` already removed, one file over. The note
+  is now drafted and held, the turn offers a **Save this feedback rule** chip, and the write happens when
+  somebody asks for it — replying with the full stored text, because a committed file quoting you back is
+  something you should read here rather than find in a diff. The signal still shapes how the turn is
+  answered; it no longer records you to do it.
+
+  The save prompt is matched exactly rather than interpreted. A model deciding whether a sentence counted
+  as permission would be the automatic write again in a different hat.
+
 ## [0.326.0] - 2026-08-15
 
 ### Fixed

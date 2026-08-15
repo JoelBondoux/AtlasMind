@@ -49,7 +49,7 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { applyOperatorFrustrationAdaptation } from '../../src/chat/participant.ts';
+import { applyOperatorFrustrationAdaptation, saveOperatorFeedbackDraft } from '../../src/chat/participant.ts';
 import type { AtlasMindContext } from '../../src/extension.ts';
 
 interface AtlasAdaptationDouble {
@@ -102,7 +102,7 @@ describe('operator frustration adaptation', () => {
     vscodeMock.configurationState.set('chatSessionContextChars', 2000);
   });
 
-  it('persists workspace learning and SSOT feedback for frustrated prompts, and changes no settings', async () => {
+  it('adapts to a frustrated prompt without writing a setting or a tracked file', async () => {
     const atlas = makeAtlas();
 
     const adaptation = await applyOperatorFrustrationAdaptation(
@@ -130,19 +130,44 @@ describe('operator frustration adaptation', () => {
     // answered; it no longer edits the operator's configuration to do it.
     expect(vscodeMock.configurationUpdates).toEqual([]);
 
-    expect(vscodeMock.createDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: '/workspace/project_memory/operations' }));
+    // And no file either. This assertion was also the inverse: the same signal
+    // wrote `project_memory/operations/operator-feedback.md` — tracked by git —
+    // containing an excerpt of the operator's own prompt, on any cue match, with
+    // nothing in the turn saying so. It is the settings write one file over, and
+    // it is the only thing here that outlives the conversation. The note is
+    // drafted and held; the write happens when somebody asks for it.
+    expect(vscodeMock.writeFile).not.toHaveBeenCalled();
+    expect(atlas.memoryManager.loadFromDisk).not.toHaveBeenCalled();
+
+    const draft = workspaceStateStore.get('atlasmind.pendingOperatorFeedback') as { markdown?: string } | undefined;
+    expect(draft?.markdown).toContain('Operator Feedback');
+    expect(draft?.markdown).toContain('Learned response rule');
+  });
+
+  it('writes the held note only when the operator asks, and quotes what it stored', async () => {
+    const atlas = makeAtlas();
+    await applyOperatorFrustrationAdaptation(
+      'You are not doing what I ask. Can you do that for me?',
+      atlas as unknown as AtlasMindContext,
+      { sessionContext: 'The next safe step is to patch the panel.' },
+    );
+    expect(vscodeMock.writeFile).not.toHaveBeenCalled();
+
+    const markdown = await saveOperatorFeedbackDraft(atlas as unknown as AtlasMindContext);
+
+    expect(vscodeMock.createDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/workspace/project_memory/operations' }),
+    );
     expect(vscodeMock.writeFile).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/workspace/project_memory/operations/operator-feedback.md' }),
       expect.any(Uint8Array),
     );
-
-    const writeCalls = vscodeMock.writeFile.mock.calls as unknown as Array<[unknown, unknown]>;
-    const written = (writeCalls[0]?.[1] as Uint8Array | undefined) ?? new Uint8Array();
-    expect(Buffer.from(written).toString('utf8')).toContain('Operator Feedback');
-    expect(Buffer.from(written).toString('utf8')).toContain('Learned response rule');
-
-    expect(atlas.memoryManager.loadFromDisk).toHaveBeenCalledWith(expect.objectContaining({ path: '/workspace/project_memory' }));
-    expect(atlas.memoryRefresh.fire).toHaveBeenCalled();
+    // Shown back in full: the file is committed and quotes the operator's own
+    // words, so they should read it here rather than find it in a diff.
+    expect(markdown).toContain('tracked by git');
+    expect(markdown).toContain('Operator Feedback');
+    // The draft is consumed, so a second ask does not rewrite it silently.
+    expect(workspaceStateStore.get('atlasmind.pendingOperatorFeedback')).toBeUndefined();
   });
 
   it('does not persist anything when no frustration cue is present', async () => {

@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.327.0 — Nothing writes to your repository without asking
+
+Two things in chat used to change files you commit, without asking and without saying so afterwards.
+`/buzz local` and `/buzz hosted` wrote a workspace setting outright. And telling AtlasMind you were
+frustrated caused it to write a note into project memory quoting your own message back — announced only as
+"Learned from friction".
+
+Both now ask first. The feedback note is drafted and held behind a button, and when you do save it the
+reply shows you the entire text that went into the file. AtlasMind still adjusts its approach when you push
+back; it just no longer records you in order to do it.
+
 ## v0.326.0 — A failed turn no longer deletes your question
 
 If a provider failed mid-turn, the whole exchange disappeared from your history — your own message

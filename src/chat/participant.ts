@@ -134,6 +134,8 @@ const LOOP_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
+/** Where a drafted operator-feedback note waits until somebody asks for it to be written. */
+const PENDING_OPERATOR_FEEDBACK_STORAGE_KEY = 'atlasmind.pendingOperatorFeedback';
 /**
  * The values an earlier build wrote on the operator's behalf. Kept only so
  * {@link restoreSettingsWrittenWithoutAsking} can recognise its own handiwork
@@ -2311,9 +2313,41 @@ async function handleBuzzCommand(
   }
   const mode = /^(local|hosted)$/i.exec(trimmed);
   if (mode) {
-    await vscode.workspace.getConfiguration('atlasmind')
-      .update('buzz.relayMode', mode[1]!.toLowerCase(), vscode.ConfigurationTarget.Workspace)
-      .then(undefined, () => undefined);
+    // `/buzz local` used to write workspace settings outright, with no
+    // confirmation and no mention of it in the reply — eighty lines above the
+    // same handler's own promise that none of these guides switches anything on
+    // for you. A setting write is a change to a file most repositories commit,
+    // so it goes behind the same modal every other outward-facing write here
+    // does, naming the key, both values and the scope.
+    const requested = mode[1]!.toLowerCase() as 'local' | 'hosted';
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const current = configuration.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided');
+    if (current === requested) {
+      stream.markdown(`Buzz relay mode is already **${requested}**. Nothing to change.\n\n`);
+    } else {
+      const choice = await vscode.window.showWarningMessage(
+        `Change the Buzz relay mode to "${requested}"?`,
+        {
+          modal: true,
+          detail: `Sets atlasmind.buzz.relayMode to "${requested}" (currently "${current}") in this workspace's settings, which is a file most repositories commit.`,
+        },
+        'Change setting',
+      );
+      if (choice !== 'Change setting') {
+        stream.markdown(`Left \`atlasmind.buzz.relayMode\` at **${current}**.\n\n`);
+        return;
+      }
+      try {
+        await configuration.update('buzz.relayMode', requested, vscode.ConfigurationTarget.Workspace);
+        stream.markdown(`Set \`atlasmind.buzz.relayMode\` to **${requested}** (was \`${current}\`).\n\n`);
+      } catch (error) {
+        // Previously swallowed. A write that silently failed left the guide
+        // describing a mode that was never set.
+        const message = error instanceof Error ? error.message : String(error);
+        stream.markdown(`Could not update \`atlasmind.buzz.relayMode\`: ${message}\n\n`);
+        return;
+      }
+    }
   }
 
   const dm = /^dm\s+(\S+)\s+([\s\S]+)$/i.exec(trimmed);
@@ -3356,6 +3390,7 @@ export type FreeformPreflight =
   | { kind: 'recall'; markdown: string }
   | { kind: 'roadmap'; markdown: string; prefills?: SessionComposerPrefill[] }
   | { kind: 'pending-run'; action: 'save' | 'cancel'; entryId: string; goal: string }
+  | { kind: 'save-operator-feedback' }
   | { kind: 'intent'; intent: AtlasChatIntent }
   | { kind: 'routine-edit' }
   | undefined;
@@ -3378,6 +3413,13 @@ async function resolveFreeformPreflight(
     if (CANCEL_PROPOSED_RUN_PATTERN.test(prompt)) {
       return { kind: 'pending-run', action: 'cancel', entryId: pendingRunEntry.id, goal: pendingRunGoal };
     }
+  }
+
+  // The chip's own prompt, matched exactly. Deterministic because it is a write
+  // to a git-tracked file: a model deciding whether this counted as a request to
+  // save would be the automatic write again, wearing a different hat.
+  if (prompt.trim().toLowerCase() === SAVE_OPERATOR_FEEDBACK_PROMPT.toLowerCase()) {
+    return { kind: 'save-operator-feedback' };
   }
 
   // Answered from the transcript, before any model sees it.
@@ -3419,7 +3461,7 @@ async function resolveFreeformPreflight(
 interface FreeformMessageResult {
   outcome?: ProjectRunOutcome;
   assistantMeta?: SessionTranscriptMetadata;
-  handledBy: 'recall' | 'roadmap' | 'routine-edit' | 'pending-run' | 'intent-command' | 'intent-project' | 'model';
+  handledBy: 'recall' | 'roadmap' | 'routine-edit' | 'pending-run' | 'save-operator-feedback' | 'intent-command' | 'intent-project' | 'model';
 }
 
 async function handleFreeformMessage(
@@ -3456,6 +3498,11 @@ async function handleFreeformMessage(
       stream.markdown('Cancelled the proposed project run. No run was started or saved.');
     }
     return { handledBy: 'pending-run' };
+  }
+
+  if (preflight?.kind === 'save-operator-feedback') {
+    stream.markdown(await saveOperatorFeedbackDraft(atlas));
+    return { handledBy: 'save-operator-feedback' };
   }
 
   if (preflight?.kind === 'recall') {
@@ -4719,7 +4766,7 @@ function buildTimelineNotes(routingContext: Record<string, unknown>): SessionTim
 
   return [{
     label: 'Learned from friction',
-    summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
+    summary: 'Atlas adjusted its approach for this session after the operator signalled frustration, and drafted a note for project memory. Nothing was written — use "Save this feedback rule" to keep it.',
     tone: 'warning',
   }];
 }
@@ -4732,7 +4779,7 @@ function buildSuggestedExecutionFollowups(
     return undefined;
   }
 
-  return [
+  const followups: SessionSuggestedFollowup[] = [
     {
       label: 'Fix This',
       prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
@@ -4746,6 +4793,18 @@ function buildSuggestedExecutionFollowups(
       prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
     },
   ];
+
+  // Offered, never taken automatically: the note goes into a git-tracked file and
+  // quotes the operator's own words back.
+  if (typeof routingContext['userFrustrationSignal'] === 'string') {
+    followups.push({
+      label: 'Save this feedback rule',
+      prompt: SAVE_OPERATOR_FEEDBACK_PROMPT,
+      description: `Writes ${OPERATOR_FEEDBACK_FILE} in project memory, which is tracked by git.`,
+    });
+  }
+
+  return followups;
 }
 
 function shouldOfferExecutionChoices(
@@ -4920,7 +4979,80 @@ async function persistFrustrationLearning(atlas: AtlasMindContext, prompt: strin
   );
 
   await workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, profile);
-  await writeFrustrationFeedbackToSsot(atlas, prompt, signal, profile, now);
+
+  // The note is drafted and held, not written.
+  //
+  // This used to write `project_memory/operations/operator-feedback.md` — a
+  // git-tracked file — containing an excerpt of the operator's own prompt, on
+  // any frustration-cue match, announced nowhere they would read it. It is the
+  // same shape as the settings write DECISION-2 already removed, one file over,
+  // and it outlives the conversation in a way nothing else here does. The draft
+  // now waits behind a chip; the offer is in the reply, and the write happens
+  // when somebody asks for it.
+  await workspaceState.update(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY, {
+    version: 1 as const,
+    timestamp: now,
+    markdown: buildOperatorFeedbackMarkdown(prompt, signal, profile, now),
+  });
+}
+
+/**
+ * The exact prompt the "Save this feedback rule" chip submits, and the phrase the
+ * preflight matches. One constant so the chip and its handler cannot drift.
+ */
+export const SAVE_OPERATOR_FEEDBACK_PROMPT = 'Save the operator-feedback note to project memory.';
+
+interface PendingOperatorFeedbackDraft {
+  version: 1;
+  timestamp: string;
+  markdown: string;
+}
+
+function isPendingOperatorFeedbackDraft(value: unknown): value is PendingOperatorFeedbackDraft {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return candidate['version'] === 1
+    && typeof candidate['timestamp'] === 'string'
+    && typeof candidate['markdown'] === 'string';
+}
+
+/** Writes the held draft, if there is one. Returns what the reply should say. */
+export async function saveOperatorFeedbackDraft(atlas: AtlasMindContext): Promise<string> {
+  const workspaceState = atlas.extensionContext.workspaceState;
+  const stored = workspaceState.get<unknown>(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY);
+  if (!isPendingOperatorFeedbackDraft(stored)) {
+    return 'There is no operator-feedback note waiting to be saved.';
+  }
+
+  const ssotRoot = getSsotRootUri();
+  if (!ssotRoot) {
+    return 'No project memory folder is available in this workspace, so the note was not saved.';
+  }
+
+  try {
+    const targetUri = vscode.Uri.joinPath(ssotRoot, ...OPERATOR_FEEDBACK_FILE.split('/'));
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
+    await vscode.workspace.fs.writeFile(targetUri, Buffer.from(stored.markdown, 'utf-8'));
+    await atlas.memoryManager.loadFromDisk(ssotRoot);
+    atlas.memoryRefresh.fire();
+    await workspaceState.update(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY, undefined);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Could not write \`${OPERATOR_FEEDBACK_FILE}\`: ${message}`;
+  }
+
+  // Quoted back, because the file is committed and contains an excerpt of the
+  // operator's own words. They should see exactly what was stored, here, rather
+  // than discovering it in a diff.
+  return [
+    `Saved \`${OPERATOR_FEEDBACK_FILE}\` in project memory. This file is tracked by git — here is exactly what it now contains:`,
+    '',
+    '```markdown',
+    stored.markdown.trim(),
+    '```',
+  ].join('\n');
 }
 
 function isStoredPersonalityProfileRecord(value: unknown): value is StoredPersonalityProfileRecord {
@@ -4999,26 +5131,6 @@ function isFrustrationSettingsSnapshot(value: unknown): value is FrustrationSett
   return typeof candidate['originalTurnLimit'] === 'number'
     && typeof candidate['originalContextChars'] === 'number'
     && typeof candidate['lastFrustrationAt'] === 'string';
-}
-
-async function writeFrustrationFeedbackToSsot(
-  atlas: AtlasMindContext,
-  prompt: string,
-  signal: UserFrustrationSignal,
-  profile: StoredPersonalityProfileRecord,
-  timestamp: string,
-): Promise<void> {
-  const ssotRoot = getSsotRootUri();
-  if (!ssotRoot) {
-    return;
-  }
-
-  const targetUri = vscode.Uri.joinPath(ssotRoot, ...OPERATOR_FEEDBACK_FILE.split('/'));
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
-  const content = buildOperatorFeedbackMarkdown(prompt, signal, profile, timestamp);
-  await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf-8'));
-  await atlas.memoryManager.loadFromDisk(ssotRoot);
-  atlas.memoryRefresh.fire();
 }
 
 function getSsotRootUri(): vscode.Uri | undefined {
