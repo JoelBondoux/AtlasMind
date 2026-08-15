@@ -537,3 +537,56 @@ describe('tool webhook panel', () => {
     expect(source).not.toMatch(/value="\$\{[^}]*token[^}]*\}"/i);
   });
 });
+
+describe('chat webview message protocol', () => {
+  const webviewJs = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const protocol = readFileSync(path.join(VIEWS_DIR, 'chatProtocol.ts'), 'utf8');
+  const host = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  /**
+   * Message types the webview actually sends to the host.
+   *
+   * Matched on the message *shape* — a `type` with a `payload`, or a `type`
+   * alone — rather than on a `postMessage(` prefix, because several are built
+   * inside a ternary and passed in. The shape also excludes the webview's
+   * internal `{ type: 'aux', blocks }`-style literals, which carry neither.
+   */
+  const sent = new Set(
+    [...webviewJs.matchAll(/\{\s*type:\s*'([a-zA-Z]+)'\s*(?:\}|,\s*payload)/g)].map(match => match[1]!),
+  );
+  /** Message types `ChatPanelMessage` declares, i.e. the ones `isChatPanelMessage` can pass. */
+  const declared = new Set(
+    [...protocol.matchAll(/\|\s*\{\s*type:\s*'([a-zA-Z]+)'/g)].map(match => match[1]!),
+  );
+
+  /**
+   * Both of these shipped, and neither is visible to the compiler: the webview
+   * is `@ts-nocheck` and talks to the host through `postMessage`, so a control
+   * can be wired to a message nothing accepts and look completely fine.
+   *
+   * `openProjectRunCenter` was posted by two "Open Run Center" buttons and was
+   * absent from the union, so `isChatPanelMessage` rejected it and
+   * `handleMessage` dropped it — both buttons were silently inert. In the other
+   * direction `continueExecution` had a validated member *and* a host handler
+   * and was never posted by anything, while the pause copy told the operator to
+   * "select Continue"; and `searchSession` had a whole host-side implementation
+   * the webview never called, because the working search is client-side.
+   */
+  it('sends no message the protocol would reject', () => {
+    const undeclared = [...sent].filter(type => !declared.has(type));
+    expect(undeclared, `webview posts message types absent from ChatPanelMessage: ${undeclared.join(', ')}`)
+      .toEqual([]);
+  });
+
+  it('declares no message nothing sends', () => {
+    const unsent = [...declared].filter(type => !sent.has(type));
+    expect(unsent, `ChatPanelMessage declares types the webview never posts: ${unsent.join(', ')}`)
+      .toEqual([]);
+  });
+
+  it('handles every message it declares', () => {
+    const unhandled = [...declared].filter(type => !host.includes(`case '${type}'`));
+    expect(unhandled, `declared but never handled in chatPanel.ts: ${unhandled.join(', ')}`)
+      .toEqual([]);
+  });
+});

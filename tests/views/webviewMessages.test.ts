@@ -351,6 +351,8 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);

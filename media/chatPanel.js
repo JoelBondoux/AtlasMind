@@ -1767,7 +1767,7 @@
     if (meta.iterationLimitHit) {
       var hasRaiseSuggestion = typeof meta.suggestedIterationLimit === 'number' || typeof meta.suggestedToolCallsPerTurnLimit === 'number';
       var limitMsg = hasRaiseSuggestion
-        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep going at the current one.'
         : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
       return (followupQuestion ? followupQuestion + '\n\n' : '') + limitMsg;
     }
@@ -2442,6 +2442,20 @@
       actionRow.appendChild(raiseCallsPermBtn);
     }
 
+    // Continue at the current limit. The host handler and the validated protocol
+    // member for this both existed; only this button was missing, so the
+    // fallback copy telling the operator to "select Continue" named a control
+    // that was never drawn. The one path out of a pause that needs no setting
+    // change was reachable only by typing "Proceed".
+    var continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'iteration-limit-continue';
+    continueBtn.textContent = 'Continue';
+    continueBtn.title = 'Keep going with the current limit';
+    continueBtn.addEventListener('click', function () {
+      lockAndPost({ type: 'continueExecution', payload: { entryId: entryId } });
+    });
+
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'iteration-limit-cancel';
@@ -2451,6 +2465,7 @@
       lockAndPost({ type: 'cancelExecution', payload: { entryId: entryId } });
     });
 
+    actionRow.appendChild(continueBtn);
     actionRow.appendChild(cancelBtn);
     wrapper.appendChild(actionRow);
     return wrapper;
@@ -3987,36 +4002,6 @@
     getTranscriptElement: function () {
       return transcript;
     },
-    renderSearchResult: function (selectedMessageId, highlightInfo) {
-      if (!latestState) {
-        return;
-      }
-
-      renderTranscript(
-        latestState.transcript,
-        isBusy,
-        selectedMessageId,
-        latestState.projectRuns,
-        latestState.selectedRun,
-        latestState.busyAssistantMessageId,
-        latestState.streamingThought,
-        latestState.streamingModels,
-      );
-
-      if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {
-        var selected = transcript.querySelector('[data-entry-id="' + cssEscape(highlightInfo.messageId) + '"] .chat-content');
-        if (selected) {
-          var matchingEntry = latestState.transcript.find(function (entry) {
-            return entry && entry.id === highlightInfo.messageId;
-          });
-          renderMarkdownContentWithHighlight(selected, matchingEntry ? matchingEntry.content : '', highlightInfo.query, highlightInfo.matchIndex);
-          var mark = selected.querySelector('mark.search-highlight-active') || selected.querySelector('mark.search-highlight');
-          if (mark && typeof mark.scrollIntoView === 'function') {
-            mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          }
-        }
-      }
-    },
   };
 })();
 
@@ -4191,29 +4176,6 @@ function renderTranscriptWithSearch() {
   }
 }
 
-window.addEventListener('message', function (event) {
-  var message = event.data;
-  if (!message || message.type !== 'searchResults') {
-    return;
-  }
-
-  clearSearchHighlights();
-  searchResults = collectSearchMatches(lastSearchQuery);
-  currentSearchIndex = 0;
-  renderTranscriptWithSearch();
-});
-
-function renderMarkdownContentWithHighlight(container, value, query, activeMatchIndex) {
-  renderMarkdownContent(container, value || '');
-  if (!query) {
-    return;
-  }
-
-  var matches = collectSearchMatches(query);
-  if (matches[activeMatchIndex]) {
-    matches[activeMatchIndex].classList.add('search-highlight-active');
-  }
-}
 
 function escapeRegExp(string) {
   return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

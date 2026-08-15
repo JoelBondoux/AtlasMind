@@ -521,51 +521,6 @@ export class ChatPanel {
         // missed the constructor's initial syncState().
         await this.syncState();
         return;
-      case 'searchSession': {
-        const rawQuery = typeof message.payload?.query === 'string' ? message.payload.query.trim() : '';
-        const query = rawQuery.toLowerCase();
-        await this.host.webview.postMessage({
-          type: 'status',
-          payload: rawQuery ? `Searching this session for "${rawQuery}"…` : 'Enter text to search this session.',
-        });
-
-        const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
-        const results: Array<{ messageId: string; indices: Array<{ start: number; end: number }>; matchIndex: number }> = [];
-        if (query && Array.isArray(transcript)) {
-          transcript.forEach(entry => {
-            if (typeof entry.content !== 'string' || entry.content.length === 0) {
-              return;
-            }
-            const contentLower = entry.content.toLowerCase();
-            let startIdx = 0;
-            let matchIdx = 0;
-            while (startIdx <= contentLower.length) {
-              const found = contentLower.indexOf(query, startIdx);
-              if (found === -1) {
-                break;
-              }
-              results.push({
-                messageId: entry.id,
-                indices: [{ start: found, end: found + query.length }],
-                matchIndex: matchIdx,
-              });
-              startIdx = found + query.length;
-              matchIdx += 1;
-            }
-          });
-        }
-
-        await this.host.webview.postMessage({ type: 'searchResults', payload: results });
-        if (rawQuery) {
-          await this.host.webview.postMessage({
-            type: 'status',
-            payload: results.length > 0
-              ? `Found ${results.length} match${results.length === 1 ? '' : 'es'} for "${rawQuery}".`
-              : `No matches found for "${rawQuery}".`,
-          });
-        }
-        return;
-      }
       case 'deleteMessage': {
               // Remove the message from the current session transcript
               const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
@@ -690,6 +645,13 @@ export class ChatPanel {
         return;
       case 'openProjectRun':
         await this.openProjectRun(message.payload);
+        return;
+      case 'openProjectRunCenter':
+        // The command already accepts a run id; only the message route was
+        // missing, so both "Open Run Center" buttons were silently inert —
+        // `isChatPanelMessage` rejected the payload and `handleMessage` dropped
+        // it without a sound.
+        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload);
         return;
       case 'reviewRunFile':
         await this.applyRunReviewDecision(message.payload.runId, message.payload.decision, message.payload.relativePath);

@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.327.1 — Buttons that do what they say
+
+Both "Open Run Center" buttons in the chat panel did nothing at all when clicked. And when a long task
+paused at its execution limit, the message told you to "select Continue" — but no Continue button was ever
+drawn, so the only way to carry on at the current limit was to type "Proceed" yourself. Both are fixed, and
+the panel now has a test that checks every button is wired to something the host actually accepts.
+
 ## v0.327.0 — Nothing writes to your repository without asking
 
 Two things in chat used to change files you commit, without asking and without saying so afterwards.

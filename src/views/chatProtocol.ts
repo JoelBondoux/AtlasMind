@@ -50,6 +50,8 @@ export type ChatPanelMessage =
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
+  /** Opens the Run Center focused on a run. Two webview buttons posted this before it existed here. */
+  | { type: 'openProjectRunCenter'; payload: string }
   | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
@@ -69,7 +71,6 @@ export type ChatPanelMessage =
   | { type: 'saveFontScale'; payload: number }
   | { type: 'toggleAutopilot' }
   | { type: 'importSessionContext'; payload: string }
-  | { type: 'searchSession'; payload: { query: string } }
   | { type: 'deleteMessage'; payload: string }
   | { type: 'sendToTerminal'; payload: { code: string } }
   | { type: 'syncAiInstructions' }
@@ -254,12 +255,6 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
   }
 
-  if (message.type === 'searchSession') {
-    return typeof message.payload === 'object'
-      && message.payload !== null
-      && typeof (message.payload as { query?: unknown }).query === 'string';
-  }
-
   if (message.type === 'sendToTerminal') {
     return typeof message.payload === 'object'
       && message.payload !== null
@@ -269,6 +264,7 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
   return (message.type === 'selectSession'
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
+    || message.type === 'openProjectRunCenter'
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment'
     || message.type === 'importSessionContext'

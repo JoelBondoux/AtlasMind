@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.327.1] - 2026-08-15
+
+### Fixed
+
+- **Three chat-panel controls that could not possibly have worked.** None is visible to the compiler: the
+  webview is `@ts-nocheck` and reaches the host through `postMessage`, so a control can be wired to a
+  message nothing accepts and still look completely fine.
+
+  - Both **"Open Run Center"** buttons were silently inert. The webview posted `openProjectRunCenter`,
+    which was absent from `ChatPanelMessage`, so `isChatPanelMessage` rejected it and the host dropped it
+    without a sound. The command itself already accepted a run id; only the route was missing.
+  - The pause card told the operator to **"select Continue"** and drew no Continue button. The validated
+    protocol member and the host handler both existed — the one way out of an execution pause that needs
+    no setting change was reachable only by typing "Proceed".
+  - **`searchSession`** was a complete host-side search implementation the webview never called, since the
+    working search is client-side. It is deleted, along with the dead `searchResults` listener waiting for
+    a message nothing sent and a `renderSearchResult` bridge whose only caller never existed — and which
+    called a highlighter defined outside the IIFE holding the function it needs, so it would have thrown
+    if anything had ever reached it.
+
+  Three tests now hold the protocol closed in both directions: nothing is posted that the validator would
+  reject, nothing is declared that the webview never sends, and nothing is declared that the host does not
+  handle. All three defects were orphans in that mapping, and all three are the kind that ship because the
+  two ends are checked separately and never against each other.
+
 ## [0.327.0] - 2026-08-15
 
 ### Changed
