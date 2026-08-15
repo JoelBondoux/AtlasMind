@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.341.2 — Short messages keep their place in the conversation
+
+Typing something brief like `git status` mid-conversation used to start AtlasMind from scratch — it lost the
+thread, and then described a session it could no longer see, once reporting that it had made no changes two
+turns after editing a file. Short messages are shorthand, and shorthand now keeps its context.
+
+Also: the "what Atlas did" summary no longer lists the model that answered among the ones that failed.
+
 ## v0.341.1 — The activity strip moves inside the thread
 
 A placement fix: the line telling you what AtlasMind is doing sat just below the box holding your

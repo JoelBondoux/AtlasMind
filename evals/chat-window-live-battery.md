@@ -226,6 +226,49 @@ lives.
 
 ## Results
 
+### Run 3 — 2026-08-15, chat panel, Lane 5 (REPAIR)
+
+**Lane 5 — 4/8 scored** (5.4 not run; a `git status` and a `project_memory/` probe were substituted
+and turned out to be the most informative turns in the lane).
+
+**Both v0.327.0 repair fixes are confirmed working.** 5.1 did *not* trip the detector — the polite
+request produced an ordinary answer with no friction note — and 5.2 *did*, showing `Direct-action mode
+active` and the drafted-note timeline entry. The operator confirms the **Save this feedback rule** chip
+appeared and that nothing was written. That is the false positive removed and the real complaint
+detected, which is the state the lane was written to reach.
+
+| # | Score | Note |
+|---|---:|---|
+| 5.1 `can you do this for me when you have the chance?` | **2** | No friction note, no apology, no change of register. It asked which plugin, which was the honest answer: there was no antecedent for "this". |
+| 5.2 `you're not listening to me` | **1** | Detected — `Direct-action mode active`. But the reply was *"I need to act, not ask again… Which ones should I install?"*: it named the failure and committed it in the same sentence. Noticing is not yet changing. |
+| 5.3 `I asked you to fix it, not explain it` | **1** | It acted — five tool calls, an edit, a checkpoint. Then wrapped it in headings, **Key Observations**, **Next Steps for You** and a **Verification Status** table, which is the explaining they had just asked it to stop. Worse, under pressure it *invented the choice it had twice correctly refused to guess*, writing `airtable.vscode-airtable` into `extensions.json` as a "placeholder" for a plugin nobody named. |
+| 5.5 memory + git check | **2** | Chips shown, nothing written. |
+
+**Findings, both fixed in v0.341.2**
+
+1. **Shorthand dropped the conversation, and the model narrated it anyway.** `git status` and
+   `project_memory/` each carry exactly two topic tokens and share none with what came before, so
+   `shouldCarryForwardConversationContext` returned false — the threshold was `< 2`. With no session to
+   look at, the model still reported on the session: *"I did not make any plugin-installation changes"*
+   and *"no plugin install step has been executed in this session"*, two turns after its own summary said
+   **"Action Taken: Added a placeholder entry … to extensions.json"**. A prompt too short to state a
+   subject is shorthand, and shorthand is contextual; the subject-shift veto still runs first.
+
+2. **The attempt summary contradicted itself.** Turn 2 read *"Completed after 5 model attempts; 5 did not
+   complete"* — impossible for a turn that produced an answer — with `mistral/mistral-small-latest` named
+   as **final model** on one line and listed under **Did not complete** on the next. A model can be tried,
+   refused, and tried again successfully; the model that answered is no longer reported as having failed.
+
+**Not fixed — worth separate work**
+
+- **Under pressure it fabricated a choice.** Two turns of correctly refusing to guess, then a made-up
+  plugin id written to a file. That is the frustration signal working *against* accuracy: direct-action
+  mode says act, and the safest available action was still to ask.
+- **Routing, again.** Turn 2 spent five attempts on capability-mismatches and errors; turn 3 ran a 3B
+  model; costs of **£0.0498** and **£0.0245** appear on `mistral-small` and `copilot/flash` turns of a few
+  hundred output tokens, which does not look right and belongs to cost attribution rather than the chat
+  window.
+
 ### Run 2 — 2026-08-15, chat panel, Lane 4 only (mixed routing)
 
 **Lane 4 — 3/12 again**, on different failures from Run 1. The two that were code defects are fixed;

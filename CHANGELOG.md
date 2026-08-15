@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.341.2] - 2026-08-15
+
+### Fixed
+
+- **Shorthand no longer drops the conversation.** `git status` and `project_memory/` each carry exactly two
+  topic words and share none with what came before, so the session context was dropped — the threshold was
+  fewer than two. With no session to look at, the model still reported on the session: *"I did not make any
+  plugin-installation changes"*, two turns after its own summary had said **"Action Taken: Added a
+  placeholder entry to extensions.json"**.
+
+  A prompt too short to state a subject is shorthand, and shorthand is contextual. The explicit
+  subject-shift veto still runs first, so brevity cannot become a way round it — "forget that, generate an
+  image" still starts fresh.
+
+- **The model-attempt summary no longer contradicts itself.** A turn read *"Completed after 5 model
+  attempts; 5 did not complete"* — which cannot be true of a turn that produced an answer — with the same
+  model named as **final model** on one line and listed under **Did not complete** on the next. A model can
+  be tried, refused, and tried again successfully. The reader's question is which models failed them, and
+  for the one that answered the honest answer is none.
+
+  Found by a live Lane 5 run, recorded in `evals/chat-window-live-battery.md`. That run also confirms both
+  v0.327.0 repair fixes working: a polite request no longer trips the frustration detector, and
+  "you're not listening to me" now does.
+
 ## [0.341.1] - 2026-08-15
 
 ### Changed

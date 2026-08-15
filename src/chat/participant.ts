@@ -730,7 +730,14 @@ export function shouldCarryForwardConversationContext(
   }
 
   const promptTokens = extractTopicTokens(trimmed);
-  if (promptTokens.length < 2) {
+  // A prompt too short to state a subject is shorthand, and shorthand is
+  // contextual. "git status" and "project_memory/" both carry exactly two topic
+  // tokens, share none with what came before, and were dropped — after which a
+  // model with no session to look at still narrated one, reporting that it had
+  // made no changes on a turn where it had edited a file two turns earlier. The
+  // subject-shift veto above still runs first, so an explicit change of topic
+  // stays dropped however briefly it is put.
+  if (promptTokens.length <= 2) {
     return true;
   }
 
@@ -4561,8 +4568,9 @@ export function buildAssistantResponseMetadata(
     summary = result.autoDisabledProvider
       ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
       : 'No usable answer was returned.';
-  } else if (failedAttempts.length > 0) {
-    summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${failedAttempts.length} did not complete.`;
+  } else if (failedAttempts.some(attempt => attempt.model !== result.modelUsed)) {
+    const others = failedAttempts.filter(attempt => attempt.model !== result.modelUsed).length;
+    summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${others} did not complete.`;
   } else if (toolCallCount > 0) {
     const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
     summary = actionSummary
@@ -4587,13 +4595,22 @@ export function buildAssistantResponseMetadata(
         : `${result.autoDisabledProvider.displayName} was paused and no fallback model completed the request.`,
     );
   }
-  if (attempts.length > 1 || failedAttempts.length > 0 || supersededAttempts.length > 0) {
+  // The model that answered is never also reported as having failed.
+  //
+  // A model can be tried, refused, and tried again successfully, which produced
+  // a summary reading "final model: mistral-small" directly above "Did not
+  // complete: ..., mistral-small (capability-mismatch)" — and a headline of
+  // "Completed after 5 attempts; 5 did not complete", which cannot be true of a
+  // turn that produced an answer. The reader's question is which models failed
+  // them, and for the one that answered the honest answer is none.
+  const unsuccessfulAttempts = failedAttempts.filter(attempt => attempt.model !== result.modelUsed);
+  if (attempts.length > 1 || unsuccessfulAttempts.length > 0 || supersededAttempts.length > 0) {
     bullets.push(
       `${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; final model: ${result.modelUsed}.`,
     );
   }
-  if (failedAttempts.length > 0) {
-    bullets.push(`Did not complete: ${failedAttempts.map(attempt => `${attempt.model} (${attempt.status})`).join(', ')}.`);
+  if (unsuccessfulAttempts.length > 0) {
+    bullets.push(`Did not complete: ${unsuccessfulAttempts.map(attempt => `${attempt.model} (${attempt.status})`).join(', ')}.`);
   }
   if (supersededAttempts.length > 0) {
     bullets.push(`Superseded after a struggle signal: ${supersededAttempts.map(attempt => attempt.model).join(', ')}.`);
