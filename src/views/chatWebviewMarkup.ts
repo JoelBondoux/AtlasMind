@@ -181,7 +181,17 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
-              <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+              <!--
+                Combobox pattern: the textarea owns the input and the listbox is
+                its popup, referenced by aria-controls and aria-activedescendant.
+                The list is not focusable — focus stays in the textarea while the
+                arrow keys move the highlighted option, which is how a screen
+                reader is told about a suggestion without losing the caret.
+              -->
+              <div class="composer-typeahead-anchor">
+                <div id="composerTypeahead" class="composer-typeahead hidden" role="listbox" aria-label="Suggestions"></div>
+                <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="composerTypeahead"></textarea>
+              </div>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
                   <select id="sendMode" aria-label="Choose send mode">
@@ -2111,6 +2121,45 @@ ${QUICK_REPLY_CSS}
         .hljs-deletion { color: var(--vscode-errorForeground); }
         .hljs-emphasis { font-style: italic; }
         .hljs-strong { font-weight: 600; }
+
+        .composer-typeahead-anchor { position: relative; display: block; }
+        .composer-typeahead {
+          position: absolute;
+          bottom: calc(100% + 4px);
+          left: 0;
+          right: 0;
+          max-height: 220px;
+          overflow-y: auto;
+          z-index: 40;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 6px;
+          background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+          padding: 4px;
+        }
+        .composer-typeahead.hidden { display: none; }
+        .composer-typeahead-item {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          padding: 4px 8px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.82rem;
+        }
+        .composer-typeahead-item[aria-selected="true"] {
+          background: var(--vscode-list-activeSelectionBackground);
+          color: var(--vscode-list-activeSelectionForeground);
+        }
+        .composer-typeahead-name { font-weight: 600; white-space: nowrap; }
+        .composer-typeahead-detail {
+          color: var(--vscode-descriptionForeground);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .composer-typeahead-item[aria-selected="true"] .composer-typeahead-detail { color: inherit; opacity: 0.85; }
+        .composer-typeahead-empty { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
 
         /* ---- Run inspector ---- */
         .run-card {

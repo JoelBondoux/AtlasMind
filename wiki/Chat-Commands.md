@@ -14,6 +14,10 @@ decides what your message is before either surface renders it, which is what sto
 apart: until v0.325.0 the chat view answered plain messages by a separate route that had quietly lost
 conversation recall, roadmap status and the model-and-cost footer.
 
+In the AtlasMind panel, typing `/` opens the command list and `@` searches your workspace for a file to
+attach — arrow keys move, Enter or Tab accepts, Escape closes. VS Code's chat view has its own completion
+for `@atlas /…`.
+
 Two nice touches: a mistyped command gets **corrected rather than answered** (`/agent` suggests
 `/agents`), and a message that merely *starts* with a slash is still treated as a question —
 `/usr/local/bin/thing is missing` is read as prose, not a failed command lookup.

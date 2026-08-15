@@ -4502,3 +4502,50 @@ describe('editor selection and problems as chat context', () => {
     }));
   });
 });
+
+describe('file mention lookup', () => {
+  it('echoes the query back so a late reply can be discarded', async () => {
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    vi.mocked(vscodeModule.workspace.findFiles).mockResolvedValue(
+      [{ fsPath: 'src/views/chatPanel.ts', path: 'src/views/chatPanel.ts' }] as never,
+    );
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'queryFileMentions', payload: { query: 'chatPan' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith({
+      type: 'fileMentions',
+      payload: { query: 'chatPan', files: ['src/views/chatPanel.ts'] },
+    });
+  });
+
+  it('searches nothing and answers empty for an empty query', async () => {
+    vi.mocked(vscodeModule.workspace.findFiles).mockClear();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'queryFileMentions', payload: { query: '   ' } });
+
+    expect(vscodeModule.workspace.findFiles).not.toHaveBeenCalled();
+    expect(mocks.postMessage).toHaveBeenCalledWith({
+      type: 'fileMentions',
+      payload: { query: '   ', files: [] },
+    });
+  });
+});

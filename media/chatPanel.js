@@ -3939,8 +3939,208 @@
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
+  // ---- Composer typeahead ------------------------------------------------
+  //
+  // One component for both triggers. `/` completes AtlasMind's own commands from
+  // the list the router dispatches on, so it can never advertise something the
+  // router would not recognise; `@` completes workspace files, which the host
+  // searches because the webview has no filesystem.
+  //
+  // Focus stays in the textarea throughout — the list is a popup, never a focus
+  // target — which is what keeps the caret where the operator left it and lets a
+  // screen reader announce the highlighted option through aria-activedescendant.
+  var typeaheadEl = document.getElementById('composerTypeahead');
+  var typeaheadState = { open: false, kind: null, items: [], index: 0, start: -1, query: '' };
+  var fileMentionTimer = null;
+  var fileMentionQuery = '';
+
+  function closeTypeahead() {
+    if (!typeaheadState.open) { return; }
+    typeaheadState.open = false;
+    typeaheadState.items = [];
+    typeaheadEl.classList.add('hidden');
+    typeaheadEl.innerHTML = '';
+    promptInput.setAttribute('aria-expanded', 'false');
+    promptInput.removeAttribute('aria-activedescendant');
+  }
+
+  function renderTypeahead() {
+    typeaheadEl.innerHTML = '';
+    if (typeaheadState.items.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'composer-typeahead-empty';
+      empty.textContent = typeaheadState.kind === 'file' ? 'No matching files' : 'No matching commands';
+      typeaheadEl.appendChild(empty);
+      promptInput.removeAttribute('aria-activedescendant');
+      return;
+    }
+    typeaheadState.items.forEach(function (item, index) {
+      var row = document.createElement('div');
+      row.className = 'composer-typeahead-item';
+      row.id = 'composer-typeahead-item-' + index;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', index === typeaheadState.index ? 'true' : 'false');
+
+      var name = document.createElement('span');
+      name.className = 'composer-typeahead-name';
+      name.textContent = item.name;
+      row.appendChild(name);
+
+      if (item.detail) {
+        var detail = document.createElement('span');
+        detail.className = 'composer-typeahead-detail';
+        detail.textContent = item.detail;
+        row.appendChild(detail);
+      }
+
+      // mousedown, not click: click fires after the textarea has already lost
+      // focus and the blur handler has closed the list.
+      row.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        acceptTypeahead(index);
+      });
+      typeaheadEl.appendChild(row);
+    });
+    promptInput.setAttribute('aria-activedescendant', 'composer-typeahead-item-' + typeaheadState.index);
+    var selected = typeaheadEl.children[typeaheadState.index];
+    if (selected && typeof selected.scrollIntoView === 'function') {
+      selected.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function openTypeahead(kind, start, query, items) {
+    typeaheadState.open = true;
+    typeaheadState.kind = kind;
+    typeaheadState.start = start;
+    typeaheadState.query = query;
+    typeaheadState.items = items;
+    typeaheadState.index = 0;
+    typeaheadEl.classList.remove('hidden');
+    promptInput.setAttribute('aria-expanded', 'true');
+    renderTypeahead();
+  }
+
+  function moveTypeahead(delta) {
+    if (typeaheadState.items.length === 0) { return; }
+    var count = typeaheadState.items.length;
+    typeaheadState.index = (typeaheadState.index + delta + count) % count;
+    renderTypeahead();
+  }
+
+  function acceptTypeahead(index) {
+    var item = typeaheadState.items[typeof index === 'number' ? index : typeaheadState.index];
+    if (!item) { return; }
+    var value = promptInput.value;
+    var caret = promptInput.selectionStart;
+    var replacement = item.insert + ' ';
+    promptInput.value = value.slice(0, typeaheadState.start) + replacement + value.slice(caret);
+    var nextCaret = typeaheadState.start + replacement.length;
+    promptInput.setSelectionRange(nextCaret, nextCaret);
+    // A picked file is genuinely attached, not merely named: the token in the
+    // prose says what the operator meant, and the attachment is what the model
+    // actually receives.
+    if (item.attachPath) {
+      vscode.postMessage({ type: 'attachOpenFile', payload: item.attachPath });
+    }
+    closeTypeahead();
+    promptInput.focus();
+  }
+
+  /** The slash or at-sign token the caret currently sits inside, if any. */
+  function activeTypeaheadToken() {
+    if (promptInput.selectionStart !== promptInput.selectionEnd) { return null; }
+    var caret = promptInput.selectionStart;
+    var value = promptInput.value;
+    var index = caret - 1;
+    while (index >= 0) {
+      var ch = value.charAt(index);
+      if (ch === '\n' || ch === ' ' || ch === '\t') { return null; }
+      if (ch === '/' || ch === '@') {
+        var before = index === 0 ? '' : value.charAt(index - 1);
+        // A slash only starts a command at the very beginning of the prompt, so
+        // a path typed mid-sentence stays prose - the same rule the router uses.
+        if (ch === '/' && index !== 0) { return null; }
+        if (ch === '@' && before !== '' && !/\s/.test(before)) { return null; }
+        return { kind: ch === '/' ? 'command' : 'file', start: index, query: value.slice(index + 1, caret) };
+      }
+      index -= 1;
+    }
+    return null;
+  }
+
+  function refreshTypeahead() {
+    var token = activeTypeaheadToken();
+    if (!token) {
+      closeTypeahead();
+      return;
+    }
+
+    if (token.kind === 'command') {
+      var commands = (latestState && Array.isArray(latestState.slashCommands)) ? latestState.slashCommands : [];
+      var needle = token.query.toLowerCase();
+      var matches = commands
+        .filter(function (entry) { return entry.name.indexOf(needle) === 0; })
+        .slice(0, 12)
+        .map(function (entry) {
+          return { name: '/' + entry.name, detail: entry.description || '', insert: '/' + entry.name };
+        });
+      openTypeahead('command', token.start, token.query, matches);
+      return;
+    }
+
+    // Files come from the host, so the list opens immediately with whatever the
+    // last reply held and is refreshed when the new one lands. Debounced, because
+    // a workspace search per keystroke is a lot of searching.
+    openTypeahead('file', token.start, token.query, typeaheadState.kind === 'file' ? typeaheadState.items : []);
+    if (fileMentionTimer) { clearTimeout(fileMentionTimer); }
+    fileMentionQuery = token.query;
+    fileMentionTimer = setTimeout(function () {
+      vscode.postMessage({ type: 'queryFileMentions', payload: { query: fileMentionQuery } });
+    }, 150);
+  }
+
+  function applyFileMentions(payload) {
+    // Discard a reply for something other than what is being typed now: replies
+    // do not necessarily arrive in the order they were asked for.
+    if (!payload || payload.query !== fileMentionQuery || !typeaheadState.open || typeaheadState.kind !== 'file') {
+      return;
+    }
+    var files = Array.isArray(payload.files) ? payload.files : [];
+    typeaheadState.items = files.slice(0, 20).map(function (file) {
+      var name = file.split('/').pop() || file;
+      return { name: name, detail: file, insert: '@' + file, attachPath: file };
+    });
+    typeaheadState.index = 0;
+    renderTypeahead();
+  }
+
+  /** True when the key was consumed by the open list. */
+  function handleTypeaheadKey(event) {
+    if (!typeaheadState.open) { return false; }
+    if (event.key === 'Escape') { closeTypeahead(); return true; }
+    if (event.key === 'ArrowDown') { moveTypeahead(1); return true; }
+    if (event.key === 'ArrowUp') { moveTypeahead(-1); return true; }
+    if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (typeaheadState.items.length === 0) { return false; }
+      acceptTypeahead();
+      return true;
+    }
+    return false;
+  }
+
+  promptInput.addEventListener('input', refreshTypeahead);
+  promptInput.addEventListener('click', refreshTypeahead);
+  promptInput.addEventListener('blur', function () { setTimeout(closeTypeahead, 120); });
+
   promptInput.addEventListener('keydown', function (event) {
     if (event.isComposing) {
+      return;
+    }
+
+    // The open list owns these keys first: Enter picks a suggestion rather than
+    // sending, and the arrows move the highlight rather than the prompt history.
+    if (handleTypeaheadKey(event)) {
+      event.preventDefault();
       return;
     }
 
@@ -4177,6 +4377,11 @@
           scheduleComposerFocusRestore();
         }
       }
+      return;
+    }
+
+    if (message.type === 'fileMentions') {
+      applyFileMentions(message.payload);
       return;
     }
 

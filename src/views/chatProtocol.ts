@@ -64,6 +64,11 @@ export type ChatPanelMessage =
    * problem — the strongest form of the rule that it supplies data and never a
    * target.
    */
+  /**
+   * Typeahead lookup for `@`-mentions. Carries only what was typed; the host
+   * decides what to search and answers with workspace-relative paths.
+   */
+  | { type: 'queryFileMentions'; payload: { query: string } }
   | { type: 'attachEditorSelection' }
   | { type: 'attachProblems' }
   | { type: 'removeAttachment'; payload: string }
@@ -288,6 +293,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'queryFileMentions') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const query = (message.payload as { query?: unknown }).query;
+    return typeof query === 'string' && query.length <= 200;
   }
 
   if (message.type === 'sendToTerminal'

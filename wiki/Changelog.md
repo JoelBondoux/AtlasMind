@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.333.0 — The composer completes as you type
+
+Type `/` in the AtlasMind chat panel and the command list appears; type `@` and it searches your workspace
+for a file. Until now the panel offered no completion at all, so you had to remember the exact spelling of a
+command and type paths from memory — while VS Code's own chat view had completed `@atlas /…` all along.
+
+Arrow keys move, Enter or Tab accepts, Escape closes. Picking a file **attaches** it rather than just
+writing its name into your message.
+
 ## v0.332.0 — Attach what you are looking at
 
 Two new buttons beside the paperclip: **add the current editor selection**, and **add the Problems panel**.

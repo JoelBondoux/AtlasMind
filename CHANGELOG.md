@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.333.0] - 2026-08-15
+
+### Added
+
+- **The composer completes commands and file paths as you type.** `/` opens the command list, `@` searches
+  the workspace. Until now the chat panel offered no completion at all — VS Code's own chat view has
+  always completed `@atlas /…`, so the panel was the surface where you had to remember the exact spelling
+  of a command and type a path from memory.
+
+  One component serves both triggers. Two lists would drift in their keyboard handling, and the difference
+  would surface under whichever one people use less.
+
+  - **Commands come from the set the router dispatches on**, so the list can never advertise something
+    that would fall through to a model. Descriptions are read from the manifest; if that cannot be read
+    the names still complete, which is the part that matters. A `/` only opens the list at the very start
+    of a prompt, matching the router's own rule that `/usr/local/bin` is prose.
+  - **File matches come from the host**, because the webview has no filesystem. Lookups are debounced, and
+    the reply **echoes the query it answered** — typing is faster than a workspace search and replies do
+    not necessarily arrive in the order they were asked for, so without the echo a pause after `src/ch`
+    could leave the list showing matches for `src/c`.
+  - **Picking a file attaches it**, rather than only writing its name into the prose. The token says what
+    you meant; the attachment is what the model actually receives.
+
+  Keyboard behaviour is the ordinary combobox contract: ↑/↓ move, Enter or Tab accept, Escape closes, and
+  the open list takes those keys **before** the composer does — otherwise Enter would send the prompt with
+  a suggestion highlighted, and ↑ would walk the prompt history instead of the list. Focus never leaves the
+  textarea: the list is a popup, and the highlighted option is announced through `aria-activedescendant`,
+  so the caret stays where you left it.
+
 ## [0.332.0] - 2026-08-15
 
 ### Added

@@ -722,3 +722,56 @@ describe('chat code block syntax highlighting', () => {
     expect(markup).not.toMatch(/\.hljs-keyword[^{]*\{[^}]*color:\s*#[0-9a-f]{3,6}\s*;/i);
   });
 });
+
+describe('composer typeahead', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+
+  it('is one component serving both triggers', () => {
+    // Two lists would drift in their keyboard handling, and the difference
+    // would only show up under the one people use less.
+    expect(webview).toContain('function activeTypeaheadToken(');
+    expect(webview).toContain("kind: ch === '/' ? 'command' : 'file'");
+    expect((webview.match(/function renderTypeahead\(/g) ?? []).length).toBe(1);
+  });
+
+  it('keeps focus in the textarea and announces the highlighted option', () => {
+    // The list is a popup, not a focus target: the caret must not move while
+    // the arrows change the selection.
+    expect(markup).toContain('role="combobox"');
+    expect(markup).toContain('aria-controls="composerTypeahead"');
+    expect(markup).toContain('role="listbox"');
+    expect(webview).toContain("promptInput.setAttribute('aria-activedescendant'");
+    expect(webview).not.toMatch(/typeaheadEl\.(focus|tabIndex)/);
+  });
+
+  it('lets the open list take Enter and the arrows before the composer does', () => {
+    // Otherwise Enter sends the prompt while a suggestion is highlighted, and
+    // ArrowUp walks the prompt history instead of the list.
+    // The composer's own handler, not the session-search one that shares the
+    // pattern: this is the one that guards against IME composition.
+    const start = webview.indexOf('if (event.isComposing) {');
+    expect(start, 'composer keydown handler not found').toBeGreaterThan(-1);
+    expect(webview.slice(start, start + 500)).toContain('handleTypeaheadKey(event)');
+  });
+
+  it('offers only commands the router would dispatch', () => {
+    // The names come from the same set routePanelPrompt matches on, so the list
+    // cannot advertise something that would fall through to a model.
+    expect(readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8')).toContain('[...ATLAS_SLASH_COMMANDS]');
+  });
+
+  it('debounces file lookups and discards stale replies', () => {
+    expect(webview).toContain("vscode.postMessage({ type: 'queryFileMentions'");
+    expect(webview).toContain('fileMentionTimer');
+    // The echoed query is what makes an out-of-order reply harmless.
+    expect(webview).toContain('payload.query !== fileMentionQuery');
+  });
+
+  it('attaches a picked file rather than only naming it', () => {
+    // A path in the prose tells the model a name; the attachment is what
+    // actually carries the contents.
+    const accept = webview.slice(webview.indexOf('function acceptTypeahead('));
+    expect(accept.slice(0, 900)).toContain("type: 'attachOpenFile'");
+  });
+});

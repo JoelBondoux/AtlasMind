@@ -55,7 +55,7 @@ import { formatCost } from '../core/currencyFormatter.js';
 
 // Re-exported for existing importers/tests that resolve these from chatPanel.
 export { getStatusDrivenComposerMode, isOneShotComposerMode, isChatPanelMessage };
-import { routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
+import { ATLAS_SLASH_COMMANDS, routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
@@ -208,6 +208,8 @@ interface ChatPanelState {
   streamingModels?: string[];
   composerDraft?: string;
   composerMode?: ComposerSendMode;
+  /** Slash commands the composer offers, sorted. Sent once per state sync. */
+  slashCommands?: Array<{ name: string; description: string }>;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
@@ -696,6 +698,9 @@ export class ChatPanel {
       case 'attachOpenFiles':
         await this.attachOpenFiles();
         return;
+      case 'queryFileMentions':
+        await this.replyWithFileMentions(message.payload.query);
+        return;
       case 'attachEditorSelection':
         await this.attachEditorSelection();
         return;
@@ -785,6 +790,34 @@ export class ChatPanel {
    * same gesture.
    */
   /** Caps for the two context attachments read from the editor rather than from disk. */
+  /**
+   * The commands the composer offers, with descriptions read from the manifest.
+   *
+   * The names come from `ATLAS_SLASH_COMMANDS`, which is also what the router
+   * dispatches on — so the list cannot advertise a command the router would not
+   * recognise. Descriptions are a nicety: if the manifest cannot be read the
+   * names still complete, which is the part that matters.
+   */
+  private static slashCommandCatalogue(): Array<{ name: string; description: string }> {
+    let described = new Map<string, string>();
+    try {
+      const contributed = vscode.extensions.getExtension('JoelBondoux.atlasmind')
+        ?.packageJSON?.contributes?.chatParticipants?.[0]?.commands as
+        Array<{ name?: unknown; description?: unknown }> | undefined;
+      described = new Map(
+        (contributed ?? [])
+          .filter(entry => typeof entry?.name === 'string')
+          .map(entry => [String(entry.name), typeof entry.description === 'string' ? entry.description : '']),
+      );
+    } catch {
+      described = new Map();
+    }
+    return [...ATLAS_SLASH_COMMANDS]
+      .sort()
+      .map(name => ({ name, description: described.get(name) ?? '' }));
+  }
+
+  private static readonly MAX_FILE_MENTIONS = 20;
   private static readonly MAX_SELECTION_CHARS = 60_000;
   private static readonly MAX_PROBLEMS = 100;
   private static readonly MAX_PROBLEMS_CHARS = 20_000;
@@ -2418,6 +2451,7 @@ export class ChatPanel {
       ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
+      slashCommands: ChatPanel.slashCommandCatalogue(),
       sessions,
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
@@ -3039,6 +3073,32 @@ export class ChatPanel {
       source: 'Problems panel',
       inlineText: body,
     }]);
+  }
+
+  /**
+   * Answers an `@`-mention lookup.
+   *
+   * The query is echoed back so the webview can discard a stale reply: typing is
+   * faster than a workspace search, and replies do not necessarily arrive in the
+   * order they were asked for — without the echo, pausing after "src/ch" could
+   * leave the list showing matches for "src/c".
+   */
+  private async replyWithFileMentions(query: string): Promise<void> {
+    const trimmed = query.trim();
+    let files: string[] = [];
+    if (trimmed.length > 0) {
+      try {
+        const found = await vscode.workspace.findFiles(
+          `**/*${trimmed.replace(/[*?[\]{}]/g, '')}*`,
+          '**/{node_modules,out,dist,.git}/**',
+          ChatPanel.MAX_FILE_MENTIONS,
+        );
+        files = found.map(uri => vscode.workspace.asRelativePath(uri, false));
+      } catch {
+        files = [];
+      }
+    }
+    await this.host.webview.postMessage({ type: 'fileMentions', payload: { query, files } });
   }
 
   private async addDroppedItems(items: string[]): Promise<void> {

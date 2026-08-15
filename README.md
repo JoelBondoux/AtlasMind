@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.332.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.333.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.332.0
+## What's new in 0.333.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The composer completes as you type.** `/` opens the command list, `@` searches your workspace for a
+  file — and picking one attaches it, not just its name.
 
 - **Attach what you are looking at.** Add the current editor selection, or the Problems panel, straight to
   a chat turn — labelled with the file and line range, or counted by severity.
