@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.327.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.328.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.327.2
+## What's new in 0.328.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Deleting a chat asks first.** Deleting a session, clearing a conversation or removing a message used
+  to happen the instant you clicked, with no undo and no copy of the transcript anywhere else. All three
+  now confirm, and say how many messages you would lose.
 
 - **Chat no longer writes to tracked files on its own.** Two things used to happen silently and outlast the
   conversation: `/buzz local` wrote a workspace setting, and signalling frustration wrote a note quoting

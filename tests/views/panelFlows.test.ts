@@ -1156,6 +1156,72 @@ describe('panel refresh flows', () => {
     }));
   });
 
+  /**
+   * Deleting a session, clearing a conversation and deleting a message all used
+   * to fire on the click. There is no undo in this panel and no copy of the
+   * transcript anywhere else, so a mis-click took a day's work with it. These
+   * assert the decline path specifically: a confirmation that only works when
+   * you accept it is not a confirmation.
+   */
+  describe.each([
+    ['deleteSession', { type: 'deleteSession', payload: 'chat-1' }, 'deleteSession'],
+    ['clearConversation', { type: 'clearConversation' }, 'clearSession'],
+    ['deleteMessage', { type: 'deleteMessage', payload: 'msg-1' }, 'deleteMessage'],
+  ])('%s confirmation', (_label, message, destructiveMethod) => {
+    function mountChatPanel() {
+      const conversation = {
+        buildContext: vi.fn().mockReturnValue(''),
+        listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'Release prep', createdAt: '2026-08-15T00:00:00.000Z', updatedAt: '2026-08-15T00:00:00.000Z', turnCount: 2, preview: 'x', isActive: true }]),
+        getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+        getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Release prep', entries: [{ id: 'msg-1' }, { id: 'msg-2' }] }),
+        selectSession: vi.fn().mockReturnValue(true),
+        getTranscript: vi.fn().mockReturnValue([{ id: 'msg-1', role: 'user', content: 'the secret is sk-ant-api03-XXXX', timestamp: '2026-08-15T00:00:00.000Z' }]),
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        deleteSession: vi.fn(),
+        clearSession: vi.fn(),
+        deleteMessage: vi.fn().mockReturnValue(true),
+      };
+      ChatPanel.createOrShow(
+        { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+        {
+          orchestrator: { processTask: vi.fn() },
+          sessionConversation: conversation,
+          projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+          projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+          voiceManager: { speak: vi.fn() },
+        } as never,
+      );
+      return conversation;
+    }
+
+    it('destroys nothing when the operator declines', async () => {
+      const conversation = mountChatPanel();
+      mocks.showWarningMessage.mockResolvedValue(undefined);
+
+      await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+        .handleMessage(message);
+
+      expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ modal: true }),
+        expect.any(String),
+      );
+      expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).not.toHaveBeenCalled();
+    });
+
+    it('proceeds once the operator confirms', async () => {
+      const conversation = mountChatPanel();
+      // Answer with whatever verb the dialog offered, so the test does not have
+      // to restate the three confirm labels and drift from them.
+      mocks.showWarningMessage.mockImplementation(async (_message: string, _options: unknown, action: string) => action);
+
+      await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+        .handleMessage(message);
+
+      expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).toHaveBeenCalled();
+    });
+  });
+
   it('includes pending tool approvals in chat panel state and resolves approval actions', async () => {
     const resolvePendingRequest = vi.fn().mockReturnValue(true);
 

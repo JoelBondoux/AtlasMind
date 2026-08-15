@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.328.0] - 2026-08-15
+
+### Changed
+
+- **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
+  message all fired on the click — no confirmation, no undo, and no copy of the transcript anywhere else
+  in the product. A mis-click on a session row took the whole thread with it, and nothing in the panel
+  could put it back. These were the last unconfirmed destructive actions in AtlasMind; every other
+  outward-facing write already had a modal.
+
+  Each dialog names **what is lost**, and specifically the message count, because that is the part the
+  operator cannot see from the control: a session row shows a title, not that it holds forty messages.
+  Where the count cannot be read it says so rather than reporting zero — the one number that would make a
+  destructive dialog reassuring and wrong. The message dialog quotes the message it would remove, run
+  through the same secret redaction as everything else that leaves this panel, since a transcript excerpt
+  in a system dialog is still an excerpt.
+
+  The tests assert the **decline** path for all three: a confirmation that only works when you accept it
+  is not a confirmation.
+
 ## [0.327.2] - 2026-08-15
 
 ### Fixed

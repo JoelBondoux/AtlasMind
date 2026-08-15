@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.328.0 — Deleting a chat now asks
+
+Deleting a chat session, clearing a conversation, and deleting a single message all happened the instant
+you clicked. There is no undo in the chat panel and no copy of your transcript anywhere else, so a
+mis-click on the wrong row took the whole thread with it.
+
+All three now confirm first, and the dialog tells you how many messages you are about to lose — the thing
+you cannot tell from looking at the button.
+
 ## v0.327.2 — Saying what the commands actually do
 
 `/cost` was documented as this session's spend in both the README and the wiki. It is the running total for

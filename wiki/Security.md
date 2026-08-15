@@ -133,6 +133,12 @@ The important structural rule: **a panel supplies data, never a command.** The d
 promotion and attest a check; it can never supply the command string that runs. What executes comes from
 your persisted configuration, read on the extension side.
 
+**Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
+single message each require a confirmation naming what is lost — including how many messages the session
+holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the
+transcript elsewhere, so until v0.328.0 a mis-click was final; these three were the last unconfirmed
+destructive actions in the product.
+
 ---
 
 ## Network requests

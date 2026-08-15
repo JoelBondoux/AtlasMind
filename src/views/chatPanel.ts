@@ -522,6 +522,10 @@ export class ChatPanel {
         await this.syncState();
         return;
       case 'deleteMessage': {
+              if (!await this.confirmDestructiveAction('delete-message', message.payload)) {
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message not deleted.' });
+                return;
+              }
               // Remove the message from the current session transcript
               const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
               if (deleted) {
@@ -594,10 +598,15 @@ export class ChatPanel {
         }
         return;
       }
-      case 'clearConversation':
+      case 'clearConversation': {
+        if (!await this.confirmDestructiveAction('clear', this.selectedSessionId)) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Conversation not cleared.' });
+          return;
+        }
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
         await this.host.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
         return;
+      }
       case 'copyTranscript':
         await vscode.env.clipboard.writeText(await this.renderActiveSurfaceMarkdown());
         await this.host.webview.postMessage({ type: 'status', payload: 'Copied the current session view to the clipboard.' });
@@ -635,6 +644,10 @@ export class ChatPanel {
         }
         return;
       case 'deleteSession':
+        if (!await this.confirmDestructiveAction('delete-session', message.payload)) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Session not deleted.' });
+          return;
+        }
         this.atlas.sessionConversation.deleteSession(message.payload);
         void this.atlas.sessionContextManager?.deleteSession(message.payload).catch(() => undefined);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -796,6 +809,72 @@ export class ChatPanel {
           ? 'Saved thumbs-down feedback for this response.'
           : 'Cleared feedback for this response.',
     });
+  }
+
+  /**
+   * The gate in front of the three chat actions that destroy something.
+   *
+   * Deleting a session, clearing a conversation and deleting a message all fired
+   * on the click, with no confirmation and no undo — a transcript holding a
+   * day's work was one mis-click from gone, and nothing in this panel could put
+   * it back. Every other outward-facing write in this codebase is already
+   * modal-gated; these three were simply missed.
+   *
+   * The dialog names the count, because that is the part the operator cannot see
+   * from the button: a session row shows a title, not that it holds forty
+   * messages. Where the count cannot be read, it says so rather than reporting
+   * zero — the one number that would make a destructive dialog reassuring and
+   * wrong.
+   */
+  private async confirmDestructiveAction(
+    kind: 'clear' | 'delete-session' | 'delete-message',
+    targetId: string,
+  ): Promise<boolean> {
+    if (kind === 'delete-message') {
+      const entry = this.atlas.sessionConversation
+        .getTranscript(this.selectedSessionId)
+        .find(item => item.id === targetId);
+      const excerpt = typeof entry?.content === 'string'
+        ? redactSecrets(entry.content.replace(/\s+/g, ' ').trim()).text.slice(0, 120)
+        : '';
+      const choice = await vscode.window.showWarningMessage(
+        'Delete this message?',
+        {
+          modal: true,
+          detail: excerpt
+            ? `This removes it from the transcript permanently.\n\n"${excerpt}${excerpt.length >= 120 ? '…' : ''}"`
+            : 'This removes it from the transcript permanently.',
+        },
+        'Delete message',
+      );
+      return choice === 'Delete message';
+    }
+
+    const session = this.atlas.sessionConversation.getSession(targetId);
+    const title = session?.title?.trim() || 'this chat';
+    const messageCount = session ? session.entries.length : undefined;
+    const held = messageCount === undefined
+      ? 'Its message count could not be read.'
+      : `It holds ${messageCount} message${messageCount === 1 ? '' : 's'}.`;
+
+    if (kind === 'clear') {
+      const choice = await vscode.window.showWarningMessage(
+        `Clear the conversation in "${title}"?`,
+        { modal: true, detail: `${held} They are removed permanently and cannot be recovered from this panel.` },
+        'Clear conversation',
+      );
+      return choice === 'Clear conversation';
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Delete the chat session "${title}"?`,
+      {
+        modal: true,
+        detail: `${held} The session and its stored project-memory context are removed permanently.`,
+      },
+      'Delete session',
+    );
+    return choice === 'Delete session';
   }
 
   private async openProjectRun(runId: string): Promise<void> {
