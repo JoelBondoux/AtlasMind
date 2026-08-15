@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.330.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.331.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.330.0
+## What's new in 0.331.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Code blocks reach the editor.** Insert at the cursor, open as a new file, or apply with a diff preview
+  that shows exactly what would change before you confirm. Nothing is merged for you and every edit is
+  undoable.
 
 - **Code blocks in chat are syntax highlighted**, in about forty languages, using your editor's own theme
   colours so a snippet in chat matches the same code in the file beside it.

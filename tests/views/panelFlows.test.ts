@@ -81,9 +81,15 @@ vi.mock('vscode', () => ({
     showInformationMessage: mocks.showInformationMessage,
     showWarningMessage: mocks.showWarningMessage,
     setStatusBarMessage: mocks.setStatusBarMessage,
+    showTextDocument: vi.fn(async () => undefined),
   },
   commands: {
     executeCommand: mocks.executeCommand,
+  },
+  Position: class { constructor(public line: number, public character: number) {} },
+  Range: class {
+    constructor(public start: { line: number; character: number }, public end: { line: number; character: number }) {}
+    get isEmpty() { return this.start.line === this.end.line && this.start.character === this.end.character; }
   },
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: () => undefined })),
@@ -93,6 +99,8 @@ vi.mock('vscode', () => ({
       update: mocks.configurationUpdate,
     }),
     asRelativePath: (value: unknown) => String(value),
+    openTextDocument: vi.fn(async (options: unknown) => ({ options })),
+    registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => undefined })),
     findFiles: vi.fn().mockResolvedValue([]),
     fs: {
       stat: vi.fn(),
@@ -115,6 +123,7 @@ vi.mock('vscode', () => ({
       path: segments.map(segment => typeof segment === 'string' ? segment : (segment.path ?? segment.fsPath ?? '')).join('/'),
     }),
     file: (filePath: string) => ({ fsPath: filePath, path: filePath }),
+    parse: (value: string) => ({ fsPath: value, path: value, toString: () => value }),
   },
   TreeItemCollapsibleState: { None: 0 },
   ThemeIcon: class {},
@@ -150,6 +159,7 @@ import {
   useSubscriptionForProvider,
 } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
+import * as vscodeModule from 'vscode';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode, truncateManagedTerminalContext } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel, calculateLocalModelSavings } from '../../src/views/costDashboardPanel.ts';
@@ -4232,5 +4242,110 @@ describe('managed terminal context redaction', () => {
 
   it('leaves ordinary output untouched', () => {
     expect(truncateManagedTerminalContext('npm test\n42 passing')).toBe('npm test\n42 passing');
+  });
+});
+
+describe('chat code block actions', () => {
+  function mountPanel() {
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function fakeEditor(text: string, selectionEmpty: boolean) {
+    const edit = vi.fn(async () => true);
+    return {
+      edit,
+      viewColumn: 1,
+      selection: {
+        isEmpty: selectionEmpty,
+        start: { line: 0, character: 0 },
+        end: selectionEmpty ? { line: 0, character: 0 } : { line: 1, character: 0 },
+      },
+      document: {
+        isClosed: false,
+        uri: { fsPath: '/w/src/a.ts', path: '/w/src/a.ts', scheme: 'file' },
+        getText: () => text,
+        positionAt: (offset: number) => ({ line: 0, character: offset }),
+        offsetAt: (position: { character: number }) => position.character,
+      },
+    };
+  }
+
+  it('says where to put the code when no editor is open', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'insertCodeAtCursor', payload: { code: 'const a = 1;' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('Open a file first'),
+    }));
+  });
+
+  it('opens a new file as an unsaved buffer, with no confirmation and no write', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'createFileFromCode', payload: { code: 'print(1)', language: 'python' } });
+
+    // Untitled and discardable, so there is nothing to confirm and nothing on disk.
+    expect(vscodeModule.workspace.openTextDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'print(1)', language: 'python' }),
+    );
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled();
+    expect(vscodeModule.workspace.fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The diff is shown *before* the dialog, so the operator answers a question
+   * they have already seen the answer to. Declining must leave the file alone —
+   * that is the whole contract of a preview.
+   */
+  it('shows a diff and changes nothing when the apply is declined', async () => {
+    const panel = mountPanel();
+    const editor = fakeEditor('let a = 0;\n', false);
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = editor;
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'applyCodeToFile', payload: { code: 'let a = 1;' } });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      expect.anything(),
+      expect.anything(),
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(editor.edit).not.toHaveBeenCalled();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+
+  it('applies through the editor once confirmed, so the change is undoable', async () => {
+    const panel = mountPanel();
+    const editor = fakeEditor('let a = 0;\n', false);
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = editor;
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'applyCodeToFile', payload: { code: 'let a = 1;' } });
+
+    // editor.edit, never workspace.fs.writeFile: the edit lands on the undo
+    // stack like anything the user typed.
+    expect(editor.edit).toHaveBeenCalled();
+    expect(vscodeModule.workspace.fs.writeFile).not.toHaveBeenCalled();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
   });
 });

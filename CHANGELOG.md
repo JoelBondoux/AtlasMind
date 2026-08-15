@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.331.0] - 2026-08-15
+
+### Added
+
+- **Code blocks can reach the editor.** Copy and *Send to terminal* were the only things a block could do,
+  so getting a suggested change into a file meant selecting it, switching editors, finding the place and
+  pasting. Three actions now sit beside them:
+
+  - **Insert at cursor** — replaces the selection, or inserts at the caret. It targets the *last real text
+    editor* rather than the active one, because by the time you click a button in the chat panel the panel
+    usually **is** the active editor.
+  - **Open as a new file** — an untitled buffer, not a file on disk. Naming and placing a file is a
+    decision AtlasMind should not make on your behalf, and an unsaved buffer costs nothing to discard,
+    which is also why this one asks nothing: it destroys nothing.
+  - **Apply with diff preview** — opens a real `vscode.diff` against a virtual document showing exactly
+    what would change, *then* asks. Answering a confirmation you have already seen the answer to is the
+    entire point, and declining leaves the file untouched.
+
+  Two deliberate limits. This is **not a "smart apply"**: no model is in this path and no fragment is
+  fuzzy-merged into surrounding code. It replaces precisely what the diff showed — the selection, or the
+  whole file when nothing is selected — which is the version whose behaviour you can predict by looking at
+  it. And the change goes through `editor.edit` rather than a filesystem write, so it lands on the undo
+  stack like anything you typed; nothing here writes a file behind your back.
+
+  The message payload carries the code text rather than a block index, following `sendToTerminal`: the
+  transcript re-renders while a turn streams, so an index the webview held could name a different block by
+  the time the host read it. Payloads are bounded (non-empty, ≤200,000 characters) and the webview still
+  names no command — the host decides what each action does.
+
 ## [0.330.0] - 2026-08-15
 
 ### Added

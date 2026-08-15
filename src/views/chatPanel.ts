@@ -342,6 +342,8 @@ export class ChatPanel {
   private selectedSessionId: string;
   private selectedMessageId: string | undefined;
   private selectedRunId: string | undefined;
+  /** The last real text editor, for code-block actions. See the listener that sets it. */
+  private lastActiveTextEditor: vscode.TextEditor | undefined;
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
@@ -464,9 +466,19 @@ export class ChatPanel {
     vscode.window.onDidChangeVisibleTextEditors(() => {
       void this.syncState();
     }, null, this.disposables);
-    vscode.window.onDidChangeActiveTextEditor(() => {
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+      // Remembered because the chat panel is itself the active editor much of
+      // the time: by the moment somebody clicks "Insert at cursor",
+      // `activeTextEditor` is often this panel or nothing at all. The last real
+      // text editor is the one they mean.
+      if (editor && editor.document.uri.scheme !== 'output') {
+        this.lastActiveTextEditor = editor;
+      }
       void this.syncState();
     }, null, this.disposables);
+    if (vscode.window.activeTextEditor) {
+      this.lastActiveTextEditor = vscode.window.activeTextEditor;
+    }
 
     void this.syncState();
     void this.refreshProjectName();
@@ -728,6 +740,15 @@ export class ChatPanel {
         terminal.sendText(message.payload.code, false);
         return;
       }
+      case 'insertCodeAtCursor':
+        await this.insertCodeAtCursor(message.payload.code);
+        return;
+      case 'createFileFromCode':
+        await this.createFileFromCode(message.payload.code, message.payload.language);
+        return;
+      case 'applyCodeToFile':
+        await this.applyCodeToFile(message.payload.code);
+        return;
       case 'syncAiInstructions': {
         await this.handleSyncAiInstructionNudge();
         return;
@@ -747,6 +768,25 @@ export class ChatPanel {
   }
 
   private static readonly NUDGE_DISMISSED_KEY = 'atlasmind.aiInstructionNudgeDismissed';
+
+  /**
+   * The right-hand side of the "apply this block" diff.
+   *
+   * A virtual document rather than a temp file: nothing is written to disk to
+   * preview a change the operator may decline, and the scheme is read-only by
+   * construction, so the preview cannot be edited and mistaken for the real
+   * file. One pending preview at a time — the diff opens and is answered in the
+   * same gesture.
+   */
+  private static readonly APPLY_PREVIEW_SCHEME = 'atlasmind-apply';
+  private static pendingApplyPreview = '';
+
+  /** Registered once for the process; every chat surface shares the one scheme. */
+  public static registerApplyPreviewProvider(): vscode.Disposable {
+    return vscode.workspace.registerTextDocumentContentProvider(ChatPanel.APPLY_PREVIEW_SCHEME, {
+      provideTextDocumentContent: () => ChatPanel.pendingApplyPreview,
+    });
+  }
 
   private async handleSyncAiInstructionNudge(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -875,6 +915,117 @@ export class ChatPanel {
       'Delete session',
     );
     return choice === 'Delete session';
+  }
+
+  /** The editor a code-block action should target, or undefined with a reason posted. */
+  private async resolveTargetEditor(action: string): Promise<vscode.TextEditor | undefined> {
+    const editor = this.lastActiveTextEditor && !this.lastActiveTextEditor.document.isClosed
+      ? this.lastActiveTextEditor
+      : vscode.window.activeTextEditor;
+    if (!editor) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `Open a file first — ${action} needs somewhere to go.`,
+      });
+      return undefined;
+    }
+    return editor;
+  }
+
+  private async insertCodeAtCursor(code: string): Promise<void> {
+    const editor = await this.resolveTargetEditor('inserting code');
+    if (!editor) {
+      return;
+    }
+    // Replaces the selection when there is one, which is what every editor does
+    // with a paste; with an empty selection this is an insert at the caret.
+    const applied = await editor.edit(builder => builder.replace(editor.selection, code));
+    await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preview: false });
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: applied
+        ? `Inserted into ${vscode.workspace.asRelativePath(editor.document.uri, false)}.`
+        : 'Could not insert into that editor.',
+    });
+  }
+
+  private async createFileFromCode(code: string, language?: string): Promise<void> {
+    // Untitled, not written to disk: naming and placing a file is a decision
+    // AtlasMind should not make, and an unsaved buffer costs nothing to discard.
+    // That is also why this one needs no confirmation — it destroys nothing.
+    const document = await vscode.workspace.openTextDocument({
+      content: code,
+      ...(language ? { language } : {}),
+    });
+    await vscode.window.showTextDocument(document, { preview: false });
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: 'Opened the block as a new unsaved file. Save it where you want it.',
+    });
+  }
+
+  /**
+   * Replace the selection — or the whole file — with the block, after showing
+   * exactly what would change.
+   *
+   * Deliberately not a "smart apply": there is no model in this path and no
+   * fuzzy merge of a fragment into surrounding code. It replaces precisely what
+   * the diff showed, which is the version whose behaviour can be predicted from
+   * looking at it. The edit goes through `editor.edit` rather than a filesystem
+   * write so it lands on the undo stack like anything the user typed.
+   */
+  private async applyCodeToFile(code: string): Promise<void> {
+    const editor = await this.resolveTargetEditor('applying code');
+    if (!editor) {
+      return;
+    }
+
+    const document = editor.document;
+    const hasSelection = !editor.selection.isEmpty;
+    const target = hasSelection
+      ? editor.selection
+      : new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
+    const relativePath = vscode.workspace.asRelativePath(document.uri, false);
+    const scope = hasSelection
+      ? `lines ${target.start.line + 1}–${target.end.line + 1}`
+      : 'the whole file';
+
+    const proposed = document.getText().slice(0, document.offsetAt(target.start))
+      + code
+      + document.getText().slice(document.offsetAt(target.end));
+    if (proposed === document.getText()) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That block already matches the file.' });
+      return;
+    }
+
+    ChatPanel.pendingApplyPreview = proposed;
+    const previewUri = vscode.Uri.parse(`${ChatPanel.APPLY_PREVIEW_SCHEME}:${relativePath}`);
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      document.uri,
+      previewUri,
+      `${relativePath} ↔ proposed (${scope})`,
+      { preview: true },
+    );
+
+    const choice = await vscode.window.showWarningMessage(
+      `Apply this code block to ${relativePath}?`,
+      {
+        modal: true,
+        detail: `Replaces ${scope}. The diff beside this dialog is exactly what will change, and the edit is undoable.`,
+      },
+      'Apply',
+    );
+    if (choice !== 'Apply') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Not applied.' });
+      return;
+    }
+
+    const applied = await editor.edit(builder => builder.replace(target, code));
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: applied ? `Applied to ${relativePath}. Undo reverts it.` : 'Could not apply to that editor.',
+    });
   }
 
   private async openProjectRun(runId: string): Promise<void> {

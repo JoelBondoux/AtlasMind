@@ -73,6 +73,16 @@ export type ChatPanelMessage =
   | { type: 'importSessionContext'; payload: string }
   | { type: 'deleteMessage'; payload: string }
   | { type: 'sendToTerminal'; payload: { code: string } }
+  /**
+   * Code-block actions. The payload carries the code text rather than a block
+   * reference, following `sendToTerminal`: the transcript re-renders while a
+   * turn streams, so any index the webview held could name a different block by
+   * the time the host read it. The webview still names no command — the host
+   * decides what each action does.
+   */
+  | { type: 'insertCodeAtCursor'; payload: { code: string } }
+  | { type: 'createFileFromCode'; payload: { code: string; language?: string } }
+  | { type: 'applyCodeToFile'; payload: { code: string } }
   | { type: 'syncAiInstructions' }
   | { type: 'dismissAiInstructionNudge' }
   | { type: 'openSettings' }
@@ -123,6 +133,21 @@ export function isChatPanelImportedItem(value: unknown): value is ChatPanelImpor
   }
 
   return false;
+}
+
+/**
+ * A code payload the host will act on: non-empty, and bounded well above any
+ * plausible answer while staying far below anything that would stall the host
+ * on a hostile message.
+ */
+const MAX_CODE_PAYLOAD_CHARS = 200_000;
+
+function isBoundedCodePayload(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) {
+    return false;
+  }
+  const code = (payload as { code?: unknown }).code;
+  return typeof code === 'string' && code.length > 0 && code.length <= MAX_CODE_PAYLOAD_CHARS;
 }
 
 export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
@@ -255,10 +280,18 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
   }
 
-  if (message.type === 'sendToTerminal') {
-    return typeof message.payload === 'object'
-      && message.payload !== null
-      && typeof (message.payload as { code?: unknown }).code === 'string';
+  if (message.type === 'sendToTerminal'
+    || message.type === 'insertCodeAtCursor'
+    || message.type === 'applyCodeToFile') {
+    return isBoundedCodePayload(message.payload);
+  }
+
+  if (message.type === 'createFileFromCode') {
+    if (!isBoundedCodePayload(message.payload)) {
+      return false;
+    }
+    const language = (message.payload as { language?: unknown }).language;
+    return language === undefined || (typeof language === 'string' && language.length <= 40);
   }
 
   return (message.type === 'selectSession'

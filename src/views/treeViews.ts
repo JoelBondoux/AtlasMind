@@ -20,7 +20,7 @@ import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings, peekAcpAgentProb
 import { deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
-import { ChatViewProvider } from './chatPanel.js';
+import { ChatPanel, ChatViewProvider } from './chatPanel.js';
 import {
   isModelSidebarBridgeHidden,
   isModelSidebarModelHidden,
@@ -242,6 +242,9 @@ export function registerTreeViews(
       chatViewProvider,
       { webviewOptions: { retainContextWhenHidden: false } },
     ),
+    // Serves the right-hand side of the "apply this code block" diff. Registered
+    // once for the process; every chat surface shares the one scheme.
+    ChatPanel.registerApplyPreviewProvider(),
     vscode.window.registerTreeDataProvider(
       'atlasmind.agentsView',
       agentsProvider,

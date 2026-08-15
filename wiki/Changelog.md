@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.331.0 — Code blocks reach the editor
+
+A code block in a reply could be copied or sent to a terminal, and that was all — getting a suggested change
+into a file meant selecting it, switching editors, finding the spot and pasting. Three buttons now sit beside
+those: **insert at the cursor**, **open as a new unsaved file**, and **apply with a diff preview**.
+
+The last one opens a real diff showing exactly what would change and only then asks, so you answer a question
+you have already seen the answer to. It replaces what the diff showed — your selection, or the whole file if
+nothing is selected — and nothing is guessed or merged for you. The edit is undoable like anything you typed.
+
 ## v0.330.0 — Code blocks have colour
 
 Code in chat answers rendered as flat grey text, which is the hardest thing to read in the place a

@@ -352,6 +352,15 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'const a = 1;' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'applyCodeToFile', payload: { code: 'const a = 1;' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'ts' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x' } })).toBe(true);
+    // An empty block is nothing to act on, and the cap bounds what a crafted
+    // message can hand the host in one go.
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: '' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'x'.repeat(200_001) } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'y'.repeat(41) } })).toBe(false);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
