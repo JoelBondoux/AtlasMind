@@ -1809,3 +1809,35 @@ describe('an offer without a question mark is still an offer', () => {
     expect(detected?.quickReplies).toHaveLength(2);
   });
 });
+
+describe('being asked to explain is never an executable goal', () => {
+  const transcriptOf = (turns: Array<[string, string]>): SessionTranscriptEntry[] =>
+    turns.flatMap(([prompt, reply], index) => ([
+      { id: `u${index}`, role: 'user' as const, content: prompt, timestamp: new Date(index * 2000).toISOString() },
+      { id: `a${index}`, role: 'assistant' as const, content: reply, timestamp: new Date(index * 2000 + 1000).toISOString() },
+    ]));
+
+  // Observed: "carry on" after "tell me about who makes playwright" started an
+  // autonomous project run whose stated goal was that sentence. It touched four
+  // files and every model attempt failed. The pattern matched an *interrogative*
+  // opening and a question mark; the imperative form asks for exactly the same
+  // thing and carries neither.
+  it.each([
+    'tell me about who makes playwright',
+    'tell me about the routing',
+    'explain the failover budget',
+    'describe the delivery pipeline',
+    'summarise what we decided',
+    'walk me through the arbiter',
+  ])('does not turn %j into a run goal', prompt => {
+    const transcript = transcriptOf([[prompt, 'Playwright is maintained by Microsoft.']]);
+    expect(resolveAutonomousContinuationGoal('carry on', transcript)).toBeUndefined();
+  });
+
+  it('still turns an actual instruction into a goal', () => {
+    // The other half: this must not swallow work.
+    const transcript = transcriptOf([['add a Playwright test for the initial render', 'Here is the plan.']]);
+    expect(resolveAutonomousContinuationGoal('carry on', transcript))
+      .toBe('add a Playwright test for the initial render');
+  });
+});

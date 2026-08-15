@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.323.0 — Three ways a turn used to waste itself
+
+A provider that is rate-limiting now gets skipped for the whole turn instead of being asked again under
+three different model names — 79 seconds of refusals, on a turn that then ran out of attempts.
+
+A reply that promises to make a change and never makes it is now caught, as replies that promised to
+*look* at something already were.
+
+And "tell me about who makes playwright" is no longer something AtlasMind will start an autonomous run
+about when you say "carry on".
+
 ## v0.322.0 — A busy GPU no longer ends the turn
 
 If your local runtime was busy, AtlasMind treated each refusal as a failed model and burned its failover

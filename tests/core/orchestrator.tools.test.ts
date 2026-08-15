@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -5685,5 +5685,61 @@ describe('a reply that reports having answered is not an answer', () => {
   it('says nothing about an empty response', () => {
     // Emptiness is handled elsewhere; claiming it here would double-report.
     expect(looksLikeAnswerlessCompletionClaim('')).toBe(false);
+  });
+});
+
+describe('a rate limit belongs to the account, not the model', () => {
+  // Observed: magistral-small (10s), mistral-large-2512 (60s),
+  // mistral-large-latest (9s) — three refusals and 79 seconds to learn nothing,
+  // on a turn that then had one attempt left. Asking a sibling model asks the
+  // same account the same question.
+  it.each([
+    { status: 429, message: 'Rate limit exceeded' },
+    { statusCode: 429, message: 'too many requests' },
+    { message: 'Mistral stream request failed (429): {"type":"rate_limited"}' },
+    { message: 'Rate-limited by the provider' },
+  ])('recognises %j', error => {
+    expect(isProviderRateLimited(error)).toBe(true);
+  });
+
+  it.each([
+    { status: 500, message: 'internal error' },
+    { status: 401, message: 'unauthorized' },
+    { message: 'the file contains the number 4291' },
+    null,
+    'a bare string',
+  ])('leaves %j alone', error => {
+    expect(isProviderRateLimited(error)).toBe(false);
+  });
+});
+
+describe('an announcement without the act is caught whichever act it was', () => {
+  it('catches a promise to change something, not only to look at something', () => {
+    // The verb list was inspection-only, and announcing a *change* is what an
+    // agent does most often before making one. Observed at ~450 characters,
+    // after eight tool calls of which five were edits.
+    expect(looksLikePreambleOnly(
+      'I apologize for the continued difficulty. The `file-edit` tool requires both a `search` and a '
+      + '`replace` parameter. I will now provide both to add the new test case. I will add the new test '
+      + 'case to the end of the `tests/rendered-html.test.mjs` file. This test will verify that the '
+      + 'default star is correctly displayed when the page first loads.',
+    )).toBe(true);
+  });
+
+  it('still catches the original inspection shape', () => {
+    expect(looksLikePreambleOnly("Let me inspect the test file and check what it asserts.")).toBe(true);
+  });
+
+  it.each([
+    // Delivered code.
+    "I'll add the test case:\n\n```ts\ntest('renders', () => {});\n```",
+    // Delivered a list.
+    "I'll update three files:\n- a.ts\n- b.ts\n- c.ts",
+    // Past tense: it happened.
+    'I added the test case to the end of the file and it passes.',
+    // No announcement at all.
+    'The cache is per-isolate and does not survive a cold start.',
+  ])('leaves a real delivery alone: %j', response => {
+    expect(looksLikePreambleOnly(response)).toBe(false);
   });
 });

@@ -2089,6 +2089,16 @@ export class Orchestrator {
           if (!isBillingError(error) && !modelWasRetired && !capacityDeferral) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
+          // A rate limit belongs to the account, so skip the whole provider for
+          // this turn rather than asking it again under a different model name.
+          // Not `recordEndpointFailure`: a 429 is a "not now", and holding it
+          // against the endpoint afterwards would punish a provider for being
+          // busy for a minute.
+          if (isProviderRateLimited(error)) {
+            blockedEndpointScopes.add(endpointScope);
+            onProgress?.(`"${selectedProvider}" is rate-limiting; skipping its other models for this turn.`);
+          }
+
           if (capacityDeferral) {
             // Skip this runtime's *other* models for the rest of the turn.
             //
@@ -5552,11 +5562,30 @@ export function looksLikePreambleOnly(response: string): boolean {
   const trimmed = response.trim();
   if (trimmed.length === 0) { return true; }
   // Real deliverables are longer; cap keeps this from flagging substantive answers.
-  if (trimmed.length > 240) { return false; }
-  // Any delivered code/diff means it is not preamble-only.
-  if (/```/.test(trimmed)) { return false; }
-  // Future-intent announcement of an investigation step with no follow-through.
-  return /^(?:ok(?:ay)?[,.\s]*)?(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan)\b/i
+  //
+  // Raised from 240. Observed at ~450 characters: eight tool calls, five of them
+  // edits, and a reply that apologised for a tool-parameter mistake and then
+  // promised to add the test case — the exact failure this exists to catch, half
+  // a paragraph too long to be caught by it. The guards below carry the weight: a
+  // reply opening with a future-intent announcement, holding no code fence and no
+  // list, has delivered nothing whatever its length.
+  if (trimmed.length > 520) { return false; }
+  // Any delivered code/diff — or a list — means it is not preamble-only.
+  if (/```/.test(trimmed) || /^\s*(?:[-*•]|\d+[.)])\s+\S/m.test(trimmed)) { return false; }
+  // Future-intent announcement with no follow-through.
+  //
+  // The verb list was inspection-only, so "I will now add the test case" matched
+  // nothing — and announcing a *change* is what an agent does most often before
+  // making one. Investigation and mutation both count: the failure is the
+  // announcement without the act, whichever act was announced.
+  //
+  // The announcement no longer has to open the reply. The observed one arrived
+  // third: an apology, then a sentence about a tool's parameters, then the
+  // promise. Bounded to the first 240 characters so it still has to be the
+  // *point* of the reply rather than an aside near the end, and safe to loosen
+  // because the length, fence and list guards above already exclude anything
+  // that delivered.
+  return /^[\s\S]{0,240}?\b(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan|add|write|create|update|edit|modify|apply|implement|fix|patch|refactor|rename|provide|wire|generate)\b/i
     .test(trimmed);
 }
 
@@ -7403,6 +7432,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => {
     getTimerGlobals().setTimeout(resolve, ms);
   });
+}
+
+/**
+ * A refusal that belongs to the *account*, not the model.
+ *
+ * A 429 says the provider will not serve this key right now. Trying a sibling
+ * model on the same provider asks the same account the same question and gets
+ * the same answer — observed: `magistral-small` (10s), `mistral-large-2512`
+ * (60s), `mistral-large-latest` (9s), three refusals and 79 seconds to learn
+ * nothing, on a turn that then had one attempt left.
+ *
+ * The same reasoning that made a busy GPU skip its own runtime, one layer along:
+ * the constraint is shared by every model behind it.
+ */
+export function isProviderRateLimited(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  const status = Number(record['status'] ?? record['statusCode']);
+  if (status === 429) {
+    return true;
+  }
+  const message = String(record['message'] ?? '');
+  return /\b429\b/.test(message) || /\brate[ _-]?limit(?:ed|ing)?\b/i.test(message);
 }
 
 function isTransientProviderError(err: unknown): boolean {

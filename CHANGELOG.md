@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.323.0] - 2026-08-15
+
+### Fixed
+
+- **A rate-limited provider is skipped for the turn, not asked again under a different model name.** A 429
+  belongs to the *account*: every model behind it refuses identically. Observed — `magistral-small` (10s),
+  `mistral-large-2512` (60s), `mistral-large-latest` (9s): three refusals and 79 seconds to learn nothing,
+  on a turn that then had one attempt left and no answer. Same reasoning as the busy-GPU fix in 0.322.0,
+  one layer along. Skipped rather than *failed*: `recordEndpointFailure` is not called, because a 429 is a
+  "not now" and holding it against a provider afterwards would punish it for being busy for a minute.
+
+- **An announcement without the act is caught whichever act was announced.** `looksLikePreambleOnly`
+  matched an inspection vocabulary only — `inspect|check|look|read|search|…` — so *"I will now provide
+  both to add the new test case"* matched nothing, and announcing a **change** is what an agent does most
+  often before making one. The verb list now covers mutation as well, the length cap is 520 rather than
+  240 (the observed one ran ~450 after eight tool calls, five of them edits), and the announcement no
+  longer has to open the reply — the observed one arrived third, after an apology and a sentence about a
+  tool's parameters. Loosening is safe because the fence, list and length guards already exclude anything
+  that delivered.
+
+- **Being asked to explain something is never an executable goal.** `INFORMATIONAL_QUESTION_PATTERN`
+  matched an interrogative opening followed by a question mark, so *"tell me about who makes playwright"*
+  — the imperative form of the same request, with no question mark — read as actionable. `carry on` then
+  started an autonomous project run with that sentence as its stated goal; it touched four files and every
+  model attempt failed. `tell me about`, `explain`, `describe`, `summarise`, `walk me through` and
+  `remind me` now read as informational. The Preview goal line added in 0.311.0 is what made this legible
+  as wrong rather than merely unsuccessful.
+
 ## [0.322.0] - 2026-08-15
 
 ### Fixed

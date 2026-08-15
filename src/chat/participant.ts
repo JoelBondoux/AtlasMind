@@ -159,7 +159,22 @@ const RESPONSE_TRAILING_QUESTION_PATTERN = /(?:^|[.!?\n])([^.!?\n]{10,300}\?)[\s
  */
 const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?\s+|alright,?\s+|sure,?\s+)?(?:do\s+you\s+want\s+me\s+to|would\s+you\s+like\s+me\s+to|would\s+you\s+like\s+to|want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i)\s+(?:go\s+ahead\s+and\s+|please\s+)?/i;
 /** Matches a bare informational question ("what/why/how/… ?"), which is not an executable goal. */
-const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$/i;
+/**
+ * A prompt asking to be *told* something, which is never an executable goal.
+ *
+ * Two shapes, and only the first was recognised. The interrogative — "what does
+ * X do?" — needs its question mark. The imperative — "tell me about who makes
+ * playwright", "explain the routing", "describe the pipeline" — asks for exactly
+ * the same thing and carries no question mark at all, so it read as an
+ * actionable prompt.
+ *
+ * Observed: `carry on` after "tell me about who makes playwright" started an
+ * autonomous project run whose stated goal was that sentence. It touched four
+ * files and every model attempt failed. The Preview prints its goal now, which
+ * is the only reason the run was legible as wrong rather than merely
+ * unsuccessful.
+ */
+const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$|(?:please\s+)?(?:tell\s+me\s+(?:about|what|how|why)|explain|describe|summari[sz]e|walk\s+me\s+through|what'?s\s+the\s+difference|remind\s+me)\b)/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 /**
  * Detects when the assistant's *own* reply is offering to start an autonomous
