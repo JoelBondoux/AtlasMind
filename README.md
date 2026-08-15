@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.329.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.329.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.329.0
+## What's new in 0.329.1
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The chat transcript stops rebuilding itself while an answer streams.** It used to redraw the whole
+  conversation on every chunk, which lost any text you had selected, slowed down as the thread grew, and
+  made screen readers re-announce everything. The model badge is also keyboard-reachable now, and the
+  spinners respect reduce-motion.
 
 - **Secrets are stripped from what chat sends.** Terminal output, attached files and pasted text were the
   three paths that reached a model without passing through redaction — a `.env` dragged onto the composer

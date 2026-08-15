@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.329.1] - 2026-08-15
+
+### Fixed
+
+- **The chat transcript rebuilt itself on every streamed chunk.** `renderTranscript` cleared the container
+  and recreated every bubble, and the state handler runs per token batch — so one long answer tore down
+  and rebuilt the whole conversation dozens of times. Three consequences, all felt rather than seen: the
+  work is O(n) on a transcript that only grows, any text selected or focused *inside* the transcript was
+  destroyed mid-read, and with `aria-live` on the container a screen reader was asked to re-announce the
+  entire conversation each time.
+
+  The per-entry body is now `buildMessageElement`, shared by both render paths — two builders would drift,
+  and the drift would only appear mid-stream, which is the hardest place to notice anything. The
+  incremental path is deliberately narrow: it runs **only while a turn is in flight**, only when the
+  entries on screen are an unchanged prefix of the incoming ones, and never in search mode or with a
+  selection. Anything else takes the full path, and the turn's final render always arrives with `busy`
+  false — so the steady state is rebuilt in full and any drift the fast path could introduce survives at
+  most one frame.
+
+- **The model dropdown could not be opened from the keyboard.** The badge was a `<div>` with a click
+  handler, so it could never hold focus — which also made the Escape handler and the `badge.focus()` call
+  sitting beside it unreachable code. It is a real `<button>` now, with `aria-expanded` tracking the list.
+
+- **Four infinite animations ignored `prefers-reduced-motion`.** They run for the whole duration of a
+  turn, and this panel is where a long task is watched. The elements stay exactly where they are and only
+  the motion stops, so the busy state is still legible from the spinner's presence and the status line.
+
+  **Note for reviewers:** the repo has no DOM harness — webview behaviour is asserted as source text — so
+  the incremental renderer is covered by wiring contracts rather than by rendering assertions. It is worth
+  one visual pass over a streaming answer before this ships.
+
 ## [0.329.0] - 2026-08-15
 
 ### Fixed

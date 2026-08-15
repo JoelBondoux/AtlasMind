@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.329.1 — A transcript that stops rebuilding itself
+
+While an answer streamed in, the chat panel rebuilt the entire conversation on every chunk. If you had
+selected some text further up to read it, the selection vanished; on a long thread it got slower the longer
+you talked; and with a screen reader, the whole conversation was re-announced dozens of times per answer.
+Only the part being written is redrawn now, and only that part is announced.
+
+Two smaller ones alongside it: the model badge that lists which models answered can now be opened from the
+keyboard, and the spinners honour your system's reduce-motion setting.
+
 ## v0.329.0 — Secrets stripped from what chat sends, and images that say why they didn't
 
 Three things the chat panel adds to a prompt were never passed through secret redaction: output from a

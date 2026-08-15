@@ -1828,6 +1828,293 @@
     }
   }
 
+  /**
+   * What the transcript currently shows, so a re-render can tell whether
+   * anything actually moved.
+   *
+   * `renderTranscript` rebuilt every bubble on every call, and it is called on
+   * each streamed chunk — so a long answer tore down and rebuilt the whole
+   * conversation dozens of times. That is O(n) per token batch on a transcript
+   * that only grows, it destroys any selection or focus inside the transcript
+   * while the user is reading, and with `aria-live` on the container it asked a
+   * screen reader to re-announce the entire conversation each time.
+   */
+  var renderedEntryIds = [];
+  var lastRenderContext = null;
+
+  /**
+   * Re-render only what changed, falling back to a full render whenever that
+   * cannot be established cheaply.
+   *
+   * The fast path is deliberately narrow: it runs **only while a turn is in
+   * flight**, which is the burst this exists for, and only when the entries
+   * already on screen are an unchanged prefix of the incoming ones. Anything
+   * else — a deletion, a reorder, a session switch, a selection change, search
+   * mode — takes the full path. The turn's final render always arrives with
+   * `busy` false, so the steady state is rebuilt in full and any drift the fast
+   * path could have introduced lasts at most one frame.
+   */
+  function renderTranscriptDelta(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
+    var incomingIds = Array.isArray(entries)
+      ? entries.map(function (entry) { return entry && entry.id ? entry.id : ''; })
+      : [];
+    var canPatch = busy
+      && !isSearchMode
+      && !selectedMessageId
+      && lastRenderContext !== null
+      && incomingIds.length >= renderedEntryIds.length
+      && renderedEntryIds.length > 0
+      && incomingIds.every(function (id) { return id !== ''; })
+      && renderedEntryIds.every(function (id, index) { return incomingIds[index] === id; })
+      && transcript.querySelectorAll('[data-entry-id]').length === renderedEntryIds.length;
+
+    if (!canPatch) {
+      renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels);
+      renderedEntryIds = incomingIds;
+      return;
+    }
+
+    var savedDisclosure = captureDisclosureState();
+    var ctx = {
+      busy: busy,
+      busyAssistantMessageId: busyAssistantMessageId,
+      lastAssistantIndex: findLastAssistantIndex(entries),
+      selectedMessageId: selectedMessageId,
+      streamingModels: streamingModels,
+      streamingThought: streamingThought,
+      runsByMessageId: lastRenderContext.runsByMessageId,
+      sessionModels: lastRenderContext.sessionModels,
+    };
+
+    // The last bubble already on screen is the one being written into, so it is
+    // the only existing element that can have changed.
+    var tailIndex = renderedEntryIds.length - 1;
+    var tailElement = transcript.querySelector('[data-entry-id="' + cssEscape(renderedEntryIds[tailIndex]) + '"]');
+    if (tailElement && tailElement.parentNode === transcript) {
+      transcript.replaceChild(buildMessageElement(entries[tailIndex], tailIndex, ctx), tailElement);
+    }
+
+    for (var index = renderedEntryIds.length; index < entries.length; index += 1) {
+      transcript.appendChild(buildMessageElement(entries[index], index, ctx));
+    }
+
+    restoreDisclosureState(savedDisclosure);
+    renderedEntryIds = incomingIds;
+    lastRenderContext = ctx;
+    maybeScrollTranscriptToBottom();
+  }
+
+  /** Index of the final assistant entry, or -1. Shared by both render paths. */
+  function findLastAssistantIndex(entries) {
+    for (var index = entries.length - 1; index >= 0; index -= 1) {
+      if (entries[index] && entries[index].role === 'assistant') {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * One transcript bubble, built and returned rather than appended.
+   *
+   * Extracted from `renderTranscript` so a single message can be rebuilt on
+   * its own. The full renderer and the incremental one share this, which is
+   * the point: two builders would drift, and the divergence would only show
+   * up mid-stream, which is the hardest place to notice anything.
+   */
+  function buildMessageElement(entry, index, ctx) {
+    var busy = ctx.busy;
+    var busyAssistantMessageId = ctx.busyAssistantMessageId;
+    var lastAssistantIndex = ctx.lastAssistantIndex;
+    var selectedMessageId = ctx.selectedMessageId;
+    var streamingModels = ctx.streamingModels;
+    var streamingThought = ctx.streamingThought;
+    var runsByMessageId = ctx.runsByMessageId;
+    var sessionModels = ctx.sessionModels;
+
+    var item = document.createElement('div');
+    item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
+    if (entry.id) {
+      item.setAttribute('data-entry-id', entry.id);
+    }
+    if (selectedMessageId && entry.id === selectedMessageId) {
+      item.classList.add('selected-message');
+    }
+    var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
+    if (showThinking) {
+      item.classList.add('pending');
+    }
+
+    var header = document.createElement('div');
+    header.className = 'chat-message-header';
+
+    var role = document.createElement('div');
+    role.className = 'chat-role';
+    role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
+    header.appendChild(role);
+
+    if (entry.role === 'assistant') {
+      var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
+      var badgeModelList = null;
+      var badgeCurrentModel = null;
+      var badgePriorCount = 0;
+
+      if (isLiveEntry) {
+        badgeModelList = streamingModels;
+        badgeCurrentModel = streamingModels[streamingModels.length - 1];
+        badgePriorCount = streamingModels.length - 1;
+      } else if (entry.meta && entry.meta.modelUsed) {
+        if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
+          badgeModelList = entry.meta.modelsUsed;
+          badgeCurrentModel = entry.meta.modelUsed;
+          badgePriorCount = entry.meta.modelsUsed.length - 1;
+        } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+          badgeModelList = sessionModels;
+          badgeCurrentModel = sessionModels[sessionModels.length - 1];
+          badgePriorCount = sessionModels.length - 1;
+        } else {
+          badgeCurrentModel = entry.meta.modelUsed;
+        }
+      }
+
+      if (badgeCurrentModel) {
+        var badgeWrap = document.createElement('div');
+        badgeWrap.className = 'model-badge-dropdown';
+
+        var hasMultiple = badgePriorCount > 0;
+        // A real button when it opens something. It was a div with a click
+        // handler, so it could never take focus -- which made the dropdown
+        // unreachable by keyboard and left the Escape handler below and the
+        // badge.focus() call inside it as dead code.
+        var badge = document.createElement(hasMultiple ? 'button' : 'div');
+        if (hasMultiple) {
+          badge.type = 'button';
+          badge.setAttribute('aria-haspopup', 'true');
+          badge.setAttribute('aria-expanded', 'false');
+        }
+        badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
+
+        var nameSpan = document.createElement('span');
+        nameSpan.textContent = badgeCurrentModel;
+        badge.appendChild(nameSpan);
+
+        if (isLiveEntry) {
+          var liveDot = document.createElement('span');
+          liveDot.className = 'live-dot';
+          badge.appendChild(liveDot);
+        }
+
+        if (hasMultiple) {
+          var countSpan = document.createElement('span');
+          countSpan.className = 'model-badge-count';
+          countSpan.textContent = '(+' + badgePriorCount + ')';
+          badge.appendChild(countSpan);
+        }
+
+        badgeWrap.appendChild(badge);
+
+        if (hasMultiple && badgeModelList) {
+          var list = document.createElement('div');
+          list.className = 'model-badge-list';
+          var listLabel = document.createElement('div');
+          listLabel.className = 'model-badge-list-label';
+          listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
+          list.appendChild(listLabel);
+          for (var mi = 0; mi < badgeModelList.length; mi++) {
+            var listItem = document.createElement('div');
+            listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
+            listItem.textContent = badgeModelList[mi];
+            list.appendChild(listItem);
+          }
+          badgeWrap.appendChild(list);
+
+          // Close-on-outside-click is armed when the menu opens, not when the
+          // message renders. The previous version registered at render time
+          // and unbound itself on the first document click anywhere — which
+          // in practice happened long before the menu was ever opened, so the
+          // dropdown then stayed open until the badge was clicked again.
+          var closeOnOutsideClick = function () {
+            list.classList.remove('open');
+            badge.setAttribute('aria-expanded', 'false');
+          };
+
+          var setOpen = function (willOpen) {
+            list.classList.toggle('open', willOpen);
+            badge.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) {
+              document.addEventListener('click', closeOnOutsideClick, { once: true });
+            } else {
+              document.removeEventListener('click', closeOnOutsideClick);
+            }
+          };
+
+          badge.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setOpen(!list.classList.contains('open'));
+          });
+
+          // On the badge, not the list: the badge is what holds focus, so this
+          // is the element the Escape key will actually reach.
+          badge.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && list.classList.contains('open')) {
+              e.stopPropagation();
+              setOpen(false);
+            }
+          });
+        }
+
+        header.appendChild(badgeWrap);
+      }
+    }
+
+    var content = document.createElement('div');
+    content.className = 'chat-content';
+    if (showThinking) {
+      // The one live region in the transcript, and only while this turn is being
+      // written. The container used to carry it, so every re-render asked a
+      // screen reader to read the whole conversation again.
+      content.setAttribute('aria-live', 'polite');
+      content.setAttribute('aria-atomic', 'false');
+    }
+    renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
+
+    item.appendChild(header);
+    if (content.childNodes.length > 0) {
+      item.appendChild(content);
+    }
+
+    var messageAttachments = renderMessageAttachments(entry);
+    if (messageAttachments) {
+      item.appendChild(messageAttachments);
+    }
+
+    if (entry.role === 'user' && entry.id) {
+      item.appendChild(renderMessageDeleteRow(entry.id));
+    }
+
+    var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
+    if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
+      item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
+    }
+
+    if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
+      item.appendChild(renderRunReviewBubble(selectedRun));
+    }
+
+    if (showThinking && streamingThought) {
+      var thoughtBlock = renderStreamingThought(streamingThought);
+      if (thoughtBlock) {
+        item.appendChild(thoughtBlock);
+      }
+    }
+
+    if (showThinking) {
+      item.appendChild(renderThinkingIndicator(Boolean(entry.content)));
+    }
+
+    return item;
+  }
+
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
     var savedDisclosure = captureDisclosureState();
     transcript.innerHTML = '';
@@ -1836,16 +2123,12 @@
       empty.className = 'empty-state';
       empty.textContent = 'No messages yet. Start a conversation with AtlasMind from this panel.';
       transcript.appendChild(empty);
+      renderedEntryIds = [];
+      lastRenderContext = null;
       return;
     }
 
-    var lastAssistantIndex = -1;
-    for (var index = entries.length - 1; index >= 0; index -= 1) {
-      if (entries[index] && entries[index].role === 'assistant') {
-        lastAssistantIndex = index;
-        break;
-      }
-    }
+    var lastAssistantIndex = findLastAssistantIndex(entries);
 
     var runsByMessageId = new Map();
     if (Array.isArray(runs)) {
@@ -1875,166 +2158,20 @@
       }
     }
 
+    var ctx = {
+      busy: busy,
+      busyAssistantMessageId: busyAssistantMessageId,
+      lastAssistantIndex: lastAssistantIndex,
+      selectedMessageId: selectedMessageId,
+      streamingModels: streamingModels,
+      streamingThought: streamingThought,
+      runsByMessageId: runsByMessageId,
+      sessionModels: sessionModels,
+    };
+    lastRenderContext = ctx;
+    renderedEntryIds = entries.map(function (item) { return item && item.id ? item.id : ''; });
     entries.forEach(function (entry, index) {
-      var item = document.createElement('div');
-      item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
-      if (entry.id) {
-        item.setAttribute('data-entry-id', entry.id);
-      }
-      if (selectedMessageId && entry.id === selectedMessageId) {
-        item.classList.add('selected-message');
-      }
-      var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
-      if (showThinking) {
-        item.classList.add('pending');
-      }
-
-      var header = document.createElement('div');
-      header.className = 'chat-message-header';
-
-      var role = document.createElement('div');
-      role.className = 'chat-role';
-      role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
-      header.appendChild(role);
-
-      if (entry.role === 'assistant') {
-        var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
-        var badgeModelList = null;
-        var badgeCurrentModel = null;
-        var badgePriorCount = 0;
-
-        if (isLiveEntry) {
-          badgeModelList = streamingModels;
-          badgeCurrentModel = streamingModels[streamingModels.length - 1];
-          badgePriorCount = streamingModels.length - 1;
-        } else if (entry.meta && entry.meta.modelUsed) {
-          if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
-            badgeModelList = entry.meta.modelsUsed;
-            badgeCurrentModel = entry.meta.modelUsed;
-            badgePriorCount = entry.meta.modelsUsed.length - 1;
-          } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
-            badgeModelList = sessionModels;
-            badgeCurrentModel = sessionModels[sessionModels.length - 1];
-            badgePriorCount = sessionModels.length - 1;
-          } else {
-            badgeCurrentModel = entry.meta.modelUsed;
-          }
-        }
-
-        if (badgeCurrentModel) {
-          var badgeWrap = document.createElement('div');
-          badgeWrap.className = 'model-badge-dropdown';
-
-          var badge = document.createElement('div');
-          var hasMultiple = badgePriorCount > 0;
-          badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
-
-          var nameSpan = document.createElement('span');
-          nameSpan.textContent = badgeCurrentModel;
-          badge.appendChild(nameSpan);
-
-          if (isLiveEntry) {
-            var liveDot = document.createElement('span');
-            liveDot.className = 'live-dot';
-            badge.appendChild(liveDot);
-          }
-
-          if (hasMultiple) {
-            var countSpan = document.createElement('span');
-            countSpan.className = 'model-badge-count';
-            countSpan.textContent = '(+' + badgePriorCount + ')';
-            badge.appendChild(countSpan);
-          }
-
-          badgeWrap.appendChild(badge);
-
-          if (hasMultiple && badgeModelList) {
-            var list = document.createElement('div');
-            list.className = 'model-badge-list';
-            var listLabel = document.createElement('div');
-            listLabel.className = 'model-badge-list-label';
-            listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
-            list.appendChild(listLabel);
-            for (var mi = 0; mi < badgeModelList.length; mi++) {
-              var listItem = document.createElement('div');
-              listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
-              listItem.textContent = badgeModelList[mi];
-              list.appendChild(listItem);
-            }
-            badgeWrap.appendChild(list);
-
-            // Close-on-outside-click is armed when the menu opens, not when the
-            // message renders. The previous version registered at render time
-            // and unbound itself on the first document click anywhere — which
-            // in practice happened long before the menu was ever opened, so the
-            // dropdown then stayed open until the badge was clicked again.
-            var closeOnOutsideClick = function () {
-              list.classList.remove('open');
-            };
-
-            badge.addEventListener('click', function (e) {
-              e.stopPropagation();
-              var willOpen = !list.classList.contains('open');
-              list.classList.toggle('open', willOpen);
-              if (willOpen) {
-                document.addEventListener('click', closeOnOutsideClick, { once: true });
-              } else {
-                document.removeEventListener('click', closeOnOutsideClick);
-              }
-            });
-
-            list.addEventListener('keydown', function (e) {
-              if (e.key === 'Escape') {
-                list.classList.remove('open');
-                document.removeEventListener('click', closeOnOutsideClick);
-                badge.focus();
-              }
-            });
-          }
-
-          header.appendChild(badgeWrap);
-        }
-      }
-
-      var content = document.createElement('div');
-      content.className = 'chat-content';
-      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
-
-      item.appendChild(header);
-      if (content.childNodes.length > 0) {
-        item.appendChild(content);
-      }
-
-      var messageAttachments = renderMessageAttachments(entry);
-      if (messageAttachments) {
-        item.appendChild(messageAttachments);
-      }
-
-      if (entry.role === 'user' && entry.id) {
-        item.appendChild(renderMessageDeleteRow(entry.id));
-      }
-
-      var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
-      if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
-        item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
-      }
-
-      if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
-        item.appendChild(renderRunReviewBubble(selectedRun));
-      }
-
-      if (showThinking && streamingThought) {
-        var thoughtBlock = renderStreamingThought(streamingThought);
-        if (thoughtBlock) {
-          item.appendChild(thoughtBlock);
-        }
-      }
-
-      if (showThinking) {
-        item.appendChild(renderThinkingIndicator(Boolean(entry.content)));
-      }
-
-      transcript.appendChild(item);
+      transcript.appendChild(buildMessageElement(entry, index, ctx));
     });
 
     restoreDisclosureState(savedDisclosure);
@@ -3887,7 +4024,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
+        renderTranscriptDelta(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
         if (isSearchMode && lastSearchQuery) {
           clearSearchHighlights();
           searchResults = collectSearchMatches(lastSearchQuery);

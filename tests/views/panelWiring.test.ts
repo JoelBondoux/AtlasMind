@@ -614,3 +614,54 @@ describe('chat panel context redaction', () => {
     expect(chatPanelSource.slice(declaration, declaration + 900)).toContain('redactSecrets');
   });
 });
+
+describe('chat transcript rendering and motion', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+
+  /**
+   * `renderTranscript` rebuilds every bubble, and the state handler runs on each
+   * streamed chunk — so a long answer tore down and rebuilt the whole
+   * conversation dozens of times, destroying any selection inside it and asking
+   * a screen reader to re-announce everything. There is no DOM harness in this
+   * repo, so these hold the wiring rather than the behaviour.
+   */
+  it('routes streamed state updates through the incremental renderer', () => {
+    expect(webview).toContain('renderTranscriptDelta(state.transcript');
+  });
+
+  it('shares one bubble builder between the full and incremental paths', () => {
+    // Two builders would drift, and the drift would only be visible mid-stream.
+    expect(webview).toContain('function buildMessageElement(');
+    const callers = webview.match(/buildMessageElement\(/g) ?? [];
+    expect(callers.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('falls back to a full render whenever the fast path cannot be established', () => {
+    const delta = webview.slice(webview.indexOf('function renderTranscriptDelta('));
+    expect(delta).toContain('if (!canPatch)');
+    // The narrowing conditions are the whole safety argument.
+    expect(delta).toContain('isSearchMode');
+    expect(delta).toContain('renderedEntryIds.every');
+  });
+
+  it('announces only the streaming bubble, not the whole transcript', () => {
+    expect(markup).toMatch(/id="transcript" class="chat-transcript"(?![^>]*aria-live)/);
+    const contentBlock = webview.slice(webview.indexOf("content.className = 'chat-content'"));
+    expect(contentBlock.slice(0, 500)).toContain("content.setAttribute('aria-live', 'polite')");
+  });
+
+  it('gives the model dropdown a control that can hold focus', () => {
+    // It was a <div> with a click handler, so the Escape handler and the
+    // badge.focus() call beside it could never run.
+    expect(webview).toContain("document.createElement(hasMultiple ? 'button' : 'div')");
+    expect(webview).toContain("badge.setAttribute('aria-expanded'");
+  });
+
+  it('stops the infinite animations when the reader asked for reduced motion', () => {
+    expect(markup).toContain('@media (prefers-reduced-motion: reduce)');
+    const guard = markup.slice(markup.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(guard.slice(0, 600)).toContain('.live-dot');
+    expect(guard.slice(0, 600)).toContain('animation: none !important');
+  });
+});

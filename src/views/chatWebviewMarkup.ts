@@ -91,7 +91,16 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="recoveryNoticeTitle" class="recovery-notice-title">Direct recovery mode</div>
                 <div id="recoveryNoticeSummary" class="recovery-notice-summary"></div>
               </section>
-              <section id="transcript" class="chat-transcript" aria-live="polite"></section>
+              <!--
+                No aria-live here, deliberately. The whole conversation lived in
+                one polite live region while the renderer rebuilt every bubble on
+                each streamed chunk, so a screen reader was asked to re-announce
+                the entire transcript dozens of times per answer. The live region
+                is now the streaming bubble's own content node, announced by
+                buildMessageElement only while that turn is in flight — the part
+                that is actually new.
+              -->
+              <section id="transcript" class="chat-transcript"></section>
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
@@ -1072,6 +1081,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           line-height: 1;
         }
         .chat-model-badge {
+          /* Rendered as a <button> when it opens the model list, so the browser's
+             default control styling has to be reset back to the badge shape. */
+          font-family: inherit;
+          line-height: inherit;
+          text-align: center;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -2014,6 +2028,28 @@ ${QUICK_REPLY_CSS}
         .session-item-busy-logo svg { width: 14px; height: 14px; color: var(--vscode-button-background); animation: atlas-float 1.8s ease-in-out infinite; }
         .session-item-busy-logo .atlas-outline { opacity: 0.9; }
         .session-item-busy-logo .atlas-axis { transform-origin: center; animation: atlas-spin 2.6s linear infinite; transform-box: view-box; }
+
+        /*
+          Four of the animations above run forever while a turn is in flight, and
+          this panel is where a long task is watched. Honouring the OS setting is
+          not decoration: for a reader with vestibular sensitivity a permanently
+          moving pulse is the difference between usable and not. The elements stay
+          exactly where they are — only the motion stops, so the busy state is
+          still legible from the spinner's presence and the status line.
+        */
+        @media (prefers-reduced-motion: reduce) {
+          .live-dot,
+          .atlas-thinking-logo,
+          .atlas-thinking-logo svg,
+          .atlas-thinking-logo .atlas-axis,
+          .session-item-busy-logo svg,
+          .session-item-busy-logo .atlas-axis {
+            animation: none !important;
+          }
+          * {
+            scroll-behavior: auto !important;
+          }
+        }
 
         /* ---- Run inspector ---- */
         .run-card {
