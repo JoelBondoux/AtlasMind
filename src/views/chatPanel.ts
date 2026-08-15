@@ -740,6 +740,9 @@ export class ChatPanel {
       case 'openRunReviewFile':
         await this.openRunReviewFile(message.payload.runId, message.payload.relativePath);
         return;
+      case 'openFileReference':
+        await this.openFileReference(message.payload);
+        return;
       case 'pickAttachments':
         await this.pickAttachments();
         return;
@@ -1238,6 +1241,47 @@ export class ChatPanel {
 
     const document = await vscode.workspace.openTextDocument(fileUri);
     await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  /**
+   * Open a file a reply linked to.
+   *
+   * The reference is text a model wrote, so it is treated as untrusted at both
+   * ends: the anchor is stripped before resolution (a line number is not part of
+   * the path), and containment is `resolveWorkspaceRelativeFile`'s decision, not
+   * this method's. A path outside the workspace is *reported* rather than opened
+   * — silently doing nothing would be indistinguishable from the dead links this
+   * replaced, which is the failure worth not rebuilding.
+   */
+  private async openFileReference(reference: string): Promise<void> {
+    const parsed = parseFileReference(reference);
+    if (!parsed) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That link does not name a file path.' });
+      return;
+    }
+
+    const fileUri = resolveWorkspaceRelativeFile(parsed.path);
+    if (!fileUri) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `${parsed.path} is outside this workspace, so it was not opened.`,
+      });
+      return;
+    }
+
+    try {
+      const document = await vscode.workspace.openTextDocument(fileUri);
+      const selection = parsed.line === undefined
+        ? undefined
+        // The model counts lines from 1; the editor counts from 0.
+        : new vscode.Range(Math.max(0, parsed.line - 1), 0, Math.max(0, parsed.line - 1), 0);
+      await vscode.window.showTextDocument(document, { preview: false, selection });
+    } catch {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `${parsed.path} could not be opened — it may have been moved or deleted.`,
+      });
+    }
   }
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
@@ -5107,6 +5151,38 @@ function buildPendingRunReviewSummary(projectRuns: ProjectRunRecord[]): ChatPane
     totalPendingFiles: runs.reduce((total, run) => total + run.pendingFiles.length, 0),
     runs,
   };
+}
+
+/**
+ * Split a linked file reference into the path and the line it points at.
+ *
+ * Models write the same reference four ways — `src/a.ts`, `src/a.ts:12`,
+ * `src/a.ts#L12` and `src/a.ts#L12-20` — and the anchor has to come off before
+ * the path is resolved, because `src/a.ts:12` names no file on any platform. A
+ * range keeps only its first line: the reference is a place to go, not a
+ * selection to make.
+ *
+ * A reference that is only an anchor (`#L12`) yields nothing rather than
+ * resolving to the workspace root, which would open a folder for a link that
+ * named no file.
+ */
+export function parseFileReference(reference: string): { path: string; line?: number } | undefined {
+  const trimmed = String(reference ?? '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const anchored = /^(.*?)(?:#L(\d+)(?:[-,]\d+)?|:(\d+)(?::\d+)?)$/i.exec(trimmed);
+  const rawPath = anchored ? anchored[1] : trimmed;
+  const rawLine = anchored ? (anchored[2] ?? anchored[3]) : undefined;
+  if (!rawPath) {
+    return undefined;
+  }
+
+  const line = rawLine === undefined ? undefined : Number.parseInt(rawLine, 10);
+  return line === undefined || !Number.isFinite(line) || line < 1
+    ? { path: rawPath }
+    : { path: rawPath, line };
 }
 
 function resolveWorkspaceRelativeFile(relativePath: string): vscode.Uri | undefined {

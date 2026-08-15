@@ -402,3 +402,62 @@ describe('dictation', () => {
     expect(harness.errors).toEqual([]);
   });
 });
+
+describe('links in a reply', () => {
+  let harness: Harness;
+
+  function linksIn(content: string): HTMLAnchorElement[] {
+    harness.send(stateWith([USER_TURN, { ...ASSISTANT_TURN, content }]));
+    const transcript = harness.window.document.getElementById('transcript');
+    return [...(transcript?.querySelectorAll('.chat-content a') ?? [])] as HTMLAnchorElement[];
+  }
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  it('makes a file path openable instead of struck through or inert', () => {
+    // The reported shape: a reply listing test files rendered every path with a
+    // line through it, which reads as "this file was deleted" for files that
+    // exist. Paths were reaching the blocked-link branch, whose only visual
+    // signal was strikethrough.
+    const links = linksIn('See [tests/e2e/initial-render.spec.ts](tests/e2e/initial-render.spec.ts).');
+
+    expect(links).toHaveLength(1);
+    expect(links[0].classList.contains('file-link')).toBe(true);
+    expect(links[0].classList.contains('blocked-link')).toBe(false);
+
+    links[0].dispatchEvent(new harness.window.Event('click'));
+    expect(harness.posted).toContainEqual({
+      type: 'openFileReference',
+      payload: 'tests/e2e/initial-render.spec.ts',
+    });
+  });
+
+  it('treats an absolute path and a file: URI as the same kind of reference', () => {
+    // Both are how a model names a local file; only the relative form used to
+    // pass, so the same file was a link or a strikethrough depending on spelling.
+    for (const href of ['C:\\repo\\src\\a.ts', 'file:///c:/repo/src/a.ts', './src/a.ts:12']) {
+      const links = linksIn(`Open [a.ts](${href}) now.`);
+      expect(links[0].classList.contains('file-link'), href).toBe(true);
+    }
+  });
+
+  it('still refuses a script scheme, and no longer strikes it through', () => {
+    const links = linksIn('Click [here](javascript:alert(1)) now.');
+
+    expect(links[0].classList.contains('blocked-link')).toBe(true);
+    expect(links[0].classList.contains('file-link')).toBe(false);
+    expect(links[0].getAttribute('href')).toBe('#');
+    links[0].dispatchEvent(new harness.window.Event('click'));
+    expect(harness.posted.some(message => message.type === 'openFileReference')).toBe(false);
+  });
+
+  it('leaves an ordinary web link alone', () => {
+    const links = linksIn('See [the docs](https://example.com/guide).');
+
+    expect(links[0].getAttribute('href')).toBe('https://example.com/guide');
+    expect(links[0].classList.contains('file-link')).toBe(false);
+    expect(links[0].classList.contains('blocked-link')).toBe(false);
+  });
+});

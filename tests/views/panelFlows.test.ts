@@ -92,7 +92,20 @@ vi.mock('vscode', () => ({
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Position: class { constructor(public line: number, public character: number) {} },
   Range: class {
-    constructor(public start: { line: number; character: number }, public end: { line: number; character: number }) {}
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+    // Mirrors both real overloads: two Positions, or four numbers. The
+    // four-number form is the one the file-reference handler uses, and without
+    // it a caller's line number silently became the whole `start`.
+    constructor(...args: unknown[]) {
+      if (args.length >= 4) {
+        this.start = { line: args[0] as number, character: args[1] as number };
+        this.end = { line: args[2] as number, character: args[3] as number };
+      } else {
+        this.start = args[0] as { line: number; character: number };
+        this.end = args[1] as { line: number; character: number };
+      }
+    }
     get isEmpty() { return this.start.line === this.end.line && this.start.character === this.end.character; }
   },
   workspace: {
@@ -4985,5 +4998,66 @@ describe('restoring files from before a turn', () => {
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'status', payload: expect.stringContaining('no file snapshot'),
     }));
+  });
+});
+
+describe('opening a file a reply linked to', () => {
+  function mount() {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function lastStatus(): string | undefined {
+    const statuses = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: unknown })
+      .filter(message => message?.type === 'status');
+    return statuses.length > 0 ? String(statuses[statuses.length - 1].payload) : undefined;
+  }
+
+  beforeEach(() => {
+    mocks.state.workspaceFolders = [{ uri: { fsPath: path.resolve('/workspace'), path: '/workspace' } }];
+  });
+
+  it('opens a workspace file at the line the link named', async () => {
+    const panel = mount();
+
+    await panel.handleMessage({ type: 'openFileReference', payload: 'src/views/chatPanel.ts#L12' });
+
+    expect(vscodeModule.workspace.openTextDocument).toHaveBeenCalled();
+    const options = (vscodeModule.window.showTextDocument as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.at(-1)?.[1] as { selection?: { start?: { line?: number } } };
+    // The model counts from 1 and the editor from 0; an off-by-one here lands
+    // the cursor a line away from the thing the reply was pointing at.
+    expect(options?.selection?.start?.line).toBe(11);
+  });
+
+  it('refuses a path outside the workspace and says so', async () => {
+    const panel = mount();
+    (vscodeModule.workspace.openTextDocument as unknown as { mockClear(): void }).mockClear();
+
+    await panel.handleMessage({ type: 'openFileReference', payload: '../../../etc/passwd' });
+
+    // Reported rather than silently ignored: doing nothing is exactly what the
+    // dead links this replaced did, and is indistinguishable from a bug.
+    expect(vscodeModule.workspace.openTextDocument).not.toHaveBeenCalled();
+    expect(lastStatus()).toContain('outside this workspace');
   });
 });

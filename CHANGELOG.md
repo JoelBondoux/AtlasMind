@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.342.0] - 2026-08-15
+
+### Fixed
+
+- **File paths in a reply no longer render struck through.** A reply listing four test files drew every
+  path with a line through it, which reads as *these files were deleted* for files that are right there.
+  There is no strikethrough in the chat renderer at all — the cause was the style used to mark a link
+  whose destination had been rejected, whose only visual signal was a line through the text.
+
+  Strikethrough is the wrong word for an inert link: it means the text no longer applies, which is a
+  false statement about a file that exists. A blocked link is now marked with a dotted rule instead, and
+  still says why in its tooltip.
+
+### Added
+
+- **A file a reply links to now opens in the editor.** Two faults met at the same place. A
+  workspace-relative link *passed* the allowlist and then did nothing, because a relative address in a
+  webview resolves against `vscode-webview://` — so the links that looked like they worked were the
+  broken ones. And the same file was a working link or a rejected one depending on spelling: `src/a.ts`
+  passed, while `file:///c:/repo/src/a.ts` and `C:\repo\src\a.ts` — both ordinary ways for a model to
+  name a local file — did not.
+
+  File references are now recognised in all four spellings and open on click, honouring a `:12` or `#L12`
+  line anchor. The webview supplies only the text the model wrote; the host resolves it against the
+  workspace root and **reports** anything outside rather than opening it, because silently doing nothing
+  is exactly what the dead links did.
+
 ## [0.341.2] - 2026-08-15
 
 ### Fixed

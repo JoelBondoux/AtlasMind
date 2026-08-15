@@ -1017,11 +1017,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
         /* A link whose scheme was rejected is rewritten to '#'; without this it
-           still looked like a working link that merely did nothing. */
+           still looked like a working link that merely did nothing.
+           Struck through was the wrong word for it: strikethrough means the text
+           no longer applies, so a blocked link to a file that exists read as
+           "this file was deleted". A dotted rule says inert without saying that. */
         .chat-content a.blocked-link {
           color: var(--vscode-descriptionForeground);
-          text-decoration: line-through;
+          text-decoration: underline dotted;
+          text-underline-offset: 0.2em;
           cursor: not-allowed;
+        }
+        /* A file the reply linked to. Styled as an ordinary link because it now
+           behaves like one — it opens the file in the editor. */
+        .chat-content a.file-link {
+          cursor: pointer;
         }
         .open-file-chip {
           cursor: pointer;

@@ -141,6 +141,14 @@ The important structural rule: **a panel supplies data, never a command.** The d
 promotion and attest a check; it can never supply the command string that runs. What executes comes from
 your persisted configuration, read on the extension side.
 
+**A file path in a reply is text a model wrote.** Clicking one opens it, so it is treated as untrusted at
+both ends: the webview decides only that the text is *shaped* like a path and hands over exactly what the
+model wrote, and the extension side resolves it against your workspace root. Anything that lands outside —
+including a `file://` URI or an absolute path from another drive — is reported to you and not opened. The
+webview never learns where your workspace is, which is why it cannot be the side that decides.
+
+A link naming any other scheme is still refused outright and drawn as visibly inert.
+
 **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
 single message each require a confirmation naming what is lost — including how many messages the session
 holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the

@@ -3666,17 +3666,33 @@
         var href = linkMatch ? linkMatch[2] : '';
         var link = document.createElement('a');
         link.textContent = linkMatch ? linkMatch[1] : raw;
-        var safeHref = sanitizeLinkHref(href);
-        link.href = safeHref;
-        link.target = '_blank';
-        link.rel = 'noreferrer noopener';
-        // A rejected scheme is rewritten to '#', but the anchor still rendered
-        // link-coloured and underlined — indistinguishable from a working link
-        // that simply did nothing. Mark it so it reads as inert and says why.
-        if (safeHref === '#' && String(href || '').trim() !== '#') {
+        var classified = classifyLinkHref(href);
+        if (classified.kind === 'file') {
+          // A file reference is the commonest link a model emits, and until now
+          // it either did nothing (relative href in a webview resolves against
+          // vscode-webview://) or rendered struck through as though the file had
+          // been deleted. Route it to the host, which owns the workspace root
+          // and is the only side that can decide the path is inside it.
+          link.classList.add('file-link');
+          link.href = '#';
+          link.title = 'Open ' + classified.reference + ' in the editor';
+          link.addEventListener('click', function (reference) {
+            return function (event) {
+              event.preventDefault();
+              vscode.postMessage({ type: 'openFileReference', payload: reference });
+            };
+          }(classified.reference));
+        } else if (classified.kind === 'blocked') {
+          // Rewritten to '#', but the anchor still rendered link-coloured and
+          // underlined — indistinguishable from a working link that simply did
+          // nothing. Mark it so it reads as inert and says why.
+          link.href = '#';
           link.classList.add('blocked-link');
-          link.title = 'This link was blocked: only http, https, mailto and workspace-relative paths are allowed.';
-          link.removeAttribute('target');
+          link.title = 'This link was blocked: only http, https, mailto and workspace file paths are allowed.';
+        } else {
+          link.href = classified.href;
+          link.target = '_blank';
+          link.rel = 'noreferrer noopener';
         }
         container.appendChild(link);
         continue;
@@ -3709,15 +3725,59 @@
     }
   }
 
-  function sanitizeLinkHref(href) {
+  /**
+   * What kind of destination a link names, decided before anything is rendered.
+   *
+   * Three outcomes rather than the previous two, because "allowed" and "usable"
+   * were not the same thing: a workspace-relative href passed the old allowlist
+   * and then rendered as an ordinary anchor that did nothing when clicked, while
+   * the same file named as `file:///…` or `C:\…` failed it and rendered struck
+   * through — the presentation reserved for content that no longer applies. Both
+   * are file references, and the host can open either.
+   *
+   * The webview never decides whether a path is inside the workspace; it only
+   * decides that the text is shaped like a path and hands it over. Containment
+   * is the host's call, because the host is the side that knows the root.
+   */
+  function classifyLinkHref(href) {
     var value = String(href || '').trim();
     if (/^(https?:|mailto:)/i.test(value)) {
-      return value;
+      return { kind: 'external', href: value };
     }
-    if (/^(#|\.?\/?[A-Za-z0-9_./%\-]+(?:#.*)?)$/.test(value)) {
-      return value;
+    // A bare fragment is an in-document anchor, not a file.
+    if (/^#/.test(value)) {
+      return { kind: 'external', href: value };
     }
-    return '#';
+    if (looksLikeFileReference(value)) {
+      return { kind: 'file', href: '#', reference: value };
+    }
+    return { kind: 'blocked', href: '#' };
+  }
+
+  /**
+   * Path-shaped, and short enough to be a path rather than prose.
+   *
+   * Deliberately requires a separator or a file extension: `[docs](docs)` is far
+   * more likely to be a broken link than a file, and offering to open it would
+   * produce a failure notice for something nobody meant as a path.
+   */
+  function looksLikeFileReference(value) {
+    if (!value || value.length > 500) {
+      return false;
+    }
+    if (/^[a-z][a-z0-9+.\-]*:/i.test(value) && !/^file:\/\//i.test(value) && !/^[A-Za-z]:[\\/]/.test(value)) {
+      // Any scheme other than file:, and other than a Windows drive letter,
+      // is not a workspace path — vscode:, javascript:, data: all land here.
+      return false;
+    }
+    var withoutAnchor = value.replace(/(?:#L?\d+(?:[-,]\d+)?|:\d+(?::\d+)?)$/i, '');
+    if (!withoutAnchor) {
+      return false;
+    }
+    if (/[\s<>"'|?*]/.test(withoutAnchor)) {
+      return false;
+    }
+    return /[\\/]/.test(withoutAnchor) || /\.[A-Za-z0-9]{1,12}$/.test(withoutAnchor);
   }
 
   function createDeleteButton(entryId) {

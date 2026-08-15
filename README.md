@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.341.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.342.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.341.2
+## What's new in 0.342.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Click a file path in a reply to open it.** Paths are recognised however the model writes them, and a
+  `:12` or `#L12` anchor takes you to the line. A path outside the workspace is refused and says so.
+  Previously these either did nothing when clicked or drew with a line through them, as though the file
+  had been deleted.
 
 - **Dictate a message.** A microphone in the composer, transcribed on your own machine — inserted for you
   to read, never sent automatically.

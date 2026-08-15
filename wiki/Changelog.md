@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.342.0 — File paths in a reply are links you can click
+
+A reply that named four test files drew all four with a line through them, which reads as *these files were
+deleted*. Nothing in the chat writes strikethrough — the style belonged to links AtlasMind had rejected, and
+file paths were landing there.
+
+Underneath that, two things were wrong at once. A path AtlasMind *accepted* did nothing when clicked, so the
+links that looked like they worked were the broken ones; and the same file passed or failed depending on how
+it was written, with `src/a.ts` accepted while `C:epo\src.ts` was not.
+
+Now any of those spellings opens the file in the editor, at the line if the link named one. A path outside
+your workspace is not opened, and says so rather than doing nothing.
+
 ## v0.341.2 — Short messages keep their place in the conversation
 
 Typing something brief like `git status` mid-conversation used to start AtlasMind from scratch — it lost the

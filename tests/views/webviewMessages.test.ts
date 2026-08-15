@@ -7,7 +7,7 @@ import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
 import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
-import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
+import { isChatPanelMessage, parseFileReference } from '../../src/views/chatPanel.ts';
 import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
 import { isProjectDashboardMessage, chooseDeployedVersionRef, normalizeDashboardPromptRequest } from '../../src/views/projectDashboardPanel.ts';
 import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
@@ -367,6 +367,12 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'x'.repeat(200_001) } })).toBe(false);
     expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'y'.repeat(41) } })).toBe(false);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 'src/views/chatPanel.ts:12' })).toBe(true);
+    // The payload is markdown a model wrote, so its length is not something the
+    // panel controls; an empty one names no file.
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: '' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 'x'.repeat(501) })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
@@ -1083,5 +1089,30 @@ describe('chooseDeployedVersionRef', () => {
   it('handles an explicit origin/ ref, falling back to its local short name', () => {
     expect(chooseDeployedVersionRef('origin/master', refSet('origin/master'))).toBe('origin/master');
     expect(chooseDeployedVersionRef('origin/master', refSet('master'))).toBe('master');
+  });
+});
+
+describe('file references in a reply', () => {
+  it('separates the line anchor from the path in every spelling a model uses', () => {
+    // `src/a.ts:12` names no file on any platform, so the anchor has to come off
+    // before the path is resolved — otherwise every linked line number is a
+    // "file not found" for a file that is right there.
+    expect(parseFileReference('src/a.ts')).toEqual({ path: 'src/a.ts' });
+    expect(parseFileReference('src/a.ts:12')).toEqual({ path: 'src/a.ts', line: 12 });
+    expect(parseFileReference('src/a.ts:12:5')).toEqual({ path: 'src/a.ts', line: 12 });
+    expect(parseFileReference('src/a.ts#L12')).toEqual({ path: 'src/a.ts', line: 12 });
+    // A range is a place to go, not a selection to make.
+    expect(parseFileReference('src/a.ts#L12-20')).toEqual({ path: 'src/a.ts', line: 12 });
+  });
+
+  it('leaves a Windows drive letter attached to its path', () => {
+    expect(parseFileReference('C:\repo\src\a.ts')).toEqual({ path: 'C:\repo\src\a.ts' });
+  });
+
+  it('yields nothing for a reference that names no file', () => {
+    // A bare anchor would otherwise resolve to the workspace root and open a
+    // folder for a link that named no file at all.
+    expect(parseFileReference('#L12')).toBeUndefined();
+    expect(parseFileReference('   ')).toBeUndefined();
   });
 });
