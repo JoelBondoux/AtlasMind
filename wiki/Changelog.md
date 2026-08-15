@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.324.0 — Ask what you said, get what you said
+
+"What was my question two turns ago?" used to be answered by a model guessing, and it guessed wrong —
+returning a question you had never asked. It is now answered from the transcript, quoted exactly, before
+any model sees it. If the session does not go back that far, it says so rather than handing you the
+oldest message as though it were the one you meant.
+
+Also: a model thinking aloud — "maybe use list_dir etc… we'll use terminal? probably easier" — no longer
+reaches you as the answer. And AtlasMind's own settings pages are no longer mistaken for pages of your
+project.
+
 ## v0.323.0 — Three ways a turn used to waste itself
 
 A provider that is rate-limiting now gets skipped for the whole turn instead of being asked again under

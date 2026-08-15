@@ -40,6 +40,7 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
@@ -3541,6 +3542,27 @@ async function handleFreeformMessage(
   workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
 ): Promise<ProjectRunOutcome | undefined> {
   const prompt = request.prompt;
+
+  // Answered from the transcript, before any model sees it.
+  //
+  // "What was my question two turns ago?" was answered with a paraphrase of the
+  // task in progress — a question the operator had never asked. Of every
+  // fabrication available here that is the worst-shaped: fabricating about code
+  // can be checked against the code, while fabricating about the exchange
+  // contradicts a verbatim record and leaves the operator to remember better
+  // than the assistant claims to. The record is exact and sitting in memory, so
+  // routing the question to a model can only make the answer worse.
+  const recallRequest = parseConversationRecallRequest(prompt);
+  if (recallRequest) {
+    const recalled = answerConversationRecall(
+      recallRequest,
+      atlas.sessionConversation.getTranscript(sessionId),
+      prompt,
+    );
+    stream.markdown(recalled.markdown);
+    return undefined;
+  }
+
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
   if (roadmapStatusMarkdown) {
     stream.markdown(roadmapStatusMarkdown);

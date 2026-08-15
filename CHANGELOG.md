@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.324.0] - 2026-08-15
+
+### Added
+
+- **A question about the conversation is answered from the conversation.** *"What was my question two
+  turns ago?"* was answered with a paraphrase of the task in progress — a question the operator had never
+  asked. Of every fabrication available here that is the worst-shaped: one about code can be checked
+  against the code, while one about the exchange contradicts a verbatim record and leaves the operator to
+  remember better than the assistant claims to.
+
+  `conversationRecall` answers it from the transcript before any model sees the prompt, **quoting** rather
+  than paraphrasing — a paraphrase of an exact record is strictly worse than a quotation, the same
+  reasoning that keeps release notes verbatim. Deliberately narrow: it only claims questions about the
+  *operator's own* messages, since "what did you say about X?" asks for interpretation and that is a
+  model's job. It excludes the question being asked right now, so "two turns ago" means what a person
+  means by it. And a turn further back than the session reaches is **said to be missing** rather than
+  answered with the oldest one, which would read as the one requested.
+
+### Fixed
+
+- **A model thinking aloud is no longer delivered as the answer.** Observed: *"Need maybe use list_dir
+  etc. We'll use terminal? Probably easier. Let's run pwd && ls. … Since tool list unknown, maybe use
+  terminal commands."* Distinct from a preamble — that is one clean sentence about what is coming next;
+  this is deliberation in fragments, and it is the only one of these shapes that leaks internals, telling
+  the operator which tool names the model was guessing at. `looksLikeLeakedReasoning` requires **two**
+  markers, never one: "maybe" and "probably" belong in good answers about uncertain things, but a
+  paragraph hedging twice about its own *method* is not an answer about anything. It joins the
+  completion-integrity re-prompt.
+
+- **The capability index says whose pages it is listing.** A model reasoning about where to put a browser
+  test proposed testing `settings:overview` — an AtlasMind page — as though it were a route in the
+  operator's own project. The index answers "where in AtlasMind", and nothing said that is a different
+  question from "where in this repository". It now says so in its first two lines, and that they must
+  never be cited as part of the project under discussion or tested.
+
 ## [0.323.0] - 2026-08-15
 
 ### Fixed

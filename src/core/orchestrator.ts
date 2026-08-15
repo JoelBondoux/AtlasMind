@@ -3024,7 +3024,8 @@ export class Orchestrator {
           !completionIntegrityRepromptDone
           && completion.content.length > 0
           && (looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
-            || looksLikeAnswerlessCompletionClaim(completion.content))
+            || looksLikeAnswerlessCompletionClaim(completion.content)
+            || looksLikeLeakedReasoning(completion.content))
         ) {
           completionIntegrityRepromptDone = true;
           onProgress?.('AtlasMind detected an incomplete delivery signal — re-prompting the agent to finish outstanding work or declare explicit blockers.');
@@ -5556,6 +5557,50 @@ export function looksLikeAnswerlessCompletionClaim(response: string): boolean {
   const referencesTheRequest = /\b(?:the (?:user'?s )?request|the question|this query|the ask)\b/i.test(trimmed);
   const claimsCompletion = /\b(?:already (?:been )?(?:fully )?(?:addressed|answered|covered|provided)|analysis is complete|has been completed|no (?:further|additional) (?:tool calls?|action|changes?|steps?) (?:are|is) (?:needed|required))\b/i.test(trimmed);
   return referencesTheRequest && claimsCompletion;
+}
+
+/**
+ * A model's scratchpad, printed as the answer.
+ *
+ * Observed verbatim: *"Need maybe use list_dir etc. We'll use terminal? Probably
+ * easier. Let's run pwd && ls. Need maybe use search tools? There's no explicit
+ * tool definitions but from previous tasks maybe can use read_file? … Since tool
+ * list unknown, maybe use terminal commands. We'll use Terminal."*
+ *
+ * Distinct from {@link looksLikePreambleOnly}, which catches an *announcement* —
+ * one clean sentence about what is coming next. This is deliberation: the model
+ * weighing approaches with itself, in fragments, and it reached the operator as
+ * prose. It is also the only one of these shapes that leaks internals — that
+ * reply told the operator which tool names the model was guessing at.
+ *
+ * Two markers required, never one. "Maybe" and "probably" appear in perfectly
+ * good answers about uncertain things; a paragraph that hedges twice about *its
+ * own method* is not an answer about anything.
+ */
+const LEAKED_REASONING_MARKERS: ReadonlyArray<RegExp> = [
+  /\bneed maybe\b/i,
+  /\bmaybe (?:use|we|i|can)\b/i,
+  /\bprobably (?:easier|better|fine|ok)\b/i,
+  /\bwe'?ll use\b/i,
+  /\blet'?s (?:run|try|do|use)\b/i,
+  /\btool list unknown\b/i,
+  /\bthere'?s no explicit tool\b/i,
+  /\bwe need (?:to )?inspect\b/i,
+  /\bor maybe\b/i,
+  /\bwe could (?:just|maybe)\b/i,
+];
+
+export function looksLikeLeakedReasoning(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0 || trimmed.length > 1200) {
+    return false;
+  }
+  // A delivered artifact is not deliberation, whatever surrounds it.
+  if (/```/.test(trimmed)) {
+    return false;
+  }
+  const hits = LEAKED_REASONING_MARKERS.filter(marker => marker.test(trimmed)).length;
+  return hits >= 2;
 }
 
 export function looksLikePreambleOnly(response: string): boolean {

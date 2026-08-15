@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.323.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.324.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.323.0
+## What's new in 0.324.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Ask what you said, get what you said.** "What was my question two turns ago?" was answered by a model
+  guessing — and it returned a question you never asked. It now comes from the transcript, quoted exactly.
 
 - **A busy GPU no longer ends the turn.** A local runtime refusing for capacity was counted as a failed
   model, burning the failover budget on refusals from the same card. It is not a failure, and the rest of

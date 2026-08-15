@@ -205,7 +205,18 @@ export function buildCapabilityIndex(input: CapabilityIndexInput = {}): Capabili
     .map(entry => ({ command: entry.command, title: String(entry.title ?? '') }));
 
   const omitted = { pages: 0, settings: 0, commands: 0 };
-  const sections: string[] = ['AtlasMind surface index — the product you are part of.'];
+  // Says whose surface this is, in the first line.
+  //
+  // Without it the page ids read as facts about the *workspace*: a model
+  // discussing where to put a browser test proposed testing "settings:overview",
+  // reasoning about an AtlasMind page as though it were a route in the
+  // operator's own project. The index answers "where in AtlasMind", and nothing
+  // said that is a different question from "where in this repository".
+  const sections: string[] = [
+    'AtlasMind surface index — the pages of the AtlasMind extension you are running inside.',
+    'These are NOT files, routes or components in the operator\'s workspace. Never cite one as part of '
+    + 'the project under discussion, and never test one: they belong to the tool, not to their code.',
+  ];
 
   const pageLines: string[] = [];
   for (const page of CAPABILITY_PAGES) {

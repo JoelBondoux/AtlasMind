@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -5741,5 +5741,39 @@ describe('an announcement without the act is caught whichever act it was', () =>
     'The cache is per-isolate and does not survive a cold start.',
   ])('leaves a real delivery alone: %j', response => {
     expect(looksLikePreambleOnly(response)).toBe(false);
+  });
+});
+
+describe('a model thinking aloud is not an answer', () => {
+  // Observed verbatim on a Copilot turn. Distinct from a preamble, which is one
+  // clean sentence about what is coming next; this is deliberation in fragments,
+  // and it is the only one of these shapes that leaks internals — it told the
+  // operator which tool names the model was guessing at.
+  it('catches deliberation printed as prose', () => {
+    expect(looksLikeLeakedReasoning(
+      "I'm checking the repository layout, existing tests, and package configuration before making the "
+      + "change. Let's inspect the workspace files directly. Need maybe use list_dir etc. We'll use "
+      + "terminal? Probably easier. Let's run pwd && ls. Need maybe use search tools? There's no explicit "
+      + 'tool definitions but from previous tasks maybe can use read_file? Since tool list unknown, maybe '
+      + 'use terminal commands.',
+    )).toBe(true);
+  });
+
+  it('requires two markers, never one', () => {
+    // "Maybe" and "probably" appear in perfectly good answers about uncertain
+    // things. A paragraph hedging twice about its own *method* is not one.
+    expect(looksLikeLeakedReasoning(
+      'The cache is per-isolate, so it maybe explains why the hit rate differs between regions.',
+    )).toBe(false);
+  });
+
+  it.each([
+    // Delivered an artifact.
+    "We'll use terminal. Let's run this:\n\n```bash\nnpm test\n```",
+    // An ordinary answer.
+    'Playwright is maintained by Microsoft and supports Chromium, Firefox and WebKit.',
+    '',
+  ])('leaves %j alone', response => {
+    expect(looksLikeLeakedReasoning(response)).toBe(false);
   });
 });
