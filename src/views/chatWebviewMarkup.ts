@@ -100,7 +100,10 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 buildMessageElement only while that turn is in flight — the part
                 that is actually new.
               -->
-              <section id="transcript" class="chat-transcript"></section>
+              <div id="chatSurface" class="chat-surface">
+                <section id="transcript" class="chat-transcript"></section>
+                <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
+              </div>
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
@@ -113,11 +116,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
               </div>
             </div>
-            <!-- Sits directly above the composer: everything it narrates -- the
-                 thinking indicator, the streaming reply, the send state -- is pinned
-                 to the bottom of the panel, while this used to sit at the very top,
-                 off-screen on a tall transcript. -->
-            <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -477,7 +475,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           display: flex;
           align-items: center;
           gap: 8px;
-          margin: 8px 10px 0;
+          margin: 0 10px 10px;
           padding: 7px 12px;
           border-radius: 10px;
           border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, transparent);
@@ -683,7 +681,38 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .approval-actions button.danger {
           border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 70%, var(--vscode-widget-border, #444));
         }
-        .chat-transcript, .run-inspector {
+        /*
+          The bordered box the conversation lives in. The border used to sit on
+          the scrolling transcript itself, which left the activity strip outside
+          it looking like a caption on the panel rather than the last thing in
+          the thread. The frame is here now and the transcript scrolls inside it,
+          so the strip can sit within the same box without scrolling away with
+          the messages.
+        */
+        .chat-surface {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          min-height: 80px;
+          overflow: hidden;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
+        }
+        /* During a run the transcript is hidden and the inspector takes the
+           space, so the surface shrinks to whatever the strip needs rather than
+           holding open an empty frame. */
+        .chat-surface.run-mode { flex: 0 0 auto; min-height: 0; }
+        .chat-transcript {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 10px;
+        }
+        .run-inspector {
           flex: 1 1 0;
           display: flex;
           flex-direction: column;

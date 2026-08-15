@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.341.1] - 2026-08-15
+
+### Changed
+
+- **The activity strip now sits inside the thread's own frame.** It was directly below the bordered box
+  holding the conversation, which read as a caption on the panel rather than the last thing in the thread.
+
+  The border moved from the scrolling transcript onto a frame around it, so the messages scroll inside the
+  box and the strip sits within the same edges without scrolling away with them. It stays **outside** the
+  transcript element itself, which is the part that matters: the transcript is cleared and rebuilt on every
+  render, so a strip living in there would be destroyed by the next state message.
+
+  During an autonomous run — when the transcript is hidden and the run inspector takes the space — the
+  frame collapses to just the strip rather than holding an empty box open beside it.
+
 ## [0.341.0] - 2026-08-15
 
 ### Added

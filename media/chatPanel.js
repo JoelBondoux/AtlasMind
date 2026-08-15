@@ -19,6 +19,7 @@
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
+  const chatSurface = document.getElementById('chatSurface');
   const recoveryNotice = document.getElementById('recoveryNotice');
   const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
   const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
@@ -4970,6 +4971,9 @@
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
+      // The frame collapses to the activity strip during a run rather than
+      // holding an empty box open beside the inspector.
+      chatSurface.classList.toggle('run-mode', isRun);
       runInspector.classList.toggle('hidden', !isRun);
       updateComposerAvailability();
       clearConversation.disabled = isRun;

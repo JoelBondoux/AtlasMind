@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.341.1 — The activity strip moves inside the thread
+
+A placement fix: the line telling you what AtlasMind is doing sat just below the box holding your
+conversation, which made it read as a caption on the window. It now sits inside that box, directly under
+the last message, where the thing it is describing is happening.
+
 ## v0.341.0 — Dictate straight into the chat box
 
 There is a microphone beside the attachment buttons. Click it, speak, click again — the words appear in the

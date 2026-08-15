@@ -223,13 +223,30 @@ describe('activity strip', () => {
     expect(strip()?.classList.contains('idle')).toBe(true);
   });
 
-  it('sits between the thread and the composer, spanning the panel', () => {
-    // Full width and its own colour is what stops it reading as somebody's
-    // turn; position is what keeps it beside the work it describes.
+  it('sits inside the thread frame, at the end of the thread', () => {
     const status = strip();
-    expect(status?.previousElementSibling?.tagName.toLowerCase()).not.toBe('section');
-    expect(status?.nextElementSibling?.classList.contains('composer-shell')).toBe(true);
-    expect(harness.window.document.getElementById('transcript')?.contains(status ?? null)).toBe(false);
+    const surface = harness.window.document.getElementById('chatSurface');
+    const transcript = harness.window.document.getElementById('transcript');
+
+    // Inside the bordered frame, directly after the messages: it is the last
+    // thing in the thread rather than a caption on the panel.
+    expect(surface?.contains(status ?? null)).toBe(true);
+    expect(status?.previousElementSibling?.id).toBe('transcript');
+
+    // But *not* inside the transcript itself, which is what matters: the
+    // transcript is cleared and rebuilt on every render, so a strip living in
+    // there would be destroyed by the next state message and would scroll away
+    // with the messages in between.
+    expect(transcript?.contains(status ?? null)).toBe(false);
+  });
+
+  it('collapses the frame during a run instead of holding an empty box open', () => {
+    harness.send(stateWith([USER_TURN], { activeSurface: 'run' }));
+    harness.send({ type: 'busy', payload: false });
+
+    const surface = harness.window.document.getElementById('chatSurface');
+    expect(surface?.classList.contains('run-mode')).toBe(true);
+    expect(harness.window.document.getElementById('transcript')?.classList.contains('hidden')).toBe(true);
   });
 });
 
