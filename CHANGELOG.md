@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.341.0] - 2026-08-15
+
+### Added
+
+- **Dictate a message into the composer.** Voice existed only as its own panel, which is a different
+  activity from writing a prompt — you had to open a second surface, speak, and carry the text back.
+  There is a microphone beside the attachment controls now.
+
+  Transcription is **on this machine**, through the same local Whisper the Voice Panel uses; nothing is
+  sent anywhere to be turned into text. `VoiceManager.transcribeWav` is the new entry point, because
+  `startListening` is bound to the Voice Panel's own webview and reusing it would have opened a panel
+  nobody asked for. The capture chain — `getUserMedia`, downsample to 16 kHz mono, WAV — is the one that
+  panel already proves works, rather than a second implementation free to drift from it.
+
+  **The transcript is inserted, never submitted.** Speech recognition gets words wrong, and a mis-heard
+  sentence that sends itself is a turn you did not ask for with a cost attached. Reading it first is the
+  safeguard, and it costs one keystroke. Escape while recording abandons it rather than transcribing —
+  changing your mind mid-sentence should not mean deleting the result.
+
+  Failures are named rather than generic: "the model is not downloaded yet", "the microphone recorded
+  nothing" and "this window cannot record audio" want different things from you.
+
 ## [0.340.0] - 2026-08-15
 
 ### Added

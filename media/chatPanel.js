@@ -4216,6 +4216,161 @@
     transcript.appendChild(section);
   }
 
+  // ---- Dictation ---------------------------------------------------------
+  //
+  // Capture here, transcribe on the host. The audio pipeline is the one the
+  // Voice Panel already proves works — getUserMedia, downsample to 16 kHz mono,
+  // encode WAV — rather than a second implementation that would drift from it.
+  //
+  // The transcript is inserted at the caret and never submitted. Speech
+  // recognition gets words wrong, and a mis-heard sentence that sends itself is
+  // a turn the operator did not ask for, with a cost attached.
+  var dictateBtn = document.getElementById('dictate');
+  var dictationStream = null;
+  var dictationContext = null;
+  var dictationChunks = [];
+  var dictationActive = false;
+
+  function setDictationActive(active) {
+    dictationActive = active;
+    dictateBtn.classList.toggle('recording', active);
+    dictateBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    dictateBtn.title = active ? 'Stop recording and transcribe' : 'Dictate a message';
+  }
+
+  function stopDictationCapture() {
+    if (dictationStream) {
+      dictationStream.getTracks().forEach(function (track) { track.stop(); });
+      dictationStream = null;
+    }
+    if (dictationContext) {
+      try { dictationContext.close(); } catch (error) { /* already closed */ }
+      dictationContext = null;
+    }
+  }
+
+  function mergeFloat32(chunks) {
+    var total = 0;
+    chunks.forEach(function (chunk) { total += chunk.length; });
+    var merged = new Float32Array(total);
+    var offset = 0;
+    chunks.forEach(function (chunk) { merged.set(chunk, offset); offset += chunk.length; });
+    return merged;
+  }
+
+  function downsampleTo16k(samples, inRate) {
+    var outRate = 16000;
+    if (inRate === outRate || inRate <= 0) { return samples; }
+    var ratio = inRate / outRate;
+    var newLength = Math.round(samples.length / ratio);
+    var out = new Float32Array(newLength);
+    for (var i = 0; i < newLength; i++) {
+      var idx = i * ratio;
+      var i0 = Math.floor(idx);
+      var i1 = Math.min(i0 + 1, samples.length - 1);
+      var frac = idx - i0;
+      out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+    }
+    return out;
+  }
+
+  function writeAscii(view, offset, text) {
+    for (var i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+  }
+
+  function encodeWav(samples, sampleRate) {
+    var buffer = new ArrayBuffer(44 + samples.length * 2);
+    var view = new DataView(buffer);
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    var offset = 44;
+    for (var i = 0; i < samples.length; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+    return buffer;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    // Chunked, because String.fromCharCode.apply on a multi-megabyte array
+    // overflows the argument list.
+    for (var i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
+  }
+
+  function finishDictation(send) {
+    if (!dictationActive) { return; }
+    var sampleRate = dictationContext ? dictationContext.sampleRate : 16000;
+    var chunks = dictationChunks;
+    dictationChunks = [];
+    setDictationActive(false);
+    stopDictationCapture();
+    if (!send || chunks.length === 0) {
+      setStatusText('Ready.');
+      return;
+    }
+    var wav = encodeWav(downsampleTo16k(mergeFloat32(chunks), sampleRate), 16000);
+    vscode.postMessage({ type: 'transcribeAudio', payload: { dataBase64: arrayBufferToBase64(wav) } });
+  }
+
+  function startDictation() {
+    var media = navigator && navigator.mediaDevices;
+    if (!media || typeof media.getUserMedia !== 'function') {
+      setStatusText('This window cannot record audio.');
+      return;
+    }
+    media.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      .then(function (stream) {
+        dictationStream = stream;
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        dictationContext = new AudioCtx();
+        var source = dictationContext.createMediaStreamSource(stream);
+        var processor = dictationContext.createScriptProcessor(4096, 1, 1);
+        dictationChunks = [];
+        processor.onaudioprocess = function (event) {
+          dictationChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        };
+        source.connect(processor);
+        processor.connect(dictationContext.destination);
+        setDictationActive(true);
+        setStatusText('Recording — click again to transcribe.');
+      })
+      .catch(function (error) {
+        setStatusText('Microphone unavailable — ' + (error && error.message ? error.message : 'permission denied'));
+      });
+  }
+
+  dictateBtn.addEventListener('click', function () {
+    if (dictationActive) { finishDictation(true); } else { startDictation(); }
+  });
+
+  dictateBtn.addEventListener('keydown', function (event) {
+    // Escape abandons the recording rather than transcribing it: somebody who
+    // changes their mind mid-sentence should not have to delete the result.
+    if (event.key === 'Escape' && dictationActive) {
+      event.stopPropagation();
+      finishDictation(false);
+    }
+  });
+
   // ---- Context meter -----------------------------------------------------
   //
   // What the next turn would carry, against whichever ceiling actually applies.
@@ -4848,6 +5003,15 @@
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
+      }
+      return;
+    }
+
+    if (message.type === 'transcriptReady') {
+      var spoken = message.payload && typeof message.payload.text === 'string' ? message.payload.text : '';
+      if (spoken) {
+        insertComposerTextAtSelection(spoken);
+        promptInput.focus();
       }
       return;
     }

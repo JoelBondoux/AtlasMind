@@ -136,6 +136,13 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                       <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
                     </svg>
                   </button>
+                  <button id="dictate" type="button" class="icon-btn compact-icon-btn dictate-btn" title="Dictate a message" aria-label="Dictate a message" aria-pressed="false">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="6" y="1.5" width="4" height="8" rx="2"/>
+                      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0"/>
+                      <line x1="8" y1="12" x2="8" y2="14.5"/>
+                    </svg>
+                  </button>
                   <button id="attachSelection" type="button" class="icon-btn compact-icon-btn" title="Add the current editor selection" aria-label="Add editor selection">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M3 2.5h2M11 2.5h2M3 13.5h2M11 13.5h2M2.5 3v2M2.5 11v2M13.5 3v2M13.5 11v2"/>
@@ -2123,6 +2130,7 @@ ${QUICK_REPLY_CSS}
         @media (prefers-reduced-motion: reduce) {
           .live-dot,
           .status-label::before,
+          .dictate-btn.recording,
           .atlas-thinking-logo,
           .atlas-thinking-logo svg,
           .atlas-thinking-logo .atlas-axis,
@@ -2362,6 +2370,18 @@ ${QUICK_REPLY_CSS}
           margin-top: 4px;
           font-size: 0.72rem;
           color: var(--vscode-descriptionForeground);
+        }
+
+        /* Recording is a state worth seeing from across the room: the panel is
+           listening to the microphone, and that should never be ambiguous. */
+        .dictate-btn.recording {
+          color: var(--vscode-inputValidation-errorForeground, #f48771);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 60%, transparent);
+          animation: dictate-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes dictate-pulse {
+          0%, 100% { opacity: 0.65; }
+          50% { opacity: 1; }
         }
 
         /* ---- Run inspector ---- */

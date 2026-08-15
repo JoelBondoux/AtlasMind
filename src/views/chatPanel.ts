@@ -749,6 +749,9 @@ export class ChatPanel {
       case 'attachOpenFiles':
         await this.attachOpenFiles();
         return;
+      case 'transcribeAudio':
+        await this.transcribeComposerAudio(message.payload.dataBase64);
+        return;
       case 'restoreCheckpoint':
         await this.restoreCheckpointForTurn(message.payload.entryId);
         return;
@@ -3352,6 +3355,45 @@ export class ChatPanel {
    * leave no record of what had been tried. The two are separate decisions and
    * `Edit`/`Regenerate` is the one that rewinds the conversation.
    */
+  /**
+   * Turn a dictated utterance into composer text.
+   *
+   * The transcript is **inserted, never submitted**. Speech recognition gets
+   * words wrong, and a mis-heard sentence that sends itself is a turn the
+   * operator did not ask for — with a cost. Reading it first is the whole
+   * safeguard, and it costs one keystroke.
+   */
+  private async transcribeComposerAudio(dataBase64: string): Promise<void> {
+    const transcribe = this.atlas.voiceManager?.transcribeWav?.bind(this.atlas.voiceManager);
+    if (!transcribe) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Dictation is unavailable here.' });
+      return;
+    }
+
+    await this.host.webview.postMessage({ type: 'status', payload: 'Transcribing on this machine…' });
+    let wav: Buffer;
+    try {
+      wav = Buffer.from(dataBase64, 'base64');
+    } catch {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That recording could not be read.' });
+      return;
+    }
+
+    const result = await transcribe(wav);
+    if (!result.ok) {
+      // Named rather than generic: "the model is not downloaded yet" and "the
+      // microphone recorded nothing" want different things from the operator.
+      await this.host.webview.postMessage({ type: 'status', payload: `Dictation failed — ${result.reason}` });
+      return;
+    }
+    if (result.text.length === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing was heard.' });
+      return;
+    }
+    await this.host.webview.postMessage({ type: 'transcriptReady', payload: { text: result.text } });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Ready.' });
+  }
+
   private async restoreCheckpointForTurn(entryId: string): Promise<void> {
     const entry = this.atlas.sessionConversation
       .getTranscript(this.selectedSessionId)

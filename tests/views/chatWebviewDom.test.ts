@@ -356,3 +356,32 @@ describe('context meter', () => {
     expect(meter()?.classList.contains('warn')).toBe(true);
   });
 });
+
+describe('dictation', () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+    harness.send(stateWith([USER_TURN]));
+  });
+
+  it('inserts a transcript into the composer and never submits it', () => {
+    // Speech recognition gets words wrong, and a mis-heard sentence that sends
+    // itself is a turn nobody asked for, with a cost attached.
+    harness.send({ type: 'transcriptReady', payload: { text: 'add tests for the router' } });
+
+    const input = harness.window.document.getElementById('promptInput') as HTMLTextAreaElement;
+    expect(input.value).toContain('add tests for the router');
+    expect(harness.posted.some(message => message.type === 'submitPrompt')).toBe(false);
+  });
+
+  it('says so when the window cannot record, rather than failing silently', () => {
+    // jsdom has no mediaDevices, which is the same shape as a host that denies
+    // the microphone.
+    harness.window.document.getElementById('dictate')?.dispatchEvent(new harness.window.Event('click'));
+
+    expect(harness.window.document.getElementById('status')?.textContent)
+      .toContain('cannot record audio');
+    expect(harness.errors).toEqual([]);
+  });
+});

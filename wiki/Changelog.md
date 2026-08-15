@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.341.0 — Dictate straight into the chat box
+
+There is a microphone beside the attachment buttons. Click it, speak, click again — the words appear in the
+composer for you to read and edit before sending. Nothing is submitted automatically, because speech
+recognition mishears and a wrong sentence that sends itself costs you a turn.
+
+Transcription happens on your machine using the same local model the Voice panel uses. No audio leaves it.
+
 ## v0.340.0 — Undo the files a turn changed
 
 AtlasMind already took a snapshot of your files before making changes, but the only way to use one was to

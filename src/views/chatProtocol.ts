@@ -88,6 +88,8 @@ export type ChatPanelMessage =
    * task id: the host looks that up, so the webview cannot name a checkpoint
    * belonging to some other turn.
    */
+  /** One recorded utterance, WAV as base64. Capped well below anything that would stall the host. */
+  | { type: 'transcribeAudio'; payload: { dataBase64: string } }
   | { type: 'restoreCheckpoint'; payload: { entryId: string } }
   | { type: 'renameSession'; payload: { sessionId: string; title: string } }
   /**
@@ -320,6 +322,17 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'transcribeAudio') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const data = (message.payload as { dataBase64?: unknown }).dataBase64;
+    // ~6 MB of base64 is about three minutes at 16 kHz mono, which is far more
+    // than a dictated prompt and far less than anything worth stalling on.
+    return typeof data === 'string' && data.length > 0 && data.length <= 8_000_000
+      && /^[A-Za-z0-9+/=]+$/.test(data);
   }
 
   if (message.type === 'restoreCheckpoint') {

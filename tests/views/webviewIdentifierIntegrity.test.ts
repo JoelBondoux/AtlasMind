@@ -32,6 +32,9 @@ const HOST_GLOBALS = new Set([
   'TypeError', 'URL', 'URLSearchParams', 'WeakMap', 'WeakSet', 'undefined', 'globalThis',
   'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent', 'isFinite', 'isNaN',
   'parseFloat', 'parseInt', 'structuredClone', 'queueMicrotask',
+  // Binary data, for the composer's dictation capture: raw PCM is merged,
+  // downsampled and written into a WAV header before it leaves the webview.
+  'ArrayBuffer', 'DataView', 'Float32Array', 'Uint8Array', 'Int16Array',
   // Browser / DOM
   'document', 'window', 'console', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame',
