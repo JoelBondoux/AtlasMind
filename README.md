@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.325.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.326.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.325.0
+## What's new in 0.326.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A failed turn no longer deletes your question.** A provider failing mid-turn used to remove the whole
+  exchange from your history — your own message included — leaving a generic error banner. The failure is
+  now recorded in the transcript with whatever had already streamed. **Stop** also genuinely stops the
+  model call now, instead of being noticed once it had finished.
 
 - **The two chat surfaces really do behave the same now.** VS Code's `@atlas` view answered ordinary
   messages by a separate internal route that had quietly lost conversation recall, roadmap status, image

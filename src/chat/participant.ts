@@ -913,7 +913,7 @@ async function handleChatRequest(
     case 'vision':
       // Kept here rather than delegated: this surface has the real
       // `ChatRequest`, whose references the handler may come to need.
-      await handleVisionCommand(request, stream, atlas, sessionId);
+      await handleVisionCommand(request, stream, atlas, sessionId, token);
       break;
 
     default: {
@@ -3511,11 +3511,15 @@ async function handleFreeformMessage(
 
   const carryForward = shouldCarryForwardConversationContext(prompt, transcript, chatContext);
   const taskResult = await runChatTask(prompt, stream, atlas, sessionId, {
+    token,
     carryForward,
     detectRunProposal: true,
     ...(chatContext ? { native: { request, chatContext } } : {}),
     ...(workflowExecutionPolicy ? { workflowExecutionPolicy } : {}),
   });
+  if (taskResult.outcome !== 'completed') {
+    return { assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
+  }
 
   // If the reply offered an autonomous project run, flow straight into it rather
   // than stopping for the operator to type "Proceed" — they already asked for the
@@ -3601,6 +3605,7 @@ async function handleVisionCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   sessionId: string,
+  token?: vscode.CancellationToken,
 ): Promise<void> {
   const selectedAttachments = await pickImageAttachments();
   if (selectedAttachments.length === 0) {
@@ -3616,12 +3621,21 @@ async function handleVisionCommand(
     ? request.prompt.trim()
     : 'Describe the attached images and highlight anything important.';
 
-  await runChatTask(prompt, stream, atlas, sessionId, { attachments: selectedAttachments });
+  await runChatTask(prompt, stream, atlas, sessionId, {
+    attachments: selectedAttachments,
+    ...(token ? { token } : {}),
+  });
 }
 
 interface ChatTaskOptions {
   /** Explicit image attachments (e.g. the /vision picker). When present, inline prompt-path resolution is skipped. */
   attachments?: TaskImageAttachment[];
+  /**
+   * Cancellation for the model call itself. Without it, Stop left the request
+   * running and was consulted only after it returned — so the turn kept spending
+   * after the operator had said no.
+   */
+  token?: vscode.CancellationToken;
   /**
    * Native-surface extras: the live `ChatRequest`/`ChatContext` pair, whose
    * history lines and reference summary the panel assembles for itself. When
@@ -3683,36 +3697,81 @@ async function runChatTask(
   });
   let streamedText = '';
   const chunkBuffer = createStreamBuffer(stream);
-  const result = await atlas.orchestrator.processTask({
-    id: `task-${Date.now()}`,
-    userMessage: prompt,
-    context: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
-      ...(workstationContext ? { workstationContext } : {}),
-      ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-      ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
-    },
-    constraints: {
-      budget: toBudgetMode(configuration.get<string>('budgetMode')),
-      speed: toSpeedMode(configuration.get<string>('speedMode')),
-      ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
-    },
-    timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
-    }
-    streamedText += chunk;
-    chunkBuffer.push(chunk);
-  }, message => {
-    if (!message.trim()) {
-      return;
-    }
-    stream.progress(message);
-  });
+  const abortController = new AbortController();
+  const cancellationSubscription = options.token?.onCancellationRequested(() => abortController.abort());
+
+  let result: TaskResult;
+  try {
+    result = await atlas.orchestrator.processTask({
+      id: `task-${Date.now()}`,
+      userMessage: prompt,
+      context: {
+        ...(sessionContext ? { sessionContext } : {}),
+        ...(nativeChatContext ? { nativeChatContext } : {}),
+        ...(workstationContext ? { workstationContext } : {}),
+        ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+        ...(operatorAdaptation?.contextPatch ?? {}),
+        ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
+      },
+      constraints: {
+        budget: toBudgetMode(configuration.get<string>('budgetMode')),
+        speed: toSpeedMode(configuration.get<string>('speedMode')),
+        ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
+      },
+      timestamp: new Date().toISOString(),
+      ...(options.token ? { signal: abortController.signal } : {}),
+    }, chunk => {
+      if (!chunk || abortController.signal.aborted) {
+        return;
+      }
+      streamedText += chunk;
+      chunkBuffer.push(chunk);
+    }, message => {
+      if (!message.trim() || abortController.signal.aborted) {
+        return;
+      }
+      stream.progress(message);
+    });
+  } catch (error) {
+    // A provider throw used to escape the handler to VS Code's generic error
+    // banner, and `recordTurn` never ran — so the turn disappeared from history
+    // entirely, the operator's own message with it. Whatever was streamed before
+    // the failure is kept: a partial answer is worth more than a deleted one.
+    chunkBuffer.flush();
+    const cancelled = abortController.signal.aborted || options.token?.isCancellationRequested === true;
+    const message = error instanceof Error ? error.message : String(error);
+    const notice = cancelled
+      ? '_Request stopped._'
+      : `**Request failed:** ${message}\n\n_Send the prompt again to retry._`;
+    stream.markdown(`${streamedText ? '\n\n' : ''}${notice}`);
+    const transcriptText = [streamedText.trim(), notice].filter(Boolean).join('\n\n');
+    const assistantMeta: SessionTranscriptMetadata = {
+      modelUsed: cancelled ? 'atlasmind/stopped' : 'atlasmind/error',
+      turnError: cancelled ? { kind: 'cancelled' } : { kind: 'failed', message },
+    };
+    atlas.sessionConversation.recordTurn(prompt, transcriptText, sessionId, assistantMeta, {
+      assistantClassification: cancelled ? 'system' : 'error',
+    });
+    cancellationSubscription?.dispose();
+    return { transcriptText, assistantMeta, outcome: cancelled ? 'cancelled' : 'failed' };
+  } finally {
+    cancellationSubscription?.dispose();
+  }
   chunkBuffer.flush();
+
+  if (abortController.signal.aborted || options.token?.isCancellationRequested) {
+    const notice = '_Request stopped._';
+    stream.markdown(`${streamedText ? '\n\n' : ''}${notice}`);
+    const transcriptText = [streamedText.trim(), notice].filter(Boolean).join('\n\n');
+    const assistantMeta: SessionTranscriptMetadata = {
+      modelUsed: 'atlasmind/stopped',
+      turnError: { kind: 'cancelled' },
+    };
+    atlas.sessionConversation.recordTurn(prompt, transcriptText, sessionId, assistantMeta, {
+      assistantClassification: 'system',
+    });
+    return { transcriptText, assistantMeta, outcome: 'cancelled' };
+  }
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {

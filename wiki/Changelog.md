@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.326.0 — A failed turn no longer deletes your question
+
+If a provider failed mid-turn, the whole exchange disappeared from your history — your own message
+included — and all you got was a generic error banner. The failure is now written into the transcript
+where you can see it, along with whatever had already been streamed, and a note that you can just send the
+prompt again.
+
+Two related fixes: **Stop** now actually stops the model call rather than being noticed after it finishes,
+and a reply that comes back empty keeps your question instead of erasing it.
+
 ## v0.325.0 — Both chat surfaces, one set of features
 
 Typing to `@atlas` in VS Code's chat view used to run a different internal route from the AtlasMind chat

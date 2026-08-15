@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.326.0] - 2026-08-15
+
+### Fixed
+
+- **A turn that failed used to take your own message down with it.** Neither freeform `processTask` call
+  was wrapped, so a provider throw escaped to VS Code's generic error banner and `recordTurn` never ran —
+  the turn vanished from history entirely, the operator's prompt included. That reads as though you never
+  asked, which is the transcript being wrong about something you watched happen. The failure is now
+  recorded as a turn: whatever was streamed before it is kept, the reason is stated in the transcript with
+  an invitation to resend, and `turnError` carries `cancelled` or `failed` as a fact rather than leaving a
+  later reader to infer it from wording.
+
+- **Stop now stops the model call.** `runChatTask` took no cancellation token — the token was consulted
+  only *after* the call returned, so pressing Stop left the request running and spending. The VS Code
+  token is bridged to an `AbortController` the orchestrator already accepts, and a cancelled turn keeps
+  its partial answer rather than discarding it.
+
+- **An empty answer no longer deletes the question.** `recordTurn` skipped the whole turn when either side
+  was empty, so an empty model reply erased the **user's** message too. The prompt is kept with a
+  placeholder saying what happened, weighted **0** — deliberately the one case that earns it, since the
+  placeholder is a record for whoever reads the transcript and not context for the next prompt.
+  `buildContext` filters on weight, so "AtlasMind returned no reply" never travels into a later model call
+  while the question itself still does.
+
+  A caller can now also state an assistant turn's classification instead of leaving it to be guessed from
+  the text. An error turn knows it is one; it should not depend on whether the provider's message happens
+  to contain the word "failed".
+
 ## [0.325.0] - 2026-08-15
 
 ### Fixed

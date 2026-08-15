@@ -98,6 +98,16 @@ export interface SessionTranscriptMetadata {
   iterationLimitHit?: boolean;
   suggestedIterationLimit?: number;
   suggestedToolCallsPerTurnLimit?: number;
+  /**
+   * Why this turn has no answer, when it has none.
+   *
+   * Recorded rather than inferred from the text: a provider throw used to escape
+   * the handler entirely, so `recordTurn` never ran and the turn — the operator's
+   * message included — vanished from history, which reads as though they never
+   * asked. `cancelled` and `failed` stay distinct because they are different
+   * facts about the same absence: one the operator caused deliberately.
+   */
+  turnError?: { kind: 'cancelled' | 'failed'; message?: string };
 }
 
 export interface SessionConversationRecord {
@@ -535,6 +545,7 @@ export class SessionConversation {
     assistant: string,
     sessionId = this.activeSessionId,
     assistantMeta?: SessionTranscriptMetadata,
+    options?: { assistantClassification?: SessionTranscriptEntry['classification'] },
   ): void {
     const trimmedUser = user.trim();
     const trimmedAssistant = assistant.trim();
@@ -542,13 +553,45 @@ export class SessionConversation {
       console.warn('[AtlasMind] Skipping transcript write because the user message was empty.');
       return;
     }
+
+    this.appendMessage('user', trimmedUser, sessionId);
+
+    // An empty answer used to drop the **user's** message too, which is the wrong
+    // half to lose: the operator can see they typed it, so a transcript that
+    // disagrees is the transcript being wrong.
+    //
+    // Weight 0 is deliberate and is the one case that earns it: the placeholder
+    // is a record for whoever reads the transcript, not context for a later
+    // prompt. `buildContext` filters on `> 0`, so this is what keeps "AtlasMind
+    // returned no reply" out of the next model call while leaving the user's own
+    // message — auto-weighted 1 — exactly where it belongs.
     if (!trimmedAssistant) {
-      console.warn('[AtlasMind] Skipping transcript write because the assistant response was empty.');
+      console.warn('[AtlasMind] Recording an empty assistant response as a placeholder turn.');
+      this.appendMessage(
+        'assistant',
+        '_AtlasMind returned no reply for this turn. Your message was kept so the conversation stays complete._',
+        sessionId,
+        assistantMeta,
+        { classification: 'system', relevanceWeight: 0 },
+      );
       return;
     }
 
-    this.appendMessage('user', trimmedUser, sessionId);
-    this.appendMessage('assistant', trimmedAssistant, sessionId, assistantMeta);
+    this.appendMessage(
+      'assistant',
+      trimmedAssistant,
+      sessionId,
+      assistantMeta,
+      // Classification is auto-detected from content unless the caller knows
+      // better. An error turn does — it should not depend on whether the
+      // provider's message happens to contain the word "failed".
+      options?.assistantClassification
+        ? {
+          classification: options.assistantClassification,
+          relevanceWeight: options.assistantClassification === 'system' ? 0.1 : 0.2,
+        }
+        : undefined,
+    );
   }
 
   setAssistantVote(
