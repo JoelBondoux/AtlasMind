@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.327.2 — Saying what the commands actually do
+
+`/cost` was documented as this session's spend in both the README and the wiki. It is the running total for
+the whole workspace across every session, and has been since v0.322.0 — a number you might act on, described
+as something much smaller than it is.
+
+`/agents`, `/skills` and `/memory` were advertised as "list **or manage**", including in the command picker
+VS Code shows you. All three only read; managing happens in the Agent Manager and the Memory view.
+
+And a set of sub-commands that have always worked were written down nowhere — `/buzz read`, `/setup acp`,
+`/research all`, `/sync-instructions apply` and several more. They now have their own section in
+[Chat Commands](Chat-Commands), which also notes that autocomplete will not suggest them.
+
 ## v0.327.1 — Buttons that do what they say
 
 Both "Open Run Center" buttons in the chat panel did nothing at all when clicked. And when a long task

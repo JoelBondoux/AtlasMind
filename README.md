@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.327.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.327.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.327.1
+## What's new in 0.327.2
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
@@ -900,10 +900,10 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/loop <goal>` | Chase a goal inside cost, time and iteration limits |
 | `/ideate` | See what's on the ideation board and what needs attention |
 | `/research` | What the research scans found outside your repository |
-| `/agents` · `/skills` | List and manage your agents and skills |
+| `/agents` · `/skills` | List your agents and skills (edit them in the Agent Manager) |
 | `/discover <query>` | Find MCP servers, agents, skills and APIs to add |
-| `/memory` | Query or manage project memory |
-| `/cost` | Current session spend |
+| `/memory <query>` | Query project memory (browse and edit it in the Memory view) |
+| `/cost` | Running spend for this workspace across all sessions (each reply's own cost is in its footer) |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
 | `/setup` · `/acp` · `/buzz` · `/lens` | Guided setup walkthroughs |

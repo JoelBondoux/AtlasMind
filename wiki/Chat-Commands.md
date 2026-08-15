@@ -59,7 +59,7 @@ precedence reads as finished rather than as permanently half-done.
 |---------|-------------|
 | `/ideate` | What's on your ideation board and what needs attention. Read-only — no scan, no model |
 | `/research` | What research found, what's due, what's blocked, and what's never been assessed |
-| `/memory <query>` | Query project memory |
+| `/memory <query>` | Query project memory. Read-only here — browse and edit entries in the Memory view |
 
 ### People and follow-ups
 
@@ -75,10 +75,25 @@ precedence reads as finished rather than as permanently half-done.
 
 | Command | What it does |
 |---------|-------------|
-| `/agents` · `/skills` | List and manage your agents and skills |
+| `/agents` · `/skills` | List your agents and skills. Both are read-only here — create and edit them in the Agent Manager |
 | `/discover <query>` | Find MCP servers, agents, skills and APIs to add |
-| `/cost` | What this session has cost so far |
+| `/cost` | Running spend for this **workspace, across every session** — not just this conversation. Each reply's own cost is in its footer |
 | `/voice` · `/vision` | Speech panel and image analysis |
+
+### Sub-commands
+
+These are typed as an argument to the command before them — `/research all`, not `/all`. VS Code's
+autocomplete only knows the commands above, so it will not suggest these; they work all the same.
+
+| Type this | What it does |
+|---|---|
+| `/setup acp` · `/setup buzz` · `/setup lens` | Jump straight into one guide instead of the index |
+| `/acp all` · `/buzz all` · `/research all` | The whole checklist at once, rather than the next step only |
+| `/buzz local` · `/buzz hosted` | Choose how Buzz reaches its relay. **Changes a workspace setting**, so it confirms first and names both values |
+| `/sync-instructions apply` | Accept the reconciled instruction set |
+| `/sync-instructions choose <n> <m>` | Resolve conflict *n* by taking option *m* |
+| `/sync-instructions reset` · `/sync-instructions cancel` | Start the reconciliation again, or abandon it |
+| `/project <goal> --approve` · `/loop <goal> --approve` | Skip the file-count review gate for a run you have already read. Nothing else about the run changes — tool approvals, protected branches and release gates all still apply |
 
 ---
 

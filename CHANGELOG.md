@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.327.2] - 2026-08-15
+
+### Fixed
+
+- **Four documentation claims that were not true.** Each was found by auditing the chat surface against
+  what the code does, and each is the kind that costs a user a wrong decision rather than a moment's
+  confusion.
+
+  - **`/cost` was documented as session spend** in both the README and the wiki. It reports the running
+    total for the *workspace across every session*, and has done since 0.322.0 — which relabelled the
+    command's own heading after it reported £81.82 in a three-message conversation, and left the two
+    places people read beforehand saying the opposite. A cost figure believed to be per-session and
+    actually lifetime is the one wrong number here with a real consequence.
+  - **`/agents`, `/skills` and `/memory` were declared as "list **or manage**"** in the manifest, and
+    described the same way in the docs. All three are read-only: they list or query, and the managing
+    happens in the Agent Manager and the Memory view. The manifest text is what VS Code shows in the
+    command picker, so it was promising an action at the point of choosing one.
+  - **`chatSlashRouting.ts` said "nineteen slash commands" twice** against a set of twenty. Harmless in
+    itself; what it signals is a file edited without its reasoning being re-read, which is how two ends of
+    a routing table drift apart. A test now fails on any stale spelled-out count, and pins the manifest to
+    the deterministic set plus the two run commands.
+  - **The sub-commands were documented nowhere.** `/buzz read|send|dm|local|hosted|all`, `/acp all`,
+    `/research all`, `/setup <guide>`, `/sync-instructions apply|choose|reset|cancel` and the `--approve`
+    token on `/project` and `/loop` all work and none of them appeared in the manifest or the wiki, so
+    VS Code's autocomplete cannot suggest them and nothing else mentioned they exist. The wiki now lists
+    them, and says outright that autocomplete will not offer them.
+
 ## [0.327.1] - 2026-08-15
 
 ### Fixed
