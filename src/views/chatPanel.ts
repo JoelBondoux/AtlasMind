@@ -2935,7 +2935,17 @@ export class ChatPanel {
     const scriptUri = this.host.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'chatPanel.js'),
     ).toString();
-    return buildChatWebviewHtml({ scriptUri, cspSource: this.host.webview.cspSource });
+    // Loaded first so `window.hljs` exists by the time the panel script runs.
+    // Built from the pinned devDependency by esbuild.mjs, never fetched: the
+    // panel's CSP has no CDN in it, deliberately.
+    const highlightUri = this.host.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'vendor', 'highlight.min.js'),
+    ).toString();
+    return buildChatWebviewHtml({
+      scriptUri,
+      vendorScriptUris: [highlightUri],
+      cspSource: this.host.webview.cspSource,
+    });
   }
 }
 

@@ -3166,6 +3166,92 @@
   var COPIED_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
   var TERMINAL_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>';
 
+
+  /** Languages the vendored `common` build actually registers. */
+  var HIGHLIGHT_MAX_CHARS = 50000;
+
+  /**
+   * Colour a code block without ever handing markup to the DOM.
+   *
+   * highlight.js returns an HTML string, and `innerHTML = hljs.highlight(...)`
+   * is the ordinary way to use it. This panel does not do that: every dynamic
+   * value in the transcript reaches the DOM through `textContent`, and code
+   * blocks carry model output, which is the least trusted text here. So the
+   * result is parsed in an inert document and rebuilt node by node, copying only
+   * the `hljs-*` class names — an element the walk does not recognise
+   * contributes its text and nothing else.
+   *
+   * Falls back to plain text whenever the highlighter is absent, the language is
+   * unknown, or the block is large enough that highlighting would be felt: a
+   * plain code block is a perfectly good code block.
+   */
+  function applySyntaxHighlight(codeEl, codeText, language) {
+    var hljs = window.hljs;
+    if (!hljs || !language || codeText.length > HIGHLIGHT_MAX_CHARS || !hljs.getLanguage(language)) {
+      codeEl.textContent = codeText;
+      return;
+    }
+
+    var html;
+    try {
+      html = hljs.highlight(codeText, { language: language, ignoreIllegals: true }).value;
+    } catch (error) {
+      codeEl.textContent = codeText;
+      return;
+    }
+
+    try {
+      var parsed = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      var root = parsed.body.firstChild;
+      if (!root) {
+        codeEl.textContent = codeText;
+        return;
+      }
+      var rebuilt = document.createDocumentFragment();
+      appendHighlightNodes(rebuilt, root.childNodes);
+      // The rebuilt text must equal the source exactly. If it does not, the walk
+      // lost or altered something and the plain block is the honest answer.
+      var probe = document.createElement('div');
+      probe.appendChild(rebuilt.cloneNode(true));
+      if (probe.textContent !== codeText) {
+        codeEl.textContent = codeText;
+        return;
+      }
+      codeEl.appendChild(rebuilt);
+      codeEl.classList.add('hljs');
+    } catch (error) {
+      codeEl.textContent = codeText;
+    }
+  }
+
+  /** Copies a highlight tree into fresh elements, keeping only `hljs-*` classes. */
+  function appendHighlightNodes(target, nodes) {
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      if (node.nodeType === 3) {
+        target.appendChild(document.createTextNode(node.nodeValue || ''));
+        continue;
+      }
+      if (node.nodeType !== 1) {
+        continue;
+      }
+      // Only <span> survives as an element. highlight.js emits nothing else, so
+      // anything different came from somewhere unexpected and is flattened to
+      // its text rather than trusted.
+      if (node.tagName !== 'SPAN') {
+        appendHighlightNodes(target, node.childNodes);
+        continue;
+      }
+      var span = document.createElement('span');
+      var className = node.getAttribute('class') || '';
+      if (/^hljs[\w-]*( hljs[\w-]*)*$/.test(className)) {
+        span.className = className;
+      }
+      appendHighlightNodes(span, node.childNodes);
+      target.appendChild(span);
+    }
+  }
+
   function renderCodeFence(block) {
     var lines = block.split('\n');
     var firstLine = lines[0];
@@ -3228,7 +3314,7 @@
     if (language) {
       codeEl.setAttribute('data-lang', language);
     }
-    codeEl.textContent = codeText;
+    applySyntaxHighlight(codeEl, codeText, language);
     pre.appendChild(codeEl);
     wrapper.appendChild(pre);
     return wrapper;

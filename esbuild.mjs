@@ -25,6 +25,35 @@ const webOptions = {
   logLevel: 'info',
 };
 
+/**
+ * The syntax highlighter the chat webview loads.
+ *
+ * Built rather than downloaded: `media/chatPanel.js` is hand-authored and
+ * unbundled so it cannot import anything, and the panel's CSP forbids a CDN — so
+ * the alternative was committing an opaque minified blob. Building it from the
+ * pinned `highlight.js` devDependency keeps the input reviewable and the version
+ * visible to `npm ls` and Dependabot.
+ *
+ * The output is committed, because `media/` ships verbatim in the VSIX and a
+ * missing file here means code blocks silently lose their colours rather than
+ * failing loudly.
+ */
+/** @type {import('esbuild').BuildOptions} */
+const highlightOptions = {
+  entryPoints: ['scripts/highlight-entry.mjs'],
+  outfile: 'media/vendor/highlight.min.js',
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2020',
+  minify: true,
+  legalComments: 'none',
+  banner: {
+    js: '/* highlight.js v11.12.0 (BSD-3-Clause) — built from the pinned devDependency by esbuild.mjs. Do not edit; see media/vendor/highlight.js.LICENSE. */',
+  },
+  logLevel: 'info',
+};
+
 async function run() {
   if (watch) {
     const ctx = await context(webOptions);
@@ -34,6 +63,8 @@ async function run() {
   }
   await build(webOptions);
   console.log('[esbuild] web bundle written to out/web/extension.js');
+  await build(highlightOptions);
+  console.log('[esbuild] highlighter bundle written to media/vendor/highlight.min.js');
 }
 
 run().catch(err => {

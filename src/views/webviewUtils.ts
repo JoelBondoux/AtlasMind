@@ -14,6 +14,14 @@ export interface WebviewShellOptions {
   scriptContent?: string;
   /** URI to an external script loaded via <script src>. Preferred over scriptContent. */
   scriptUri?: string;
+  /**
+   * Scripts loaded *before* `scriptUri`, in order.
+   *
+   * For vendored libraries the panel script expects on `window`. Kept separate
+   * from `scriptUri` so the panel's own script stays the last thing to run and
+   * can assume its dependencies are present.
+   */
+  vendorScriptUris?: readonly string[];
   /** Additional CSS injected into the <style> block. */
   extraCss?: string;
   /**
@@ -170,6 +178,9 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 </head>
 <body>
   ${options.bodyContent}
+  ${(options.vendorScriptUris ?? [])
+    .map(uri => `<script nonce="${nonce}" src="${uri}"></script>`)
+    .join('\n  ')}
   ${options.scriptUri
     ? `<script nonce="${nonce}" src="${options.scriptUri}"></script>`
     : options.scriptContent

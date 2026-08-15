@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -663,5 +663,62 @@ describe('chat transcript rendering and motion', () => {
     const guard = markup.slice(markup.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(guard.slice(0, 600)).toContain('.live-dot');
     expect(guard.slice(0, 600)).toContain('animation: none !important');
+  });
+});
+
+describe('chat code block syntax highlighting', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+  const host = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  it('ships the highlighter it loads, built from the pinned dependency', () => {
+    const bundle = path.join(MEDIA_DIR, 'vendor', 'highlight.min.js');
+    expect(existsSync(bundle), 'run `npm run compile` to build media/vendor/highlight.min.js').toBe(true);
+    const built = readFileSync(bundle, 'utf8');
+    expect(built).toContain('highlight.js v11.12.0');
+    expect(built).toContain('window.hljs');
+    // The licence travels with the code it covers.
+    expect(existsSync(path.join(MEDIA_DIR, 'vendor', 'highlight.js.LICENSE'))).toBe(true);
+  });
+
+  it('loads it from the extension, never from a CDN', () => {
+    expect(host).toContain("'vendor', 'highlight.min.js'");
+    expect(host).toContain('vendorScriptUris');
+    expect(webview).not.toMatch(/https?:\/\/[^\s'"]*highlight/i);
+  });
+
+  /**
+   * `innerHTML = hljs.highlight(...).value` is the ordinary way to use this
+   * library, and it is the one thing this panel must not do: every dynamic value
+   * in the transcript reaches the DOM through textContent, and a code block
+   * holds model output, which is the least trusted text on screen.
+   */
+  it('rebuilds the highlight tree instead of assigning markup', () => {
+    const fn = webview.slice(webview.indexOf('function applySyntaxHighlight('));
+    const body = fn.slice(0, fn.indexOf('\n  function appendHighlightNodes('));
+    expect(body).not.toContain('innerHTML');
+    expect(body).toContain('DOMParser');
+    expect(body).toContain('appendHighlightNodes');
+    // Only hljs-* class names survive the walk.
+    expect(webview).toContain(String.raw`/^hljs[\w-]*( hljs[\w-]*)*$/`);
+  });
+
+  it('falls back to plain text rather than risking a wrong render', () => {
+    const fn = webview.slice(webview.indexOf('function applySyntaxHighlight('));
+    const body = fn.slice(0, fn.indexOf('\n  function appendHighlightNodes('));
+    // No highlighter, no language, an unknown language, an oversized block, a
+    // throwing call, or a walk whose text does not match the source.
+    expect(body).toContain('!hljs.getLanguage(language)');
+    expect(body).toContain('HIGHLIGHT_MAX_CHARS');
+    expect(body).toContain('probe.textContent !== codeText');
+    expect((body.match(/codeEl\.textContent = codeText/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('colours from the editor theme rather than shipping a palette', () => {
+    expect(markup).toContain('.hljs-keyword');
+    expect(markup).toContain('var(--vscode-');
+    // A hard-coded hex as the *only* value would be a second theme inside the
+    // user's theme; these are fallbacks behind a variable.
+    expect(markup).not.toMatch(/\.hljs-keyword[^{]*\{[^}]*color:\s*#[0-9a-f]{3,6}\s*;/i);
   });
 });

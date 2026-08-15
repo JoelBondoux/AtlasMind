@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.330.0] - 2026-08-15
+
+### Added
+
+- **Code blocks in chat are syntax highlighted.** Every competing chat panel has had this for years;
+  AtlasMind set a `data-lang` attribute that nothing consumed and rendered plain grey text, which is
+  hardest to read in exactly the place a chat about code spends most of its time.
+
+  Three decisions worth stating, because each one had an easier wrong answer:
+
+  - **The highlighter is built, not downloaded.** `media/chatPanel.js` is hand-authored and unbundled so
+    it cannot import anything, and the panel's CSP has no CDN in it — deliberately. The alternative was
+    committing an opaque minified blob, so `esbuild.mjs` now builds `media/vendor/highlight.min.js` from
+    the pinned `highlight.js` devDependency: the input is reviewable, the version is in `package.json`,
+    and Dependabot can see it. The `common` build carries ~40 languages rather than ~190, which is
+    everything that realistically appears in a chat answer at a third of the size.
+  - **The markup is never assigned.** `innerHTML = hljs.highlight(...).value` is the ordinary way to use
+    this library and the one thing this panel must not do — a code block holds model output, the least
+    trusted text on screen. The result is parsed in an inert document and rebuilt node by node, keeping
+    only `hljs-*` class names; anything that is not a `<span>` contributes its text and nothing else. The
+    rebuilt text is then compared against the source, and a mismatch falls back to plain text: if the walk
+    lost or altered a character, the uncoloured block is the honest answer.
+  - **Colours come from the editor's theme**, not from one of highlight.js's stylesheets. A fixed palette
+    would be a second theme sitting inside the user's own — right in one colour scheme and wrong in every
+    other, high-contrast included.
+
+  It degrades quietly in every direction: no highlighter, no language on the fence, a language the build
+  does not know, a block over 50,000 characters, or a throwing call all render exactly what they rendered
+  before.
+
 ## [0.329.1] - 2026-08-15
 
 ### Fixed

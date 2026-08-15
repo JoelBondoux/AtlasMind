@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.329.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.330.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.329.1
+## What's new in 0.330.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Code blocks in chat are syntax highlighted**, in about forty languages, using your editor's own theme
+  colours so a snippet in chat matches the same code in the file beside it.
 
 - **The chat transcript stops rebuilding itself while an answer streams.** It used to redraw the whole
   conversation on every chunk, which lost any text you had selected, slowed down as the thread grew, and

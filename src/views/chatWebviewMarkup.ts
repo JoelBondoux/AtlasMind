@@ -6,7 +6,7 @@ import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
  * behaviour lives in media/chatPanel.js, which only talks to its host via
  * postMessage and therefore works unchanged behind a local or remote host.
  */
-export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: string }): string {
+export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: string; vendorScriptUris?: readonly string[] }): string {
   return getWebviewHtmlShell({
     dashboardSkin: true,
     title: 'AtlasMind Chat',
@@ -2051,6 +2051,53 @@ ${QUICK_REPLY_CSS}
           }
         }
 
+        /*
+          Syntax colours, mapped onto the editor's own theme variables rather
+          than shipping one of highlight.js's stylesheets. A fixed palette would
+          be a second theme sitting inside the user's theme — right in exactly
+          one colour scheme and wrong in every other, including the high-contrast
+          ones. These follow whatever the editor is already using, so a code
+          block in chat looks like the same code in the editor beside it.
+        */
+        .chat-code-block code.hljs { color: var(--vscode-editor-foreground); }
+        .hljs-comment,
+        .hljs-quote { color: var(--vscode-descriptionForeground); font-style: italic; }
+        .hljs-keyword,
+        .hljs-selector-tag,
+        .hljs-literal,
+        .hljs-doctag,
+        .hljs-formula { color: var(--vscode-debugTokenExpression-name, #569cd6); }
+        .hljs-string,
+        .hljs-regexp,
+        .hljs-addition,
+        .hljs-attribute,
+        .hljs-meta .hljs-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+        .hljs-number,
+        .hljs-symbol,
+        .hljs-bullet,
+        .hljs-link,
+        .hljs-selector-attr,
+        .hljs-selector-pseudo { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+        .hljs-title,
+        .hljs-section,
+        .hljs-name,
+        .hljs-selector-id,
+        .hljs-selector-class,
+        .hljs-title.function_ { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+        .hljs-type,
+        .hljs-class .hljs-title,
+        .hljs-built_in,
+        .hljs-builtin-name { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+        .hljs-variable,
+        .hljs-template-variable,
+        .hljs-params,
+        .hljs-property { color: var(--vscode-symbolIcon-variableForeground, #9cdcfe); }
+        .hljs-meta,
+        .hljs-tag { color: var(--vscode-descriptionForeground); }
+        .hljs-deletion { color: var(--vscode-errorForeground); }
+        .hljs-emphasis { font-style: italic; }
+        .hljs-strong { font-weight: 600; }
+
         /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);
@@ -2176,5 +2223,6 @@ ${QUICK_REPLY_CSS}
         .nudge-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 `,
     scriptUri: opts.scriptUri,
+    ...(opts.vendorScriptUris ? { vendorScriptUris: opts.vendorScriptUris } : {}),
   });
 }

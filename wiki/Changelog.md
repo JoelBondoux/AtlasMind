@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.330.0 — Code blocks have colour
+
+Code in chat answers rendered as flat grey text, which is the hardest thing to read in the place a
+conversation about code spends most of its time. It is syntax highlighted now, in about forty languages,
+using your editor's own theme colours rather than a palette bolted on top — so a snippet in chat looks like
+the same code in the file beside it.
+
+The highlighter is built into the extension from a pinned dependency rather than fetched from the internet,
+and the coloured output is rebuilt element by element instead of being injected as markup, because a code
+block in a reply is model output and gets treated as such.
+
 ## v0.329.1 — A transcript that stops rebuilding itself
 
 While an answer streamed in, the chat panel rebuilt the entire conversation on every chunk. If you had
