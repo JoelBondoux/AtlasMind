@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.329.0 — Secrets stripped from what chat sends, and images that say why they didn't
+
+Three things the chat panel adds to a prompt were never passed through secret redaction: output from a
+managed `@t` terminal, a file you attached, and text you pasted. A terminal running `env`, or a `.env`
+dragged onto the composer, went to the model as written. All three are now redacted first.
+
+Separately: when an image could not be attached — too large, wrong format, unreadable — AtlasMind sent the
+turn anyway and said nothing, so you would read the answer believing the model had seen your screenshot. It
+now tells you which image it skipped and why.
+
 ## v0.328.0 — Deleting a chat now asks
 
 Deleting a chat session, clearing a conversation, and deleting a single message all happened the instant

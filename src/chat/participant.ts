@@ -37,7 +37,13 @@ import {
   DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION,
   DEFAULT_MISSION_GOAL_CONFIDENCE,
 } from '../constants.js';
-import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import {
+  describeImageRejections,
+  mergeImageAttachments,
+  resolveInlineImageAttachmentsDetailed,
+  resolvePickedImageAttachmentsDetailed,
+} from './imageAttachments.js';
+import type { ImageAttachmentResolution } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
@@ -3654,14 +3660,22 @@ async function handleVisionCommand(
   sessionId: string,
   token?: vscode.CancellationToken,
 ): Promise<void> {
-  const selectedAttachments = await pickImageAttachments();
+  const { attachments: selectedAttachments, rejections } = await pickImageAttachments();
+  const rejectionNotice = describeImageRejections(rejections);
+
   if (selectedAttachments.length === 0) {
-    stream.markdown('No images were selected. Run `/vision` again and choose one or more workspace images.');
+    // "No images were selected" was reported whether the dialog came back empty
+    // or every file it returned was refused — so picking one 5 MB screenshot
+    // read as picking nothing, and the reason was never stated.
+    stream.markdown(rejectionNotice
+      ? `${rejectionNotice}\n\nNothing was left to analyse. Run \`/vision\` again with a supported image under the size limit.`
+      : 'No images were selected. Run `/vision` again and choose one or more workspace images.');
     return;
   }
 
   stream.markdown(
-    `### Attached Images\n\n${selectedAttachments.map(image => `- ${image.source}`).join('\n')}`,
+    `### Attached Images\n\n${selectedAttachments.map(image => `- ${image.source}`).join('\n')}`
+    + (rejectionNotice ? `\n\n${rejectionNotice}` : ''),
   );
 
   const prompt = request.prompt.trim().length > 0
@@ -3736,8 +3750,17 @@ async function runChatTask(
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
   const workstationContext = buildWorkstationContext();
   const explicitAttachments = options.attachments ?? [];
-  const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
-  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  const inlineResolution = explicitAttachments.length > 0
+    ? { attachments: [], rejections: [] }
+    : await resolveInlineImageAttachmentsDetailed(prompt);
+  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineResolution.attachments);
+  // Said before the answer, not after: an operator who mentioned a screenshot
+  // should learn it was too large to send *while* reading the reply, not conclude
+  // the model looked at it and misunderstood.
+  const inlineRejectionNotice = describeImageRejections(inlineResolution.rejections);
+  if (inlineRejectionNotice) {
+    stream.markdown(`${inlineRejectionNotice}\n\n`);
+  }
   const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, {
     sessionContext,
     ...(nativeChatContext ? { nativeChatContext } : {}),
@@ -6527,10 +6550,10 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
   return 'balanced';
 }
 
-async function pickImageAttachments(): Promise<TaskImageAttachment[]> {
+async function pickImageAttachments(): Promise<ImageAttachmentResolution> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
-    return [];
+    return { attachments: [], rejections: [] };
   }
 
   const selected = await vscode.window.showOpenDialog({
@@ -6545,8 +6568,8 @@ async function pickImageAttachments(): Promise<TaskImageAttachment[]> {
   });
 
   if (!selected || selected.length === 0) {
-    return [];
+    return { attachments: [], rejections: [] };
   }
 
-  return resolvePickedImageAttachments(selected);
+  return resolvePickedImageAttachmentsDetailed(selected);
 }

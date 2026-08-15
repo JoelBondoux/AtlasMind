@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.328.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.329.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.328.0
+## What's new in 0.329.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Secrets are stripped from what chat sends.** Terminal output, attached files and pasted text were the
+  three paths that reached a model without passing through redaction — a `.env` dragged onto the composer
+  went as written. And an image that could not be attached (too large, wrong format) no longer fails
+  silently, leaving you to read the answer as though the model had seen it.
 
 - **Deleting a chat asks first.** Deleting a session, clearing a conversation or removing a message used
   to happen the instant you clicked, with no undo and no copy of the transcript anywhere else. All three

@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.329.0] - 2026-08-15
+
+### Fixed
+
+- **Three paths sent text to a model without passing it through redaction.** The orchestrator redacts the
+  context *it* assembles; these are assembled by the chat panel and never went through it. Each carries
+  text the operator chose in a gesture that does not look like sending a file to a model:
+
+  - **managed terminal output** — a `@t` session runs whatever was typed, so `env`, a failing deploy
+    echoing its connection string, or a CLI printing the token it just used all reached the model verbatim;
+  - **an attached file** — one drag from the explorer, and nothing about the gesture says the contents are
+    being read, which makes a `.env` or a `wrangler.toml` the easiest thing in the product to leak;
+  - **pasted or dropped text**, the same context by a different door.
+
+  Redaction runs **before** truncation on the terminal path, which is the part worth stating: the
+  truncation keeps the tail, so redacting afterwards would let a credential straddling the cut survive as
+  a fragment that no longer matches any pattern — half a live key travelling as ordinary noise. A test
+  puts a key across the boundary and asserts no fragment of it comes out.
+
+- **An image that could not be sent now says so.** Every rejection was a bare `undefined`, so an oversized
+  screenshot, an unsupported `.bmp`, a path outside the workspace and an unreadable file were all
+  indistinguishable from "no image mentioned": the turn answered without looking at the picture and said
+  nothing about it. That is the worst-shaped failure available here, because the operator believes the
+  model saw what they saw — and then reads the answer as though it did.
+
+  Rejections now carry a reason and are reported in the reply. `/vision` reports every one, since the
+  operator picked those files in a dialog; the inline path stays quieter and reports only *too large* and
+  *unreadable*, because prose naming a path is a guess about intent and complaining about ordinary
+  sentences would make the notice worth ignoring. `/vision` also no longer says "no images were selected"
+  when images *were* selected and all of them were refused.
+
 ## [0.328.0] - 2026-08-15
 
 ### Changed

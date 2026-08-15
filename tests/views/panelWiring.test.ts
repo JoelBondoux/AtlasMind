@@ -590,3 +590,27 @@ describe('chat webview message protocol', () => {
       .toEqual([]);
   });
 });
+
+describe('chat panel context redaction', () => {
+  const chatPanelSource = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  /**
+   * The orchestrator redacts the context *it* assembles. These three paths are
+   * assembled by the panel and never pass through it, and each one carries text
+   * chosen by the operator in a gesture that does not look like sending a file
+   * to a model: running `env` in a managed terminal, dragging a `.env` onto the
+   * composer, pasting a log with a bearer token in it.
+   */
+  it.each([
+    ['truncateManagedTerminalContext', 'terminal output on its way into a prompt'],
+    ['readAttachmentSnippet', 'a file attached from disk'],
+    ['decodeInlineText', 'text pasted or dropped into the composer'],
+  ])('redacts secrets in %s (%s)', (fnName) => {
+    // The declaration, then a window large enough to hold the whole body. A
+    // brace-matching parser would be more precise and is not worth it: these
+    // three functions are short, and the assertion is "the call is in here".
+    const declaration = chatPanelSource.indexOf(`function ${fnName}(`);
+    expect(declaration, `${fnName} not found in chatPanel.ts`).toBeGreaterThan(-1);
+    expect(chatPanelSource.slice(declaration, declaration + 900)).toContain('redactSecrets');
+  });
+});

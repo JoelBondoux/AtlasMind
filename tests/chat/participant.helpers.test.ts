@@ -59,6 +59,7 @@ import {
   resolveProjectRunAutoFlow,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
+import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -1839,5 +1840,39 @@ describe('being asked to explain is never an executable goal', () => {
     const transcript = transcriptOf([['add a Playwright test for the initial render', 'Here is the plan.']]);
     expect(resolveAutonomousContinuationGoal('carry on', transcript))
       .toBe('add a Playwright test for the initial render');
+  });
+});
+
+describe('image attachment rejections', () => {
+  /**
+   * Every rejection used to be a bare `undefined`, so an oversized screenshot, a
+   * `.bmp` and an unreadable file were indistinguishable from "no image
+   * mentioned": the turn answered without looking at the picture and said
+   * nothing. That is the worst-shaped failure here, because the operator
+   * believes the model saw what they saw.
+   */
+  it('names the file and the reason for each rejection', () => {
+    const notice = describeImageRejections([
+      { source: 'docs/screenshot.png', reason: 'too-large' },
+      { source: 'notes/diagram.bmp', reason: 'unsupported-type' },
+      { source: 'tmp/locked.png', reason: 'unreadable', detail: 'EACCES' },
+    ]);
+
+    expect(notice).toContain('3 images were not attached');
+    expect(notice).toContain('docs/screenshot.png');
+    expect(notice).toContain('MB');
+    expect(notice).toContain('notes/diagram.bmp');
+    expect(notice).toContain('PNG, JPEG, GIF or WebP');
+    expect(notice).toContain('tmp/locked.png');
+    expect(notice).toContain('EACCES');
+  });
+
+  it('says nothing when every image loaded', () => {
+    expect(describeImageRejections([])).toBeUndefined();
+  });
+
+  it('uses the singular when exactly one was refused', () => {
+    const notice = describeImageRejections([{ source: 'a.png', reason: 'too-large' }]);
+    expect(notice).toContain('One image was not attached');
   });
 });

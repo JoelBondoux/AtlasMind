@@ -151,7 +151,7 @@ import {
 } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
-import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
+import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode, truncateManagedTerminalContext } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel, calculateLocalModelSavings } from '../../src/views/costDashboardPanel.ts';
 import {
   buildDashboardErrorDiscussionPrompt,
@@ -4205,5 +4205,32 @@ describe('provider card buttons promise what the button actually does', () => {
         expect(getProviderActionLabel(provider)).toBe('Set API Key');
       }
     }
+  });
+});
+
+describe('managed terminal context redaction', () => {
+  const SECRET = 'sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL';
+
+  it('redacts a secret inside the output it keeps', () => {
+    const result = truncateManagedTerminalContext(`${'x'.repeat(9000)}\nANTHROPIC_API_KEY=${SECRET}`);
+
+    expect(result).not.toContain(SECRET);
+    expect(result).toContain('[REDACTED]');
+  });
+
+  it('leaves no fragment when the secret straddles the truncation boundary', () => {
+    // Redacting *after* the slice is the bug this guards: the cut would land
+    // mid-key, the remaining half would no longer match any credential pattern,
+    // and a piece of a live key would travel to the model looking like noise.
+    const head = 'y'.repeat(8000 - Math.floor(SECRET.length / 2));
+    const result = truncateManagedTerminalContext(`${head}${SECRET}${'z'.repeat(500)}`);
+
+    expect(result).not.toContain(SECRET);
+    expect(result).not.toContain(SECRET.slice(0, 20));
+    expect(result).not.toContain(SECRET.slice(-20));
+  });
+
+  it('leaves ordinary output untouched', () => {
+    expect(truncateManagedTerminalContext('npm test\n42 passing')).toBe('npm test\n42 passing');
   });
 });

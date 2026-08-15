@@ -3564,11 +3564,26 @@ function truncateManagedTerminalTranscript(output: string): string {
   return `... output truncated ...\n${output.slice(-12000)}`;
 }
 
-function truncateManagedTerminalContext(output: string): string {
-  if (output.length <= 8000) {
-    return output;
+/**
+ * Terminal output on its way into a model prompt.
+ *
+ * Redacted here rather than at each of the three prompt builders, because this
+ * is the only path any of them uses and a boundary with three doors is one
+ * somebody eventually walks around. A managed terminal runs whatever the
+ * operator typed — `env`, a failing deploy that echoes its connection string, a
+ * CLI printing the token it just used — and that output went to the model
+ * verbatim. The orchestrator redacts the context it assembles itself; this text
+ * is assembled by the panel and never passed through it.
+ *
+ * Truncation keeps the tail, so redaction runs first: a secret split across the
+ * cut would otherwise leave half a credential looking like ordinary text.
+ */
+export function truncateManagedTerminalContext(output: string): string {
+  const safe = redactSecrets(output).text;
+  if (safe.length <= 8000) {
+    return safe;
   }
-  return `... output truncated ...\n${output.slice(-8000)}`;
+  return `... output truncated ...\n${safe.slice(-8000)}`;
 }
 
 function buildManagedTerminalFollowUpPrompt(
@@ -3901,7 +3916,8 @@ function decodeInlineText(dataBase64: string): string | undefined {
     if (!text || text.includes('\0')) {
       return undefined;
     }
-    return text.slice(0, 6000);
+    // The paste and drag-drop path into the same context as readAttachmentSnippet.
+    return redactSecrets(text).text.slice(0, 6000);
   } catch {
     return undefined;
   }
@@ -3932,7 +3948,11 @@ async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefine
     if (!text || text.includes('\0')) {
       return undefined;
     }
-    return text.slice(0, 6000);
+    // Attaching a file is the easiest way to send a model a `.env`, a
+    // `wrangler.toml` or a log holding a bearer token — it is one drag from the
+    // explorer, and nothing about the gesture suggests the contents are being
+    // read. Redacted before the slice for the same reason as the terminal path.
+    return redactSecrets(text).text.slice(0, 6000);
   } catch {
     return undefined;
   }
