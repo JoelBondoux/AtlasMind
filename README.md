@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.339.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.340.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.339.0
+## What's new in 0.340.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Restore the files a turn changed**, from that turn in the transcript. Files only — the conversation
+  stays as it is.
 
 - **Edit a message and re-run it, or regenerate a reply.** Both rewind the conversation to that point, and
   both say how many messages that discards first.

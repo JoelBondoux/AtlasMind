@@ -258,6 +258,16 @@ export interface AtlasMindContext {
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
+  /**
+   * Which tasks have a file snapshot, and restoring one by name.
+   *
+   * Beside `rollbackLastCheckpoint` because "undo the last thing" and "undo
+   * *that* thing" are different questions: a chat transcript can point at a turn
+   * from an hour ago, and popping the newest checkpoint would restore something
+   * else entirely.
+   */
+  listCheckpoints(): Promise<Array<{ id: string; taskId: string; createdAt: string; fileCount: number }>>;
+  rollbackCheckpointByTaskId(taskId: string): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Trigger AI-based skill re-assessment for a single auto-managed agent. */
   assessAgentSkills?(agentId: string): Promise<void>;
   /** Persist prompt/description overrides for all built-in agents to globalState. */
@@ -2783,6 +2793,13 @@ async function bootstrapAtlasMind(
         }
         return checkpointManager.rollbackLatest();
       },
+      listCheckpoints: async () => checkpointManager ? checkpointManager.listCheckpoints() : [],
+      rollbackCheckpointByTaskId: async (taskId: string) => {
+        if (!checkpointManager) {
+          return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
+        }
+        return checkpointManager.rollbackByTaskId(taskId);
+      },
       assessAgentSkills: async (agentId: string) => {
         const agent = agentRegistry.get(agentId);
         if (!agent || !agent.skillsAutoManaged) { return; }
@@ -4904,6 +4921,21 @@ function buildSkillExecutionContext(
         maxBuffer: 1024 * 1024,
       });
       return stdout.trim();
+    },
+
+    async listCheckpoints() {
+      return checkpointManager ? checkpointManager.listCheckpoints() : [];
+    },
+
+    async rollbackCheckpointByTaskId(taskId: string) {
+      if (!checkpointManager) {
+        return {
+          ok: false,
+          summary: 'Rollback is unavailable because no workspace folder is open.',
+          restoredPaths: [],
+        };
+      }
+      return checkpointManager.rollbackByTaskId(taskId);
     },
 
     async rollbackLastCheckpoint() {

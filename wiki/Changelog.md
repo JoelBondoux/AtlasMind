@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.340.0 — Undo the files a turn changed
+
+AtlasMind already took a snapshot of your files before making changes, but the only way to use one was to
+undo the most recent thing. Replies that changed files now carry a **Restore files** button that puts those
+specific files back.
+
+It restores files only — your conversation stays exactly as it is, so the record of what was tried survives.
+The button appears only when that turn really has a snapshot, and if one has aged out it says so rather than
+failing when you click.
+
 ## v0.339.0 — Edit a message, or ask for a different answer
 
 Two things every other chat tool has had for a while. **Edit** on one of your own messages lets you correct

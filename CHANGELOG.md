@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.340.0] - 2026-08-15
+
+### Added
+
+- **Restore the files a turn changed, from the turn itself.** AtlasMind has snapshotted files before tool
+  writes for a long time, and the only way to use one was "undo the last thing" — which is a different
+  question from "undo *that* thing" when the turn you mean is an hour up the transcript.
+
+  A reply that changed files now offers **Restore files from before this turn**, and the dialog is explicit
+  that it is **files only**: the conversation is left exactly as it is. A transcript that silently rewound
+  itself alongside the working tree would destroy the record of what had been tried, which is the more
+  valuable of the two. Rewinding the conversation is a separate decision, and Edit/Regenerate is the
+  control for it.
+
+  The control appears **only when that turn actually has a snapshot** — one that reports "nothing to
+  restore" when clicked is worse than no control. Snapshots live in a ring buffer, so *"this turn never had
+  one"* and *"its snapshot has aged out"* are reported as the different facts they are.
+
+  The webview sends the **transcript entry**, never a task id; the host looks that up, so a message cannot
+  name a checkpoint belonging to some other turn. Turns now record the orchestrator task they ran as, which
+  is the key that makes the lookup possible.
+
 ## [0.339.0] - 2026-08-15
 
 ### Added

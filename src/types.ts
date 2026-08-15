@@ -1487,6 +1487,16 @@ export interface SkillExecutionContext {
   getGitDiff(options?: { ref?: string; staged?: boolean }): Promise<string>;
   /** Restore the most recent automatic checkpoint captured before write-capable tool use. */
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
+  /**
+   * Which tasks have a file snapshot, and restoring one by name.
+   *
+   * Exposed beside `rollbackLastCheckpoint` because "undo the last thing" and
+   * "undo *that* thing" are different questions: a chat transcript can point at
+   * a turn from an hour ago, and popping the newest checkpoint would restore
+   * something else entirely.
+   */
+  listCheckpoints?(): Promise<Array<{ id: string; taskId: string; createdAt: string; fileCount: number }>>;
+  rollbackCheckpointByTaskId?(taskId: string): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Validate or apply a unified git patch inside the workspace repository. */
   applyGitPatch(
     patch: string,

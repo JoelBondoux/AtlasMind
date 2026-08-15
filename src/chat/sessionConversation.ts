@@ -108,6 +108,14 @@ export interface SessionTranscriptMetadata {
    * facts about the same absence: one the operator caused deliberately.
    */
   turnError?: { kind: 'cancelled' | 'failed'; message?: string };
+  /**
+   * The orchestrator task this turn ran as.
+   *
+   * Carried so a checkpoint — which is filed by task id — can be found from the
+   * turn that produced it. Nothing here reads the checkpoint store; this is the
+   * key, not the record.
+   */
+  taskId?: string;
 }
 
 export interface SessionConversationRecord {

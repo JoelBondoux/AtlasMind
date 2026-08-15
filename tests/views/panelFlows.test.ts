@@ -4901,3 +4901,89 @@ describe('editing and regenerating a message', () => {
     (ChatPanel.currentPanel as unknown as { activePromptExecution?: unknown }).activePromptExecution = undefined;
   });
 });
+
+describe('restoring files from before a turn', () => {
+  function mount(checkpoints: Array<{ id: string; taskId: string; createdAt: string; fileCount: number }>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const rollbackCheckpointByTaskId = vi.fn().mockResolvedValue({
+      ok: true, summary: 'Restored 3 files.', restoredPaths: ['a.ts', 'b.ts', 'c.ts'],
+    });
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        listCheckpoints: async () => checkpoints,
+        rollbackCheckpointByTaskId,
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([
+            { id: 'u1', role: 'user', content: 'change the config', timestamp: '2026-08-15T10:00:00.000Z' },
+            { id: 'a1', role: 'assistant', content: 'Done.', timestamp: '2026-08-15T10:00:10.000Z', meta: { taskId: 'chat-panel-111' } },
+            { id: 'a2', role: 'assistant', content: 'Also done.', timestamp: '2026-08-15T10:01:00.000Z' },
+          ]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return {
+      rollbackCheckpointByTaskId,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  const SNAPSHOT = [{ id: 'cp-1', taskId: 'chat-panel-111', createdAt: '2026-08-15T10:00:05.000Z', fileCount: 3 }];
+
+  it('restores by the turn, not by whatever is newest', async () => {
+    const { panel, rollbackCheckpointByTaskId } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+
+    expect(rollbackCheckpointByTaskId).toHaveBeenCalledWith('chat-panel-111');
+  });
+
+  it('says the restore is files only, and names how many', async () => {
+    const { panel } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('3 files'),
+      // A transcript that silently rewound alongside the working tree would
+      // leave no record of what had been tried, so the dialog says it does not.
+      expect.objectContaining({ detail: expect.stringContaining('conversation is left') }),
+      expect.any(String),
+    );
+  });
+
+  it('restores nothing when declined', async () => {
+    const { panel, rollbackCheckpointByTaskId } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+    expect(rollbackCheckpointByTaskId).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes a turn with no snapshot from one whose snapshot aged out', async () => {
+    const { panel } = mount([]);
+    // Snapshots live in a ring buffer, so "there was one" and "there is one" are
+    // different facts and the operator should be told which.
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('no longer stored'),
+    }));
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a2' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('no file snapshot'),
+    }));
+  });
+});

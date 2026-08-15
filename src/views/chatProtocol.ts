@@ -83,6 +83,12 @@ export type ChatPanelMessage =
    */
   | { type: 'editMessage'; payload: { entryId: string; content: string } }
   | { type: 'regenerateMessage'; payload: { entryId: string } }
+  /**
+   * Restore the files a turn changed. Carries the transcript entry, never the
+   * task id: the host looks that up, so the webview cannot name a checkpoint
+   * belonging to some other turn.
+   */
+  | { type: 'restoreCheckpoint'; payload: { entryId: string } }
   | { type: 'renameSession'; payload: { sessionId: string; title: string } }
   /**
    * Search every stored session, not just the open one. Replaces the dead
@@ -314,6 +320,12 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'restoreCheckpoint') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && (message.payload as { entryId: string }).entryId.length > 0;
   }
 
   if (message.type === 'editMessage') {

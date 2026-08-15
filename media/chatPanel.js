@@ -2482,6 +2482,14 @@
     // Beside the thumbs, because it is the same judgement one step further on:
     // this answer was not good enough, try again.
     actions.appendChild(createRegenerateButton(entry.id));
+    // Offered only when this turn actually has a snapshot: a control that
+    // reports "nothing to restore" when clicked is worse than no control.
+    var taskId = entry.meta && typeof entry.meta.taskId === 'string' ? entry.meta.taskId : undefined;
+    var restorable = taskId && latestState && Array.isArray(latestState.checkpointTaskIds)
+      && latestState.checkpointTaskIds.indexOf(taskId) !== -1;
+    if (restorable) {
+      actions.appendChild(createRestoreButton(entry.id));
+    }
     actions.appendChild(createDeleteButton(entry.id));
     return actions;
   }
@@ -2681,6 +2689,21 @@
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finish(true); }
       if (event.key === 'Escape') { event.preventDefault(); finish(false); }
     });
+  }
+
+  /** Put the files back as they were before this turn. Files only. */
+  function createRestoreButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Restore files from before this turn');
+    button.title = 'Restore files from before this turn (the conversation is left as it is)';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><polyline points="3 2 3 5 6 5"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'restoreCheckpoint', payload: { entryId: entryId } });
+    });
+    return button;
   }
 
   /** Ask for a different answer to the same question. */

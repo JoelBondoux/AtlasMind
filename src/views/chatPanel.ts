@@ -242,6 +242,8 @@ interface ChatPanelState {
   modelOverride?: ModelOverride;
   /** What the next turn would carry, and what it is measured against. */
   contextMeter?: ChatContextMeter;
+  /** Task ids with a stored file snapshot, so a turn can offer to restore it. */
+  checkpointTaskIds?: string[];
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
@@ -387,6 +389,14 @@ export class ChatPanel {
    */
   private modelOverride: ModelOverride | undefined;
   private pickableModels: PickableModel[] = [];
+  /**
+   * Task ids that currently have a file snapshot.
+   *
+   * Cached from the last sync so the transcript renderer can decide whether to
+   * offer a restore without asking the store per bubble. Stale by at most one
+   * render, and the handler re-checks before doing anything.
+   */
+  private checkpointTaskIds: string[] = [];
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
@@ -738,6 +748,9 @@ export class ChatPanel {
         return;
       case 'attachOpenFiles':
         await this.attachOpenFiles();
+        return;
+      case 'restoreCheckpoint':
+        await this.restoreCheckpointForTurn(message.payload.entryId);
         return;
       case 'editMessage':
         await this.rewindAndResubmit(message.payload.entryId, message.payload.content);
@@ -1575,6 +1588,10 @@ export class ChatPanel {
         : undefined;
       this.streamingModels = [];
       const assistantMeta = {
+        // Recorded so the transcript can point at this turn's file snapshot
+        // later. Without it a checkpoint exists but nothing on screen knows
+        // which turn produced it.
+        taskId,
         ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
           hasSessionContext: Boolean(sessionContext),
           responseText: reconciled.transcriptText,
@@ -2488,6 +2505,13 @@ export class ChatPanel {
     // touches credential storage, and the set changes when the operator
     // configures one, not while they type.
     await this.refreshPickableModels();
+    try {
+      this.checkpointTaskIds = (await this.atlas.listCheckpoints?.() ?? []).map(item => item.taskId);
+    } catch {
+      // A store that cannot be read offers nothing, rather than offering a
+      // restore that would fail when clicked.
+      this.checkpointTaskIds = [];
+    }
     const meterConfiguration = vscode.workspace.getConfiguration('atlasmind');
     const contextMeter = this.buildContextMeter(
       meterConfiguration.get<number>('chatSessionContextChars', 2500),
@@ -2535,6 +2559,7 @@ export class ChatPanel {
       slashCommands: ChatPanel.slashCommandCatalogue(),
       availableModels: this.pickableModels,
       ...(contextMeter ? { contextMeter } : {}),
+      ...(this.checkpointTaskIds.length > 0 ? { checkpointTaskIds: this.checkpointTaskIds } : {}),
       ...(this.modelOverride ? { modelOverride: this.modelOverride } : {}),
       sessions,
       transcript: transcriptPayload,
@@ -3319,6 +3344,55 @@ export class ChatPanel {
    * everything after it, and send it. Splitting them would give two chances to
    * get the discard boundary wrong.
    */
+  /**
+   * Put the files back as they were before a turn.
+   *
+   * Files only, and the dialog says so: the conversation is untouched, because
+   * a transcript that silently rewound itself alongside the working tree would
+   * leave no record of what had been tried. The two are separate decisions and
+   * `Edit`/`Regenerate` is the one that rewinds the conversation.
+   */
+  private async restoreCheckpointForTurn(entryId: string): Promise<void> {
+    const entry = this.atlas.sessionConversation
+      .getTranscript(this.selectedSessionId)
+      .find(item => item.id === entryId);
+    const taskId = entry?.meta?.taskId;
+    if (!taskId) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'This turn has no file snapshot.' });
+      return;
+    }
+
+    const available = await this.atlas.listCheckpoints?.().catch(() => []) ?? [];
+    const checkpoint = available.find(item => item.taskId === taskId);
+    if (!checkpoint) {
+      // Snapshots age out of a ring buffer, so "there was one" and "there is
+      // one" are different facts and the operator should be told which.
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: 'The file snapshot for that turn is no longer stored.',
+      });
+      return;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Restore ${checkpoint.fileCount} file${checkpoint.fileCount === 1 ? '' : 's'} to their state before this turn?`,
+      {
+        modal: true,
+        detail: 'Only files are restored. The conversation is left exactly as it is, and anything changed since is overwritten.',
+      },
+      'Restore files',
+    );
+    if (choice !== 'Restore files') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing restored.' });
+      return;
+    }
+
+    const result = await this.atlas.rollbackCheckpointByTaskId?.(taskId)
+      ?? { ok: false, summary: 'Restoring files is unavailable here.', restoredPaths: [] };
+    await this.host.webview.postMessage({ type: 'status', payload: result.summary });
+    await this.syncState();
+  }
+
   private async rewindAndResubmit(entryId: string, replacementText?: string): Promise<void> {
     if (this.activePromptExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message.' });
