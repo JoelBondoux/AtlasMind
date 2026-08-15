@@ -5061,3 +5061,91 @@ describe('opening a file a reply linked to', () => {
     expect(lastStatus()).toContain('outside this workspace');
   });
 });
+
+describe('streaming a reply does not rebuild everything per chunk', () => {
+  function mount(isProviderConfigured: ReturnType<typeof vi.fn>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const transcript: Array<{ id: string; role: string; content: string; timestamp: string }> = [];
+    const processTask = vi.fn(async (_task: unknown, onChunk: (chunk: string) => Promise<void>) => {
+      // A fast provider emits a lot of small deltas. This is the shape that made
+      // a short answer expensive: the cost was per chunk, not per question.
+      for (let index = 0; index < 200; index += 1) {
+        await onChunk('word ');
+      }
+      return {
+        id: 't', agentId: 'a', modelUsed: 'm', response: 'word '.repeat(200),
+        inputTokens: 1, outputTokens: 200, costUsd: 0, durationMs: 1,
+      };
+    });
+
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        isProviderConfigured,
+        modelRouter: {
+          listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn(() => transcript),
+          appendMessage: vi.fn((role: string, content: string) => {
+            const id = `m${transcript.length + 1}`;
+            transcript.push({ id, role, content, timestamp: '2026-08-15T00:00:00.000Z' });
+            return id;
+          }),
+          updateMessage: vi.fn((id: string, content: string) => {
+            const entry = transcript.find(item => item.id === id);
+            if (entry) { entry.content = content; }
+          }),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      processTask,
+      transcript,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('does not re-enumerate providers once per chunk', async () => {
+    const isProviderConfigured = vi.fn().mockResolvedValue(true);
+    const { panel, processTask } = mount(isProviderConfigured);
+    const before = isProviderConfigured.mock.calls.length;
+
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    // Without this the assertion below passes for the wrong reason: a turn that
+    // never streamed enumerates nothing either.
+    expect(processTask).toHaveBeenCalled();
+
+    // Enumerating reaches credential storage and, for ACP, performs two dynamic
+    // imports. Which providers are configured is a property of settings — 200
+    // chunks of one reply cannot change it. A handful of calls is the end-of-turn
+    // sync and any listener-driven ones; 200 would be the old behaviour.
+    const duringTurn = isProviderConfigured.mock.calls.length - before;
+    expect(duringTurn).toBeLessThan(40);
+  });
+
+  it('still shows the whole reply when the turn ends', async () => {
+    const { panel, transcript } = mount(vi.fn().mockResolvedValue(true));
+
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    // The coalescing rate-limits the push, never the text. Dropping an
+    // intermediate frame is invisible; dropping the last one would truncate the
+    // answer on screen, which is the one failure this must not have.
+    const assistant = transcript.find(entry => entry.role === 'assistant');
+    expect(assistant?.content).toContain('word word');
+    expect(assistant?.content.trim().split(/\s+/)).toHaveLength(200);
+  });
+});

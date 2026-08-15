@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.344.0 — Chat stops doing a day's work per word
+
+Every chunk of a streaming reply used to rebuild the whole panel: re-reading your credential store, the
+checkpoint store and the run history from disk, recomputing the context meter over the entire transcript,
+and re-sending that transcript to the view. Hundreds of times, for one answer.
+
+So the cost of a turn tracked how *long* the reply was and how much was already in the chat — not how hard
+the question was. That is why a simple ask could still take a while, and why a long-running chat got
+steadily slower.
+
+The view now updates about once a frame instead of once a word. The reply text itself is unchanged and
+still recorded on every chunk, so nothing is lost or truncated. On a 200-chunk reply the credential-store
+reads alone went from 203 to 3.
+
 ## v0.343.1 — The model button joins the icon row
 
 The **Auto** button was rendering half again the size of the icons next to it — its own styling asked to be

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.343.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.344.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.343.1
+## What's new in 0.344.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Replies stream faster, and long chats no longer get slower.** Every streamed chunk used to rebuild the
+  panel's entire state — re-reading your credential store, the checkpoint store and the run history from
+  disk, and re-sending the whole transcript. That cost scaled with reply length and chat size rather than
+  with the question, which is why short asks could still feel slow. Measured on one 200-chunk reply, the
+  credential-store enumeration alone dropped from 203 reads to 3.
 
 - **A project run checks it has somewhere to run.** With no folder open it stops and says so. With an
   empty folder it shows you the plan and asks first, naming both things that could mean — a new project

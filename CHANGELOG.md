@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.344.0] - 2026-08-15
+
+### Changed
+
+- **The chat panel no longer rebuilds its entire state on every streamed chunk.** `renderPendingAssistant`
+  ran a full `syncState()` per chunk, and a full sync is not a cheap thing to do hundreds of times in one
+  reply: it enumerates every provider — which reaches credential storage, and for ACP performs two dynamic
+  imports — reads the checkpoint store and the run history off disk, rebuilds the context meter over the
+  whole transcript, and then posts the entire transcript across the webview boundary.
+
+  None of that describes the chunk that just arrived. The consequence was that the cost of a turn scaled
+  with **how long the reply was and how much was already in the session**, rather than with the question —
+  which is precisely why short, simple asks could still feel slow, and why a chat got slower the longer it
+  ran.
+
+  The push to the webview is now coalesced to roughly a frame. The text is not: the transcript entry is
+  still updated synchronously on every chunk, because that is the source of truth. The trailing edge
+  matters more than the leading one — dropping an intermediate frame is invisible, dropping the last one
+  would truncate the reply on screen — so a pending update always survives to the next tick, and the
+  end-of-turn sync runs unconditionally on every exit path, including failure and stop.
+
+  Provider enumeration additionally reuses its last result *within* a streamed reply, since which providers
+  you have configured is a property of settings and a chunk cannot change it. Every non-streaming sync
+  re-reads, so the staleness window is one reply. Measured on a 200-chunk reply: **203 credential-store
+  enumerations before, 3 after.**
+
 ## [0.343.1] - 2026-08-15
 
 ### Fixed

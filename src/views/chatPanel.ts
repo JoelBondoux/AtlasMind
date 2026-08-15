@@ -63,6 +63,14 @@ import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
 const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
+/**
+ * How often a streaming reply pushes state to the webview.
+ *
+ * Roughly a frame. Low enough that the reply still reads as it is written, high
+ * enough that a fast provider cannot drive hundreds of full state rebuilds
+ * through a single answer.
+ */
+const STREAMING_SYNC_INTERVAL_MS = 60;
 
 /**
  * Structural subset of `vscode.WebviewPanel` / `vscode.WebviewView` that ChatPanel
@@ -389,6 +397,10 @@ export class ChatPanel {
    */
   private modelOverride: ModelOverride | undefined;
   private pickableModels: PickableModel[] = [];
+  /** Whether the provider enumeration has succeeded at least once this session. */
+  private providerListLoaded = false;
+  private streamingSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  private streamingSyncDirty = false;
   /**
    * Task ids that currently have a file snapshot.
    *
@@ -543,6 +555,10 @@ export class ChatPanel {
 
   public dispose(): void {
     this._isDisposed = true;
+    if (this.streamingSyncTimer) {
+      clearTimeout(this.streamingSyncTimer);
+      this.streamingSyncTimer = undefined;
+    }
     this.settleLoopDecision('stop');
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
@@ -1470,9 +1486,12 @@ export class ChatPanel {
     const streamingThoughtLines: string[] = [];
     this.streamingModels = [];
     const renderPendingAssistant = async (): Promise<void> => {
+      // The transcript entry is updated on every chunk — that is the source of
+      // truth and must not be rate-limited. Only the push to the webview is
+      // coalesced; see `scheduleStreamingSync`.
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
-      await this.syncState();
+      this.scheduleStreamingSync();
     };
     const handleModelSelected = async (model: string): Promise<void> => {
       if (!this.streamingModels.includes(model)) {
@@ -1759,6 +1778,15 @@ export class ChatPanel {
         pendingSubmission = this.pendingPromptSubmission;
         this.pendingPromptSubmission = undefined;
       }
+      // The turn is over on every path through here — completed, failed or
+      // stopped — and the sync below is unconditional, so a coalesced tick still
+      // in flight has nothing left to contribute. Cancelling it keeps the final
+      // state the last thing written rather than a race with it.
+      if (this.streamingSyncTimer) {
+        clearTimeout(this.streamingSyncTimer);
+        this.streamingSyncTimer = undefined;
+      }
+      this.streamingSyncDirty = false;
       await ChatPanel.syncAllPanels();
       await this.host.webview.postMessage({ type: 'busy', payload: false });
       if (pendingSubmission) {
@@ -2546,12 +2574,47 @@ export class ChatPanel {
     }
   }
 
-  private async syncState(): Promise<void> {
+  /**
+   * Push state after a streamed chunk, at most once per frame-ish interval.
+   *
+   * `renderPendingAssistant` ran a full `syncState()` on **every chunk**, and a
+   * full sync is not a cheap thing to run hundreds of times: it enumerates every
+   * provider (which reaches credential storage, and for ACP performs two dynamic
+   * imports), reads the checkpoint store and the run history off disk, rebuilds
+   * the context meter over the whole transcript, and then posts the entire
+   * transcript across the webview boundary. None of that describes the chunk
+   * that just arrived. The cost therefore scaled with how *long* a reply was and
+   * how much was already in the session, which is exactly why short, simple
+   * turns felt slow — the work was never proportional to the question.
+   *
+   * Coalescing keeps the text authoritative (the transcript entry is still
+   * updated on every chunk, synchronously) and only rate-limits the *push*. The
+   * trailing edge matters more than the leading one: dropping an intermediate
+   * frame is invisible, dropping the last one would leave the reply truncated on
+   * screen, so a dirty flag always survives to the next tick and `runPrompt`
+   * syncs unconditionally when the turn ends.
+   */
+  private scheduleStreamingSync(): void {
     if (this._isDisposed) return;
-    // Refreshed once per sync rather than per keystroke: enumerating providers
-    // touches credential storage, and the set changes when the operator
-    // configures one, not while they type.
-    await this.refreshPickableModels();
+    this.streamingSyncDirty = true;
+    if (this.streamingSyncTimer) return;
+    this.streamingSyncTimer = setTimeout(() => {
+      this.streamingSyncTimer = undefined;
+      if (!this.streamingSyncDirty || this._isDisposed) return;
+      this.streamingSyncDirty = false;
+      void this.syncState({ streaming: true });
+    }, STREAMING_SYNC_INTERVAL_MS);
+  }
+
+  private async syncState(options?: { streaming?: boolean }): Promise<void> {
+    if (this._isDisposed) return;
+    // Enumerating providers touches credential storage, and which providers are
+    // configured is a property of settings — a streamed chunk cannot change it.
+    // So a streaming sync reuses what the last full sync found, and every other
+    // sync re-reads. That is the whole staleness window: one reply.
+    if (!options?.streaming || !this.providerListLoaded) {
+      await this.refreshPickableModels();
+    }
     try {
       this.checkpointTaskIds = (await this.atlas.listCheckpoints?.() ?? []).map(item => item.taskId);
     } catch {
@@ -3368,6 +3431,7 @@ export class ChatPanel {
         this.atlas.modelRouter as never,
         providerId => this.atlas.isProviderConfigured(providerId),
       );
+      this.providerListLoaded = true;
     } catch {
       // A picker that cannot enumerate is empty, never stale: offering a model
       // that is no longer configured would pin a turn to something that fails.
