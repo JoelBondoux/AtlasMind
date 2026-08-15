@@ -52,6 +52,13 @@ The extension has **two build targets**:
 - **Desktop** (Node): `tsc -p ./` emits `out/extension.js` (the `main` entry), the ordinary CLI, and the agent-side ACP stdio entrypoint under `out/cli/`.
 - **Web** (browser/Web Worker): `tsc -p ./src/web/tsconfig.json` type-checks the web sources against WebWorker (not Node) globals, and `node esbuild.mjs` bundles `src/web/extension.ts` into the single dependency-free `out/web/extension.js` (the `browser` entry). The web build must stay free of Node built-ins; only `vscode`, WebWorker globals, and the Node-free shared modules (`src/remote/protocol.ts`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`, `src/views/webviewUtils.ts`) may be imported. `npm run compile` runs all three steps.
 
+- **Webview DOM tests**: `tests/views/chatWebviewDom.test.ts` mounts `chatWebviewMarkup.ts` output in jsdom,
+  evaluates `media/chatPanel.js`, and drives it with the same `state` messages the host posts. Every other
+  test of that file asserts its source text, which is why a free variable left behind by a refactor
+  (`selectedRun`, v0.329.1) could stop every assistant bubble from rendering while the compiler, the lint
+  rules and the whole suite stayed green — the file is `@ts-nocheck` by necessity. Add a case here whenever
+  a change alters what the panel *draws*, not just what it wires.
+
 - **Webview highlighter**: the same `node esbuild.mjs` step also builds
   `media/vendor/highlight.min.js` from the pinned `highlight.js` devDependency, via
   `scripts/highlight-entry.mjs`. The chat webview is hand-authored, unbundled ES5 loaded straight from

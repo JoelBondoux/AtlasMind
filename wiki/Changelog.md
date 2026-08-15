@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.333.1 — Replies render again
+
+A regression in v0.329.1 stopped assistant replies from appearing in the chat panel: your own message showed
+up, nothing after it did, and the status line still said the reply was ready — because the answer had
+arrived and only the drawing of it had failed. Fixed.
+
+The chat panel also gains its first tests that genuinely run it in a browser-like environment rather than
+reading its source. That is the gap this bug came through, and five of the six new cases fail against it.
+
 ## v0.333.0 — The composer completes as you type
 
 Type `/` in the AtlasMind chat panel and the command list appears; type `@` and it searches your workspace

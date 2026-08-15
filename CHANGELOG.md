@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.333.1] - 2026-08-15
+
+### Fixed
+
+- **Assistant replies stopped rendering.** Your own message appeared, nothing after it did, and the status
+  line still reported the reply as ready — because the failure was in the renderer, not in the turn. The
+  answer had arrived and was sitting in the transcript with nothing drawing it.
+
+  Cause: extracting `buildMessageElement` out of `renderTranscript` in 0.329.1 left `selectedRun` behind as
+  a free variable. It is read **only** on the assistant branch, so every assistant bubble threw a
+  `ReferenceError` mid-build and `renderTranscript` died partway through its loop — after appending the
+  user bubble, before appending the reply.
+
+  Nothing could have caught it. `media/chatPanel.js` is `@ts-nocheck` out of necessity, so the compiler
+  never saw it; every existing test of that file asserts its **source text**, because there was no DOM to
+  run it in; and the panel's own status line kept saying everything was fine.
+
+- **The chat webview now has tests that actually execute it.** `tests/views/chatWebviewDom.test.ts` mounts
+  the real markup in jsdom, runs the real script, and pushes state messages the way the host does — then
+  looks at what came out. Five of its six cases fail against the defect above and pass with the fix.
+
+  It is deliberately small. Its value is in being *run* rather than in breadth: it renders a reply, renders
+  one tied to a selected run, streams a turn and finishes it, appends a turn without losing the earlier
+  ones, checks a fenced block's text survives highlighting exactly, and opens the command list on a leading
+  slash but not on a path. Every one of those is a path that source-text assertions can only describe.
+
 ## [0.333.0] - 2026-08-15
 
 ### Added

@@ -1890,6 +1890,7 @@
       streamingThought: streamingThought,
       runsByMessageId: lastRenderContext.runsByMessageId,
       sessionModels: lastRenderContext.sessionModels,
+      selectedRun: selectedRun,
     };
 
     // The last bubble already on screen is the one being written into, so it is
@@ -1937,6 +1938,7 @@
     var streamingThought = ctx.streamingThought;
     var runsByMessageId = ctx.runsByMessageId;
     var sessionModels = ctx.sessionModels;
+    var selectedRun = ctx.selectedRun;
 
     var item = document.createElement('div');
     item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
@@ -2173,6 +2175,7 @@
       streamingThought: streamingThought,
       runsByMessageId: runsByMessageId,
       sessionModels: sessionModels,
+      selectedRun: selectedRun,
     };
     lastRenderContext = ctx;
     renderedEntryIds = entries.map(function (item) { return item && item.id ? item.id : ''; });
