@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.324.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.325.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.324.1
+## What's new in 0.325.0
 
 The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The two chat surfaces really do behave the same now.** VS Code's `@atlas` view answered ordinary
+  messages by a separate internal route that had quietly lost conversation recall, roadmap status, image
+  attachment, and the model-and-cost footer — all of which the AtlasMind chat panel had. Both surfaces
+  now enter through one dispatcher.
 
 - **Ask what you said, get what you said.** "What was my question two turns ago?" was answered by a model
   guessing — and it returned a question you never asked. It now comes from the transcript, quoted exactly.

@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.325.0] - 2026-08-15
+
+### Fixed
+
+- **The `@atlas` chat view answered ordinary messages by a route that had lost half the features.**
+  `handleNativeChatRequest` delegated to the shared dispatcher only when a slash command was set, and
+  every command is consumed before the branch that reaches the freeform pipeline — so that pipeline, and
+  everything only it wires up, was **unreachable code on the surface the manifest advertises**:
+
+  - **conversation recall** — "what was my question two turns ago?" is answered from the transcript, quoted;
+    it shipped in 0.324.0 and could only ever be reached from the chat panel;
+  - **roadmap status** and the **routine-edit** intent;
+  - **inline image attachment** on a plain turn — mentioning an image path attached nothing here;
+  - **project-run auto-flow**, so an offered run needed a second message;
+  - the **model, cost and token footer**, absent from the one surface where the spend is incurred;
+  - **`ensureAssistantVisibleResponse`**, so an empty reply produced a bare "Next step:" line;
+  - the **typed-slash recovery**, whose own comment calls it load-bearing — a `/buzz` arriving as text
+    rather than as a command (which is how the Settings → Buzz button opens chat) would have fallen
+    through to a model holding every connected tool.
+
+  Every turn now enters through one dispatcher whether or not a command is set. Three handler-level tests
+  pin it, because a shipped-but-unreachable feature has no external symptom and nothing would have caught
+  the gap reopening: recall answers without calling a model, a plain turn renders the footer, and
+  carry-forward is consulted in both directions. That last one is the regression the battery could not
+  catch — it probes `shouldCarryForwardConversationContext` as a function and would stay green while the
+  handler stopped asking it.
+
+  Intent routing was also being resolved twice by two copies of the rule, once in the dispatcher and once
+  in the freeform path. `resolveFreeformPreflight` owns it now: one classifier, one answer.
+
 ## [0.324.1] - 2026-08-15
 
 ### Changed

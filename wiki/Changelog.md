@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.325.0 — Both chat surfaces, one set of features
+
+Typing to `@atlas` in VS Code's chat view used to run a different internal route from the AtlasMind chat
+panel — and that route had quietly lost several things the panel had: conversation recall, roadmap status,
+attaching an image by mentioning its path, continuing straight into an offered run, and the line telling
+you which model answered and what it cost. The recall feature shipped last release and could never be
+reached from this surface at all.
+
+Both now go through one dispatcher, so the two cannot drift apart again. One more thing came back with it:
+a slash command that arrives as plain text — which is how some buttons open chat — is recognised again
+instead of being handed to a model.
+
 ## v0.324.1 — Groundwork: one answer to "what is this prompt asking?"
 
 Nothing changes for you in this release. An audit found the two places you can talk to AtlasMind had

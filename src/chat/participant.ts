@@ -610,201 +610,17 @@ async function handleNativeChatRequest(
 ): Promise<vscode.ChatResult> {
   const sessionId = resolveThreadSessionId(request, chatContext, atlas.sessionConversation);
 
-  if (request.command) {
-    return handleChatRequest(request, chatContext, stream, token, atlas, sessionId);
-  }
-
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const transcript = atlas.sessionConversation.getTranscript(sessionId);
-  const pendingRunEntry = [...transcript]
-    .reverse()
-    .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
-  const pendingRunGoal = pendingRunEntry?.meta?.projectRunProposal?.goal;
-
-  if (pendingRunGoal && SAVE_PROPOSED_RUN_PATTERN.test(request.prompt)) {
-    atlas.sessionConversation.updateMessage(
-      pendingRunEntry.id,
-      pendingRunEntry.content,
-      sessionId,
-      {
-        ...pendingRunEntry.meta,
-        projectRunProposal: { goal: pendingRunGoal, status: 'saved' },
-      },
-    );
-    await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
-      goal: pendingRunGoal,
-      autoPreview: true,
-    });
-    stream.markdown('Saved the proposed run in **Project Run Center**. You can review and start it there later.');
-    return { metadata: { command: 'save-proposed-project-run' } };
-  }
-
-  if (pendingRunGoal && CANCEL_PROPOSED_RUN_PATTERN.test(request.prompt)) {
-    atlas.sessionConversation.updateMessage(
-      pendingRunEntry.id,
-      pendingRunEntry.content,
-      sessionId,
-      {
-        ...pendingRunEntry.meta,
-        projectRunProposal: { goal: pendingRunGoal, status: 'cancelled' },
-      },
-    );
-    stream.markdown('Cancelled the proposed project run. No run was started or saved.');
-    return { metadata: { command: 'cancel-proposed-project-run' } };
-  }
-
-  const routedIntent = resolveAtlasChatIntent(request.prompt, transcript);
-  if (routedIntent?.kind === 'project') {
-    if (pendingRunEntry && isAutonomousContinuationPrompt(request.prompt)) {
-      atlas.sessionConversation.updateMessage(
-        pendingRunEntry.id,
-        pendingRunEntry.content,
-        sessionId,
-        {
-          ...pendingRunEntry.meta,
-          projectRunProposal: { goal: routedIntent.goal, status: 'started' },
-        },
-      );
-    }
-    stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
-    const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-    // The goal is passed through **unapproved**, whichever way the run was asked for.
-    //
-    // This branch used to invert the gate: an explicit "Proceed" arrived
-    // unapproved and stalled, while a raw prompt merely *matching*
-    // PROJECT_RUN_REQUEST_PATTERN had `--approve` appended for it and sailed past
-    // the file-count threshold. That was backwards on both halves. The prompt with
-    // the least review behind it — nobody has seen a plan or a file estimate when
-    // it is typed — was the one being auto-approved, and the gate whose own message
-    // says it "exists to prevent unreviewed large-scale changes" never saw it.
-    //
-    // Neither shape carries approval now, because neither has been shown what it
-    // would do. The gate answers that by rendering the plan first and offering an
-    // "Approve and run" chip carrying the exact approving prompt.
-    const outcome = await runProjectCommand(
-      routedIntent.goal,
-      stream,
-      token,
-      atlas,
-      sessionId,
-      sessionContextBundle,
-      sessionContext,
-    );
-    return { metadata: { command: 'project', outcome } };
-  }
-  if (routedIntent?.kind === 'command') {
-    await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
-    stream.markdown(routedIntent.summary);
-    return { metadata: { command: 'freeform' } };
-  }
-
-  const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
-  const storedSessionContext = carryForwardConversationContext
-    ? atlas.sessionConversation.buildContext({
-      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
-      sessionId,
-    })
-    : '';
-  const nativeHistory = carryForwardConversationContext ? buildNativeChatHistoryLines(chatContext).join('\n') : '';
-  const nativeChatContext = buildNativeChatContextSummary(request, chatContext, {
-    includeHistory: carryForwardConversationContext,
-  });
-  const workstationContext = buildWorkstationContext();
-  const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(request.prompt, atlas, {
-    sessionContext,
-    nativeChatContext,
-  });
-
-  let streamedText = '';
-  const chunkBuffer = createStreamBuffer(stream);
-  const result = await atlas.orchestrator.processTask({
-    id: `task-${Date.now()}`,
-    userMessage: request.prompt,
-    context: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
-      ...(workstationContext ? { workstationContext } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-    },
-    constraints: {
-      budget: toBudgetMode(configuration.get<string>('budgetMode')),
-      speed: toSpeedMode(configuration.get<string>('speedMode')),
-    },
-    timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
-    }
-    streamedText += chunk;
-    chunkBuffer.push(chunk);
-  }, message => {
-    if (!message.trim()) {
-      return;
-    }
-    stream.progress(message);
-  });
-  chunkBuffer.flush();
-
-  const reconciled = reconcileAssistantResponse(streamedText, result.response);
-  if (reconciled.additionalText) {
-    writeMarkdownChunk(stream, reconciled.additionalText, 'native chat completion');
-  }
-
-  let assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
-    hasSessionContext: Boolean(sessionContext),
-    routingContext: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-    },
-    policies: [
-      ...atlas.getWorkspacePolicySnapshots(),
-      ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
-    ],
-    responseText: reconciled.transcriptText,
-  });
-  const proposal = resolveProjectRunProposal(
-    reconciled.transcriptText,
-    [
-      ...transcript,
-      {
-        id: `proposal-${Date.now()}`,
-        role: 'assistant',
-        content: reconciled.transcriptText,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  );
-  if (proposal) {
-    assistantMeta = {
-      ...assistantMeta,
-      followupQuestion: 'What should I do with this proposed project run?',
-      quickReplies: undefined,
-      projectRunProposal: { goal: proposal.goal, status: 'pending' },
-      suggestedFollowups: [
-        { label: 'Start run', prompt: 'Proceed', description: 'Start the autonomous project run now.' },
-        { label: 'Save for later', prompt: 'Save this proposed project run for later.', description: 'Create a reviewed preview in Project Run Center.' },
-        { label: 'Cancel', prompt: 'Cancel this proposed project run.', description: 'Dismiss the proposal without starting or saving it.' },
-      ],
-    };
-  }
-  if (assistantMeta.followupQuestion) {
-    writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
-  }
-  if (!token.isCancellationRequested) {
-    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, sessionId, assistantMeta);
-  }
-
-  return {
-    metadata: {
-      command: request.command ?? 'freeform',
-      ...((assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies)
-        ? { suggestedFollowups: assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies }
-        : {}),
-    },
-  };
+  // Every turn goes through one dispatcher, whether or not a slash command is set.
+  //
+  // This used to answer plain turns inline and delegate only commands, which made
+  // `handleChatRequest`'s default branch — and everything it reaches — unreachable
+  // code on this surface: conversation recall, roadmap status, routine-edit intent,
+  // inline image attachment, project-run auto-flow, the response footer, and the
+  // typed-slash recovery whose own comment calls it load-bearing. Recall existed
+  // and could not be reached from the surface the manifest advertises, while the
+  // panel had it. One dispatcher is what makes "both surfaces behave identically"
+  // a fact rather than a claim.
+  return handleChatRequest(request, chatContext, stream, token, atlas, sessionId);
 }
 
 function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'history'>): string[] {
@@ -1013,7 +829,7 @@ export async function runDeterministicSlashCommand(
 
 async function handleChatRequest(
   request: vscode.ChatRequest,
-  _chatContext: vscode.ChatContext,
+  chatContext: vscode.ChatContext,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
@@ -1022,6 +838,7 @@ async function handleChatRequest(
   let command = request.command;
   let prompt = request.prompt;
   let projectOutcome: ProjectRunOutcome | undefined;
+  let freeformFollowups: SessionSuggestedFollowup[] | undefined;
 
   if (token.isCancellationRequested) {
     return {};
@@ -1100,48 +917,32 @@ async function handleChatRequest(
       break;
 
     default: {
-      const routedIntent = resolveAtlasChatIntent(
-        prompt,
-        atlas.sessionConversation.getTranscript(sessionId),
-      );
-      if (routedIntent?.kind === 'project') {
-        stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
-        const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-        projectOutcome = await runProjectCommand(
-          // Unapproved, for the same reason as the other entry point: a routed
-          // intent is a phrasing match on the operator's prompt, not a review of
-          // what the run would touch.
-          routedIntent.goal,
-          stream,
-          token,
-          atlas,
-          sessionId,
-          sessionContextBundle,
-          sessionContext,
-        );
-        break;
-      }
-
-      if (routedIntent?.kind === 'command') {
-        await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
-        stream.markdown(routedIntent.summary);
-        break;
-      }
-
-      projectOutcome = (await handleFreeformMessage(
+      // Intent routing used to be resolved here as well as inside the freeform
+      // path, so the same prompt was classified twice by two copies of the rule.
+      // `resolveFreeformPreflight` owns that decision now — one classifier, one
+      // answer, shared with the panel.
+      const freeform = await handleFreeformMessage(
         request,
-        _chatContext,
+        chatContext,
         stream,
         token,
         atlas,
         sessionId,
         workflowNotice?.executionPolicy,
-      )).outcome;
+      );
+      projectOutcome = freeform.outcome;
+      freeformFollowups = freeform.assistantMeta?.suggestedFollowups ?? freeform.assistantMeta?.quickReplies;
       break;
     }
   }
 
-  return { metadata: { command: command ?? 'freeform', outcome: projectOutcome } };
+  return {
+    metadata: {
+      command: command ?? 'freeform',
+      outcome: projectOutcome,
+      ...(freeformFollowups ? { suggestedFollowups: freeformFollowups } : {}),
+    },
+  };
 }
 
 /**
