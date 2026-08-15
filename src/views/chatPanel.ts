@@ -70,7 +70,7 @@ const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
  * enough that a fast provider cannot drive hundreds of full state rebuilds
  * through a single answer.
  */
-const STREAMING_SYNC_INTERVAL_MS = 60;
+const COALESCED_SYNC_INTERVAL_MS = 60;
 
 /**
  * Structural subset of `vscode.WebviewPanel` / `vscode.WebviewView` that ChatPanel
@@ -399,8 +399,8 @@ export class ChatPanel {
   private pickableModels: PickableModel[] = [];
   /** Whether the provider enumeration has succeeded at least once this session. */
   private providerListLoaded = false;
-  private streamingSyncTimer: ReturnType<typeof setTimeout> | undefined;
-  private streamingSyncDirty = false;
+  private coalescedSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  private coalescedSyncDirty = false;
   /**
    * Task ids that currently have a file snapshot.
    *
@@ -528,18 +528,24 @@ export class ChatPanel {
         void this.syncState();
       }) ?? (() => undefined),
     });
+    // Both of these fire on ordinary editor navigation and change exactly one
+    // thing in the payload — the open-file chip list — so they are coalesced
+    // rather than each triggering a credential-store enumeration and two disk
+    // reads. See `scheduleCoalescedSync`.
     vscode.window.onDidChangeVisibleTextEditors(() => {
-      void this.syncState();
+      this.scheduleCoalescedSync();
     }, null, this.disposables);
     vscode.window.onDidChangeActiveTextEditor(editor => {
       // Remembered because the chat panel is itself the active editor much of
       // the time: by the moment somebody clicks "Insert at cursor",
       // `activeTextEditor` is often this panel or nothing at all. The last real
-      // text editor is the one they mean.
+      // text editor is the one they mean. Recorded synchronously — it is a
+      // source of truth, not rendering, and "Insert at cursor" can be clicked
+      // before the coalesced push lands.
       if (editor && editor.document.uri.scheme !== 'output') {
         this.lastActiveTextEditor = editor;
       }
-      void this.syncState();
+      this.scheduleCoalescedSync();
     }, null, this.disposables);
     if (vscode.window.activeTextEditor) {
       this.lastActiveTextEditor = vscode.window.activeTextEditor;
@@ -555,9 +561,9 @@ export class ChatPanel {
 
   public dispose(): void {
     this._isDisposed = true;
-    if (this.streamingSyncTimer) {
-      clearTimeout(this.streamingSyncTimer);
-      this.streamingSyncTimer = undefined;
+    if (this.coalescedSyncTimer) {
+      clearTimeout(this.coalescedSyncTimer);
+      this.coalescedSyncTimer = undefined;
     }
     this.settleLoopDecision('stop');
     this.activePromptExecution?.abortController.abort();
@@ -1488,10 +1494,10 @@ export class ChatPanel {
     const renderPendingAssistant = async (): Promise<void> => {
       // The transcript entry is updated on every chunk — that is the source of
       // truth and must not be rate-limited. Only the push to the webview is
-      // coalesced; see `scheduleStreamingSync`.
+      // coalesced; see `scheduleCoalescedSync`.
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
-      this.scheduleStreamingSync();
+      this.scheduleCoalescedSync();
     };
     const handleModelSelected = async (model: string): Promise<void> => {
       if (!this.streamingModels.includes(model)) {
@@ -1782,11 +1788,11 @@ export class ChatPanel {
       // stopped — and the sync below is unconditional, so a coalesced tick still
       // in flight has nothing left to contribute. Cancelling it keeps the final
       // state the last thing written rather than a race with it.
-      if (this.streamingSyncTimer) {
-        clearTimeout(this.streamingSyncTimer);
-        this.streamingSyncTimer = undefined;
+      if (this.coalescedSyncTimer) {
+        clearTimeout(this.coalescedSyncTimer);
+        this.coalescedSyncTimer = undefined;
       }
-      this.streamingSyncDirty = false;
+      this.coalescedSyncDirty = false;
       await ChatPanel.syncAllPanels();
       await this.host.webview.postMessage({ type: 'busy', payload: false });
       if (pendingSubmission) {
@@ -2575,44 +2581,55 @@ export class ChatPanel {
   }
 
   /**
-   * Push state after a streamed chunk, at most once per frame-ish interval.
+   * Push state at most once per frame-ish interval, for events that arrive in
+   * bursts and cannot have changed which providers are configured.
    *
-   * `renderPendingAssistant` ran a full `syncState()` on **every chunk**, and a
-   * full sync is not a cheap thing to run hundreds of times: it enumerates every
-   * provider (which reaches credential storage, and for ACP performs two dynamic
-   * imports), reads the checkpoint store and the run history off disk, rebuilds
-   * the context meter over the whole transcript, and then posts the entire
-   * transcript across the webview boundary. None of that describes the chunk
-   * that just arrived. The cost therefore scaled with how *long* a reply was and
-   * how much was already in the session, which is exactly why short, simple
-   * turns felt slow — the work was never proportional to the question.
+   * A full `syncState()` is not a cheap thing to run repeatedly: it enumerates
+   * every provider (which reaches credential storage, and for ACP performs two
+   * dynamic imports), reads the checkpoint store and the run history off disk,
+   * rebuilds the context meter over the whole transcript, and then posts the
+   * entire transcript across the webview boundary. Two callers used to run all
+   * of that far more often than anything they changed warranted:
    *
-   * Coalescing keeps the text authoritative (the transcript entry is still
-   * updated on every chunk, synchronously) and only rate-limits the *push*. The
-   * trailing edge matters more than the leading one: dropping an intermediate
-   * frame is invisible, dropping the last one would leave the reply truncated on
-   * screen, so a dirty flag always survives to the next tick and `runPrompt`
-   * syncs unconditionally when the turn ends.
+   * - **Every streamed chunk.** The cost of a turn therefore scaled with how
+   *   *long* the reply was and how much was already in the session, which is
+   *   exactly why short, simple turns still felt slow — the work was never
+   *   proportional to the question.
+   * - **Every editor change.** `onDidChangeVisibleTextEditors` and
+   *   `onDidChangeActiveTextEditor` fire on ordinary navigation, so clicking
+   *   between files re-read the credential store and the disk each time, while
+   *   the only thing that had actually changed was the open-file chip list.
+   *
+   * Coalescing rate-limits the *push* and nothing else — a streamed chunk still
+   * updates its transcript entry synchronously, and `lastActiveTextEditor` is
+   * still recorded the moment it changes, because both are sources of truth
+   * rather than rendering.
+   *
+   * The trailing edge matters more than the leading one: dropping an
+   * intermediate frame is invisible, dropping the last one would leave the reply
+   * truncated on screen. So a dirty flag always survives to the next tick, and
+   * `runPrompt` cancels any pending tick and syncs unconditionally when the turn
+   * ends, on completion, failure and stop alike.
    */
-  private scheduleStreamingSync(): void {
+  private scheduleCoalescedSync(): void {
     if (this._isDisposed) return;
-    this.streamingSyncDirty = true;
-    if (this.streamingSyncTimer) return;
-    this.streamingSyncTimer = setTimeout(() => {
-      this.streamingSyncTimer = undefined;
-      if (!this.streamingSyncDirty || this._isDisposed) return;
-      this.streamingSyncDirty = false;
-      void this.syncState({ streaming: true });
-    }, STREAMING_SYNC_INTERVAL_MS);
+    this.coalescedSyncDirty = true;
+    if (this.coalescedSyncTimer) return;
+    this.coalescedSyncTimer = setTimeout(() => {
+      this.coalescedSyncTimer = undefined;
+      if (!this.coalescedSyncDirty || this._isDisposed) return;
+      this.coalescedSyncDirty = false;
+      void this.syncState({ reuseProviderList: true });
+    }, COALESCED_SYNC_INTERVAL_MS);
   }
 
-  private async syncState(options?: { streaming?: boolean }): Promise<void> {
+  private async syncState(options?: { reuseProviderList?: boolean }): Promise<void> {
     if (this._isDisposed) return;
     // Enumerating providers touches credential storage, and which providers are
     // configured is a property of settings — a streamed chunk cannot change it.
     // So a streaming sync reuses what the last full sync found, and every other
     // sync re-reads. That is the whole staleness window: one reply.
-    if (!options?.streaming || !this.providerListLoaded) {
+    if (!options?.reuseProviderList || !this.providerListLoaded) {
       await this.refreshPickableModels();
     }
     try {

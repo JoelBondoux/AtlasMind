@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.344.1] - 2026-08-15
+
+### Changed
+
+- **Switching editor tabs no longer rebuilds the chat panel's state.**
+  `onDidChangeVisibleTextEditors` and `onDidChangeActiveTextEditor` fire on ordinary navigation, and each
+  ran a full `syncState()` — so clicking between files re-read the credential store and the run history
+  from disk every time, while the only thing that had actually changed in the payload was the open-file
+  chip list. Measured on 30 tab switches: **30 credential-store enumerations before, none after.**
+
+  These now share the coalescing scheduler introduced in 0.344.0, which is generalised accordingly
+  (`scheduleCoalescedSync`). It rate-limits the push and nothing else: `lastActiveTextEditor` is still
+  recorded the instant it changes, because "Insert at cursor" can be clicked before the push lands, and
+  that value is a source of truth rather than rendering.
+
 ## [0.344.0] - 2026-08-15
 
 ### Changed

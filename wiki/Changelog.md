@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.344.1 — Clicking between files stops waking the chat panel
+
+The same rebuild that used to run per streamed word also ran every time you changed editor tab — re-reading
+your credential store and the run history from disk on each click, to update a list of open-file chips.
+Thirty tab switches did that thirty times; now they do it none.
+
 ## v0.344.0 — Chat stops doing a day's work per word
 
 Every chunk of a streaming reply used to rebuild the whole panel: re-reading your credential store, the

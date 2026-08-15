@@ -11,12 +11,14 @@ const mocks = vi.hoisted(() => {
     workspaceFolders: unknown;
     configurationState: Map<string, unknown>;
     configurationUpdates: Array<{ key: string; value: unknown; target: unknown }>;
+    activeTextEditorHandler: ((editor: unknown) => void) | undefined;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
     workspaceFolders: undefined,
     configurationState: new Map(),
     configurationUpdates: [],
+    activeTextEditorHandler: undefined,
   };
 
   const postMessage = vi.fn();
@@ -75,7 +77,12 @@ vi.mock('vscode', () => ({
     visibleTextEditors: [],
     createWebviewPanel: mocks.createWebviewPanel,
     onDidChangeVisibleTextEditors: vi.fn(() => ({ dispose: () => undefined })),
-    onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => undefined })),
+    onDidChangeActiveTextEditor: vi.fn((handler: (editor: unknown) => void) => {
+      // Captured so a test can drive editor navigation; the panel coalesces the
+      // state pushes these produce, and that is only checkable by firing them.
+      mocks.state.activeTextEditorHandler = handler;
+      return { dispose: () => undefined };
+    }),
     showInputBox: mocks.showInputBox,
     showQuickPick: mocks.showQuickPick,
     showInformationMessage: mocks.showInformationMessage,
@@ -5147,5 +5154,62 @@ describe('streaming a reply does not rebuild everything per chunk', () => {
     const assistant = transcript.find(entry => entry.role === 'assistant');
     expect(assistant?.content).toContain('word word');
     expect(assistant?.content.trim().split(/\s+/)).toHaveLength(200);
+  });
+});
+
+describe('editor navigation does not re-read the credential store each time', () => {
+  function mount(isProviderConfigured: ReturnType<typeof vi.fn>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        isProviderConfigured,
+        modelRouter: {
+          listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+  }
+
+  it('coalesces a burst of tab switches into one push', async () => {
+    const isProviderConfigured = vi.fn().mockResolvedValue(true);
+    mount(isProviderConfigured);
+    const fire = mocks.state.activeTextEditorHandler;
+    expect(fire, 'the panel did not register an active-editor listener').toBeDefined();
+    const before = isProviderConfigured.mock.calls.length;
+
+    // Clicking through 30 files. The only thing this changes in the payload is
+    // the open-file chip list; it cannot change which providers are configured.
+    for (let index = 0; index < 30; index += 1) {
+      fire?.({ document: { uri: { scheme: 'file', fsPath: `/repo/f${index}.ts`, path: `/repo/f${index}.ts` } } });
+    }
+
+    expect(isProviderConfigured.mock.calls.length - before).toBe(0);
+  });
+
+  it('still records the editor immediately, because that is not rendering', () => {
+    mount(vi.fn().mockResolvedValue(true));
+    const fire = mocks.state.activeTextEditorHandler;
+    const editor = { document: { uri: { scheme: 'file', fsPath: '/repo/a.ts', path: '/repo/a.ts' } } };
+
+    fire?.(editor);
+
+    // "Insert at cursor" can be clicked before the coalesced push lands, so the
+    // last real editor has to be known the moment it changes.
+    expect((ChatPanel.currentPanel as unknown as { lastActiveTextEditor?: unknown }).lastActiveTextEditor)
+      .toBe(editor);
   });
 });
