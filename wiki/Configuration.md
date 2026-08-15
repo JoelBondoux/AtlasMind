@@ -22,9 +22,28 @@ Start here. If you change nothing else, change these.
 | `atlasmind.budgetMode` | `balanced` | `cheap` prefers local models and subscriptions. `auto` lets task difficulty decide. `expensive` always reaches for the best model available |
 | `atlasmind.speedMode` | `balanced` | `fast` for quick answers, `considered` when you'd rather it thought properly |
 | `atlasmind.dailyCostLimitUsd` | `0` | Set a number you're comfortable with. AtlasMind warns you at 80% and stops at 100%. `0` means no limit |
-| `atlasmind.toolApprovalMode` | `ask-on-write` | How often you get asked. `always-ask` to watch everything; loosen it as trust builds |
+| `atlasmind.toolApprovalMode` | `ask-on-write` | How often you get asked. See the note below — the four modes are not one ladder |
 | `atlasmind.autoVerifyAfterWrite` | `true` | Leave this on. It runs your own checks after every change |
 | `atlasmind.ssotPath` | `project_memory` | Where project memory lives. Change it only if that folder name clashes with something |
+
+
+### The four approval modes are not one ladder
+
+Each is best read as *what it lets through without asking*:
+
+| Mode | Lets through without asking |
+|---|---|
+| `always-ask` | Nothing. |
+| `ask-on-write` | Reads — local, git, and remote reads that change nothing. |
+| `ask-on-external` | Everything local, **including file writes, deletes and commits**. Prompts for terminal, network and audio. |
+| `allow-safe-readonly` | Local reads, git reads and terminal reads. Writes and external calls prompt. |
+
+The last two are **different axes, not a stricter and a looser setting**. `ask-on-external` asks *did this
+leave the machine?*; `allow-safe-readonly` asks *did this change something?* Neither gates a superset of
+the other, so moving between them tightens one thing and loosens another — and moving from `ask-on-write`
+to `ask-on-external` in the belief that it is stricter loses the file-write gate. Until v0.312.0 the
+descriptions named only what each mode added, which is how that reading was available at all.
+
 
 A reasonable starting `settings.json`:
 

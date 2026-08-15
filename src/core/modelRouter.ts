@@ -393,6 +393,40 @@ export class ModelRouter {
     return this.providers.get(providerId);
   }
 
+  /**
+   * Whether a model may be routed to *at all*.
+   *
+   * A variant is the same agent on the same plan, so switching the agent off
+   * must switch off everything it routes as. `discoverModels` returns the base
+   * row plus one entry per model x effort, each a separate `ModelInfo` with its
+   * own `enabled` — and the Models tree toggles the base. So an operator could
+   * turn an agent off, watch the tree report "model disabled", and have every
+   * turn continue to route to `agent@model#effort`: a switch that could not be
+   * operated correctly, only appear to be. It survived a window reload, because
+   * nothing was stale — the flag was simply on a different id from the one being
+   * selected, and three different composed ids appeared in one session.
+   *
+   * Enforced here rather than by cascading at toggle time, because variants
+   * appear as the agent reports its `configOptions`: a cascade would miss every
+   * one discovered after the switch was thrown, which is the case most likely to
+   * matter and least likely to be noticed.
+   *
+   * Only ever *removes* permission. A base row that does not exist leaves the
+   * variant judged on its own flag, so a provider whose ids carry no separator
+   * is unaffected.
+   */
+  private isModelRoutable(model: ModelInfo): boolean {
+    if (!model.enabled) {
+      return false;
+    }
+    const baseId = baseModelIdOf(model.id);
+    if (baseId === model.id) {
+      return true;
+    }
+    const base = this.getModelInfo(baseId);
+    return base === undefined || base.enabled;
+  }
+
   getModelInfo(modelId: string): ModelInfo | undefined {
     for (const provider of this.providers.values()) {
       const model = provider.models.find(candidate => candidate.id === modelId);
@@ -865,7 +899,7 @@ export class ModelRouter {
       return undefined;
     }
     const info = this.getModelInfo(modelId);
-    if (!info || !info.enabled) {
+    if (!info || !this.isModelRoutable(info)) {
       return undefined;
     }
     if (!isRoutableChatModel(info)) {
@@ -921,7 +955,7 @@ export class ModelRouter {
       }
 
       for (const model of provider.models) {
-        if (!model.enabled) {
+        if (!this.isModelRoutable(model)) {
           continue;
         }
         if (!isRoutableChatModel(model)) {
@@ -956,11 +990,11 @@ export class ModelRouter {
     }
 
     const hasRealCandidate = allCandidates.some(model => !isBuiltinLocalEchoModel(model));
-    if (hasRealCandidate) {
-      return allCandidates.filter(model => !isBuiltinLocalEchoModel(model));
-    }
+    const candidates = hasRealCandidate
+      ? allCandidates.filter(model => !isBuiltinLocalEchoModel(model))
+      : allCandidates;
 
-    return allCandidates;
+    return preferNativeToolCandidates(candidates, [...requiredCapabilities], constraints);
   }
 
   private scoreModel(model: ModelInfo, constraints: RoutingConstraints, taskProfile?: TaskProfile): number {
@@ -1523,6 +1557,44 @@ export function isRoutableChatModel(model: ModelInfo): boolean {
   return model.capabilities.includes('chat');
 }
 
+/**
+ * Delegation is a fallback, not an equal.
+ *
+ * `modelSatisfiesRequiredCapability` lets a `delegatedToolExecution` model
+ * satisfy a `function_calling` requirement — correct, because such an agent
+ * genuinely can do tool-backed work. But it satisfies it *differently*: it
+ * receives none of AtlasMind's tool schemas, runs its own tools instead, and
+ * every AtlasMind-specific capability is simply absent for that turn.
+ *
+ * Treated as equals, delegation wins essentially always, because a
+ * subscription-backed agent reports **zero per-token cost** and therefore
+ * dominates every budget comparison there is. Observed in the field: a session
+ * where every turn routed to an ACP agent, with a large part of AtlasMind's own
+ * tooling dark and nothing saying so.
+ *
+ * So when the turn actually requires tools, candidates that can receive them
+ * come first — and a delegated agent is used when, and only when, nothing else
+ * qualifies. This narrows the field rather than scoring it, because a cost
+ * weight can always be tuned until it swamps a bonus; an empty set cannot.
+ */
+export function preferNativeToolCandidates(
+  candidates: ModelInfo[],
+  requiredCapabilities: readonly ModelCapability[],
+  constraints: RoutingConstraints,
+): ModelInfo[] {
+  if (!requiredCapabilities.includes('function_calling')) {
+    return candidates;
+  }
+  // Only relevant where delegation was permitted in the first place; without it
+  // the filter above has already excluded these.
+  if (constraints.allowDelegatedToolExecution !== true) {
+    return candidates;
+  }
+
+  const native = candidates.filter(model => model.capabilities.includes('function_calling'));
+  return native.length > 0 ? native : candidates;
+}
+
 function modelSatisfiesRequiredCapability(
   model: ModelInfo,
   capability: ModelCapability,
@@ -1565,3 +1637,26 @@ function baseModelIdOf(modelId: string): string {
   const cuts = [modelId.indexOf('@'), modelId.indexOf('#')].filter(index => index >= 0);
   return cuts.length === 0 ? modelId : modelId.slice(0, Math.min(...cuts));
 }
+
+/**
+ * Whether a model may be routed to *at all*.
+ *
+ * A variant is the same agent on the same plan, so switching the agent off must
+ * switch off everything it routes as. `discoverModels` returns the base row plus
+ * one entry per model × effort, each a separate `ModelInfo` with its own
+ * `enabled` — and the Models tree toggles the base. So an operator could turn an
+ * agent off, watch the tree report "model disabled", and have every turn
+ * continue to route to `agent@model#effort`: a switch that could not be operated
+ * correctly, only appear to be. It survived a window reload, because nothing was
+ * stale — the flag was simply on a different id from the one being selected.
+ *
+ * Enforced here rather than by cascading at toggle time, because variants appear
+ * as the agent reports its `configOptions`: a cascade would miss every one
+ * discovered after the switch was thrown, which is the case most likely to
+ * matter and least likely to be noticed.
+ *
+ * Only ever *removes* permission. A base row that does not exist leaves the
+ * variant judged on its own flag, so a provider whose ids carry no separator is
+ * unaffected.
+ */
+

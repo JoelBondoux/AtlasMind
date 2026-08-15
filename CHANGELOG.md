@@ -6,6 +6,775 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.327.0] - 2026-08-15
+
+### Changed
+
+- **Nothing in chat writes to a tracked file on its own any more.** Two writes outlived the conversation
+  without ever appearing in it, which is the one category of chat defect that survives closing the window.
+
+  **`/buzz local` and `/buzz hosted`** wrote `atlasmind.buzz.relayMode` straight into workspace settings —
+  a file most repositories commit — with no confirmation and no mention in the reply, eighty lines above
+  the same handler's own promise that none of these guides switches anything on for you. It now asks, in
+  the same modal shape every other outward-facing write here uses, naming the key, both values and the
+  scope; declining says which value was kept. Asking for the mode it is already in changes nothing and says
+  so. A failed update used to be swallowed, leaving the guide describing a mode that was never set.
+
+  **The frustration signal** wrote `project_memory/operations/operator-feedback.md` — tracked by git,
+  containing a 180-character excerpt of the operator's own prompt — on any cue match, announced only as
+  "Learned from friction". That is the settings write `DECISION-2` already removed, one file over. The note
+  is now drafted and held, the turn offers a **Save this feedback rule** chip, and the write happens when
+  somebody asks for it — replying with the full stored text, because a committed file quoting you back is
+  something you should read here rather than find in a diff. The signal still shapes how the turn is
+  answered; it no longer records you to do it.
+
+  The save prompt is matched exactly rather than interpreted. A model deciding whether a sentence counted
+  as permission would be the automatic write again in a different hat.
+
+## [0.326.0] - 2026-08-15
+
+### Fixed
+
+- **A turn that failed used to take your own message down with it.** Neither freeform `processTask` call
+  was wrapped, so a provider throw escaped to VS Code's generic error banner and `recordTurn` never ran —
+  the turn vanished from history entirely, the operator's prompt included. That reads as though you never
+  asked, which is the transcript being wrong about something you watched happen. The failure is now
+  recorded as a turn: whatever was streamed before it is kept, the reason is stated in the transcript with
+  an invitation to resend, and `turnError` carries `cancelled` or `failed` as a fact rather than leaving a
+  later reader to infer it from wording.
+
+- **Stop now stops the model call.** `runChatTask` took no cancellation token — the token was consulted
+  only *after* the call returned, so pressing Stop left the request running and spending. The VS Code
+  token is bridged to an `AbortController` the orchestrator already accepts, and a cancelled turn keeps
+  its partial answer rather than discarding it.
+
+- **An empty answer no longer deletes the question.** `recordTurn` skipped the whole turn when either side
+  was empty, so an empty model reply erased the **user's** message too. The prompt is kept with a
+  placeholder saying what happened, weighted **0** — deliberately the one case that earns it, since the
+  placeholder is a record for whoever reads the transcript and not context for the next prompt.
+  `buildContext` filters on weight, so "AtlasMind returned no reply" never travels into a later model call
+  while the question itself still does.
+
+  A caller can now also state an assistant turn's classification instead of leaving it to be guessed from
+  the text. An error turn knows it is one; it should not depend on whether the provider's message happens
+  to contain the word "failed".
+
+## [0.325.0] - 2026-08-15
+
+### Fixed
+
+- **The `@atlas` chat view answered ordinary messages by a route that had lost half the features.**
+  `handleNativeChatRequest` delegated to the shared dispatcher only when a slash command was set, and
+  every command is consumed before the branch that reaches the freeform pipeline — so that pipeline, and
+  everything only it wires up, was **unreachable code on the surface the manifest advertises**:
+
+  - **conversation recall** — "what was my question two turns ago?" is answered from the transcript, quoted;
+    it shipped in 0.324.0 and could only ever be reached from the chat panel;
+  - **roadmap status** and the **routine-edit** intent;
+  - **inline image attachment** on a plain turn — mentioning an image path attached nothing here;
+  - **project-run auto-flow**, so an offered run needed a second message;
+  - the **model, cost and token footer**, absent from the one surface where the spend is incurred;
+  - **`ensureAssistantVisibleResponse`**, so an empty reply produced a bare "Next step:" line;
+  - the **typed-slash recovery**, whose own comment calls it load-bearing — a `/buzz` arriving as text
+    rather than as a command (which is how the Settings → Buzz button opens chat) would have fallen
+    through to a model holding every connected tool.
+
+  Every turn now enters through one dispatcher whether or not a command is set. Three handler-level tests
+  pin it, because a shipped-but-unreachable feature has no external symptom and nothing would have caught
+  the gap reopening: recall answers without calling a model, a plain turn renders the footer, and
+  carry-forward is consulted in both directions. That last one is the regression the battery could not
+  catch — it probes `shouldCarryForwardConversationContext` as a function and would stay green while the
+  handler stopped asking it.
+
+  Intent routing was also being resolved twice by two copies of the rule, once in the dispatcher and once
+  in the freeform path. `resolveFreeformPreflight` owns it now: one classifier, one answer.
+
+## [0.324.1] - 2026-08-15
+
+### Changed
+
+- **One resolver decides what a freeform prompt is, so two surfaces cannot answer it
+  differently.** Groundwork only — no behaviour changes in this release. An audit of the chat
+  window found three separate freeform implementations: the `@atlas` participant answered plain
+  turns inline, the chat panel had its own path, and a third — the richer one, holding
+  conversation recall, roadmap status and routine-edit intent — was **unreachable code**,
+  because the native handler delegates to it only when a slash command is set and every command
+  is consumed before that branch. Recall existed and could not be reached from the surface the
+  manifest advertises.
+
+  `resolveFreeformPreflight` is the shared answer: it takes a prompt and a transcript and
+  returns *data* — `recall`, `roadmap`, `pending-run`, `routine-edit`, `intent`, or nothing —
+  leaving each surface to render it. A resolver returning data cannot drift per surface; only
+  the rendering can, which is the property the three implementations lacked. The order is
+  canonical and deliberate: an answer to a question *we* asked outranks everything; a
+  deterministic answer read out of a record outranks a phrasing match that would start work.
+
+  `runChatTask` becomes the shared model-turn executor, taking options rather than positional
+  arguments (`carryForward`, `detectRunProposal`, native `request`/`chatContext`, attachments)
+  and returning the assistant metadata alongside the text. Carry-forward is now a parameter
+  rather than an assumption, which is what lets the native path keep gating context on
+  `shouldCarryForwardConversationContext` once it moves across. One incidental repair: the
+  proposal metadata is stamped **before** the footer renders, so a proposed run's question and
+  its Start / Save / Cancel labels print once, together, instead of the question arriving twice.
+
+  Nothing calls the new pipeline yet — the cutover is the next commit, and this one is
+  deliberately separable so it can be reverted on its own.
+
+## [0.324.0] - 2026-08-15
+
+### Added
+
+- **A question about the conversation is answered from the conversation.** *"What was my question two
+  turns ago?"* was answered with a paraphrase of the task in progress — a question the operator had never
+  asked. Of every fabrication available here that is the worst-shaped: one about code can be checked
+  against the code, while one about the exchange contradicts a verbatim record and leaves the operator to
+  remember better than the assistant claims to.
+
+  `conversationRecall` answers it from the transcript before any model sees the prompt, **quoting** rather
+  than paraphrasing — a paraphrase of an exact record is strictly worse than a quotation, the same
+  reasoning that keeps release notes verbatim. Deliberately narrow: it only claims questions about the
+  *operator's own* messages, since "what did you say about X?" asks for interpretation and that is a
+  model's job. It excludes the question being asked right now, so "two turns ago" means what a person
+  means by it. And a turn further back than the session reaches is **said to be missing** rather than
+  answered with the oldest one, which would read as the one requested.
+
+### Fixed
+
+- **A model thinking aloud is no longer delivered as the answer.** Observed: *"Need maybe use list_dir
+  etc. We'll use terminal? Probably easier. Let's run pwd && ls. … Since tool list unknown, maybe use
+  terminal commands."* Distinct from a preamble — that is one clean sentence about what is coming next;
+  this is deliberation in fragments, and it is the only one of these shapes that leaks internals, telling
+  the operator which tool names the model was guessing at. `looksLikeLeakedReasoning` requires **two**
+  markers, never one: "maybe" and "probably" belong in good answers about uncertain things, but a
+  paragraph hedging twice about its own *method* is not an answer about anything. It joins the
+  completion-integrity re-prompt.
+
+- **The capability index says whose pages it is listing.** A model reasoning about where to put a browser
+  test proposed testing `settings:overview` — an AtlasMind page — as though it were a route in the
+  operator's own project. The index answers "where in AtlasMind", and nothing said that is a different
+  question from "where in this repository". It now says so in its first two lines, and that they must
+  never be cited as part of the project under discussion or tested.
+
+## [0.323.0] - 2026-08-15
+
+### Fixed
+
+- **A rate-limited provider is skipped for the turn, not asked again under a different model name.** A 429
+  belongs to the *account*: every model behind it refuses identically. Observed — `magistral-small` (10s),
+  `mistral-large-2512` (60s), `mistral-large-latest` (9s): three refusals and 79 seconds to learn nothing,
+  on a turn that then had one attempt left and no answer. Same reasoning as the busy-GPU fix in 0.322.0,
+  one layer along. Skipped rather than *failed*: `recordEndpointFailure` is not called, because a 429 is a
+  "not now" and holding it against a provider afterwards would punish it for being busy for a minute.
+
+- **An announcement without the act is caught whichever act was announced.** `looksLikePreambleOnly`
+  matched an inspection vocabulary only — `inspect|check|look|read|search|…` — so *"I will now provide
+  both to add the new test case"* matched nothing, and announcing a **change** is what an agent does most
+  often before making one. The verb list now covers mutation as well, the length cap is 520 rather than
+  240 (the observed one ran ~450 after eight tool calls, five of them edits), and the announcement no
+  longer has to open the reply — the observed one arrived third, after an apology and a sentence about a
+  tool's parameters. Loosening is safe because the fence, list and length guards already exclude anything
+  that delivered.
+
+- **Being asked to explain something is never an executable goal.** `INFORMATIONAL_QUESTION_PATTERN`
+  matched an interrogative opening followed by a question mark, so *"tell me about who makes playwright"*
+  — the imperative form of the same request, with no question mark — read as actionable. `carry on` then
+  started an autonomous project run with that sentence as its stated goal; it touched four files and every
+  model attempt failed. `tell me about`, `explain`, `describe`, `summarise`, `walk me through` and
+  `remind me` now read as informational. The Preview goal line added in 0.311.0 is what made this legible
+  as wrong rather than merely unsuccessful.
+
+## [0.322.0] - 2026-08-15
+
+### Fixed
+
+- **A busy GPU no longer kills the turn.** The failover budget was charged on every failure path,
+  including a capacity deferral — which is not a failure: nothing is sent, and no model is asked
+  anything. Observed: a 30b refused for GPU capacity, then the 4b, then the 14b, all contending for the
+  **same card**, 45 seconds each, followed by *"All 5 model attempts failed"* when none of them had been
+  attempted at all.
+
+  Two changes. A deferral no longer spends the failover budget — this file already excluded it from
+  `recordModelFailure`, struggle memory and the endpoint circuit for exactly this reason, and the budget
+  was the one consequence left. And a deferring runtime is now added to `blockedEndpointScopes` for the
+  rest of the turn, so its *other* models are skipped: the deferral is about the shared resource, not the
+  model, and a sibling on the same card will refuse identically. It is skipped rather than *failed* —
+  `recordEndpointFailure` is deliberately not called, so nothing is held against the endpoint later.
+  Termination is unaffected: `MAX_TASK_MODEL_ATTEMPTS` still bounds the loop.
+
+- **A reply that reports having answered is treated as not having answered.** Observed verbatim: *"The
+  user's request … has already been fully addressed with direct workspace evidence from the file read
+  operation. No code changes or additional tool calls are needed as the analysis is complete."* Three tool
+  calls ran, a file was read, and the operator was told the analysis was finished without ever being given
+  it.
+
+  `looksLikePreambleOnly` does not catch this and should not — it looks for a *future* announcement ("let
+  me inspect…") never followed through. `looksLikeAnswerlessCompletionClaim` is the mirror image: a
+  past-tense completion claim with nothing delivered. The two fail at opposite ends of the same turn, and
+  both now trigger the completion-integrity re-prompt.
+
+- **`/cost` says what it is counting.** It was headed **"Session Cost Summary"** while reporting a running
+  workspace total that survives new chats and reloads. Measured one turn apart: 501 requests / £81.82,
+  then 502 / £81.84, in a conversation holding three messages. A figure that cannot be reconciled with
+  what is on screen is worse than none, because the reader either distrusts every number AtlasMind reports
+  or believes this one. Now headed *"Cost so far — this workspace, all sessions"*, with a line pointing at
+  the per-reply cost in each footer.
+
+## [0.321.0] - 2026-08-14
+
+### Fixed
+
+- **The model was told nothing at all about settings, and invented them.** Asked *"where do I turn off
+  automatic research scans?"*, a routed model located the setting in `agents/customer-researcher.md`,
+  proposed an `enabled` flag, and offered an environment variable `RESEARCH_SCANS=false`. None of it
+  exists; the answer is `atlasmind.research.enabled`.
+
+  Measured cause: `omitted.settings: 134`. **Every key was being dropped.** The 35-page catalogue consumed
+  the entire 4000-character budget, and the settings section is truncated before it. So a model asked
+  where a setting lived received a page list, no settings vocabulary whatsoever, and a closing instruction
+  that only forbade saying a setting *did not exist* — which is not the mistake it made.
+
+  Two changes. The index now carries a **settings namespace summary** — 134 keys across 18 areas, about
+  230 characters for all of them — reserved outside the budget alongside the closing instruction, because
+  it is precisely the half that was being silently lost. It deliberately does **not** name a key: a key
+  named from memory is the guess that caused this. It points at `atlasmind-settings` to read the exact
+  value instead.
+
+  And the closing instruction now forbids the failure that actually happened: *never invent where a
+  setting lives — do not name a settings key, a file path or an environment variable you have not read.*
+
+  A test asserted `omitted.settings > 0` and passed throughout, because "some were omitted" and "all of
+  them were" are the same assertion.
+
+## [0.320.0] - 2026-08-14
+
+### Fixed
+
+- **A question with a short aside after it is still a question.** *"Would you like me to inspect the exact
+  agent configuration for you? If so, I can fetch and analyze `agents/customer-researcher.md` directly."*
+  — from a real session. The question is present; it simply is not last, and every check in the detector
+  anchored on the line *ending* in `?`. No chips, no recorded follow-up.
+
+  A trailing clause of 120 characters or fewer is now dropped before the line is examined, so every
+  existing check still sees a line that ends in its question. Bounded because the aside has to *be* an
+  aside: a long paragraph after a rhetorical question is prose, and turning it into a Yes/No would put
+  buttons under a sentence nobody was being asked to answer.
+
+  This is the third shape of one mistake — a full stop *before* the question mark (v0.311.1), no question
+  mark *at all* (v0.315.0), and now something *after* it. All three were found by running real model
+  output, none by adding another probe, because a probe corpus written by the same hand as the detector
+  shares its assumptions about what output looks like.
+
+## [0.319.0] - 2026-08-14
+
+### Added
+
+- **`find-tool` — the model can ask for a tool it was not given.** A turn sends at most 24 schemas, and
+  selection guesses from the prompt which the turn will need. When it guesses wrong the model has no
+  recourse: it cannot call what it was not told about, so it does without or plans around the gap. One
+  extra schema now buys the rest — describe the action, and matching tools become callable on the next
+  iteration, using the same mechanism the synthesised-skill path already used.
+
+  Four rules. **Discovery grants nothing**: it searches the agent's *eligible* pool rather than the
+  registry, so a skill the agent may not use is not even nameable — otherwise the model plans around one
+  it can never call — and every gate still applies when the tool is actually invoked. **Already-sent tools
+  are excluded**, or the model rediscovers what it is holding and searches again, a round trip each time.
+  **A miss is final** and says so, rather than reading like an error and inviting a reworded retry against
+  an unchanged pool. And **a search adds at most five tools**, so a broad query cannot undo the cap in one
+  call.
+
+  It is offered only when schemas were actually withheld. Advertising a search guaranteed to return
+  nothing costs a schema and teaches the model to spend a round trip discovering that.
+
+  **A turn given no tools is never offered it.** Zero is a decision, not a small number: Change Story mode
+  clears the skill set so a committed-ref answer cannot be contaminated by the checked-out workspace, and
+  a search there would have let the model reacquire the very tools that mode exists to withhold — against
+  a different revision. Caught by an existing test, and now pinned by its own.
+
+  This is the third strategy for the schema-budget problem, alongside the two AtlasMind already used:
+  curate up front by relevance, and widen after the model visibly struggles. This one is driven by the
+  model, which knows what it is trying to do.
+
+## [0.318.0] - 2026-08-14
+
+### Fixed
+
+- **Disabling a subscription agent now disables everything it routes as.** The Models tree read
+  *"(ACP — model disabled)"* while every turn in the session routed to
+  `acp/codex@gpt-5.3-codex-spark#medium`, and it survived a window reload.
+
+  Nothing was stale. `discoverModels` returns the base row **plus one entry per model x effort** — each a
+  separate `ModelInfo` carrying its own `enabled` — and the tree toggles the base. So the flag sat on
+  `acp/codex` while routing selected `acp/codex@gpt-5.3-codex-spark#medium`, a different id entirely.
+  Three different composed ids appeared in one session, so there was no row to toggle for the one actually
+  in use: the switch could not be operated correctly, only appear to be.
+
+  `isModelRoutable` now refuses a variant whose base row is disabled, at both the candidate filter and the
+  single-model resolution. Enforced in the router rather than by cascading at toggle time, because
+  variants appear as the agent reports its `configOptions` — a cascade would miss every one discovered
+  after the switch was thrown, which is the case most likely to matter and least likely to be noticed. It
+  only ever removes permission: a model whose id carries no separator, or whose base row does not exist,
+  is judged on its own flag exactly as before.
+
+  This is why nothing shipped in 0.316.0 or 0.317.0 appeared to change anything: turns kept landing on an
+  agent the operator had switched off.
+
+## [0.317.1] - 2026-08-14
+
+### Fixed
+
+- **The live battery no longer names one repository's files.** Two ANSWER probes asked the assistant to
+  read `src/core/localModelArbiter.ts` — an AtlasMind file — so running the battery in any other workspace
+  tested nothing: the assistant correctly reported the file missing, and both probes passed without
+  exercising what they were written for. The failure-dump probe in particular needs a file that *exists*,
+  whose contents contain a word like "cannot" or "failed", to put the tool-failure predicate under any
+  load at all. Both are now phrased against whatever repository the battery is run in.
+
+### Notes
+
+- Lane 2 recorded at **9/10**. Three separate turns declined to fabricate — a missing module, a missing
+  file, and a pipeline stage that was never named — and each said how it knew. Deducted only for `stop`,
+  which replaces the whole turn with "Request stopped." and keeps nothing partial, while the panel
+  simultaneously reports the model has not stopped.
+
+## [0.317.0] - 2026-08-14
+
+### Changed
+
+- **A turn that needs AtlasMind's tools prefers a model that can receive them.** A
+  `delegatedToolExecution` agent satisfies a `function_calling` requirement — correctly, since it can do
+  tool-backed work — but it satisfies it *differently*: it receives none of AtlasMind's tool schemas and
+  runs its own instead. Treated as an equal candidate it won essentially always, because a
+  subscription-backed agent reports **zero per-token cost** and therefore dominates every budget
+  comparison there is.
+
+  `preferNativeToolCandidates` now narrows the field: when the turn requires tools, candidates that can
+  receive them come first, and a delegated agent is used when and only when nothing else qualifies. It
+  narrows rather than scores, because a cost weight can always be tuned until it swamps a bonus — an empty
+  set cannot.
+
+## [0.316.0] - 2026-08-14
+
+### Changed
+
+- **A diagnostic from the model now says whose it is, and is shown once.** *"Model diagnostic: Exceeded
+  skills context budget of 2%…"* read as AtlasMind reporting its own problem. It is not: these lines are
+  emitted by the provider or agent runtime and stripped out of the answer here, and the skills they refer
+  to are the **agent's own**. AtlasMind sends an ACP agent no tool schemas at all, and caps its own at 24
+  for every other provider — it has no path that produces 182. The diagnostic is now prefixed with the
+  model that emitted it, so it is clear which of the two to go and fix.
+
+  The dedupe set moved from the task to the session. It was local, so it suppressed repeats within one
+  turn and reset on the next — and a third-party warning that does not change between turns was reprinted
+  on every one of them. Once is informative; every turn is noise somebody learns to look past, which is
+  how the next diagnostic gets missed as well.
+
+- **AtlasMind says when the routed model runs its own tools instead of its.** An ACP agent cannot receive
+  AtlasMind `ToolDefinition` schemas — the protocol has nowhere to put them — so when delegated execution
+  is authorized the tool loop stands down and the agent uses its own, gated by approval. That is correct
+  and it was invisible: AtlasMind's tools were simply absent, and a session routed entirely to an ACP
+  agent ran with a large part of the tooling dark with nothing saying so. Now stated once per session,
+  with the count and what to do about it.
+
+  This matters most for `atlasmind-open` and `atlasmind-settings`, added in 0.313.0 and 0.314.0: on an ACP
+  route they never reach the model. The capability index still does, because it is prompt text, so chat
+  can describe the right page accurately — it just cannot open it.
+
+## [0.315.1] - 2026-08-14
+
+### Fixed
+
+- **A run offered without a question mark now shows its decision card.** `detectProjectRunProposal`
+  correctly returned true for *"If The User wants, I can start a project run next to: …"*, but the card
+  also needs a **goal**, and `extractAssistantProposedAction` keyed on the trailing `?` alone. With none,
+  goal resolution fell through to the prior user prompts — an affirmation and an informational question,
+  both skipped by design — so no goal resolved and the card silently never rendered.
+
+  The turn was therefore recognised as pending a run and showed *nothing*: no chips, no card, no follow-up
+  question. That is the originally reported symptom arriving by a different route from the one the STOP
+  lane had already closed. The action extractor now falls back to the declarative offer, stripping the
+  condition and the undertaking so the goal is the work rather than the offer of it.
+
+- **A word boundary that could not fire.** `OFFER_CONDITION_PATTERN` ended `(?:want|like|prefer|wish)`,
+  and `` cannot match between the "t" of "want" and the "s" of "wants" — both are word characters. Every
+  hand-written probe used *"if you want,"*, where the comma supplied the boundary, so the shape passed
+  while the inflected form in the real transcript did not. The verb now takes an optional `s`/`ed`, and
+  the plural form is a test case.
+
+  Two rounds of this now: a probe corpus written by the same hand as the detector agrees with it about
+  what output looks like. Real transcripts do not.
+
+## [0.315.0] - 2026-08-14
+
+### Fixed
+
+- **An offer phrased as a statement is now answerable in one gesture.** Quick-reply detection keyed on a
+  trailing `?`, and a real session run through the panel produced four assistant turns of which **not one
+  ended with a question mark**. Every offer was declarative: *"If you want, I can also add a short release
+  notes heading…"*, *"If The User wants, I can start a project run next to…"*. Three genuine offers, no
+  chips, no follow-up question — nothing to click, and nothing recorded as having been asked.
+
+  A closing line is now read as an offer when it carries a condition addressed to the operator ("if you
+  want", "let me know if") **together with** a first-person undertaking ("I can", "I'll", "let me"), or
+  when it is self-evidently one ("happy to …"). It gets Yes/No, because an offer proposes a single action
+  and the only answers are take it or leave it.
+
+  Both halves are required, and that is what keeps advice out: *"If you want multi-instance durability
+  next, **use** Cloudflare Cache API or KV"* opens identically and then tells the operator what to do, so
+  it stays silent. Narration is excluded by verb — "I can see", "I can confirm", "I can tell" are reports,
+  not offers.
+
+  **The automated battery could not have found this.** Its inputs are written by whoever writes the
+  probes, and every question probe was phrased with a question mark, so all nine passed while the lane was
+  dead against real model output. Three probes taken verbatim from that session now pin it, including one
+  control for the advice shape.
+
+## [0.314.1] - 2026-08-14
+
+### Fixed
+
+- **The CLI starts again.** `atlasmind-open` and `atlasmind-settings` imported `vscode` at module scope,
+  and `src/skills/index.ts` is loaded by `runtime/core`, which the CLI loads on startup — so
+  `atlasmind chat` died with `MODULE_NOT_FOUND` before doing anything at all. They were the only two
+  skills in the registry to import the host directly; every other one reaches it through the injected
+  `SkillExecutionContext`.
+
+  Nothing caught it. Vitest aliases `vscode` to a stub for every test file, so all 6392 tests imported
+  these modules happily, and `tsc` resolved the types from `@types/vscode` and was equally content. The
+  only thing that notices is running the CLI, which no test did. Both imports are now lazy, inside
+  `execute`, where they only run in the extension host — and `tests/skills/hostImports.test.ts` fails the
+  build on a module-scope host import anywhere in `src/skills/`.
+
+## [0.314.0] - 2026-08-14
+
+### Added
+
+- **`atlasmind-settings` — chat can change a setting you ask it to change, and only that one.** Reading is
+  free; a change goes behind a `{ modal: true }` dialog naming the key, the current value and the new one,
+  and nothing is written until it returns. Four rules make the write half safe to hand to a model: the key
+  must exist in the running extension's manifest under `atlasmind.` (so a model cannot invent a setting or
+  reach another extension's configuration), the value must match the declared type and enum — checked here
+  so the refusal can name the permitted values — the modal is the gate rather than a notification, and the
+  write is workspace-scoped so it lands in the project's own `.vscode/settings.json` where a reviewer will
+  see it, never in a user profile where it silently follows you to every other project.
+
+  Until now chat could describe all 134 settings and change none of them. The gap was real, but the wrong
+  fix was worse than it: this repository shipped a path until v0.310.4 that wrote two chat settings at
+  workspace scope on a signal that fired on politeness, naming neither in anything the operator read.
+
+- **Suggestions when the session shows a setting is wrong for the work.** `sessionFitSuggestions` holds
+  four declared rules — the tool-iteration ceiling, the tool-calls-per-turn ceiling, a context window
+  smaller than the material under discussion, and an approval mode raising more dialogs than a mode change
+  would cost. Each names the setting and the value it proposes, and the turn footer renders them under
+  *Worth changing*.
+
+  Every input is optional and absent means *not observed*, never zero: a rule inferring "no approvals were
+  needed" from an absent count would nag on every fresh session. Nothing here writes — applying a
+  suggestion goes through `atlasmind-settings` and its modal. What was worth keeping about the automatic
+  path removed in v0.310.4 was the noticing, not the acting.
+
+### Changed
+
+- **The stress battery grades its findings from a declared rule table.** Five rules, evaluated in order,
+  published in the report so the grading can be checked rather than trusted — the treatment `debtRegister`
+  and `researchScanCatalog` already give severity, and for the same reason: a grade assigned today must be
+  comparable with one assigned in March. Findings are ranked by that table, in its declared order, so the
+  list cannot shuffle between runs. A probe nobody graded falls to the least alarming rule, so an ungraded
+  finding under-reports rather than crying wolf.
+
+  All 57 probes now pass. The baseline three days of work ago was 24 passing, 33 findings.
+
+## [0.313.0] - 2026-08-14
+
+### Added
+
+- **Chat knows what AtlasMind is, and can take you there.** Two changes that only work together.
+
+  `src/core/capabilityIndex.ts` declares every page both panels can be opened at — 13 settings, 22
+  dashboard — each with *what it answers* rather than what it contains, because "where do I turn off
+  automatic research scans?" has to match on the question. Settings and commands are read from the running
+  extension's manifest rather than a bundled copy, so the index cannot describe a previous release. It is
+  appended to the workstation context every surface already carries, which puts it in front of the model
+  everywhere in one place.
+
+  Until now neither `SETTINGS_PAGE_IDS` nor `DASHBOARD_PAGE_IDS` was referenced outside the panel that
+  owns it, so every navigational answer chat gave was recall about a product that ships weekly —
+  plausible, specific, and unverifiable by the person reading it.
+
+  The catalogue is *declared* in `src/core` rather than imported, because core must not depend on views —
+  and a second copy is how the slash-command list once came to describe commands the panel had never heard
+  of. `capabilityIndex.test.ts` asserts it matches both panels' id arrays in both directions, so drift
+  fails the build rather than shipping as a page the model confidently names and nothing can open.
+
+  The closing instruction — *this index is abbreviated, never tell the operator a setting does not exist* —
+  is held out of the size budget and appended after truncation. It was inside the budget first, and the
+  clamp cut from the end, so the larger the manifest grew the more certainly the one rule worth stating
+  was the first thing dropped.
+
+- **`atlasmind-open`, a skill that opens the page instead of describing it.** `{ page, section? }`, with
+  the destination resolved from the declared catalogue and refused with candidates when it does not match.
+  An ambiguous id (`testing` exists on both surfaces) is reported rather than resolved, because silently
+  picking one sends the operator somewhere they did not ask for while telling them they arrived. It passes
+  `SettingsPanelTarget.section`, so chat can now land on the card that answers the question rather than the
+  top of a long page — an anchor space that has existed since the panels were written and had never once
+  been used from chat.
+
+  Classified `read`: opening a panel changes nothing, and a navigation tool that prompts is one the model
+  learns not to reach for. It is not a command bridge — the only commands it can reach are the two panel
+  openers, and the page comes from a declared list.
+
+## [0.312.1] - 2026-08-14
+
+### Fixed
+
+- **When two answers reach the screen, the second says why.** If a legacy caller had already streamed text
+  that diverges from the committed completion, the reconciler appended the authoritative answer below a
+  horizontal rule and nothing else — leaving the operator reading two different answers to one question
+  with no way to tell which was real, and the one they had already read was the wrong one. VS Code's
+  response stream is append-only so the first cannot be retracted, but saying so costs nothing. Only the
+  committed answer reaches conversation history, as before.
+
+## [0.312.0] - 2026-08-14
+
+### Added
+
+- **The turn footer says what the turn cost.** It named the model and stopped, on a product that routes
+  across paid providers and ships a cost dashboard — and the transcript is where the spend is actually
+  incurred. Cost and token counts are carried on the transcript metadata and rendered beside the model.
+  Zero is printed rather than hidden: a local or subscription-backed turn costing nothing is a fact about
+  the routing, not an absence of one.
+
+- **`network-read`, a category for a remote call that changes nothing.** Every MCP tool reaches the
+  approval gate as `mcp:<server>:<tool>`, and `READ_LIKE_PREFIXES` matches with `startsWith` — so the read
+  list was unreachable for exactly the tools it was written for, and `mcp:supabase:list_tables` graded
+  `network`/high, identically to a delete. With two servers connected a single question became a wall of
+  dialogs, which is how an approval mode stops meaning anything.
+
+  Neither existing category was right. It mutates nothing, so `network`/high overstates it; it always
+  leaves the machine and may be carrying the operator's mail into model context, so `read` understates it.
+  The new category passes `ask-on-write` and is still gated by `ask-on-external` and `always-ask`. For
+  namespaced tools a read verb counts anywhere in the name, because MCP servers write
+  `microsoft_docs_search` — local tools keep the prefix rule, since widening it there would make
+  `web-fetch` a plain read and the CLI's read-only gate would start permitting network calls.
+
+### Changed
+
+- **The approval modes describe what they let through, not only what they add.** `ask-on-external` allows
+  local file writes, deletes and commits — that is the mode working as chosen, since it gates what leaves
+  the editor — but nothing said so, and the manifest enum order renders the four as a descending ladder.
+  The last two are orthogonal axes: `ask-on-external` asks *did this leave the machine?* and
+  `allow-safe-readonly` asks *did this change something?*, and neither gates a superset of the other. So
+  tightening from `ask-on-write` to `ask-on-external` silently loses the write gate. Both descriptions now
+  say what each mode permits, and that the last two do not sit on one scale.
+
+### Fixed
+
+- **`/Cost` and `/runs?` are commands.** The router matched `[a-z][a-z-]*` with nothing after it, so a
+  capital — which is what a touch keyboard's autocapitalisation produces — or a trailing `?`, `.` or `!`
+  fell through to a model. `/cost` doing that means the operator pays for a model call answering a
+  question about billing. The path guard is unchanged and still load-bearing: `/usr/bin/x`, `/README.md`
+  and `/etc/hosts has the wrong entry` remain prose.
+
+- **The closing question is asked once.** Detection lifts the trailing question into metadata and the
+  footer restated it under "Next step", printing it twice in one turn. Where the answer already ends with
+  it, only the options are added.
+
+- **A follow-up that swaps the tool keeps its context.** Carry-forward is decided on lexical overlap with
+  the last three prompts, and "use Playwright instead" shares no words with any of them — so the thread
+  was dropped on a turn that is unanswerable without it. A short instruction carrying a substitution cue
+  now carries context by construction.
+
+## [0.311.1] - 2026-08-14
+
+### Fixed
+
+- **A full stop inside a filename no longer deletes the question.** `extractQuestionClause` matched
+  `([^.!?]*\?)\s*$`, which cannot cross a full stop — so "Want me to update README.md?" yielded `md?`,
+  three characters, below the `>= 6` guard, and was discarded. The question then reached the operator as
+  *nothing*: no quick replies, no follow-up prompt, no record that anything had been asked. Every closing
+  offer naming a file, a source path or a version went the same way, which is most of what Atlas offers to
+  do in a codebase. Sentences are now split on a full stop followed by whitespace **and** a capital, which
+  is exactly what distinguishes a boundary from the dots inside `README.md`, `src/chat/participant.ts` and
+  `v0.310.2`, and from `i.e.` and `e.g.`, which are followed by a lower-case word.
+
+- **A turn ending in two questions surfaces both.** Only the last was lifted out, so clicking Yes answered
+  a question the operator had never seen singled out. All trailing consecutive questions are returned
+  together.
+
+- **A closing question formatted as a heading survives.** `sanitizeResponseTail` strips a dangling
+  trailing heading and runs *before* quick-reply detection, so "### Ready to proceed?" was deleted before
+  the operator could see it. A heading ending in a question mark is kept, as is one that answers a lead-in
+  ("Here is what I would change:
+
+## Next steps"), which otherwise left the reply ending on a colon
+  pointing at nothing.
+
+- **A long option is abbreviated rather than dropped.** Labels over 48 characters discarded the whole pill
+  set, so a genuine two-way choice arrived with nothing to click — and a model asked to explain its
+  options writes clauses, not nouns. The label is now cut on a word boundary with an ellipsis, while the
+  pill still submits the full option text.
+
+## [0.311.0] - 2026-08-14
+
+### Changed
+
+- **A turn that is waiting on you now says so.** Three detectors independently decided whether a turn was
+  pending a project run: `detectProjectRunProposal` drew the decision card, `detectResponseQuickReplies`
+  drew the pills, and `isAutonomousContinuationPrompt` *accepted the answer*. The acceptor was
+  unconditional and therefore strictly the widest, so a reply closing "I can implement this across the
+  four files. Shall I go ahead?" produced no card, no notice and no mention of a run — while "yes" started
+  a planned multi-subtask one. The run was always a word away; whether the turn admitted it was a lottery
+  on wording.
+
+  `detectProjectRunProposal` now matches any first-person offer to act, not only one carrying the literal
+  words "project run". An offer to *talk* ("Shall I explain the failover path?") still does not match:
+  saying yes to that is a conversation.
+
+  **Auto-flow keeps the narrow test.** Announcing a pending decision and permitting an unattended start
+  are different questions, and widening both together would have turned an ordinary "Want me to start?"
+  into an autonomous run under Autopilot. `offersExplicitProjectRun` gates that half.
+
+- **The decision card no longer deletes the question it is about.** Setting a pending proposal cleared
+  `followupQuestion`, `quickReplies` and `suggestedFollowups`, leaving the card as the only affordance —
+  and the question detector is silent on any offer naming a file, so a turn could surface neither. Both
+  are kept now; the card resolves once, host-side, so there is nothing to double-trigger.
+
+- **A project run states its goal before it does anything.** The Preview block prints the resolved goal
+  above the file estimate. When a run starts from "yes" the goal is resolved from what the assistant
+  proposed rather than from anything the operator typed, so it is the one thing a person can sanity-check
+  instantly and no gate can.
+
+### Fixed
+
+- **A stray "don't" no longer deletes the pending-run notice.** The negation veto scanned the last 400
+  characters, so an ordinary "I don't need anything else from you." two sentences above a genuine offer
+  removed the card and left the offer on screen with no control behind it. The veto is now scoped to the
+  offer sentence itself, where a refusal actually lives.
+
+## [0.310.5] - 2026-08-14
+
+### Fixed
+
+- **A project run is no longer planned against the word you used to agree.** When a reply closed "Shall I
+  go ahead?", `extractAssistantProposedAction` stripped the offer lead-in and left `go ahead`, which
+  `normalizeProjectRunProposalAction` accepted as the goal — so the plan, the subtask table, the file
+  estimate and the cost estimate were all derived from that fragment. It is also why such a run read as
+  unannounced: its stated goal was a piece of a sentence rather than anything anybody had asked for.
+
+  A normalized action that is *only* an affirmation (`go ahead`, `proceed`, `do it`, `start`, …) is now
+  refused and the resolver falls back to the last actionable user prompt. A leading `go ahead and` is
+  stripped rather than rejected, so "Shall I go ahead and update the README banner?" still resolves to the
+  work — there the affirmation is a preamble, not the whole of it.
+
+- **"Continue" no longer overrides a precondition the assistant just stated.** "Once you confirm the
+  version number, I can start a project run to ship it" is the model declining to proceed, and the
+  continuation prompt was accepted unconditionally — so the run began on precisely the information the
+  model had said it did not have. `assistantDeferredPendingInput` checks the tail of the last assistant
+  turn, and a bare continuation is refused. A continuation carrying detail ("yes, use 0.310.5") answers
+  the precondition and is allowed through, because the deferral asked for something and that supplies it.
+
+## [0.310.4] - 2026-08-14
+
+### Changed
+
+- **Detecting frustration no longer edits your settings.** The signal raised `chatSessionTurnLimit` and
+  `chatSessionContextChars` at `ConfigurationTarget.Workspace` — into `.vscode/settings.json`, a file most
+  repositories commit — and named neither key in anything the operator read; the only trace in the turn
+  was a note reading "Learned from friction". A settings change nobody is told about cannot be reviewed,
+  reverted, or attributed. The signal still shapes how the turn is answered and still writes its learned
+  preference to the Personality Profile and `operations/operator-feedback.md`.
+
+  `restoreSettingsWrittenWithoutAsking` puts the earlier values back on the next turn, frustrated or not,
+  and only where the current value still equals what was written — an operator who has since chosen their
+  own number keeps it.
+
+### Fixed
+
+- **Ordinary polite requests are no longer read as frustration.** `can you do this for me when you have a
+  moment` and `just do it the simple way` both fired the full adaptation — a rewritten system prompt, a
+  learned preference in the Personality Profile, an operator-feedback note in git-tracked memory, and the
+  settings write above — on turns where nothing had gone wrong. The polite-request cue is gone (its
+  negated form, "can you *not* do this for me", stays, because that is a complaint), and `just do it`
+  now requires that it not be followed by a qualifier: "just do it *the simple way*" says how, and is an
+  instruction rather than a complaint.
+
+- **Five ways people actually complain are now recognised.** Measured against a corpus of realistic
+  phrasings, the detector caught three of eight. It missed repetition ("that's the third time you've
+  ignored my question"), plain statements of the problem ("you're not listening to me"), corrections
+  naming what was asked for instead ("I asked you to fix it, not explain it"), giving up ("forget it,
+  I'll do it myself"), and the offer-instead-of-doing pattern ("why do you keep offering instead of
+  doing"). An undetected signal means the next turn repeats whatever caused the friction, because the
+  recovery only runs on a detected one.
+
+## [0.310.3] - 2026-08-14
+
+### Fixed
+
+- **The model's answer is no longer discarded because a tool result contained the word "failed".** When
+  every tool result in a round tested as a failure, the orchestrator replaced `completion.content` with a
+  failure dump and stamped `finishReason: 'error'`. The failure test is a substring match on **raw tool
+  output**, and `file-read` returns file contents — so reading an ordinary source file counted as a failed
+  call. Measured on this repository, two of three ordinary files tripped it, `package.json` among them.
+  One tool call per round is the common case, so the `every()` was trivially satisfied.
+
+  Two changes. The undeclared-failure heuristic is now bounded to 400 characters: a failure a tool did not
+  prefix is a sentence, and beyond that length it is a payload whose words prove nothing. A declared
+  prefix (`Error:`, a skill refusal) is start-anchored and still classifies at any length, so a long stack
+  trace under `Error:` is still a failure. And the summary is **appended** below the answer rather than
+  replacing it, with `finishReason: 'error'` reserved for a turn that produced no text at all.
+
+  The stamp is why this mattered beyond the turn: it propagated to `agents.recordOutcome` and
+  `router.recordExecutionOutcome`, permanently penalising the agent and model that had answered correctly.
+  Appending also matches what the verification-contradiction gate a few lines earlier already does — a
+  claim of success and the evidence against it are both worth seeing.
+
+  `classifySubTaskFailure` now finds the summary with `includes` rather than `startsWith`, since it no
+  longer begins the response; anchoring on the start would have traded a discarded answer for a missed
+  failure.
+
+## [0.310.2] - 2026-08-14
+
+### Added
+
+- **A stress battery for the chat window, in `evals/` where it cannot block a commit.** `tests/**` asks
+  whether the code does what it is contracted to do; this asks whether the window does right by the person
+  reading it, which is a deliberately higher bar. 57 probes across ten lanes — question, answer, information,
+  continuity, repair, stop, commands, tooling, orchestration, guidance — each carrying the question it asks
+  on the user's behalf and why that shape is realistic here, so a failure reads as a defect report rather
+  than a red assertion. Every lane interleaves controls, because a lane where nothing holds is broken
+  outright rather than at the edges and you cannot tell those apart from failures alone.
+
+  It runs from its own Vitest config and is excluded from `tsconfig.json` and the pre-commit hook by
+  construction: wiring findings into the suite would make each one a blocked commit, and the battery would
+  be deleted within a week. Baseline at this version is **24 held, 33 findings**, written to
+  `evals/chat-window-stress-report.md` on every run.
+
+  The half no harness reaches — whether an answer was worth reading, whether a task was abandoned halfway,
+  whether turn seven still knows what turn two was about — is `evals/chat-window-live-battery.md`, a scored
+  manual battery of twelve lanes. `evals/chat-stress-remediation-plan.md` groups the findings by root cause
+  into sixteen changes.
+
+## [0.310.1] - 2026-08-14
+
+### Changed
+
+- **The dashboard Refresh button no longer prints its keyboard shortcut.** A `Ctrl⇧R` chip beside a
+  one-word label was most of the control's width, for something a user reads once. The shortcut still
+  works, still appears in the tooltip — now with the right symbols for the platform — and is still
+  declared to assistive technology through `aria-keyshortcuts`.
+
+### Fixed
+
+- **A narrow panel moved the buttons instead of shredding their labels.** The action group was a flex item
+  free to shrink below its own content, so at a narrow width the browser did the only thing left to it and
+  broke the text: "Refresh" came out one letter per line, with the shortcut chip doing the same underneath.
+  The topbar wraps now, the heading column takes the slack, the action group refuses to shrink past its
+  content, and a button label never breaks mid-word — a label is a name, not prose, so if there is no room
+  the button should move rather than the word.
+
+- **The README's published baseline names v0.310.0**, which went live earlier today. As ever the banner
+  trails the release it describes: it tracks the last *publication*, so it can only be corrected once the
+  tag exists.
+
 ## [0.310.0] - 2026-08-14
 
 ### Added

@@ -48,7 +48,32 @@ matching the project pattern was approved for you and went straight past the thr
 no control on it at all, only an instruction to retype the goal with a `--approve` token, so the obvious
 retry stopped in the same place every time.
 
-Detection is deliberately conservative: it needs explicit project vocabulary *and* a first-person offer,
+**The goal a run starts with is the work, never the word you agreed with.** When you say "yes" to a
+closing offer, AtlasMind resolves the goal from what the assistant proposed. Until v0.310.5, an offer that
+ended "Shall I go ahead?" resolved to the goal `go ahead` — and the plan, the subtask table, the file
+estimate and the cost estimate were all derived from that fragment, which is also why such a run read as
+having come from nowhere. An affirmation on its own is now refused as a goal and the resolver falls back
+to what you actually asked for; "Shall I go ahead **and update the README banner**?" still resolves to the
+work, because there the affirmation is only a preamble.
+
+**A stated precondition is honoured.** If the assistant said it was waiting on you — "once you confirm the
+version number, I can start a run" — a bare "continue" no longer overrides it, because it supplies none of
+what was asked for and the run would begin on exactly the information the model said it lacked. A reply
+that carries the detail ("yes, use 0.310.5") answers the precondition and proceeds.
+
+**If a turn is waiting on you, it says so.** Any first-person offer to do work now shows the decision card
+— it no longer has to contain the literal words "project run". Until v0.311.0 three separate rules decided
+whether a turn was pending, and the one that *accepted your answer* was the widest of them: a reply ending
+"I can implement this across the four files. Shall I go ahead?" showed no card and mentioned no run, while
+typing "yes" started a planned multi-subtask one. The card also no longer deletes the question and its
+quick replies; you get both. An offer to *explain* something still shows no card, because saying yes to
+that is a conversation.
+
+Permitting an unattended start is a separate question from announcing a pending one, so **auto-flow still
+requires the explicit vocabulary** — otherwise widening the announcement would have turned an ordinary
+"Want me to start?" into an autonomous run under Autopilot.
+
+Detection for that narrower auto-start is deliberately conservative: it needs explicit project vocabulary *and* a first-person offer,
 ignores a generic "I'll build this", backs off on declines, and never fires while requirements are still
 being gathered.
 

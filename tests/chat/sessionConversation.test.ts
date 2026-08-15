@@ -7,6 +7,40 @@ describe('SessionConversation', () => {
     conversation.recordTurn('hello', 'world');
     expect(conversation.getTranscript()).toHaveLength(2);
   });
+
+  // An empty answer used to drop the user's message along with it. That is the
+  // wrong half to lose: the operator can see they typed it, so a transcript
+  // that disagrees is the transcript being wrong.
+  it('keeps the user message when the assistant returned nothing', () => {
+    const conversation = new SessionConversation();
+    conversation.recordTurn('what happened to my question?', '   ');
+
+    const transcript = conversation.getTranscript();
+    expect(transcript).toHaveLength(2);
+    expect(transcript[0]?.content).toBe('what happened to my question?');
+    expect(transcript[1]?.content).toContain('no reply for this turn');
+    // A record for the reader, not context for the next prompt: `buildContext`
+    // filters on weight > 0, so the placeholder is visible in the transcript and
+    // absent from the next model call. The user's own message still travels.
+    expect(transcript[1]?.relevanceWeight).toBe(0);
+    const context = conversation.buildContext({ maxTurns: 6, maxChars: 2000 });
+    expect(context).not.toContain('no reply for this turn');
+    expect(context).toContain('what happened to my question?');
+  });
+
+  it('classifies an error turn from the caller rather than from the wording', () => {
+    const conversation = new SessionConversation();
+    // No error vocabulary in the text at all — the auto-detector would call this
+    // an ordinary answer, which is exactly why the caller gets to say.
+    conversation.recordTurn('run it', 'The provider stopped responding.', undefined, {
+      modelUsed: 'atlasmind/error',
+      turnError: { kind: 'failed', message: 'socket hang up' },
+    }, { assistantClassification: 'error' });
+
+    const assistant = conversation.getTranscript()[1];
+    expect(assistant?.classification).toBe('error');
+    expect(assistant?.meta?.turnError).toEqual({ kind: 'failed', message: 'socket hang up' });
+  });
 });
 
 /**

@@ -19,6 +19,275 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.327.0 — Nothing writes to your repository without asking
+
+Two things in chat used to change files you commit, without asking and without saying so afterwards.
+`/buzz local` and `/buzz hosted` wrote a workspace setting outright. And telling AtlasMind you were
+frustrated caused it to write a note into project memory quoting your own message back — announced only as
+"Learned from friction".
+
+Both now ask first. The feedback note is drafted and held behind a button, and when you do save it the
+reply shows you the entire text that went into the file. AtlasMind still adjusts its approach when you push
+back; it just no longer records you in order to do it.
+
+## v0.326.0 — A failed turn no longer deletes your question
+
+If a provider failed mid-turn, the whole exchange disappeared from your history — your own message
+included — and all you got was a generic error banner. The failure is now written into the transcript
+where you can see it, along with whatever had already been streamed, and a note that you can just send the
+prompt again.
+
+Two related fixes: **Stop** now actually stops the model call rather than being noticed after it finishes,
+and a reply that comes back empty keeps your question instead of erasing it.
+
+## v0.325.0 — Both chat surfaces, one set of features
+
+Typing to `@atlas` in VS Code's chat view used to run a different internal route from the AtlasMind chat
+panel — and that route had quietly lost several things the panel had: conversation recall, roadmap status,
+attaching an image by mentioning its path, continuing straight into an offered run, and the line telling
+you which model answered and what it cost. The recall feature shipped last release and could never be
+reached from this surface at all.
+
+Both now go through one dispatcher, so the two cannot drift apart again. One more thing came back with it:
+a slash command that arrives as plain text — which is how some buttons open chat — is recognised again
+instead of being handed to a model.
+
+## v0.324.1 — Groundwork: one answer to "what is this prompt asking?"
+
+Nothing changes for you in this release. An audit found the two places you can talk to AtlasMind had
+grown three separate ideas of what a plain, non-slash message means — and the richest of the three,
+holding conversation recall and roadmap status, could not be reached at all from the `@atlas` chat view.
+This release adds the single shared resolver they will both use, without switching either one over to it
+yet. The switch is the next release, kept separate so it can be undone on its own.
+
+## v0.324.0 — Ask what you said, get what you said
+
+"What was my question two turns ago?" used to be answered by a model guessing, and it guessed wrong —
+returning a question you had never asked. It is now answered from the transcript, quoted exactly, before
+any model sees it. If the session does not go back that far, it says so rather than handing you the
+oldest message as though it were the one you meant.
+
+Also: a model thinking aloud — "maybe use list_dir etc… we'll use terminal? probably easier" — no longer
+reaches you as the answer. And AtlasMind's own settings pages are no longer mistaken for pages of your
+project.
+
+## v0.323.0 — Three ways a turn used to waste itself
+
+A provider that is rate-limiting now gets skipped for the whole turn instead of being asked again under
+three different model names — 79 seconds of refusals, on a turn that then ran out of attempts.
+
+A reply that promises to make a change and never makes it is now caught, as replies that promised to
+*look* at something already were.
+
+And "tell me about who makes playwright" is no longer something AtlasMind will start an autonomous run
+about when you say "carry on".
+
+## v0.322.0 — A busy GPU no longer ends the turn
+
+If your local runtime was busy, AtlasMind treated each refusal as a failed model and burned its failover
+budget on them — trying two more models on the same card, which were refused for the same reason, then
+reporting "all 5 model attempts failed" when nothing had been sent anywhere. A refusal for capacity is now
+not a failure, and the rest of that runtime's models are skipped for the turn.
+
+Also: a reply that says your request "has already been fully addressed" without addressing it is now
+caught and re-prompted, and `/cost` no longer calls a running workspace total a session total.
+
+## v0.321.0 — It no longer invents where a setting lives
+
+Asked where to turn off automatic research scans, AtlasMind confidently named a file that does not exist,
+a flag that does not exist, and an environment variable that does not exist. The real answer is a setting
+called `atlasmind.research.enabled`.
+
+The cause was simple and invisible: the list of pages had grown large enough to consume the whole context
+budget, so the settings half was being dropped entirely — every one of the 134 keys. It was asked where a
+setting lived while holding no settings vocabulary at all.
+
+It now always carries the settings areas, and is told to read the exact key rather than name one from
+memory — and told, specifically, never to invent a file path or an environment variable.
+
+## v0.320.0 — A question with something after it is still a question
+
+"Would you like me to inspect the configuration? If so, I can fetch it directly." — you got no buttons,
+because the reply did not *end* with the question. A short clause after it is now ignored when looking for
+one. A long paragraph after a rhetorical question still is not treated as a prompt.
+
+## v0.319.0 — The model can ask for a tool it wasn't given
+
+Only a couple of dozen tools fit in a turn, so AtlasMind guesses from your request which ones it will
+need. When the guess is wrong the assistant simply cannot call what it was not told about, and works
+around the gap instead of asking.
+
+It can now ask. One extra tool lets it describe what it is trying to do and get the matching tools
+immediately — limited to what your agent is already allowed to use, still subject to every approval, and
+never offered on a turn that was deliberately given no tools at all.
+
+## v0.318.0 — Turning a subscription agent off actually turns it off
+
+The Models tree said "model disabled" while every turn still went to that agent, and it survived a
+reload. Nothing was stale: an ACP agent is registered as a base row *plus* one entry for every
+model-and-effort combination it offers, and the tree's switch only ever touched the base. The flag was on
+one id and routing was using another — with three different ones appearing in a single session, there was
+no row you could have toggled to stop it.
+
+Switching the agent off now stops every variant it routes as, including ones discovered afterwards.
+
+## v0.317.1 — The live battery stops naming one repository's files
+
+Two of the manual battery's probes asked the assistant to read an AtlasMind source file, so running the
+battery against any other project tested nothing — the assistant correctly said the file was missing and
+the probes passed without checking anything. They now refer to whatever repository you are running in.
+
+## v0.317.0 — Tool work goes to a model that can take the tools
+
+A subscription-backed agent costs nothing per token, so once it was allowed to count as tool-capable it
+won every routing comparison — and it cannot actually receive AtlasMind's own tools, it runs its own
+instead. Turns that need AtlasMind's tools now go to a provider that can take them, falling back to a
+subscription agent only when nothing else can do the work at all.
+
+## v0.316.0 — Whose diagnostic is it, and where did the tools go
+
+"Model diagnostic: Exceeded skills context budget" appeared on nearly every turn and read as AtlasMind's
+own problem. It isn't — it comes from the agent you are routed to, about that agent's own skills, and
+AtlasMind sends an ACP agent no tools at all. It now names the model that said it, and shows it once per
+session rather than every turn.
+
+Relatedly: when you are routed to a subscription agent, AtlasMind's own tools are not available — the
+agent uses its own instead. That was true before and invisible. It now says so once, with the count.
+
+## v0.315.1 — The card appears when the run is offered as a statement
+
+AtlasMind recognised "If you want, I can start a project run…" as an offer, but the Start / Save / Cancel
+card needs a goal, and the code that works out what was offered still required a question mark. With none
+it found no goal, so the card never appeared — and the turn ended having been detected as waiting on you
+while showing nothing at all. That is the original complaint, by a second route.
+
+## v0.315.0 — "If you want, I can…" is now something you can click
+
+AtlasMind only offered you buttons when a reply ended in a question mark. Run against a real model, that
+turned out to be almost never: four turns in a row closed with offers phrased as statements — "If you
+want, I can also add a release notes heading", "If you want, I can start a project run" — and every one
+of them left you with nothing to click and no record that anything had been asked.
+
+Offers like those now get Yes and No. Advice that happens to start the same way — "if you want durability,
+use KV" — still doesn't, because it is telling you what to do rather than offering to do it.
+
+## v0.314.1 — The CLI starts again
+
+Two skills added over the last two releases imported the VS Code host at module scope, and the CLI loads
+the whole skill registry on startup — so `atlasmind chat` failed immediately with a module-not-found
+error. Every test passed throughout, because the test runner substitutes a stub for that module and the
+compiler resolves it from type definitions; the only way to see it was to run the CLI.
+
+## v0.314.0 — Chat can change a setting, and notice when one is wrong
+
+Ask it to turn something off and it can now do it — behind a dialog naming the setting, the current value
+and the new one, written into your project's own settings where a reviewer will see it. It can only touch
+settings AtlasMind actually declares, and only with values they actually accept.
+
+It also notices when a setting is wrong for the work in front of it: a run that stopped at a ceiling
+rather than because it finished, a context window smaller than the file being discussed, an approval mode
+raising more dialogs than changing it would cost. Those are suggestions with a named value, never changes.
+
+## v0.313.0 — Chat knows what AtlasMind is, and can take you there
+
+Ask where a setting lives and you used to get prose — "that's under Settings → Safety" — which you then
+had to go and find, and which was recall rather than a lookup: nothing had ever told the model what pages
+AtlasMind actually has. It knows now, from the running extension's own manifest, and it can open the page
+for you and scroll to the card that answers your question.
+
+If it is not certain of a name it says so rather than telling you the setting does not exist. That rule is
+kept outside the size budget, because it was the first thing being cut.
+
+## v0.312.1 — Two answers, and which one counts
+
+When a reply diverged from what had already been streamed, you got both, separated by a horizontal line
+and nothing else — so the natural read was to trust the first, which was the wrong one. The second is now
+labelled as the answer AtlasMind committed.
+
+## v0.312.0 — What the turn cost, and which tools actually need asking about
+
+The footer named the model and never the cost, on a product that routes across paid providers. It says
+both now.
+
+Reading through an MCP server used to prompt exactly as loudly as deleting a file — every MCP tool was
+graded high-risk network, because the rule that recognises a read could never match a name beginning
+`mcp:`. Remote reads have their own category now: they pass the default mode and are still gated by the
+one that cares about anything leaving your machine.
+
+Also: `/Cost` and `/runs?` are commands rather than questions for a model, the closing question is asked
+once instead of twice, "use Playwright instead" keeps its context, and the approval modes now describe
+what they let through — `ask-on-external` allows local file writes, which nothing used to say.
+
+## v0.311.1 — A full stop no longer deletes the question
+
+"Want me to update README.md?" reached you as nothing at all — no buttons, no follow-up prompt, no sign
+anything had been asked. The clause extractor could not read past a full stop, so it saw `md?`, decided
+that was too short to be a question, and dropped it. Every offer naming a file, a path or a version did
+the same, which is most of what Atlas offers to do.
+
+Also fixed: a turn ending in two questions now surfaces both, a closing question written as a heading is
+no longer stripped before you see it, and a long option is shortened onto its button instead of the whole
+set of buttons disappearing.
+
+## v0.311.0 — A turn that is waiting on you says so
+
+Chat could stop before a project run without telling you, and typing "continue" would then start one.
+Three separate rules decided whether a turn was pending, and the one that *accepted your answer* was the
+widest: a reply ending "I can implement this across the four files. Shall I go ahead?" showed no card and
+mentioned no run, while "yes" started a planned multi-subtask one.
+
+Any offer to do work now shows the decision card, and it no longer deletes the question and quick replies
+it is about. A stray "don't" earlier in the reply no longer removes the card either. And a run prints its
+goal before it does anything, which matters most when the goal came from what the assistant proposed
+rather than from anything you typed.
+
+## v0.310.5 — A run is planned against the work, not the word you agreed with
+
+Say "yes" to an offer ending "Shall I go ahead?" and the run that started had the goal `go ahead` — with
+its plan, its file estimate and its cost estimate all derived from that fragment. That is also why such a
+run seemed to come from nowhere: its stated goal was a piece of a sentence. An affirmation on its own is
+now refused as a goal.
+
+And if AtlasMind said it was waiting on you — "once you confirm the version number" — typing "continue"
+no longer starts the run anyway. Answering with the detail still does.
+
+## v0.310.4 — Frustration no longer edits your settings
+
+When AtlasMind decided you sounded frustrated, it quietly raised two chat settings in your workspace —
+writing them into `.vscode/settings.json`, which most projects commit — and told you nothing about it.
+It also mistook ordinary polite requests for frustration ("can you do this for me when you have a
+moment"), so it happened on turns where nothing had gone wrong. That path is gone, and if it already
+changed your project, the original values come back the next time you chat.
+
+It is also much better at noticing when you *are* unhappy: five common phrasings went unrecognised,
+including "you're not listening to me" and "that's the third time you've ignored my question".
+
+## v0.310.3 — A good answer is no longer thrown away
+
+If every tool result in a step looked like a failure, AtlasMind deleted the assistant's answer, replaced
+it with a failure dump, and marked the turn an error. "Looked like a failure" meant the output contained
+words such as *failed* or *cannot* — which file contents routinely do, so reading an ordinary source file
+was enough. The answer is kept now, the failure is reported underneath it, and the error mark is reserved
+for a turn that produced nothing. That mark also fed model and agent scoring, so the mistake used to
+outlive the conversation it happened in.
+
+## v0.310.2 — A stress battery for the chat window
+
+A measuring instrument, not a gate. 57 probes across ten lanes ask whether the chat window does right by
+the person reading it — does a question it asks reach you as something answerable, does the answer arrive
+whole, does a turn that stops waiting say so, can it reach the product it is part of. It lives in `evals/`
+and runs from its own config, because its failures are findings about the shipped surface rather than
+regressions, and putting them in the suite would turn each one into a blocked commit.
+
+Baseline at this version: 24 held, 33 findings.
+
+## v0.310.1 — A Refresh button that fits
+
+The dashboard Refresh button printed its keyboard shortcut next to a one-word label, which was most of
+the button for something you read once — and in a narrow panel the whole thing broke to one letter per
+line. The shortcut still works and still shows in the tooltip; the button no longer prints it. Narrow
+panels now move controls onto their own row rather than crushing them.
+
 ## v0.310.0 — Scaffold uses your runner, not its favourite
 
 The Scaffold button knew two test runners: Vitest and Jest. Anything else got Vitest files it could not

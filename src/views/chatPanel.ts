@@ -1297,15 +1297,20 @@ export class ChatPanel {
       const autopilotEnabled = this.atlas.toolApprovalManager?.isAutopilot?.() ?? false;
       const autoStartProposedRuns = configuration.get<boolean>('autoStartProposedProjectRuns', true);
       if (proposedRun && (!autopilotEnabled || !autoStartProposedRuns)) {
+        // The question and its pills are KEPT alongside the decision card.
+        //
+        // They used to be deleted here, leaving the card as the only affordance —
+        // and the question detector is silent on any offer naming a file, so a
+        // turn ending "Want me to update README.md?" could surface neither. The
+        // card is a control, the question is what was asked; dropping the second
+        // is how a turn came to be waiting with nothing on screen saying so.
+        // Double-triggering is not a risk here: the card resolves once, host-side.
         this.atlas.sessionConversation.updateMessage(
           assistantMessageId,
           visibleTranscriptText,
           activeSessionId,
           {
             ...assistantMeta,
-            followupQuestion: undefined,
-            quickReplies: undefined,
-            suggestedFollowups: undefined,
             projectRunProposal: { goal: proposedRun.goal, status: 'pending' },
           },
         );
@@ -3257,7 +3262,7 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
         : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
       const timelineBlock = renderTimelineNotesMarkdown(entry.meta?.timelineNotes);
-      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
+      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups, entry.content);
       return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${attachmentBlock}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
     })
     .join('\n\n');
@@ -3288,9 +3293,17 @@ function renderTimelineNotesMarkdown(timelineNotes: readonly SessionTimelineNote
 function renderSuggestedFollowupsMarkdown(
   followupQuestion: string | undefined,
   suggestedFollowups: readonly ChatPanelSuggestedFollowup[] | undefined,
+  answerText?: string,
 ): string {
   if (!followupQuestion || !suggestedFollowups || suggestedFollowups.length === 0) {
     return '';
+  }
+
+  // The question is lifted out of the reply's own tail, so restating it here
+  // printed it twice in one exported turn.
+  if (typeof answerText === 'string'
+    && answerText.trimEnd().toLowerCase().endsWith(followupQuestion.trim().toLowerCase())) {
+    return `\n\n${suggestedFollowups.map(item => `- ${escapeMarkdownHtml(item.label)}`).join('\n')}`;
   }
 
   return `\n\n**Next step:** ${escapeMarkdownHtml(followupQuestion)}\n\n${suggestedFollowups

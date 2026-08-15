@@ -255,6 +255,11 @@ enforced for the service layer — `src/core`, `src/skills`, `src/memory`, `src/
 `src/bootstrap`. Webview code and chat wiring are excluded for now, until they have dedicated integration
 tests.
 
+`evals/` is deliberately outside all of that. `npx vitest run --config evals/vitest.stress.config.ts`
+runs the chat-window stress battery, whose failures are **findings about the shipped surface, not
+regressions** — it is a measuring instrument, not a gate, and putting it in the suite would turn every
+finding into a blocked commit. Run it when you change chat, and expect it to be red.
+
 ---
 
 ## Code of conduct

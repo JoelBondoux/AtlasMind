@@ -88,11 +88,16 @@ npm run lint
 
 **Tests live under `tests/`, and nowhere else.** The runner's `include` is `tests/**/*.test.ts`. A test file placed in `src/`, in a singular `test/` directory, or given a `.spec.ts` suffix does not run and reports nothing — its presence then reads as coverage that does not exist. Five such files were found and moved in v0.220.0; two of them did not pass once they ran. If a test seems to be passing suspiciously easily, confirm the runner is picking it up before believing it.
 
+**`evals/` holds batteries that are deliberately *not* in the suite.** `tests/**` asserts what the code is contracted to do, so a failure there is a regression and must block a commit. `evals/chat-window.stress.ts` asserts what the chat window ought to do *for a person reading it* — a higher bar than the code currently clears — and its failures are findings, not regressions. Wiring it into `npm test` would make every finding a blocked commit, and the whole battery would be deleted within a week. It therefore runs from its own config, which is also why `tsconfig.json` (`include: src/**`) and the pre-commit hook are unaffected by anything in `evals/`.
+
+Two rules if you add probes to it. Each probe carries the question it asks *on the user's behalf* and why that shape is realistic for this codebase, so a failure reads as a defect report rather than a red assertion. And every lane interleaves **controls** — probes expected to pass — because a lane where nothing holds is broken outright rather than at the edges, and you cannot tell those apart from failures alone. Probes that scan source rather than calling a function need their regex anchored precisely: two of them originally passed by matching the wrong occurrence, which is a false pass of exactly the kind the battery exists to catch.
+
 ```bash
 npm run test
 npm run test:coverage
 npm run test:mutation
 npm run test:providers:local-recommendations
+npx vitest run --config evals/vitest.stress.config.ts   # chat-window stress battery (findings, not gates)
 ```
 
 ## Project Structure

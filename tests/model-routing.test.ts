@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ModelRouter } from '../src/core/modelRouter.js';
+import { ModelRouter, preferNativeToolCandidates } from '../src/core/modelRouter.js';
 import { ACP_EFFORT_TIERS, ACP_MODEL_CATEGORY, acpModelChoicesFor, acpModelRows, describeAcpModelStanding } from '../src/providers/acpModels.js';
-import type { ProviderConfig } from '../src/types.js';
+import type { ModelInfo, ProviderConfig } from '../src/types.js';
 
 /**
  * Which model gets the work, and whether that decision can be relied on.
@@ -231,5 +231,139 @@ describe('an unrecognised model is ranked unknown, never dropped', () => {
     const firstVariant = rows.findIndex(row => row.effort !== undefined);
     const lastBare = rows.map(row => row.effort === undefined).lastIndexOf(true);
     expect(lastBare).toBeLessThan(firstVariant === -1 ? rows.length : firstVariant);
+  });
+});
+
+describe('delegation is a fallback, not an equal', () => {
+  // A subscription-backed agent reports zero per-token cost, so treated as an
+  // equal candidate it dominates every budget comparison there is. Observed in
+  // the field: a session where every turn routed to an ACP agent, with much of
+  // AtlasMind's own tooling dark and nothing saying so. AtlasMind sends such an
+  // agent no tool schemas at all — it satisfies "function_calling" by running
+  // its own tools instead.
+  const native = (id: string): ModelInfo => ({
+    id, name: id, provider: 'openai', contextWindow: 128_000,
+    inputPricePer1k: 0.001, outputPricePer1k: 0.002,
+    capabilities: ['chat', 'code', 'function_calling'], enabled: true,
+  } as unknown as ModelInfo);
+  const delegated = (id: string): ModelInfo => ({
+    id, name: id, provider: 'acp', contextWindow: 200_000,
+    inputPricePer1k: 0, outputPricePer1k: 0,
+    capabilities: ['chat', 'code'], enabled: true, delegatedToolExecution: true,
+  } as unknown as ModelInfo);
+
+  const constraints = { budget: 'balanced', speed: 'balanced', allowDelegatedToolExecution: true } as never;
+
+  it('drops delegated candidates when a native one can take the tools', () => {
+    const kept = preferNativeToolCandidates(
+      [delegated('acp/codex'), native('openai/gpt-4.1')], ['function_calling'], constraints,
+    );
+    expect(kept.map(model => model.id)).toEqual(['openai/gpt-4.1']);
+  });
+
+  it('keeps the delegated candidate when nothing else qualifies', () => {
+    // The fallback half. Refusing the work outright would be worse than running
+    // it with the agent's own tools.
+    const kept = preferNativeToolCandidates([delegated('acp/codex')], ['function_calling'], constraints);
+    expect(kept.map(model => model.id)).toEqual(['acp/codex']);
+  });
+
+  it('leaves a turn that needs no tools alone', () => {
+    const kept = preferNativeToolCandidates(
+      [delegated('acp/codex'), native('openai/gpt-4.1')], ['chat'], constraints,
+    );
+    expect(kept).toHaveLength(2);
+  });
+
+  it('does nothing when delegation was not permitted in the first place', () => {
+    const kept = preferNativeToolCandidates(
+      [native('openai/gpt-4.1')], ['function_calling'],
+      { budget: 'balanced', speed: 'balanced' } as never,
+    );
+    expect(kept).toHaveLength(1);
+  });
+});
+
+describe('disabling an agent disables the variants it routes as', () => {
+  // Reported from the field: the Models tree read "(ACP — model disabled)" while
+  // every turn in the session routed to `acp/codex@gpt-5.3-codex-spark#medium`,
+  // and it survived a window reload.
+  //
+  // `discoverModels` returns the base row *plus* one entry per model × effort,
+  // each a separate ModelInfo with its own `enabled`. The tree toggles the base;
+  // routing resolves a composed id. Three different composed ids appeared in one
+  // session, so there was no row to toggle for the one actually in use — the
+  // switch could not be operated correctly, only appear to be.
+  const acpProvider = (models: Array<{ id: string; enabled: boolean }>): ProviderConfig => ({
+    id: 'acp',
+    name: 'ACP',
+    enabled: true,
+    models: models.map(({ id, enabled }) => ({
+      id,
+      name: id,
+      provider: 'acp',
+      contextWindow: 200_000,
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      capabilities: ['chat', 'code'],
+      delegatedToolExecution: true,
+      enabled,
+    })),
+  } as unknown as ProviderConfig);
+
+  const routerWith = (provider: ProviderConfig): ModelRouter => {
+    const router = new ModelRouter();
+    router.registerProvider(provider);
+    return router;
+  };
+
+  it('does not route to a variant whose agent is disabled', () => {
+    const router = routerWith(acpProvider([
+      { id: 'acp/codex', enabled: false },
+      { id: 'acp/codex@gpt-5.3-codex-spark#medium', enabled: true },
+      { id: 'acp/codex@gpt-5.4-mini', enabled: true },
+    ]));
+
+    // Not `undefined`: the built-in echo model is always a last resort, and
+    // that is correct. The property is that no variant of the disabled agent is
+    // reachable.
+    const chosen = router.selectModel({ budget: 'balanced', speed: 'balanced' } as never);
+    expect(chosen).not.toMatch(/^acp\/codex/);
+  });
+
+  it('still routes to a variant whose agent is enabled', () => {
+    // The other half: this must not disable ACP outright.
+    const router = routerWith(acpProvider([
+      { id: 'acp/codex', enabled: true },
+      { id: 'acp/codex@gpt-5.3-codex-spark#medium', enabled: true },
+    ]));
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' } as never)).toMatch(/^acp\/codex/);
+  });
+
+  it('disables a variant discovered after the agent was turned off', () => {
+    // Why this belongs in the router rather than in the toggle: variants appear
+    // over time as the agent reports its `configOptions`, so a cascade at toggle
+    // time would miss every one discovered afterwards.
+    const router = routerWith(acpProvider([
+      { id: 'acp/codex', enabled: false },
+      { id: 'acp/codex@gpt-5.9-brand-new#high', enabled: true },
+    ]));
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' } as never)).not.toMatch(/^acp\/codex/);
+  });
+
+  it('leaves a model with no base row alone', () => {
+    // A provider whose ids simply contain no separator must be unaffected.
+    const router = routerWith({
+      id: 'openai', name: 'OpenAI', enabled: true,
+      models: [{
+        id: 'openai/gpt-4.1', name: 'gpt-4.1', provider: 'openai',
+        contextWindow: 128_000, inputPricePer1k: 0.001, outputPricePer1k: 0.002,
+        capabilities: ['chat', 'code', 'function_calling'], enabled: true,
+      }],
+    } as unknown as ProviderConfig);
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' } as never)).toBe('openai/gpt-4.1');
   });
 });

@@ -43,6 +43,18 @@ import {
   registerChatParticipant,
 } from '../../src/chat/participant.ts';
 
+/**
+ * A cancellation token shaped like the real one. `vscode.CancellationToken`
+ * always carries `onCancellationRequested`, and the handler now subscribes to it
+ * so Stop reaches the model call — a stub without it is not a token.
+ */
+function cancellationToken(options: { cancelled?: boolean } = {}) {
+  return {
+    isCancellationRequested: options.cancelled ?? false,
+    onCancellationRequested: (_listener: () => void) => ({ dispose: () => undefined }),
+  };
+}
+
 describe('native chat participant', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -182,7 +194,7 @@ describe('native chat participant', () => {
         ],
       } as never,
       stream as never,
-      { isCancellationRequested: false } as never,
+      cancellationToken() as never,
     );
 
     expect(processTask).toHaveBeenCalledTimes(1);
@@ -284,7 +296,7 @@ describe('native chat participant', () => {
       } as never,
       { history: [] } as never,
       stream as never,
-      { isCancellationRequested: false } as never,
+      cancellationToken() as never,
     );
 
     expect(processTask).toHaveBeenCalledTimes(1);
@@ -351,7 +363,7 @@ describe('native chat participant', () => {
         ],
       } as never,
       stream as never,
-      { isCancellationRequested: false } as never,
+      cancellationToken() as never,
     );
 
     expect(atlas.sessionConversation.buildContext).not.toHaveBeenCalled();
@@ -415,11 +427,16 @@ describe('native chat participant', () => {
       } as never,
       { history: [] } as never,
       stream as never,
-      { isCancellationRequested: false } as never,
+      cancellationToken() as never,
     );
 
     expect(stream.markdown).toHaveBeenNthCalledWith(1, 'I will inspect the code path.');
-    expect(stream.markdown).toHaveBeenNthCalledWith(2, '\n\n---\n\nThe response was getting dropped after the first streamed chunk.');
+    // Labelled, not merely separated by a rule: two answers to one question with
+    // nothing saying which is real leaves the operator trusting the first, which
+    // is the wrong one.
+    const secondChunk = String(stream.markdown.mock.calls[1]?.[0] ?? '');
+    expect(secondChunk).toContain('superseded');
+    expect(secondChunk).toContain('The response was getting dropped after the first streamed chunk.');
     expect(recordTurn).toHaveBeenCalledWith(
       'Why did the previous run stop early?',
       'The response was getting dropped after the first streamed chunk.',
@@ -475,16 +492,243 @@ describe('native chat participant', () => {
       } as never,
       { history: [] } as never,
       stream as never,
-      { isCancellationRequested: false } as never,
+      cancellationToken() as never,
     );
 
-    expect(stream.markdown).toHaveBeenCalledTimes(1);
+    // The answer itself must appear exactly once — it was already streamed, and
+    // re-emitting it is the divergence bug this test exists for. Counting the
+    // markdown calls used to stand in for that, which stopped being the same
+    // question once the native path started rendering a footer: the model and
+    // cost line is a second call that repeats no part of the answer.
+    const chunks = stream.markdown.mock.calls.map(call => String(call[0] ?? ''));
+    const answerEmissions = chunks.filter(chunk => chunk.includes('Streaming reply'));
+    expect(answerEmissions).toHaveLength(1);
+    expect(chunks.some(chunk => chunk.includes('_Model: copilot/gpt-4.1'))).toBe(true);
     expect(recordTurn).toHaveBeenCalledWith(
       'Repeat the short answer',
       'Streaming reply',
       expect.any(String),
       expect.any(Object),
     );
+  });
+
+  // The cutover these guard: `handleNativeChatRequest` used to answer plain turns
+  // inline and delegate only slash commands, which made the freeform pipeline —
+  // and conversation recall with it — unreachable code on this surface while the
+  // panel had it. A shipped-but-unreachable feature has no external symptom, so
+  // without a handler-level test the next refactor can silently restore the gap.
+  it('answers a conversation-recall question from the transcript without routing to a model', async () => {
+    const processTask = vi.fn();
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
+        recordTurn: vi.fn(),
+        getTranscript: vi.fn().mockReturnValue([
+          { id: '1', role: 'user', content: 'How does the model router pick a model?', timestamp: '2026-08-15T10:00:00.000Z' },
+          { id: '2', role: 'assistant', content: 'It scores candidates on budget and speed.', timestamp: '2026-08-15T10:00:01.000Z' },
+          { id: '3', role: 'user', content: 'And what does it do when one is rate limited?', timestamp: '2026-08-15T10:01:00.000Z' },
+          { id: '4', role: 'assistant', content: 'It skips that provider for the turn.', timestamp: '2026-08-15T10:01:01.000Z' },
+        ]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
+      },
+      voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+    } as never;
+
+    const stream = { markdown: vi.fn(), button: vi.fn(), progress: vi.fn(), reference: vi.fn() };
+    await createAtlasMindChatRequestHandler(atlas)(
+      {
+        prompt: 'what was my question two turns ago?',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      { history: [] } as never,
+      stream as never,
+      cancellationToken() as never,
+    );
+
+    // Quoted from the record, and no model was asked — a paraphrase of an exact
+    // record is strictly worse than the record.
+    expect(processTask).not.toHaveBeenCalled();
+    const rendered = stream.markdown.mock.calls.map(call => String(call[0] ?? '')).join('\n');
+    expect(rendered).toContain('How does the model router pick a model?');
+  });
+
+  it('renders the model and cost footer on a plain turn', async () => {
+    const processTask = vi.fn().mockResolvedValue({
+      id: 'task-footer',
+      agentId: 'default-agent',
+      modelUsed: 'mistral/magistral-small-latest',
+      response: 'A short answer.',
+      inputTokens: 100,
+      outputTokens: 20,
+      costUsd: 0.0002,
+      durationMs: 30,
+    });
+
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
+        recordTurn: vi.fn(),
+        getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
+      },
+      voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+    } as never;
+
+    const stream = { markdown: vi.fn(), button: vi.fn(), progress: vi.fn(), reference: vi.fn() };
+    await createAtlasMindChatRequestHandler(atlas)(
+      {
+        prompt: 'Give me a one line answer',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      { history: [] } as never,
+      stream as never,
+      cancellationToken() as never,
+    );
+
+    const rendered = stream.markdown.mock.calls.map(call => String(call[0] ?? '')).join('\n');
+    expect(rendered).toContain('_Model: mistral/magistral-small-latest');
+    expect(rendered).toContain('100 in / 20 out');
+  });
+
+  it('keeps context off a turn that changes subject, and on a turn that does not', async () => {
+    // Carry-forward moved from the inline native path into the shared executor as
+    // a parameter. The pure predicate is covered elsewhere; this asserts the
+    // *wiring*, which is where a silent continuity regression would live — the
+    // battery probes the function and would stay green while the handler stopped
+    // consulting it.
+    const runTurn = async (prompt: string) => {
+      const processTask = vi.fn().mockResolvedValue({
+        id: 'task-carry',
+        agentId: 'default-agent',
+        modelUsed: 'copilot/gpt-4.1',
+        response: 'ok',
+        inputTokens: 1,
+        outputTokens: 1,
+        costUsd: 0,
+        durationMs: 1,
+      });
+      const atlas = {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
+          recordTurn: vi.fn(),
+          getTranscript: vi.fn().mockReturnValue([
+            { id: '1', role: 'user', content: 'Explain the caching layer in the worker', timestamp: '2026-08-15T10:00:00.000Z' },
+            { id: '2', role: 'assistant', content: 'It caches responses for 60 seconds.', timestamp: '2026-08-15T10:00:01.000Z' },
+          ]),
+          spawnSession: vi.fn().mockReturnValue('test-session-id'),
+          getSession: vi.fn().mockReturnValue(undefined),
+        },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never;
+      const stream = { markdown: vi.fn(), button: vi.fn(), progress: vi.fn(), reference: vi.fn() };
+      await createAtlasMindChatRequestHandler(atlas)(
+        { prompt, command: undefined, references: [], toolReferences: [], model: { id: 'copilot/gpt-4.1' } } as never,
+        { history: [] } as never,
+        stream as never,
+        cancellationToken() as never,
+      );
+      return processTask.mock.calls[0]?.[0]?.context ?? {};
+    };
+
+    const followUp = await runTurn('and how long does it cache for?');
+    expect(followUp.sessionContext).toContain('Stored AtlasMind session context');
+
+    const newSubject = await runTurn('Generate an image of a mountain at sunrise');
+    expect(newSubject.sessionContext).toBeUndefined();
+  });
+
+  it('records a failed turn instead of losing the operator message with it', async () => {
+    const processTask = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const recordTurn = vi.fn();
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
+        recordTurn,
+        getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
+      },
+      voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+    } as never;
+
+    const stream = { markdown: vi.fn(), button: vi.fn(), progress: vi.fn(), reference: vi.fn() };
+    await expect(createAtlasMindChatRequestHandler(atlas)(
+      { prompt: 'do the thing', command: undefined, references: [], toolReferences: [], model: { id: 'x' } } as never,
+      { history: [] } as never,
+      stream as never,
+      cancellationToken() as never,
+    )).resolves.toBeDefined();
+
+    // The operator is told, in the transcript, rather than by a generic banner
+    // over a turn that then vanished from history.
+    const rendered = stream.markdown.mock.calls.map(call => String(call[0] ?? '')).join('\n');
+    expect(rendered).toContain('Request failed');
+    expect(rendered).toContain('socket hang up');
+    expect(recordTurn).toHaveBeenCalledWith(
+      'do the thing',
+      expect.stringContaining('Request failed'),
+      expect.any(String),
+      expect.objectContaining({ turnError: { kind: 'failed', message: 'socket hang up' } }),
+      expect.objectContaining({ assistantClassification: 'error' }),
+    );
+  });
+
+  it('passes an abort signal to the orchestrator so Stop stops the model call', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const processTask = vi.fn().mockImplementation(async (request: { signal?: AbortSignal }) => {
+      capturedSignal = request.signal;
+      return {
+        id: 't', agentId: 'a', modelUsed: 'm', response: 'done',
+        inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+      };
+    });
+    const listeners: Array<() => void> = [];
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
+        recordTurn: vi.fn(),
+        getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
+      },
+      voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+    } as never;
+
+    const stream = { markdown: vi.fn(), button: vi.fn(), progress: vi.fn(), reference: vi.fn() };
+    await createAtlasMindChatRequestHandler(atlas)(
+      { prompt: 'a long job', command: undefined, references: [], toolReferences: [], model: { id: 'x' } } as never,
+      { history: [] } as never,
+      stream as never,
+      {
+        isCancellationRequested: false,
+        onCancellationRequested: (fn: () => void) => { listeners.push(fn); return { dispose: () => undefined }; },
+      } as never,
+    );
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal?.aborted).toBe(false);
+    // Cancelling the VS Code token must reach the signal the orchestrator holds;
+    // before this the token was only consulted after the call had returned.
+    listeners.forEach(fn => fn());
+    expect(capturedSignal?.aborted).toBe(true);
   });
 
   it('exposes project followups through the official followup provider', () => {

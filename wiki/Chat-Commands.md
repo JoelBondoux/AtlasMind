@@ -8,8 +8,11 @@ There are two places to talk to AtlasMind, and they behave identically:
   (`Ctrl+Alt+I`, `Cmd+Alt+I` on macOS)
 - **VS Code's own chat view** — type `@atlas /acp`
 
-Both run the same handlers, so they can't give you different answers, and any button a command offers
-appears as a clickable chip in both.
+Both run the same handlers — for slash commands *and* for ordinary messages — so they can't give you
+different answers, and any button a command offers appears as a clickable chip in both. One dispatcher
+decides what your message is before either surface renders it, which is what stops the two drifting
+apart: until v0.325.0 the chat view answered plain messages by a separate route that had quietly lost
+conversation recall, roadmap status and the model-and-cost footer.
 
 Two nice touches: a mistyped command gets **corrected rather than answered** (`/agent` suggests
 `/agents`), and a message that merely *starts* with a slash is still treated as a question —

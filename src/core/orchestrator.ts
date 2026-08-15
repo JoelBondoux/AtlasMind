@@ -28,6 +28,7 @@ import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
+import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
 import { classifyToolInvocation } from './toolPolicy.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
@@ -448,6 +449,17 @@ interface TaskAttemptContext {
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
   turnCapabilities?: TurnCapabilityEnvelope;
+  /**
+   * Every skill this agent *may* use, whether or not its schema was sent.
+   *
+   * Selection sends at most 24 schemas and guesses from the prompt which the
+   * turn will need. When it guesses wrong the model has no recourse — it cannot
+   * call what it was not told about. This is the pool `find-tool` searches, and
+   * it is the eligible pool rather than the registry on purpose: a tool the
+   * agent may not use must not even be nameable, or the model plans around one
+   * it can never call.
+   */
+  discoverableSkills?: SkillDefinition[];
 }
 
 interface TaskExecutionAttempt {
@@ -614,6 +626,19 @@ export class Orchestrator {
    * like policy and is actually a missing record.
    */
   private currentExecution: { agentId: string; taskId: string; skillIds: string[] } | undefined;
+
+  /**
+   * Diagnostics already shown, keyed by session.
+   *
+   * Held on the orchestrator rather than inside a turn so a warning that does
+   * not change between turns is shown once. Unbounded only in the number of
+   * sessions a window has held, which is the same order as the session list
+   * itself.
+   */
+  private readonly reportedDiagnosticsByScope = new Map<string, Set<string>>();
+
+  /** Sessions already told that the routed model runs its own tools. */
+  private readonly reportedDelegatedToolNotice = new Set<string>();
 
   /**
    * Run another agent on a question, within the caller's authority.
@@ -1359,6 +1384,9 @@ export class Orchestrator {
       baseTaskProfile = { ...baseTaskProfile, modality: 'text' };
     }
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
+    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length)) {
+      tools.push(TOOL_DISCOVERY_DEFINITION);
+    }
     // The setting authorizes a different execution shape, not a wider function
     // schema: an ACP agent may satisfy the task with its own tools, each coming
     // back through the ACP permission broker. Without it ACP remains a
@@ -1678,7 +1706,20 @@ export class Orchestrator {
     // Seeded from earlier turns: an endpoint that has failed hard twice should
     // not be rediscovered from scratch on every message.
     const blockedEndpointScopes = this.quarantinedEndpointScopes();
-    const reportedModelDiagnostics = new Set<string>();
+    // Per session, not per task.
+    //
+    // This set used to be local, so it deduped within one turn and reset on the
+    // next — and a third-party warning that does not change between turns was
+    // reprinted on every one of them. Once is informative; every time is noise
+    // somebody learns to look past, which is how the *next* diagnostic gets
+    // missed too. Falls back to the task id when no session is in play, which
+    // preserves the old behaviour for one-shot runs.
+    const diagnosticScope = typeof request.context['sessionId'] === 'string'
+      ? request.context['sessionId']
+      : request.id;
+    const reportedModelDiagnostics = this.reportedDiagnosticsByScope.get(diagnosticScope)
+      ?? new Set<string>();
+    this.reportedDiagnosticsByScope.set(diagnosticScope, reportedModelDiagnostics);
 
     if (dailyBudget?.blocked) {
       finalAttempt = {
@@ -1752,6 +1793,22 @@ export class Orchestrator {
         // the adapter's scoped permission policy. A non-ACP failover receives the
         // original tools again on its next iteration.
         const attemptTools = usesDelegatedAcpTools ? [] : tools;
+        // Say so, once per session.
+        //
+        // Standing this loop down is correct, but from the chair it is
+        // invisible: AtlasMind's own tools simply are not there, and a surface
+        // that has just told the model about `atlasmind-open` in its capability
+        // index will describe a page it cannot open. Somebody whose routing
+        // sends every turn to an ACP agent was running with a large part of
+        // AtlasMind's tooling dark and nothing saying so.
+        if (usesDelegatedAcpTools && tools.length > 0 && !this.reportedDelegatedToolNotice.has(diagnosticScope)) {
+          this.reportedDelegatedToolNotice.add(diagnosticScope);
+          onProgress?.(
+            `${currentModel} runs its own tools, so AtlasMind's ${tools.length} tool${tools.length === 1 ? '' : 's'} `
+            + 'are not available on this turn — the agent uses its own, gated by approval. '
+            + 'Route to a provider with function calling if you need AtlasMind\'s own tools.',
+          );
+        }
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
           : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
@@ -1832,6 +1889,10 @@ export class Orchestrator {
               userMessage: request.userMessage,
               signal: request.signal,
               turnCapabilities,
+              // What `find-tool` may reach. The eligible pool, not the registry:
+              // a skill this agent may not use must not be nameable, or the
+              // model plans around one it can never call.
+              discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
@@ -1841,7 +1902,10 @@ export class Orchestrator {
             chunk => { attemptStream += chunk; },
             onProgress,
           );
-          const sanitizedAttempt = sanitizeAssistantResponse(taskAttempt.completion.content || attemptStream);
+          const sanitizedAttempt = sanitizeAssistantResponse(
+            taskAttempt.completion.content || attemptStream,
+            taskAttempt.completion.model || currentModel,
+          );
           taskAttempt = {
             ...taskAttempt,
             completion: { ...taskAttempt.completion, content: sanitizedAttempt.content },
@@ -2025,8 +2089,27 @@ export class Orchestrator {
           if (!isBillingError(error) && !modelWasRetired && !capacityDeferral) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
+          // A rate limit belongs to the account, so skip the whole provider for
+          // this turn rather than asking it again under a different model name.
+          // Not `recordEndpointFailure`: a 429 is a "not now", and holding it
+          // against the endpoint afterwards would punish a provider for being
+          // busy for a minute.
+          if (isProviderRateLimited(error)) {
+            blockedEndpointScopes.add(endpointScope);
+            onProgress?.(`"${selectedProvider}" is rate-limiting; skipping its other models for this turn.`);
+          }
+
           if (capacityDeferral) {
-            onProgress?.('The local GPU budget is committed; trying another provider for this turn.');
+            // Skip this runtime's *other* models for the rest of the turn.
+            //
+            // A deferral is about the shared resource, not the model: nothing was
+            // sent anywhere. Observed in the field — a busy GPU refused a 30b,
+            // then the 4b, then the 14b, all contending for the same card, 45
+            // seconds each, learning nothing three times over. The endpoint is
+            // skipped rather than *failed*: `recordEndpointFailure` is
+            // deliberately not called, so nothing is held against it later.
+            blockedEndpointScopes.add(endpointScope);
+            onProgress?.('The local GPU budget is committed; skipping the other models on this runtime and trying another provider for this turn.');
           }
 
           if (isBillingError(error)) {
@@ -2100,7 +2183,22 @@ export class Orchestrator {
           if (autoDisabledProvider && !autoDisabledProvider.failoverModelUsed) {
             autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
           }
-          failoverAttempts += 1;
+          // A capacity deferral does not spend the failover budget.
+          //
+          // The budget exists to stop a turn walking the whole model list when
+          // models keep failing. A deferral is not a failure: nothing was sent,
+          // no model was asked anything, and this file already excludes it from
+          // `recordModelFailure`, struggle memory and the endpoint circuit for
+          // exactly that reason. Charging it here anyway is what let three
+          // refusals from one busy GPU exhaust a budget of three and end the
+          // turn with "all 5 model attempts failed" — when none of them had.
+          //
+          // Termination is unaffected: `MAX_TASK_MODEL_ATTEMPTS` still bounds the
+          // loop, and the deferring runtime is now skipped for the rest of the
+          // turn, so there is a finite supply of these.
+          if (!capacityDeferral) {
+            failoverAttempts += 1;
+          }
           currentModel = failoverModel;
           (onModelSelected ?? this.onModelSelected)?.(currentModel);
         }
@@ -2126,7 +2224,7 @@ export class Orchestrator {
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
 
-    const sanitizedCompletion = sanitizeAssistantResponse(completion.content);
+    const sanitizedCompletion = sanitizeAssistantResponse(completion.content, completion.model);
     for (const diagnostic of sanitizedCompletion.diagnostics) {
       if (!reportedModelDiagnostics.has(diagnostic)) {
         reportedModelDiagnostics.add(diagnostic);
@@ -2925,7 +3023,9 @@ export class Orchestrator {
         if (
           !completionIntegrityRepromptDone
           && completion.content.length > 0
-          && looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
+          && (looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
+            || looksLikeAnswerlessCompletionClaim(completion.content)
+            || looksLikeLeakedReasoning(completion.content))
         ) {
           completionIntegrityRepromptDone = true;
           onProgress?.('AtlasMind detected an incomplete delivery signal — re-prompting the agent to finish outstanding work or declare explicit blockers.');
@@ -2951,25 +3051,35 @@ export class Orchestrator {
           };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
-          // Instrumentation, not a guard: this branch DISCARDS the model's answer, and
-          // `looksLikeToolFailure` decides on a substring of raw tool output — so a
-          // `file-read` returning source that merely contains "cannot" or "failed" is
-          // enough to trip it. Logging which tool and which token matched is the only
-          // way to tell a genuine failure from a false positive after the fact, because
-          // the answer that would have shown the difference is gone by then.
+          // The failure summary is APPENDED, never substituted, and the error stamp
+          // is reserved for a turn that produced nothing.
+          //
+          // This branch used to replace `completion.content` outright and stamp
+          // `finishReason: 'error'` unconditionally. Both halves were wrong in the
+          // same direction. The replacement deleted a good answer whenever the
+          // failure test misfired — and it misfired on reading a source file. The
+          // stamp then propagated to `agents.recordOutcome` and
+          // `router.recordExecutionOutcome`, so the agent and model that answered
+          // correctly were permanently penalised for it. That is the one defect in
+          // this file that outlived its own turn.
+          //
+          // Appending is also right when the failure is genuine: an answer written
+          // in spite of a failing tool is worth reading, and the summary underneath
+          // says what went wrong. The stamp still fires when there is no answer to
+          // keep, which is the case it was always meant for.
+          const answer = completion.content.trim();
+          const summary = summarizeFailedToolResults(lastToolResults);
           // Names and trigger tokens only — never tool output, which can carry secrets.
           console.warn(
-            `[AtlasMind] Replaced the model's answer with a tool-failure summary `
-            + `(${lastToolResults.length} tool result(s), discarded ${completion.content.trim().length} chars): `
+            `[AtlasMind] Appended a tool-failure summary to the model's answer `
+            + `(${lastToolResults.length} tool result(s), kept ${answer.length} chars): `
             + lastToolResults
               .map(entry => `${entry.toolCall.name} → ${describeToolFailureTrigger(entry)}`)
               .join('; '),
           );
-          completion = {
-            ...completion,
-            content: summarizeFailedToolResults(lastToolResults),
-            finishReason: 'error',
-          };
+          completion = answer.length === 0
+            ? { ...completion, content: summary, finishReason: 'error' }
+            : { ...completion, content: `${completion.content}\n\n---\n\n${summary}` };
         }
         loopCapped = false;
         break;
@@ -3052,6 +3162,32 @@ export class Orchestrator {
               isFailure: true,
             };
           }
+          if (toolCall.name === TOOL_DISCOVERY_SKILL_ID) {
+            // Answered here rather than by a registered skill, because the pool
+            // being searched is this turn's, and a skill has no way to see it.
+            const query = typeof toolArguments['query'] === 'string' ? toolArguments['query'] : '';
+            const discovery = discoverTools(
+              query,
+              context.discoverableSkills ?? [],
+              new Set(tools.map(definition => definition.name)),
+            );
+            for (const granted of discovery.granted) {
+              // Same mechanism the synthesised-skill path uses below: push the
+              // schema so the model can call it on the next iteration.
+              tools.push(...buildToolDefinitions([granted]));
+            }
+            if (discovery.granted.length > 0) {
+              onProgress?.(`Added ${discovery.granted.length} tool(s) the model asked for: ${discovery.granted.map(entry => entry.id).join(', ')}.`);
+            }
+            return {
+              toolCall,
+              result: discovery.message,
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+            };
+          }
+
           if (!skill) {
             const args = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
             const synthesisResult = await this.synthesizeSkillForTool(
@@ -4824,6 +4960,15 @@ const TOOL_FAILURE_DECLARED_PREFIXES: ReadonlyArray<{ prefix: string; label: str
 ];
 
 /**
+ * Ceiling on output the undeclared-failure heuristic will judge at all.
+ *
+ * A failure message a tool did not prefix is still a message — one sentence,
+ * occasionally two. Beyond this it is a payload, and matching keywords inside a
+ * payload is how reading a source file came to count as a failed tool call.
+ */
+const TOOL_FAILURE_HEURISTIC_MAX_CHARS = 400;
+
+/**
  * Capturing so {@link classifyToolFailure} can name the keyword that fired.
  * Non-capturing previously; `.test()` is unaffected by the change.
  */
@@ -4895,6 +5040,24 @@ export function classifyToolFailure(result: string): string | undefined {
     if (normalized.startsWith(prefix)) {
       return label;
     }
+  }
+
+  // Below here the classification is a *guess* about output that never declared
+  // itself a failure, so it is bounded by length.
+  //
+  // It used to be unbounded, and `file-read` returns file contents: reading an
+  // ordinary source file that happens to contain "cannot" or "failed" anywhere
+  // classified the read as a failure. Measured on this repository, two of three
+  // ordinary files tripped it — `package.json` on "failed". One tool call per
+  // round is the common case, so the `every()` at the call site was trivially
+  // satisfied and the model's answer was discarded for having read a file.
+  //
+  // A genuine undeclared failure is a sentence. A payload is not. Anything
+  // longer than this is content the tool returned successfully, whatever words
+  // are in it — and the right long-term fix is for tools to declare failure with
+  // a prefix rather than have it inferred from their payload at all.
+  if (normalized.length > TOOL_FAILURE_HEURISTIC_MAX_CHARS) {
+    return undefined;
   }
 
   if (normalized.includes('failed')) {
@@ -5363,15 +5526,111 @@ function matchesSafeCompletionPattern(response: string, source: string): boolean
  * truncations the integrity reprompt did not recover, and they must not be reported
  * as completed subtasks.
  */
+/**
+ * A reply that reports having answered instead of answering.
+ *
+ * Observed verbatim: *"The user's request … has already been fully addressed
+ * with direct workspace evidence from the file read operation. No code changes
+ * or additional tool calls are needed as the analysis is complete."* Three tool
+ * calls ran, a file was read, and the operator was told the analysis was
+ * finished without ever being given it.
+ *
+ * {@link looksLikePreambleOnly} does not catch this and should not: it looks for
+ * a *future* announcement ("let me inspect…") with no follow-through. This is the
+ * mirror image — a **past-tense completion claim** with nothing delivered — and
+ * the two fail at opposite ends of the same turn.
+ *
+ * Bounded by length and by the absence of a code fence for the same reason as
+ * its sibling: a long reply, or one carrying a diff, has delivered something
+ * whatever it says about itself. What is left is a short paragraph whose entire
+ * subject is the request rather than its answer.
+ */
+export function looksLikeAnswerlessCompletionClaim(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0 || trimmed.length > 400) {
+    return false;
+  }
+  if (/```/.test(trimmed) || /^\s*[-*\d]/m.test(trimmed)) {
+    return false;
+  }
+  // It has to be *about* the exchange, not about the subject.
+  const referencesTheRequest = /\b(?:the (?:user'?s )?request|the question|this query|the ask)\b/i.test(trimmed);
+  const claimsCompletion = /\b(?:already (?:been )?(?:fully )?(?:addressed|answered|covered|provided)|analysis is complete|has been completed|no (?:further|additional) (?:tool calls?|action|changes?|steps?) (?:are|is) (?:needed|required))\b/i.test(trimmed);
+  return referencesTheRequest && claimsCompletion;
+}
+
+/**
+ * A model's scratchpad, printed as the answer.
+ *
+ * Observed verbatim: *"Need maybe use list_dir etc. We'll use terminal? Probably
+ * easier. Let's run pwd && ls. Need maybe use search tools? There's no explicit
+ * tool definitions but from previous tasks maybe can use read_file? … Since tool
+ * list unknown, maybe use terminal commands. We'll use Terminal."*
+ *
+ * Distinct from {@link looksLikePreambleOnly}, which catches an *announcement* —
+ * one clean sentence about what is coming next. This is deliberation: the model
+ * weighing approaches with itself, in fragments, and it reached the operator as
+ * prose. It is also the only one of these shapes that leaks internals — that
+ * reply told the operator which tool names the model was guessing at.
+ *
+ * Two markers required, never one. "Maybe" and "probably" appear in perfectly
+ * good answers about uncertain things; a paragraph that hedges twice about *its
+ * own method* is not an answer about anything.
+ */
+const LEAKED_REASONING_MARKERS: ReadonlyArray<RegExp> = [
+  /\bneed maybe\b/i,
+  /\bmaybe (?:use|we|i|can)\b/i,
+  /\bprobably (?:easier|better|fine|ok)\b/i,
+  /\bwe'?ll use\b/i,
+  /\blet'?s (?:run|try|do|use)\b/i,
+  /\btool list unknown\b/i,
+  /\bthere'?s no explicit tool\b/i,
+  /\bwe need (?:to )?inspect\b/i,
+  /\bor maybe\b/i,
+  /\bwe could (?:just|maybe)\b/i,
+];
+
+export function looksLikeLeakedReasoning(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0 || trimmed.length > 1200) {
+    return false;
+  }
+  // A delivered artifact is not deliberation, whatever surrounds it.
+  if (/```/.test(trimmed)) {
+    return false;
+  }
+  const hits = LEAKED_REASONING_MARKERS.filter(marker => marker.test(trimmed)).length;
+  return hits >= 2;
+}
+
 export function looksLikePreambleOnly(response: string): boolean {
   const trimmed = response.trim();
   if (trimmed.length === 0) { return true; }
   // Real deliverables are longer; cap keeps this from flagging substantive answers.
-  if (trimmed.length > 240) { return false; }
-  // Any delivered code/diff means it is not preamble-only.
-  if (/```/.test(trimmed)) { return false; }
-  // Future-intent announcement of an investigation step with no follow-through.
-  return /^(?:ok(?:ay)?[,.\s]*)?(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan)\b/i
+  //
+  // Raised from 240. Observed at ~450 characters: eight tool calls, five of them
+  // edits, and a reply that apologised for a tool-parameter mistake and then
+  // promised to add the test case — the exact failure this exists to catch, half
+  // a paragraph too long to be caught by it. The guards below carry the weight: a
+  // reply opening with a future-intent announcement, holding no code fence and no
+  // list, has delivered nothing whatever its length.
+  if (trimmed.length > 520) { return false; }
+  // Any delivered code/diff — or a list — means it is not preamble-only.
+  if (/```/.test(trimmed) || /^\s*(?:[-*•]|\d+[.)])\s+\S/m.test(trimmed)) { return false; }
+  // Future-intent announcement with no follow-through.
+  //
+  // The verb list was inspection-only, so "I will now add the test case" matched
+  // nothing — and announcing a *change* is what an agent does most often before
+  // making one. Investigation and mutation both count: the failure is the
+  // announcement without the act, whichever act was announced.
+  //
+  // The announcement no longer has to open the reply. The observed one arrived
+  // third: an apology, then a sentence about a tool's parameters, then the
+  // promise. Bounded to the first 240 characters so it still has to be the
+  // *point* of the reply rather than an aside near the end, and safe to loosen
+  // because the length, fence and list guards above already exclude anything
+  // that delivered.
+  return /^[\s\S]{0,240}?\b(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan|add|write|create|update|edit|modify|apply|implement|fix|patch|refactor|rename|provide|wire|generate)\b/i
     .test(trimmed);
 }
 
@@ -5388,7 +5647,12 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (trimmed.length === 0) {
     return 'Subtask produced no output.';
   }
-  if (trimmed.startsWith(TOOL_EXECUTION_FAILURE_PREFIX)) {
+  // `includes`, not `startsWith`: the summary is appended below the model's answer
+  // rather than replacing it, so a subtask that ended on a real tool failure no
+  // longer *begins* with this sentence. Anchoring on the start here would have
+  // made the subtask boundary stop noticing failures the moment the answer was
+  // preserved — trading one silent loss for another.
+  if (trimmed.includes(TOOL_EXECUTION_FAILURE_PREFIX)) {
     return 'Subtask ended on a tool-execution failure without recovering.';
   }
   if (looksLikePreambleOnly(trimmed)) {
@@ -5903,6 +6167,32 @@ export function selectTaskScopedSkills(
 
   return selected;
 }
+
+/**
+ * The one schema a turn spends to make the rest reachable.
+ *
+ * Described in terms of *what the model is trying to do* rather than what it
+ * searches, because that is the sentence a model recognises when it finds
+ * itself without a tool it needs.
+ */
+const TOOL_DISCOVERY_DEFINITION: ToolDefinition = {
+  name: TOOL_DISCOVERY_SKILL_ID,
+  description:
+    'Find a tool you have not been given. Only some of the tools this agent may use are listed above - '
+    + 'if none of them can do what you need, describe the action here and any matching tools '
+    + 'become callable immediately. Searching grants nothing on its own: results are still '
+    + 'subject to the same approvals as any other tool.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'What you are trying to do, in a few words — e.g. "commit changes", "read a file", "run the tests".',
+      },
+    },
+    required: ['query'],
+  },
+};
 
 function buildToolDefinitions(skills: SkillDefinition[]): ToolDefinition[] {
   return skills.map(skill => {
@@ -6551,7 +6841,19 @@ export function collapseDuplicatedTrailingBlock(text: string): string {
  * long-form paragraphs outside code fences. Diagnostics are returned
  * separately so callers can surface each once as progress.
  */
-export function sanitizeAssistantResponse(text: string): { content: string; diagnostics: string[] } {
+export function sanitizeAssistantResponse(
+  text: string,
+  /**
+   * The model the text came from, named in the diagnostic.
+   *
+   * "Model diagnostic: Exceeded skills context budget" reads as AtlasMind
+   * reporting its own problem. It is not: these lines are emitted by the
+   * provider or agent runtime and stripped out here, and the skills they refer
+   * to are the agent's own — AtlasMind sends an ACP agent no tool schemas at
+   * all. Somebody reading it had no way to know which of the two to go and fix.
+   */
+  source?: string,
+): { content: string; diagnostics: string[] } {
   if (!text) {
     return { content: text, diagnostics: [] };
   }
@@ -6561,7 +6863,7 @@ export function sanitizeAssistantResponse(text: string): { content: string; diag
     .filter(line => {
       const normalized = line.trim().replace(/^>\s*/, '');
       if (/^(?:warning:\s*)?(?:exceeded skills context budget|skill descriptions were shortened)\b/i.test(normalized)) {
-        diagnostics.push(normalized.replace(/^warning:\s*/i, 'Model diagnostic: '));
+        diagnostics.push(normalized.replace(/^warning:\s*/i, source ? `${source} reported: ` : 'Model diagnostic: '));
         return false;
       }
       return true;
@@ -7175,6 +7477,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => {
     getTimerGlobals().setTimeout(resolve, ms);
   });
+}
+
+/**
+ * A refusal that belongs to the *account*, not the model.
+ *
+ * A 429 says the provider will not serve this key right now. Trying a sibling
+ * model on the same provider asks the same account the same question and gets
+ * the same answer — observed: `magistral-small` (10s), `mistral-large-2512`
+ * (60s), `mistral-large-latest` (9s), three refusals and 79 seconds to learn
+ * nothing, on a turn that then had one attempt left.
+ *
+ * The same reasoning that made a busy GPU skip its own runtime, one layer along:
+ * the constraint is shared by every model behind it.
+ */
+export function isProviderRateLimited(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  const status = Number(record['status'] ?? record['statusCode']);
+  if (status === 429) {
+    return true;
+  }
+  const message = String(record['message'] ?? '');
+  return /\b429\b/.test(message) || /\brate[ _-]?limit(?:ed|ing)?\b/i.test(message);
 }
 
 function isTransientProviderError(err: unknown): boolean {

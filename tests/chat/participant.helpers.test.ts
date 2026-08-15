@@ -53,13 +53,14 @@ import {
   detectResponseQuickReplies,
   buildQuickReplyPayload,
   detectProjectRunProposal,
+  sanitizeResponseTail,
   buildProjectRunAutoFlowNotice,
   resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
-import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
+import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -1119,14 +1120,19 @@ describe('participant helper logic', () => {
     ]);
   });
 
-  it('visually separates a divergent legacy stream while keeping only the final response in history', () => {
-    expect(reconcileAssistantResponse(
+  it('labels a divergent legacy stream while keeping only the final response in history', () => {
+    // A horizontal rule alone left the operator reading two different answers to
+    // one question with nothing saying which was real — and the first, the one
+    // they had already read, was the wrong one. Retracting is impossible on an
+    // append-only stream; saying so is not.
+    const { additionalText, transcriptText } = reconcileAssistantResponse(
       'I will inspect the code path.',
       'The response was getting dropped after the first streamed chunk.',
-    )).toEqual({
-      additionalText: '\n\n---\n\nThe response was getting dropped after the first streamed chunk.',
-      transcriptText: 'The response was getting dropped after the first streamed chunk.',
-    });
+    );
+
+    expect(additionalText).toContain('superseded');
+    expect(additionalText).toContain('The response was getting dropped after the first streamed chunk.');
+    expect(transcriptText).toBe('The response was getting dropped after the first streamed chunk.');
   });
 
   it('reconciles prefixed streamed text without duplicating the suffix', () => {
@@ -1493,9 +1499,30 @@ describe('detectProjectRunProposal', () => {
     expect(detectProjectRunProposal('The checkout flow lives in src/checkout.ts and looks correct.')).toBe(false);
   });
 
-  it('does not fire on a generic build statement without project-run vocabulary', () => {
-    // "build this out" alone must never escalate an ordinary edit into a multi-step run.
-    expect(detectProjectRunProposal('Sure, I can build this out for you. Want me to start?')).toBe(false);
+  it('announces a generic offer as a pending decision, but never auto-starts one', () => {
+    // The concern this test was written for — "build this out" must not escalate
+    // an ordinary edit into a multi-step run — is now carried by auto-flow rather
+    // than by detection, because the two questions have different answers.
+    //
+    // *Should the operator be told a decision is waiting?* Always: saying yes to
+    // this offer starts a run today, and a turn that offers work while showing no
+    // control is the silence that made a run seem to come from nowhere.
+    //
+    // *May it start on its own?* Only when the reply said a run is what starts.
+    const reply = 'Sure, I can build this out for you. Want me to start?';
+    const transcript = [
+      { id: 'u1', role: 'user' as const, content: 'add pagination to the results list', timestamp: new Date(0).toISOString() },
+      { id: 'a1', role: 'assistant' as const, content: reply, timestamp: new Date(1000).toISOString() },
+    ];
+
+    expect(detectProjectRunProposal(reply)).toBe(true);
+    expect(resolveProjectRunAutoFlow(reply, transcript, { enabled: true, autopilot: true })).toBeUndefined();
+  });
+
+  it('does not fire on an offer to talk rather than to act', () => {
+    // Saying yes to this is a conversation. Drawing a Start-run card on it would
+    // make the card mean nothing.
+    expect(detectProjectRunProposal('That is how the router picks. Shall I explain the failover path too?')).toBe(false);
   });
 
   it('vetoes a proposal that is being declined or deferred', () => {
@@ -1622,5 +1649,195 @@ describe('the file-count approval gate is reachable from chat', () => {
       failedSubtaskTitles: [],
     });
     expect(followups.map(f => f.label)).not.toContain('Approve and run');
+  });
+});
+
+describe('a run goal is a goal, not the word used to agree', () => {
+  // Built literally rather than through SessionConversation: this file mocks
+  // `vscode` narrowly and the manager wants an EventEmitter it does not provide.
+  const transcriptOf = (turns: Array<[string, string]>): SessionTranscriptEntry[] =>
+    turns.flatMap(([prompt, reply], index) => ([
+      { id: `u${index}`, role: 'user' as const, content: prompt, timestamp: new Date(index * 2000).toISOString() },
+      { id: `a${index}`, role: 'assistant' as const, content: reply, timestamp: new Date(index * 2000 + 1000).toISOString() },
+    ]));
+
+  it('refuses an affirmation fragment as the goal', () => {
+    // "Shall I go ahead?" strips its offer lead-in to "go ahead", and that became
+    // the project goal — so the plan, the file estimate and the cost estimate were
+    // all derived from the word the operator used to agree.
+    const transcript = transcriptOf([[
+      'the banner is out of date with the manifest',
+      'I can implement this across the four files and update the changelog.\n\nShall I go ahead?',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes', transcript))
+      .toBe('the banner is out of date with the manifest');
+  });
+
+  it('keeps the work when the affirmation is only a preamble to it', () => {
+    const transcript = transcriptOf([[
+      'the banner is stale',
+      'Shall I go ahead and update the README banner?',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes', transcript)).toBe('update the README banner');
+  });
+
+  it('does not start a run the assistant said it was not ready to start', () => {
+    const transcript = transcriptOf([[
+      'can you ship the release?',
+      'Once you confirm the version number, I can start a project run to ship it.',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('continue', transcript)).toBeUndefined();
+  });
+
+  it('allows a continuation that answers the precondition', () => {
+    // The deferral asked for something. A bare "continue" supplies nothing; a
+    // continuation carrying detail does.
+    const transcript = transcriptOf([[
+      'can you ship the release?',
+      'Once you confirm the version number, I can start a project run to ship it.',
+    ]]);
+
+    expect(resolveAutonomousContinuationGoal('yes on 0.310.5', transcript)).toBeDefined();
+  });
+});
+
+describe('a full stop inside a name is not a sentence boundary', () => {
+  // One regex took out the whole question lane. `[^.!?]*\?` cannot cross a full
+  // stop, so "Want me to update README.md?" yielded "md?" — three characters,
+  // below the length guard, discarded — and the question reached the operator as
+  // nothing at all. Every closing offer naming a file, a path or a version went
+  // the same way, which is most of what Atlas offers to do in a codebase.
+  it.each([
+    ['I can bring the banner in line.\n\nWant me to update README.md?', 'want me to update readme.md?'],
+    ['That logic lives in the participant.\n\nDo you want me to open src/chat/participant.ts?', 'do you want me to open src/chat/participant.ts?'],
+    ['The commit range warrants a patch bump.\n\nReady to tag v0.310.2?', 'ready to tag v0.310.2?'],
+    ['That would cost about $0.42. Proceed?', 'proceed?'],
+  ])('recovers the whole question from %j', (response, expected) => {
+    expect(detectResponseQuickReplies(response)?.followupQuestion?.toLowerCase()).toBe(expected);
+  });
+
+  it('does not split on an abbreviation followed by a lower-case word', () => {
+    const question = detectResponseQuickReplies('Should I add a Playwright suite, i.e. end-to-end coverage?')?.followupQuestion;
+    expect(question).toContain('Should I');
+  });
+
+  it('surfaces every trailing question, not only the last', () => {
+    // Surfacing one made "yes" answer a question the operator never saw singled out.
+    const question = detectResponseQuickReplies('That is committed.\n\nShould I update the wiki as well? And do you want a changelog entry?')?.followupQuestion;
+    expect(question).toContain('wiki');
+    expect(question).toContain('changelog');
+  });
+});
+
+describe('sanitizeResponseTail keeps what it used to take', () => {
+  it('keeps a closing question formatted as a heading', () => {
+    // It runs before quick-reply detection, so striking this deleted the question
+    // before the operator could see it.
+    expect(sanitizeResponseTail('I have the plan ready.\n\n### Ready to proceed?')).toContain('Ready to proceed?');
+  });
+
+  it('keeps a heading that answers a lead-in', () => {
+    // Otherwise the reply ends on a colon pointing at nothing.
+    expect(sanitizeResponseTail('Here is what I would change:\n\n## Next steps')).toContain('Next steps');
+  });
+
+  it('still strips a genuinely dangling heading', () => {
+    expect(sanitizeResponseTail('The router picks the cheapest model above the floor.\n\n## Notes')).not.toContain('Notes');
+  });
+});
+
+describe('a long option is abbreviated, not dropped', () => {
+  it('keeps a two-way choice clickable when the options are described', () => {
+    const detected = detectResponseQuickReplies([
+      'There are two ways to close this.',
+      '',
+      'Which approach do you prefer?',
+      '',
+      '- Narrow the tool-failure predicate to an exit code so ordinary file reads stop counting',
+      '- Append the failure dump instead of overwriting the model answer',
+    ].join('\n'));
+
+    expect(detected?.quickReplies).toHaveLength(2);
+    const [first] = detected!.quickReplies!;
+    expect(first!.label.length).toBeLessThanOrEqual(49);
+    expect(first!.label.endsWith('…')).toBe(true);
+    // The pill submits the whole option; the ellipsis says the label is short of it.
+    expect(first!.prompt.toLowerCase()).toContain('narrow the tool-failure predicate');
+  });
+});
+
+describe('an offer without a question mark is still an offer', () => {
+  // Taken verbatim from a real session. Not one of that model's four turns ended
+  // with a question mark — every offer was declarative — and the detector keys
+  // on `?`, so the operator was shown three genuine offers and given no way to
+  // accept any of them. Every automated probe passed throughout, because their
+  // inputs were written by the same hand as the detector and all carried a `?`.
+  it.each([
+    'If you want, I can also add a short release notes heading for a specific type instead of Changed.',
+    'If you want, I can start a project run to validate the required checks locally.',
+    // Verbatim shape from a real session. Every hand-written case used "if you
+    // want," where the comma supplied the word boundary; this one inflects the
+    // verb, and a bare \b after it cannot fire between "want" and "s".
+    'If The User wants, I can start a project run next to: validate the required checks locally.',
+    'Let me know if you want me to wire the same cache into the image path.',
+    "I can raise the TTL to five minutes if you'd prefer.",
+    "Happy to split that into two commits if you'd like.",
+  ])('offers Yes/No on %j', tail => {
+    const detected = detectResponseQuickReplies(`The change is in.\n\n${tail}`);
+    expect(detected?.quickReplies?.map(reply => reply.label)).toEqual(['Yes', 'No']);
+    expect(detected?.followupQuestion).toBe(tail);
+  });
+
+  it.each([
+    // Same conditional opening, but the main clause tells the *operator* what to
+    // do. A pill here submits an answer to a question nobody asked.
+    'If you want multi-instance durability next, use Cloudflare Cache API or KV.',
+    'If you want the full history, the changelog has every entry.',
+    // Narration, not an undertaking.
+    'I can see the lockfile was already at 0.4.2.',
+    'I can confirm the tests pass on this branch.',
+    'I can tell the working tree is dirty.',
+  ])('stays silent on %j', tail => {
+    expect(detectResponseQuickReplies(`Here is what I found.\n\n${tail}`)).toBeUndefined();
+  });
+
+  it('still prefers a real question when the turn has one', () => {
+    const detected = detectResponseQuickReplies('If you want, I can split it.\n\nWhich should I do first?\n\n- Split the commit\n- Land it as one');
+    expect(detected?.quickReplies).toHaveLength(2);
+  });
+});
+
+describe('being asked to explain is never an executable goal', () => {
+  const transcriptOf = (turns: Array<[string, string]>): SessionTranscriptEntry[] =>
+    turns.flatMap(([prompt, reply], index) => ([
+      { id: `u${index}`, role: 'user' as const, content: prompt, timestamp: new Date(index * 2000).toISOString() },
+      { id: `a${index}`, role: 'assistant' as const, content: reply, timestamp: new Date(index * 2000 + 1000).toISOString() },
+    ]));
+
+  // Observed: "carry on" after "tell me about who makes playwright" started an
+  // autonomous project run whose stated goal was that sentence. It touched four
+  // files and every model attempt failed. The pattern matched an *interrogative*
+  // opening and a question mark; the imperative form asks for exactly the same
+  // thing and carries neither.
+  it.each([
+    'tell me about who makes playwright',
+    'tell me about the routing',
+    'explain the failover budget',
+    'describe the delivery pipeline',
+    'summarise what we decided',
+    'walk me through the arbiter',
+  ])('does not turn %j into a run goal', prompt => {
+    const transcript = transcriptOf([[prompt, 'Playwright is maintained by Microsoft.']]);
+    expect(resolveAutonomousContinuationGoal('carry on', transcript)).toBeUndefined();
+  });
+
+  it('still turns an actual instruction into a goal', () => {
+    // The other half: this must not swallow work.
+    const transcript = transcriptOf([['add a Playwright test for the initial render', 'Here is the plan.']]);
+    expect(resolveAutonomousContinuationGoal('carry on', transcript))
+      .toBe('add a Playwright test for the initial render');
   });
 });

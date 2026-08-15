@@ -113,13 +113,26 @@ export function routePanelPrompt(rawPrompt: string): PanelSlashRoute {
     return { kind: 'prose' };
   }
 
-  const match = /^\/([a-z][a-z-]*)(?:[ \t]+([\s\S]*))?$/.exec(prompt);
+  // Case-insensitive, and tolerant of trailing punctuation.
+  //
+  // The pattern was `[a-z][a-z-]*` with nothing after it, so `/Cost` — which is
+  // what a touch keyboard's autocapitalisation produces, and several editors
+  // after a newline — fell through to a model, and the operator paid for a model
+  // call answering a question about billing. `/runs?` is how somebody asks what
+  // a command does, and it went the same way. Neither is a path.
+  //
+  // The path guard is unchanged and load-bearing: a second slash or a dot
+  // followed by more word characters still fails to match, so `/usr/bin/x`,
+  // `/README.md`, `/Users/joel` and `/etc/hosts has the wrong entry` remain
+  // prose. Asking about the filesystem is a thing people do constantly in a
+  // coding assistant.
+  const match = /^\/([A-Za-z][A-Za-z-]*)[?.!]*(?:[ \t]+([\s\S]*))?$/.exec(prompt);
   if (!match) {
     // `/usr/bin/x`, `/README.md`, `/Users/joel`, a bare `/`. All prose.
     return { kind: 'prose' };
   }
 
-  const command = match[1]!;
+  const command = match[1]!.toLowerCase();
   const argument = (match[2] ?? '').trim();
 
   if (!KNOWN.has(command)) {

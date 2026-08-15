@@ -149,11 +149,22 @@ because the extra room went to older turns.
 
 ## When you're frustrated, it learns
 
-If AtlasMind detects that you're visibly frustrated with how a conversation is going, it updates your
-saved Personality Profile, increases how much recent context it carries if it was retaining too little,
-and writes what it learned to `operations/operator-feedback.md`.
+If AtlasMind detects that you're visibly frustrated with how a conversation is going, it adjusts its
+approach for the rest of the session and updates your saved Personality Profile, which is local to your
+machine.
 
-That gives it both an immediate correction and something retrievable next time.
+It also drafts a note for `operations/operator-feedback.md` — and **stops there**. That file is tracked by
+git and the note quotes your own message back, so writing it is your decision: the reply offers a **Save
+this feedback rule** button, and if you use it, AtlasMind shows you the complete text it stored. Until
+v0.327.0 the note was written automatically, mentioned only as "Learned from friction".
+
+**It does not change your settings to do it.** Until v0.310.4 the same signal quietly raised two chat
+settings in your workspace — writing them into `.vscode/settings.json`, which most projects commit —
+without naming either one anywhere you'd see it. It also mistook ordinary polite requests for
+frustration, so this happened on turns where nothing had gone wrong. If it already did that to your
+project, AtlasMind puts the original values back the next time you chat, unless you've since chosen a
+different number yourself. When a setting genuinely doesn't suit the work, AtlasMind suggests the change
+and leaves the decision with you.
 
 ---
 

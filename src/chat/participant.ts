@@ -40,6 +40,9 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
+import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
+import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
@@ -131,10 +134,16 @@ const LOOP_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
+/** Where a drafted operator-feedback note waits until somebody asks for it to be written. */
+const PENDING_OPERATOR_FEEDBACK_STORAGE_KEY = 'atlasmind.pendingOperatorFeedback';
+/**
+ * The values an earlier build wrote on the operator's behalf. Kept only so
+ * {@link restoreSettingsWrittenWithoutAsking} can recognise its own handiwork
+ * and put the originals back; nothing writes them any more.
+ */
 const MIN_FRUSTRATION_SESSION_TURNS = 8;
 const MIN_FRUSTRATION_SESSION_CHARS = 4000;
 const FRUSTRATION_SETTINGS_STORAGE_KEY = 'atlasmind.frustrationSettingsSnapshot';
-const FRUSTRATION_COOLING_PERIOD_MS = 30 * 60 * 1000;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
@@ -153,7 +162,22 @@ const RESPONSE_TRAILING_QUESTION_PATTERN = /(?:^|[.!?\n])([^.!?\n]{10,300}\?)[\s
  */
 const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?\s+|alright,?\s+|sure,?\s+)?(?:do\s+you\s+want\s+me\s+to|would\s+you\s+like\s+me\s+to|would\s+you\s+like\s+to|want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i)\s+(?:go\s+ahead\s+and\s+|please\s+)?/i;
 /** Matches a bare informational question ("what/why/how/… ?"), which is not an executable goal. */
-const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$/i;
+/**
+ * A prompt asking to be *told* something, which is never an executable goal.
+ *
+ * Two shapes, and only the first was recognised. The interrogative — "what does
+ * X do?" — needs its question mark. The imperative — "tell me about who makes
+ * playwright", "explain the routing", "describe the pipeline" — asks for exactly
+ * the same thing and carries no question mark at all, so it read as an
+ * actionable prompt.
+ *
+ * Observed: `carry on` after "tell me about who makes playwright" started an
+ * autonomous project run whose stated goal was that sentence. It touched four
+ * files and every model attempt failed. The Preview prints its goal now, which
+ * is the only reason the run was legible as wrong rather than merely
+ * unsuccessful.
+ */
+const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$|(?:please\s+)?(?:tell\s+me\s+(?:about|what|how|why)|explain|describe|summari[sz]e|walk\s+me\s+through|what'?s\s+the\s+difference|remind\s+me)\b)/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 /**
  * Detects when the assistant's *own* reply is offering to start an autonomous
@@ -169,6 +193,35 @@ const PROJECT_RUN_OFFER_PATTERN = /\b(?:want\s+me\s+to|would\s+you\s+like\s+me\s
 const PROJECT_RUN_PROPOSAL_NEGATION_PATTERN = /\b(?:won'?t|will\s+not|cannot|can'?t|do\s+not|don'?t|shouldn'?t|not\s+ready|hold\s+off|before\s+(?:i|we)\s+(?:start|begin|run|proceed)|once\s+you|after\s+you)\b/i;
 const PROJECT_RUN_META_ACTION_PREFIX = /^\s*(?:(?:go\s+ahead\s+and\s+)?(?:kick\s+off|start|launch|begin)\s+)?(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run\b(?:\s+(?:to|for|on|about))?\s*/i;
 const DEICTIC_PROJECT_RUN_ACTION = /^(?:(?:build|implement|fix|do|run|execute|handle|complete)\s+)?(?:this|that|it)(?:\s+(?:out|work|plan|change|implementation))?$/i;
+/**
+ * A closing offer whose whole content is the *permission being asked for* rather
+ * than the work.
+ *
+ * "Shall I go ahead?" strips its offer lead-in to `go ahead`, and that string
+ * used to become the project goal — so the plan, the subtask table, the file
+ * estimate and the cost estimate were all derived from the word the operator
+ * used to agree. It also explains why such a run reads as unannounced: its
+ * stated goal is a fragment of a sentence rather than anything anybody asked
+ * for.
+ */
+const BARE_AFFIRMATION_ACTION = /^(?:go\s+ahead|proceed|continue|carry\s+on|do\s+it|do\s+that|start|begin|run\s+it|yes|ok(?:ay)?|sure|please)[.!]?$/i;
+/**
+ * An offer to talk rather than to act. Saying yes to "Shall I explain the
+ * routing?" is a conversation, and drawing a Start-run card on it would make the
+ * card mean nothing.
+ */
+const NON_EXECUTING_OFFER_ACTION = /^(?:explain|describe|show you|tell you|walk (?:you )?through|summari[sz]e|clarify|answer|go over|talk through|outline)\b/i;
+/** "go ahead and <work>" — the affirmation is a preamble, the work follows it. */
+const GO_AHEAD_PREFIX_PATTERN = /^(?:go\s+ahead\s+and|please\s+go\s+ahead\s+and)\s+/i;
+/**
+ * The assistant stating it is waiting on the operator before it can start.
+ *
+ * A bare "continue" supplies none of what was asked for, so it must not override
+ * the precondition — the run would begin on exactly the information the model
+ * said it did not have. A continuation that *carries* detail is different, and
+ * is allowed through.
+ */
+const ASSISTANT_DEFERRAL_PATTERN = /\b(?:once you|after you|when you(?:'ve| have)|as soon as you|before (?:i|we) (?:start|begin|run|proceed))\b/i;
 const SAVE_PROPOSED_RUN_PATTERN = /^\s*save\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run\s+for\s+later[.!?]*\s*$/i;
 const CANCEL_PROPOSED_RUN_PATTERN = /^\s*(?:cancel|dismiss|skip)\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run[.!?]*\s*$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
@@ -180,6 +233,16 @@ const DEICTIC_FIX_EXECUTION_PATTERN = /^\s*(?:please\s+)?(?:fix|implement|resolv
 const CONTEXTUAL_FOLLOWUP_HINT_PATTERN = /\b(?:based\s+on\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|from\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|using\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(?:the\s+)?(?:chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 const AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN = /^\s*(?:(?:why|how|what|which|where|when)\b|(?:and|also|instead)\b|(?:that|this|it|them|those|these)\b|(?:can|could|would|will)\s+you\s+(?:do|fix|change|update|explain|summari[sz]e|show|handle)\s+(?:that|this|it|them|those|these)\b)/i;
 const STRONG_SUBJECT_SHIFT_HINT_PATTERN = /\b(?:create|generate|design|draw|make)\b[\s\S]{0,80}\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b|\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b[\s\S]{0,80}\b(?:create|generate|design|draw|make)\b/i;
+/**
+ * A short instruction that substitutes one thing for another — "use Playwright
+ * instead", "switch to Vitest", "do it with fast-check rather than by hand".
+ *
+ * These carry a new noun and almost none of the previous turn's vocabulary, so
+ * lexical overlap scores them as a change of subject when they are the opposite:
+ * unanswerable *without* the previous turn. Bounded in length so a long prompt
+ * that merely contains "instead" is still judged on its content.
+ */
+const INSTRUMENTAL_SUBSTITUTION_PATTERN = /^[\s\S]{0,120}\b(?:instead|rather than|in place of|switch to|swap (?:it |that )?(?:for|to)|use .{1,40} (?:instead|rather))\b[\s\S]{0,40}$/i;
 const CONTEXT_TOKEN_SKIP_WORDS = new Set([
   'a', 'about', 'after', 'all', 'alternative', 'an', 'and', 'any', 'are', 'atlas', 'atlasmind', 'based', 'be', 'before', 'but', 'by', 'can', 'change', 'chat',
   'continue', 'create', 'current', 'design', 'do', 'does', 'earlier', 'explain', 'fix', 'for', 'from', 'generate', 'go', 'had', 'handle', 'help', 'here', 'how',
@@ -484,6 +547,34 @@ export function buildNativeChatContextSummary(
   return sections.join('\n\n');
 }
 
+const ATLASMIND_EXTENSION_ID = 'JoelBondoux.atlasmind';
+
+/**
+ * AtlasMind's own surface, for the prompt.
+ *
+ * Read from the running extension's manifest rather than a bundled copy, so it
+ * cannot describe a previous release. Returns undefined when the manifest is not
+ * reachable (tests, the CLI) rather than falling back to a stale list — the
+ * model answering from its own recall is a known quantity, and a wrong list
+ * presented as authoritative is worse.
+ */
+function buildCapabilityIndexContext(): string | undefined {
+  try {
+    const manifest = vscode.extensions.getExtension(ATLASMIND_EXTENSION_ID)?.packageJSON as
+      | { contributes?: { configuration?: { properties?: Record<string, never> }; commands?: Array<{ command: string; title?: string }> } }
+      | undefined;
+    if (!manifest?.contributes) {
+      return undefined;
+    }
+    return buildCapabilityIndex({
+      settings: manifest.contributes.configuration?.properties,
+      commands: manifest.contributes.commands,
+    }).text;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildWorkstationContext(
   options?: { platform?: NodeJS.Platform; terminalProfile?: string },
 ): string | undefined {
@@ -503,7 +594,13 @@ export function buildWorkstationContext(
     lines.push(`When suggesting commands, default to ${terminalProfile} syntax and conventions unless the user asks for another shell or platform.`);
   }
 
-  return `Workstation context:\n- ${lines.join('\n- ')}`;
+  // Appended here rather than threaded through five call sites. Every surface
+  // that reaches a model already carries workstation context, so this is the one
+  // place that puts AtlasMind's own page and settings list in front of the model
+  // everywhere at once.
+  const capabilityIndex = buildCapabilityIndexContext();
+  const workstation = `Workstation context:\n- ${lines.join('\n- ')}`;
+  return capabilityIndex ? `${workstation}\n\n${capabilityIndex}` : workstation;
 }
 
 async function handleNativeChatRequest(
@@ -515,201 +612,17 @@ async function handleNativeChatRequest(
 ): Promise<vscode.ChatResult> {
   const sessionId = resolveThreadSessionId(request, chatContext, atlas.sessionConversation);
 
-  if (request.command) {
-    return handleChatRequest(request, chatContext, stream, token, atlas, sessionId);
-  }
-
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const transcript = atlas.sessionConversation.getTranscript(sessionId);
-  const pendingRunEntry = [...transcript]
-    .reverse()
-    .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
-  const pendingRunGoal = pendingRunEntry?.meta?.projectRunProposal?.goal;
-
-  if (pendingRunGoal && SAVE_PROPOSED_RUN_PATTERN.test(request.prompt)) {
-    atlas.sessionConversation.updateMessage(
-      pendingRunEntry.id,
-      pendingRunEntry.content,
-      sessionId,
-      {
-        ...pendingRunEntry.meta,
-        projectRunProposal: { goal: pendingRunGoal, status: 'saved' },
-      },
-    );
-    await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
-      goal: pendingRunGoal,
-      autoPreview: true,
-    });
-    stream.markdown('Saved the proposed run in **Project Run Center**. You can review and start it there later.');
-    return { metadata: { command: 'save-proposed-project-run' } };
-  }
-
-  if (pendingRunGoal && CANCEL_PROPOSED_RUN_PATTERN.test(request.prompt)) {
-    atlas.sessionConversation.updateMessage(
-      pendingRunEntry.id,
-      pendingRunEntry.content,
-      sessionId,
-      {
-        ...pendingRunEntry.meta,
-        projectRunProposal: { goal: pendingRunGoal, status: 'cancelled' },
-      },
-    );
-    stream.markdown('Cancelled the proposed project run. No run was started or saved.');
-    return { metadata: { command: 'cancel-proposed-project-run' } };
-  }
-
-  const routedIntent = resolveAtlasChatIntent(request.prompt, transcript);
-  if (routedIntent?.kind === 'project') {
-    if (pendingRunEntry && isAutonomousContinuationPrompt(request.prompt)) {
-      atlas.sessionConversation.updateMessage(
-        pendingRunEntry.id,
-        pendingRunEntry.content,
-        sessionId,
-        {
-          ...pendingRunEntry.meta,
-          projectRunProposal: { goal: routedIntent.goal, status: 'started' },
-        },
-      );
-    }
-    stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
-    const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-    // The goal is passed through **unapproved**, whichever way the run was asked for.
-    //
-    // This branch used to invert the gate: an explicit "Proceed" arrived
-    // unapproved and stalled, while a raw prompt merely *matching*
-    // PROJECT_RUN_REQUEST_PATTERN had `--approve` appended for it and sailed past
-    // the file-count threshold. That was backwards on both halves. The prompt with
-    // the least review behind it — nobody has seen a plan or a file estimate when
-    // it is typed — was the one being auto-approved, and the gate whose own message
-    // says it "exists to prevent unreviewed large-scale changes" never saw it.
-    //
-    // Neither shape carries approval now, because neither has been shown what it
-    // would do. The gate answers that by rendering the plan first and offering an
-    // "Approve and run" chip carrying the exact approving prompt.
-    const outcome = await runProjectCommand(
-      routedIntent.goal,
-      stream,
-      token,
-      atlas,
-      sessionId,
-      sessionContextBundle,
-      sessionContext,
-    );
-    return { metadata: { command: 'project', outcome } };
-  }
-  if (routedIntent?.kind === 'command') {
-    await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
-    stream.markdown(routedIntent.summary);
-    return { metadata: { command: 'freeform' } };
-  }
-
-  const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
-  const storedSessionContext = carryForwardConversationContext
-    ? atlas.sessionConversation.buildContext({
-      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
-      sessionId,
-    })
-    : '';
-  const nativeHistory = carryForwardConversationContext ? buildNativeChatHistoryLines(chatContext).join('\n') : '';
-  const nativeChatContext = buildNativeChatContextSummary(request, chatContext, {
-    includeHistory: carryForwardConversationContext,
-  });
-  const workstationContext = buildWorkstationContext();
-  const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(request.prompt, atlas, {
-    sessionContext,
-    nativeChatContext,
-  });
-
-  let streamedText = '';
-  const chunkBuffer = createStreamBuffer(stream);
-  const result = await atlas.orchestrator.processTask({
-    id: `task-${Date.now()}`,
-    userMessage: request.prompt,
-    context: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
-      ...(workstationContext ? { workstationContext } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-    },
-    constraints: {
-      budget: toBudgetMode(configuration.get<string>('budgetMode')),
-      speed: toSpeedMode(configuration.get<string>('speedMode')),
-    },
-    timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
-    }
-    streamedText += chunk;
-    chunkBuffer.push(chunk);
-  }, message => {
-    if (!message.trim()) {
-      return;
-    }
-    stream.progress(message);
-  });
-  chunkBuffer.flush();
-
-  const reconciled = reconcileAssistantResponse(streamedText, result.response);
-  if (reconciled.additionalText) {
-    writeMarkdownChunk(stream, reconciled.additionalText, 'native chat completion');
-  }
-
-  let assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
-    hasSessionContext: Boolean(sessionContext),
-    routingContext: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-    },
-    policies: [
-      ...atlas.getWorkspacePolicySnapshots(),
-      ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
-    ],
-    responseText: reconciled.transcriptText,
-  });
-  const proposal = resolveProjectRunProposal(
-    reconciled.transcriptText,
-    [
-      ...transcript,
-      {
-        id: `proposal-${Date.now()}`,
-        role: 'assistant',
-        content: reconciled.transcriptText,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  );
-  if (proposal) {
-    assistantMeta = {
-      ...assistantMeta,
-      followupQuestion: 'What should I do with this proposed project run?',
-      quickReplies: undefined,
-      projectRunProposal: { goal: proposal.goal, status: 'pending' },
-      suggestedFollowups: [
-        { label: 'Start run', prompt: 'Proceed', description: 'Start the autonomous project run now.' },
-        { label: 'Save for later', prompt: 'Save this proposed project run for later.', description: 'Create a reviewed preview in Project Run Center.' },
-        { label: 'Cancel', prompt: 'Cancel this proposed project run.', description: 'Dismiss the proposal without starting or saving it.' },
-      ],
-    };
-  }
-  if (assistantMeta.followupQuestion) {
-    writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
-  }
-  if (!token.isCancellationRequested) {
-    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, sessionId, assistantMeta);
-  }
-
-  return {
-    metadata: {
-      command: request.command ?? 'freeform',
-      ...((assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies)
-        ? { suggestedFollowups: assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies }
-        : {}),
-    },
-  };
+  // Every turn goes through one dispatcher, whether or not a slash command is set.
+  //
+  // This used to answer plain turns inline and delegate only commands, which made
+  // `handleChatRequest`'s default branch — and everything it reaches — unreachable
+  // code on this surface: conversation recall, roadmap status, routine-edit intent,
+  // inline image attachment, project-run auto-flow, the response footer, and the
+  // typed-slash recovery whose own comment calls it load-bearing. Recall existed
+  // and could not be reached from the surface the manifest advertises, while the
+  // panel had it. One dispatcher is what makes "both surfaces behave identically"
+  // a fact rather than a claim.
+  return handleChatRequest(request, chatContext, stream, token, atlas, sessionId);
 }
 
 function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'history'>): string[] {
@@ -743,6 +656,15 @@ export function shouldCarryForwardConversationContext(
     || DEICTIC_EXECUTION_FOLLOWUP_PATTERN.test(trimmed)
     || CONTEXTUAL_FOLLOWUP_HINT_PATTERN.test(trimmed)
     || AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  // A short instruction that swaps one thing for another is contextual by
+  // construction: "use Playwright instead" is unanswerable without knowing what
+  // it replaces, and it shares no words with the prompts that set the topic. The
+  // overlap test was measuring vocabulary rather than continuity, and dropped
+  // the thread on exactly the turn that needed it most.
+  if (INSTRUMENTAL_SUBSTITUTION_PATTERN.test(trimmed)) {
     return true;
   }
 
@@ -909,7 +831,7 @@ export async function runDeterministicSlashCommand(
 
 async function handleChatRequest(
   request: vscode.ChatRequest,
-  _chatContext: vscode.ChatContext,
+  chatContext: vscode.ChatContext,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
@@ -918,6 +840,7 @@ async function handleChatRequest(
   let command = request.command;
   let prompt = request.prompt;
   let projectOutcome: ProjectRunOutcome | undefined;
+  let freeformFollowups: SessionSuggestedFollowup[] | undefined;
 
   if (token.isCancellationRequested) {
     return {};
@@ -992,51 +915,36 @@ async function handleChatRequest(
     case 'vision':
       // Kept here rather than delegated: this surface has the real
       // `ChatRequest`, whose references the handler may come to need.
-      await handleVisionCommand(request, stream, atlas, sessionId);
+      await handleVisionCommand(request, stream, atlas, sessionId, token);
       break;
 
     default: {
-      const routedIntent = resolveAtlasChatIntent(
-        prompt,
-        atlas.sessionConversation.getTranscript(sessionId),
-      );
-      if (routedIntent?.kind === 'project') {
-        stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
-        const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-        projectOutcome = await runProjectCommand(
-          // Unapproved, for the same reason as the other entry point: a routed
-          // intent is a phrasing match on the operator's prompt, not a review of
-          // what the run would touch.
-          routedIntent.goal,
-          stream,
-          token,
-          atlas,
-          sessionId,
-          sessionContextBundle,
-          sessionContext,
-        );
-        break;
-      }
-
-      if (routedIntent?.kind === 'command') {
-        await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
-        stream.markdown(routedIntent.summary);
-        break;
-      }
-
-      projectOutcome = await handleFreeformMessage(
+      // Intent routing used to be resolved here as well as inside the freeform
+      // path, so the same prompt was classified twice by two copies of the rule.
+      // `resolveFreeformPreflight` owns that decision now — one classifier, one
+      // answer, shared with the panel.
+      const freeform = await handleFreeformMessage(
         request,
+        chatContext,
         stream,
         token,
         atlas,
         sessionId,
         workflowNotice?.executionPolicy,
       );
+      projectOutcome = freeform.outcome;
+      freeformFollowups = freeform.assistantMeta?.suggestedFollowups ?? freeform.assistantMeta?.quickReplies;
       break;
     }
   }
 
-  return { metadata: { command: command ?? 'freeform', outcome: projectOutcome } };
+  return {
+    metadata: {
+      command: command ?? 'freeform',
+      outcome: projectOutcome,
+      ...(freeformFollowups ? { suggestedFollowups: freeformFollowups } : {}),
+    },
+  };
 }
 
 /**
@@ -1143,6 +1051,13 @@ export async function runProjectCommand(
   );
   stream.markdown(
     `### Preview\n\n` +
+    // The goal is printed before anything happens, because it is not always
+    // something the operator typed: when a run starts from "yes", it is resolved
+    // from what the assistant proposed. A resolved goal that reads oddly is the
+    // one thing a person can catch instantly and no gate can, and until this line
+    // existed the plan, the file estimate and the cost were all derived from a
+    // string nobody had seen.
+    `Goal: **${escapeMd(truncateForSummary(goal, 200))}**\n\n` +
     `Estimated files to touch: **~${estimatedFiles}**\n\n` +
     `Execution policy: **tests first where behavior changes**. Atlas will try to follow a red-green-refactor loop autonomously and report the verification evidence it found.\n\n`,
   );
@@ -2398,9 +2313,41 @@ async function handleBuzzCommand(
   }
   const mode = /^(local|hosted)$/i.exec(trimmed);
   if (mode) {
-    await vscode.workspace.getConfiguration('atlasmind')
-      .update('buzz.relayMode', mode[1]!.toLowerCase(), vscode.ConfigurationTarget.Workspace)
-      .then(undefined, () => undefined);
+    // `/buzz local` used to write workspace settings outright, with no
+    // confirmation and no mention of it in the reply — eighty lines above the
+    // same handler's own promise that none of these guides switches anything on
+    // for you. A setting write is a change to a file most repositories commit,
+    // so it goes behind the same modal every other outward-facing write here
+    // does, naming the key, both values and the scope.
+    const requested = mode[1]!.toLowerCase() as 'local' | 'hosted';
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const current = configuration.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided');
+    if (current === requested) {
+      stream.markdown(`Buzz relay mode is already **${requested}**. Nothing to change.\n\n`);
+    } else {
+      const choice = await vscode.window.showWarningMessage(
+        `Change the Buzz relay mode to "${requested}"?`,
+        {
+          modal: true,
+          detail: `Sets atlasmind.buzz.relayMode to "${requested}" (currently "${current}") in this workspace's settings, which is a file most repositories commit.`,
+        },
+        'Change setting',
+      );
+      if (choice !== 'Change setting') {
+        stream.markdown(`Left \`atlasmind.buzz.relayMode\` at **${current}**.\n\n`);
+        return;
+      }
+      try {
+        await configuration.update('buzz.relayMode', requested, vscode.ConfigurationTarget.Workspace);
+        stream.markdown(`Set \`atlasmind.buzz.relayMode\` to **${requested}** (was \`${current}\`).\n\n`);
+      } catch (error) {
+        // Previously swallowed. A write that silently failed left the guide
+        // describing a mode that was never set.
+        const message = error instanceof Error ? error.message : String(error);
+        stream.markdown(`Could not update \`atlasmind.buzz.relayMode\`: ${message}\n\n`);
+        return;
+      }
+    }
   }
 
   const dm = /^dm\s+(\S+)\s+([\s\S]+)$/i.exec(trimmed);
@@ -3402,43 +3349,224 @@ async function handleCostCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
+  // Headed for what it actually counts.
+  //
+  // `costTracker.getSummary()` is a running total for the workspace, not for the
+  // conversation — it survives new chats and reloads, and it was headed "Session
+  // Cost Summary". Measured one turn apart: 501 requests / £81.82 and then 502 /
+  // £81.84, in a chat holding three messages. A number that cannot be reconciled
+  // with what is on screen is worse than no number, because the reader either
+  // distrusts every figure AtlasMind reports or, worse, believes this one.
   const summary = atlas.costTracker.getSummary();
   stream.markdown(
-    `### Session Cost Summary\n\n` +
+    `### Cost so far — this workspace, all sessions\n\n` +
     `| Metric | Value |\n|---|---|\n` +
     `| Total cost | ${formatCostAdaptive(summary.totalCostUsd)} |\n` +
     `| Requests | ${summary.totalRequests} |\n` +
     `| Input tokens | ${summary.totalInputTokens.toLocaleString()} |\n` +
-    `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |`,
+    `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |\n\n` +
+    `_Running totals since tracking began, not this conversation. Each reply's own cost is in its footer._`,
   );
+}
+
+/**
+ * The deterministic gates a freeform prompt passes before any model sees it,
+ * resolved once and returned as data so every surface answers them identically.
+ *
+ * Both chat surfaces call this — the `@atlas` participant renders the result
+ * onto a `ChatResponseStream`, the panel maps it onto its `directResponse`
+ * shape — because the audit found three diverging freeform implementations,
+ * and the divergence was the defect: conversation recall existed on one
+ * surface, intent routing behaved differently on another. A resolver that
+ * returns data cannot drift per surface; only the rendering can.
+ *
+ * Order is deliberate and canonical: a pending-run answer beats everything
+ * (the operator is replying to a question we asked); deterministic
+ * transcript/registry answers (recall, roadmap, routine-edit) beat intent
+ * routing, because an exact answer from a record should never lose to a
+ * phrasing match that starts work.
+ */
+export type FreeformPreflight =
+  | { kind: 'recall'; markdown: string }
+  | { kind: 'roadmap'; markdown: string; prefills?: SessionComposerPrefill[] }
+  | { kind: 'pending-run'; action: 'save' | 'cancel'; entryId: string; goal: string }
+  | { kind: 'save-operator-feedback' }
+  | { kind: 'intent'; intent: AtlasChatIntent }
+  | { kind: 'routine-edit' }
+  | undefined;
+
+// Deliberately module-private until the panel adopts it in the cutover commit.
+// An export nothing reads is debt this repository measures and caps, and
+// "a future commit will use it" is exactly the excuse that ceiling exists to refuse.
+async function resolveFreeformPreflight(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): Promise<FreeformPreflight> {
+  const pendingRunEntry = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
+  const pendingRunGoal = pendingRunEntry?.meta?.projectRunProposal?.goal;
+  if (pendingRunEntry && pendingRunGoal) {
+    if (SAVE_PROPOSED_RUN_PATTERN.test(prompt)) {
+      return { kind: 'pending-run', action: 'save', entryId: pendingRunEntry.id, goal: pendingRunGoal };
+    }
+    if (CANCEL_PROPOSED_RUN_PATTERN.test(prompt)) {
+      return { kind: 'pending-run', action: 'cancel', entryId: pendingRunEntry.id, goal: pendingRunGoal };
+    }
+  }
+
+  // The chip's own prompt, matched exactly. Deterministic because it is a write
+  // to a git-tracked file: a model deciding whether this counted as a request to
+  // save would be the automatic write again, wearing a different hat.
+  if (prompt.trim().toLowerCase() === SAVE_OPERATOR_FEEDBACK_PROMPT.toLowerCase()) {
+    return { kind: 'save-operator-feedback' };
+  }
+
+  // Answered from the transcript, before any model sees it.
+  //
+  // "What was my question two turns ago?" was answered with a paraphrase of the
+  // task in progress — a question the operator had never asked. Of every
+  // fabrication available here that is the worst-shaped: fabricating about code
+  // can be checked against the code, while fabricating about the exchange
+  // contradicts a verbatim record and leaves the operator to remember better
+  // than the assistant claims to. The record is exact and sitting in memory, so
+  // routing the question to a model can only make the answer worse.
+  const recallRequest = parseConversationRecallRequest(prompt);
+  if (recallRequest) {
+    const recalled = answerConversationRecall(recallRequest, transcript, prompt);
+    return { kind: 'recall', markdown: recalled.markdown };
+  }
+
+  const roadmapStatus = await buildRoadmapStatusResult(prompt);
+  if (roadmapStatus) {
+    return {
+      kind: 'roadmap',
+      markdown: roadmapStatus.markdown,
+      ...(roadmapStatus.prefills.length > 0 ? { prefills: roadmapStatus.prefills } : {}),
+    };
+  }
+
+  if (ROUTINE_EDIT_PATTERN.test(prompt)) {
+    return { kind: 'routine-edit' };
+  }
+
+  const intent = resolveAtlasChatIntent(prompt, transcript);
+  if (intent) {
+    return { kind: 'intent', intent };
+  }
+
+  return undefined;
+}
+
+interface FreeformMessageResult {
+  outcome?: ProjectRunOutcome;
+  assistantMeta?: SessionTranscriptMetadata;
+  handledBy: 'recall' | 'roadmap' | 'routine-edit' | 'pending-run' | 'save-operator-feedback' | 'intent-command' | 'intent-project' | 'model';
 }
 
 async function handleFreeformMessage(
   request: vscode.ChatRequest,
+  chatContext: vscode.ChatContext | undefined,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
   sessionId: string,
   workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
-): Promise<ProjectRunOutcome | undefined> {
+): Promise<FreeformMessageResult> {
   const prompt = request.prompt;
-  const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
-  if (roadmapStatusMarkdown) {
-    stream.markdown(roadmapStatusMarkdown);
-    return undefined;
+  const transcript = atlas.sessionConversation.getTranscript(sessionId);
+  const preflight = await resolveFreeformPreflight(prompt, transcript);
+
+  if (preflight?.kind === 'pending-run') {
+    const entry = transcript.find(item => item.id === preflight.entryId);
+    if (entry) {
+      atlas.sessionConversation.updateMessage(entry.id, entry.content, sessionId, {
+        ...entry.meta,
+        projectRunProposal: {
+          goal: preflight.goal,
+          status: preflight.action === 'save' ? 'saved' : 'cancelled',
+        },
+      });
+    }
+    if (preflight.action === 'save') {
+      await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
+        goal: preflight.goal,
+        autoPreview: true,
+      });
+      stream.markdown('Saved the proposed run in **Project Run Center**. You can review and start it there later.');
+    } else {
+      stream.markdown('Cancelled the proposed project run. No run was started or saved.');
+    }
+    return { handledBy: 'pending-run' };
   }
-  if (await handleRoutineEditIntent(prompt, stream, atlas)) {
-    return undefined;
+
+  if (preflight?.kind === 'save-operator-feedback') {
+    stream.markdown(await saveOperatorFeedbackDraft(atlas));
+    return { handledBy: 'save-operator-feedback' };
   }
-  const imageAttachments = await resolveInlineImageAttachments(prompt);
-  const responseText = await runChatTask(
-    prompt,
-    stream,
-    atlas,
-    imageAttachments,
-    sessionId,
-    workflowExecutionPolicy,
-  );
+
+  if (preflight?.kind === 'recall') {
+    stream.markdown(preflight.markdown);
+    return { handledBy: 'recall' };
+  }
+
+  if (preflight?.kind === 'roadmap') {
+    // Prefills are a panel affordance (composer chips); this surface renders the
+    // markdown alone and VS Code's own followups carry any next step.
+    stream.markdown(preflight.markdown);
+    return { handledBy: 'roadmap' };
+  }
+
+  if (preflight?.kind === 'routine-edit') {
+    await handleRoutineEditIntent(prompt, stream, atlas);
+    return { handledBy: 'routine-edit' };
+  }
+
+  if (preflight?.kind === 'intent' && preflight.intent.kind === 'project') {
+    const pendingRunEntry = [...transcript]
+      .reverse()
+      .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
+    if (pendingRunEntry && isAutonomousContinuationPrompt(prompt)) {
+      atlas.sessionConversation.updateMessage(pendingRunEntry.id, pendingRunEntry.content, sessionId, {
+        ...pendingRunEntry.meta,
+        projectRunProposal: { goal: preflight.intent.goal, status: 'started' },
+      });
+    }
+    stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
+    const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+    // The goal is passed through **unapproved**, whichever way the run was asked
+    // for: a routed intent is a phrasing match on the operator's prompt, not a
+    // review of what the run would touch. The file-count gate renders the plan
+    // first and offers an "Approve and run" chip carrying the approving prompt.
+    const outcome = await runProjectCommand(
+      preflight.intent.goal,
+      stream,
+      token,
+      atlas,
+      sessionId,
+      sessionContextBundle,
+      sessionContext,
+    );
+    return { outcome, handledBy: 'intent-project' };
+  }
+
+  if (preflight?.kind === 'intent' && preflight.intent.kind === 'command') {
+    await vscode.commands.executeCommand(preflight.intent.commandId, ...(preflight.intent.args ?? []));
+    stream.markdown(preflight.intent.summary);
+    return { handledBy: 'intent-command' };
+  }
+
+  const carryForward = shouldCarryForwardConversationContext(prompt, transcript, chatContext);
+  const taskResult = await runChatTask(prompt, stream, atlas, sessionId, {
+    token,
+    carryForward,
+    detectRunProposal: true,
+    ...(chatContext ? { native: { request, chatContext } } : {}),
+    ...(workflowExecutionPolicy ? { workflowExecutionPolicy } : {}),
+  });
+  if (taskResult.outcome !== 'completed') {
+    return { assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
+  }
 
   // If the reply offered an autonomous project run, flow straight into it rather
   // than stopping for the operator to type "Proceed" — they already asked for the
@@ -3446,7 +3574,7 @@ async function handleFreeformMessage(
   // gate in runProjectCommand stays active for unusually large runs.
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const autoFlow = resolveProjectRunAutoFlow(
-    responseText,
+    taskResult.transcriptText,
     atlas.sessionConversation.getTranscript(sessionId),
     {
       enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
@@ -3454,12 +3582,13 @@ async function handleFreeformMessage(
     },
   );
   if (!autoFlow || token.isCancellationRequested) {
-    return undefined;
+    return { assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
   }
 
   stream.markdown(`\n\n---\n\n${autoFlow.notice}\n\n`);
   const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-  return runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+  const outcome = await runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+  return { outcome, assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
 }
 
 /**
@@ -3523,6 +3652,7 @@ async function handleVisionCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   sessionId: string,
+  token?: vscode.CancellationToken,
 ): Promise<void> {
   const selectedAttachments = await pickImageAttachments();
   if (selectedAttachments.length === 0) {
@@ -3538,71 +3668,207 @@ async function handleVisionCommand(
     ? request.prompt.trim()
     : 'Describe the attached images and highlight anything important.';
 
-  await runChatTask(prompt, stream, atlas, selectedAttachments, sessionId);
+  await runChatTask(prompt, stream, atlas, sessionId, {
+    attachments: selectedAttachments,
+    ...(token ? { token } : {}),
+  });
+}
+
+interface ChatTaskOptions {
+  /** Explicit image attachments (e.g. the /vision picker). When present, inline prompt-path resolution is skipped. */
+  attachments?: TaskImageAttachment[];
+  /**
+   * Cancellation for the model call itself. Without it, Stop left the request
+   * running and was consulted only after it returned — so the turn kept spending
+   * after the operator had said no.
+   */
+  token?: vscode.CancellationToken;
+  /**
+   * Native-surface extras: the live `ChatRequest`/`ChatContext` pair, whose
+   * history lines and reference summary the panel assembles for itself. When
+   * present, context assembly matches what the native inline path sent.
+   */
+  native?: { request: vscode.ChatRequest; chatContext: vscode.ChatContext };
+  /**
+   * Whether prior-turn context travels with this turn. Callers gate this via
+   * `shouldCarryForwardConversationContext`; the default (true) preserves the
+   * behaviour of paths that always carried it.
+   */
+  carryForward?: boolean;
+  /**
+   * Detect a proposed project run in the reply and stamp the pending-proposal
+   * metadata (Start / Save for later / Cancel) on the recorded turn.
+   */
+  detectRunProposal?: boolean;
+  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy;
+}
+
+interface ChatTaskResult {
+  transcriptText: string;
+  assistantMeta: SessionTranscriptMetadata;
+  outcome: 'completed' | 'cancelled' | 'failed';
 }
 
 async function runChatTask(
   prompt: string,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
-  explicitAttachments: TaskImageAttachment[] = [],
   sessionId?: string,
-  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
-): Promise<string> {
+  options: ChatTaskOptions = {},
+): Promise<ChatTaskResult> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const sessionContext = atlas.sessionConversation.buildContext({
-    maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-    maxChars: configuration.get<number>('chatSessionContextChars', 2500),
-    ...(sessionId ? { sessionId } : {}),
-  });
+  const carryForward = options.carryForward ?? true;
+  const storedSessionContext = carryForward
+    ? atlas.sessionConversation.buildContext({
+      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+      ...(sessionId ? { sessionId } : {}),
+    })
+    : '';
+  const nativeHistory = options.native && carryForward
+    ? buildNativeChatHistoryLines(options.native.chatContext).join('\n')
+    : '';
+  const nativeChatContext = options.native
+    ? buildNativeChatContextSummary(options.native.request, options.native.chatContext, {
+      includeHistory: carryForward,
+    })
+    : '';
+  const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
   const workstationContext = buildWorkstationContext();
+  const explicitAttachments = options.attachments ?? [];
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
+  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, {
+    sessionContext,
+    ...(nativeChatContext ? { nativeChatContext } : {}),
+  });
   let streamedText = '';
   const chunkBuffer = createStreamBuffer(stream);
-  const result = await atlas.orchestrator.processTask({
-    id: `task-${Date.now()}`,
-    userMessage: prompt,
-    context: {
-      ...(sessionContext ? { sessionContext } : {}),
-      ...(workstationContext ? { workstationContext } : {}),
-      ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
-      ...(operatorAdaptation?.contextPatch ?? {}),
-      ...(workflowExecutionPolicy ? { __workflowChatPolicy: workflowExecutionPolicy } : {}),
-    },
-    constraints: {
-      budget: toBudgetMode(configuration.get<string>('budgetMode')),
-      speed: toSpeedMode(configuration.get<string>('speedMode')),
-      ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
-    },
-    timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
-    }
-    streamedText += chunk;
-    chunkBuffer.push(chunk);
-  });
+  const abortController = new AbortController();
+  const cancellationSubscription = options.token?.onCancellationRequested(() => abortController.abort());
+
+  let result: TaskResult;
+  try {
+    result = await atlas.orchestrator.processTask({
+      id: `task-${Date.now()}`,
+      userMessage: prompt,
+      context: {
+        ...(sessionContext ? { sessionContext } : {}),
+        ...(nativeChatContext ? { nativeChatContext } : {}),
+        ...(workstationContext ? { workstationContext } : {}),
+        ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+        ...(operatorAdaptation?.contextPatch ?? {}),
+        ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
+      },
+      constraints: {
+        budget: toBudgetMode(configuration.get<string>('budgetMode')),
+        speed: toSpeedMode(configuration.get<string>('speedMode')),
+        ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
+      },
+      timestamp: new Date().toISOString(),
+      ...(options.token ? { signal: abortController.signal } : {}),
+    }, chunk => {
+      if (!chunk || abortController.signal.aborted) {
+        return;
+      }
+      streamedText += chunk;
+      chunkBuffer.push(chunk);
+    }, message => {
+      if (!message.trim() || abortController.signal.aborted) {
+        return;
+      }
+      stream.progress(message);
+    });
+  } catch (error) {
+    // A provider throw used to escape the handler to VS Code's generic error
+    // banner, and `recordTurn` never ran — so the turn disappeared from history
+    // entirely, the operator's own message with it. Whatever was streamed before
+    // the failure is kept: a partial answer is worth more than a deleted one.
+    chunkBuffer.flush();
+    const cancelled = abortController.signal.aborted || options.token?.isCancellationRequested === true;
+    const message = error instanceof Error ? error.message : String(error);
+    const notice = cancelled
+      ? '_Request stopped._'
+      : `**Request failed:** ${message}\n\n_Send the prompt again to retry._`;
+    stream.markdown(`${streamedText ? '\n\n' : ''}${notice}`);
+    const transcriptText = [streamedText.trim(), notice].filter(Boolean).join('\n\n');
+    const assistantMeta: SessionTranscriptMetadata = {
+      modelUsed: cancelled ? 'atlasmind/stopped' : 'atlasmind/error',
+      turnError: cancelled ? { kind: 'cancelled' } : { kind: 'failed', message },
+    };
+    atlas.sessionConversation.recordTurn(prompt, transcriptText, sessionId, assistantMeta, {
+      assistantClassification: cancelled ? 'system' : 'error',
+    });
+    cancellationSubscription?.dispose();
+    return { transcriptText, assistantMeta, outcome: cancelled ? 'cancelled' : 'failed' };
+  } finally {
+    cancellationSubscription?.dispose();
+  }
   chunkBuffer.flush();
+
+  if (abortController.signal.aborted || options.token?.isCancellationRequested) {
+    const notice = '_Request stopped._';
+    stream.markdown(`${streamedText ? '\n\n' : ''}${notice}`);
+    const transcriptText = [streamedText.trim(), notice].filter(Boolean).join('\n\n');
+    const assistantMeta: SessionTranscriptMetadata = {
+      modelUsed: 'atlasmind/stopped',
+      turnError: { kind: 'cancelled' },
+    };
+    atlas.sessionConversation.recordTurn(prompt, transcriptText, sessionId, assistantMeta, {
+      assistantClassification: 'system',
+    });
+    return { transcriptText, assistantMeta, outcome: 'cancelled' };
+  }
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {
     writeMarkdownChunk(stream, reconciled.additionalText, 'chat task completion');
   }
-  const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
+  let assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
     routingContext: {
       ...(sessionContext ? { sessionContext } : {}),
+      ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
     },
     policies: [
       ...atlas.getWorkspacePolicySnapshots(),
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
+    ...(options.native ? { responseText: reconciled.transcriptText } : {}),
   });
-  stream.markdown(renderAssistantResponseFooter(assistantMeta));
+
+  if (options.detectRunProposal) {
+    const transcript = sessionId ? atlas.sessionConversation.getTranscript(sessionId) : [];
+    const proposal = resolveProjectRunProposal(
+      reconciled.transcriptText,
+      [
+        ...transcript,
+        {
+          id: `proposal-${Date.now()}`,
+          role: 'assistant',
+          content: reconciled.transcriptText,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    );
+    if (proposal) {
+      assistantMeta = {
+        ...assistantMeta,
+        followupQuestion: 'What should I do with this proposed project run?',
+        quickReplies: undefined,
+        projectRunProposal: { goal: proposal.goal, status: 'pending' },
+        suggestedFollowups: [
+          { label: 'Start run', prompt: 'Proceed', description: 'Start the autonomous project run now.' },
+          { label: 'Save for later', prompt: 'Save this proposed project run for later.', description: 'Create a reviewed preview in Project Run Center.' },
+          { label: 'Cancel', prompt: 'Cancel this proposed project run.', description: 'Dismiss the proposal without starting or saving it.' },
+        ],
+      };
+    }
+  }
+
+  stream.markdown(renderAssistantResponseFooter(assistantMeta, reconciled.transcriptText));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, sessionId, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
@@ -3610,7 +3876,7 @@ async function runChatTask(
     atlas.voiceManager.speak(reconciled.transcriptText);
   }
 
-  return reconciled.transcriptText;
+  return { transcriptText: reconciled.transcriptText, assistantMeta, outcome: 'completed' };
 }
 
 export function reconcileAssistantResponse(
@@ -3651,9 +3917,14 @@ export function reconcileAssistantResponse(
   // legacy caller has already rendered divergent text we cannot retract it from
   // VS Code's append-only stream. Separate the authoritative completion
   // visually, while retaining only that completion in conversation history.
+  //
+  // It is **labelled**, because a horizontal rule alone left the operator
+  // reading two different answers to one question with nothing saying which was
+  // real — and the first one, the one they had already read, was the wrong one.
+  // Retracting is impossible on an append-only stream; saying so is not.
   const authoritative = sanitizeResponseTail(finalResponse);
   return {
-    additionalText: `\n\n---\n\n${authoritative}`,
+    additionalText: `\n\n---\n\n_The reply above was superseded while it was being written. This is the answer AtlasMind committed:_\n\n${authoritative}`,
     transcriptText: authoritative,
   };
 }
@@ -3677,13 +3948,22 @@ export function sanitizeResponseTail(text: string): string {
     result = result.trimEnd() + '\n```';
   }
 
-  // Strip a trailing bare section header (heading line with nothing after it).
-  result = result.replace(/\n(#{1,6}\s+[^\n]+)\n?\s*$/, (_, header) => {
-    // Keep the header only if there is non-whitespace content after it — i.e.,
-    // the regex matched because the header is the last non-empty line.  We
-    // unconditionally drop it here to remove the dangling heading.
-    void header;
-    return '';
+  // Strip a trailing bare section header (heading line with nothing after it) —
+  // but not where dropping it takes content with it.
+  //
+  // Two cases it used to destroy. A closing prompt formatted as a heading
+  // ("### Ready to proceed?") *is* the question, and models format one that way
+  // constantly; because this runs before quick-reply detection, striking it
+  // deleted the question before the operator could ever see it. And a heading
+  // that answers a lead-in ("Here is what I would change:\n\n## Next steps")
+  // leaves the reply ending on a colon pointing at nothing, which reads as a
+  // truncation bug rather than as tidying.
+  result = result.replace(/\n(#{1,6}\s+[^\n]+)\n?\s*$/, (whole: string, header: string) => {
+    if (/\?\s*$/.test(header.trim())) {
+      return whole;
+    }
+    const before = result.slice(0, result.length - whole.length).trimEnd();
+    return /[:—-]$/.test(before) ? whole : '';
   });
 
   return result;
@@ -3836,6 +4116,111 @@ function endsWithQuestion(line: string): boolean {
   return /\?\s*$/.test(stripMarkdownEmphasis(line));
 }
 
+/** Longest trailing clause that may follow the question and still be an aside. */
+const MAX_POST_QUESTION_CLAUSE_CHARS = 120;
+
+/**
+ * Drop a short clause that follows the question on the same line.
+ *
+ * *"Would you like me to inspect the exact agent configuration for you? If so, I
+ * can fetch and analyze `agents/customer-researcher.md` directly."* — taken from
+ * a real session. The question is there; it simply is not last, and every check
+ * in this file anchored on the line *ending* in `?`, so the operator got no
+ * chips and no recorded follow-up.
+ *
+ * That is the third shape of one mistake. A question mark preceded by a full
+ * stop was fixed in v0.311.1, an offer with no question mark at all in v0.315.0,
+ * and this is a question mark with something after it. Each was found by running
+ * real output rather than by writing another probe, because a probe corpus
+ * written by the same hand as the detector shares its assumptions about what
+ * output looks like.
+ *
+ * Bounded, because the aside has to *be* an aside: a long paragraph following a
+ * rhetorical question is prose, and turning it into a prompt would put a
+ * Yes/No under a sentence nobody was being asked to answer.
+ */
+function trimClauseAfterQuestion(line: string): string {
+  const lastQuestion = line.lastIndexOf('?');
+  if (lastQuestion < 0 || lastQuestion === line.trimEnd().length - 1) {
+    return line;
+  }
+  const trailing = line.slice(lastQuestion + 1).trim();
+  return trailing.length > 0 && trailing.length <= MAX_POST_QUESTION_CLAUSE_CHARS
+    ? line.slice(0, lastQuestion + 1)
+    : line;
+}
+
+/**
+ * A conditional opener addressed to the operator: "If you want, …",
+ * "Let me know if …", "Happy to …".
+ */
+// `s?` on the verb, not a bare `\b` after it. "If **The User wants**, I can …"
+// is a real transcript, and `\b` cannot fire between the "t" of "want" and the
+// "s" that follows it — both are word characters. Every hand-written probe used
+// "if you want," where the comma supplied the boundary, so the whole shape
+// passed while the real one did not.
+const OFFER_CONDITION_PATTERN = /\b(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)(?:s|ed)?\b|let\s+me\s+know\s+if\b|say\s+the\s+word\b)/i;
+
+/**
+ * Phrasings that are an offer on their own, needing no separate condition.
+ *
+ * "Happy to split that into two commits" is elliptical for "I would be happy
+ * to", so the undertaking and the offer are the same words — requiring a
+ * condition beside it would miss the shape entirely.
+ */
+const SELF_EVIDENT_OFFER_PATTERN = /\b(?:i'?d\s+be\s+(?:glad|happy)\s+to|i'?m\s+happy\s+to|happy\s+to)\s+\w/i;
+
+/**
+ * A first-person undertaking to *do* it: "I can …", "I'll …", "let me …".
+ *
+ * Required alongside the condition, and it is what separates an offer from
+ * advice. "If you want multi-instance durability, **use** Cloudflare KV" opens
+ * identically and then tells the operator what to do — turning that into a
+ * Yes/No prompt would submit an answer to a question nobody asked.
+ */
+const OFFER_UNDERTAKING_PATTERN = /\b(?:i\s+can|i\s+could|i'?ll|i\s+will|i'?d\s+be\s+glad\s+to|let\s+me)\s+(?!see\b|tell\b|confirm\b|report\b|find\b)\w/i;
+
+/**
+ * An offer the model made without a question mark.
+ *
+ * Every one of an ACP model's four turns in a real session closed this way —
+ * "If you want, I can also add a short release notes heading…", "If The User
+ * wants, I can start a project run next to…" — and the detector keys on `?`, so
+ * the operator was shown three genuine offers and given no way to accept any of
+ * them. The automated probes all passed throughout, because their inputs were
+ * written by the same hand that wrote the detector and every one carried a `?`.
+ *
+ * Both halves are required. A condition alone is advice; an undertaking alone is
+ * narration ("I can see the file is missing", excluded above by verb).
+ */
+function extractDeclarativeOffer(line: string): string | undefined {
+  const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
+  if (stripped.length < 12 || stripped.length > 300) {
+    return undefined;
+  }
+  const offered = SELF_EVIDENT_OFFER_PATTERN.test(stripped)
+    || (OFFER_CONDITION_PATTERN.test(stripped) && OFFER_UNDERTAKING_PATTERN.test(stripped));
+  return offered ? stripped : undefined;
+}
+
+/** Longest pill label shown before it is abbreviated. */
+const MAX_QUICK_REPLY_LABEL_CHARS = 48;
+
+/**
+ * Abbreviate a pill label on a word boundary, marking it as abbreviated.
+ *
+ * A mid-word cut reads as a rendering bug; the ellipsis reads as "there is more
+ * here", which is true — the full text is what the pill submits.
+ */
+function clampQuickReplyLabel(label: string): string {
+  if (label.length <= MAX_QUICK_REPLY_LABEL_CHARS) {
+    return label;
+  }
+  const head = label.slice(0, MAX_QUICK_REPLY_LABEL_CHARS - 1);
+  const lastSpace = head.lastIndexOf(' ');
+  return `${(lastSpace > 20 ? head.slice(0, lastSpace) : head).trimEnd()}…`;
+}
+
 /** Extract a clean pick-one label from a list-item line (lead phrase before any "— explanation"). */
 function extractOptionLabel(line: string): string {
   let label = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '');
@@ -3844,11 +4229,43 @@ function extractOptionLabel(line: string): string {
   return label.replace(/[.,;:!?]+\s*$/, '').trim();
 }
 
-/** Extract the question clause (last sentence ending in "?") from a line. */
+/**
+ * Split a line into sentences, treating a full stop as a boundary only where a
+ * human would.
+ *
+ * A bare `[^.!?]*` — which is what this replaced — cannot cross a full stop at
+ * all, so "Want me to update README.md?" yielded `md?`: three characters, below
+ * the length guard, discarded. The question then reached the operator as
+ * nothing at all — no pills, no follow-up prompt. Every closing offer naming a
+ * file, a path or a version disappeared the same way, which is most of what
+ * Atlas offers to do in a codebase.
+ *
+ * Requiring whitespace *and* a capital after the stop is what distinguishes a
+ * sentence boundary from the dots inside `README.md`, `src/chat/participant.ts`
+ * and `v0.310.2` — none of which is followed by a space — and from `i.e.` and
+ * `e.g.`, which are followed by a lower-case word.
+ */
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+(?=["'“(\[]?[A-Z0-9])/).map(part => part.trim()).filter(Boolean);
+}
+
+/**
+ * Extract the question clause from a line.
+ *
+ * Where the line ends with several questions ("Should I update the wiki as well?
+ * And do you want a changelog entry?") all of the trailing consecutive ones are
+ * returned together. Surfacing only the last made the operator's "yes" answer a
+ * question they had never seen singled out.
+ */
 function extractQuestionClause(line: string): string | undefined {
   const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
-  const match = /([^.!?]*\?)\s*$/.exec(stripped);
-  const question = (match?.[1] ?? stripped).trim();
+  const sentences = splitSentences(stripped);
+
+  let start = sentences.length;
+  while (start > 0 && /\?\s*$/.test(sentences[start - 1]!)) {
+    start -= 1;
+  }
+  const question = (start < sentences.length ? sentences.slice(start).join(' ') : stripped).trim();
   return question.length >= 6 && question.length <= 300 ? question : undefined;
 }
 
@@ -3861,9 +4278,11 @@ function extractQuestionClause(line: string): string | undefined {
  * Falls back to {@link RESPONSE_TRAILING_QUESTION_PATTERN} for a mid-line
  * question at the very end.
  */
-function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[] } | undefined {
+function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[]; isOffer?: boolean } | undefined {
   if (!text) { return undefined; }
-  const lines = text.split('\n').map(line => line.trim());
+  // The trailing aside is dropped before anything else looks at the line, so
+  // every check below still sees a line that ends in its question.
+  const lines = text.split('\n').map(line => trimClauseAfterQuestion(line.trim()));
   let end = lines.length - 1;
   while (end >= 0 && lines[end] === '') { end -= 1; }
   if (end < 0) { return undefined; }
@@ -3893,7 +4312,14 @@ function analyzeTrailingQuestion(text: string): { question: string; optionLines:
 
   if (questionIdx < 0) {
     const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(text);
-    return match?.[1] ? { question: match[1].trim(), optionLines: [] } : undefined;
+    if (match?.[1]) {
+      return { question: match[1].trim(), optionLines: [] };
+    }
+    // No question mark anywhere. An offer can still have been made — models
+    // routinely close with "If you want, I can …" — and it takes a yes or no
+    // exactly as "Want me to …?" does.
+    const offer = extractDeclarativeOffer(lines[end]!);
+    return offer ? { question: offer, optionLines: [], isOffer: true } : undefined;
   }
 
   const question = extractQuestionClause(lines[questionIdx]);
@@ -3927,11 +4353,13 @@ export function detectResponseQuickReplies(responseText: string): {
 } | undefined {
   const analysis = analyzeTrailingQuestion(responseText.trim());
   if (!analysis) { return undefined; }
-  const { question, optionLines } = analysis;
+  const { question, optionLines, isOffer } = analysis;
 
   // Yes / No — confirmatory questions (checked first so a yes/no question that
-  // happens to sit above a list is never mistaken for a pick-one).
-  if (isYesNoQuestion(question)) {
+  // happens to sit above a list is never mistaken for a pick-one). A declarative
+  // offer is one of these by construction: it proposes a single action, and the
+  // only answers are take it or leave it.
+  if (isOffer || isYesNoQuestion(question)) {
     return {
       followupQuestion: question,
       quickReplies: [
@@ -3944,11 +4372,22 @@ export function detectResponseQuickReplies(responseText: string): {
   // Enumerated markdown / numbered list — "Which …?\n- A\n- B\n- C" (2–5 options),
   // in either order. Only for selection-style questions.
   if (optionLines.length >= 2 && isSelectionQuestion(question)) {
-    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2 && label.length <= 48);
+    // A long option is truncated for the pill, not dropped.
+    //
+    // The cap used to discard the whole set: asked to explain its options a model
+    // writes clauses rather than nouns ("Narrow the tool-failure predicate to an
+    // exit code so ordinary file reads stop counting"), every label exceeded 48
+    // characters, and a genuine two-way choice arrived with nothing to click. The
+    // submitted prompt stays the full label, and the ellipsis tells the operator
+    // the pill is showing them an abbreviation.
+    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2);
     if (labels.length === optionLines.length && labels.length >= 2 && labels.length <= 5) {
       return {
         followupQuestion: question,
-        quickReplies: labels.map(label => ({ label: capitalizeFirst(label), prompt: label })),
+        quickReplies: labels.map(label => ({
+          label: capitalizeFirst(clampQuickReplyLabel(label)),
+          prompt: label,
+        })),
       };
     }
   }
@@ -4164,6 +4603,11 @@ export function buildAssistantResponseMetadata(
 
   return {
     modelUsed: result.modelUsed,
+    // Carried so the footer can say what the turn cost. Zero is meaningful — a
+    // local or subscription-backed turn — so this is not conditional on truthiness.
+    ...(typeof result.costUsd === 'number' ? { costUsd: result.costUsd } : {}),
+    ...(typeof result.inputTokens === 'number' ? { inputTokens: result.inputTokens } : {}),
+    ...(typeof result.outputTokens === 'number' ? { outputTokens: result.outputTokens } : {}),
     ...(attempts.length > 1
       ? { modelsUsed: [...new Set(attempts.map(attempt => attempt.model))] }
       : {}),
@@ -4237,14 +4681,33 @@ export function buildProjectResponseMetadata(goal: string, result?: Pick<Project
   };
 }
 
-export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadata | undefined): string {
+/**
+ * @param answerText the reply this footer will sit beneath, when the caller has
+ * it. Used only to suppress a "Next step" that would repeat a question the
+ * operator has just read.
+ */
+export function renderAssistantResponseFooter(
+  metadata: SessionTranscriptMetadata | undefined,
+  answerText?: string,
+): string {
   if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length) {
     return '';
   }
 
   const sections: string[] = [];
   if (metadata.modelUsed) {
-    sections.push(`\n\n---\n_Model: ${metadata.modelUsed}_`);
+    // The transcript is where the spend is actually incurred, and it was the one
+    // surface that never mentioned it: the footer named the model and stopped,
+    // on a product that routes across paid providers and ships a cost dashboard.
+    // Zero is worth printing — a local or subscription-backed turn costing
+    // nothing is a fact about the routing, not an absence of information.
+    const spend = typeof metadata.costUsd === 'number'
+      ? ` · ${formatCost(metadata.costUsd, 4)}`
+      : '';
+    const tokens = typeof metadata.inputTokens === 'number' && typeof metadata.outputTokens === 'number'
+      ? ` · ${metadata.inputTokens.toLocaleString()} in / ${metadata.outputTokens.toLocaleString()} out`
+      : '';
+    sections.push(`\n\n---\n_Model: ${metadata.modelUsed}${spend}${tokens}_`);
   }
 
   if (metadata.thoughtSummary) {
@@ -4258,13 +4721,39 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.followupQuestion) {
+    // The question is lifted out of the reply's own tail, so restating it under
+    // "Next step" printed it twice in one turn, the two copies separated by a
+    // few lines. Where the answer already ends with it, only the options are
+    // worth adding.
     const labels = metadata.suggestedFollowups?.map(item => `- ${item.label}`).join('\n') ?? '';
-    sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
+    const alreadyAsked = typeof answerText === 'string'
+      && answerText.trimEnd().toLowerCase().endsWith(metadata.followupQuestion.trim().toLowerCase());
+    if (!alreadyAsked) {
+      sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
+    } else if (labels) {
+      sections.push(`\n\n${labels}`);
+    }
   }
 
   if (metadata.timelineNotes?.length) {
     const notes = metadata.timelineNotes.map(note => `- ${note.label}: ${note.summary}`).join('\n');
     sections.push(`\n\n**Session timeline:**\n${notes}`);
+  }
+
+  // Suggestions, never changes. The automatic path that used to act on this kind
+  // of signal wrote settings into a committed file without naming them; what was
+  // worth keeping about it was the noticing. Applying one goes through
+  // `atlasmind-settings`, which puts a modal naming both values in front of the
+  // operator.
+  const fit = deriveSessionFitSuggestions({
+    ...(metadata.iterationLimitHit ? { iterationLimitHit: true } : {}),
+    ...(typeof metadata.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: metadata.suggestedIterationLimit } : {}),
+    ...(typeof metadata.suggestedToolCallsPerTurnLimit === 'number'
+      ? { toolCallsPerTurnLimitHit: true, suggestedToolCallsPerTurnLimit: metadata.suggestedToolCallsPerTurnLimit }
+      : {}),
+  });
+  if (fit.length > 0) {
+    sections.push(`\n\n**Worth changing:**\n${fit.map(entry => `- ${entry.message}`).join('\n')}`);
   }
 
   return sections.join('');
@@ -4277,7 +4766,7 @@ function buildTimelineNotes(routingContext: Record<string, unknown>): SessionTim
 
   return [{
     label: 'Learned from friction',
-    summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
+    summary: 'Atlas adjusted its approach for this session after the operator signalled frustration, and drafted a note for project memory. Nothing was written — use "Save this feedback rule" to keep it.',
     tone: 'warning',
   }];
 }
@@ -4290,7 +4779,7 @@ function buildSuggestedExecutionFollowups(
     return undefined;
   }
 
-  return [
+  const followups: SessionSuggestedFollowup[] = [
     {
       label: 'Fix This',
       prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
@@ -4304,6 +4793,18 @@ function buildSuggestedExecutionFollowups(
       prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
     },
   ];
+
+  // Offered, never taken automatically: the note goes into a git-tracked file and
+  // quotes the operator's own words back.
+  if (typeof routingContext['userFrustrationSignal'] === 'string') {
+    followups.push({
+      label: 'Save this feedback rule',
+      prompt: SAVE_OPERATOR_FEEDBACK_PROMPT,
+      description: `Writes ${OPERATOR_FEEDBACK_FILE} in project memory, which is tracked by git.`,
+    });
+  }
+
+  return followups;
 }
 
 function shouldOfferExecutionChoices(
@@ -4355,14 +4856,28 @@ export function detectUserFrustrationSignal(prompt: string): UserFrustrationSign
   const cues: Array<{ level: UserFrustrationSignal['level']; pattern: RegExp; matchedCue: string; summary: string; guidance: string }> = [
     {
       level: 'high',
-      pattern: /\b(?:frustrat(?:ed|ing)|annoy(?:ed|ing)|useless|stop giving me|just do (?:it|that)|not doing what i ask|doesn'?t want to do|why aren'?t you doing)\b/i,
+      // `just do it` carries a lookahead because it is the one phrase here that is
+      // just as often an ordinary instruction: "just do it the simple way" says
+      // *how*, and reading that as a complaint was one of two false positives
+      // measured against benign phrasing.
+      pattern: /\b(?:frustrat(?:ed|ing)|annoy(?:ed|ing)|useless|stop giving me|just do (?:it|that)\b(?!\s+(?:the|a|an|in|with|using|for)\b)|not doing what i ask|doesn'?t want to do|why aren'?t you doing|you'?re not listening|you are not listening|forget it|i'?ll do it myself)\b/i,
       matchedCue: 'explicit-frustration',
       summary: 'The operator explicitly signaled frustration with Atlas failing to act.',
       guidance: 'Acknowledge the miss briefly, then move straight to the most concrete safe action instead of repeating advisory prose.',
     },
     {
       level: 'moderate',
-      pattern: /\b(?:can you not do (?:this|that|it|them) for me|can you do (?:this|that|it|them) for me|could you do (?:this|that|it|them) for me|i want .* resolved|i want the reason .* resolved|no,? i want|instead of (?:advice|explaining)|not doing what i asked)\b/i,
+      // `can you do this for me` is NOT here, deliberately. It is an ordinary
+      // polite request — the other measured false positive — and it used to fire
+      // this whole adaptation on a turn where nothing had gone wrong. Its negated
+      // form ("can you *not* do this for me") stays, because that is a complaint.
+      //
+      // The additions are shapes taken from how people actually complain, all of
+      // which went unrecognised: repetition ("that's the third time"), a
+      // correction naming what was asked for instead ("I asked you to fix it, not
+      // explain it"), and the offer-instead-of-doing pattern this codebase
+      // produces often enough to have its own probe.
+      pattern: /\b(?:can you not do (?:this|that|it|them) for me|i want .* resolved|i want the reason .* resolved|no,? i want|instead of (?:advice|explaining)|not doing what i asked|(?:that'?s|this is) the (?:second|third|fourth|fifth|\d+(?:st|nd|rd|th)) time|for the (?:second|third|fourth|fifth) time|i asked you (?:to|for) [^,]{2,60},? not\b|you keep (?:offering|asking|suggesting|telling)|why do you keep)\b/i,
       matchedCue: 'frustrated-correction',
       summary: 'The operator corrected Atlas toward concrete execution after a disappointing response.',
       guidance: 'Prefer direct execution, recover from the missed expectation immediately, and avoid asking another redundant follow-up question.',
@@ -4387,12 +4902,16 @@ export async function applyOperatorFrustrationAdaptation(
   atlas: AtlasMindContext,
   routingContext: Record<string, unknown>,
 ): Promise<{ signal: UserFrustrationSignal; contextPatch: Record<string, unknown>; policySnapshot: SessionPolicySnapshot } | undefined> {
+  // Runs whichever way the branch below goes: it is undoing writes an earlier
+  // build made without asking, and that is owed regardless of what this turn
+  // says.
+  const workspaceState = atlas.extensionContext?.workspaceState;
+  if (workspaceState) {
+    await restoreSettingsWrittenWithoutAsking(workspaceState);
+  }
+
   const signal = detectUserFrustrationSignal(prompt);
   if (!signal) {
-    const workspaceState = atlas.extensionContext?.workspaceState;
-    if (workspaceState) {
-      await maybeCoolFrustrationSettings(workspaceState);
-    }
     return undefined;
   }
 
@@ -4460,8 +4979,80 @@ async function persistFrustrationLearning(atlas: AtlasMindContext, prompt: strin
   );
 
   await workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, profile);
-  await applyFrustrationSettingsTuning(workspaceState);
-  await writeFrustrationFeedbackToSsot(atlas, prompt, signal, profile, now);
+
+  // The note is drafted and held, not written.
+  //
+  // This used to write `project_memory/operations/operator-feedback.md` — a
+  // git-tracked file — containing an excerpt of the operator's own prompt, on
+  // any frustration-cue match, announced nowhere they would read it. It is the
+  // same shape as the settings write DECISION-2 already removed, one file over,
+  // and it outlives the conversation in a way nothing else here does. The draft
+  // now waits behind a chip; the offer is in the reply, and the write happens
+  // when somebody asks for it.
+  await workspaceState.update(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY, {
+    version: 1 as const,
+    timestamp: now,
+    markdown: buildOperatorFeedbackMarkdown(prompt, signal, profile, now),
+  });
+}
+
+/**
+ * The exact prompt the "Save this feedback rule" chip submits, and the phrase the
+ * preflight matches. One constant so the chip and its handler cannot drift.
+ */
+export const SAVE_OPERATOR_FEEDBACK_PROMPT = 'Save the operator-feedback note to project memory.';
+
+interface PendingOperatorFeedbackDraft {
+  version: 1;
+  timestamp: string;
+  markdown: string;
+}
+
+function isPendingOperatorFeedbackDraft(value: unknown): value is PendingOperatorFeedbackDraft {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return candidate['version'] === 1
+    && typeof candidate['timestamp'] === 'string'
+    && typeof candidate['markdown'] === 'string';
+}
+
+/** Writes the held draft, if there is one. Returns what the reply should say. */
+export async function saveOperatorFeedbackDraft(atlas: AtlasMindContext): Promise<string> {
+  const workspaceState = atlas.extensionContext.workspaceState;
+  const stored = workspaceState.get<unknown>(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY);
+  if (!isPendingOperatorFeedbackDraft(stored)) {
+    return 'There is no operator-feedback note waiting to be saved.';
+  }
+
+  const ssotRoot = getSsotRootUri();
+  if (!ssotRoot) {
+    return 'No project memory folder is available in this workspace, so the note was not saved.';
+  }
+
+  try {
+    const targetUri = vscode.Uri.joinPath(ssotRoot, ...OPERATOR_FEEDBACK_FILE.split('/'));
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
+    await vscode.workspace.fs.writeFile(targetUri, Buffer.from(stored.markdown, 'utf-8'));
+    await atlas.memoryManager.loadFromDisk(ssotRoot);
+    atlas.memoryRefresh.fire();
+    await workspaceState.update(PENDING_OPERATOR_FEEDBACK_STORAGE_KEY, undefined);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Could not write \`${OPERATOR_FEEDBACK_FILE}\`: ${message}`;
+  }
+
+  // Quoted back, because the file is committed and contains an excerpt of the
+  // operator's own words. They should see exactly what was stored, here, rather
+  // than discovering it in a diff.
+  return [
+    `Saved \`${OPERATOR_FEEDBACK_FILE}\` in project memory. This file is tracked by git — here is exactly what it now contains:`,
+    '',
+    '```markdown',
+    stored.markdown.trim(),
+    '```',
+  ].join('\n');
 }
 
 function isStoredPersonalityProfileRecord(value: unknown): value is StoredPersonalityProfileRecord {
@@ -4488,48 +5079,36 @@ function appendLearnedPreference(existing: unknown, addition: string): string {
   return `${current}\n- ${normalizedAddition}`;
 }
 
-async function applyFrustrationSettingsTuning(workspaceState: vscode.Memento): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
-  const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
-
-  // Save original values before any boost so we can restore them later.
-  const existing = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
-  if (!isFrustrationSettingsSnapshot(existing)) {
-    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
-      originalTurnLimit: currentTurnLimit,
-      originalContextChars: currentContextChars,
-      lastFrustrationAt: new Date().toISOString(),
-    } satisfies FrustrationSettingsSnapshot);
-  } else {
-    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
-      ...existing,
-      lastFrustrationAt: new Date().toISOString(),
-    } satisfies FrustrationSettingsSnapshot);
-  }
-
-  if (currentTurnLimit < MIN_FRUSTRATION_SESSION_TURNS) {
-    await configuration.update('chatSessionTurnLimit', MIN_FRUSTRATION_SESSION_TURNS, vscode.ConfigurationTarget.Workspace);
-  }
-
-  if (currentContextChars < MIN_FRUSTRATION_SESSION_CHARS) {
-    await configuration.update('chatSessionContextChars', MIN_FRUSTRATION_SESSION_CHARS, vscode.ConfigurationTarget.Workspace);
-  }
-}
-
-async function maybeCoolFrustrationSettings(workspaceState: vscode.Memento): Promise<void> {
+/**
+ * Undo the settings an earlier build wrote on the operator's behalf.
+ *
+ * Until v0.310.4 a detected frustration signal raised `chatSessionTurnLimit` and
+ * `chatSessionContextChars` automatically, at
+ * `ConfigurationTarget.Workspace` — i.e. into `.vscode/settings.json`, a file
+ * most repositories commit — and named neither in anything the operator read.
+ * The only trace in the turn was a timeline note reading "Learned from friction".
+ *
+ * Two things made that indefensible rather than merely brisk. The detector fired
+ * on ordinary polite requests ("can you do this for me when you have a moment"),
+ * so the write happened on turns where nothing had gone wrong. And a settings
+ * change nobody is told about cannot be reviewed, reverted, or even attributed —
+ * it just appears in somebody's diff.
+ *
+ * A tuning suggestion is the right shape for this, and that already exists: the
+ * tool-iteration ceiling names a value and offers a button. This restores what
+ * was written, once, and clears the snapshot; the suggestion path carries the
+ * intent from here.
+ *
+ * Restoration is conservative in the same way the old cooling logic was — a
+ * value is only put back if it still equals what was written, so an operator who
+ * has since chosen their own number keeps it.
+ */
+async function restoreSettingsWrittenWithoutAsking(workspaceState: vscode.Memento): Promise<void> {
   const stored = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
   if (!isFrustrationSettingsSnapshot(stored)) {
     return;
   }
 
-  const msSinceFrustration = Date.now() - new Date(stored.lastFrustrationAt).getTime();
-  if (msSinceFrustration < FRUSTRATION_COOLING_PERIOD_MS) {
-    return;
-  }
-
-  // Cooling period elapsed: restore original values — but only if they still
-  // equal what we boosted them to (so a user's manual change is not overwritten).
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
   const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
@@ -4552,26 +5131,6 @@ function isFrustrationSettingsSnapshot(value: unknown): value is FrustrationSett
   return typeof candidate['originalTurnLimit'] === 'number'
     && typeof candidate['originalContextChars'] === 'number'
     && typeof candidate['lastFrustrationAt'] === 'string';
-}
-
-async function writeFrustrationFeedbackToSsot(
-  atlas: AtlasMindContext,
-  prompt: string,
-  signal: UserFrustrationSignal,
-  profile: StoredPersonalityProfileRecord,
-  timestamp: string,
-): Promise<void> {
-  const ssotRoot = getSsotRootUri();
-  if (!ssotRoot) {
-    return;
-  }
-
-  const targetUri = vscode.Uri.joinPath(ssotRoot, ...OPERATOR_FEEDBACK_FILE.split('/'));
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
-  const content = buildOperatorFeedbackMarkdown(prompt, signal, profile, timestamp);
-  await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf-8'));
-  await atlas.memoryManager.loadFromDisk(ssotRoot);
-  atlas.memoryRefresh.fire();
 }
 
 function getSsotRootUri(): vscode.Uri | undefined {
@@ -5215,6 +5774,29 @@ export function resolveAutonomousContinuationGoal(
 
   const followupDetail = match[1]?.trim();
 
+  // The assistant said it was waiting on the operator. A bare continuation
+  // supplies nothing, so honouring the word would start the run on precisely the
+  // information the model had just said it lacked. A continuation carrying
+  // detail ("yes, use 0.310.5") answers the precondition and is allowed.
+  if (!followupDetail && assistantDeferredPendingInput(transcript)) {
+    return undefined;
+  }
+
+  // Deliberately NOT gated on the last turn having made an offer.
+  //
+  // Requiring one was tried and reverted: it broke the ordinary case where the
+  // assistant describes a plan without a closing offer and the operator says
+  // "proceed", which is the operator instructing rather than agreeing. Six tests
+  // pinned that as intended, and they are right.
+  //
+  // The defect the STOP lane found was never that a continuation is accepted —
+  // it is that a turn which *had* made an offer said nothing about a run being
+  // pending. That is fixed by widening the announcement
+  // ({@link detectProjectRunProposal}) and by keeping the question and its pills
+  // beside the decision card, not by narrowing what the operator may type. What
+  // a resolved goal must always be is something the operator can recognise from
+  // the conversation, which is what the checks above enforce.
+
   // A bare affirmation ("yes", "go ahead") accepts whatever the assistant just
   // offered, so the assistant's closing proposal is the real goal. Without this the
   // resolver fell back to the most recent *user* message — typically the question
@@ -5242,10 +5824,19 @@ function normalizeProjectRunProposalAction(action: string | undefined): string |
   if (!action) {
     return undefined;
   }
-  const normalized = PROJECT_RUN_META_ACTION_PREFIX.test(action)
+  const meta = (PROJECT_RUN_META_ACTION_PREFIX.test(action)
     ? action.replace(PROJECT_RUN_META_ACTION_PREFIX, '').trim()
-    : action.trim();
-  if (!normalized || DEICTIC_PROJECT_RUN_ACTION.test(normalized)) {
+    : action.trim())
+    // "…a project run **next to:** validate the checks" — a connector the meta
+    // prefix leaves behind, which would otherwise open the stated goal.
+    .replace(/^(?:next\s+)?to:?\s+/i, '')
+    .trim();
+  // "Shall I go ahead and update the README?" leaves "go ahead and update the
+  // README". The affirmation is a preamble to the action, not part of it.
+  const normalized = meta.replace(GO_AHEAD_PREFIX_PATTERN, '').trim();
+  if (!normalized
+    || DEICTIC_PROJECT_RUN_ACTION.test(normalized)
+    || BARE_AFFIRMATION_ACTION.test(normalized)) {
     return undefined;
   }
   return normalized;
@@ -5258,6 +5849,24 @@ function normalizeProjectRunProposalAction(action: string | undefined): string |
  * "?" stripped. Returns undefined when the last assistant turn made no actionable offer
  * (e.g. it ended with a statement or a non-offer question like "Is that correct?").
  */
+/**
+ * True when the most recent assistant turn made its offer conditional on
+ * something the operator has not yet supplied.
+ *
+ * Scoped to the tail of the reply, where the offer lives, so a deferral
+ * mentioned in passing halfway through a long answer does not veto a genuine
+ * closing offer.
+ */
+function assistantDeferredPendingInput(transcript: SessionTranscriptEntry[]): boolean {
+  const lastAssistant = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.content.trim().length > 0);
+  if (!lastAssistant) {
+    return false;
+  }
+  return ASSISTANT_DEFERRAL_PATTERN.test(lastAssistant.content.trim().slice(-400));
+}
+
 export function extractAssistantProposedAction(
   transcript: SessionTranscriptEntry[],
 ): string | undefined {
@@ -5268,15 +5877,42 @@ export function extractAssistantProposedAction(
     return undefined;
   }
 
-  const questionMatch = RESPONSE_TRAILING_QUESTION_PATTERN.exec(lastAssistant.content.trim());
+  const content = lastAssistant.content.trim();
+  const questionMatch = RESPONSE_TRAILING_QUESTION_PATTERN.exec(content);
   const question = questionMatch?.[1]?.trim();
-  if (!question || !ASSISTANT_OFFER_LEAD_IN_PATTERN.test(question)) {
+
+  if (question && ASSISTANT_OFFER_LEAD_IN_PATTERN.test(question)) {
+    const action = question
+      .replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '')
+      .replace(/\?+\s*$/, '')
+      .trim();
+    return action.length >= 3 ? action : undefined;
+  }
+
+  // No question mark, but the reply may still have offered something.
+  //
+  // This is where the decision card was being lost. `detectProjectRunProposal`
+  // correctly returned true for "If The User wants, I can start a project run
+  // next to: …", but `resolveProjectRunProposal` also needs a *goal*, and this
+  // function keyed on the trailing `?` alone — so it returned undefined, goal
+  // resolution fell through to the prior user prompts (an affirmation and an
+  // informational question, both skipped by design), and the card silently
+  // never rendered. Detection said a decision was pending and nothing on screen
+  // said so: exactly the symptom the STOP lane exists for, arriving by a
+  // different route from the one it already closed.
+  const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
+  const offer = extractDeclarativeOffer(lines[lines.length - 1] ?? '');
+  if (!offer) {
     return undefined;
   }
 
-  const action = question
-    .replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '')
-    .replace(/\?+\s*$/, '')
+  const action = offer
+    // "If you want, " / "If The User wants, " / "Let me know if you want me to "
+    .replace(/^\s*(?:if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)[^,]{0,40},\s*|let\s+me\s+know\s+if\s+(?:you'?d\s+like\s+me\s+to|you\s+want\s+me\s+to)\s*)/i, '')
+    // "I can " / "I'll " / "happy to " — the undertaking, not the work.
+    .replace(/^\s*(?:i\s+can|i\s+could|i'?ll|i\s+will|let\s+me|i'?d\s+be\s+(?:glad|happy)\s+to|i'?m\s+happy\s+to|happy\s+to)\s+/i, '')
+    .replace(/\s+if\s+(?:you|the\s+user)(?:'d|\s+would)?\s*(?:want|like|prefer|wish)\s*[.!]?\s*$/i, '')
+    .replace(/[.!]\s*$/, '')
     .trim();
   return action.length >= 3 ? action : undefined;
 }
@@ -5295,12 +5931,42 @@ export interface ProjectRunProposal {
 }
 
 /**
- * True when the assistant's reply ends by offering to start an autonomous project
- * run. Conservative by construction: it requires explicit project/autonomous-run
- * vocabulary {@link PROJECT_RUN_PROPOSAL_INTENT_PATTERN} **and** a first-person
- * go-ahead offer, vetoes negation/deferral, and — when the reply closes with a
- * question — only matches if that question is itself an offer (so requirement-
- * gathering questions never trigger an auto-run).
+ * The sentence the offer is made in — the trailing question if there is one,
+ * otherwise the last sentence of the reply.
+ *
+ * Exists so the deferral/negation veto can be scoped to it. The veto used to run
+ * over the last 400 characters, which meant an ordinary "I don't need anything
+ * else from you." two sentences above a genuine offer deleted the decision card,
+ * leaving the offer on screen with no control behind it. Those words appear in
+ * ordinary prose constantly; the *offer* is where a refusal actually lives.
+ */
+function extractOfferSentence(trimmed: string): string {
+  const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
+  if (trailingQuestion) {
+    return trailingQuestion;
+  }
+  const sentences = trimmed.split(/(?<=[.!?])\s+/);
+  return sentences[sentences.length - 1]?.trim() ?? trimmed;
+}
+
+/**
+ * True when the assistant's reply ends by offering to do work the operator can
+ * accept — the single test the decision card, the quick-reply pills and the
+ * acceptance of "yes"/"continue" are all now derived from.
+ *
+ * **It used to require the literal words "project run".** Three detectors decided
+ * independently whether a turn was waiting: this one drew the card,
+ * `detectResponseQuickReplies` drew the pills, and `isAutonomousContinuationPrompt`
+ * *accepted the answer* — unconditionally. The acceptor was strictly the widest,
+ * so a reply closing "I can implement this across the four files. Shall I go
+ * ahead?" got no card, no notice and no mention of a run, while "yes" started a
+ * planned multi-subtask one. That gap is the whole "it stops and never tells me"
+ * symptom, and closing it means widening the announcement rather than narrowing
+ * what the operator may type.
+ *
+ * So an explicit run offer still matches, and now so does any first-person offer
+ * to act. An offer to *talk* ("Shall I explain the routing?") does not: saying
+ * yes to that is a conversation, not a run.
  */
 export function detectProjectRunProposal(responseText: string): boolean {
   const trimmed = responseText.trim();
@@ -5311,24 +5977,35 @@ export function detectProjectRunProposal(responseText: string): boolean {
   // The offer/readiness line lives at the tail of the reply; bound the scan so an
   // unrelated mid-reply mention of "project run" can't trip detection.
   const window = trimmed.slice(-400);
-  if (!PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
-    return false;
-  }
-  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(window)) {
+  const offerSentence = extractOfferSentence(trimmed);
+
+  // Scoped to the offer, not the window: see extractOfferSentence.
+  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(offerSentence)
+    || ASSISTANT_DEFERRAL_PATTERN.test(offerSentence)) {
     return false;
   }
 
-  // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
-  // not an information-seeking one ("What stack are you using?"). An info question
-  // means the model is still gathering requirements — don't auto-start.
   const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
-  if (trailingQuestion) {
-    return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
-      || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+
+  if (PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
+    // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
+    // not an information-seeking one ("What stack are you using?"). An info question
+    // means the model is still gathering requirements — don't auto-start.
+    if (trailingQuestion) {
+      return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
+        || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+    }
+    // No closing question: accept a first-person readiness statement that offers to run.
+    return PROJECT_RUN_OFFER_PATTERN.test(window);
   }
 
-  // No closing question: accept a first-person readiness statement that offers to run.
-  return PROJECT_RUN_OFFER_PATTERN.test(window);
+  // No run vocabulary, but a first-person offer to act is still a pending
+  // decision — because saying yes to it starts a run.
+  if (!trailingQuestion || !ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)) {
+    return false;
+  }
+  const action = trailingQuestion.replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '').replace(/\?+\s*$/, '').trim();
+  return action.length >= 3 && !NON_EXECUTING_OFFER_ACTION.test(action);
 }
 
 /**
@@ -5363,6 +6040,25 @@ export function buildProjectRunAutoFlowNotice(goal: string, autopilot: boolean):
  * Returns undefined (no auto-flow) when disabled, when no run was proposed, or when no
  * actionable goal resolves.
  */
+/**
+ * The narrow test: the reply offered a **project run** in so many words.
+ *
+ * {@link detectProjectRunProposal} was widened so that any first-person offer to
+ * act announces itself as a pending decision — that is what stops a turn ending
+ * in silence. Auto-flow keeps the narrow test, because the two questions are
+ * different: *should the operator be told a decision is waiting* (yes, always)
+ * is not *may this start on its own* (only when the reply said a run is what
+ * starts). Without the split, widening the announcement would also mean an
+ * ordinary "Want me to start?" escalating into an unattended multi-subtask run
+ * under Autopilot, which is an escalation nobody asked for.
+ */
+function offersExplicitProjectRun(responseText: string): boolean {
+  const trimmed = responseText.trim();
+  return trimmed.length > 0
+    && PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(trimmed.slice(-400))
+    && detectProjectRunProposal(trimmed);
+}
+
 export function resolveProjectRunAutoFlow(
   responseText: string,
   transcript: SessionTranscriptEntry[],
@@ -5372,6 +6068,9 @@ export function resolveProjectRunAutoFlow(
   // The legacy setting still controls whether Autopilot may flow straight
   // through; it no longer bypasses the operator when approvals are interactive.
   if (!options.enabled || !options.autopilot) {
+    return undefined;
+  }
+  if (!offersExplicitProjectRun(responseText)) {
     return undefined;
   }
   const proposal = resolveProjectRunProposal(responseText, transcript);

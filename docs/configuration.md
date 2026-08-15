@@ -532,3 +532,21 @@ Both of these have been read by real code for months and were absent from the ma
 | `atlasmind.research.scans` | object | `{}` | Per-scan overrides keyed by scan id (`competition`, `customer`, `technology`, `feature`, `market`, `funding`, `regulatory`), each accepting `enabled`, `cadenceDays` and `automationLevel`. A scan is off until switched on here. Unknown ids are ignored. |
 | `atlasmind.research.searchSource` | string | `auto` | Where scans look: `auto`, `exa`, `mcp`, `web-fetch`, or `none`. With no usable source AtlasMind records that it could not look — it never falls back to what a model already believed. `web-fetch` can read a page you name but cannot find one, so discovery-shaped scans report the half they could not assess. |
 | `atlasmind.research.monthlySpendCapUsd` | number | `0` | The most automatic runs may spend per month. `0` means nothing may run on its own whatever its automation level — switching research on and letting it run unattended are deliberately two decisions. Scans you start yourself are not capped here. |
+
+## Approval modes are not a single ladder
+
+`atlasmind.toolApprovalMode` has four values, and the last two are orthogonal axes rather than a stricter
+and a looser setting. Read each as *what it lets through without asking*:
+
+- `always-ask` — nothing.
+- `ask-on-write` — reads: local, git, and `network-read` (a remote call that changes nothing).
+- `ask-on-external` — everything local, **including `workspace-write`, `git-write` and
+  `rollback-checkpoint`**. Prompts for `terminal-*`, `network`, `network-read` and audio.
+- `allow-safe-readonly` — `read`, `git-read` and `terminal-read`. Writes and external calls prompt.
+
+`ask-on-external` asks *did this leave the machine?*; `allow-safe-readonly` asks *did this change
+something?* Neither gates a superset of the other. The manifest enum order drives the settings dropdown,
+so the four render as a descending ladder — which is why the enum descriptions must keep stating what each
+mode permits rather than only what it adds, and why moving from `ask-on-write` to `ask-on-external`
+silently drops the write gate.
+

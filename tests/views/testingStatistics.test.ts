@@ -209,3 +209,53 @@ describe('the Pull Requests page explains an incomplete read', () => {
     expect(HOST).toMatch(/Left as-is rather than emptied/);
   });
 });
+
+describe('the dashboard refresh button', () => {
+  /**
+   * A `<kbd>Ctrl⇧R</kbd>` chip beside a one-word label was most of the
+   * control's width, for something a user reads once. It was also the first
+   * thing to break when the panel narrowed — the screenshot that prompted this
+   * showed "Refresh" running one letter per line with the chip doing the same
+   * underneath it.
+   */
+  it('does not print the shortcut on the button', () => {
+    expect(HOST).not.toContain('dashboard-refresh-shortcut');
+    expect(WEBVIEW).not.toContain('dashboard-refresh-shortcut');
+  });
+
+  it('still announces the shortcut to assistive technology and on hover', () => {
+    // Removing the chip must not remove the affordance: the key still works,
+    // and both `aria-keyshortcuts` and the tooltip still say so.
+    expect(HOST).toContain('aria-keyshortcuts="Control+Shift+R Meta+Shift+R"');
+    expect(WEBVIEW).toMatch(/refreshButton\.title = /);
+  });
+
+  it('still binds the key', () => {
+    expect(WEBVIEW).toMatch(/event\.key\.toLowerCase\(\) === 'r'/);
+  });
+});
+
+describe('a narrow panel moves controls rather than breaking their labels', () => {
+  it('never breaks a button label mid-word', () => {
+    // A button label is a name, not prose. If there is no room the button
+    // should move, which the wrapping topbar allows.
+    expect(HOST).toMatch(/\.dashboard-button \{[^}]*white-space: nowrap;/);
+  });
+
+  it('lets the topbar wrap instead of crushing the action group', () => {
+    expect(HOST).toMatch(/\.dashboard-topbar \{[^}]*flex-wrap: wrap;/);
+  });
+
+  it('stops the action group shrinking below its own content', () => {
+    // The direct cause of the one-letter-per-line label: a flex item allowed
+    // to shrink past its content leaves the browser nothing to do but break
+    // the text.
+    expect(HOST).toMatch(/\.dashboard-actions \{[^}]*flex: 0 0 auto;/);
+  });
+
+  it('lets the heading column take the slack', () => {
+    // `min-width: 0` on the text side is what makes the buttons the *last*
+    // thing to give rather than the first.
+    expect(HOST).toMatch(/\.dashboard-topbar > :first-child \{[^}]*min-width: 0;/);
+  });
+});

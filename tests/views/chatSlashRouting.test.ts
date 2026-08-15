@@ -87,12 +87,26 @@ describe('routePanelPrompt — a path is not a command', () => {
       '//',
       '/ acp',
       'what does /acp do?',
-      '/Acp',
       '/acp2',
     ]) {
       expect(routePanelPrompt(prompt).kind, prompt).toBe('prose');
       expect(routeBypassesFreeformModel(routePanelPrompt(prompt)), prompt).toBe(false);
     }
+  });
+
+  it('reads a capitalised or punctuated command as the command it obviously is', () => {
+    // `/Acp` was in the list above, as prose. It is not a path — it is what a
+    // touch keyboard's autocapitalisation produces, and what several editors do
+    // after a newline. It reached a model instead, and `/cost` doing that means
+    // the operator pays for a model call answering a question about billing.
+    // `/runs?` is how somebody asks what a command does.
+    for (const prompt of ['/Acp', '/ACP', '/runs?', '/cost.', '/ship!']) {
+      expect(routePanelPrompt(prompt).kind, prompt).not.toBe('prose');
+      expect(routeBypassesFreeformModel(routePanelPrompt(prompt)), prompt).toBe(true);
+    }
+    // The path guard is what makes this safe, and it is unchanged.
+    expect(routePanelPrompt('/README.md').kind).toBe('prose');
+    expect(routePanelPrompt('/Users/joel/project/README.md').kind).toBe('prose');
   });
 
   it('treats a command name with a trailing slash as a path', () => {

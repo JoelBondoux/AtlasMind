@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -2033,7 +2033,18 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('I hit a tool-execution problem');
     expect(result.response).toContain('timer_start: Project "test" does not exist. Re-run with confirm_new_project=true to create it.');
     expect(result.response).not.toContain('The requested tool action did not complete successfully.');
-    expect(result.response).not.toContain('started successfully');
+
+    // The false narration is now shown *with* the authoritative failure under it,
+    // rather than deleted. This assertion was `not.toContain('started
+    // successfully')`, which pinned replacement — and replacement was the defect:
+    // the failure test decides on a substring of raw tool output, so reading an
+    // ordinary source file counted as a failed call and discarded a correct
+    // answer. Keeping both makes the contradiction visible instead of hiding one
+    // side of it, which is exactly what `appendVerificationCaveat` already does
+    // a few lines earlier in the same loop for the same shape of problem.
+    expect(result.response).toContain('started successfully');
+    expect(result.response.indexOf('started successfully'))
+      .toBeLessThan(result.response.indexOf('I hit a tool-execution problem'));
   });
 
   it('keeps natural-language MCP cues in the selected schema instead of duplicating them in the prompt', async () => {
@@ -2103,7 +2114,11 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Likely tool matches for this request');
     expect(recordedRequests[0]?.messages[0]?.content).not.toContain('Skills:\n');
     expect(recordedRequests[0]?.tools?.[0]?.description).toContain('Natural language cues:');
-    expect(recordedRequests[0]?.tools).toHaveLength(1);
+    // One *skill* schema. The turn also carries `find-tool`, because selection
+    // withheld schemas from the eligible pool and the model needs a way to ask
+    // for one it was not given. What this test pins is that the cues live in the
+    // schema rather than being restated in the prompt, which is unaffected.
+    expect(recordedRequests[0]?.tools?.filter(tool => tool.name !== 'find-tool')).toHaveLength(1);
   });
 
   it('stores successful MCP intent mappings in SSOT memory for future turns', async () => {
@@ -5332,7 +5347,11 @@ describe('classifyToolFailure', () => {
   });
 
   it('clamps the dynamic capture, because it reaches a log line', () => {
-    const classified = classifyToolFailure(`requires ${'x'.repeat(500)} true`);
+    // Kept under the heuristic's length bound on purpose. The capture still needs
+    // clamping — 200 characters is far more than a log line should carry — but a
+    // 500-character *result* is a payload, and payloads are no longer judged by
+    // the words inside them at all.
+    const classified = classifyToolFailure(`requires ${'x'.repeat(200)} true`);
     expect(classified).toBeDefined();
     expect(classified!.length).toBeLessThan(80);
   });
@@ -5353,6 +5372,54 @@ describe('classifyToolFailure', () => {
     for (const { result } of TRIGGERS) {
       expect(classifyToolFailure(result), result).toBeDefined();
     }
+  });
+
+  // The undeclared-failure heuristic is bounded by length, because `file-read`
+  // returns file contents and this repository's own sources trip every keyword
+  // in the list. Two of three ordinary files did, `package.json` among them.
+  describe('does not judge a payload by the words inside it', () => {
+    const longBodyContaining = (word: string): string =>
+      `${'const value = 1; // ordinary source line\n'.repeat(40)}\nconst message = '${word}';\n`;
+
+    it.each(['failed', 'cannot', 'not found', 'unable to'])(
+      'reads a long result containing "%s" as ordinary output',
+      word => {
+        const body = longBodyContaining(word);
+        expect(body.length).toBeGreaterThan(400);
+        expect(classifyToolFailure(body)).toBeUndefined();
+      },
+    );
+
+    it('still classifies a short undeclared failure', () => {
+      // The bound removes payloads, not messages: a genuine failure a tool did
+      // not prefix is one sentence and must keep being caught.
+      expect(classifyToolFailure('The requested path was not found on disk')).toBeDefined();
+    });
+
+    it('still classifies a long result that DECLARES its own failure', () => {
+      // A declared prefix is start-anchored and a statement by the tool about
+      // itself, so length is irrelevant to it — a long stack trace under
+      // "Error:" is still a failure.
+      const declared = `Error: the build failed\n${'    at frame\n'.repeat(200)}`;
+      expect(declared.length).toBeGreaterThan(400);
+      expect(classifyToolFailure(declared)).toBe('declared (error:)');
+    });
+  });
+});
+
+describe('classifySubTaskFailure finds an appended tool-failure summary', () => {
+  // The summary is appended below the model's answer rather than replacing it,
+  // so a subtask that ended on a real tool failure no longer *begins* with the
+  // prefix. Anchoring on the start here would trade a discarded answer for a
+  // missed failure.
+  it('classifies a failure summary that follows a real answer', () => {
+    const response = `The router picks the cheapest model above the capability floor.\n\n---\n\n${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- file-read: Error: no such file`;
+    expect(classifySubTaskFailure(response)).toBe('Subtask ended on a tool-execution failure without recovering.');
+  });
+
+  it('still classifies the summary when it is the whole response', () => {
+    expect(classifySubTaskFailure(`${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- terminal-run: Error: blocked`))
+      .toBe('Subtask ended on a tool-execution failure without recovering.');
   });
 });
 
@@ -5553,5 +5620,160 @@ describe('GitHub work selects the tools that can reach GitHub', () => {
 
   it('still selects local git tools for local git work', () => {
     expect(skillsFor('what changed since the last commit?').map(s => s.id)).toContain('git-diff');
+  });
+});
+
+describe('a third-party diagnostic says whose it is', () => {
+  // "Model diagnostic: Exceeded skills context budget" read as AtlasMind
+  // reporting its own problem. It is not: the line is emitted by the agent
+  // runtime and stripped out here, and the skills it refers to are the agent's
+  // own — AtlasMind sends an ACP agent no tool schemas at all, and caps its own
+  // at 24 for every other provider. Somebody reading it had no way to tell which
+  // of the two to go and fix.
+  const WARNING = 'Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 182 additional skills were not included in the model-visible skills list.';
+
+  it('names the model that emitted it', () => {
+    const { diagnostics } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`, 'acp/codex@gpt-5.3-codex-spark');
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatch(/^acp\/codex@gpt-5\.3-codex-spark reported: /);
+    expect(diagnostics[0]).toContain('182 additional skills');
+  });
+
+  it('keeps the old wording when the source is unknown', () => {
+    const { diagnostics } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`);
+    expect(diagnostics[0]).toMatch(/^Model diagnostic: /);
+  });
+
+  it('still keeps the diagnostic out of the answer prose', () => {
+    const { content } = sanitizeAssistantResponse(`Here is the answer.\n${WARNING}`, 'acp/codex');
+    expect(content.trim()).toBe('Here is the answer.');
+  });
+});
+
+describe('a reply that reports having answered is not an answer', () => {
+  // Observed verbatim. Three tool calls ran, a file was read, and the operator
+  // was told the analysis was finished without ever being given it.
+  it('catches a past-tense completion claim with nothing delivered', () => {
+    expect(looksLikeAnswerlessCompletionClaim(
+      "The user's request to \"tell me about tests\" referencing rendered-html.test.mjs has already been "
+      + 'fully addressed with direct workspace evidence from the file read operation. No code changes or '
+      + 'additional tool calls are needed as the analysis is complete.',
+    )).toBe(true);
+  });
+
+  it.each([
+    // Delivered something, whatever it says about itself.
+    'The request has already been addressed. Here is the code:\n\n```ts\nconst x = 1;\n```',
+    // A list is a delivery.
+    'The question is answered by these three files:\n- a.ts\n- b.ts\n- c.ts',
+    // About the subject, not about the exchange.
+    'The test renders the page and asserts the cache header is MISS on the first request and HIT on the second.',
+    // Long enough to have said something.
+    `The analysis is complete. ${'It checks the rendered HTML against a stored fixture. '.repeat(12)}`,
+  ])('leaves a real answer alone: %j', response => {
+    expect(looksLikeAnswerlessCompletionClaim(response)).toBe(false);
+  });
+
+  it('is not the same test as looksLikePreambleOnly', () => {
+    // The two fail at opposite ends of a turn: one announces work it never does,
+    // the other reports work it never shows.
+    const preamble = "Let me inspect the test file and check what it asserts.";
+    expect(looksLikePreambleOnly(preamble)).toBe(true);
+    expect(looksLikeAnswerlessCompletionClaim(preamble)).toBe(false);
+  });
+
+  it('says nothing about an empty response', () => {
+    // Emptiness is handled elsewhere; claiming it here would double-report.
+    expect(looksLikeAnswerlessCompletionClaim('')).toBe(false);
+  });
+});
+
+describe('a rate limit belongs to the account, not the model', () => {
+  // Observed: magistral-small (10s), mistral-large-2512 (60s),
+  // mistral-large-latest (9s) — three refusals and 79 seconds to learn nothing,
+  // on a turn that then had one attempt left. Asking a sibling model asks the
+  // same account the same question.
+  it.each([
+    { status: 429, message: 'Rate limit exceeded' },
+    { statusCode: 429, message: 'too many requests' },
+    { message: 'Mistral stream request failed (429): {"type":"rate_limited"}' },
+    { message: 'Rate-limited by the provider' },
+  ])('recognises %j', error => {
+    expect(isProviderRateLimited(error)).toBe(true);
+  });
+
+  it.each([
+    { status: 500, message: 'internal error' },
+    { status: 401, message: 'unauthorized' },
+    { message: 'the file contains the number 4291' },
+    null,
+    'a bare string',
+  ])('leaves %j alone', error => {
+    expect(isProviderRateLimited(error)).toBe(false);
+  });
+});
+
+describe('an announcement without the act is caught whichever act it was', () => {
+  it('catches a promise to change something, not only to look at something', () => {
+    // The verb list was inspection-only, and announcing a *change* is what an
+    // agent does most often before making one. Observed at ~450 characters,
+    // after eight tool calls of which five were edits.
+    expect(looksLikePreambleOnly(
+      'I apologize for the continued difficulty. The `file-edit` tool requires both a `search` and a '
+      + '`replace` parameter. I will now provide both to add the new test case. I will add the new test '
+      + 'case to the end of the `tests/rendered-html.test.mjs` file. This test will verify that the '
+      + 'default star is correctly displayed when the page first loads.',
+    )).toBe(true);
+  });
+
+  it('still catches the original inspection shape', () => {
+    expect(looksLikePreambleOnly("Let me inspect the test file and check what it asserts.")).toBe(true);
+  });
+
+  it.each([
+    // Delivered code.
+    "I'll add the test case:\n\n```ts\ntest('renders', () => {});\n```",
+    // Delivered a list.
+    "I'll update three files:\n- a.ts\n- b.ts\n- c.ts",
+    // Past tense: it happened.
+    'I added the test case to the end of the file and it passes.',
+    // No announcement at all.
+    'The cache is per-isolate and does not survive a cold start.',
+  ])('leaves a real delivery alone: %j', response => {
+    expect(looksLikePreambleOnly(response)).toBe(false);
+  });
+});
+
+describe('a model thinking aloud is not an answer', () => {
+  // Observed verbatim on a Copilot turn. Distinct from a preamble, which is one
+  // clean sentence about what is coming next; this is deliberation in fragments,
+  // and it is the only one of these shapes that leaks internals — it told the
+  // operator which tool names the model was guessing at.
+  it('catches deliberation printed as prose', () => {
+    expect(looksLikeLeakedReasoning(
+      "I'm checking the repository layout, existing tests, and package configuration before making the "
+      + "change. Let's inspect the workspace files directly. Need maybe use list_dir etc. We'll use "
+      + "terminal? Probably easier. Let's run pwd && ls. Need maybe use search tools? There's no explicit "
+      + 'tool definitions but from previous tasks maybe can use read_file? Since tool list unknown, maybe '
+      + 'use terminal commands.',
+    )).toBe(true);
+  });
+
+  it('requires two markers, never one', () => {
+    // "Maybe" and "probably" appear in perfectly good answers about uncertain
+    // things. A paragraph hedging twice about its own *method* is not one.
+    expect(looksLikeLeakedReasoning(
+      'The cache is per-isolate, so it maybe explains why the hit rate differs between regions.',
+    )).toBe(false);
+  });
+
+  it.each([
+    // Delivered an artifact.
+    "We'll use terminal. Let's run this:\n\n```bash\nnpm test\n```",
+    // An ordinary answer.
+    'Playwright is maintained by Microsoft and supports Chromium, Firefox and WebKit.',
+    '',
+  ])('leaves %j alone', response => {
+    expect(looksLikeLeakedReasoning(response)).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.310.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.327.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,91 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.310.0
+## What's new in 0.327.0
 
-The last Marketplace publication, **v0.308.0**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Chat no longer writes to tracked files on its own.** Two things used to happen silently and outlast the
+  conversation: `/buzz local` wrote a workspace setting, and signalling frustration wrote a note quoting
+  your own words into project memory. Both now ask first, and the note is shown to you in full when it is
+  saved.
+
+- **A failed turn no longer deletes your question.** A provider failing mid-turn used to remove the whole
+  exchange from your history — your own message included — leaving a generic error banner. The failure is
+  now recorded in the transcript with whatever had already streamed. **Stop** also genuinely stops the
+  model call now, instead of being noticed once it had finished.
+
+- **The two chat surfaces really do behave the same now.** VS Code's `@atlas` view answered ordinary
+  messages by a separate internal route that had quietly lost conversation recall, roadmap status, image
+  attachment, and the model-and-cost footer — all of which the AtlasMind chat panel had. Both surfaces
+  now enter through one dispatcher.
+
+- **Ask what you said, get what you said.** "What was my question two turns ago?" was answered by a model
+  guessing — and it returned a question you never asked. It now comes from the transcript, quoted exactly.
+
+- **A busy GPU no longer ends the turn.** A local runtime refusing for capacity was counted as a failed
+  model, burning the failover budget on refusals from the same card. It is not a failure, and the rest of
+  that runtime's models are now skipped for the turn.
+
+- **The assistant can ask for a tool it wasn't given.** Only a couple of dozen tools fit in a turn, so
+  AtlasMind guesses which ones your request needs — and when the guess was wrong the assistant quietly
+  worked around the gap. It can now ask for what it needs, limited to what your agent may already use and
+  still subject to every approval.
+
+- **Turning a subscription agent off actually turns it off.** The Models tree could say "model disabled"
+  while every turn still routed to it, surviving a reload — the switch touched the agent's base entry
+  while routing used one of its model-and-effort variants. Switching it off now stops every variant.
+
+- **"If you want, I can…" is now something you can click.** Buttons only appeared when a reply ended in a
+  question mark, and against a real model that turned out to be almost never — four turns in a row closed
+  with offers phrased as statements, leaving nothing to click. Advice that opens the same way still
+  doesn't, because it is telling you what to do rather than offering to do it.
+
+- **Chat can change a setting you ask it to change** — behind a dialog naming the setting and both values,
+  only for settings AtlasMind declares, written where a reviewer will see it. It also notices when a
+  setting is wrong for the work in front of it and suggests the value, rather than changing anything.
+
+- **Chat knows what AtlasMind is, and can take you there.** Ask where a setting lives and you used to get
+  prose you then had to go and find — and it was recall, not a lookup, because nothing had ever told the
+  model what pages AtlasMind has. It can now open the page and scroll to the card that answers your
+  question, and it says when it is unsure of a name rather than telling you the setting does not exist.
+
+- **The footer says what the turn cost**, reading through an MCP server no longer prompts as loudly as
+  deleting a file, `/Cost` and `/runs?` are commands rather than questions for a model, the closing
+  question is asked once instead of twice, and "use Playwright instead" keeps its context.
+
+- **A full stop inside a filename no longer deletes the question.** "Want me to update README.md?"
+  reached you as nothing at all — no buttons, no follow-up prompt. The extractor could not read past a
+  full stop, saw `md?`, and judged it too short to be a question; every offer naming a file, a path or a
+  version went the same way. Turns ending in two questions now surface both, and a long option is
+  shortened onto its button rather than the buttons disappearing.
+
+- **A turn that is waiting on you now says so.** Chat could stop before a project run and tell you
+  nothing, and typing "continue" would then start one. Any offer to do work now shows a decision card —
+  it no longer has to say the words "project run" — and the card no longer deletes the question it is
+  about. Runs also state their goal before doing anything.
+
+- **A project run is planned against the work, not the word you agreed with.** Saying "yes" to an offer that ended "Shall I go ahead?" started a run whose goal was literally `go ahead` — plan, file estimate and cost all derived from that fragment, which is why such runs read as coming from nowhere. And if AtlasMind said it was waiting on you, "continue" no longer overrides that.
+
+- **Reacting to how you sound no longer changes your settings.** If AtlasMind decided you were
+  frustrated, it quietly raised two chat settings in your workspace — into `.vscode/settings.json`, which
+  most projects commit — and said nothing about it. It also mistook ordinary polite requests for
+  frustration, so this happened on turns where nothing had gone wrong. That path is gone, earlier values
+  are restored, and it is now much better at noticing when you genuinely are unhappy.
+
+- **A good answer is no longer thrown away because a tool read a file.** When a step's tool results all
+  looked like failures, AtlasMind replaced the assistant's answer with a failure dump and marked the turn
+  an error — and "looked like a failure" was any output containing words like *failed* or *cannot*, which
+  file contents routinely do. The answer is kept now, with the failure reported underneath it, and the
+  error mark is reserved for a turn that produced nothing. That mark also fed model and agent scoring, so
+  the mistake used to outlive the conversation it happened in.
+
+- **The chat window now has a stress battery held to a higher bar than the code.** 57 probes across ten
+  lanes ask whether chat does right by the person reading it — does a question it asks reach you as
+  something you can answer, does the answer arrive whole, does a turn that stops waiting say so, can it
+  reach the product it is part of. It lives in `evals/` and runs from its own config, because its failures
+  are findings about the shipped surface rather than regressions.
 
 - **Your governance regimes are now checked against your stack.** ISO 27001, SOC 2, NIST 800-53 and AI
   safety are mostly human judgement — but "a backup is taken before a production promotion", "no endpoint
@@ -779,7 +860,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | | |
 |---|---|
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
-| **43 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
+| **45 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |
