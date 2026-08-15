@@ -226,6 +226,31 @@ lives.
 
 ## Results
 
+### Run 5 — 2026-08-15, chat panel, probe 6.2 (BOUNDARY)
+
+| # | Score | Note |
+|---|---:|---|
+| 6.2 project approval | **1** | The approval control itself works — the v0.294.0 inversion stays fixed. But the run was started against a folder containing no files, and nothing anywhere said so. |
+
+The lane was written to test the approval gate, and the gate passed. What it caught instead is what the
+gate does **not** cover: a run had no precondition on the workspace at all.
+
+`Planner.plan` reads the goal string, SSOT memory and the enabled skill catalogue — it never reads the
+workspace, and its system prompt says nothing about inspecting the repository. So on an empty folder it
+invents subtasks from the wording, and `fallbackPlan` arms a single subtask with `file-read`, `file-write`,
+`file-edit`, `file-search` and `terminal-run` against nothing. The evidence was already in hand and unread:
+`createWorkspaceSnapshot()` is called immediately before planning and returns an empty Map, and no caller
+looked at `.size`. There was no workspace-folder check on the path either — every other AtlasMind surface
+has one (`src/commands.ts` says *"Open a folder first to …"*), the project run never got the equivalent.
+
+**Fixed in v0.343.0**, splitting two situations that looked identical and need opposite answers. **No folder
+open** refuses before planning, because planning costs a model call and no plan it produced could be used.
+**An open folder with no files** is *not* refused — that is how every new project starts — but it is
+ambiguous, and the commoner cause is the wrong folder being open, so the plan is shown and the run asks,
+naming both. The reason joins the file-threshold gate in one approval rather than arriving as a second one.
+
+**Re-run 6.2 on a populated repository** to score the half the lane was actually written for.
+
 ### Run 4 — 2026-08-15, chat panel, probe 6.1 only (BOUNDARY)
 
 **1/1 scored, and the score does not mean what it looks like.** A file named `test`, containing an

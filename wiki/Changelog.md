@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.343.0 — A project run checks it has somewhere to run
+
+Pointing `/project` at an empty folder used to produce a full plan and a full run. The planner never looks
+at your workspace — it works from your goal, your memory and the available skills — so it invented the work
+from the wording, and then the run went looking for files that were not there.
+
+With no folder open at all, it now stops before planning and says so. With a folder open but empty, it shows
+you the plan and asks first, because that is genuinely ambiguous: it is how a new project starts, and it is
+also what the wrong folder looks like. The question names both.
+
 ## v0.342.0 — File paths in a reply are links you can click
 
 A reply that named four test files drew all four with a line through them, which reads as *these files were

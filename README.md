@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.342.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.343.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.342.0
+## What's new in 0.343.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A project run checks it has somewhere to run.** With no folder open it stops and says so. With an
+  empty folder it shows you the plan and asks first, naming both things that could mean — a new project
+  starting here, or the wrong folder being open. Previously it planned against nothing and ran anyway.
 
 - **Click a file path in a reply to open it.** Paths are recognised however the model writes them, and a
   `:12` or `#L12` anchor takes you to the line. A path outside the workspace is refused and says so.

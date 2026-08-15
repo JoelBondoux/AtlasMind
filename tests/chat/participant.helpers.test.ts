@@ -57,6 +57,7 @@ import {
   buildProjectRunAutoFlowNotice,
   resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
+  assessProjectWorkspace,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
@@ -1982,5 +1983,21 @@ describe('model attempt reporting', () => {
     ], 'mistral/small');
 
     expect((meta.thoughtSummary?.bullets ?? []).join('\n')).toContain('copilot/flash (error)');
+  });
+});
+
+describe('whether a project run has anywhere to run', () => {
+  it('separates no folder open from an open folder with nothing in it', () => {
+    // Collapsing these would force one answer onto two different situations:
+    // one has nowhere to write at all, the other is how every new project
+    // starts.
+    expect(assessProjectWorkspace(0, 0)).toEqual({ kind: 'no-folder' });
+    expect(assessProjectWorkspace(0, 12)).toEqual({ kind: 'no-folder' });
+    expect(assessProjectWorkspace(1, 0)).toEqual({ kind: 'empty' });
+  });
+
+  it('reports a populated workspace with its file count', () => {
+    expect(assessProjectWorkspace(1, 12)).toEqual({ kind: 'populated', fileCount: 12 });
+    expect(assessProjectWorkspace(2, 1)).toEqual({ kind: 'populated', fileCount: 1 });
   });
 });

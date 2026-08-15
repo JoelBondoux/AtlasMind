@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.343.0] - 2026-08-15
+
+### Fixed
+
+- **A project run no longer plans against a folder with nothing in it.** The planner reads the goal, your
+  memory and the skill catalogue — it never looks at the workspace. So on an empty folder it invented
+  subtasks from the wording alone, and the executor then searched, read and edited files that did not
+  exist. Nothing on the path noticed, although the answer was already there: the workspace snapshot taken
+  immediately before planning came back empty and nobody read its size.
+
+  Two situations that were previously the same are now separated, because they need opposite responses.
+  **No folder open** is refused outright, before planning, since there is nowhere to write and no plan
+  that could be used. **An open folder with no files in it** is not refused — starting a project in an
+  empty directory is how every new project begins — but it is ambiguous, and the far commoner cause is
+  the wrong folder being open. So the plan is shown and the run asks first, naming both possibilities.
+
+  The empty-folder reason joins the existing large-change threshold in a single approval, rather than
+  arriving as a second gate: a run is approved once, and an operator who cleared one gate only to meet
+  another would reasonably read the second as the first having failed.
+
 ## [0.342.0] - 2026-08-15
 
 ### Fixed

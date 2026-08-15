@@ -43,6 +43,15 @@ nobody has seen a plan or a file estimate yet. If the estimate exceeds
 `atlasmind.project.approvalFileThreshold`, AtlasMind shows the plan and stops with an **Approve and run**
 control carrying that exact run. Clicking it is the approval.
 
+**A run checks it has somewhere to run.** The planner never looks at your workspace — it works from the
+goal, your memory and the available skills — so an empty folder produced a full plan invented from the
+wording, and a run that then searched for files that were not there. From v0.343.0 the two situations that
+look alike are separated. **No folder open** stops before planning: there is nowhere to write, so no plan
+could be used. **An open folder with no files** is not refused, because that is how a new project starts —
+but it is also what the wrong folder looks like, so the plan is shown and the run asks first, naming both
+possibilities. That reason joins the file-count threshold in one approval rather than arriving as a second
+gate.
+
 Before v0.294.0 this was inverted: saying "Proceed" arrived unapproved and stopped, while a typed request
 matching the project pattern was approved for you and went straight past the threshold — and the stop had
 no control on it at all, only an instruction to retype the goal with a `--approve` token, so the obvious

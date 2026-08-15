@@ -1098,6 +1098,19 @@ export async function runProjectCommand(
   );
   const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
+  const workspaceReadiness = assessProjectWorkspace(
+    vscode.workspace.workspaceFolders?.length ?? 0,
+    baselineSnapshot.size,
+  );
+  if (workspaceReadiness.kind === 'no-folder') {
+    // Refused before planning, because planning costs a model call and there is
+    // no answer it could produce that would be usable.
+    stream.markdown(
+      'There is no folder open, so there is nowhere for this project to run.\n\n'
+      + 'Open the folder you want Atlas to work in, then ask again.',
+    );
+    return noOpOutcome;
+  }
   let lastImpactSnapshot = baselineSnapshot;
   let impactReporting = Promise.resolve();
   const fileAttribution = new Map<string, Set<string>>();
@@ -1136,13 +1149,31 @@ export async function runProjectCommand(
       .join('\n'),
   );
 
-  if (estimatedFiles > projectUiConfig.approvalFileThreshold && !approved) {
+  // Two independent reasons to stop, stated together rather than as two gates in
+  // sequence: a run is approved once, and an operator who cleared one gate and
+  // immediately met another would reasonably read the second as the first having
+  // failed.
+  const approvalReasons: string[] = [];
+  if (workspaceReadiness.kind === 'empty') {
+    approvalReasons.push(
+      'This folder is **empty** — there are no files for Atlas to read, so the plan above was built '
+      + 'from your goal alone. If you meant to start a new project here, that is fine and the run will '
+      + 'create the files. If you meant to work on an existing codebase, the wrong folder is open.',
+    );
+  }
+  if (estimatedFiles > projectUiConfig.approvalFileThreshold) {
+    approvalReasons.push(
+      `This project is estimated to modify **~${estimatedFiles} files**, which exceeds the safety `
+      + `threshold of ${projectUiConfig.approvalFileThreshold}. This gate exists to prevent unreviewed `
+      + `large-scale changes — you can adjust it in AtlasMind Settings → Advanced → Approval Threshold.`,
+    );
+  }
+
+  if (approvalReasons.length > 0 && !approved) {
     stream.markdown(
-      `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify **~${estimatedFiles} files**, ` +
-      `which exceeds the safety threshold of ${projectUiConfig.approvalFileThreshold}. ` +
-      `This gate exists to prevent unreviewed large-scale changes — you can adjust it in ` +
-      `AtlasMind Settings → Advanced → Approval Threshold.\n\n` +
-      `The plan above is what will run. Approve it below, or refine the goal and ask again.`,
+      '\n\n⚠️ **Approval required**\n\n'
+      + approvalReasons.map(reason => `- ${reason}`).join('\n\n')
+      + '\n\nThe plan above is what will run. Approve it below, or refine the goal and ask again.',
     );
     stream.button({
       command: 'atlasmind.showCostSummary',
@@ -6322,6 +6353,35 @@ export function getProjectUiConfig(
 
 export function estimateTouchedFiles(subTaskCount: number, estimatedFilesPerSubtask: number): number {
   return Math.max(1, subTaskCount * Math.max(1, estimatedFilesPerSubtask));
+}
+
+/**
+ * Whether a project run has anything to run against.
+ *
+ * The planner reads the goal string, memory and the skill catalogue — it never
+ * looks at the workspace. So on an empty folder it invents subtasks from the
+ * wording alone and the executor then searches, reads and edits files that do
+ * not exist. Nothing on the path noticed: the snapshot taken immediately before
+ * planning came back empty and nobody read its size.
+ *
+ * `no-folder` is a refusal because there is nowhere to write. `empty` is *not*,
+ * because starting a project in an empty directory is a real thing people do —
+ * it is ambiguous, which is exactly the case the approval gate exists for, and
+ * the far commoner cause is the wrong folder being open.
+ */
+export type ProjectWorkspaceReadiness =
+  | { kind: 'no-folder' }
+  | { kind: 'empty' }
+  | { kind: 'populated'; fileCount: number };
+
+export function assessProjectWorkspace(
+  workspaceFolderCount: number,
+  fileCount: number,
+): ProjectWorkspaceReadiness {
+  if (workspaceFolderCount < 1) {
+    return { kind: 'no-folder' };
+  }
+  return fileCount < 1 ? { kind: 'empty' } : { kind: 'populated', fileCount };
 }
 
 export async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {
