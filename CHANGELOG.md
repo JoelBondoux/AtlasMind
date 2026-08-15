@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.334.0] - 2026-08-15
+
+### Changed
+
+- **The activity line is a bubble of its own now, and it speaks like the rest of the product.** It was a
+  bare grey line sharing a row with the toolbar icons, saying things like *"Running AtlasMind chat
+  request…"* — the panel describing its own internals, in its own vocabulary, in the place a caption
+  belongs. It read as instrumentation that had escaped into the interface.
+
+  It is a full-width strip below the thread now, in its own colour, with a quiet pulse marking it as live.
+  Deliberately a different shape from a message: user and assistant bubbles are inset and side-aligned,
+  and this spans the whole width, so it can never be mistaken for somebody's turn — it is the panel's own
+  margin note, sitting beside the work it describes.
+
+  **It disappears when nothing is happening.** A strip permanently announcing "Ready." is the same
+  instrumentation in nicer clothes; the states worth a bubble are the ones where something is going on.
+
+  The wording went with it. "Running AtlasMind chat request…" is now "Working on it…" — you know you
+  asked, and you know which product you are in. Likewise *"A chat request is already running. Stop it
+  before starting another one."* became *"Still working on your last message. Stop it first, or use Steer
+  to redirect it."*, which names the control that solves the problem rather than the internal noun for the
+  thing in the way.
+
 ## [0.333.1] - 2026-08-15
 
 ### Fixed

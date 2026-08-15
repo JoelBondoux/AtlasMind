@@ -28,11 +28,18 @@
   let currentStatusText = 'Ready.';
   let currentStatusModel = undefined;
 
+  // Anything that means "nothing is happening". The strip is hidden for these:
+  // a bubble permanently announcing "Ready." is instrumentation, not news.
+  var IDLE_STATUS_PATTERN = /^(ready\.?|idle\.?)$/i;
+
   function setStatusText(text) {
     currentStatusText = typeof text === 'string' ? text : '';
-    status.textContent = currentStatusModel
-      ? currentStatusText + ' · Model: ' + currentStatusModel
-      : currentStatusText;
+    var trimmed = currentStatusText.trim();
+    var idle = trimmed.length === 0 || IDLE_STATUS_PATTERN.test(trimmed);
+    status.textContent = idle
+      ? ''
+      : (currentStatusModel ? currentStatusText + ' · ' + currentStatusModel : currentStatusText);
+    status.classList.toggle('idle', idle);
   }
 
   function setCurrentStatusModel(model) {

@@ -187,3 +187,48 @@ describe('chat webview, rendered', () => {
     expect(list?.classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('activity strip', () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  function strip() {
+    return harness.window.document.getElementById('status');
+  }
+
+  it('stays hidden while nothing is happening', () => {
+    // A bubble permanently announcing "Ready." is the instrumentation this
+    // replaced, not an improvement on it.
+    expect(strip()?.classList.contains('idle')).toBe(true);
+
+    harness.send({ type: 'status', payload: 'Ready.' });
+    expect(strip()?.classList.contains('idle')).toBe(true);
+    expect(strip()?.textContent).toBe('');
+  });
+
+  it('appears with its own text once something is happening', () => {
+    harness.send({ type: 'status', payload: 'Working on it…' });
+
+    expect(strip()?.classList.contains('idle')).toBe(false);
+    expect(strip()?.textContent).toContain('Working on it');
+  });
+
+  it('goes quiet again when the work finishes', () => {
+    harness.send({ type: 'status', payload: 'Working on it…' });
+    harness.send({ type: 'status', payload: 'Ready.' });
+
+    expect(strip()?.classList.contains('idle')).toBe(true);
+  });
+
+  it('sits between the thread and the composer, spanning the panel', () => {
+    // Full width and its own colour is what stops it reading as somebody's
+    // turn; position is what keeps it beside the work it describes.
+    const status = strip();
+    expect(status?.previousElementSibling?.tagName.toLowerCase()).not.toBe('section');
+    expect(status?.nextElementSibling?.classList.contains('composer-shell')).toBe(true);
+    expect(harness.window.document.getElementById('transcript')?.contains(status ?? null)).toBe(false);
+  });
+});

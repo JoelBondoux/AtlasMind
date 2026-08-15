@@ -117,7 +117,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                  thinking indicator, the streaming reply, the send state -- is pinned
                  to the bottom of the panel, while this used to sit at the very top,
                  off-screen on a tall transcript. -->
-            <div id="status" class="status-label" role="status" aria-live="polite">Ready.</div>
+            <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -436,7 +436,56 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-descriptionForeground);
           font-size: 0.85em;
         }
-        .status-label { flex: 0 0 auto; }
+        /*
+          The activity strip, directly under the thread.
+          -----------------------------------------------------------------
+          This was a bare line of grey text sharing a row with the toolbar
+          icons, which read as instrumentation rather than as part of the
+          conversation -- the panel telling you about itself in its own
+          voice. It is a bubble of its own now: full width, its own colour,
+          and sitting at the end of the thread where the thing it is
+          describing is happening.
+
+          Deliberately a different shape from a message. It spans the whole
+          width while user and assistant bubbles are inset and side-aligned,
+          so it never reads as somebody's turn -- it is the panel's own
+          margin note.
+
+          Hidden when there is nothing happening. A strip permanently
+          announcing "Ready." is exactly the out-of-place instrumentation
+          this replaces; the interesting state is the one worth a bubble.
+        */
+        .status-label {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 8px 10px 0;
+          padding: 7px 12px;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, transparent);
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 10%, var(--vscode-editor-background));
+          color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--vscode-textLink-foreground, #3794ff));
+          font-size: calc(0.85rem * var(--atlas-chat-font-scale));
+          line-height: 1.4;
+          overflow-wrap: anywhere;
+        }
+        .status-label.idle { display: none; }
+        /* A quiet pulse marking it as live, not a decoration: it stops with
+           the activity, and with prefers-reduced-motion. */
+        .status-label::before {
+          content: "";
+          flex: 0 0 auto;
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--vscode-textLink-foreground, #3794ff);
+          animation: status-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes status-pulse {
+          0%, 100% { opacity: 0.35; }
+          50% { opacity: 1; }
+        }
         .recovery-notice {
           display: grid;
           gap: 0.25rem;
@@ -2063,6 +2112,7 @@ ${QUICK_REPLY_CSS}
         */
         @media (prefers-reduced-motion: reduce) {
           .live-dot,
+          .status-label::before,
           .atlas-thinking-logo,
           .atlas-thinking-logo svg,
           .atlas-thinking-logo .atlas-axis,

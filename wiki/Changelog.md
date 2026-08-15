@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.334.0 — The activity line becomes part of the conversation
+
+The line telling you what AtlasMind was doing sat as bare grey text next to the toolbar icons, saying things
+like "Running AtlasMind chat request…" — the product describing its own plumbing in its own vocabulary. It is
+now a full-width bubble below the thread, in its own colour, and it says "Working on it…" instead. When
+nothing is happening it disappears rather than sitting there reading "Ready."
+
 ## v0.333.1 — Replies render again
 
 A regression in v0.329.1 stopped assistant replies from appearing in the chat panel: your own message showed

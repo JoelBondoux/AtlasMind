@@ -203,10 +203,22 @@ describe('chat panel order', () => {
     expect(source).toMatch(/id="status"[^>]*role="status"/);
   });
 
-  it('adds the actively routed model to the composer status text', () => {
+  it('adds the actively routed model to the activity strip', () => {
     const script = read('../../media/chatPanel.js');
-    expect(script).toContain("currentStatusText + ' · Model: ' + currentStatusModel");
+    // The strip appends the model to whatever it is currently saying. Asserted
+    // on the composition rather than on the exact separator, which changed when
+    // the strip became a bubble and the redundant "Model:" label was dropped —
+    // the id is self-evidently a model beside a line about what is happening.
+    expect(script).toMatch(/currentStatusText \+ '[^']*' \+ currentStatusModel/);
     expect(script).toContain('setCurrentStatusModel(isBusy ? activeModels[activeModels.length - 1] : undefined)');
+  });
+
+  it('hides the activity strip when nothing is happening', () => {
+    const script = read('../../media/chatPanel.js');
+    // A strip permanently reading "Ready." is the instrumentation the bubble
+    // replaced, not an improvement on it.
+    expect(script).toContain('IDLE_STATUS_PATTERN');
+    expect(script).toContain("status.classList.toggle('idle', idle)");
   });
 
   it('renders execution-limit recovery as a question with one-run and permanent chips', () => {

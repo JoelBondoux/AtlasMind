@@ -1179,20 +1179,20 @@ export class ChatPanel {
       if (mode === 'steer') {
         const steerPrompt = rawPrompt.trim();
         if (!steerPrompt) {
-          await this.host.webview.postMessage({ type: 'status', payload: 'Enter a steer prompt before redirecting the current request.' });
+          await this.host.webview.postMessage({ type: 'status', payload: 'Type what to change before steering.' });
           return;
         }
         this.pendingPromptSubmission = { prompt: steerPrompt, mode };
         await this.stopActivePrompt('Steering the current chat request. AtlasMind will apply your steer prompt next.');
         return;
       }
-      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message. Stop it first, or use Steer to redirect it.' });
       return;
     }
 
     const prompt = rawPrompt.trim();
     if (!prompt) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'Enter a prompt before sending a chat request.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Type something to send.' });
       return;
     }
 
@@ -1341,7 +1341,7 @@ export class ChatPanel {
       type: 'busy',
       payload: { busy: true, sessionId: activeSessionId, assistantMessageId },
     });
-    await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Working on it…' });
 
     let streamedText = '';
     const streamingThoughtLines: string[] = [];
@@ -1686,7 +1686,7 @@ export class ChatPanel {
 
   private async continueFromIterationLimit(entryId: string): Promise<void> {
     if (this.activePromptExecution) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message.' });
       return;
     }
     const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
