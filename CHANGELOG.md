@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.334.1] - 2026-08-15
+
+### Fixed
+
+- **Pressing Stop no longer produces two surfaces disagreeing about whether it worked.** While a turn was
+  waiting for its first tokens the panel read *"The model has not stopped; waiting for the next token
+  batch."* — a denial, phrased in vocabulary from inside this repository, answering a question nobody had
+  asked. And once Stop *was* pressed it kept saying exactly that, which is the worst possible sentence to
+  show somebody watching to find out whether the button worked.
+
+  There are three states and now three plain sentences: **"Thinking — nothing written yet."**, **"Still
+  writing…"**, and **"Stopping — finishing the step in progress."** The last one appears the moment Stop
+  is clicked rather than when the host gets around to confirming, because the gap between those two is
+  precisely the window the operator is staring at. The heading changes to *Stopping* with it, so the panel
+  is not announcing that it is thinking while it winds down.
+
+  The host's own wording followed: *"Stopping the current chat request..."* became **"Stopped."**, and
+  *"No active chat request is running."* became **"Nothing is running."**
+
+  The flag clears when the turn ends and when a new message is sent, so a stop that has already happened
+  cannot colour the next turn.
+
 ## [0.334.0] - 2026-08-15
 
 ### Changed

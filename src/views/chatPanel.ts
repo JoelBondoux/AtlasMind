@@ -1665,13 +1665,13 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis saved back to the Project Dashboard.' });
   }
 
-  private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
+  private async stopActivePrompt(statusMessage = 'Stopped.'): Promise<void> {
     const targetExecution = this.activePromptExecution
       ?? ChatPanel.findBusyExecution(this.selectedSessionId)
       ?? ChatPanel.findBusyExecution();
 
     if (!targetExecution) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing is running.' });
       return;
     }
 

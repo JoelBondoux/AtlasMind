@@ -1154,6 +1154,8 @@
   }
 
   function submitPrompt(modeOverride) {
+    // A new message means the previous stop, whatever became of it, is history.
+    stopRequested = false;
     if (isSearchMode) {
       // In search mode, do not send chat prompt
       if (searchBtn) searchBtn.click();
@@ -1854,6 +1856,8 @@
    */
   var renderedEntryIds = [];
   var lastRenderContext = null;
+  /** True from the moment Stop is clicked until the turn actually ends. */
+  var stopRequested = false;
 
   /**
    * Re-render only what changed, falling back to a full render whenever that
@@ -1916,6 +1920,23 @@
     renderedEntryIds = incomingIds;
     lastRenderContext = ctx;
     maybeScrollTranscriptToBottom();
+  }
+
+  /** Redraw the thread from the last state the host sent, with current local flags. */
+  function renderTranscriptFromLatestState() {
+    if (!latestState || latestState.activeSurface === 'run') {
+      return;
+    }
+    renderTranscript(
+      latestState.transcript,
+      isBusy,
+      latestState.selectedMessageId,
+      latestState.projectRuns,
+      latestState.selectedRun,
+      latestState.busyAssistantMessageId,
+      latestState.streamingThought,
+      latestState.streamingModels,
+    );
   }
 
   /** Index of the final assistant entry, or -1. Shared by both render paths. */
@@ -3595,13 +3616,19 @@
 
     var title = document.createElement('div');
     title.className = 'thinking-title';
-    title.textContent = 'AtlasMind is thinking';
+    title.textContent = stopRequested ? 'Stopping' : 'AtlasMind is thinking';
 
     var subtitle = document.createElement('div');
     subtitle.className = 'thinking-subtitle';
-    subtitle.textContent = hasContent
-      ? 'The response is still streaming.'
-      : 'The model has not stopped; waiting for the next token batch.';
+    // Three states, three plain sentences. The old text for the last one --
+    // "The model has not stopped; waiting for the next token batch" -- answered
+    // a question nobody asked, in a vocabulary nobody outside this repository
+    // uses, and contradicted the transcript whenever Stop had been pressed.
+    subtitle.textContent = stopRequested
+      ? 'Stopping — finishing the step in progress.'
+      : hasContent
+        ? 'Still writing…'
+        : 'Thinking — nothing written yet.';
 
     copy.appendChild(title);
     copy.appendChild(subtitle);
@@ -3946,6 +3973,14 @@
 
   sendPrompt.addEventListener('click', submitPrompt);
   stopPrompt.addEventListener('click', function () {
+    // Recorded here, not inferred later: between the click and the host
+    // confirming the turn is over, the panel used to keep insisting the model
+    // "has not stopped" -- technically true and exactly the wrong thing to say
+    // to somebody who just pressed Stop and is watching to see whether it
+    // worked.
+    stopRequested = true;
+    setStatusText('Stopping…');
+    renderTranscriptFromLatestState();
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
@@ -4415,10 +4450,11 @@
         ? busyPayload.sessionId
         : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
-      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
-      if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought, latestState.streamingModels);
+      if (!isBusy) {
+        stopRequested = false;
       }
+      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
+      renderTranscriptFromLatestState();
       updateComposerAvailability();
       if (latestState) {
         setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));

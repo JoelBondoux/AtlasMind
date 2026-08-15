@@ -232,3 +232,50 @@ describe('activity strip', () => {
     expect(harness.window.document.getElementById('transcript')?.contains(status ?? null)).toBe(false);
   });
 });
+
+describe('stopping a turn', () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+    // A turn in flight with nothing written yet: the state that used to insist
+    // the model "has not stopped".
+    harness.send(stateWith([USER_TURN, { ...ASSISTANT_TURN, content: '' }], {
+      busy: true,
+      busyAssistantMessageId: 'm2',
+    }));
+  });
+
+  function thinking() {
+    return harness.window.document.querySelector('.thinking-indicator')?.textContent ?? '';
+  }
+
+  it('describes waiting without answering a question nobody asked', () => {
+    // The old copy was "The model has not stopped; waiting for the next token
+    // batch" — a denial, in vocabulary from inside this repository.
+    expect(thinking()).toContain('Thinking');
+    expect(thinking()).not.toContain('has not stopped');
+    expect(thinking()).not.toContain('token batch');
+  });
+
+  it('says it is stopping the moment Stop is pressed', () => {
+    const stop = harness.window.document.getElementById('stopPrompt');
+    stop?.dispatchEvent(new harness.window.Event('click'));
+
+    // The contradiction this closes: the panel used to keep claiming the model
+    // had not stopped while the operator watched to see whether Stop worked.
+    expect(thinking()).toContain('Stopping');
+    expect(thinking()).not.toContain('has not stopped');
+    expect(harness.window.document.getElementById('status')?.textContent).toContain('Stopping');
+    expect(harness.posted.some(message => message.type === 'stopPrompt')).toBe(true);
+  });
+
+  it('stops claiming to stop once the turn is over', () => {
+    harness.window.document.getElementById('stopPrompt')?.dispatchEvent(new harness.window.Event('click'));
+    harness.send({ type: 'busy', payload: false });
+    harness.send(stateWith([USER_TURN, ASSISTANT_TURN]));
+
+    expect(harness.window.document.querySelector('.thinking-indicator')).toBeNull();
+    expect(harness.errors).toEqual([]);
+  });
+});

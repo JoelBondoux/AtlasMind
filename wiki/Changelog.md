@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.334.1 — Stop says it stopped
+
+While waiting for a reply to start, the panel used to read "The model has not stopped; waiting for the next
+token batch" — and it kept saying that after you pressed **Stop**, which is the least reassuring thing it
+could have told you at that moment.
+
+It now says "Thinking — nothing written yet", "Still writing…", or "Stopping — finishing the step in
+progress", and the last one appears the instant you click Stop.
+
 ## v0.334.0 — The activity line becomes part of the conversation
 
 The line telling you what AtlasMind was doing sat as bare grey text next to the toolbar icons, saying things
