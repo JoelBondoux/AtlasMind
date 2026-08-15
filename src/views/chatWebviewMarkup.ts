@@ -194,6 +194,10 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 arrow keys move the highlighted option, which is how a screen
                 reader is told about a suggestion without losing the caret.
               -->
+              <div id="contextMeter" class="context-meter hidden" role="status" aria-live="off">
+                <div class="context-meter-track"><div id="contextMeterFill" class="context-meter-fill"></div></div>
+                <span id="contextMeterLabel" class="context-meter-label"></span>
+              </div>
               <div class="composer-typeahead-anchor">
                 <div id="composerTypeahead" class="composer-typeahead hidden" role="listbox" aria-label="Suggestions"></div>
                 <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="composerTypeahead"></textarea>
@@ -2256,6 +2260,42 @@ ${QUICK_REPLY_CSS}
           font-size: 0.72rem;
           padding: 3px 6px;
         }
+
+        /*
+          What the next turn would carry. A thin rule rather than a widget: it is
+          reference information, consulted when a long conversation starts
+          behaving oddly, and it should cost nothing to ignore the rest of the
+          time. aria-live is off deliberately — a bar that re-announced itself on
+          every keystroke would be unusable with a screen reader, and the number
+          is available on demand from the label.
+        */
+        .context-meter {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 2px 5px;
+          font-size: calc(0.72rem * var(--atlas-chat-font-scale));
+          color: var(--vscode-descriptionForeground);
+        }
+        .context-meter.hidden { display: none; }
+        .context-meter-track {
+          flex: 1 1 auto;
+          height: 3px;
+          border-radius: 2px;
+          background: color-mix(in srgb, var(--vscode-descriptionForeground) 22%, transparent);
+          overflow: hidden;
+        }
+        .context-meter-fill {
+          height: 100%;
+          width: 0;
+          border-radius: 2px;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, transparent);
+        }
+        .context-meter.warn .context-meter-fill {
+          background: var(--vscode-editorWarning-foreground, #c27803);
+        }
+        .context-meter.warn .context-meter-label { color: var(--vscode-editorWarning-foreground, #c27803); }
+        .context-meter-label { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
         /* ---- Run inspector ---- */
         .run-card {

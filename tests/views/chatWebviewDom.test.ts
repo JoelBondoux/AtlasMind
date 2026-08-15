@@ -279,3 +279,80 @@ describe('stopping a turn', () => {
     expect(harness.errors).toEqual([]);
   });
 });
+
+describe('context meter', () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  function meter() {
+    return harness.window.document.getElementById('contextMeter');
+  }
+
+  it('stays hidden when there is nothing to measure against', () => {
+    // A meter that cannot measure is absent, not zero.
+    harness.send(stateWith([USER_TURN]));
+    expect(meter()?.classList.contains('hidden')).toBe(true);
+  });
+
+  it('measures against the model window when a model is known', () => {
+    harness.send(stateWith([USER_TURN, ASSISTANT_TURN], {
+      contextMeter: {
+        estimatedTokens: 4000, modelId: 'anthropic/opus-5', contextWindow: 200000,
+        contextChars: 16000, charBudget: 2500, turnCount: 2, turnLimit: 6,
+      },
+    }));
+
+    expect(meter()?.classList.contains('hidden')).toBe(false);
+    expect(harness.window.document.getElementById('contextMeterLabel')?.textContent)
+      .toContain('200k tokens');
+    expect(meter()?.getAttribute('title')).toContain('anthropic/opus-5');
+  });
+
+  it('falls back to the session budget rather than inventing a window', () => {
+    // Claiming a percentage of a window nobody has chosen would be a number
+    // made up to fill a bar.
+    harness.send(stateWith([USER_TURN], {
+      contextMeter: {
+        estimatedTokens: 300, contextChars: 1200, charBudget: 2500, turnCount: 3, turnLimit: 6,
+      },
+    }));
+
+    const label = harness.window.document.getElementById('contextMeterLabel')?.textContent ?? '';
+    expect(label).toContain('3 of 6 turns');
+    expect(label).not.toContain('tokens');
+    expect(meter()?.getAttribute('title')).toContain('session budget');
+  });
+
+  it('warns as the window fills', () => {
+    harness.send(stateWith([USER_TURN], {
+      contextMeter: {
+        estimatedTokens: 95000, modelId: 'openai/gpt-5', contextWindow: 100000,
+        contextChars: 380000, charBudget: 2500, turnCount: 20, turnLimit: 6,
+      },
+    }));
+    expect(meter()?.classList.contains('warn')).toBe(true);
+  });
+
+  it('counts the unsent draft as you type', () => {
+    harness.send(stateWith([USER_TURN], {
+      contextMeter: {
+        estimatedTokens: 100, modelId: 'openai/gpt-5', contextWindow: 1000,
+        contextChars: 400, charBudget: 2500, turnCount: 1, turnLimit: 6,
+      },
+    }));
+    const before = harness.window.document.getElementById('contextMeterFill')?.getAttribute('style') ?? '';
+
+    const input = harness.window.document.getElementById('promptInput') as HTMLTextAreaElement;
+    // 4,000 characters is ~1,000 tokens at the estimator's four-to-one, which
+    // takes 100 + 1,000 past this model's 1,000-token window.
+    input.value = 'x'.repeat(4000);
+    input.dispatchEvent(new harness.window.Event('input'));
+
+    const after = harness.window.document.getElementById('contextMeterFill')?.getAttribute('style') ?? '';
+    expect(after).not.toBe(before);
+    expect(meter()?.classList.contains('warn')).toBe(true);
+  });
+});

@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.337.0 — See how full the context is
+
+A thin bar above the composer showing what your next message would carry. When AtlasMind knows which model
+is answering it measures against that model's real context window; when it does not, it shows how many turns
+of history are travelling with you instead of inventing a percentage.
+
+It counts what you are typing as you type it, and tints amber as the window fills — which is the point at
+which older turns start being dropped and the assistant starts "forgetting" things.
+
 ## v0.336.0 — Pin the model when you want to
 
 AtlasMind chooses a model per task, which is usually what you want and occasionally not. There is now a

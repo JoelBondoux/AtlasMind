@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.337.0] - 2026-08-15
+
+### Added
+
+- **A context meter above the composer**, so a long conversation stops being a black box. Until now the
+  only way to discover that older turns were being dropped was to notice the assistant had forgotten
+  something — which is the symptom Lane 4 keeps producing and the hardest one to attribute.
+
+  **Two ceilings, and which applies is the point.** When a model is known — pinned, or the one that
+  answered last — the bar is a share of that model's real context window. When none is, it falls back to
+  your own session budget and says so ("carrying 3 of 6 turns") rather than claiming a percentage of a
+  window nobody has chosen. A number invented to fill a bar is worse than no bar.
+
+  It uses the orchestrator's own `estimateTokens`, now exported rather than copied: a second estimator
+  would let the meter say a turn fits while the code doing the packing disagreed.
+
+  The unsent draft is counted **client-side** as you type, because recomputing the session context per
+  keystroke would mean rebuilding it per character. And a meter that cannot measure is **absent rather
+  than zero** — it runs inside every state sync, so a missing capability costs a bar, never the panel.
+
 ## [0.336.0] - 2026-08-15
 
 ### Added

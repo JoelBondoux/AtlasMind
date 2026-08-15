@@ -3984,6 +3984,57 @@
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
+  // ---- Context meter -----------------------------------------------------
+  //
+  // What the next turn would carry, against whichever ceiling actually applies.
+  // When a model is known the bar is a share of its real context window; when
+  // none is, it falls back to the operator's own session budget rather than
+  // inventing a percentage of a window nobody chose.
+  //
+  // The unsent draft is added here rather than server-side, because recomputing
+  // the session context per keystroke would mean rebuilding it per character.
+  var contextMeter = document.getElementById('contextMeter');
+  var contextMeterFill = document.getElementById('contextMeterFill');
+  var contextMeterLabel = document.getElementById('contextMeterLabel');
+
+  function formatMeterCount(value) {
+    return value >= 1000 ? (Math.round(value / 100) / 10) + 'k' : String(value);
+  }
+
+  function renderContextMeter() {
+    var meter = latestState && latestState.contextMeter;
+    if (!meter) {
+      contextMeter.classList.add('hidden');
+      return;
+    }
+
+    var draft = promptInput && typeof promptInput.value === 'string' ? promptInput.value : '';
+    var draftTokens = draft.length > 0 ? Math.ceil(draft.length / 4) : 0;
+    var used = meter.estimatedTokens + draftTokens;
+
+    var ratio;
+    var label;
+    if (meter.contextWindow) {
+      ratio = used / meter.contextWindow;
+      label = formatMeterCount(used) + ' / ' + formatMeterCount(meter.contextWindow) + ' tokens';
+    } else {
+      // No model resolved yet: measure against the session budget, and say so,
+      // rather than presenting a share of a window that is not in play.
+      var chars = meter.contextChars + draft.length;
+      ratio = meter.charBudget > 0 ? chars / meter.charBudget : 0;
+      label = 'carrying ' + meter.turnCount + ' of ' + meter.turnLimit + ' turns';
+    }
+
+    var percent = Math.max(0, Math.min(1, ratio));
+    contextMeterFill.style.width = (percent * 100).toFixed(1) + '%';
+    contextMeterLabel.textContent = label;
+    contextMeter.classList.toggle('warn', percent >= 0.8);
+    contextMeter.title = meter.modelId
+      ? 'Estimated context for the next message, against ' + meter.modelId + "'s window. Older turns are dropped first."
+      : 'Estimated context for the next message, against your session budget (atlasmind.chatSessionTurnLimit / chatSessionContextChars).';
+    contextMeter.classList.remove('hidden');
+  }
+
   // ---- Model pin ---------------------------------------------------------
   //
   // The router still chooses by default. This is an override on top of it, not
@@ -4315,6 +4366,7 @@
   }
 
   promptInput.addEventListener('input', refreshTypeahead);
+  promptInput.addEventListener('input', renderContextMeter);
   promptInput.addEventListener('click', refreshTypeahead);
   promptInput.addEventListener('blur', function () { setTimeout(closeTypeahead, 120); });
 
@@ -4545,6 +4597,7 @@
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
       renderModelPinButton();
+      renderContextMeter();
 
       if (isRun) {
         renderRunInspector(state.selectedRun);

@@ -5786,7 +5786,19 @@ function truncatePreview(value: string, maxLength = 600): string {
   return `${trimmed.slice(0, maxLength)}...`;
 }
 
-function estimateTokens(text: string): number {
+/**
+ * Rough token count for budgeting: four characters to a token.
+ *
+ * Exported so the chat panel's context meter uses the same arithmetic the
+ * orchestrator budgets with. A second estimator would let the meter say a turn
+ * fits while the thing doing the packing disagreed, which is worse than no
+ * meter — a number nobody can act on.
+ *
+ * Deliberately not a real tokenizer. It is used to decide how much context to
+ * pack and to show a bar, and both tolerate being approximate in a way that
+ * shipping a per-model tokenizer for every provider would not repay.
+ */
+export function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 

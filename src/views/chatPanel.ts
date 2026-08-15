@@ -42,6 +42,7 @@ import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFile
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
+import { estimateTokens } from '../core/orchestrator.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
@@ -197,6 +198,29 @@ export interface ChatPanelDirectResponse {
   composerPrefills?: SessionComposerPrefill[];
 }
 
+/**
+ * What the next turn would send, and the ceiling it is measured against.
+ *
+ * Two different ceilings, and which one applies is the interesting part. When a
+ * model is known — pinned, or the one that answered last — the bar is measured
+ * against that model's real context window. When none is known the bar falls
+ * back to the operator's own session budget, because claiming a percentage of a
+ * window nobody has chosen would be a number invented to fill a bar.
+ */
+interface ChatContextMeter {
+  /** Estimated tokens the next turn would carry, excluding the unsent draft. */
+  estimatedTokens: number;
+  /** The model the estimate is measured against, when one is known. */
+  modelId?: string;
+  /** That model's context window, when it publishes one. */
+  contextWindow?: number;
+  /** Session budget, always present: the fallback ceiling and the honest one. */
+  contextChars: number;
+  charBudget: number;
+  turnCount: number;
+  turnLimit: number;
+}
+
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   chatFontScale?: number;
@@ -216,6 +240,8 @@ interface ChatPanelState {
   availableModels?: PickableModel[];
   /** The pin currently in force, if any. */
   modelOverride?: ModelOverride;
+  /** What the next turn would carry, and what it is measured against. */
+  contextMeter?: ChatContextMeter;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
@@ -2443,6 +2469,11 @@ export class ChatPanel {
     // touches credential storage, and the set changes when the operator
     // configures one, not while they type.
     await this.refreshPickableModels();
+    const meterConfiguration = vscode.workspace.getConfiguration('atlasmind');
+    const contextMeter = this.buildContextMeter(
+      meterConfiguration.get<number>('chatSessionContextChars', 2500),
+      meterConfiguration.get<number>('chatSessionTurnLimit', 6),
+    );
     const sessions = this.atlas.sessionConversation.listSessions();
     if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -2484,6 +2515,7 @@ export class ChatPanel {
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       slashCommands: ChatPanel.slashCommandCatalogue(),
       availableModels: this.pickableModels,
+      ...(contextMeter ? { contextMeter } : {}),
       ...(this.modelOverride ? { modelOverride: this.modelOverride } : {}),
       sessions,
       transcript: transcriptPayload,
@@ -3183,6 +3215,55 @@ export class ChatPanel {
       void this.syncState();
     }
     return override.modelId;
+  }
+
+  /**
+   * What the next turn would carry.
+   *
+   * Measured from the same `buildContext` call the turn itself uses, plus the
+   * attachment text, so the bar and the packing cannot disagree. The unsent
+   * draft is deliberately excluded and added client-side instead: recomputing
+   * this on every keystroke would mean a session-context rebuild per character.
+   */
+  private buildContextMeter(sessionContextChars: number, turnLimit: number): ChatContextMeter | undefined {
+    // A meter that cannot measure is absent, never zero, and never fatal: this
+    // runs inside `syncState` on every render, so an optional capability being
+    // missing must cost a bar, not the panel.
+    if (typeof this.atlas.sessionConversation?.buildContext !== 'function') {
+      return undefined;
+    }
+    const sessionContext = this.atlas.sessionConversation.buildContext({
+      maxTurns: turnLimit,
+      maxChars: sessionContextChars,
+      sessionId: this.selectedSessionId,
+    });
+    const attachmentText = this.composerAttachments
+      .map(attachment => attachment.inlineText ?? '')
+      .join('\n');
+    const carried = [sessionContext, attachmentText].join('\n');
+
+    // Pinned first, then whoever answered last. Neither is a promise about the
+    // next turn — the router may choose differently — which is why the absence
+    // of both falls back to the session budget rather than guessing a window.
+    const modelId = this.modelOverride?.modelId
+      ?? [...this.atlas.sessionConversation.getTranscript(this.selectedSessionId)]
+        .reverse()
+        .find(entry => entry.role === 'assistant' && typeof entry.meta?.modelUsed === 'string')
+        ?.meta?.modelUsed;
+    const contextWindow = modelId
+      ? this.atlas.modelRouter?.getModelInfo?.(modelId)?.contextWindow
+      : undefined;
+
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    return {
+      estimatedTokens: estimateTokens(carried),
+      ...(modelId ? { modelId } : {}),
+      ...(typeof contextWindow === 'number' && contextWindow > 0 ? { contextWindow } : {}),
+      contextChars: carried.trim().length,
+      charBudget: sessionContextChars,
+      turnCount: Math.ceil(transcript.length / 2),
+      turnLimit,
+    };
   }
 
   private async refreshPickableModels(): Promise<void> {
