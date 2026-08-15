@@ -157,6 +157,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                     </svg>
                   </button>
                 </div>
+                <div class="model-pin-wrap">
+                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose which model answers" aria-label="Choose which model answers">
+                    <span id="modelPinLabel">Auto</span>
+                  </button>
+                  <div id="modelPinList" class="composer-typeahead model-pin-list hidden" role="listbox" aria-label="Model"></div>
+                </div>
                 <button id="toggleAutopilot" class="icon-btn compact-icon-btn autopilot-btn" type="button" title="Toggle Autopilot — grant all tool approvals automatically" aria-label="Toggle Autopilot" aria-pressed="false">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.5"/>
@@ -2210,6 +2216,46 @@ ${QUICK_REPLY_CSS}
         }
         .composer-typeahead-item[aria-selected="true"] .composer-typeahead-detail { color: inherit; opacity: 0.85; }
         .composer-typeahead-empty { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
+
+        .model-pin-wrap { position: relative; display: inline-flex; }
+        .model-pin-btn {
+          width: auto;
+          max-width: 160px;
+          padding: 0 8px;
+          gap: 4px;
+          font-size: 0.72rem;
+          overflow: hidden;
+        }
+        .model-pin-btn #modelPinLabel {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        /* Pinned reads differently from Auto, because a pin is a decision that
+           outlives the click and the operator should see it without opening
+           anything. */
+        .model-pin-btn.pinned {
+          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 55%, transparent);
+          color: var(--vscode-textLink-foreground, #3794ff);
+        }
+        .model-pin-list {
+          right: 0;
+          left: auto;
+          min-width: 260px;
+          max-width: 340px;
+        }
+        .model-pin-scope {
+          display: flex;
+          gap: 4px;
+          padding: 4px 8px 6px;
+          border-top: 1px solid var(--rule, var(--vscode-widget-border, #444));
+          margin-top: 4px;
+        }
+        .model-pin-scope button {
+          flex: 1 1 auto;
+          font-size: 0.72rem;
+          padding: 3px 6px;
+        }
 
         /* ---- Run inspector ---- */
         .run-card {

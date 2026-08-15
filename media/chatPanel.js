@@ -3984,6 +3984,147 @@
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
+  // ---- Model pin ---------------------------------------------------------
+  //
+  // The router still chooses by default. This is an override on top of it, not
+  // a replacement for it: "Auto" is the first option and the resting state, and
+  // the footer keeps reporting whichever model actually answered — so a pin that
+  // the router had to refuse (unhealthy, wrong capability) is visible rather
+  // than silently assumed.
+  //
+  // Two scopes, because pinning a frontier model to compare one answer is a
+  // different intent from changing how this conversation routes.
+  var modelPin = document.getElementById('modelPin');
+  var modelPinLabel = document.getElementById('modelPinLabel');
+  var modelPinList = document.getElementById('modelPinList');
+  var modelPinScope = 'turn';
+  var modelPinOpen = false;
+
+  function closeModelPin() {
+    if (!modelPinOpen) { return; }
+    modelPinOpen = false;
+    modelPinList.classList.add('hidden');
+    modelPin.setAttribute('aria-expanded', 'false');
+  }
+
+  function currentModelOverride() {
+    return latestState && latestState.modelOverride ? latestState.modelOverride : undefined;
+  }
+
+  function renderModelPinButton() {
+    var override = currentModelOverride();
+    if (override) {
+      var short = String(override.modelId).split('/').pop() || override.modelId;
+      modelPinLabel.textContent = short;
+      modelPin.classList.add('pinned');
+      modelPin.title = 'Pinned to ' + override.modelId
+        + (override.scope === 'turn' ? ' for the next message' : ' for this chat')
+        + ' — click to change or clear';
+    } else {
+      modelPinLabel.textContent = 'Auto';
+      modelPin.classList.remove('pinned');
+      modelPin.title = 'The router is choosing. Click to pin a model.';
+    }
+  }
+
+  function sendModelOverride(modelId) {
+    vscode.postMessage({ type: 'setModelOverride', payload: { modelId: modelId, scope: modelPinScope } });
+    closeModelPin();
+  }
+
+  function renderModelPinList() {
+    modelPinList.innerHTML = '';
+    var models = (latestState && Array.isArray(latestState.availableModels)) ? latestState.availableModels : [];
+    var override = currentModelOverride();
+
+    var auto = document.createElement('div');
+    auto.className = 'composer-typeahead-item';
+    auto.setAttribute('role', 'option');
+    auto.setAttribute('aria-selected', override ? 'false' : 'true');
+    var autoName = document.createElement('span');
+    autoName.className = 'composer-typeahead-name';
+    autoName.textContent = 'Auto';
+    var autoDetail = document.createElement('span');
+    autoDetail.className = 'composer-typeahead-detail';
+    autoDetail.textContent = 'Router picks per task';
+    auto.appendChild(autoName);
+    auto.appendChild(autoDetail);
+    auto.addEventListener('mousedown', function (event) {
+      event.preventDefault();
+      sendModelOverride(null);
+    });
+    modelPinList.appendChild(auto);
+
+    if (models.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'composer-typeahead-empty';
+      empty.textContent = 'No configured providers yet.';
+      modelPinList.appendChild(empty);
+      return;
+    }
+
+    models.forEach(function (model) {
+      var row = document.createElement('div');
+      row.className = 'composer-typeahead-item';
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', override && override.modelId === model.id ? 'true' : 'false');
+
+      var name = document.createElement('span');
+      name.className = 'composer-typeahead-name';
+      name.textContent = model.label;
+      row.appendChild(name);
+
+      var detail = document.createElement('span');
+      detail.className = 'composer-typeahead-detail';
+      detail.textContent = model.provider;
+      row.appendChild(detail);
+
+      row.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        sendModelOverride(model.id);
+      });
+      modelPinList.appendChild(row);
+    });
+
+    // The scope choice sits with the list rather than in a separate menu: it is
+    // part of the same decision, and splitting it would make the common case
+    // (just this once) take two gestures.
+    var scopeRow = document.createElement('div');
+    scopeRow.className = 'model-pin-scope';
+    [['turn', 'Next message'], ['session', 'This chat']].forEach(function (option) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'icon-btn compact-icon-btn';
+      button.textContent = option[1];
+      button.setAttribute('aria-pressed', modelPinScope === option[0] ? 'true' : 'false');
+      button.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        modelPinScope = option[0];
+        renderModelPinList();
+      });
+      scopeRow.appendChild(button);
+    });
+    modelPinList.appendChild(scopeRow);
+  }
+
+  modelPin.addEventListener('click', function (event) {
+    event.stopPropagation();
+    modelPinOpen = !modelPinOpen;
+    modelPinList.classList.toggle('hidden', !modelPinOpen);
+    modelPin.setAttribute('aria-expanded', modelPinOpen ? 'true' : 'false');
+    if (modelPinOpen) {
+      renderModelPinList();
+      document.addEventListener('click', closeModelPin, { once: true });
+    }
+  });
+
+  modelPin.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && modelPinOpen) {
+      event.stopPropagation();
+      closeModelPin();
+    }
+  });
+
   // ---- Composer typeahead ------------------------------------------------
   //
   // One component for both triggers. `/` completes AtlasMind's own commands from
@@ -4403,6 +4544,7 @@
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
+      renderModelPinButton();
 
       if (isRun) {
         renderRunInspector(state.selectedRun);

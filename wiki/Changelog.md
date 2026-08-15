@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.336.0 — Pin the model when you want to
+
+AtlasMind chooses a model per task, which is usually what you want and occasionally not. There is now a
+control beside the composer: leave it on **Auto** and nothing changes, or pin a specific model either for
+your next message or for the whole chat.
+
+It is an override rather than a replacement — the footer still reports which model actually answered, so if
+the router had to refuse your pin (an unhealthy provider, a model that cannot see images) you find out
+rather than assuming.
+
 ## v0.335.0 — "What did I ask?" is answered from what you asked
 
 Asking the chat panel what you said earlier sent the question to a model, which confidently made up both a

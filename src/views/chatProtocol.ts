@@ -69,6 +69,12 @@ export type ChatPanelMessage =
    * decides what to search and answers with workspace-relative paths.
    */
   | { type: 'queryFileMentions'; payload: { query: string } }
+  /**
+   * Pin the routed model, or clear the pin. The host validates the id against
+   * the list it published, so a crafted message can name nothing it did not
+   * already offer.
+   */
+  | { type: 'setModelOverride'; payload: { modelId: string | null; scope: 'turn' | 'session' } }
   | { type: 'attachEditorSelection' }
   | { type: 'attachProblems' }
   | { type: 'removeAttachment'; payload: string }
@@ -293,6 +299,15 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'setModelOverride') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { modelId, scope } = message.payload as { modelId?: unknown; scope?: unknown };
+    const idOk = modelId === null || (typeof modelId === 'string' && modelId.length > 0 && modelId.length <= 200);
+    return idOk && (scope === 'turn' || scope === 'session');
   }
 
   if (message.type === 'queryFileMentions') {

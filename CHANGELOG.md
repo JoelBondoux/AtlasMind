@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.336.0] - 2026-08-15
+
+### Added
+
+- **You can pin which model answers.** Every competing chat panel has had a model picker for years;
+  AtlasMind routed automatically with no way to say otherwise, which is the right default and a poor
+  absolute.
+
+  It is an **override on top of the router, not a replacement for it**. "Auto" is the first option and the
+  resting state, the pin travels as `RoutingConstraints.preferredModel` — machinery that already existed
+  and already degrades gracefully when a pinned model is unhealthy or lacks a required capability — and
+  the footer keeps reporting whichever model *actually* answered. So a pin the router had to refuse is
+  visible rather than silently assumed.
+
+  **Two scopes**, because pinning a frontier model to compare one answer is a different intent from
+  changing how a conversation routes: *Next message* is consumed by the following submission, *This chat*
+  persists until cleared. The turn-scoped pin is consumed **before** the request rather than after it, so
+  a failed or cancelled turn cannot leave it applying to whatever is typed next.
+
+  Three decisions worth stating:
+
+  - **The list is what you configured, not what the router currently likes.** A model being de-weighted
+    for struggling is still one you pay for and may legitimately pin; hiding it would make the picker
+    disagree with the Models tree for a reason nobody could see.
+  - **The host validates the id against the list it published.** The webview supplies data; "which models
+    exist" is a question only the host can answer. A provider whose credential check throws is treated as
+    unconfigured rather than failing the whole enumeration — one broken provider must not empty the picker.
+  - **The internal terminal-planning call is deliberately left unpinned.** It is a small routing decision,
+    not your answer, and spending a pinned frontier model on it would be a cost you did not ask for.
+
+  Enumeration moved to `src/views/modelPickerShared.ts`, shared with the Model Comparison panel, because
+  two copies of "which models may I offer" would eventually list different sets.
+
 ## [0.335.0] - 2026-08-15
 
 ### Fixed

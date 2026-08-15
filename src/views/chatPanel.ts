@@ -41,6 +41,7 @@ import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
+import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
@@ -211,6 +212,10 @@ interface ChatPanelState {
   composerMode?: ComposerSendMode;
   /** Slash commands the composer offers, sorted. Sent once per state sync. */
   slashCommands?: Array<{ name: string; description: string }>;
+  /** Models the operator may pin, from providers they have configured. */
+  availableModels?: PickableModel[];
+  /** The pin currently in force, if any. */
+  modelOverride?: ModelOverride;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
@@ -347,6 +352,15 @@ export class ChatPanel {
   private selectedRunId: string | undefined;
   /** The last real text editor, for code-block actions. See the listener that sets it. */
   private lastActiveTextEditor: vscode.TextEditor | undefined;
+  /**
+   * The routed model the operator pinned, if any.
+   *
+   * Held per surface rather than persisted: a pin is a decision about the
+   * conversation in front of you, and one silently surviving a reload would be
+   * a routing change nobody remembers making.
+   */
+  private modelOverride: ModelOverride | undefined;
+  private pickableModels: PickableModel[] = [];
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
@@ -698,6 +712,9 @@ export class ChatPanel {
         return;
       case 'attachOpenFiles':
         await this.attachOpenFiles();
+        return;
+      case 'setModelOverride':
+        await this.applyModelOverride(message.payload);
         return;
       case 'queryFileMentions':
         await this.replyWithFileMentions(message.payload.query);
@@ -1440,6 +1457,11 @@ export class ChatPanel {
         return;
       }
 
+      // Taken once for the turn, before the branch: the terminal path and the
+      // ordinary path are alternatives, and a turn-scoped pin must be consumed
+      // exactly once whichever one runs.
+      const preferredModel = this.takeModelOverrideForTurn();
+
       if (preparedRequest.terminalDirective) {
         await this.runManagedTerminalPrompt(
           preparedRequest,
@@ -1447,6 +1469,7 @@ export class ChatPanel {
           activeSessionId,
           taskId,
           sessionContext,
+          preferredModel,
         );
         return;
       }
@@ -1462,6 +1485,7 @@ export class ChatPanel {
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
           speed: toSpeedMode(configuration.get<string>('speedMode')),
+          ...(preferredModel ? { preferredModel } : {}),
           ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
         },
         timestamp: new Date().toISOString(),
@@ -1791,6 +1815,7 @@ export class ChatPanel {
     activeSessionId: string,
     taskId: string,
     sessionContext: string,
+    preferredModel?: string,
   ): Promise<void> {
     const directive = preparedRequest.terminalDirective;
     if (!directive) {
@@ -1891,6 +1916,7 @@ export class ChatPanel {
       constraints: {
         budget: toBudgetMode(configuration.get<string>('budgetMode')),
         speed: toSpeedMode(configuration.get<string>('speedMode')),
+        ...(preferredModel ? { preferredModel } : {}),
         ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
       },
       timestamp: new Date().toISOString(),
@@ -2413,6 +2439,10 @@ export class ChatPanel {
 
   private async syncState(): Promise<void> {
     if (this._isDisposed) return;
+    // Refreshed once per sync rather than per keystroke: enumerating providers
+    // touches credential storage, and the set changes when the operator
+    // configures one, not while they type.
+    await this.refreshPickableModels();
     const sessions = this.atlas.sessionConversation.listSessions();
     if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -2453,6 +2483,8 @@ export class ChatPanel {
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       slashCommands: ChatPanel.slashCommandCatalogue(),
+      availableModels: this.pickableModels,
+      ...(this.modelOverride ? { modelOverride: this.modelOverride } : {}),
       sessions,
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
@@ -3108,6 +3140,69 @@ export class ChatPanel {
    * order they were asked for — without the echo, pausing after "src/ch" could
    * leave the list showing matches for "src/c".
    */
+  /**
+   * Pin a model, or clear the pin.
+   *
+   * The requested id is checked against the list this panel published rather
+   * than trusted: the webview supplies data, and "which models exist" is a
+   * question only the host can answer.
+   */
+  private async applyModelOverride(request: { modelId: string | null; scope: 'turn' | 'session' }): Promise<void> {
+    // Refreshed before validating rather than trusting the last sync: the first
+    // pin can arrive before the opening `syncState` has resolved, and validating
+    // against an empty list would reject a model the operator was just shown.
+    await this.refreshPickableModels();
+    const resolved = resolveModelOverride(request, this.pickableModels);
+    if (resolved === 'unknown-model') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That model is not available.' });
+      return;
+    }
+    this.modelOverride = resolved;
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: resolved
+        ? `Using ${resolved.modelId}${resolved.scope === 'turn' ? ' for the next message' : ' for this chat'}.`
+        : 'Back to automatic model routing.',
+    });
+    await this.syncState();
+  }
+
+  /**
+   * The pin to apply to the turn being sent, consuming a turn-scoped one.
+   *
+   * Consumed here rather than after the turn completes, so a pin cannot survive
+   * a failed or cancelled request and quietly apply to the next thing typed.
+   */
+  private takeModelOverrideForTurn(): string | undefined {
+    const override = this.modelOverride;
+    if (!override) {
+      return undefined;
+    }
+    if (override.scope === 'turn') {
+      this.modelOverride = undefined;
+      void this.syncState();
+    }
+    return override.modelId;
+  }
+
+  private async refreshPickableModels(): Promise<void> {
+    const router = this.atlas.modelRouter as { listProviders?: unknown } | undefined;
+    if (!router || typeof router.listProviders !== 'function') {
+      this.pickableModels = [];
+      return;
+    }
+    try {
+      this.pickableModels = await collectPickableModels(
+        this.atlas.modelRouter as never,
+        providerId => this.atlas.isProviderConfigured(providerId),
+      );
+    } catch {
+      // A picker that cannot enumerate is empty, never stale: offering a model
+      // that is no longer configured would pin a turn to something that fails.
+      this.pickableModels = [];
+    }
+  }
+
   private async replyWithFileMentions(query: string): Promise<void> {
     const trimmed = query.trim();
     let files: string[] = [];

@@ -4608,3 +4608,83 @@ describe('conversation recall in the chat panel', () => {
     expect(answered).toContain('Tell me about our current ci tests');
   });
 });
+
+describe('model override in the chat panel', () => {
+  function mountWithModels(processTask = vi.fn().mockResolvedValue({
+    id: 't', agentId: 'a', modelUsed: 'openai/gpt-5', response: 'ok',
+    inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+  })) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        modelRouter: {
+          listProviders: () => [{ id: 'openai', displayName: 'OpenAI', models: [{ id: 'openai/gpt-5', name: 'GPT-5' }] }],
+        },
+        isProviderConfigured: async () => true,
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage: vi.fn().mockReturnValue('msg-1'),
+          updateMessage: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      processTask,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('refuses a model it never offered', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'evil/backdoor', scope: 'turn' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('not available'),
+    }));
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+
+  it('sends a pinned model to the router as preferredModel', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+  });
+
+  it('consumes a next-message pin exactly once', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'turn' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'first', mode: 'send' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'second', mode: 'send' } });
+
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+    // The second turn is back to automatic routing.
+    expect(processTask.mock.calls[1]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+
+  it('keeps a chat-scoped pin across turns until cleared', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'first', mode: 'send' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'second', mode: 'send' } });
+    expect(processTask.mock.calls[1]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: null, scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'third', mode: 'send' } });
+    expect(processTask.mock.calls[2]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+});
