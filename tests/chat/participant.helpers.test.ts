@@ -1876,3 +1876,45 @@ describe('image attachment rejections', () => {
     expect(notice).toContain('One image was not attached');
   });
 });
+
+describe('an interrogative without a question mark', () => {
+  /**
+   * From a live Lane 4 run: the operator typed "what was my question three turns
+   * ago" — no question mark — and `carry on` started an autonomous project run
+   * whose stated goal was that sentence. The interrogative branch required a
+   * trailing `?` while the imperative branch never did, so "explain the router"
+   * was informational and this was executable work.
+   */
+  function transcriptEndingWith(content: string): SessionTranscriptEntry[] {
+    return [
+      { id: '1', role: 'user', content: 'add end-to-end tests for the star panel', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: '2', role: 'assistant', content: 'Here is what I would add.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: '3', role: 'user', content, timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: '4', role: 'assistant', content: 'Three turns ago you asked about coverage.', timestamp: '2026-08-15T10:01:10.000Z' },
+    ];
+  }
+
+  it.each([
+    'what was my question three turns ago',
+    'what is the cost of running these',
+    'how does the router pick a model',
+    'which tests cover the panel',
+    'why did that turn fail',
+  ])('falls back past it rather than running it: %s', question => {
+    // "carry on" after a question must not run the question. It reaches back to
+    // the last prompt that actually asked for work.
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(question)))
+      .toBe('add end-to-end tests for the star panel');
+  });
+
+  it('still treats a statement opening with an interrogative as work', () => {
+    // "When ... it should ..." is a requirement, not an enquiry: `when` opens a
+    // subordinate clause as often as a question, and an obligation modal settles
+    // it either way.
+    const requirement = 'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.';
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(requirement))).toBe(requirement);
+
+    const rule = 'What the router should do is prefer the cheapest healthy model';
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(rule))).toBe(rule);
+  });
+});

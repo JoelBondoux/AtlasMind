@@ -4549,3 +4549,62 @@ describe('file mention lookup', () => {
     });
   });
 });
+
+describe('conversation recall in the chat panel', () => {
+  /**
+   * From a live Lane 4 run: "what was my question three turns ago" was routed to
+   * a model, which invented both the question and a summary of a conversation
+   * that had a verbatim record in memory. `parseConversationRecallRequest` was
+   * only ever called from the participant — the panel never had it — so the one
+   * surface most people use answered from a guess.
+   */
+  it('answers from the transcript without calling a model', async () => {
+    const processTask = vi.fn();
+    const transcript = [
+      { id: '1', role: 'user', content: 'Tell me about our current ci tests', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: '2', role: 'assistant', content: 'Two suites.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: '3', role: 'user', content: 'what is the cost of running these?', timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: '4', role: 'assistant', content: 'About a penny.', timestamp: '2026-08-15T10:01:10.000Z' },
+      { id: '5', role: 'user', content: 'use playwright instead', timestamp: '2026-08-15T10:02:00.000Z' },
+      { id: '6', role: 'assistant', content: 'Switching.', timestamp: '2026-08-15T10:02:10.000Z' },
+      { id: '7', role: 'user', content: 'what was my question three turns ago', timestamp: '2026-08-15T10:03:00.000Z' },
+    ];
+
+    // createOrShow reuses currentPanel, so an earlier test's panel would be the
+    // one driven here, with its own stubs.
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue(transcript),
+          appendMessage: vi.fn().mockReturnValue('msg-x'),
+          updateMessage: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'submitPrompt', payload: { prompt: 'what was my question three turns ago', mode: 'send' } });
+
+    // No model, and the answer quotes the record rather than paraphrasing it.
+    expect(processTask).not.toHaveBeenCalled();
+    const updates = vi.mocked(
+      (ChatPanel.currentPanel as unknown as { atlas: { sessionConversation: { updateMessage: ReturnType<typeof vi.fn> } } })
+        .atlas.sessionConversation.updateMessage,
+    );
+    const answered = updates.mock.calls.map(call => String(call[1] ?? '')).join('\n');
+    expect(answered).toContain('Tell me about our current ci tests');
+  });
+});

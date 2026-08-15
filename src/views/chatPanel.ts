@@ -40,6 +40,7 @@ import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from 
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
+import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
@@ -2796,7 +2797,28 @@ export class ChatPanel {
           summary: routedIntent.summary,
         }
       : undefined;
-    const roadmapStatus = forceSteer ? undefined : await buildRoadmapStatusResult(prompt);
+    // Answered from the transcript, before any model sees it.
+    //
+    // This was deferred on the belief that the panel already had it. It did not
+    // — `parseConversationRecallRequest` was only ever called from the
+    // participant — so "what was my question three turns ago" went to a model
+    // here and came back with a confident, entirely invented question, plus an
+    // invented summary of a conversation that had a verbatim record sitting in
+    // memory. Of every fabrication available in this product that is the
+    // worst-shaped: it contradicts something the operator can scroll up and read.
+    const recallRequest = forceSteer ? undefined : parseConversationRecallRequest(prompt);
+    const recalled = recallRequest
+      ? answerConversationRecall(
+        recallRequest,
+        // Excludes the question being asked right now: it was appended before
+        // `preparePromptRequest` ran, and "three turns ago" means three before
+        // this one.
+        this.atlas.sessionConversation.getTranscript(activeSessionId).slice(0, -1),
+        prompt,
+      )
+      : undefined;
+
+    const roadmapStatus = forceSteer || recalled ? undefined : await buildRoadmapStatusResult(prompt);
     const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
@@ -2851,6 +2873,9 @@ export class ChatPanel {
       userMessage,
       projectGoal,
       ...(loopGoal ? { loopGoal } : {}),
+      ...(recalled
+        ? { directResponse: { markdown: recalled.markdown, modelUsed: 'atlasmind/conversation-recall' } }
+        : {}),
       ...(roadmapStatus
         ? {
           directResponse: {

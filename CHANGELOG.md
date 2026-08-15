@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.335.0] - 2026-08-15
+
+### Fixed
+
+- **The chat panel never had conversation recall.** Asked *"what was my question three turns ago"*, it
+  routed the question to a model, which invented both a question the operator had never asked and a
+  "session summary" that does not exist — while the real exchange sat three lines up the screen. Of every
+  fabrication available in this product that is the worst-shaped, because it contradicts a verbatim record
+  the reader can scroll to.
+
+  `parseConversationRecallRequest` parsed the prompt correctly the whole time. It was only ever *called*
+  from the `@atlas` participant. The 0.324.0 notes and the audit both recorded recall as already live in
+  the panel; it never was, and panel adoption was deferred on that false premise. The panel answers from
+  the transcript now, quoting, before any model is asked.
+
+- **An interrogative typed without a question mark was treated as work.** `carry on` after *"what was my
+  question three turns ago"* started an autonomous project run with that sentence as its goal. The
+  interrogative branch of the informational check required a trailing `?`, while the imperative branch
+  (`explain`, `tell me about`) never did — so "explain the router" was a question and this was a job.
+
+  This is the fourth detector here to key on `?` and be wrong for it: a full stop inside a filename
+  (0.311.1), no question mark at all (0.315.0), something after the question mark (0.320.0). The
+  punctuation is not the signal; the opening word is.
+
+  Narrowed rather than simply relaxed, because dropping the requirement wholesale reads statements as
+  questions: `when` and `where` open a subordinate clause at least as often as an enquiry ("When AtlasMind
+  prompts for tool use it should offer Autopilot" is a requirement), and an obligation modal disqualifies
+  it either way ("what the router **should** do is…" states a rule).
+
+  Both were found by a live Lane 4 run, recorded in `evals/chat-window-live-battery.md`. Two further
+  failures in that run — a cost question that five model attempts could not answer, and a 3B model
+  inverting "use Playwright instead" into "replace Playwright" — are routing problems rather than chat-window
+  ones, and are written up there rather than papered over here.
+
 ## [0.334.1] - 2026-08-15
 
 ### Fixed

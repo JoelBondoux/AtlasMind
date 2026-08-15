@@ -226,6 +226,43 @@ lives.
 
 ## Results
 
+### Run 2 — 2026-08-15, chat panel, Lane 4 only (mixed routing)
+
+**Lane 4 — 3/12 again**, on different failures from Run 1. The two that were code defects are fixed;
+the rest are routing and model quality.
+
+| # | Score | Note |
+|---|---:|---|
+| 4.1 setup (`tell me about our current ci tests`) | **2** | A genuinely good answer: named both suites, the frameworks, the gaps, and three prioritised fixes with example tests. |
+| 4.2 `what is the cost of running these?` | **0** | No answer at all. Five model attempts: two `capability-mismatch`, two `error`. A cost question is not exotic, and the turn ended with "AtlasMind received no usable answer". |
+| 4.3 `use playwright instead` | **0** | **Inverted the instruction.** The suite already used Playwright, and the reply opened *"To replace the Playwright-based E2E tests with a more cost-effective alternative… replace Playwright with jsdom + puppeteer."* Carry-forward worked — it knew the subject — and the comprehension did not. Model quality, on a 3B model. |
+| 4.4 `stop` | **1** | Stopped, but the whole turn became "Request stopped." with nothing preserved. Known (Run 1, 2.5). |
+| 4.5 `what was my question three turns ago` | **0** | **Fabricated.** Answered *"What are the real CI test costs and runtime… is it worth replacing Playwright"* — a question never asked — and cited a "session summary" that does not exist. |
+| 4.6 `carry on` | **0** | Started an autonomous run with **Goal: "what was my question three turns ago"**. |
+
+**Two code defects, both fixed in v0.335.0.**
+
+1. **Conversation recall was never wired into the panel.** `parseConversationRecallRequest` parsed this
+   prompt correctly all along; it was only ever *called* from the participant. The v0.324.0 release notes
+   and the audit both recorded recall as "live in the panel", and it never was — so the surface most
+   people use answered a question about the conversation from a guess, contradicting a verbatim record
+   three lines up. Panel adoption had been deferred on exactly that false premise.
+
+2. **`INFORMATIONAL_QUESTION_PATTERN` required a trailing `?`.** The imperative branch (`explain`,
+   `tell me about`) never did, so "explain the router" was informational while "what was my question three
+   turns ago" was an executable goal — which is how `carry on` ran a question as a project. Fourth
+   occurrence of a detector keying on `?`; the punctuation is not the signal, the opening word is.
+   Narrowed rather than removed: `when`/`where` open subordinate clauses as often as questions, and an
+   obligation modal ("what the router **should** do is…") marks a rule rather than an enquiry.
+
+**Not fixed, and worth separate work**
+
+- **4.2's five-attempt failure.** Two `capability-mismatch` refusals suggest a cost question was routed to
+  models that could not accept the tool set, then to two that errored. Nothing in the chat window can
+  repair that; it belongs to routing.
+- **4.3's inversion.** "Use X instead" reversed by a 3B model. A routing question (should a terse
+  instruction that changes direction go to the cheapest model?) rather than a chat-window one.
+
 ### Run 1 — 2026-08-14, chat panel, `acp/codex@gpt-5.3-codex-spark#medium`
 
 **Lane 1 — 4/8 scored** (1.4 not applicable: no chip existed to click)

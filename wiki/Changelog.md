@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.335.0 — "What did I ask?" is answered from what you asked
+
+Asking the chat panel what you said earlier sent the question to a model, which confidently made up both a
+question you never asked and a summary of a conversation that was sitting on screen. The panel now answers
+from the transcript itself, quoting you, without asking a model at all — which the `@atlas` view has done
+since v0.324.0 and the panel, it turns out, never did.
+
+Related: typing a question without a question mark no longer makes it look like a job. "carry on" after
+"what was my question three turns ago" used to start an autonomous run with that sentence as the goal.
+
 ## v0.334.1 — Stop says it stopped
 
 While waiting for a reply to start, the panel used to read "The model has not stopped; waiting for the next
