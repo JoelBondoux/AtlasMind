@@ -163,7 +163,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                   </button>
                 </div>
                 <div class="model-pin-wrap">
-                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose which model answers" aria-label="Choose which model answers">
+                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn auto" type="button" aria-haspopup="listbox" aria-expanded="false" title="Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. Click to pin one instead." aria-label="Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. Click to pin one instead.">
                     <span id="modelPinLabel">Auto</span>
                   </button>
                   <div id="modelPinList" class="composer-typeahead model-pin-list hidden" role="listbox" aria-label="Model"></div>
@@ -2268,25 +2268,45 @@ ${QUICK_REPLY_CSS}
         .composer-typeahead-empty { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
 
         .model-pin-wrap { position: relative; display: inline-flex; }
-        .model-pin-btn {
+        /* Qualified with .icon-btn deliberately. This block sits earlier in the
+           sheet than the .icon-btn rule, so at equal specificity the generic
+           0.95rem won and the label rendered a size and a half larger than the
+           14px icons beside it — the control read as a heading rather than as one
+           of the row. */
+        .icon-btn.model-pin-btn {
           width: auto;
-          max-width: 160px;
-          padding: 0 8px;
+          max-width: 132px;
+          padding: 0 9px;
           gap: 4px;
-          font-size: 0.72rem;
+          /* Matches the font-size-controls compact buttons, which is what makes
+             it sit in the icon row rather than beside it. */
+          font-size: 0.68rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
           overflow: hidden;
         }
-        .model-pin-btn #modelPinLabel {
+        .icon-btn.model-pin-btn #modelPinLabel {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        /* Pinned reads differently from Auto, because a pin is a decision that
-           outlives the click and the operator should see it without opening
-           anything. */
-        .model-pin-btn.pinned {
-          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 55%, transparent);
+        /* Lit means automation is engaged, which is the same thing the Autopilot
+           button's pressed state says — so it is the same treatment: tinted
+           ground, ring, coloured text. The hue differs because the two automate
+           different things, and two identically-lit buttons side by side would
+           read as one control in two halves. */
+        .icon-btn.model-pin-btn.auto {
+          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 18%, transparent);
           color: var(--vscode-textLink-foreground, #3794ff);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 30%, transparent);
+        }
+        /* Pinned is deliberately *not* lit. The model's own name is already the
+           signal that somebody took the wheel; lighting it too would leave the
+           control lit in both states, which says nothing. */
+        .icon-btn.model-pin-btn.pinned {
+          border-color: var(--vscode-widget-border, #444);
+          color: var(--vscode-foreground);
         }
         .model-pin-list {
           right: 0;

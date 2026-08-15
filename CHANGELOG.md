@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.343.1] - 2026-08-15
+
+### Fixed
+
+- **The model button now sits in the icon row instead of towering over it.** Its style block is defined
+  earlier in the stylesheet than the general `.icon-btn` rule, and at equal specificity the later rule
+  wins — so the `0.72rem` it asked for was silently replaced by `0.95rem`, and the word *Auto* rendered
+  half again the size of the 14px icons beside it. The rule is now qualified so it cannot be overridden
+  by source order, and the label is set at the same size as the other compact text buttons.
+
+### Changed
+
+- **Auto is lit, the way Autopilot is.** Leaving the router to choose is automation being engaged, so the
+  button now says so with the same treatment the Autopilot control uses when pressed — tinted ground,
+  ring, coloured text — in its own hue, because the two automate different things and two identically-lit
+  buttons side by side read as one control in two halves.
+
+  Pinning a model turns the light **off**. The model's name is already the signal that somebody took the
+  wheel, and a control that is lit in both states distinguishes nothing.
+
+- **What the button means is now in its tooltip**, where there is room for it: *Auto model routing —
+  AtlasMind picks the model for each message, on cost, speed and capability.* The visible label stays one
+  word. The same sentence is on `aria-label`, because a tooltip a screen reader never announces is an
+  explanation for sighted users only.
+
 ## [0.343.0] - 2026-08-15
 
 ### Fixed

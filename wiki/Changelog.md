@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.343.1 — The model button joins the icon row
+
+The **Auto** button was rendering half again the size of the icons next to it — its own styling asked to be
+smaller and was being overridden by a more general rule further down the stylesheet. It now matches the row.
+
+Auto is also lit now, the way Autopilot is when it is on, because leaving the router to choose is automation
+being engaged. Pin a model and the light goes off: the model's name is already telling you somebody took the
+wheel. Hover it to read what it does — *AtlasMind picks the model for each message, on cost, speed and
+capability* — which is a sentence that never fitted on the button.
+
 ## v0.343.0 — A project run checks it has somewhere to run
 
 Pointing `/project` at an empty folder used to produce a full plan and a full run. The planner never looks

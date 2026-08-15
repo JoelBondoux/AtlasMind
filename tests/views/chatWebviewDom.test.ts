@@ -461,3 +461,56 @@ describe('links in a reply', () => {
     expect(links[0].classList.contains('blocked-link')).toBe(false);
   });
 });
+
+describe('the model pin button', () => {
+  let harness: Harness;
+
+  function pin() {
+    return harness.window.document.getElementById('modelPin') as HTMLButtonElement;
+  }
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  it('is lit before any state arrives, because Auto is the starting state', () => {
+    // The button is in the markup before the host says anything. If only the
+    // renderer set the lit class, the control would open unlit and light up on
+    // the first state message, which reads as a flicker rather than a default.
+    expect(pin().classList.contains('auto')).toBe(true);
+  });
+
+  it('says what Auto means in the tooltip, and to a screen reader too', () => {
+    harness.send(stateWith([USER_TURN]));
+
+    // The visible label has room for one word; the explanation has to live
+    // somewhere, and a tooltip a screen reader never announces would explain it
+    // to some users only.
+    expect(pin().title).toContain('Auto model routing');
+    expect(pin().getAttribute('aria-label')).toBe(pin().title);
+  });
+
+  it('goes unlit and names the model once one is pinned', () => {
+    harness.send(stateWith([USER_TURN], {
+      modelOverride: { modelId: 'anthropic/claude-sonnet-5', scope: 'session' },
+    }));
+
+    // Lit means automation is engaged. Staying lit while pinned would leave the
+    // control lit in both states, which distinguishes nothing.
+    expect(pin().classList.contains('auto')).toBe(false);
+    expect(pin().classList.contains('pinned')).toBe(true);
+    expect(harness.window.document.getElementById('modelPinLabel')?.textContent).toBe('claude-sonnet-5');
+    expect(pin().title).toContain('for this chat');
+  });
+
+  it('lights up again when the pin is cleared', () => {
+    harness.send(stateWith([USER_TURN], {
+      modelOverride: { modelId: 'anthropic/claude-sonnet-5', scope: 'turn' },
+    }));
+    harness.send(stateWith([USER_TURN]));
+
+    expect(pin().classList.contains('auto')).toBe(true);
+    expect(pin().classList.contains('pinned')).toBe(false);
+    expect(harness.window.document.getElementById('modelPinLabel')?.textContent).toBe('Auto');
+  });
+});

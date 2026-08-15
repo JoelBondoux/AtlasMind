@@ -4512,18 +4512,34 @@
 
   function renderModelPinButton() {
     var override = currentModelOverride();
+    // The visible label stays short enough to sit in the icon row; what the
+    // control *means* lives in the tooltip, which is the only place there is
+    // room to say it. aria-label carries the same sentence, because a tooltip a
+    // screen reader never announces is an explanation for some users only.
     if (override) {
       var short = String(override.modelId).split('/').pop() || override.modelId;
       modelPinLabel.textContent = short;
       modelPin.classList.add('pinned');
-      modelPin.title = 'Pinned to ' + override.modelId
+      modelPin.classList.remove('auto');
+      setModelPinDescription(
+        'Pinned to ' + override.modelId
         + (override.scope === 'turn' ? ' for the next message' : ' for this chat')
-        + ' — click to change or clear';
+        + ' — click to change or clear',
+      );
     } else {
       modelPinLabel.textContent = 'Auto';
       modelPin.classList.remove('pinned');
-      modelPin.title = 'The router is choosing. Click to pin a model.';
+      modelPin.classList.add('auto');
+      setModelPinDescription(
+        'Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. '
+        + 'Click to pin one instead.',
+      );
     }
+  }
+
+  function setModelPinDescription(description) {
+    modelPin.title = description;
+    modelPin.setAttribute('aria-label', description);
   }
 
   function sendModelOverride(modelId) {
