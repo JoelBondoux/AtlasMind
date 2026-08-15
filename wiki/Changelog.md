@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.332.0 — Attach what you are looking at
+
+Two new buttons beside the paperclip: **add the current editor selection**, and **add the Problems panel**.
+Previously, showing AtlasMind the code you were staring at meant copying it in by hand, and asking about an
+error meant retyping a message that was already on your screen.
+
+The selection arrives labelled with its file and line range. The problems arrive counted — "3 errors, 12
+warnings" — so you can see whether it is worth sending before you send it, and if the list is long enough to
+be trimmed, the trimming is stated rather than hidden.
+
 ## v0.331.0 — Code blocks reach the editor
 
 A code block in a reply could be copied or sent to a terminal, and that was all — getting a suggested change

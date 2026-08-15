@@ -234,6 +234,8 @@
     }
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
+  const attachSelection = document.getElementById('attachSelection');
+  const attachProblems = document.getElementById('attachProblems');
   const clearAttachments = document.getElementById('clearAttachments');
   const toggleAutopilotBtn = document.getElementById('toggleAutopilot');
   const attachmentsSection = document.getElementById('attachmentsSection');
@@ -309,6 +311,8 @@
     sendMode: sendMode,
     attachFiles: attachFiles,
     attachOpenFiles: attachOpenFiles,
+    attachSelection: attachSelection,
+    attachProblems: attachProblems,
     clearAttachments: clearAttachments,
     composerShell: composerShell,
     dropHint: dropHint,
@@ -1052,6 +1056,8 @@
     sendMode.disabled = disableMode;
     attachFiles.disabled = disableAttachments;
     attachOpenFiles.disabled = disableAttachments;
+    attachSelection.disabled = disableAttachments;
+    attachProblems.disabled = disableAttachments;
     clearAttachments.disabled = disableAttachments;
     stopPrompt.disabled = !showStop;
     stopPrompt.classList.toggle('hidden', !showStop);
@@ -4011,6 +4017,14 @@
   attachFiles.addEventListener('click', function () {
     vscode.postMessage({ type: 'pickAttachments' });
   });
+  attachSelection.addEventListener('click', function () {
+    vscode.postMessage({ type: 'attachEditorSelection' });
+  });
+
+  attachProblems.addEventListener('click', function () {
+    vscode.postMessage({ type: 'attachProblems' });
+  });
+
   attachOpenFiles.addEventListener('click', function () {
     vscode.postMessage({ type: 'attachOpenFiles' });
   });

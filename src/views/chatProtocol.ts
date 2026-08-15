@@ -58,6 +58,14 @@ export type ChatPanelMessage =
   | { type: 'pickAttachments' }
   | { type: 'attachOpenFile'; payload: string }
   | { type: 'attachOpenFiles' }
+  /**
+   * Payload-less on purpose: the host reads the live editor selection and the
+   * live diagnostics itself. The webview names no file, no range and no
+   * problem — the strongest form of the rule that it supplies data and never a
+   * target.
+   */
+  | { type: 'attachEditorSelection' }
+  | { type: 'attachProblems' }
   | { type: 'removeAttachment'; payload: string }
   | { type: 'clearAttachments' }
   | { type: 'addDroppedItems'; payload: string[] }
@@ -165,6 +173,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'stopPrompt'
     || message.type === 'pickAttachments'
     || message.type === 'attachOpenFiles'
+    || message.type === 'attachEditorSelection'
+    || message.type === 'attachProblems'
     || message.type === 'clearAttachments'
     || message.type === 'toggleAutopilot'
     || message.type === 'syncAiInstructions'

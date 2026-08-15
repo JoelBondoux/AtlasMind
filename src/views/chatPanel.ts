@@ -696,6 +696,12 @@ export class ChatPanel {
       case 'attachOpenFiles':
         await this.attachOpenFiles();
         return;
+      case 'attachEditorSelection':
+        await this.attachEditorSelection();
+        return;
+      case 'attachProblems':
+        await this.attachProblems();
+        return;
       case 'removeAttachment':
         this.composerAttachments = this.composerAttachments.filter(item => item.id !== message.payload);
         await this.syncState();
@@ -778,6 +784,11 @@ export class ChatPanel {
    * file. One pending preview at a time — the diff opens and is answered in the
    * same gesture.
    */
+  /** Caps for the two context attachments read from the editor rather than from disk. */
+  private static readonly MAX_SELECTION_CHARS = 60_000;
+  private static readonly MAX_PROBLEMS = 100;
+  private static readonly MAX_PROBLEMS_CHARS = 20_000;
+
   private static readonly APPLY_PREVIEW_SCHEME = 'atlasmind-apply';
   private static pendingApplyPreview = '';
 
@@ -2919,6 +2930,115 @@ export class ChatPanel {
       return;
     }
     await this.addAttachmentUris([vscode.Uri.file(path.resolve(workspaceRoot, relativePath))]);
+  }
+
+  /**
+   * The editor selection, attached as ordinary text.
+   *
+   * An attachment rather than a new context field, so it travels the pipeline
+   * every other attachment already uses — including the secret redaction added
+   * in 0.329.0, which a bespoke context key would have quietly bypassed.
+   */
+  private async attachEditorSelection(): Promise<void> {
+    const editor = this.lastActiveTextEditor && !this.lastActiveTextEditor.document.isClosed
+      ? this.lastActiveTextEditor
+      : vscode.window.activeTextEditor;
+    if (!editor || editor.selection.isEmpty) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: 'Select some code in an editor first, then attach it.',
+      });
+      return;
+    }
+
+    const document = editor.document;
+    const relativePath = vscode.workspace.asRelativePath(document.uri, false);
+    const startLine = editor.selection.start.line + 1;
+    const endLine = editor.selection.end.line + 1;
+    const raw = document.getText(editor.selection);
+    const truncated = raw.length > ChatPanel.MAX_SELECTION_CHARS;
+    const body = redactSecrets(truncated ? raw.slice(0, ChatPanel.MAX_SELECTION_CHARS) : raw).text;
+    const range = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
+
+    await this.addAttachmentUris([], [{
+      id: `selection:${relativePath}:${startLine}-${endLine}`,
+      label: `${relativePath} · ${range}`,
+      kind: 'text',
+      source: relativePath,
+      inlineText: [
+        `Selected from ${relativePath}, ${range}${truncated ? ' (truncated)' : ''}:`,
+        '',
+        '```' + (document.languageId || ''),
+        body,
+        '```',
+      ].join('\n'),
+    }]);
+  }
+
+  /**
+   * The Problems panel, attached as ordinary text.
+   *
+   * Counted in the label because "Problems" alone says nothing about whether it
+   * is worth sending: three errors and four hundred warnings are different
+   * attachments, and only one of them is worth a model's context.
+   */
+  private async attachProblems(): Promise<void> {
+    const bySeverity = { errors: 0, warnings: 0, other: 0 };
+    const lines: string[] = [];
+    let listed = 0;
+    let omitted = 0;
+
+    for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+      const relativePath = vscode.workspace.asRelativePath(uri, false);
+      for (const diagnostic of diagnostics) {
+        if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
+          bySeverity.errors += 1;
+        } else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
+          bySeverity.warnings += 1;
+        } else {
+          bySeverity.other += 1;
+        }
+        if (listed >= ChatPanel.MAX_PROBLEMS) {
+          omitted += 1;
+          continue;
+        }
+        const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error
+          ? 'error'
+          : diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 'warning' : 'info';
+        const source = diagnostic.source ? `${diagnostic.source}: ` : '';
+        lines.push(`- ${relativePath}:${diagnostic.range.start.line + 1} — ${severity} — ${source}${diagnostic.message}`);
+        listed += 1;
+      }
+    }
+
+    const total = bySeverity.errors + bySeverity.warnings + bySeverity.other;
+    if (total === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'No problems reported in this workspace.' });
+      return;
+    }
+
+    const summary = [
+      bySeverity.errors ? `${bySeverity.errors} error${bySeverity.errors === 1 ? '' : 's'}` : '',
+      bySeverity.warnings ? `${bySeverity.warnings} warning${bySeverity.warnings === 1 ? '' : 's'}` : '',
+      bySeverity.other ? `${bySeverity.other} other` : '',
+    ].filter(Boolean).join(', ');
+
+    const body = redactSecrets([
+      `Problems reported in this workspace (${summary}):`,
+      '',
+      ...lines,
+      // Stated rather than silently dropped: a truncated list read as the whole
+      // list is how a model concludes a problem was fixed.
+      ...(omitted > 0 ? ['', `_${omitted} further problem${omitted === 1 ? '' : 's'} not listed._`] : []),
+    ].join('\n')).text.slice(0, ChatPanel.MAX_PROBLEMS_CHARS);
+
+    await this.addAttachmentUris([], [{
+      id: 'problems:workspace',
+      label: `Problems · ${summary}`,
+      kind: 'text',
+      source: 'Problems panel',
+      inlineText: body,
+    }]);
   }
 
   private async addDroppedItems(items: string[]): Promise<void> {

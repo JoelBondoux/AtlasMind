@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.332.0] - 2026-08-15
+
+### Added
+
+- **The editor selection and the Problems panel can be attached to a chat turn.** Two of the commonest
+  things to want a model to look at, and neither was reachable: describing a selection meant copying it in
+  by hand, and "why is this failing?" meant retyping an error message that was already on screen.
+
+  Both attach as **ordinary text attachments** rather than as new context fields. That is the whole design
+  decision: they travel the pipeline every other attachment already uses, so they inherit the secret
+  redaction added in 0.329.0 — a bespoke context key would have quietly bypassed it, which is exactly the
+  shape of the three leaks that release fixed.
+
+  - **Selection** carries the file and line range in its label, is fenced with the document's language,
+    and caps at 60,000 characters. It targets the last real text editor, for the same reason the code-block
+    actions do: the chat panel is usually the active one by the time you click.
+  - **Problems** counts what it is sending in the label — three errors and four hundred warnings are
+    different attachments and only one is worth a model's context — lists at most 100, and **states the
+    remainder in the text itself**. A truncated list read as the whole list is how a model concludes a
+    problem was fixed.
+
+  Neither message carries a payload. The webview says *attach the selection*, never *attach these lines of
+  that file*: the host reads the live editor and the live diagnostics itself, which is the strongest form
+  of the rule that the webview supplies data and never a target.
+
 ## [0.331.0] - 2026-08-15
 
 ### Added

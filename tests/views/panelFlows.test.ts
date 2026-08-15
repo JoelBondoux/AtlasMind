@@ -86,6 +86,10 @@ vi.mock('vscode', () => ({
   commands: {
     executeCommand: mocks.executeCommand,
   },
+  languages: {
+    getDiagnostics: vi.fn(() => []),
+  },
+  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Position: class { constructor(public line: number, public character: number) {} },
   Range: class {
     constructor(public start: { line: number; character: number }, public end: { line: number; character: number }) {}
@@ -98,7 +102,9 @@ vi.mock('vscode', () => ({
       inspect: mocks.configurationInspect,
       update: mocks.configurationUpdate,
     }),
-    asRelativePath: (value: unknown) => String(value),
+    asRelativePath: (value: unknown) => typeof value === 'string'
+      ? value
+      : String((value as { path?: string; fsPath?: string })?.path ?? (value as { fsPath?: string })?.fsPath ?? value),
     openTextDocument: vi.fn(async (options: unknown) => ({ options })),
     registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => undefined })),
     findFiles: vi.fn().mockResolvedValue([]),
@@ -4347,5 +4353,152 @@ describe('chat code block actions', () => {
     expect(editor.edit).toHaveBeenCalled();
     expect(vscodeModule.workspace.fs.writeFile).not.toHaveBeenCalled();
     (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+});
+
+describe('editor selection and problems as chat context', () => {
+  function mountPanel(processTask = vi.fn()) {
+    // createOrShow reuses currentPanel, so every test in this block must mount
+    // through one helper or a later test silently drives an earlier panel.
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage: vi.fn().mockReturnValue('msg-1'),
+          updateMessage: vi.fn(),
+          recordTurn: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function lastAttachments() {
+    const stateCalls = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { attachments?: Array<{ label: string; inlineText?: string }> } })
+      .filter(message => message?.type === 'state' && message.payload?.attachments);
+    return stateCalls[stateCalls.length - 1]?.payload?.attachments ?? [];
+  }
+
+  it('asks for a selection rather than attaching an empty one', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('Select some code'),
+    }));
+  });
+
+  it('attaches the selection with its file and line range, redacted', async () => {
+    const panel = mountPanel();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = {
+      selection: { isEmpty: false, start: { line: 9 }, end: { line: 11 } },
+      document: {
+        isClosed: false,
+        languageId: 'typescript',
+        uri: { fsPath: 'src/a.ts', path: 'src/a.ts', scheme: 'file' },
+        getText: () => 'const key = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL";',
+      },
+    };
+
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+
+    const attachment = lastAttachments().find(item => item.label.includes('lines 10'));
+    expect(attachment, 'selection attachment missing').toBeDefined();
+    expect(attachment!.label).toContain('src/a.ts');
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+
+  it('counts the problems it attaches, and says what it left out', async () => {
+    const panel = mountPanel();
+    const many = Array.from({ length: 130 }, (_unused, index) => ({
+      severity: index < 3 ? 0 : 1,
+      message: `problem ${index}`,
+      range: { start: { line: index } },
+      source: 'ts',
+    }));
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue(
+      [[{ fsPath: 'src/a.ts', path: 'src/a.ts' }, many]] as never,
+    );
+
+    await panel.handleMessage({ type: 'attachProblems' });
+
+    const attachment = lastAttachments().find(item => item.label.startsWith('Problems'));
+    expect(attachment, 'problems attachment missing').toBeDefined();
+    // The label carries the counts, because "Problems" alone says nothing about
+    // whether the attachment is worth sending.
+    expect(attachment!.label).toContain('3 errors');
+    expect(attachment!.label).toContain('127 warnings');
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue([] as never);
+  });
+
+
+  /**
+   * The label is what the operator sees; this is what the model sees. Both
+   * matter, and only the second one can show that the attachment inherits the
+   * redaction boundary and states its own truncation.
+   */
+  it('sends the selection and the problem list to the model, redacted and honest about truncation', async () => {
+    const processTask = vi.fn().mockResolvedValue({
+      id: 't', agentId: 'a', modelUsed: 'm', response: 'ok',
+      inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+    });
+    const panel = mountPanel(processTask);
+
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = {
+      selection: { isEmpty: false, start: { line: 0 }, end: { line: 0 } },
+      document: {
+        isClosed: false,
+        languageId: 'typescript',
+        uri: { fsPath: 'src/a.ts', path: 'src/a.ts', scheme: 'file' },
+        getText: () => 'const key = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL";',
+      },
+    };
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue(
+      [[{ fsPath: 'src/a.ts', path: 'src/a.ts' }, Array.from({ length: 130 }, (_u, i) => ({
+        severity: 1, message: `problem ${i}`, range: { start: { line: i } }, source: 'ts',
+      }))]] as never,
+    );
+
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+    await panel.handleMessage({ type: 'attachProblems' });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'what is wrong here?', mode: 'send' } });
+
+    const context = processTask.mock.calls[0]?.[0]?.context ?? {};
+    const attachmentContext = String(context.attachmentContext ?? '');
+    expect(attachmentContext).toContain('src/a.ts');
+    // Inherited from the ordinary attachment path, not re-implemented here.
+    expect(attachmentContext).not.toContain('sk-ant-api03-AAAABBBB');
+    expect(attachmentContext).toContain('[REDACTED]');
+    // A truncated list read as the whole list is how a model concludes a
+    // problem was fixed, so the remainder is stated in the text itself.
+    expect(attachmentContext).toContain('further problem');
+
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue([] as never);
+  });
+
+  it('says so when there are no problems, instead of attaching an empty list', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'attachProblems' });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('No problems reported'),
+    }));
   });
 });

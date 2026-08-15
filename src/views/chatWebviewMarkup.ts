@@ -136,6 +136,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                       <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
                     </svg>
                   </button>
+                  <button id="attachSelection" type="button" class="icon-btn compact-icon-btn" title="Add the current editor selection" aria-label="Add editor selection">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 2.5h2M11 2.5h2M3 13.5h2M11 13.5h2M2.5 3v2M2.5 11v2M13.5 3v2M13.5 11v2"/>
+                      <line x1="5.5" y1="6.5" x2="10.5" y2="6.5"/>
+                      <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
+                    </svg>
+                  </button>
+                  <button id="attachProblems" type="button" class="icon-btn compact-icon-btn" title="Add the Problems panel" aria-label="Add problems">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 2.5 14 13H2z"/>
+                      <line x1="8" y1="6.5" x2="8" y2="9.5"/>
+                      <line x1="8" y1="11" x2="8" y2="11"/>
+                    </svg>
+                  </button>
                   <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <line x1="4" y1="4" x2="12" y2="12"/>
