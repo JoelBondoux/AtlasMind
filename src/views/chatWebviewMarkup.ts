@@ -2297,6 +2297,56 @@ ${QUICK_REPLY_CSS}
         .context-meter.warn .context-meter-label { color: var(--vscode-editorWarning-foreground, #c27803); }
         .context-meter-label { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+        .session-rename-input {
+          width: 100%;
+          font: inherit;
+          padding: 1px 4px;
+          border-radius: 4px;
+          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+        }
+        .cross-session-results {
+          margin-top: 10px;
+          padding-top: 8px;
+          border-top: 1px dashed var(--vscode-widget-border, #444);
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .cross-session-heading {
+          font-size: 0.74rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+          margin-bottom: 2px;
+        }
+        .cross-session-result {
+          display: block;
+          width: 100%;
+          text-align: left;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 8px;
+          padding: 6px 9px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, transparent);
+          cursor: pointer;
+        }
+        .cross-session-result:hover { border-color: var(--vscode-focusBorder, var(--vscode-button-background)); }
+        .cross-session-where {
+          font-size: 0.76rem;
+          font-weight: 600;
+          color: var(--vscode-foreground);
+          margin-bottom: 2px;
+        }
+        .cross-session-snippet {
+          font-size: 0.78rem;
+          color: var(--vscode-descriptionForeground);
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
+
         /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);

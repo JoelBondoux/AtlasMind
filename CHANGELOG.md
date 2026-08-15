@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.338.0] - 2026-08-15
+
+### Added
+
+- **Chat sessions can be renamed.** Titles were derived from the first message and permanent, so a thread
+  that turned into something else kept a name describing what it used to be. Renaming is inline in the
+  session rail rather than in a dialog: it is a few words being corrected, usually right after reading
+  them, and a modal takes the list you were comparing against off the screen. Enter or clicking away
+  commits, Escape abandons — matching VS Code's own inline renames, because clicking away from a field you
+  have edited means keeping the edit far more often than discarding it.
+
+  A rename that does not take now says so. Silently doing nothing is worse than failing loudly: the
+  operator reads the old name and concludes they mistyped.
+
+- **Search reaches your other chats.** Searching found matches in the open session only, so "have I
+  discussed this before?" was unanswerable without opening every thread. The same search now also asks the
+  host — which is the only side that holds the other sessions — and lists matches from elsewhere beneath
+  the in-session results, kept separate because a hit in a conversation you are not looking at is a
+  different thing from a hit in this one, and merging them would make the counter meaningless.
+
+  Each result carries a **window around the match** rather than the head of the message: a snippet that
+  does not contain what you searched for makes you open every result to find out whether it was the one.
+  Snippets pass through the same secret redaction as everything else leaving the panel, since a match can
+  sit next to a key. Capped at 50, with the cap stated in the heading.
+
+  This replaces the dead host-side search deleted in 0.327.1 — that one searched a single session and was
+  never called, because the working in-session search is client-side.
+
 ## [0.337.0] - 2026-08-15
 
 ### Added

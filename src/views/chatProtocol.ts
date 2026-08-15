@@ -75,6 +75,13 @@ export type ChatPanelMessage =
    * already offer.
    */
   | { type: 'setModelOverride'; payload: { modelId: string | null; scope: 'turn' | 'session' } }
+  | { type: 'renameSession'; payload: { sessionId: string; title: string } }
+  /**
+   * Search every stored session, not just the open one. Replaces the dead
+   * host-side single-session search removed in 0.327.1 — that one was never
+   * called, because the working in-session search is client-side.
+   */
+  | { type: 'searchAllSessions'; payload: { query: string } }
   | { type: 'attachEditorSelection' }
   | { type: 'attachProblems' }
   | { type: 'removeAttachment'; payload: string }
@@ -299,6 +306,25 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'renameSession') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { sessionId, title } = message.payload as { sessionId?: unknown; title?: unknown };
+    return typeof sessionId === 'string' && sessionId.length > 0
+      && typeof title === 'string' && title.trim().length > 0 && title.length <= 120;
+  }
+
+  if (message.type === 'searchAllSessions') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const query = (message.payload as { query?: unknown }).query;
+    // Two characters minimum: a one-character query matches most of a transcript
+    // and produces a result list nobody can use.
+    return typeof query === 'string' && query.trim().length >= 2 && query.length <= 200;
   }
 
   if (message.type === 'setModelOverride') {

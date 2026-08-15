@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.337.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.338.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.337.0
+## What's new in 0.338.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Rename a chat, and search across all of them.** Titles are editable in the session list, and searching
+  now surfaces matches from your other chats with the text around each one.
 
 - **See how full the context is.** A bar above the composer showing what your next message carries, against
   the answering model's real window — or your session budget when no model is known yet.

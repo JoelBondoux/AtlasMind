@@ -4688,3 +4688,102 @@ describe('model override in the chat panel', () => {
     expect(processTask.mock.calls[2]?.[0]?.constraints?.preferredModel).toBeUndefined();
   });
 });
+
+describe('session rename and cross-session search', () => {
+  function mount(sessions: Array<{ id: string; title: string }>, transcripts: Record<string, unknown[]>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const renameSession = vi.fn().mockReturnValue(true);
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue(sessions.map(session => ({
+            ...session, createdAt: '', updatedAt: '', turnCount: 1, preview: '', isActive: session.id === 'chat-1',
+          }))),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Current', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn((id: string) => transcripts[id] ?? []),
+          renameSession,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return {
+      renameSession,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('renames a session and reports the outcome', async () => {
+    const { panel, renameSession } = mount([{ id: 'chat-1', title: 'Current' }], {});
+    await panel.handleMessage({ type: 'renameSession', payload: { sessionId: 'chat-1', title: 'CI investigation' } });
+
+    expect(renameSession).toHaveBeenCalledWith('chat-1', 'CI investigation');
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'status', payload: 'Renamed.' }));
+  });
+
+  it('says so when the rename did not take', async () => {
+    // A rename that silently did nothing is worse than one that failed loudly:
+    // the operator reads the old name and assumes they mistyped.
+    const { panel } = mount([{ id: 'chat-1', title: 'Current' }], {});
+    const conversation = (ChatPanel.currentPanel as unknown as { atlas: { sessionConversation: { renameSession: ReturnType<typeof vi.fn> } } })
+      .atlas.sessionConversation;
+    conversation.renameSession.mockReturnValue(false);
+
+    await panel.handleMessage({ type: 'renameSession', payload: { sessionId: 'chat-1', title: 'Current' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('already in use'),
+    }));
+  });
+
+  it('finds a phrase in a session that is not open, with the match in the snippet', async () => {
+    const { panel } = mount(
+      [{ id: 'chat-1', title: 'Current' }, { id: 'chat-2', title: 'Last week' }],
+      {
+        'chat-1': [{ id: 'a', role: 'user', content: 'nothing relevant here', timestamp: '2026-08-01T00:00:00.000Z' }],
+        'chat-2': [{
+          id: 'b', role: 'assistant',
+          content: `${'padding '.repeat(30)}we decided to keep Playwright for the browser tests${' trailing'.repeat(30)}`,
+          timestamp: '2026-08-02T00:00:00.000Z',
+        }],
+      },
+    );
+
+    await panel.handleMessage({ type: 'searchAllSessions', payload: { query: 'Playwright' } });
+
+    const reply = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { results?: Array<{ sessionId: string; snippet: string }> } })
+      .find(message => message?.type === 'crossSessionSearchResults');
+    expect(reply?.payload?.results).toHaveLength(1);
+    expect(reply?.payload?.results?.[0]?.sessionId).toBe('chat-2');
+    // A snippet that does not contain the match makes the reader open every
+    // result to find out whether it was the one they wanted.
+    expect(reply?.payload?.results?.[0]?.snippet).toContain('Playwright');
+  });
+
+  it('redacts a secret that happens to sit beside the match', async () => {
+    const { panel } = mount(
+      [{ id: 'chat-2', title: 'Old' }],
+      {
+        'chat-2': [{
+          id: 'b', role: 'user',
+          content: 'deploy notes ANTHROPIC_API_KEY=sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL',
+          timestamp: '2026-08-02T00:00:00.000Z',
+        }],
+      },
+    );
+
+    await panel.handleMessage({ type: 'searchAllSessions', payload: { query: 'deploy notes' } });
+
+    const reply = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { results?: Array<{ snippet: string }> } })
+      .find(message => message?.type === 'crossSessionSearchResults');
+    expect(reply?.payload?.results?.[0]?.snippet).not.toContain('sk-ant-api03-AAAA');
+  });
+});

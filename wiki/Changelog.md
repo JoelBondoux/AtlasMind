@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.338.0 — Rename a chat, and search all of them
+
+Chat titles came from your first message and could not be changed, so a thread that turned into something
+else kept describing what it used to be. Click the pencil in the session list and type — Enter or clicking
+away saves, Escape cancels.
+
+And searching now looks beyond the chat you have open. Matches from your other sessions appear underneath
+the current ones, each showing the text around the match, and clicking one opens that chat.
+
 ## v0.337.0 — See how full the context is
 
 A thin bar above the composer showing what your next message would carry. When AtlasMind knows which model

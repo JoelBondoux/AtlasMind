@@ -166,6 +166,14 @@
       clearSearchHighlights();
       searchResults = collectSearchMatches(query);
       renderTranscriptWithSearch();
+
+      // The other sessions are the host's to search — the webview only holds
+      // the open one. Asked for alongside the in-session search rather than
+      // behind a second control, because "have I discussed this before?" is the
+      // same question as "did I discuss it here?", one scope wider.
+      if (query.length >= 2) {
+        vscode.postMessage({ type: 'searchAllSessions', payload: { query: query } });
+      }
     }
 
     if (toggleSearch) {
@@ -527,6 +535,53 @@
     cancelComposerFocusRestore();
   });
 
+  /**
+   * Rename in place rather than in a dialog.
+   *
+   * The title is a few words being corrected, usually right after reading it —
+   * a modal for that is more ceremony than the change deserves, and it takes
+   * the list you were comparing against off the screen.
+   */
+  function beginSessionRename(row, titleEl, session) {
+    if (row.querySelector('.session-rename-input')) {
+      return;
+    }
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-rename-input';
+    input.value = session.title;
+    input.setAttribute('aria-label', 'Session name');
+    input.maxLength = 120;
+
+    var previous = titleEl.textContent;
+    titleEl.textContent = '';
+    titleEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    var settled = false;
+    function finish(commit) {
+      if (settled) { return; }
+      settled = true;
+      var next = input.value.trim();
+      titleEl.textContent = previous;
+      if (commit && next.length > 0 && next !== session.title) {
+        vscode.postMessage({ type: 'renameSession', payload: { sessionId: session.id, title: next } });
+      }
+    }
+
+    input.addEventListener('keydown', function (event) {
+      event.stopPropagation();
+      if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+      if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    });
+    // Blur commits, matching how VS Code's own inline renames behave: clicking
+    // away from a field you have edited means keeping the edit far more often
+    // than discarding it.
+    input.addEventListener('blur', function () { finish(true); });
+    input.addEventListener('click', function (event) { event.stopPropagation(); });
+  }
+
   function renderSessions(sessions, selectedSessionId, runs, selectedRunId, busySessionId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
@@ -634,6 +689,19 @@
         event.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', payload: session.id });
       });
+      // Rename before the destructive pair, and separated from them: a
+      // mis-click here should cost a dialog, not a transcript.
+      const rename = createSessionActionButton('Rename session', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>',
+        '</svg>',
+      ].join(''));
+      rename.addEventListener('click', function (event) {
+        event.stopPropagation();
+        beginSessionRename(button, title, session);
+      });
+
+      actions.appendChild(rename);
       actions.appendChild(importCtx);
       actions.appendChild(archive);
       actions.appendChild(remove);
@@ -3984,6 +4052,61 @@
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
+
+  /**
+   * Matches from the other stored sessions.
+   *
+   * Rendered under the in-session results rather than mixed into them: a hit in
+   * a conversation you are not looking at is a different thing from a hit in
+   * this one, and merging them would make the counter meaningless.
+   */
+  function renderCrossSessionResults(payload) {
+    var existing = document.getElementById('crossSessionResults');
+    if (existing) {
+      existing.remove();
+    }
+    if (!payload || !Array.isArray(payload.results) || payload.results.length === 0 || !isSearchMode) {
+      return;
+    }
+    var elsewhere = payload.results.filter(function (result) {
+      return !latestState || result.sessionId !== latestState.selectedSessionId;
+    });
+    if (elsewhere.length === 0) {
+      return;
+    }
+
+    var section = document.createElement('section');
+    section.id = 'crossSessionResults';
+    section.className = 'cross-session-results';
+
+    var heading = document.createElement('div');
+    heading.className = 'cross-session-heading';
+    heading.textContent = 'In other chats (' + elsewhere.length + (payload.capped ? '+' : '') + ')';
+    section.appendChild(heading);
+
+    elsewhere.forEach(function (result) {
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'cross-session-result';
+      var where = document.createElement('div');
+      where.className = 'cross-session-where';
+      where.textContent = result.sessionTitle;
+      var snippet = document.createElement('div');
+      snippet.className = 'cross-session-snippet';
+      snippet.textContent = result.snippet;
+      row.appendChild(where);
+      row.appendChild(snippet);
+      row.addEventListener('click', function () {
+        // Opening the session is the whole point of the result; the host
+        // decides what "select" means, as it does for every other row.
+        vscode.postMessage({ type: 'selectSession', payload: result.sessionId });
+      });
+      section.appendChild(row);
+    });
+
+    transcript.appendChild(section);
+  }
+
   // ---- Context meter -----------------------------------------------------
   //
   // What the next turn would carry, against whichever ceiling actually applies.
@@ -4617,6 +4740,11 @@
           scheduleComposerFocusRestore();
         }
       }
+      return;
+    }
+
+    if (message.type === 'crossSessionSearchResults') {
+      renderCrossSessionResults(message.payload);
       return;
     }
 

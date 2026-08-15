@@ -739,6 +739,18 @@ export class ChatPanel {
       case 'attachOpenFiles':
         await this.attachOpenFiles();
         return;
+      case 'renameSession': {
+        const renamed = this.atlas.sessionConversation.renameSession(message.payload.sessionId, message.payload.title);
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: renamed ? 'Renamed.' : 'That name is already in use, or the chat no longer exists.',
+        });
+        await this.syncState();
+        return;
+      }
+      case 'searchAllSessions':
+        await this.replyWithCrossSessionResults(message.payload.query);
+        return;
       case 'setModelOverride':
         await this.applyModelOverride(message.payload);
         return;
@@ -862,6 +874,7 @@ export class ChatPanel {
   }
 
   private static readonly MAX_FILE_MENTIONS = 20;
+  private static readonly MAX_CROSS_SESSION_RESULTS = 50;
   private static readonly MAX_SELECTION_CHARS = 60_000;
   private static readonly MAX_PROBLEMS = 100;
   private static readonly MAX_PROBLEMS_CHARS = 20_000;
@@ -3282,6 +3295,51 @@ export class ChatPanel {
       // that is no longer configured would pin a turn to something that fails.
       this.pickableModels = [];
     }
+  }
+
+  /**
+   * Search every stored session for a phrase.
+   *
+   * Host-side because only the host holds the other sessions — the webview has
+   * the open one and nothing else. Cheap enough to run per request: the store
+   * caps at 30 sessions, so this is a scan over what is already in memory
+   * rather than a query anyone needs to index for.
+   */
+  private async replyWithCrossSessionResults(query: string): Promise<void> {
+    const needle = query.trim().toLowerCase();
+    const results: Array<{ sessionId: string; sessionTitle: string; entryId: string; snippet: string; timestamp: string }> = [];
+
+    for (const summary of this.atlas.sessionConversation.listSessions()) {
+      for (const entry of this.atlas.sessionConversation.getTranscript(summary.id)) {
+        if (results.length >= ChatPanel.MAX_CROSS_SESSION_RESULTS) {
+          break;
+        }
+        if (typeof entry.content !== 'string') {
+          continue;
+        }
+        const at = entry.content.toLowerCase().indexOf(needle);
+        if (at === -1) {
+          continue;
+        }
+        // A window around the hit rather than the head of the message: the
+        // match is what the reader is looking for, and a snippet that does not
+        // contain it makes them open every result to find out.
+        const from = Math.max(0, at - 60);
+        const snippet = `${from > 0 ? '…' : ''}${entry.content.slice(from, at + needle.length + 90).replace(/\s+/g, ' ').trim()}…`;
+        results.push({
+          sessionId: summary.id,
+          sessionTitle: summary.title,
+          entryId: entry.id,
+          snippet: redactSecrets(snippet).text,
+          timestamp: entry.timestamp,
+        });
+      }
+    }
+
+    await this.host.webview.postMessage({
+      type: 'crossSessionSearchResults',
+      payload: { query, results, capped: results.length >= ChatPanel.MAX_CROSS_SESSION_RESULTS },
+    });
   }
 
   private async replyWithFileMentions(query: string): Promise<void> {
