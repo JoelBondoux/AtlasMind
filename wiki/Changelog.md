@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.324.1 — Groundwork: one answer to "what is this prompt asking?"
+
+Nothing changes for you in this release. An audit found the two places you can talk to AtlasMind had
+grown three separate ideas of what a plain, non-slash message means — and the richest of the three,
+holding conversation recall and roadmap status, could not be reached at all from the `@atlas` chat view.
+This release adds the single shared resolver they will both use, without switching either one over to it
+yet. The switch is the next release, kept separate so it can be undone on its own.
+
 ## v0.324.0 — Ask what you said, get what you said
 
 "What was my question two turns ago?" used to be answered by a model guessing, and it guessed wrong —

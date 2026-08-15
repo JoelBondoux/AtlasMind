@@ -1128,14 +1128,15 @@ async function handleChatRequest(
         break;
       }
 
-      projectOutcome = await handleFreeformMessage(
+      projectOutcome = (await handleFreeformMessage(
         request,
+        _chatContext,
         stream,
         token,
         atlas,
         sessionId,
         workflowNotice?.executionPolicy,
-      );
+      )).outcome;
       break;
     }
   }
@@ -3533,15 +3534,50 @@ async function handleCostCommand(
   );
 }
 
-async function handleFreeformMessage(
-  request: vscode.ChatRequest,
-  stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
-  atlas: AtlasMindContext,
-  sessionId: string,
-  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
-): Promise<ProjectRunOutcome | undefined> {
-  const prompt = request.prompt;
+/**
+ * The deterministic gates a freeform prompt passes before any model sees it,
+ * resolved once and returned as data so every surface answers them identically.
+ *
+ * Both chat surfaces call this — the `@atlas` participant renders the result
+ * onto a `ChatResponseStream`, the panel maps it onto its `directResponse`
+ * shape — because the audit found three diverging freeform implementations,
+ * and the divergence was the defect: conversation recall existed on one
+ * surface, intent routing behaved differently on another. A resolver that
+ * returns data cannot drift per surface; only the rendering can.
+ *
+ * Order is deliberate and canonical: a pending-run answer beats everything
+ * (the operator is replying to a question we asked); deterministic
+ * transcript/registry answers (recall, roadmap, routine-edit) beat intent
+ * routing, because an exact answer from a record should never lose to a
+ * phrasing match that starts work.
+ */
+export type FreeformPreflight =
+  | { kind: 'recall'; markdown: string }
+  | { kind: 'roadmap'; markdown: string; prefills?: SessionComposerPrefill[] }
+  | { kind: 'pending-run'; action: 'save' | 'cancel'; entryId: string; goal: string }
+  | { kind: 'intent'; intent: AtlasChatIntent }
+  | { kind: 'routine-edit' }
+  | undefined;
+
+// Deliberately module-private until the panel adopts it in the cutover commit.
+// An export nothing reads is debt this repository measures and caps, and
+// "a future commit will use it" is exactly the excuse that ceiling exists to refuse.
+async function resolveFreeformPreflight(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): Promise<FreeformPreflight> {
+  const pendingRunEntry = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
+  const pendingRunGoal = pendingRunEntry?.meta?.projectRunProposal?.goal;
+  if (pendingRunEntry && pendingRunGoal) {
+    if (SAVE_PROPOSED_RUN_PATTERN.test(prompt)) {
+      return { kind: 'pending-run', action: 'save', entryId: pendingRunEntry.id, goal: pendingRunGoal };
+    }
+    if (CANCEL_PROPOSED_RUN_PATTERN.test(prompt)) {
+      return { kind: 'pending-run', action: 'cancel', entryId: pendingRunEntry.id, goal: pendingRunGoal };
+    }
+  }
 
   // Answered from the transcript, before any model sees it.
   //
@@ -3554,32 +3590,131 @@ async function handleFreeformMessage(
   // routing the question to a model can only make the answer worse.
   const recallRequest = parseConversationRecallRequest(prompt);
   if (recallRequest) {
-    const recalled = answerConversationRecall(
-      recallRequest,
-      atlas.sessionConversation.getTranscript(sessionId),
-      prompt,
-    );
-    stream.markdown(recalled.markdown);
-    return undefined;
+    const recalled = answerConversationRecall(recallRequest, transcript, prompt);
+    return { kind: 'recall', markdown: recalled.markdown };
   }
 
-  const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
-  if (roadmapStatusMarkdown) {
-    stream.markdown(roadmapStatusMarkdown);
-    return undefined;
+  const roadmapStatus = await buildRoadmapStatusResult(prompt);
+  if (roadmapStatus) {
+    return {
+      kind: 'roadmap',
+      markdown: roadmapStatus.markdown,
+      ...(roadmapStatus.prefills.length > 0 ? { prefills: roadmapStatus.prefills } : {}),
+    };
   }
-  if (await handleRoutineEditIntent(prompt, stream, atlas)) {
-    return undefined;
+
+  if (ROUTINE_EDIT_PATTERN.test(prompt)) {
+    return { kind: 'routine-edit' };
   }
-  const imageAttachments = await resolveInlineImageAttachments(prompt);
-  const responseText = await runChatTask(
-    prompt,
-    stream,
-    atlas,
-    imageAttachments,
-    sessionId,
-    workflowExecutionPolicy,
-  );
+
+  const intent = resolveAtlasChatIntent(prompt, transcript);
+  if (intent) {
+    return { kind: 'intent', intent };
+  }
+
+  return undefined;
+}
+
+interface FreeformMessageResult {
+  outcome?: ProjectRunOutcome;
+  assistantMeta?: SessionTranscriptMetadata;
+  handledBy: 'recall' | 'roadmap' | 'routine-edit' | 'pending-run' | 'intent-command' | 'intent-project' | 'model';
+}
+
+async function handleFreeformMessage(
+  request: vscode.ChatRequest,
+  chatContext: vscode.ChatContext | undefined,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  atlas: AtlasMindContext,
+  sessionId: string,
+  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
+): Promise<FreeformMessageResult> {
+  const prompt = request.prompt;
+  const transcript = atlas.sessionConversation.getTranscript(sessionId);
+  const preflight = await resolveFreeformPreflight(prompt, transcript);
+
+  if (preflight?.kind === 'pending-run') {
+    const entry = transcript.find(item => item.id === preflight.entryId);
+    if (entry) {
+      atlas.sessionConversation.updateMessage(entry.id, entry.content, sessionId, {
+        ...entry.meta,
+        projectRunProposal: {
+          goal: preflight.goal,
+          status: preflight.action === 'save' ? 'saved' : 'cancelled',
+        },
+      });
+    }
+    if (preflight.action === 'save') {
+      await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
+        goal: preflight.goal,
+        autoPreview: true,
+      });
+      stream.markdown('Saved the proposed run in **Project Run Center**. You can review and start it there later.');
+    } else {
+      stream.markdown('Cancelled the proposed project run. No run was started or saved.');
+    }
+    return { handledBy: 'pending-run' };
+  }
+
+  if (preflight?.kind === 'recall') {
+    stream.markdown(preflight.markdown);
+    return { handledBy: 'recall' };
+  }
+
+  if (preflight?.kind === 'roadmap') {
+    // Prefills are a panel affordance (composer chips); this surface renders the
+    // markdown alone and VS Code's own followups carry any next step.
+    stream.markdown(preflight.markdown);
+    return { handledBy: 'roadmap' };
+  }
+
+  if (preflight?.kind === 'routine-edit') {
+    await handleRoutineEditIntent(prompt, stream, atlas);
+    return { handledBy: 'routine-edit' };
+  }
+
+  if (preflight?.kind === 'intent' && preflight.intent.kind === 'project') {
+    const pendingRunEntry = [...transcript]
+      .reverse()
+      .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
+    if (pendingRunEntry && isAutonomousContinuationPrompt(prompt)) {
+      atlas.sessionConversation.updateMessage(pendingRunEntry.id, pendingRunEntry.content, sessionId, {
+        ...pendingRunEntry.meta,
+        projectRunProposal: { goal: preflight.intent.goal, status: 'started' },
+      });
+    }
+    stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
+    const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+    // The goal is passed through **unapproved**, whichever way the run was asked
+    // for: a routed intent is a phrasing match on the operator's prompt, not a
+    // review of what the run would touch. The file-count gate renders the plan
+    // first and offers an "Approve and run" chip carrying the approving prompt.
+    const outcome = await runProjectCommand(
+      preflight.intent.goal,
+      stream,
+      token,
+      atlas,
+      sessionId,
+      sessionContextBundle,
+      sessionContext,
+    );
+    return { outcome, handledBy: 'intent-project' };
+  }
+
+  if (preflight?.kind === 'intent' && preflight.intent.kind === 'command') {
+    await vscode.commands.executeCommand(preflight.intent.commandId, ...(preflight.intent.args ?? []));
+    stream.markdown(preflight.intent.summary);
+    return { handledBy: 'intent-command' };
+  }
+
+  const carryForward = shouldCarryForwardConversationContext(prompt, transcript, chatContext);
+  const taskResult = await runChatTask(prompt, stream, atlas, sessionId, {
+    carryForward,
+    detectRunProposal: true,
+    ...(chatContext ? { native: { request, chatContext } } : {}),
+    ...(workflowExecutionPolicy ? { workflowExecutionPolicy } : {}),
+  });
 
   // If the reply offered an autonomous project run, flow straight into it rather
   // than stopping for the operator to type "Proceed" — they already asked for the
@@ -3587,7 +3722,7 @@ async function handleFreeformMessage(
   // gate in runProjectCommand stays active for unusually large runs.
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const autoFlow = resolveProjectRunAutoFlow(
-    responseText,
+    taskResult.transcriptText,
     atlas.sessionConversation.getTranscript(sessionId),
     {
       enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
@@ -3595,12 +3730,13 @@ async function handleFreeformMessage(
     },
   );
   if (!autoFlow || token.isCancellationRequested) {
-    return undefined;
+    return { assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
   }
 
   stream.markdown(`\n\n---\n\n${autoFlow.notice}\n\n`);
   const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-  return runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+  const outcome = await runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+  return { outcome, assistantMeta: taskResult.assistantMeta, handledBy: 'model' };
 }
 
 /**
@@ -3679,27 +3815,71 @@ async function handleVisionCommand(
     ? request.prompt.trim()
     : 'Describe the attached images and highlight anything important.';
 
-  await runChatTask(prompt, stream, atlas, selectedAttachments, sessionId);
+  await runChatTask(prompt, stream, atlas, sessionId, { attachments: selectedAttachments });
+}
+
+interface ChatTaskOptions {
+  /** Explicit image attachments (e.g. the /vision picker). When present, inline prompt-path resolution is skipped. */
+  attachments?: TaskImageAttachment[];
+  /**
+   * Native-surface extras: the live `ChatRequest`/`ChatContext` pair, whose
+   * history lines and reference summary the panel assembles for itself. When
+   * present, context assembly matches what the native inline path sent.
+   */
+  native?: { request: vscode.ChatRequest; chatContext: vscode.ChatContext };
+  /**
+   * Whether prior-turn context travels with this turn. Callers gate this via
+   * `shouldCarryForwardConversationContext`; the default (true) preserves the
+   * behaviour of paths that always carried it.
+   */
+  carryForward?: boolean;
+  /**
+   * Detect a proposed project run in the reply and stamp the pending-proposal
+   * metadata (Start / Save for later / Cancel) on the recorded turn.
+   */
+  detectRunProposal?: boolean;
+  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy;
+}
+
+interface ChatTaskResult {
+  transcriptText: string;
+  assistantMeta: SessionTranscriptMetadata;
+  outcome: 'completed' | 'cancelled' | 'failed';
 }
 
 async function runChatTask(
   prompt: string,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
-  explicitAttachments: TaskImageAttachment[] = [],
   sessionId?: string,
-  workflowExecutionPolicy?: import('../core/workflowChatGuard.js').WorkflowChatExecutionPolicy,
-): Promise<string> {
+  options: ChatTaskOptions = {},
+): Promise<ChatTaskResult> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const sessionContext = atlas.sessionConversation.buildContext({
-    maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-    maxChars: configuration.get<number>('chatSessionContextChars', 2500),
-    ...(sessionId ? { sessionId } : {}),
-  });
+  const carryForward = options.carryForward ?? true;
+  const storedSessionContext = carryForward
+    ? atlas.sessionConversation.buildContext({
+      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+      ...(sessionId ? { sessionId } : {}),
+    })
+    : '';
+  const nativeHistory = options.native && carryForward
+    ? buildNativeChatHistoryLines(options.native.chatContext).join('\n')
+    : '';
+  const nativeChatContext = options.native
+    ? buildNativeChatContextSummary(options.native.request, options.native.chatContext, {
+      includeHistory: carryForward,
+    })
+    : '';
+  const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
   const workstationContext = buildWorkstationContext();
+  const explicitAttachments = options.attachments ?? [];
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
+  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, {
+    sessionContext,
+    ...(nativeChatContext ? { nativeChatContext } : {}),
+  });
   let streamedText = '';
   const chunkBuffer = createStreamBuffer(stream);
   const result = await atlas.orchestrator.processTask({
@@ -3707,10 +3887,11 @@ async function runChatTask(
     userMessage: prompt,
     context: {
       ...(sessionContext ? { sessionContext } : {}),
+      ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
-      ...(workflowExecutionPolicy ? { __workflowChatPolicy: workflowExecutionPolicy } : {}),
+      ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
     },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -3724,6 +3905,11 @@ async function runChatTask(
     }
     streamedText += chunk;
     chunkBuffer.push(chunk);
+  }, message => {
+    if (!message.trim()) {
+      return;
+    }
+    stream.progress(message);
   });
   chunkBuffer.flush();
 
@@ -3731,18 +3917,50 @@ async function runChatTask(
   if (reconciled.additionalText) {
     writeMarkdownChunk(stream, reconciled.additionalText, 'chat task completion');
   }
-  const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
+  let assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
     routingContext: {
       ...(sessionContext ? { sessionContext } : {}),
+      ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
     },
     policies: [
       ...atlas.getWorkspacePolicySnapshots(),
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
+    ...(options.native ? { responseText: reconciled.transcriptText } : {}),
   });
+
+  if (options.detectRunProposal) {
+    const transcript = sessionId ? atlas.sessionConversation.getTranscript(sessionId) : [];
+    const proposal = resolveProjectRunProposal(
+      reconciled.transcriptText,
+      [
+        ...transcript,
+        {
+          id: `proposal-${Date.now()}`,
+          role: 'assistant',
+          content: reconciled.transcriptText,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    );
+    if (proposal) {
+      assistantMeta = {
+        ...assistantMeta,
+        followupQuestion: 'What should I do with this proposed project run?',
+        quickReplies: undefined,
+        projectRunProposal: { goal: proposal.goal, status: 'pending' },
+        suggestedFollowups: [
+          { label: 'Start run', prompt: 'Proceed', description: 'Start the autonomous project run now.' },
+          { label: 'Save for later', prompt: 'Save this proposed project run for later.', description: 'Create a reviewed preview in Project Run Center.' },
+          { label: 'Cancel', prompt: 'Cancel this proposed project run.', description: 'Dismiss the proposal without starting or saving it.' },
+        ],
+      };
+    }
+  }
+
   stream.markdown(renderAssistantResponseFooter(assistantMeta, reconciled.transcriptText));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, sessionId, assistantMeta);
 
@@ -3751,7 +3969,7 @@ async function runChatTask(
     atlas.voiceManager.speak(reconciled.transcriptText);
   }
 
-  return reconciled.transcriptText;
+  return { transcriptText: reconciled.transcriptText, assistantMeta, outcome: 'completed' };
 }
 
 export function reconcileAssistantResponse(

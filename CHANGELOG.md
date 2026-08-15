@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.324.1] - 2026-08-15
+
+### Changed
+
+- **One resolver decides what a freeform prompt is, so two surfaces cannot answer it
+  differently.** Groundwork only — no behaviour changes in this release. An audit of the chat
+  window found three separate freeform implementations: the `@atlas` participant answered plain
+  turns inline, the chat panel had its own path, and a third — the richer one, holding
+  conversation recall, roadmap status and routine-edit intent — was **unreachable code**,
+  because the native handler delegates to it only when a slash command is set and every command
+  is consumed before that branch. Recall existed and could not be reached from the surface the
+  manifest advertises.
+
+  `resolveFreeformPreflight` is the shared answer: it takes a prompt and a transcript and
+  returns *data* — `recall`, `roadmap`, `pending-run`, `routine-edit`, `intent`, or nothing —
+  leaving each surface to render it. A resolver returning data cannot drift per surface; only
+  the rendering can, which is the property the three implementations lacked. The order is
+  canonical and deliberate: an answer to a question *we* asked outranks everything; a
+  deterministic answer read out of a record outranks a phrasing match that would start work.
+
+  `runChatTask` becomes the shared model-turn executor, taking options rather than positional
+  arguments (`carryForward`, `detectRunProposal`, native `request`/`chatContext`, attachments)
+  and returning the assistant metadata alongside the text. Carry-forward is now a parameter
+  rather than an assumption, which is what lets the native path keep gating context on
+  `shouldCarryForwardConversationContext` once it moves across. One incidental repair: the
+  proposal metadata is stamped **before** the footer renders, so a proposed run's question and
+  its Start / Save / Cancel labels print once, together, instead of the question arriving twice.
+
+  Nothing calls the new pipeline yet — the cutover is the next commit, and this one is
+  deliberately separable so it can be reverted on its own.
+
 ## [0.324.0] - 2026-08-15
 
 ### Added
