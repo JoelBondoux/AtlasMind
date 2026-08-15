@@ -78,3 +78,39 @@ describe('slash commands opened from other surfaces', () => {
     }
   });
 });
+
+/**
+ * The prose in `chatSlashRouting.ts` counted the commands, and said "nineteen"
+ * while the set held twenty. A stale number in a comment is harmless on its own;
+ * what it signals is that the file was edited and the reasoning around it was
+ * not re-read, which is how the two ends of a routing table drift apart. Pinning
+ * it makes the next person's edit fail loudly rather than quietly age.
+ */
+describe('slash command counts stated in prose', () => {
+  const routingSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'chatSlashRouting.ts'), 'utf8');
+  const spelled: Record<number, string> = {
+    18: 'eighteen', 19: 'nineteen', 20: 'twenty', 21: 'twenty-one', 22: 'twenty-two', 23: 'twenty-three',
+  };
+
+  it('states the size of the deterministic set correctly', () => {
+    const stated = spelled[KNOWN_SLASH_COMMANDS.size];
+    expect(stated, `no spelling for ${KNOWN_SLASH_COMMANDS.size} — extend the table`).toBeDefined();
+
+    const wrongCounts = Object.entries(spelled)
+      .filter(([size]) => Number(size) !== KNOWN_SLASH_COMMANDS.size)
+      .map(([, word]) => word)
+      .filter(word => new RegExp(`\b${word}\b`, 'i').test(routingSource));
+
+    expect(wrongCounts, `chatSlashRouting.ts says "${wrongCounts.join('", "')}" but the set holds ${KNOWN_SLASH_COMMANDS.size}`)
+      .toEqual([]);
+  });
+
+  /**
+   * The manifest declares two more than the deterministic set: `project` and
+   * `loop` need a prepared run context and cancellation, so they are handled by
+   * the participant rather than replayed.
+   */
+  it('declares exactly the deterministic set plus the two run commands', () => {
+    expect(new Set(declared)).toEqual(new Set([...KNOWN_SLASH_COMMANDS, 'project', 'loop']));
+  });
+});

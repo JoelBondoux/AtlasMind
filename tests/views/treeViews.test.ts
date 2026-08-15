@@ -29,6 +29,8 @@ vi.mock('vscode', () => ({
     }),
     onDidSaveTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     onDidChangeTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    // Serves the right-hand side of the chat panel's apply-code diff.
+    registerTextDocumentContentProvider: vi.fn().mockReturnValue({ dispose: vi.fn() }),
   },
   window: {
     activeTextEditor: undefined,

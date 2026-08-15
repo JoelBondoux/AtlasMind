@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.327.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.341.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,55 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.327.0
+## What's new in 0.341.0
 
-The last Marketplace publication, **v0.310.0**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Dictate a message.** A microphone in the composer, transcribed on your own machine — inserted for you
+  to read, never sent automatically.
+
+- **Restore the files a turn changed**, from that turn in the transcript. Files only — the conversation
+  stays as it is.
+
+- **Edit a message and re-run it, or regenerate a reply.** Both rewind the conversation to that point, and
+  both say how many messages that discards first.
+
+- **Rename a chat, and search across all of them.** Titles are editable in the session list, and searching
+  now surfaces matches from your other chats with the text around each one.
+
+- **See how full the context is.** A bar above the composer showing what your next message carries, against
+  the answering model's real window — or your session budget when no model is known yet.
+
+- **Pin the model when you want to.** Leave it on Auto and the router chooses per task, or pin one for the
+  next message or the whole chat. The footer still says which model actually answered.
+
+- **The composer completes as you type.** `/` opens the command list, `@` searches your workspace for a
+  file — and picking one attaches it, not just its name.
+
+- **Attach what you are looking at.** Add the current editor selection, or the Problems panel, straight to
+  a chat turn — labelled with the file and line range, or counted by severity.
+
+- **Code blocks reach the editor.** Insert at the cursor, open as a new file, or apply with a diff preview
+  that shows exactly what would change before you confirm. Nothing is merged for you and every edit is
+  undoable.
+
+- **Code blocks in chat are syntax highlighted**, in about forty languages, using your editor's own theme
+  colours so a snippet in chat matches the same code in the file beside it.
+
+- **The chat transcript stops rebuilding itself while an answer streams.** It used to redraw the whole
+  conversation on every chunk, which lost any text you had selected, slowed down as the thread grew, and
+  made screen readers re-announce everything. The model badge is also keyboard-reachable now, and the
+  spinners respect reduce-motion.
+
+- **Secrets are stripped from what chat sends.** Terminal output, attached files and pasted text were the
+  three paths that reached a model without passing through redaction — a `.env` dragged onto the composer
+  went as written. And an image that could not be attached (too large, wrong format) no longer fails
+  silently, leaving you to read the answer as though the model had seen it.
+
+- **Deleting a chat asks first.** Deleting a session, clearing a conversation or removing a message used
+  to happen the instant you clicked, with no undo and no copy of the transcript anywhere else. All three
+  now confirm, and say how many messages you would lose.
 
 - **Chat no longer writes to tracked files on its own.** Two things used to happen silently and outlast the
   conversation: `/buzz local` wrote a workspace setting, and signalling frustration wrote a note quoting
@@ -900,10 +945,10 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/loop <goal>` | Chase a goal inside cost, time and iteration limits |
 | `/ideate` | See what's on the ideation board and what needs attention |
 | `/research` | What the research scans found outside your repository |
-| `/agents` · `/skills` | List and manage your agents and skills |
+| `/agents` · `/skills` | List your agents and skills (edit them in the Agent Manager) |
 | `/discover <query>` | Find MCP servers, agents, skills and APIs to add |
-| `/memory` | Query or manage project memory |
-| `/cost` | Current session spend |
+| `/memory <query>` | Query project memory (browse and edit it in the Memory view) |
+| `/cost` | Running spend for this workspace across all sessions (each reply's own cost is in its footer) |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
 | `/setup` · `/acp` · `/buzz` · `/lens` | Guided setup walkthroughs |

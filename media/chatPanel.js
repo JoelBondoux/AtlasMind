@@ -28,11 +28,18 @@
   let currentStatusText = 'Ready.';
   let currentStatusModel = undefined;
 
+  // Anything that means "nothing is happening". The strip is hidden for these:
+  // a bubble permanently announcing "Ready." is instrumentation, not news.
+  var IDLE_STATUS_PATTERN = /^(ready\.?|idle\.?)$/i;
+
   function setStatusText(text) {
     currentStatusText = typeof text === 'string' ? text : '';
-    status.textContent = currentStatusModel
-      ? currentStatusText + ' · Model: ' + currentStatusModel
-      : currentStatusText;
+    var trimmed = currentStatusText.trim();
+    var idle = trimmed.length === 0 || IDLE_STATUS_PATTERN.test(trimmed);
+    status.textContent = idle
+      ? ''
+      : (currentStatusModel ? currentStatusText + ' · ' + currentStatusModel : currentStatusText);
+    status.classList.toggle('idle', idle);
   }
 
   function setCurrentStatusModel(model) {
@@ -159,6 +166,14 @@
       clearSearchHighlights();
       searchResults = collectSearchMatches(query);
       renderTranscriptWithSearch();
+
+      // The other sessions are the host's to search — the webview only holds
+      // the open one. Asked for alongside the in-session search rather than
+      // behind a second control, because "have I discussed this before?" is the
+      // same question as "did I discuss it here?", one scope wider.
+      if (query.length >= 2) {
+        vscode.postMessage({ type: 'searchAllSessions', payload: { query: query } });
+      }
     }
 
     if (toggleSearch) {
@@ -234,6 +249,8 @@
     }
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
+  const attachSelection = document.getElementById('attachSelection');
+  const attachProblems = document.getElementById('attachProblems');
   const clearAttachments = document.getElementById('clearAttachments');
   const toggleAutopilotBtn = document.getElementById('toggleAutopilot');
   const attachmentsSection = document.getElementById('attachmentsSection');
@@ -309,6 +326,8 @@
     sendMode: sendMode,
     attachFiles: attachFiles,
     attachOpenFiles: attachOpenFiles,
+    attachSelection: attachSelection,
+    attachProblems: attachProblems,
     clearAttachments: clearAttachments,
     composerShell: composerShell,
     dropHint: dropHint,
@@ -516,6 +535,53 @@
     cancelComposerFocusRestore();
   });
 
+  /**
+   * Rename in place rather than in a dialog.
+   *
+   * The title is a few words being corrected, usually right after reading it —
+   * a modal for that is more ceremony than the change deserves, and it takes
+   * the list you were comparing against off the screen.
+   */
+  function beginSessionRename(row, titleEl, session) {
+    if (row.querySelector('.session-rename-input')) {
+      return;
+    }
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-rename-input';
+    input.value = session.title;
+    input.setAttribute('aria-label', 'Session name');
+    input.maxLength = 120;
+
+    var previous = titleEl.textContent;
+    titleEl.textContent = '';
+    titleEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    var settled = false;
+    function finish(commit) {
+      if (settled) { return; }
+      settled = true;
+      var next = input.value.trim();
+      titleEl.textContent = previous;
+      if (commit && next.length > 0 && next !== session.title) {
+        vscode.postMessage({ type: 'renameSession', payload: { sessionId: session.id, title: next } });
+      }
+    }
+
+    input.addEventListener('keydown', function (event) {
+      event.stopPropagation();
+      if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+      if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    });
+    // Blur commits, matching how VS Code's own inline renames behave: clicking
+    // away from a field you have edited means keeping the edit far more often
+    // than discarding it.
+    input.addEventListener('blur', function () { finish(true); });
+    input.addEventListener('click', function (event) { event.stopPropagation(); });
+  }
+
   function renderSessions(sessions, selectedSessionId, runs, selectedRunId, busySessionId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
@@ -623,6 +689,19 @@
         event.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', payload: session.id });
       });
+      // Rename before the destructive pair, and separated from them: a
+      // mis-click here should cost a dialog, not a transcript.
+      const rename = createSessionActionButton('Rename session', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/>',
+        '</svg>',
+      ].join(''));
+      rename.addEventListener('click', function (event) {
+        event.stopPropagation();
+        beginSessionRename(button, title, session);
+      });
+
+      actions.appendChild(rename);
       actions.appendChild(importCtx);
       actions.appendChild(archive);
       actions.appendChild(remove);
@@ -1052,6 +1131,8 @@
     sendMode.disabled = disableMode;
     attachFiles.disabled = disableAttachments;
     attachOpenFiles.disabled = disableAttachments;
+    attachSelection.disabled = disableAttachments;
+    attachProblems.disabled = disableAttachments;
     clearAttachments.disabled = disableAttachments;
     stopPrompt.disabled = !showStop;
     stopPrompt.classList.toggle('hidden', !showStop);
@@ -1141,6 +1222,8 @@
   }
 
   function submitPrompt(modeOverride) {
+    // A new message means the previous stop, whatever became of it, is history.
+    stopRequested = false;
     if (isSearchMode) {
       // In search mode, do not send chat prompt
       if (searchBtn) searchBtn.click();
@@ -1767,7 +1850,7 @@
     if (meta.iterationLimitHit) {
       var hasRaiseSuggestion = typeof meta.suggestedIterationLimit === 'number' || typeof meta.suggestedToolCallsPerTurnLimit === 'number';
       var limitMsg = hasRaiseSuggestion
-        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep going at the current one.'
         : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
       return (followupQuestion ? followupQuestion + '\n\n' : '') + limitMsg;
     }
@@ -1828,6 +1911,314 @@
     }
   }
 
+  /**
+   * What the transcript currently shows, so a re-render can tell whether
+   * anything actually moved.
+   *
+   * `renderTranscript` rebuilt every bubble on every call, and it is called on
+   * each streamed chunk — so a long answer tore down and rebuilt the whole
+   * conversation dozens of times. That is O(n) per token batch on a transcript
+   * that only grows, it destroys any selection or focus inside the transcript
+   * while the user is reading, and with `aria-live` on the container it asked a
+   * screen reader to re-announce the entire conversation each time.
+   */
+  var renderedEntryIds = [];
+  var lastRenderContext = null;
+  /** True from the moment Stop is clicked until the turn actually ends. */
+  var stopRequested = false;
+
+  /**
+   * Re-render only what changed, falling back to a full render whenever that
+   * cannot be established cheaply.
+   *
+   * The fast path is deliberately narrow: it runs **only while a turn is in
+   * flight**, which is the burst this exists for, and only when the entries
+   * already on screen are an unchanged prefix of the incoming ones. Anything
+   * else — a deletion, a reorder, a session switch, a selection change, search
+   * mode — takes the full path. The turn's final render always arrives with
+   * `busy` false, so the steady state is rebuilt in full and any drift the fast
+   * path could have introduced lasts at most one frame.
+   */
+  function renderTranscriptDelta(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
+    var incomingIds = Array.isArray(entries)
+      ? entries.map(function (entry) { return entry && entry.id ? entry.id : ''; })
+      : [];
+    var canPatch = busy
+      && !isSearchMode
+      && !selectedMessageId
+      && lastRenderContext !== null
+      && incomingIds.length >= renderedEntryIds.length
+      && renderedEntryIds.length > 0
+      && incomingIds.every(function (id) { return id !== ''; })
+      && renderedEntryIds.every(function (id, index) { return incomingIds[index] === id; })
+      && transcript.querySelectorAll('[data-entry-id]').length === renderedEntryIds.length;
+
+    if (!canPatch) {
+      renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels);
+      renderedEntryIds = incomingIds;
+      return;
+    }
+
+    var savedDisclosure = captureDisclosureState();
+    var ctx = {
+      busy: busy,
+      busyAssistantMessageId: busyAssistantMessageId,
+      lastAssistantIndex: findLastAssistantIndex(entries),
+      selectedMessageId: selectedMessageId,
+      streamingModels: streamingModels,
+      streamingThought: streamingThought,
+      runsByMessageId: lastRenderContext.runsByMessageId,
+      sessionModels: lastRenderContext.sessionModels,
+      selectedRun: selectedRun,
+    };
+
+    // The last bubble already on screen is the one being written into, so it is
+    // the only existing element that can have changed.
+    var tailIndex = renderedEntryIds.length - 1;
+    var tailElement = transcript.querySelector('[data-entry-id="' + cssEscape(renderedEntryIds[tailIndex]) + '"]');
+    if (tailElement && tailElement.parentNode === transcript) {
+      transcript.replaceChild(buildMessageElement(entries[tailIndex], tailIndex, ctx), tailElement);
+    }
+
+    for (var index = renderedEntryIds.length; index < entries.length; index += 1) {
+      transcript.appendChild(buildMessageElement(entries[index], index, ctx));
+    }
+
+    restoreDisclosureState(savedDisclosure);
+    renderedEntryIds = incomingIds;
+    lastRenderContext = ctx;
+    maybeScrollTranscriptToBottom();
+  }
+
+  /** Redraw the thread from the last state the host sent, with current local flags. */
+  function renderTranscriptFromLatestState() {
+    if (!latestState || latestState.activeSurface === 'run') {
+      return;
+    }
+    renderTranscript(
+      latestState.transcript,
+      isBusy,
+      latestState.selectedMessageId,
+      latestState.projectRuns,
+      latestState.selectedRun,
+      latestState.busyAssistantMessageId,
+      latestState.streamingThought,
+      latestState.streamingModels,
+    );
+  }
+
+  /** Index of the final assistant entry, or -1. Shared by both render paths. */
+  function findLastAssistantIndex(entries) {
+    for (var index = entries.length - 1; index >= 0; index -= 1) {
+      if (entries[index] && entries[index].role === 'assistant') {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * One transcript bubble, built and returned rather than appended.
+   *
+   * Extracted from `renderTranscript` so a single message can be rebuilt on
+   * its own. The full renderer and the incremental one share this, which is
+   * the point: two builders would drift, and the divergence would only show
+   * up mid-stream, which is the hardest place to notice anything.
+   */
+  function buildMessageElement(entry, index, ctx) {
+    var busy = ctx.busy;
+    var busyAssistantMessageId = ctx.busyAssistantMessageId;
+    var lastAssistantIndex = ctx.lastAssistantIndex;
+    var selectedMessageId = ctx.selectedMessageId;
+    var streamingModels = ctx.streamingModels;
+    var streamingThought = ctx.streamingThought;
+    var runsByMessageId = ctx.runsByMessageId;
+    var sessionModels = ctx.sessionModels;
+    var selectedRun = ctx.selectedRun;
+
+    var item = document.createElement('div');
+    item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
+    if (entry.id) {
+      item.setAttribute('data-entry-id', entry.id);
+    }
+    if (selectedMessageId && entry.id === selectedMessageId) {
+      item.classList.add('selected-message');
+    }
+    var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
+    if (showThinking) {
+      item.classList.add('pending');
+    }
+
+    var header = document.createElement('div');
+    header.className = 'chat-message-header';
+
+    var role = document.createElement('div');
+    role.className = 'chat-role';
+    role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
+    header.appendChild(role);
+
+    if (entry.role === 'assistant') {
+      var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
+      var badgeModelList = null;
+      var badgeCurrentModel = null;
+      var badgePriorCount = 0;
+
+      if (isLiveEntry) {
+        badgeModelList = streamingModels;
+        badgeCurrentModel = streamingModels[streamingModels.length - 1];
+        badgePriorCount = streamingModels.length - 1;
+      } else if (entry.meta && entry.meta.modelUsed) {
+        if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
+          badgeModelList = entry.meta.modelsUsed;
+          badgeCurrentModel = entry.meta.modelUsed;
+          badgePriorCount = entry.meta.modelsUsed.length - 1;
+        } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+          badgeModelList = sessionModels;
+          badgeCurrentModel = sessionModels[sessionModels.length - 1];
+          badgePriorCount = sessionModels.length - 1;
+        } else {
+          badgeCurrentModel = entry.meta.modelUsed;
+        }
+      }
+
+      if (badgeCurrentModel) {
+        var badgeWrap = document.createElement('div');
+        badgeWrap.className = 'model-badge-dropdown';
+
+        var hasMultiple = badgePriorCount > 0;
+        // A real button when it opens something. It was a div with a click
+        // handler, so it could never take focus -- which made the dropdown
+        // unreachable by keyboard and left the Escape handler below and the
+        // badge.focus() call inside it as dead code.
+        var badge = document.createElement(hasMultiple ? 'button' : 'div');
+        if (hasMultiple) {
+          badge.type = 'button';
+          badge.setAttribute('aria-haspopup', 'true');
+          badge.setAttribute('aria-expanded', 'false');
+        }
+        badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
+
+        var nameSpan = document.createElement('span');
+        nameSpan.textContent = badgeCurrentModel;
+        badge.appendChild(nameSpan);
+
+        if (isLiveEntry) {
+          var liveDot = document.createElement('span');
+          liveDot.className = 'live-dot';
+          badge.appendChild(liveDot);
+        }
+
+        if (hasMultiple) {
+          var countSpan = document.createElement('span');
+          countSpan.className = 'model-badge-count';
+          countSpan.textContent = '(+' + badgePriorCount + ')';
+          badge.appendChild(countSpan);
+        }
+
+        badgeWrap.appendChild(badge);
+
+        if (hasMultiple && badgeModelList) {
+          var list = document.createElement('div');
+          list.className = 'model-badge-list';
+          var listLabel = document.createElement('div');
+          listLabel.className = 'model-badge-list-label';
+          listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
+          list.appendChild(listLabel);
+          for (var mi = 0; mi < badgeModelList.length; mi++) {
+            var listItem = document.createElement('div');
+            listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
+            listItem.textContent = badgeModelList[mi];
+            list.appendChild(listItem);
+          }
+          badgeWrap.appendChild(list);
+
+          // Close-on-outside-click is armed when the menu opens, not when the
+          // message renders. The previous version registered at render time
+          // and unbound itself on the first document click anywhere — which
+          // in practice happened long before the menu was ever opened, so the
+          // dropdown then stayed open until the badge was clicked again.
+          var closeOnOutsideClick = function () {
+            list.classList.remove('open');
+            badge.setAttribute('aria-expanded', 'false');
+          };
+
+          var setOpen = function (willOpen) {
+            list.classList.toggle('open', willOpen);
+            badge.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) {
+              document.addEventListener('click', closeOnOutsideClick, { once: true });
+            } else {
+              document.removeEventListener('click', closeOnOutsideClick);
+            }
+          };
+
+          badge.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setOpen(!list.classList.contains('open'));
+          });
+
+          // On the badge, not the list: the badge is what holds focus, so this
+          // is the element the Escape key will actually reach.
+          badge.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && list.classList.contains('open')) {
+              e.stopPropagation();
+              setOpen(false);
+            }
+          });
+        }
+
+        header.appendChild(badgeWrap);
+      }
+    }
+
+    var content = document.createElement('div');
+    content.className = 'chat-content';
+    if (showThinking) {
+      // The one live region in the transcript, and only while this turn is being
+      // written. The container used to carry it, so every re-render asked a
+      // screen reader to read the whole conversation again.
+      content.setAttribute('aria-live', 'polite');
+      content.setAttribute('aria-atomic', 'false');
+    }
+    renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
+
+    item.appendChild(header);
+    if (content.childNodes.length > 0) {
+      item.appendChild(content);
+    }
+
+    var messageAttachments = renderMessageAttachments(entry);
+    if (messageAttachments) {
+      item.appendChild(messageAttachments);
+    }
+
+    if (entry.role === 'user' && entry.id) {
+      item.appendChild(renderMessageDeleteRow(entry.id, entry));
+    }
+
+    var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
+    if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
+      item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
+    }
+
+    if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
+      item.appendChild(renderRunReviewBubble(selectedRun));
+    }
+
+    if (showThinking && streamingThought) {
+      var thoughtBlock = renderStreamingThought(streamingThought);
+      if (thoughtBlock) {
+        item.appendChild(thoughtBlock);
+      }
+    }
+
+    if (showThinking) {
+      item.appendChild(renderThinkingIndicator(Boolean(entry.content)));
+    }
+
+    return item;
+  }
+
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
     var savedDisclosure = captureDisclosureState();
     transcript.innerHTML = '';
@@ -1836,16 +2227,12 @@
       empty.className = 'empty-state';
       empty.textContent = 'No messages yet. Start a conversation with AtlasMind from this panel.';
       transcript.appendChild(empty);
+      renderedEntryIds = [];
+      lastRenderContext = null;
       return;
     }
 
-    var lastAssistantIndex = -1;
-    for (var index = entries.length - 1; index >= 0; index -= 1) {
-      if (entries[index] && entries[index].role === 'assistant') {
-        lastAssistantIndex = index;
-        break;
-      }
-    }
+    var lastAssistantIndex = findLastAssistantIndex(entries);
 
     var runsByMessageId = new Map();
     if (Array.isArray(runs)) {
@@ -1875,166 +2262,21 @@
       }
     }
 
+    var ctx = {
+      busy: busy,
+      busyAssistantMessageId: busyAssistantMessageId,
+      lastAssistantIndex: lastAssistantIndex,
+      selectedMessageId: selectedMessageId,
+      streamingModels: streamingModels,
+      streamingThought: streamingThought,
+      runsByMessageId: runsByMessageId,
+      sessionModels: sessionModels,
+      selectedRun: selectedRun,
+    };
+    lastRenderContext = ctx;
+    renderedEntryIds = entries.map(function (item) { return item && item.id ? item.id : ''; });
     entries.forEach(function (entry, index) {
-      var item = document.createElement('div');
-      item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
-      if (entry.id) {
-        item.setAttribute('data-entry-id', entry.id);
-      }
-      if (selectedMessageId && entry.id === selectedMessageId) {
-        item.classList.add('selected-message');
-      }
-      var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
-      if (showThinking) {
-        item.classList.add('pending');
-      }
-
-      var header = document.createElement('div');
-      header.className = 'chat-message-header';
-
-      var role = document.createElement('div');
-      role.className = 'chat-role';
-      role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
-      header.appendChild(role);
-
-      if (entry.role === 'assistant') {
-        var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
-        var badgeModelList = null;
-        var badgeCurrentModel = null;
-        var badgePriorCount = 0;
-
-        if (isLiveEntry) {
-          badgeModelList = streamingModels;
-          badgeCurrentModel = streamingModels[streamingModels.length - 1];
-          badgePriorCount = streamingModels.length - 1;
-        } else if (entry.meta && entry.meta.modelUsed) {
-          if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
-            badgeModelList = entry.meta.modelsUsed;
-            badgeCurrentModel = entry.meta.modelUsed;
-            badgePriorCount = entry.meta.modelsUsed.length - 1;
-          } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
-            badgeModelList = sessionModels;
-            badgeCurrentModel = sessionModels[sessionModels.length - 1];
-            badgePriorCount = sessionModels.length - 1;
-          } else {
-            badgeCurrentModel = entry.meta.modelUsed;
-          }
-        }
-
-        if (badgeCurrentModel) {
-          var badgeWrap = document.createElement('div');
-          badgeWrap.className = 'model-badge-dropdown';
-
-          var badge = document.createElement('div');
-          var hasMultiple = badgePriorCount > 0;
-          badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
-
-          var nameSpan = document.createElement('span');
-          nameSpan.textContent = badgeCurrentModel;
-          badge.appendChild(nameSpan);
-
-          if (isLiveEntry) {
-            var liveDot = document.createElement('span');
-            liveDot.className = 'live-dot';
-            badge.appendChild(liveDot);
-          }
-
-          if (hasMultiple) {
-            var countSpan = document.createElement('span');
-            countSpan.className = 'model-badge-count';
-            countSpan.textContent = '(+' + badgePriorCount + ')';
-            badge.appendChild(countSpan);
-          }
-
-          badgeWrap.appendChild(badge);
-
-          if (hasMultiple && badgeModelList) {
-            var list = document.createElement('div');
-            list.className = 'model-badge-list';
-            var listLabel = document.createElement('div');
-            listLabel.className = 'model-badge-list-label';
-            listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
-            list.appendChild(listLabel);
-            for (var mi = 0; mi < badgeModelList.length; mi++) {
-              var listItem = document.createElement('div');
-              listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
-              listItem.textContent = badgeModelList[mi];
-              list.appendChild(listItem);
-            }
-            badgeWrap.appendChild(list);
-
-            // Close-on-outside-click is armed when the menu opens, not when the
-            // message renders. The previous version registered at render time
-            // and unbound itself on the first document click anywhere — which
-            // in practice happened long before the menu was ever opened, so the
-            // dropdown then stayed open until the badge was clicked again.
-            var closeOnOutsideClick = function () {
-              list.classList.remove('open');
-            };
-
-            badge.addEventListener('click', function (e) {
-              e.stopPropagation();
-              var willOpen = !list.classList.contains('open');
-              list.classList.toggle('open', willOpen);
-              if (willOpen) {
-                document.addEventListener('click', closeOnOutsideClick, { once: true });
-              } else {
-                document.removeEventListener('click', closeOnOutsideClick);
-              }
-            });
-
-            list.addEventListener('keydown', function (e) {
-              if (e.key === 'Escape') {
-                list.classList.remove('open');
-                document.removeEventListener('click', closeOnOutsideClick);
-                badge.focus();
-              }
-            });
-          }
-
-          header.appendChild(badgeWrap);
-        }
-      }
-
-      var content = document.createElement('div');
-      content.className = 'chat-content';
-      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
-
-      item.appendChild(header);
-      if (content.childNodes.length > 0) {
-        item.appendChild(content);
-      }
-
-      var messageAttachments = renderMessageAttachments(entry);
-      if (messageAttachments) {
-        item.appendChild(messageAttachments);
-      }
-
-      if (entry.role === 'user' && entry.id) {
-        item.appendChild(renderMessageDeleteRow(entry.id));
-      }
-
-      var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
-      if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
-        item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
-      }
-
-      if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
-        item.appendChild(renderRunReviewBubble(selectedRun));
-      }
-
-      if (showThinking && streamingThought) {
-        var thoughtBlock = renderStreamingThought(streamingThought);
-        if (thoughtBlock) {
-          item.appendChild(thoughtBlock);
-        }
-      }
-
-      if (showThinking) {
-        item.appendChild(renderThinkingIndicator(Boolean(entry.content)));
-      }
-
-      transcript.appendChild(item);
+      transcript.appendChild(buildMessageElement(entry, index, ctx));
     });
 
     restoreDisclosureState(savedDisclosure);
@@ -2237,6 +2479,17 @@
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
+    // Beside the thumbs, because it is the same judgement one step further on:
+    // this answer was not good enough, try again.
+    actions.appendChild(createRegenerateButton(entry.id));
+    // Offered only when this turn actually has a snapshot: a control that
+    // reports "nothing to restore" when clicked is worse than no control.
+    var taskId = entry.meta && typeof entry.meta.taskId === 'string' ? entry.meta.taskId : undefined;
+    var restorable = taskId && latestState && Array.isArray(latestState.checkpointTaskIds)
+      && latestState.checkpointTaskIds.indexOf(taskId) !== -1;
+    if (restorable) {
+      actions.appendChild(createRestoreButton(entry.id));
+    }
     actions.appendChild(createDeleteButton(entry.id));
     return actions;
   }
@@ -2360,14 +2613,112 @@
     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  function renderMessageDeleteRow(entryId) {
+  function renderMessageDeleteRow(entryId, entry) {
     var row = document.createElement('div');
     row.className = 'assistant-utility-row';
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
+    if (entry) {
+      actions.appendChild(createEditButton(entry));
+    }
     actions.appendChild(createDeleteButton(entryId));
     row.appendChild(actions);
     return row;
+  }
+
+  /**
+   * Edit one of your own messages and run it again.
+   *
+   * Edited in place in the bubble rather than in the composer: the composer may
+   * already hold something you were part-way through typing, and taking it over
+   * to correct an older message would lose that.
+   */
+  function createEditButton(entry) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Edit and re-run this message');
+    button.title = 'Edit and re-run this message';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      beginMessageEdit(entry);
+    });
+    return button;
+  }
+
+  function beginMessageEdit(entry) {
+    var bubble = transcript.querySelector('[data-entry-id="' + cssEscape(entry.id) + '"]');
+    var content = bubble ? bubble.querySelector('.chat-content') : null;
+    if (!content || content.querySelector('.message-edit-input')) {
+      return;
+    }
+
+    var editor = document.createElement('textarea');
+    editor.className = 'message-edit-input';
+    editor.value = entry.content || '';
+    editor.rows = Math.min(10, Math.max(2, String(entry.content || '').split(String.fromCharCode(10)).length));
+    editor.setAttribute('aria-label', 'Edit your message');
+
+    var hint = document.createElement('div');
+    hint.className = 'message-edit-hint';
+    hint.textContent = 'Enter to re-run · Escape to cancel';
+
+    content.textContent = '';
+    content.appendChild(editor);
+    content.appendChild(hint);
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+
+    var settled = false;
+    function finish(commit) {
+      if (settled) { return; }
+      settled = true;
+      var next = editor.value.trim();
+      if (commit && next.length > 0) {
+        vscode.postMessage({ type: 'editMessage', payload: { entryId: entry.id, content: next } });
+      } else {
+        // Redraw from state rather than restoring by hand: the transcript is the
+        // host's, and reconstructing it here is how the two drift.
+        renderTranscriptFromLatestState();
+      }
+    }
+
+    editor.addEventListener('keydown', function (event) {
+      event.stopPropagation();
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finish(true); }
+      if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    });
+  }
+
+  /** Put the files back as they were before this turn. Files only. */
+  function createRestoreButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Restore files from before this turn');
+    button.title = 'Restore files from before this turn (the conversation is left as it is)';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7"/><polyline points="3 2 3 5 6 5"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'restoreCheckpoint', payload: { entryId: entryId } });
+    });
+    return button;
+  }
+
+  /** Ask for a different answer to the same question. */
+  function createRegenerateButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Generate a new reply');
+    button.title = 'Generate a new reply';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><polyline points="13 2 13 5 10 5"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'regenerateMessage', payload: { entryId: entryId } });
+    });
+    return button;
   }
 
   function renderIterationLimitActions(entryId, meta) {
@@ -2442,6 +2793,20 @@
       actionRow.appendChild(raiseCallsPermBtn);
     }
 
+    // Continue at the current limit. The host handler and the validated protocol
+    // member for this both existed; only this button was missing, so the
+    // fallback copy telling the operator to "select Continue" named a control
+    // that was never drawn. The one path out of a pause that needs no setting
+    // change was reachable only by typing "Proceed".
+    var continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'iteration-limit-continue';
+    continueBtn.textContent = 'Continue';
+    continueBtn.title = 'Keep going with the current limit';
+    continueBtn.addEventListener('click', function () {
+      lockAndPost({ type: 'continueExecution', payload: { entryId: entryId } });
+    });
+
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'iteration-limit-cancel';
@@ -2451,6 +2816,7 @@
       lockAndPost({ type: 'cancelExecution', payload: { entryId: entryId } });
     });
 
+    actionRow.appendChild(continueBtn);
     actionRow.appendChild(cancelBtn);
     wrapper.appendChild(actionRow);
     return wrapper;
@@ -3012,7 +3378,98 @@
 
   var COPY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
   var COPIED_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  // Cursor-with-caret, a new document, and a diff — matching the codicon
+  // vocabulary the rest of VS Code uses for these three actions.
+  var INSERT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path></svg>';
+  var NEWFILE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
+  var APPLY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"></line><polyline points="6 8 3 12 6 16"></polyline><polyline points="18 8 21 12 18 16"></polyline></svg>';
   var TERMINAL_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>';
+
+
+  /** Languages the vendored `common` build actually registers. */
+  var HIGHLIGHT_MAX_CHARS = 50000;
+
+  /**
+   * Colour a code block without ever handing markup to the DOM.
+   *
+   * highlight.js returns an HTML string, and `innerHTML = hljs.highlight(...)`
+   * is the ordinary way to use it. This panel does not do that: every dynamic
+   * value in the transcript reaches the DOM through `textContent`, and code
+   * blocks carry model output, which is the least trusted text here. So the
+   * result is parsed in an inert document and rebuilt node by node, copying only
+   * the `hljs-*` class names — an element the walk does not recognise
+   * contributes its text and nothing else.
+   *
+   * Falls back to plain text whenever the highlighter is absent, the language is
+   * unknown, or the block is large enough that highlighting would be felt: a
+   * plain code block is a perfectly good code block.
+   */
+  function applySyntaxHighlight(codeEl, codeText, language) {
+    var hljs = window.hljs;
+    if (!hljs || !language || codeText.length > HIGHLIGHT_MAX_CHARS || !hljs.getLanguage(language)) {
+      codeEl.textContent = codeText;
+      return;
+    }
+
+    var html;
+    try {
+      html = hljs.highlight(codeText, { language: language, ignoreIllegals: true }).value;
+    } catch (error) {
+      codeEl.textContent = codeText;
+      return;
+    }
+
+    try {
+      var parsed = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      var root = parsed.body.firstChild;
+      if (!root) {
+        codeEl.textContent = codeText;
+        return;
+      }
+      var rebuilt = document.createDocumentFragment();
+      appendHighlightNodes(rebuilt, root.childNodes);
+      // The rebuilt text must equal the source exactly. If it does not, the walk
+      // lost or altered something and the plain block is the honest answer.
+      var probe = document.createElement('div');
+      probe.appendChild(rebuilt.cloneNode(true));
+      if (probe.textContent !== codeText) {
+        codeEl.textContent = codeText;
+        return;
+      }
+      codeEl.appendChild(rebuilt);
+      codeEl.classList.add('hljs');
+    } catch (error) {
+      codeEl.textContent = codeText;
+    }
+  }
+
+  /** Copies a highlight tree into fresh elements, keeping only `hljs-*` classes. */
+  function appendHighlightNodes(target, nodes) {
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      if (node.nodeType === 3) {
+        target.appendChild(document.createTextNode(node.nodeValue || ''));
+        continue;
+      }
+      if (node.nodeType !== 1) {
+        continue;
+      }
+      // Only <span> survives as an element. highlight.js emits nothing else, so
+      // anything different came from somewhere unexpected and is flattened to
+      // its text rather than trusted.
+      if (node.tagName !== 'SPAN') {
+        appendHighlightNodes(target, node.childNodes);
+        continue;
+      }
+      var span = document.createElement('span');
+      var className = node.getAttribute('class') || '';
+      if (/^hljs[\w-]*( hljs[\w-]*)*$/.test(className)) {
+        span.className = className;
+      }
+      appendHighlightNodes(span, node.childNodes);
+      target.appendChild(span);
+    }
+  }
 
   function renderCodeFence(block) {
     var lines = block.split('\n');
@@ -3056,6 +3513,39 @@
     });
     actions.appendChild(copyBtn);
 
+    var insertBtn = document.createElement('button');
+    insertBtn.className = 'chat-code-btn';
+    insertBtn.title = 'Insert at cursor in the last active editor';
+    insertBtn.setAttribute('aria-label', 'Insert at cursor');
+    insertBtn.innerHTML = INSERT_ICON;
+    insertBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'insertCodeAtCursor', payload: { code: codeText } });
+    });
+    actions.appendChild(insertBtn);
+
+    var newFileBtn = document.createElement('button');
+    newFileBtn.className = 'chat-code-btn';
+    newFileBtn.title = 'Open as a new unsaved file';
+    newFileBtn.setAttribute('aria-label', 'Open as a new file');
+    newFileBtn.innerHTML = NEWFILE_ICON;
+    newFileBtn.addEventListener('click', function () {
+      vscode.postMessage({
+        type: 'createFileFromCode',
+        payload: language ? { code: codeText, language: language } : { code: codeText },
+      });
+    });
+    actions.appendChild(newFileBtn);
+
+    var applyBtn = document.createElement('button');
+    applyBtn.className = 'chat-code-btn';
+    applyBtn.title = 'Review a diff, then replace the selection (or the whole file)';
+    applyBtn.setAttribute('aria-label', 'Apply with diff preview');
+    applyBtn.innerHTML = APPLY_ICON;
+    applyBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'applyCodeToFile', payload: { code: codeText } });
+    });
+    actions.appendChild(applyBtn);
+
     var termBtn = document.createElement('button');
     termBtn.className = 'chat-code-btn';
     termBtn.title = 'Send to terminal';
@@ -3076,7 +3566,7 @@
     if (language) {
       codeEl.setAttribute('data-lang', language);
     }
-    codeEl.textContent = codeText;
+    applySyntaxHighlight(codeEl, codeText, language);
     pre.appendChild(codeEl);
     wrapper.appendChild(pre);
     return wrapper;
@@ -3303,13 +3793,19 @@
 
     var title = document.createElement('div');
     title.className = 'thinking-title';
-    title.textContent = 'AtlasMind is thinking';
+    title.textContent = stopRequested ? 'Stopping' : 'AtlasMind is thinking';
 
     var subtitle = document.createElement('div');
     subtitle.className = 'thinking-subtitle';
-    subtitle.textContent = hasContent
-      ? 'The response is still streaming.'
-      : 'The model has not stopped; waiting for the next token batch.';
+    // Three states, three plain sentences. The old text for the last one --
+    // "The model has not stopped; waiting for the next token batch" -- answered
+    // a question nobody asked, in a vocabulary nobody outside this repository
+    // uses, and contradicted the transcript whenever Stop had been pressed.
+    subtitle.textContent = stopRequested
+      ? 'Stopping — finishing the step in progress.'
+      : hasContent
+        ? 'Still writing…'
+        : 'Thinking — nothing written yet.';
 
     copy.appendChild(title);
     copy.appendChild(subtitle);
@@ -3654,11 +4150,622 @@
 
   sendPrompt.addEventListener('click', submitPrompt);
   stopPrompt.addEventListener('click', function () {
+    // Recorded here, not inferred later: between the click and the host
+    // confirming the turn is over, the panel used to keep insisting the model
+    // "has not stopped" -- technically true and exactly the wrong thing to say
+    // to somebody who just pressed Stop and is watching to see whether it
+    // worked.
+    stopRequested = true;
+    setStatusText('Stopping…');
+    renderTranscriptFromLatestState();
     vscode.postMessage({ type: 'stopPrompt' });
   });
 
+
+  /**
+   * Matches from the other stored sessions.
+   *
+   * Rendered under the in-session results rather than mixed into them: a hit in
+   * a conversation you are not looking at is a different thing from a hit in
+   * this one, and merging them would make the counter meaningless.
+   */
+  function renderCrossSessionResults(payload) {
+    var existing = document.getElementById('crossSessionResults');
+    if (existing) {
+      existing.remove();
+    }
+    if (!payload || !Array.isArray(payload.results) || payload.results.length === 0 || !isSearchMode) {
+      return;
+    }
+    var elsewhere = payload.results.filter(function (result) {
+      return !latestState || result.sessionId !== latestState.selectedSessionId;
+    });
+    if (elsewhere.length === 0) {
+      return;
+    }
+
+    var section = document.createElement('section');
+    section.id = 'crossSessionResults';
+    section.className = 'cross-session-results';
+
+    var heading = document.createElement('div');
+    heading.className = 'cross-session-heading';
+    heading.textContent = 'In other chats (' + elsewhere.length + (payload.capped ? '+' : '') + ')';
+    section.appendChild(heading);
+
+    elsewhere.forEach(function (result) {
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'cross-session-result';
+      var where = document.createElement('div');
+      where.className = 'cross-session-where';
+      where.textContent = result.sessionTitle;
+      var snippet = document.createElement('div');
+      snippet.className = 'cross-session-snippet';
+      snippet.textContent = result.snippet;
+      row.appendChild(where);
+      row.appendChild(snippet);
+      row.addEventListener('click', function () {
+        // Opening the session is the whole point of the result; the host
+        // decides what "select" means, as it does for every other row.
+        vscode.postMessage({ type: 'selectSession', payload: result.sessionId });
+      });
+      section.appendChild(row);
+    });
+
+    transcript.appendChild(section);
+  }
+
+  // ---- Dictation ---------------------------------------------------------
+  //
+  // Capture here, transcribe on the host. The audio pipeline is the one the
+  // Voice Panel already proves works — getUserMedia, downsample to 16 kHz mono,
+  // encode WAV — rather than a second implementation that would drift from it.
+  //
+  // The transcript is inserted at the caret and never submitted. Speech
+  // recognition gets words wrong, and a mis-heard sentence that sends itself is
+  // a turn the operator did not ask for, with a cost attached.
+  var dictateBtn = document.getElementById('dictate');
+  var dictationStream = null;
+  var dictationContext = null;
+  var dictationChunks = [];
+  var dictationActive = false;
+
+  function setDictationActive(active) {
+    dictationActive = active;
+    dictateBtn.classList.toggle('recording', active);
+    dictateBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    dictateBtn.title = active ? 'Stop recording and transcribe' : 'Dictate a message';
+  }
+
+  function stopDictationCapture() {
+    if (dictationStream) {
+      dictationStream.getTracks().forEach(function (track) { track.stop(); });
+      dictationStream = null;
+    }
+    if (dictationContext) {
+      try { dictationContext.close(); } catch (error) { /* already closed */ }
+      dictationContext = null;
+    }
+  }
+
+  function mergeFloat32(chunks) {
+    var total = 0;
+    chunks.forEach(function (chunk) { total += chunk.length; });
+    var merged = new Float32Array(total);
+    var offset = 0;
+    chunks.forEach(function (chunk) { merged.set(chunk, offset); offset += chunk.length; });
+    return merged;
+  }
+
+  function downsampleTo16k(samples, inRate) {
+    var outRate = 16000;
+    if (inRate === outRate || inRate <= 0) { return samples; }
+    var ratio = inRate / outRate;
+    var newLength = Math.round(samples.length / ratio);
+    var out = new Float32Array(newLength);
+    for (var i = 0; i < newLength; i++) {
+      var idx = i * ratio;
+      var i0 = Math.floor(idx);
+      var i1 = Math.min(i0 + 1, samples.length - 1);
+      var frac = idx - i0;
+      out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+    }
+    return out;
+  }
+
+  function writeAscii(view, offset, text) {
+    for (var i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+  }
+
+  function encodeWav(samples, sampleRate) {
+    var buffer = new ArrayBuffer(44 + samples.length * 2);
+    var view = new DataView(buffer);
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    var offset = 44;
+    for (var i = 0; i < samples.length; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+    return buffer;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    // Chunked, because String.fromCharCode.apply on a multi-megabyte array
+    // overflows the argument list.
+    for (var i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
+  }
+
+  function finishDictation(send) {
+    if (!dictationActive) { return; }
+    var sampleRate = dictationContext ? dictationContext.sampleRate : 16000;
+    var chunks = dictationChunks;
+    dictationChunks = [];
+    setDictationActive(false);
+    stopDictationCapture();
+    if (!send || chunks.length === 0) {
+      setStatusText('Ready.');
+      return;
+    }
+    var wav = encodeWav(downsampleTo16k(mergeFloat32(chunks), sampleRate), 16000);
+    vscode.postMessage({ type: 'transcribeAudio', payload: { dataBase64: arrayBufferToBase64(wav) } });
+  }
+
+  function startDictation() {
+    var media = navigator && navigator.mediaDevices;
+    if (!media || typeof media.getUserMedia !== 'function') {
+      setStatusText('This window cannot record audio.');
+      return;
+    }
+    media.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      .then(function (stream) {
+        dictationStream = stream;
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        dictationContext = new AudioCtx();
+        var source = dictationContext.createMediaStreamSource(stream);
+        var processor = dictationContext.createScriptProcessor(4096, 1, 1);
+        dictationChunks = [];
+        processor.onaudioprocess = function (event) {
+          dictationChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        };
+        source.connect(processor);
+        processor.connect(dictationContext.destination);
+        setDictationActive(true);
+        setStatusText('Recording — click again to transcribe.');
+      })
+      .catch(function (error) {
+        setStatusText('Microphone unavailable — ' + (error && error.message ? error.message : 'permission denied'));
+      });
+  }
+
+  dictateBtn.addEventListener('click', function () {
+    if (dictationActive) { finishDictation(true); } else { startDictation(); }
+  });
+
+  dictateBtn.addEventListener('keydown', function (event) {
+    // Escape abandons the recording rather than transcribing it: somebody who
+    // changes their mind mid-sentence should not have to delete the result.
+    if (event.key === 'Escape' && dictationActive) {
+      event.stopPropagation();
+      finishDictation(false);
+    }
+  });
+
+  // ---- Context meter -----------------------------------------------------
+  //
+  // What the next turn would carry, against whichever ceiling actually applies.
+  // When a model is known the bar is a share of its real context window; when
+  // none is, it falls back to the operator's own session budget rather than
+  // inventing a percentage of a window nobody chose.
+  //
+  // The unsent draft is added here rather than server-side, because recomputing
+  // the session context per keystroke would mean rebuilding it per character.
+  var contextMeter = document.getElementById('contextMeter');
+  var contextMeterFill = document.getElementById('contextMeterFill');
+  var contextMeterLabel = document.getElementById('contextMeterLabel');
+
+  function formatMeterCount(value) {
+    return value >= 1000 ? (Math.round(value / 100) / 10) + 'k' : String(value);
+  }
+
+  function renderContextMeter() {
+    var meter = latestState && latestState.contextMeter;
+    if (!meter) {
+      contextMeter.classList.add('hidden');
+      return;
+    }
+
+    var draft = promptInput && typeof promptInput.value === 'string' ? promptInput.value : '';
+    var draftTokens = draft.length > 0 ? Math.ceil(draft.length / 4) : 0;
+    var used = meter.estimatedTokens + draftTokens;
+
+    var ratio;
+    var label;
+    if (meter.contextWindow) {
+      ratio = used / meter.contextWindow;
+      label = formatMeterCount(used) + ' / ' + formatMeterCount(meter.contextWindow) + ' tokens';
+    } else {
+      // No model resolved yet: measure against the session budget, and say so,
+      // rather than presenting a share of a window that is not in play.
+      var chars = meter.contextChars + draft.length;
+      ratio = meter.charBudget > 0 ? chars / meter.charBudget : 0;
+      label = 'carrying ' + meter.turnCount + ' of ' + meter.turnLimit + ' turns';
+    }
+
+    var percent = Math.max(0, Math.min(1, ratio));
+    contextMeterFill.style.width = (percent * 100).toFixed(1) + '%';
+    contextMeterLabel.textContent = label;
+    contextMeter.classList.toggle('warn', percent >= 0.8);
+    contextMeter.title = meter.modelId
+      ? 'Estimated context for the next message, against ' + meter.modelId + "'s window. Older turns are dropped first."
+      : 'Estimated context for the next message, against your session budget (atlasmind.chatSessionTurnLimit / chatSessionContextChars).';
+    contextMeter.classList.remove('hidden');
+  }
+
+  // ---- Model pin ---------------------------------------------------------
+  //
+  // The router still chooses by default. This is an override on top of it, not
+  // a replacement for it: "Auto" is the first option and the resting state, and
+  // the footer keeps reporting whichever model actually answered — so a pin that
+  // the router had to refuse (unhealthy, wrong capability) is visible rather
+  // than silently assumed.
+  //
+  // Two scopes, because pinning a frontier model to compare one answer is a
+  // different intent from changing how this conversation routes.
+  var modelPin = document.getElementById('modelPin');
+  var modelPinLabel = document.getElementById('modelPinLabel');
+  var modelPinList = document.getElementById('modelPinList');
+  var modelPinScope = 'turn';
+  var modelPinOpen = false;
+
+  function closeModelPin() {
+    if (!modelPinOpen) { return; }
+    modelPinOpen = false;
+    modelPinList.classList.add('hidden');
+    modelPin.setAttribute('aria-expanded', 'false');
+  }
+
+  function currentModelOverride() {
+    return latestState && latestState.modelOverride ? latestState.modelOverride : undefined;
+  }
+
+  function renderModelPinButton() {
+    var override = currentModelOverride();
+    if (override) {
+      var short = String(override.modelId).split('/').pop() || override.modelId;
+      modelPinLabel.textContent = short;
+      modelPin.classList.add('pinned');
+      modelPin.title = 'Pinned to ' + override.modelId
+        + (override.scope === 'turn' ? ' for the next message' : ' for this chat')
+        + ' — click to change or clear';
+    } else {
+      modelPinLabel.textContent = 'Auto';
+      modelPin.classList.remove('pinned');
+      modelPin.title = 'The router is choosing. Click to pin a model.';
+    }
+  }
+
+  function sendModelOverride(modelId) {
+    vscode.postMessage({ type: 'setModelOverride', payload: { modelId: modelId, scope: modelPinScope } });
+    closeModelPin();
+  }
+
+  function renderModelPinList() {
+    modelPinList.innerHTML = '';
+    var models = (latestState && Array.isArray(latestState.availableModels)) ? latestState.availableModels : [];
+    var override = currentModelOverride();
+
+    var auto = document.createElement('div');
+    auto.className = 'composer-typeahead-item';
+    auto.setAttribute('role', 'option');
+    auto.setAttribute('aria-selected', override ? 'false' : 'true');
+    var autoName = document.createElement('span');
+    autoName.className = 'composer-typeahead-name';
+    autoName.textContent = 'Auto';
+    var autoDetail = document.createElement('span');
+    autoDetail.className = 'composer-typeahead-detail';
+    autoDetail.textContent = 'Router picks per task';
+    auto.appendChild(autoName);
+    auto.appendChild(autoDetail);
+    auto.addEventListener('mousedown', function (event) {
+      event.preventDefault();
+      sendModelOverride(null);
+    });
+    modelPinList.appendChild(auto);
+
+    if (models.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'composer-typeahead-empty';
+      empty.textContent = 'No configured providers yet.';
+      modelPinList.appendChild(empty);
+      return;
+    }
+
+    models.forEach(function (model) {
+      var row = document.createElement('div');
+      row.className = 'composer-typeahead-item';
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', override && override.modelId === model.id ? 'true' : 'false');
+
+      var name = document.createElement('span');
+      name.className = 'composer-typeahead-name';
+      name.textContent = model.label;
+      row.appendChild(name);
+
+      var detail = document.createElement('span');
+      detail.className = 'composer-typeahead-detail';
+      detail.textContent = model.provider;
+      row.appendChild(detail);
+
+      row.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        sendModelOverride(model.id);
+      });
+      modelPinList.appendChild(row);
+    });
+
+    // The scope choice sits with the list rather than in a separate menu: it is
+    // part of the same decision, and splitting it would make the common case
+    // (just this once) take two gestures.
+    var scopeRow = document.createElement('div');
+    scopeRow.className = 'model-pin-scope';
+    [['turn', 'Next message'], ['session', 'This chat']].forEach(function (option) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'icon-btn compact-icon-btn';
+      button.textContent = option[1];
+      button.setAttribute('aria-pressed', modelPinScope === option[0] ? 'true' : 'false');
+      button.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        modelPinScope = option[0];
+        renderModelPinList();
+      });
+      scopeRow.appendChild(button);
+    });
+    modelPinList.appendChild(scopeRow);
+  }
+
+  modelPin.addEventListener('click', function (event) {
+    event.stopPropagation();
+    modelPinOpen = !modelPinOpen;
+    modelPinList.classList.toggle('hidden', !modelPinOpen);
+    modelPin.setAttribute('aria-expanded', modelPinOpen ? 'true' : 'false');
+    if (modelPinOpen) {
+      renderModelPinList();
+      document.addEventListener('click', closeModelPin, { once: true });
+    }
+  });
+
+  modelPin.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && modelPinOpen) {
+      event.stopPropagation();
+      closeModelPin();
+    }
+  });
+
+  // ---- Composer typeahead ------------------------------------------------
+  //
+  // One component for both triggers. `/` completes AtlasMind's own commands from
+  // the list the router dispatches on, so it can never advertise something the
+  // router would not recognise; `@` completes workspace files, which the host
+  // searches because the webview has no filesystem.
+  //
+  // Focus stays in the textarea throughout — the list is a popup, never a focus
+  // target — which is what keeps the caret where the operator left it and lets a
+  // screen reader announce the highlighted option through aria-activedescendant.
+  var typeaheadEl = document.getElementById('composerTypeahead');
+  var typeaheadState = { open: false, kind: null, items: [], index: 0, start: -1, query: '' };
+  var fileMentionTimer = null;
+  var fileMentionQuery = '';
+
+  function closeTypeahead() {
+    if (!typeaheadState.open) { return; }
+    typeaheadState.open = false;
+    typeaheadState.items = [];
+    typeaheadEl.classList.add('hidden');
+    typeaheadEl.innerHTML = '';
+    promptInput.setAttribute('aria-expanded', 'false');
+    promptInput.removeAttribute('aria-activedescendant');
+  }
+
+  function renderTypeahead() {
+    typeaheadEl.innerHTML = '';
+    if (typeaheadState.items.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'composer-typeahead-empty';
+      empty.textContent = typeaheadState.kind === 'file' ? 'No matching files' : 'No matching commands';
+      typeaheadEl.appendChild(empty);
+      promptInput.removeAttribute('aria-activedescendant');
+      return;
+    }
+    typeaheadState.items.forEach(function (item, index) {
+      var row = document.createElement('div');
+      row.className = 'composer-typeahead-item';
+      row.id = 'composer-typeahead-item-' + index;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', index === typeaheadState.index ? 'true' : 'false');
+
+      var name = document.createElement('span');
+      name.className = 'composer-typeahead-name';
+      name.textContent = item.name;
+      row.appendChild(name);
+
+      if (item.detail) {
+        var detail = document.createElement('span');
+        detail.className = 'composer-typeahead-detail';
+        detail.textContent = item.detail;
+        row.appendChild(detail);
+      }
+
+      // mousedown, not click: click fires after the textarea has already lost
+      // focus and the blur handler has closed the list.
+      row.addEventListener('mousedown', function (event) {
+        event.preventDefault();
+        acceptTypeahead(index);
+      });
+      typeaheadEl.appendChild(row);
+    });
+    promptInput.setAttribute('aria-activedescendant', 'composer-typeahead-item-' + typeaheadState.index);
+    var selected = typeaheadEl.children[typeaheadState.index];
+    if (selected && typeof selected.scrollIntoView === 'function') {
+      selected.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function openTypeahead(kind, start, query, items) {
+    typeaheadState.open = true;
+    typeaheadState.kind = kind;
+    typeaheadState.start = start;
+    typeaheadState.query = query;
+    typeaheadState.items = items;
+    typeaheadState.index = 0;
+    typeaheadEl.classList.remove('hidden');
+    promptInput.setAttribute('aria-expanded', 'true');
+    renderTypeahead();
+  }
+
+  function moveTypeahead(delta) {
+    if (typeaheadState.items.length === 0) { return; }
+    var count = typeaheadState.items.length;
+    typeaheadState.index = (typeaheadState.index + delta + count) % count;
+    renderTypeahead();
+  }
+
+  function acceptTypeahead(index) {
+    var item = typeaheadState.items[typeof index === 'number' ? index : typeaheadState.index];
+    if (!item) { return; }
+    var value = promptInput.value;
+    var caret = promptInput.selectionStart;
+    var replacement = item.insert + ' ';
+    promptInput.value = value.slice(0, typeaheadState.start) + replacement + value.slice(caret);
+    var nextCaret = typeaheadState.start + replacement.length;
+    promptInput.setSelectionRange(nextCaret, nextCaret);
+    // A picked file is genuinely attached, not merely named: the token in the
+    // prose says what the operator meant, and the attachment is what the model
+    // actually receives.
+    if (item.attachPath) {
+      vscode.postMessage({ type: 'attachOpenFile', payload: item.attachPath });
+    }
+    closeTypeahead();
+    promptInput.focus();
+  }
+
+  /** The slash or at-sign token the caret currently sits inside, if any. */
+  function activeTypeaheadToken() {
+    if (promptInput.selectionStart !== promptInput.selectionEnd) { return null; }
+    var caret = promptInput.selectionStart;
+    var value = promptInput.value;
+    var index = caret - 1;
+    while (index >= 0) {
+      var ch = value.charAt(index);
+      if (ch === '\n' || ch === ' ' || ch === '\t') { return null; }
+      if (ch === '/' || ch === '@') {
+        var before = index === 0 ? '' : value.charAt(index - 1);
+        // A slash only starts a command at the very beginning of the prompt, so
+        // a path typed mid-sentence stays prose - the same rule the router uses.
+        if (ch === '/' && index !== 0) { return null; }
+        if (ch === '@' && before !== '' && !/\s/.test(before)) { return null; }
+        return { kind: ch === '/' ? 'command' : 'file', start: index, query: value.slice(index + 1, caret) };
+      }
+      index -= 1;
+    }
+    return null;
+  }
+
+  function refreshTypeahead() {
+    var token = activeTypeaheadToken();
+    if (!token) {
+      closeTypeahead();
+      return;
+    }
+
+    if (token.kind === 'command') {
+      var commands = (latestState && Array.isArray(latestState.slashCommands)) ? latestState.slashCommands : [];
+      var needle = token.query.toLowerCase();
+      var matches = commands
+        .filter(function (entry) { return entry.name.indexOf(needle) === 0; })
+        .slice(0, 12)
+        .map(function (entry) {
+          return { name: '/' + entry.name, detail: entry.description || '', insert: '/' + entry.name };
+        });
+      openTypeahead('command', token.start, token.query, matches);
+      return;
+    }
+
+    // Files come from the host, so the list opens immediately with whatever the
+    // last reply held and is refreshed when the new one lands. Debounced, because
+    // a workspace search per keystroke is a lot of searching.
+    openTypeahead('file', token.start, token.query, typeaheadState.kind === 'file' ? typeaheadState.items : []);
+    if (fileMentionTimer) { clearTimeout(fileMentionTimer); }
+    fileMentionQuery = token.query;
+    fileMentionTimer = setTimeout(function () {
+      vscode.postMessage({ type: 'queryFileMentions', payload: { query: fileMentionQuery } });
+    }, 150);
+  }
+
+  function applyFileMentions(payload) {
+    // Discard a reply for something other than what is being typed now: replies
+    // do not necessarily arrive in the order they were asked for.
+    if (!payload || payload.query !== fileMentionQuery || !typeaheadState.open || typeaheadState.kind !== 'file') {
+      return;
+    }
+    var files = Array.isArray(payload.files) ? payload.files : [];
+    typeaheadState.items = files.slice(0, 20).map(function (file) {
+      var name = file.split('/').pop() || file;
+      return { name: name, detail: file, insert: '@' + file, attachPath: file };
+    });
+    typeaheadState.index = 0;
+    renderTypeahead();
+  }
+
+  /** True when the key was consumed by the open list. */
+  function handleTypeaheadKey(event) {
+    if (!typeaheadState.open) { return false; }
+    if (event.key === 'Escape') { closeTypeahead(); return true; }
+    if (event.key === 'ArrowDown') { moveTypeahead(1); return true; }
+    if (event.key === 'ArrowUp') { moveTypeahead(-1); return true; }
+    if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (typeaheadState.items.length === 0) { return false; }
+      acceptTypeahead();
+      return true;
+    }
+    return false;
+  }
+
+  promptInput.addEventListener('input', refreshTypeahead);
+  promptInput.addEventListener('input', renderContextMeter);
+  promptInput.addEventListener('click', refreshTypeahead);
+  promptInput.addEventListener('blur', function () { setTimeout(closeTypeahead, 120); });
+
   promptInput.addEventListener('keydown', function (event) {
     if (event.isComposing) {
+      return;
+    }
+
+    // The open list owns these keys first: Enter picks a suggestion rather than
+    // sending, and the arrows move the highlight rather than the prompt history.
+    if (handleTypeaheadKey(event)) {
+      event.preventDefault();
       return;
     }
 
@@ -3735,6 +4842,14 @@
   attachFiles.addEventListener('click', function () {
     vscode.postMessage({ type: 'pickAttachments' });
   });
+  attachSelection.addEventListener('click', function () {
+    vscode.postMessage({ type: 'attachEditorSelection' });
+  });
+
+  attachProblems.addEventListener('click', function () {
+    vscode.postMessage({ type: 'attachProblems' });
+  });
+
   attachOpenFiles.addEventListener('click', function () {
     vscode.postMessage({ type: 'attachOpenFiles' });
   });
@@ -3868,11 +4983,13 @@
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
+      renderModelPinButton();
+      renderContextMeter();
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
+        renderTranscriptDelta(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
         if (isSearchMode && lastSearchQuery) {
           clearSearchHighlights();
           searchResults = collectSearchMatches(lastSearchQuery);
@@ -3887,6 +5004,25 @@
           scheduleComposerFocusRestore();
         }
       }
+      return;
+    }
+
+    if (message.type === 'transcriptReady') {
+      var spoken = message.payload && typeof message.payload.text === 'string' ? message.payload.text : '';
+      if (spoken) {
+        insertComposerTextAtSelection(spoken);
+        promptInput.focus();
+      }
+      return;
+    }
+
+    if (message.type === 'crossSessionSearchResults') {
+      renderCrossSessionResults(message.payload);
+      return;
+    }
+
+    if (message.type === 'fileMentions') {
+      applyFileMentions(message.payload);
       return;
     }
 
@@ -3910,10 +5046,11 @@
         ? busyPayload.sessionId
         : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
-      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
-      if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought, latestState.streamingModels);
+      if (!isBusy) {
+        stopRequested = false;
       }
+      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
+      renderTranscriptFromLatestState();
       updateComposerAvailability();
       if (latestState) {
         setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));
@@ -3986,36 +5123,6 @@
     },
     getTranscriptElement: function () {
       return transcript;
-    },
-    renderSearchResult: function (selectedMessageId, highlightInfo) {
-      if (!latestState) {
-        return;
-      }
-
-      renderTranscript(
-        latestState.transcript,
-        isBusy,
-        selectedMessageId,
-        latestState.projectRuns,
-        latestState.selectedRun,
-        latestState.busyAssistantMessageId,
-        latestState.streamingThought,
-        latestState.streamingModels,
-      );
-
-      if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {
-        var selected = transcript.querySelector('[data-entry-id="' + cssEscape(highlightInfo.messageId) + '"] .chat-content');
-        if (selected) {
-          var matchingEntry = latestState.transcript.find(function (entry) {
-            return entry && entry.id === highlightInfo.messageId;
-          });
-          renderMarkdownContentWithHighlight(selected, matchingEntry ? matchingEntry.content : '', highlightInfo.query, highlightInfo.matchIndex);
-          var mark = selected.querySelector('mark.search-highlight-active') || selected.querySelector('mark.search-highlight');
-          if (mark && typeof mark.scrollIntoView === 'function') {
-            mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          }
-        }
-      }
     },
   };
 })();
@@ -4191,29 +5298,6 @@ function renderTranscriptWithSearch() {
   }
 }
 
-window.addEventListener('message', function (event) {
-  var message = event.data;
-  if (!message || message.type !== 'searchResults') {
-    return;
-  }
-
-  clearSearchHighlights();
-  searchResults = collectSearchMatches(lastSearchQuery);
-  currentSearchIndex = 0;
-  renderTranscriptWithSearch();
-});
-
-function renderMarkdownContentWithHighlight(container, value, query, activeMatchIndex) {
-  renderMarkdownContent(container, value || '');
-  if (!query) {
-    return;
-  }
-
-  var matches = collectSearchMatches(query);
-  if (matches[activeMatchIndex]) {
-    matches[activeMatchIndex].classList.add('search-highlight-active');
-  }
-}
 
 function escapeRegExp(string) {
   return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

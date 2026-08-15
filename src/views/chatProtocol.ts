@@ -50,12 +50,56 @@ export type ChatPanelMessage =
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
+  /** Opens the Run Center focused on a run. Two webview buttons posted this before it existed here. */
+  | { type: 'openProjectRunCenter'; payload: string }
   | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
   | { type: 'pickAttachments' }
   | { type: 'attachOpenFile'; payload: string }
   | { type: 'attachOpenFiles' }
+  /**
+   * Payload-less on purpose: the host reads the live editor selection and the
+   * live diagnostics itself. The webview names no file, no range and no
+   * problem — the strongest form of the rule that it supplies data and never a
+   * target.
+   */
+  /**
+   * Typeahead lookup for `@`-mentions. Carries only what was typed; the host
+   * decides what to search and answers with workspace-relative paths.
+   */
+  | { type: 'queryFileMentions'; payload: { query: string } }
+  /**
+   * Pin the routed model, or clear the pin. The host validates the id against
+   * the list it published, so a crafted message can name nothing it did not
+   * already offer.
+   */
+  | { type: 'setModelOverride'; payload: { modelId: string | null; scope: 'turn' | 'session' } }
+  /**
+   * Rewind to a message and continue from it. `editMessage` replaces a prompt of
+   * the operator's and re-runs it; `regenerateMessage` re-runs the prompt that
+   * produced a given reply. Both discard everything after that point, which is
+   * why both are confirmed at the call site.
+   */
+  | { type: 'editMessage'; payload: { entryId: string; content: string } }
+  | { type: 'regenerateMessage'; payload: { entryId: string } }
+  /**
+   * Restore the files a turn changed. Carries the transcript entry, never the
+   * task id: the host looks that up, so the webview cannot name a checkpoint
+   * belonging to some other turn.
+   */
+  /** One recorded utterance, WAV as base64. Capped well below anything that would stall the host. */
+  | { type: 'transcribeAudio'; payload: { dataBase64: string } }
+  | { type: 'restoreCheckpoint'; payload: { entryId: string } }
+  | { type: 'renameSession'; payload: { sessionId: string; title: string } }
+  /**
+   * Search every stored session, not just the open one. Replaces the dead
+   * host-side single-session search removed in 0.327.1 — that one was never
+   * called, because the working in-session search is client-side.
+   */
+  | { type: 'searchAllSessions'; payload: { query: string } }
+  | { type: 'attachEditorSelection' }
+  | { type: 'attachProblems' }
   | { type: 'removeAttachment'; payload: string }
   | { type: 'clearAttachments' }
   | { type: 'addDroppedItems'; payload: string[] }
@@ -69,9 +113,18 @@ export type ChatPanelMessage =
   | { type: 'saveFontScale'; payload: number }
   | { type: 'toggleAutopilot' }
   | { type: 'importSessionContext'; payload: string }
-  | { type: 'searchSession'; payload: { query: string } }
   | { type: 'deleteMessage'; payload: string }
   | { type: 'sendToTerminal'; payload: { code: string } }
+  /**
+   * Code-block actions. The payload carries the code text rather than a block
+   * reference, following `sendToTerminal`: the transcript re-renders while a
+   * turn streams, so any index the webview held could name a different block by
+   * the time the host read it. The webview still names no command — the host
+   * decides what each action does.
+   */
+  | { type: 'insertCodeAtCursor'; payload: { code: string } }
+  | { type: 'createFileFromCode'; payload: { code: string; language?: string } }
+  | { type: 'applyCodeToFile'; payload: { code: string } }
   | { type: 'syncAiInstructions' }
   | { type: 'dismissAiInstructionNudge' }
   | { type: 'openSettings' }
@@ -124,6 +177,21 @@ export function isChatPanelImportedItem(value: unknown): value is ChatPanelImpor
   return false;
 }
 
+/**
+ * A code payload the host will act on: non-empty, and bounded well above any
+ * plausible answer while staying far below anything that would stall the host
+ * on a hostile message.
+ */
+const MAX_CODE_PAYLOAD_CHARS = 200_000;
+
+function isBoundedCodePayload(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) {
+    return false;
+  }
+  const code = (payload as { code?: unknown }).code;
+  return typeof code === 'string' && code.length > 0 && code.length <= MAX_CODE_PAYLOAD_CHARS;
+}
+
 export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false;
@@ -139,6 +207,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'stopPrompt'
     || message.type === 'pickAttachments'
     || message.type === 'attachOpenFiles'
+    || message.type === 'attachEditorSelection'
+    || message.type === 'attachProblems'
     || message.type === 'clearAttachments'
     || message.type === 'toggleAutopilot'
     || message.type === 'syncAiInstructions'
@@ -254,21 +324,92 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
   }
 
-  if (message.type === 'searchSession') {
-    return typeof message.payload === 'object'
-      && message.payload !== null
-      && typeof (message.payload as { query?: unknown }).query === 'string';
+  if (message.type === 'transcribeAudio') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const data = (message.payload as { dataBase64?: unknown }).dataBase64;
+    // ~6 MB of base64 is about three minutes at 16 kHz mono, which is far more
+    // than a dictated prompt and far less than anything worth stalling on.
+    return typeof data === 'string' && data.length > 0 && data.length <= 8_000_000
+      && /^[A-Za-z0-9+/=]+$/.test(data);
   }
 
-  if (message.type === 'sendToTerminal') {
-    return typeof message.payload === 'object'
-      && message.payload !== null
-      && typeof (message.payload as { code?: unknown }).code === 'string';
+  if (message.type === 'restoreCheckpoint') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && (message.payload as { entryId: string }).entryId.length > 0;
+  }
+
+  if (message.type === 'editMessage') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { entryId, content } = message.payload as { entryId?: unknown; content?: unknown };
+    return typeof entryId === 'string' && entryId.length > 0
+      && typeof content === 'string' && content.trim().length > 0 && content.length <= 100_000;
+  }
+
+  if (message.type === 'regenerateMessage') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && (message.payload as { entryId: string }).entryId.length > 0;
+  }
+
+  if (message.type === 'renameSession') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { sessionId, title } = message.payload as { sessionId?: unknown; title?: unknown };
+    return typeof sessionId === 'string' && sessionId.length > 0
+      && typeof title === 'string' && title.trim().length > 0 && title.length <= 120;
+  }
+
+  if (message.type === 'searchAllSessions') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const query = (message.payload as { query?: unknown }).query;
+    // Two characters minimum: a one-character query matches most of a transcript
+    // and produces a result list nobody can use.
+    return typeof query === 'string' && query.trim().length >= 2 && query.length <= 200;
+  }
+
+  if (message.type === 'setModelOverride') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { modelId, scope } = message.payload as { modelId?: unknown; scope?: unknown };
+    const idOk = modelId === null || (typeof modelId === 'string' && modelId.length > 0 && modelId.length <= 200);
+    return idOk && (scope === 'turn' || scope === 'session');
+  }
+
+  if (message.type === 'queryFileMentions') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const query = (message.payload as { query?: unknown }).query;
+    return typeof query === 'string' && query.length <= 200;
+  }
+
+  if (message.type === 'sendToTerminal'
+    || message.type === 'insertCodeAtCursor'
+    || message.type === 'applyCodeToFile') {
+    return isBoundedCodePayload(message.payload);
+  }
+
+  if (message.type === 'createFileFromCode') {
+    if (!isBoundedCodePayload(message.payload)) {
+      return false;
+    }
+    const language = (message.payload as { language?: unknown }).language;
+    return language === undefined || (typeof language === 'string' && language.length <= 40);
   }
 
   return (message.type === 'selectSession'
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
+    || message.type === 'openProjectRunCenter'
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment'
     || message.type === 'importSessionContext'

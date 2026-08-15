@@ -59,6 +59,7 @@ import {
   resolveProjectRunAutoFlow,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
+import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -1839,5 +1840,81 @@ describe('being asked to explain is never an executable goal', () => {
     const transcript = transcriptOf([['add a Playwright test for the initial render', 'Here is the plan.']]);
     expect(resolveAutonomousContinuationGoal('carry on', transcript))
       .toBe('add a Playwright test for the initial render');
+  });
+});
+
+describe('image attachment rejections', () => {
+  /**
+   * Every rejection used to be a bare `undefined`, so an oversized screenshot, a
+   * `.bmp` and an unreadable file were indistinguishable from "no image
+   * mentioned": the turn answered without looking at the picture and said
+   * nothing. That is the worst-shaped failure here, because the operator
+   * believes the model saw what they saw.
+   */
+  it('names the file and the reason for each rejection', () => {
+    const notice = describeImageRejections([
+      { source: 'docs/screenshot.png', reason: 'too-large' },
+      { source: 'notes/diagram.bmp', reason: 'unsupported-type' },
+      { source: 'tmp/locked.png', reason: 'unreadable', detail: 'EACCES' },
+    ]);
+
+    expect(notice).toContain('3 images were not attached');
+    expect(notice).toContain('docs/screenshot.png');
+    expect(notice).toContain('MB');
+    expect(notice).toContain('notes/diagram.bmp');
+    expect(notice).toContain('PNG, JPEG, GIF or WebP');
+    expect(notice).toContain('tmp/locked.png');
+    expect(notice).toContain('EACCES');
+  });
+
+  it('says nothing when every image loaded', () => {
+    expect(describeImageRejections([])).toBeUndefined();
+  });
+
+  it('uses the singular when exactly one was refused', () => {
+    const notice = describeImageRejections([{ source: 'a.png', reason: 'too-large' }]);
+    expect(notice).toContain('One image was not attached');
+  });
+});
+
+describe('an interrogative without a question mark', () => {
+  /**
+   * From a live Lane 4 run: the operator typed "what was my question three turns
+   * ago" — no question mark — and `carry on` started an autonomous project run
+   * whose stated goal was that sentence. The interrogative branch required a
+   * trailing `?` while the imperative branch never did, so "explain the router"
+   * was informational and this was executable work.
+   */
+  function transcriptEndingWith(content: string): SessionTranscriptEntry[] {
+    return [
+      { id: '1', role: 'user', content: 'add end-to-end tests for the star panel', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: '2', role: 'assistant', content: 'Here is what I would add.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: '3', role: 'user', content, timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: '4', role: 'assistant', content: 'Three turns ago you asked about coverage.', timestamp: '2026-08-15T10:01:10.000Z' },
+    ];
+  }
+
+  it.each([
+    'what was my question three turns ago',
+    'what is the cost of running these',
+    'how does the router pick a model',
+    'which tests cover the panel',
+    'why did that turn fail',
+  ])('falls back past it rather than running it: %s', question => {
+    // "carry on" after a question must not run the question. It reaches back to
+    // the last prompt that actually asked for work.
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(question)))
+      .toBe('add end-to-end tests for the star panel');
+  });
+
+  it('still treats a statement opening with an interrogative as work', () => {
+    // "When ... it should ..." is a requirement, not an enquiry: `when` opens a
+    // subordinate clause as often as a question, and an obligation modal settles
+    // it either way.
+    const requirement = 'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.';
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(requirement))).toBe(requirement);
+
+    const rule = 'What the router should do is prefer the cheapest healthy model';
+    expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(rule))).toBe(rule);
   });
 });

@@ -117,6 +117,14 @@ once a session grew a context file the conversation stopped being inspected whil
 received all of it. Each bundle field is now scanned separately and labelled with the heading it appears
 under, so a notice names a section you can go and read rather than reporting a hit with no location.
 
+**Secrets are stripped from what the chat panel adds, too.** Three paths assemble text in the panel rather
+than in the orchestrator, and each carries something you chose in a gesture that does not look like sending
+a file to a model: output from a `@t` managed terminal (which runs whatever you typed — `env`, a deploy
+echoing its connection string), a file attached by drag or picker, and text pasted into the composer.
+All three are redacted before they reach a prompt as of v0.329.0. On the terminal path redaction runs
+*before* the output is truncated, so a credential sitting across the cut cannot survive as a fragment that
+no longer looks like one.
+
 ---
 
 ## The panels
@@ -132,6 +140,12 @@ AtlasMind's dashboards are webviews, which is a classic place to get this wrong.
 The important structural rule: **a panel supplies data, never a command.** The dashboard can trigger a
 promotion and attest a check; it can never supply the command string that runs. What executes comes from
 your persisted configuration, read on the extension side.
+
+**Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
+single message each require a confirmation naming what is lost — including how many messages the session
+holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the
+transcript elsewhere, so until v0.328.0 a mis-click was final; these three were the last unconfirmed
+destructive actions in the product.
 
 ---
 

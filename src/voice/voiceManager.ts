@@ -217,6 +217,35 @@ export class VoiceManager implements vscode.Disposable {
   }
 
   /** Transcribe webview-captured WAV audio with the local whisper engine. */
+  /**
+   * Transcribe one utterance, with no Voice Panel involved.
+   *
+   * `startListening` is bound to the Voice Panel — it drives that webview's
+   * capture and posts progress back into it — so the chat composer could not
+   * reuse it without opening a second panel the operator did not ask for. This
+   * is the same transcriber, addressed directly by whoever already has the audio.
+   *
+   * Returns the text, or a reason. Throwing here would put a dictation failure
+   * on the same footing as a crash, when the honest answer is usually "the model
+   * is not downloaded yet".
+   */
+  async transcribeWav(wav: Buffer): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+    const transcriber = this._resolveLocalTranscriber();
+    if (!transcriber) {
+      return { ok: false, reason: 'Local transcription is unavailable (no storage directory).' };
+    }
+    if (wav.length === 0) {
+      return { ok: false, reason: 'Nothing was recorded.' };
+    }
+    const language = sanitiseLanguage(vscode.workspace.getConfiguration('atlasmind.voice').get<string>('language', ''));
+    try {
+      const text = await transcriber.transcribe(wav, { modelId: DEFAULT_MODEL_ID, language });
+      return { ok: true, text: text.trim() };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   private async _handleAudioCaptured(panel: vscode.WebviewPanel, base64: string): Promise<void> {
     const transcriber = this._resolveLocalTranscriber();
     if (!transcriber) {

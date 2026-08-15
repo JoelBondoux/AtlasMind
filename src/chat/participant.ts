@@ -37,7 +37,13 @@ import {
   DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION,
   DEFAULT_MISSION_GOAL_CONFIDENCE,
 } from '../constants.js';
-import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import {
+  describeImageRejections,
+  mergeImageAttachments,
+  resolveInlineImageAttachmentsDetailed,
+  resolvePickedImageAttachmentsDetailed,
+} from './imageAttachments.js';
+import type { ImageAttachmentResolution } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
@@ -177,7 +183,53 @@ const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?
  * is the only reason the run was legible as wrong rather than merely
  * unsuccessful.
  */
+/**
+ * A prompt that asks for an answer rather than for work.
+ *
+ * The interrogative branch used to require a trailing `?`, while the imperative
+ * branch never did — so "explain the router" was informational and "what was my
+ * question three turns ago" was an executable goal, which is how `carry on`
+ * started an autonomous run whose stated goal was a question about the
+ * conversation. Typing the question mark is optional in practice, and omitting
+ * it is commonest when typing quickly, which is exactly when somebody then says
+ * "carry on".
+ *
+ * That asymmetry is gone: an opening interrogative is informational whatever it
+ * ends with. This is the fourth detector here to key on `?` and be wrong for it
+ * — a full stop inside a filename (0.311.1), no question mark at all (0.315.0),
+ * something after the question mark (0.320.0) — and the lesson is the same each
+ * time: the punctuation is not the signal, the opening word is.
+ */
 const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$|(?:please\s+)?(?:tell\s+me\s+(?:about|what|how|why)|explain|describe|summari[sz]e|walk\s+me\s+through|what'?s\s+the\s+difference|remind\s+me)\b)/i;
+
+/**
+ * The same question, typed without the question mark.
+ *
+ * Narrower than the punctuated form, because dropping the `?` requirement
+ * wholesale reads statements as questions. Two exclusions carry that:
+ *
+ * - **`when` and `where` are omitted.** They open a subordinate clause at least
+ *   as often as a question — "When AtlasMind prompts for tool use it should
+ *   offer Autopilot" is a requirement, not an enquiry.
+ * - **An obligation modal disqualifies it.** "What the router should do is pick
+ *   the cheapest model" states a rule; a person asking a question does not tell
+ *   you what the answer must be.
+ *
+ * Everything else opening with an interrogative is treated as a question,
+ * because typing the mark is optional and skipping it is commonest when typing
+ * quickly — which is exactly when somebody then says "carry on".
+ */
+const UNPUNCTUATED_QUESTION_PATTERN = /^\s*(?:what|why|how|which|who|whose|whom)\b/i;
+const OBLIGATION_MODAL_PATTERN = /\b(?:should|must|shall|needs?\s+to|has\s+to|have\s+to|ought\s+to)\b/i;
+
+/** True when the prompt asks for an answer rather than for work. */
+function isInformationalQuestion(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  if (INFORMATIONAL_QUESTION_PATTERN.test(trimmed)) {
+    return true;
+  }
+  return UNPUNCTUATED_QUESTION_PATTERN.test(trimmed) && !OBLIGATION_MODAL_PATTERN.test(trimmed);
+}
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 /**
  * Detects when the assistant's *own* reply is offering to start an autonomous
@@ -3654,14 +3706,22 @@ async function handleVisionCommand(
   sessionId: string,
   token?: vscode.CancellationToken,
 ): Promise<void> {
-  const selectedAttachments = await pickImageAttachments();
+  const { attachments: selectedAttachments, rejections } = await pickImageAttachments();
+  const rejectionNotice = describeImageRejections(rejections);
+
   if (selectedAttachments.length === 0) {
-    stream.markdown('No images were selected. Run `/vision` again and choose one or more workspace images.');
+    // "No images were selected" was reported whether the dialog came back empty
+    // or every file it returned was refused — so picking one 5 MB screenshot
+    // read as picking nothing, and the reason was never stated.
+    stream.markdown(rejectionNotice
+      ? `${rejectionNotice}\n\nNothing was left to analyse. Run \`/vision\` again with a supported image under the size limit.`
+      : 'No images were selected. Run `/vision` again and choose one or more workspace images.');
     return;
   }
 
   stream.markdown(
-    `### Attached Images\n\n${selectedAttachments.map(image => `- ${image.source}`).join('\n')}`,
+    `### Attached Images\n\n${selectedAttachments.map(image => `- ${image.source}`).join('\n')}`
+    + (rejectionNotice ? `\n\n${rejectionNotice}` : ''),
   );
 
   const prompt = request.prompt.trim().length > 0
@@ -3736,8 +3796,17 @@ async function runChatTask(
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
   const workstationContext = buildWorkstationContext();
   const explicitAttachments = options.attachments ?? [];
-  const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
-  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  const inlineResolution = explicitAttachments.length > 0
+    ? { attachments: [], rejections: [] }
+    : await resolveInlineImageAttachmentsDetailed(prompt);
+  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineResolution.attachments);
+  // Said before the answer, not after: an operator who mentioned a screenshot
+  // should learn it was too large to send *while* reading the reply, not conclude
+  // the model looked at it and misunderstood.
+  const inlineRejectionNotice = describeImageRejections(inlineResolution.rejections);
+  if (inlineRejectionNotice) {
+    stream.markdown(`${inlineRejectionNotice}\n\n`);
+  }
   const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, {
     sessionContext,
     ...(nativeChatContext ? { nativeChatContext } : {}),
@@ -6090,7 +6159,7 @@ function normalizeAutonomousSourcePrompt(prompt: string): string {
   // executable goal. Skip it so an affirmation doesn't autonomously "run" the question
   // when there is no assistant proposal to anchor the goal — fall back to an earlier
   // actionable user prompt instead.
-  if (INFORMATIONAL_QUESTION_PATTERN.test(trimmed)) {
+  if (isInformationalQuestion(trimmed)) {
     return '';
   }
 
@@ -6527,10 +6596,10 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
   return 'balanced';
 }
 
-async function pickImageAttachments(): Promise<TaskImageAttachment[]> {
+async function pickImageAttachments(): Promise<ImageAttachmentResolution> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
-    return [];
+    return { attachments: [], rejections: [] };
   }
 
   const selected = await vscode.window.showOpenDialog({
@@ -6545,8 +6614,8 @@ async function pickImageAttachments(): Promise<TaskImageAttachment[]> {
   });
 
   if (!selected || selected.length === 0) {
-    return [];
+    return { attachments: [], rejections: [] };
   }
 
-  return resolvePickedImageAttachments(selected);
+  return resolvePickedImageAttachmentsDetailed(selected);
 }

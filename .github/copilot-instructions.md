@@ -403,7 +403,7 @@ This project enforces **32** testing methodologies. When writing or verifying te
 - **Key tools:** Redaction-boundary tests, prompt-payload inspection, tenant-isolation tests over retrieval, training-opt-out verification, memory-retention window tests, provider zero-retention configuration checks
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:3131e9d7e7504f6f -->
+<!-- atlasmind:source-digest:23ac6df8145d990b -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->

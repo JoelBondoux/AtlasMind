@@ -6,6 +6,510 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.341.0] - 2026-08-15
+
+### Added
+
+- **Dictate a message into the composer.** Voice existed only as its own panel, which is a different
+  activity from writing a prompt — you had to open a second surface, speak, and carry the text back.
+  There is a microphone beside the attachment controls now.
+
+  Transcription is **on this machine**, through the same local Whisper the Voice Panel uses; nothing is
+  sent anywhere to be turned into text. `VoiceManager.transcribeWav` is the new entry point, because
+  `startListening` is bound to the Voice Panel's own webview and reusing it would have opened a panel
+  nobody asked for. The capture chain — `getUserMedia`, downsample to 16 kHz mono, WAV — is the one that
+  panel already proves works, rather than a second implementation free to drift from it.
+
+  **The transcript is inserted, never submitted.** Speech recognition gets words wrong, and a mis-heard
+  sentence that sends itself is a turn you did not ask for with a cost attached. Reading it first is the
+  safeguard, and it costs one keystroke. Escape while recording abandons it rather than transcribing —
+  changing your mind mid-sentence should not mean deleting the result.
+
+  Failures are named rather than generic: "the model is not downloaded yet", "the microphone recorded
+  nothing" and "this window cannot record audio" want different things from you.
+
+## [0.340.0] - 2026-08-15
+
+### Added
+
+- **Restore the files a turn changed, from the turn itself.** AtlasMind has snapshotted files before tool
+  writes for a long time, and the only way to use one was "undo the last thing" — which is a different
+  question from "undo *that* thing" when the turn you mean is an hour up the transcript.
+
+  A reply that changed files now offers **Restore files from before this turn**, and the dialog is explicit
+  that it is **files only**: the conversation is left exactly as it is. A transcript that silently rewound
+  itself alongside the working tree would destroy the record of what had been tried, which is the more
+  valuable of the two. Rewinding the conversation is a separate decision, and Edit/Regenerate is the
+  control for it.
+
+  The control appears **only when that turn actually has a snapshot** — one that reports "nothing to
+  restore" when clicked is worse than no control. Snapshots live in a ring buffer, so *"this turn never had
+  one"* and *"its snapshot has aged out"* are reported as the different facts they are.
+
+  The webview sends the **transcript entry**, never a task id; the host looks that up, so a message cannot
+  name a checkpoint belonging to some other turn. Turns now record the orchestrator task they ran as, which
+  is the key that makes the lookup possible.
+
+## [0.339.0] - 2026-08-15
+
+### Added
+
+- **Edit a message and run it again, or ask for a different reply.** Getting a prompt slightly wrong meant
+  retyping it and living with the failed attempt in the transcript; a poor answer meant rephrasing the
+  question and hoping. Both now rewind: **Edit** on one of your messages replaces it and re-runs from
+  there, **Regenerate** on a reply re-runs the prompt that produced it.
+
+  One method serves both, because they are the same operation seen from two ends — find the prompt to run,
+  drop everything after it, send it. Two implementations would give two chances to get the discard
+  boundary wrong, and regenerating in particular has a trap: it names an *assistant* reply, and the thing
+  to re-run is the nearest **user** turn above it.
+
+  **The confirmation names the cost**: "this discards the 3 messages after it in this chat". A dialog that
+  cannot say what you lose is not much of a dialog. Declining changes nothing, and neither does either
+  action while a turn is already running.
+
+  Editing happens **in the bubble**, not in the composer — the composer may already hold something you
+  were part-way through writing, and commandeering it to correct an older message would lose that. Enter
+  re-runs, Escape cancels and redraws from state rather than reconstructing the transcript locally.
+
+  `SessionConversation.truncateAfter` is the new primitive, returning how many entries it removed so the
+  caller can name them. It deliberately does **not** touch the session context bundle: that is a rolling
+  summary with no per-turn identity, so it cannot be surgically rewound and is instead rebuilt from the
+  transcript afterwards. Left stale it would keep describing turns that no longer exist.
+
+## [0.338.0] - 2026-08-15
+
+### Added
+
+- **Chat sessions can be renamed.** Titles were derived from the first message and permanent, so a thread
+  that turned into something else kept a name describing what it used to be. Renaming is inline in the
+  session rail rather than in a dialog: it is a few words being corrected, usually right after reading
+  them, and a modal takes the list you were comparing against off the screen. Enter or clicking away
+  commits, Escape abandons — matching VS Code's own inline renames, because clicking away from a field you
+  have edited means keeping the edit far more often than discarding it.
+
+  A rename that does not take now says so. Silently doing nothing is worse than failing loudly: the
+  operator reads the old name and concludes they mistyped.
+
+- **Search reaches your other chats.** Searching found matches in the open session only, so "have I
+  discussed this before?" was unanswerable without opening every thread. The same search now also asks the
+  host — which is the only side that holds the other sessions — and lists matches from elsewhere beneath
+  the in-session results, kept separate because a hit in a conversation you are not looking at is a
+  different thing from a hit in this one, and merging them would make the counter meaningless.
+
+  Each result carries a **window around the match** rather than the head of the message: a snippet that
+  does not contain what you searched for makes you open every result to find out whether it was the one.
+  Snippets pass through the same secret redaction as everything else leaving the panel, since a match can
+  sit next to a key. Capped at 50, with the cap stated in the heading.
+
+  This replaces the dead host-side search deleted in 0.327.1 — that one searched a single session and was
+  never called, because the working in-session search is client-side.
+
+## [0.337.0] - 2026-08-15
+
+### Added
+
+- **A context meter above the composer**, so a long conversation stops being a black box. Until now the
+  only way to discover that older turns were being dropped was to notice the assistant had forgotten
+  something — which is the symptom Lane 4 keeps producing and the hardest one to attribute.
+
+  **Two ceilings, and which applies is the point.** When a model is known — pinned, or the one that
+  answered last — the bar is a share of that model's real context window. When none is, it falls back to
+  your own session budget and says so ("carrying 3 of 6 turns") rather than claiming a percentage of a
+  window nobody has chosen. A number invented to fill a bar is worse than no bar.
+
+  It uses the orchestrator's own `estimateTokens`, now exported rather than copied: a second estimator
+  would let the meter say a turn fits while the code doing the packing disagreed.
+
+  The unsent draft is counted **client-side** as you type, because recomputing the session context per
+  keystroke would mean rebuilding it per character. And a meter that cannot measure is **absent rather
+  than zero** — it runs inside every state sync, so a missing capability costs a bar, never the panel.
+
+## [0.336.0] - 2026-08-15
+
+### Added
+
+- **You can pin which model answers.** Every competing chat panel has had a model picker for years;
+  AtlasMind routed automatically with no way to say otherwise, which is the right default and a poor
+  absolute.
+
+  It is an **override on top of the router, not a replacement for it**. "Auto" is the first option and the
+  resting state, the pin travels as `RoutingConstraints.preferredModel` — machinery that already existed
+  and already degrades gracefully when a pinned model is unhealthy or lacks a required capability — and
+  the footer keeps reporting whichever model *actually* answered. So a pin the router had to refuse is
+  visible rather than silently assumed.
+
+  **Two scopes**, because pinning a frontier model to compare one answer is a different intent from
+  changing how a conversation routes: *Next message* is consumed by the following submission, *This chat*
+  persists until cleared. The turn-scoped pin is consumed **before** the request rather than after it, so
+  a failed or cancelled turn cannot leave it applying to whatever is typed next.
+
+  Three decisions worth stating:
+
+  - **The list is what you configured, not what the router currently likes.** A model being de-weighted
+    for struggling is still one you pay for and may legitimately pin; hiding it would make the picker
+    disagree with the Models tree for a reason nobody could see.
+  - **The host validates the id against the list it published.** The webview supplies data; "which models
+    exist" is a question only the host can answer. A provider whose credential check throws is treated as
+    unconfigured rather than failing the whole enumeration — one broken provider must not empty the picker.
+  - **The internal terminal-planning call is deliberately left unpinned.** It is a small routing decision,
+    not your answer, and spending a pinned frontier model on it would be a cost you did not ask for.
+
+  Enumeration moved to `src/views/modelPickerShared.ts`, shared with the Model Comparison panel, because
+  two copies of "which models may I offer" would eventually list different sets.
+
+## [0.335.0] - 2026-08-15
+
+### Fixed
+
+- **The chat panel never had conversation recall.** Asked *"what was my question three turns ago"*, it
+  routed the question to a model, which invented both a question the operator had never asked and a
+  "session summary" that does not exist — while the real exchange sat three lines up the screen. Of every
+  fabrication available in this product that is the worst-shaped, because it contradicts a verbatim record
+  the reader can scroll to.
+
+  `parseConversationRecallRequest` parsed the prompt correctly the whole time. It was only ever *called*
+  from the `@atlas` participant. The 0.324.0 notes and the audit both recorded recall as already live in
+  the panel; it never was, and panel adoption was deferred on that false premise. The panel answers from
+  the transcript now, quoting, before any model is asked.
+
+- **An interrogative typed without a question mark was treated as work.** `carry on` after *"what was my
+  question three turns ago"* started an autonomous project run with that sentence as its goal. The
+  interrogative branch of the informational check required a trailing `?`, while the imperative branch
+  (`explain`, `tell me about`) never did — so "explain the router" was a question and this was a job.
+
+  This is the fourth detector here to key on `?` and be wrong for it: a full stop inside a filename
+  (0.311.1), no question mark at all (0.315.0), something after the question mark (0.320.0). The
+  punctuation is not the signal; the opening word is.
+
+  Narrowed rather than simply relaxed, because dropping the requirement wholesale reads statements as
+  questions: `when` and `where` open a subordinate clause at least as often as an enquiry ("When AtlasMind
+  prompts for tool use it should offer Autopilot" is a requirement), and an obligation modal disqualifies
+  it either way ("what the router **should** do is…" states a rule).
+
+  Both were found by a live Lane 4 run, recorded in `evals/chat-window-live-battery.md`. Two further
+  failures in that run — a cost question that five model attempts could not answer, and a 3B model
+  inverting "use Playwright instead" into "replace Playwright" — are routing problems rather than chat-window
+  ones, and are written up there rather than papered over here.
+
+## [0.334.1] - 2026-08-15
+
+### Fixed
+
+- **Pressing Stop no longer produces two surfaces disagreeing about whether it worked.** While a turn was
+  waiting for its first tokens the panel read *"The model has not stopped; waiting for the next token
+  batch."* — a denial, phrased in vocabulary from inside this repository, answering a question nobody had
+  asked. And once Stop *was* pressed it kept saying exactly that, which is the worst possible sentence to
+  show somebody watching to find out whether the button worked.
+
+  There are three states and now three plain sentences: **"Thinking — nothing written yet."**, **"Still
+  writing…"**, and **"Stopping — finishing the step in progress."** The last one appears the moment Stop
+  is clicked rather than when the host gets around to confirming, because the gap between those two is
+  precisely the window the operator is staring at. The heading changes to *Stopping* with it, so the panel
+  is not announcing that it is thinking while it winds down.
+
+  The host's own wording followed: *"Stopping the current chat request..."* became **"Stopped."**, and
+  *"No active chat request is running."* became **"Nothing is running."**
+
+  The flag clears when the turn ends and when a new message is sent, so a stop that has already happened
+  cannot colour the next turn.
+
+## [0.334.0] - 2026-08-15
+
+### Changed
+
+- **The activity line is a bubble of its own now, and it speaks like the rest of the product.** It was a
+  bare grey line sharing a row with the toolbar icons, saying things like *"Running AtlasMind chat
+  request…"* — the panel describing its own internals, in its own vocabulary, in the place a caption
+  belongs. It read as instrumentation that had escaped into the interface.
+
+  It is a full-width strip below the thread now, in its own colour, with a quiet pulse marking it as live.
+  Deliberately a different shape from a message: user and assistant bubbles are inset and side-aligned,
+  and this spans the whole width, so it can never be mistaken for somebody's turn — it is the panel's own
+  margin note, sitting beside the work it describes.
+
+  **It disappears when nothing is happening.** A strip permanently announcing "Ready." is the same
+  instrumentation in nicer clothes; the states worth a bubble are the ones where something is going on.
+
+  The wording went with it. "Running AtlasMind chat request…" is now "Working on it…" — you know you
+  asked, and you know which product you are in. Likewise *"A chat request is already running. Stop it
+  before starting another one."* became *"Still working on your last message. Stop it first, or use Steer
+  to redirect it."*, which names the control that solves the problem rather than the internal noun for the
+  thing in the way.
+
+## [0.333.1] - 2026-08-15
+
+### Fixed
+
+- **Assistant replies stopped rendering.** Your own message appeared, nothing after it did, and the status
+  line still reported the reply as ready — because the failure was in the renderer, not in the turn. The
+  answer had arrived and was sitting in the transcript with nothing drawing it.
+
+  Cause: extracting `buildMessageElement` out of `renderTranscript` in 0.329.1 left `selectedRun` behind as
+  a free variable. It is read **only** on the assistant branch, so every assistant bubble threw a
+  `ReferenceError` mid-build and `renderTranscript` died partway through its loop — after appending the
+  user bubble, before appending the reply.
+
+  Nothing could have caught it. `media/chatPanel.js` is `@ts-nocheck` out of necessity, so the compiler
+  never saw it; every existing test of that file asserts its **source text**, because there was no DOM to
+  run it in; and the panel's own status line kept saying everything was fine.
+
+- **The chat webview now has tests that actually execute it.** `tests/views/chatWebviewDom.test.ts` mounts
+  the real markup in jsdom, runs the real script, and pushes state messages the way the host does — then
+  looks at what came out. Five of its six cases fail against the defect above and pass with the fix.
+
+  It is deliberately small. Its value is in being *run* rather than in breadth: it renders a reply, renders
+  one tied to a selected run, streams a turn and finishes it, appends a turn without losing the earlier
+  ones, checks a fenced block's text survives highlighting exactly, and opens the command list on a leading
+  slash but not on a path. Every one of those is a path that source-text assertions can only describe.
+
+## [0.333.0] - 2026-08-15
+
+### Added
+
+- **The composer completes commands and file paths as you type.** `/` opens the command list, `@` searches
+  the workspace. Until now the chat panel offered no completion at all — VS Code's own chat view has
+  always completed `@atlas /…`, so the panel was the surface where you had to remember the exact spelling
+  of a command and type a path from memory.
+
+  One component serves both triggers. Two lists would drift in their keyboard handling, and the difference
+  would surface under whichever one people use less.
+
+  - **Commands come from the set the router dispatches on**, so the list can never advertise something
+    that would fall through to a model. Descriptions are read from the manifest; if that cannot be read
+    the names still complete, which is the part that matters. A `/` only opens the list at the very start
+    of a prompt, matching the router's own rule that `/usr/local/bin` is prose.
+  - **File matches come from the host**, because the webview has no filesystem. Lookups are debounced, and
+    the reply **echoes the query it answered** — typing is faster than a workspace search and replies do
+    not necessarily arrive in the order they were asked for, so without the echo a pause after `src/ch`
+    could leave the list showing matches for `src/c`.
+  - **Picking a file attaches it**, rather than only writing its name into the prose. The token says what
+    you meant; the attachment is what the model actually receives.
+
+  Keyboard behaviour is the ordinary combobox contract: ↑/↓ move, Enter or Tab accept, Escape closes, and
+  the open list takes those keys **before** the composer does — otherwise Enter would send the prompt with
+  a suggestion highlighted, and ↑ would walk the prompt history instead of the list. Focus never leaves the
+  textarea: the list is a popup, and the highlighted option is announced through `aria-activedescendant`,
+  so the caret stays where you left it.
+
+## [0.332.0] - 2026-08-15
+
+### Added
+
+- **The editor selection and the Problems panel can be attached to a chat turn.** Two of the commonest
+  things to want a model to look at, and neither was reachable: describing a selection meant copying it in
+  by hand, and "why is this failing?" meant retyping an error message that was already on screen.
+
+  Both attach as **ordinary text attachments** rather than as new context fields. That is the whole design
+  decision: they travel the pipeline every other attachment already uses, so they inherit the secret
+  redaction added in 0.329.0 — a bespoke context key would have quietly bypassed it, which is exactly the
+  shape of the three leaks that release fixed.
+
+  - **Selection** carries the file and line range in its label, is fenced with the document's language,
+    and caps at 60,000 characters. It targets the last real text editor, for the same reason the code-block
+    actions do: the chat panel is usually the active one by the time you click.
+  - **Problems** counts what it is sending in the label — three errors and four hundred warnings are
+    different attachments and only one is worth a model's context — lists at most 100, and **states the
+    remainder in the text itself**. A truncated list read as the whole list is how a model concludes a
+    problem was fixed.
+
+  Neither message carries a payload. The webview says *attach the selection*, never *attach these lines of
+  that file*: the host reads the live editor and the live diagnostics itself, which is the strongest form
+  of the rule that the webview supplies data and never a target.
+
+## [0.331.0] - 2026-08-15
+
+### Added
+
+- **Code blocks can reach the editor.** Copy and *Send to terminal* were the only things a block could do,
+  so getting a suggested change into a file meant selecting it, switching editors, finding the place and
+  pasting. Three actions now sit beside them:
+
+  - **Insert at cursor** — replaces the selection, or inserts at the caret. It targets the *last real text
+    editor* rather than the active one, because by the time you click a button in the chat panel the panel
+    usually **is** the active editor.
+  - **Open as a new file** — an untitled buffer, not a file on disk. Naming and placing a file is a
+    decision AtlasMind should not make on your behalf, and an unsaved buffer costs nothing to discard,
+    which is also why this one asks nothing: it destroys nothing.
+  - **Apply with diff preview** — opens a real `vscode.diff` against a virtual document showing exactly
+    what would change, *then* asks. Answering a confirmation you have already seen the answer to is the
+    entire point, and declining leaves the file untouched.
+
+  Two deliberate limits. This is **not a "smart apply"**: no model is in this path and no fragment is
+  fuzzy-merged into surrounding code. It replaces precisely what the diff showed — the selection, or the
+  whole file when nothing is selected — which is the version whose behaviour you can predict by looking at
+  it. And the change goes through `editor.edit` rather than a filesystem write, so it lands on the undo
+  stack like anything you typed; nothing here writes a file behind your back.
+
+  The message payload carries the code text rather than a block index, following `sendToTerminal`: the
+  transcript re-renders while a turn streams, so an index the webview held could name a different block by
+  the time the host read it. Payloads are bounded (non-empty, ≤200,000 characters) and the webview still
+  names no command — the host decides what each action does.
+
+## [0.330.0] - 2026-08-15
+
+### Added
+
+- **Code blocks in chat are syntax highlighted.** Every competing chat panel has had this for years;
+  AtlasMind set a `data-lang` attribute that nothing consumed and rendered plain grey text, which is
+  hardest to read in exactly the place a chat about code spends most of its time.
+
+  Three decisions worth stating, because each one had an easier wrong answer:
+
+  - **The highlighter is built, not downloaded.** `media/chatPanel.js` is hand-authored and unbundled so
+    it cannot import anything, and the panel's CSP has no CDN in it — deliberately. The alternative was
+    committing an opaque minified blob, so `esbuild.mjs` now builds `media/vendor/highlight.min.js` from
+    the pinned `highlight.js` devDependency: the input is reviewable, the version is in `package.json`,
+    and Dependabot can see it. The `common` build carries ~40 languages rather than ~190, which is
+    everything that realistically appears in a chat answer at a third of the size.
+  - **The markup is never assigned.** `innerHTML = hljs.highlight(...).value` is the ordinary way to use
+    this library and the one thing this panel must not do — a code block holds model output, the least
+    trusted text on screen. The result is parsed in an inert document and rebuilt node by node, keeping
+    only `hljs-*` class names; anything that is not a `<span>` contributes its text and nothing else. The
+    rebuilt text is then compared against the source, and a mismatch falls back to plain text: if the walk
+    lost or altered a character, the uncoloured block is the honest answer.
+  - **Colours come from the editor's theme**, not from one of highlight.js's stylesheets. A fixed palette
+    would be a second theme sitting inside the user's own — right in one colour scheme and wrong in every
+    other, high-contrast included.
+
+  It degrades quietly in every direction: no highlighter, no language on the fence, a language the build
+  does not know, a block over 50,000 characters, or a throwing call all render exactly what they rendered
+  before.
+
+## [0.329.1] - 2026-08-15
+
+### Fixed
+
+- **The chat transcript rebuilt itself on every streamed chunk.** `renderTranscript` cleared the container
+  and recreated every bubble, and the state handler runs per token batch — so one long answer tore down
+  and rebuilt the whole conversation dozens of times. Three consequences, all felt rather than seen: the
+  work is O(n) on a transcript that only grows, any text selected or focused *inside* the transcript was
+  destroyed mid-read, and with `aria-live` on the container a screen reader was asked to re-announce the
+  entire conversation each time.
+
+  The per-entry body is now `buildMessageElement`, shared by both render paths — two builders would drift,
+  and the drift would only appear mid-stream, which is the hardest place to notice anything. The
+  incremental path is deliberately narrow: it runs **only while a turn is in flight**, only when the
+  entries on screen are an unchanged prefix of the incoming ones, and never in search mode or with a
+  selection. Anything else takes the full path, and the turn's final render always arrives with `busy`
+  false — so the steady state is rebuilt in full and any drift the fast path could introduce survives at
+  most one frame.
+
+- **The model dropdown could not be opened from the keyboard.** The badge was a `<div>` with a click
+  handler, so it could never hold focus — which also made the Escape handler and the `badge.focus()` call
+  sitting beside it unreachable code. It is a real `<button>` now, with `aria-expanded` tracking the list.
+
+- **Four infinite animations ignored `prefers-reduced-motion`.** They run for the whole duration of a
+  turn, and this panel is where a long task is watched. The elements stay exactly where they are and only
+  the motion stops, so the busy state is still legible from the spinner's presence and the status line.
+
+  **Note for reviewers:** the repo has no DOM harness — webview behaviour is asserted as source text — so
+  the incremental renderer is covered by wiring contracts rather than by rendering assertions. It is worth
+  one visual pass over a streaming answer before this ships.
+
+## [0.329.0] - 2026-08-15
+
+### Fixed
+
+- **Three paths sent text to a model without passing it through redaction.** The orchestrator redacts the
+  context *it* assembles; these are assembled by the chat panel and never went through it. Each carries
+  text the operator chose in a gesture that does not look like sending a file to a model:
+
+  - **managed terminal output** — a `@t` session runs whatever was typed, so `env`, a failing deploy
+    echoing its connection string, or a CLI printing the token it just used all reached the model verbatim;
+  - **an attached file** — one drag from the explorer, and nothing about the gesture says the contents are
+    being read, which makes a `.env` or a `wrangler.toml` the easiest thing in the product to leak;
+  - **pasted or dropped text**, the same context by a different door.
+
+  Redaction runs **before** truncation on the terminal path, which is the part worth stating: the
+  truncation keeps the tail, so redacting afterwards would let a credential straddling the cut survive as
+  a fragment that no longer matches any pattern — half a live key travelling as ordinary noise. A test
+  puts a key across the boundary and asserts no fragment of it comes out.
+
+- **An image that could not be sent now says so.** Every rejection was a bare `undefined`, so an oversized
+  screenshot, an unsupported `.bmp`, a path outside the workspace and an unreadable file were all
+  indistinguishable from "no image mentioned": the turn answered without looking at the picture and said
+  nothing about it. That is the worst-shaped failure available here, because the operator believes the
+  model saw what they saw — and then reads the answer as though it did.
+
+  Rejections now carry a reason and are reported in the reply. `/vision` reports every one, since the
+  operator picked those files in a dialog; the inline path stays quieter and reports only *too large* and
+  *unreadable*, because prose naming a path is a guess about intent and complaining about ordinary
+  sentences would make the notice worth ignoring. `/vision` also no longer says "no images were selected"
+  when images *were* selected and all of them were refused.
+
+## [0.328.0] - 2026-08-15
+
+### Changed
+
+- **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
+  message all fired on the click — no confirmation, no undo, and no copy of the transcript anywhere else
+  in the product. A mis-click on a session row took the whole thread with it, and nothing in the panel
+  could put it back. These were the last unconfirmed destructive actions in AtlasMind; every other
+  outward-facing write already had a modal.
+
+  Each dialog names **what is lost**, and specifically the message count, because that is the part the
+  operator cannot see from the control: a session row shows a title, not that it holds forty messages.
+  Where the count cannot be read it says so rather than reporting zero — the one number that would make a
+  destructive dialog reassuring and wrong. The message dialog quotes the message it would remove, run
+  through the same secret redaction as everything else that leaves this panel, since a transcript excerpt
+  in a system dialog is still an excerpt.
+
+  The tests assert the **decline** path for all three: a confirmation that only works when you accept it
+  is not a confirmation.
+
+## [0.327.2] - 2026-08-15
+
+### Fixed
+
+- **Four documentation claims that were not true.** Each was found by auditing the chat surface against
+  what the code does, and each is the kind that costs a user a wrong decision rather than a moment's
+  confusion.
+
+  - **`/cost` was documented as session spend** in both the README and the wiki. It reports the running
+    total for the *workspace across every session*, and has done since 0.322.0 — which relabelled the
+    command's own heading after it reported £81.82 in a three-message conversation, and left the two
+    places people read beforehand saying the opposite. A cost figure believed to be per-session and
+    actually lifetime is the one wrong number here with a real consequence.
+  - **`/agents`, `/skills` and `/memory` were declared as "list **or manage**"** in the manifest, and
+    described the same way in the docs. All three are read-only: they list or query, and the managing
+    happens in the Agent Manager and the Memory view. The manifest text is what VS Code shows in the
+    command picker, so it was promising an action at the point of choosing one.
+  - **`chatSlashRouting.ts` said "nineteen slash commands" twice** against a set of twenty. Harmless in
+    itself; what it signals is a file edited without its reasoning being re-read, which is how two ends of
+    a routing table drift apart. A test now fails on any stale spelled-out count, and pins the manifest to
+    the deterministic set plus the two run commands.
+  - **The sub-commands were documented nowhere.** `/buzz read|send|dm|local|hosted|all`, `/acp all`,
+    `/research all`, `/setup <guide>`, `/sync-instructions apply|choose|reset|cancel` and the `--approve`
+    token on `/project` and `/loop` all work and none of them appeared in the manifest or the wiki, so
+    VS Code's autocomplete cannot suggest them and nothing else mentioned they exist. The wiki now lists
+    them, and says outright that autocomplete will not offer them.
+
+## [0.327.1] - 2026-08-15
+
+### Fixed
+
+- **Three chat-panel controls that could not possibly have worked.** None is visible to the compiler: the
+  webview is `@ts-nocheck` and reaches the host through `postMessage`, so a control can be wired to a
+  message nothing accepts and still look completely fine.
+
+  - Both **"Open Run Center"** buttons were silently inert. The webview posted `openProjectRunCenter`,
+    which was absent from `ChatPanelMessage`, so `isChatPanelMessage` rejected it and the host dropped it
+    without a sound. The command itself already accepted a run id; only the route was missing.
+  - The pause card told the operator to **"select Continue"** and drew no Continue button. The validated
+    protocol member and the host handler both existed — the one way out of an execution pause that needs
+    no setting change was reachable only by typing "Proceed".
+  - **`searchSession`** was a complete host-side search implementation the webview never called, since the
+    working search is client-side. It is deleted, along with the dead `searchResults` listener waiting for
+    a message nothing sent and a `renderSearchResult` bridge whose only caller never existed — and which
+    called a highlighter defined outside the IIFE holding the function it needs, so it would have thrown
+    if anything had ever reached it.
+
+  Three tests now hold the protocol closed in both directions: nothing is posted that the validator would
+  reject, nothing is declared that the webview never sends, and nothing is declared that the host does not
+  handle. All three defects were orphans in that mapping, and all three are the kind that ship because the
+  two ends are checked separately and never against each other.
+
 ## [0.327.0] - 2026-08-15
 
 ### Changed

@@ -40,6 +40,9 @@ import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from 
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
+import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
+import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
+import { estimateTokens } from '../core/orchestrator.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
@@ -55,7 +58,7 @@ import { formatCost } from '../core/currencyFormatter.js';
 
 // Re-exported for existing importers/tests that resolve these from chatPanel.
 export { getStatusDrivenComposerMode, isOneShotComposerMode, isChatPanelMessage };
-import { routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
+import { ATLAS_SLASH_COMMANDS, routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
@@ -195,6 +198,29 @@ export interface ChatPanelDirectResponse {
   composerPrefills?: SessionComposerPrefill[];
 }
 
+/**
+ * What the next turn would send, and the ceiling it is measured against.
+ *
+ * Two different ceilings, and which one applies is the interesting part. When a
+ * model is known — pinned, or the one that answered last — the bar is measured
+ * against that model's real context window. When none is known the bar falls
+ * back to the operator's own session budget, because claiming a percentage of a
+ * window nobody has chosen would be a number invented to fill a bar.
+ */
+interface ChatContextMeter {
+  /** Estimated tokens the next turn would carry, excluding the unsent draft. */
+  estimatedTokens: number;
+  /** The model the estimate is measured against, when one is known. */
+  modelId?: string;
+  /** That model's context window, when it publishes one. */
+  contextWindow?: number;
+  /** Session budget, always present: the fallback ceiling and the honest one. */
+  contextChars: number;
+  charBudget: number;
+  turnCount: number;
+  turnLimit: number;
+}
+
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   chatFontScale?: number;
@@ -208,6 +234,16 @@ interface ChatPanelState {
   streamingModels?: string[];
   composerDraft?: string;
   composerMode?: ComposerSendMode;
+  /** Slash commands the composer offers, sorted. Sent once per state sync. */
+  slashCommands?: Array<{ name: string; description: string }>;
+  /** Models the operator may pin, from providers they have configured. */
+  availableModels?: PickableModel[];
+  /** The pin currently in force, if any. */
+  modelOverride?: ModelOverride;
+  /** What the next turn would carry, and what it is measured against. */
+  contextMeter?: ChatContextMeter;
+  /** Task ids with a stored file snapshot, so a turn can offer to restore it. */
+  checkpointTaskIds?: string[];
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
@@ -342,6 +378,25 @@ export class ChatPanel {
   private selectedSessionId: string;
   private selectedMessageId: string | undefined;
   private selectedRunId: string | undefined;
+  /** The last real text editor, for code-block actions. See the listener that sets it. */
+  private lastActiveTextEditor: vscode.TextEditor | undefined;
+  /**
+   * The routed model the operator pinned, if any.
+   *
+   * Held per surface rather than persisted: a pin is a decision about the
+   * conversation in front of you, and one silently surviving a reload would be
+   * a routing change nobody remembers making.
+   */
+  private modelOverride: ModelOverride | undefined;
+  private pickableModels: PickableModel[] = [];
+  /**
+   * Task ids that currently have a file snapshot.
+   *
+   * Cached from the last sync so the transcript renderer can decide whether to
+   * offer a restore without asking the store per bubble. Stale by at most one
+   * render, and the handler re-checks before doing anything.
+   */
+  private checkpointTaskIds: string[] = [];
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
@@ -464,9 +519,19 @@ export class ChatPanel {
     vscode.window.onDidChangeVisibleTextEditors(() => {
       void this.syncState();
     }, null, this.disposables);
-    vscode.window.onDidChangeActiveTextEditor(() => {
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+      // Remembered because the chat panel is itself the active editor much of
+      // the time: by the moment somebody clicks "Insert at cursor",
+      // `activeTextEditor` is often this panel or nothing at all. The last real
+      // text editor is the one they mean.
+      if (editor && editor.document.uri.scheme !== 'output') {
+        this.lastActiveTextEditor = editor;
+      }
       void this.syncState();
     }, null, this.disposables);
+    if (vscode.window.activeTextEditor) {
+      this.lastActiveTextEditor = vscode.window.activeTextEditor;
+    }
 
     void this.syncState();
     void this.refreshProjectName();
@@ -521,52 +586,11 @@ export class ChatPanel {
         // missed the constructor's initial syncState().
         await this.syncState();
         return;
-      case 'searchSession': {
-        const rawQuery = typeof message.payload?.query === 'string' ? message.payload.query.trim() : '';
-        const query = rawQuery.toLowerCase();
-        await this.host.webview.postMessage({
-          type: 'status',
-          payload: rawQuery ? `Searching this session for "${rawQuery}"…` : 'Enter text to search this session.',
-        });
-
-        const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
-        const results: Array<{ messageId: string; indices: Array<{ start: number; end: number }>; matchIndex: number }> = [];
-        if (query && Array.isArray(transcript)) {
-          transcript.forEach(entry => {
-            if (typeof entry.content !== 'string' || entry.content.length === 0) {
-              return;
-            }
-            const contentLower = entry.content.toLowerCase();
-            let startIdx = 0;
-            let matchIdx = 0;
-            while (startIdx <= contentLower.length) {
-              const found = contentLower.indexOf(query, startIdx);
-              if (found === -1) {
-                break;
-              }
-              results.push({
-                messageId: entry.id,
-                indices: [{ start: found, end: found + query.length }],
-                matchIndex: matchIdx,
-              });
-              startIdx = found + query.length;
-              matchIdx += 1;
-            }
-          });
-        }
-
-        await this.host.webview.postMessage({ type: 'searchResults', payload: results });
-        if (rawQuery) {
-          await this.host.webview.postMessage({
-            type: 'status',
-            payload: results.length > 0
-              ? `Found ${results.length} match${results.length === 1 ? '' : 'es'} for "${rawQuery}".`
-              : `No matches found for "${rawQuery}".`,
-          });
-        }
-        return;
-      }
       case 'deleteMessage': {
+              if (!await this.confirmDestructiveAction('delete-message', message.payload)) {
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message not deleted.' });
+                return;
+              }
               // Remove the message from the current session transcript
               const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
               if (deleted) {
@@ -639,10 +663,15 @@ export class ChatPanel {
         }
         return;
       }
-      case 'clearConversation':
+      case 'clearConversation': {
+        if (!await this.confirmDestructiveAction('clear', this.selectedSessionId)) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Conversation not cleared.' });
+          return;
+        }
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
         await this.host.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
         return;
+      }
       case 'copyTranscript':
         await vscode.env.clipboard.writeText(await this.renderActiveSurfaceMarkdown());
         await this.host.webview.postMessage({ type: 'status', payload: 'Copied the current session view to the clipboard.' });
@@ -680,6 +709,10 @@ export class ChatPanel {
         }
         return;
       case 'deleteSession':
+        if (!await this.confirmDestructiveAction('delete-session', message.payload)) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Session not deleted.' });
+          return;
+        }
         this.atlas.sessionConversation.deleteSession(message.payload);
         void this.atlas.sessionContextManager?.deleteSession(message.payload).catch(() => undefined);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -690,6 +723,13 @@ export class ChatPanel {
         return;
       case 'openProjectRun':
         await this.openProjectRun(message.payload);
+        return;
+      case 'openProjectRunCenter':
+        // The command already accepts a run id; only the message route was
+        // missing, so both "Open Run Center" buttons were silently inert —
+        // `isChatPanelMessage` rejected the payload and `handleMessage` dropped
+        // it without a sound.
+        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload);
         return;
       case 'reviewRunFile':
         await this.applyRunReviewDecision(message.payload.runId, message.payload.decision, message.payload.relativePath);
@@ -708,6 +748,42 @@ export class ChatPanel {
         return;
       case 'attachOpenFiles':
         await this.attachOpenFiles();
+        return;
+      case 'transcribeAudio':
+        await this.transcribeComposerAudio(message.payload.dataBase64);
+        return;
+      case 'restoreCheckpoint':
+        await this.restoreCheckpointForTurn(message.payload.entryId);
+        return;
+      case 'editMessage':
+        await this.rewindAndResubmit(message.payload.entryId, message.payload.content);
+        return;
+      case 'regenerateMessage':
+        await this.rewindAndResubmit(message.payload.entryId);
+        return;
+      case 'renameSession': {
+        const renamed = this.atlas.sessionConversation.renameSession(message.payload.sessionId, message.payload.title);
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: renamed ? 'Renamed.' : 'That name is already in use, or the chat no longer exists.',
+        });
+        await this.syncState();
+        return;
+      }
+      case 'searchAllSessions':
+        await this.replyWithCrossSessionResults(message.payload.query);
+        return;
+      case 'setModelOverride':
+        await this.applyModelOverride(message.payload);
+        return;
+      case 'queryFileMentions':
+        await this.replyWithFileMentions(message.payload.query);
+        return;
+      case 'attachEditorSelection':
+        await this.attachEditorSelection();
+        return;
+      case 'attachProblems':
+        await this.attachProblems();
         return;
       case 'removeAttachment':
         this.composerAttachments = this.composerAttachments.filter(item => item.id !== message.payload);
@@ -753,6 +829,15 @@ export class ChatPanel {
         terminal.sendText(message.payload.code, false);
         return;
       }
+      case 'insertCodeAtCursor':
+        await this.insertCodeAtCursor(message.payload.code);
+        return;
+      case 'createFileFromCode':
+        await this.createFileFromCode(message.payload.code, message.payload.language);
+        return;
+      case 'applyCodeToFile':
+        await this.applyCodeToFile(message.payload.code);
+        return;
       case 'syncAiInstructions': {
         await this.handleSyncAiInstructionNudge();
         return;
@@ -772,6 +857,59 @@ export class ChatPanel {
   }
 
   private static readonly NUDGE_DISMISSED_KEY = 'atlasmind.aiInstructionNudgeDismissed';
+
+  /**
+   * The right-hand side of the "apply this block" diff.
+   *
+   * A virtual document rather than a temp file: nothing is written to disk to
+   * preview a change the operator may decline, and the scheme is read-only by
+   * construction, so the preview cannot be edited and mistaken for the real
+   * file. One pending preview at a time — the diff opens and is answered in the
+   * same gesture.
+   */
+  /** Caps for the two context attachments read from the editor rather than from disk. */
+  /**
+   * The commands the composer offers, with descriptions read from the manifest.
+   *
+   * The names come from `ATLAS_SLASH_COMMANDS`, which is also what the router
+   * dispatches on — so the list cannot advertise a command the router would not
+   * recognise. Descriptions are a nicety: if the manifest cannot be read the
+   * names still complete, which is the part that matters.
+   */
+  private static slashCommandCatalogue(): Array<{ name: string; description: string }> {
+    let described = new Map<string, string>();
+    try {
+      const contributed = vscode.extensions.getExtension('JoelBondoux.atlasmind')
+        ?.packageJSON?.contributes?.chatParticipants?.[0]?.commands as
+        Array<{ name?: unknown; description?: unknown }> | undefined;
+      described = new Map(
+        (contributed ?? [])
+          .filter(entry => typeof entry?.name === 'string')
+          .map(entry => [String(entry.name), typeof entry.description === 'string' ? entry.description : '']),
+      );
+    } catch {
+      described = new Map();
+    }
+    return [...ATLAS_SLASH_COMMANDS]
+      .sort()
+      .map(name => ({ name, description: described.get(name) ?? '' }));
+  }
+
+  private static readonly MAX_FILE_MENTIONS = 20;
+  private static readonly MAX_CROSS_SESSION_RESULTS = 50;
+  private static readonly MAX_SELECTION_CHARS = 60_000;
+  private static readonly MAX_PROBLEMS = 100;
+  private static readonly MAX_PROBLEMS_CHARS = 20_000;
+
+  private static readonly APPLY_PREVIEW_SCHEME = 'atlasmind-apply';
+  private static pendingApplyPreview = '';
+
+  /** Registered once for the process; every chat surface shares the one scheme. */
+  public static registerApplyPreviewProvider(): vscode.Disposable {
+    return vscode.workspace.registerTextDocumentContentProvider(ChatPanel.APPLY_PREVIEW_SCHEME, {
+      provideTextDocumentContent: () => ChatPanel.pendingApplyPreview,
+    });
+  }
 
   private async handleSyncAiInstructionNudge(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -833,6 +971,183 @@ export class ChatPanel {
         : nextVote === 'down'
           ? 'Saved thumbs-down feedback for this response.'
           : 'Cleared feedback for this response.',
+    });
+  }
+
+  /**
+   * The gate in front of the three chat actions that destroy something.
+   *
+   * Deleting a session, clearing a conversation and deleting a message all fired
+   * on the click, with no confirmation and no undo — a transcript holding a
+   * day's work was one mis-click from gone, and nothing in this panel could put
+   * it back. Every other outward-facing write in this codebase is already
+   * modal-gated; these three were simply missed.
+   *
+   * The dialog names the count, because that is the part the operator cannot see
+   * from the button: a session row shows a title, not that it holds forty
+   * messages. Where the count cannot be read, it says so rather than reporting
+   * zero — the one number that would make a destructive dialog reassuring and
+   * wrong.
+   */
+  private async confirmDestructiveAction(
+    kind: 'clear' | 'delete-session' | 'delete-message',
+    targetId: string,
+  ): Promise<boolean> {
+    if (kind === 'delete-message') {
+      const entry = this.atlas.sessionConversation
+        .getTranscript(this.selectedSessionId)
+        .find(item => item.id === targetId);
+      const excerpt = typeof entry?.content === 'string'
+        ? redactSecrets(entry.content.replace(/\s+/g, ' ').trim()).text.slice(0, 120)
+        : '';
+      const choice = await vscode.window.showWarningMessage(
+        'Delete this message?',
+        {
+          modal: true,
+          detail: excerpt
+            ? `This removes it from the transcript permanently.\n\n"${excerpt}${excerpt.length >= 120 ? '…' : ''}"`
+            : 'This removes it from the transcript permanently.',
+        },
+        'Delete message',
+      );
+      return choice === 'Delete message';
+    }
+
+    const session = this.atlas.sessionConversation.getSession(targetId);
+    const title = session?.title?.trim() || 'this chat';
+    const messageCount = session ? session.entries.length : undefined;
+    const held = messageCount === undefined
+      ? 'Its message count could not be read.'
+      : `It holds ${messageCount} message${messageCount === 1 ? '' : 's'}.`;
+
+    if (kind === 'clear') {
+      const choice = await vscode.window.showWarningMessage(
+        `Clear the conversation in "${title}"?`,
+        { modal: true, detail: `${held} They are removed permanently and cannot be recovered from this panel.` },
+        'Clear conversation',
+      );
+      return choice === 'Clear conversation';
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Delete the chat session "${title}"?`,
+      {
+        modal: true,
+        detail: `${held} The session and its stored project-memory context are removed permanently.`,
+      },
+      'Delete session',
+    );
+    return choice === 'Delete session';
+  }
+
+  /** The editor a code-block action should target, or undefined with a reason posted. */
+  private async resolveTargetEditor(action: string): Promise<vscode.TextEditor | undefined> {
+    const editor = this.lastActiveTextEditor && !this.lastActiveTextEditor.document.isClosed
+      ? this.lastActiveTextEditor
+      : vscode.window.activeTextEditor;
+    if (!editor) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `Open a file first — ${action} needs somewhere to go.`,
+      });
+      return undefined;
+    }
+    return editor;
+  }
+
+  private async insertCodeAtCursor(code: string): Promise<void> {
+    const editor = await this.resolveTargetEditor('inserting code');
+    if (!editor) {
+      return;
+    }
+    // Replaces the selection when there is one, which is what every editor does
+    // with a paste; with an empty selection this is an insert at the caret.
+    const applied = await editor.edit(builder => builder.replace(editor.selection, code));
+    await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preview: false });
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: applied
+        ? `Inserted into ${vscode.workspace.asRelativePath(editor.document.uri, false)}.`
+        : 'Could not insert into that editor.',
+    });
+  }
+
+  private async createFileFromCode(code: string, language?: string): Promise<void> {
+    // Untitled, not written to disk: naming and placing a file is a decision
+    // AtlasMind should not make, and an unsaved buffer costs nothing to discard.
+    // That is also why this one needs no confirmation — it destroys nothing.
+    const document = await vscode.workspace.openTextDocument({
+      content: code,
+      ...(language ? { language } : {}),
+    });
+    await vscode.window.showTextDocument(document, { preview: false });
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: 'Opened the block as a new unsaved file. Save it where you want it.',
+    });
+  }
+
+  /**
+   * Replace the selection — or the whole file — with the block, after showing
+   * exactly what would change.
+   *
+   * Deliberately not a "smart apply": there is no model in this path and no
+   * fuzzy merge of a fragment into surrounding code. It replaces precisely what
+   * the diff showed, which is the version whose behaviour can be predicted from
+   * looking at it. The edit goes through `editor.edit` rather than a filesystem
+   * write so it lands on the undo stack like anything the user typed.
+   */
+  private async applyCodeToFile(code: string): Promise<void> {
+    const editor = await this.resolveTargetEditor('applying code');
+    if (!editor) {
+      return;
+    }
+
+    const document = editor.document;
+    const hasSelection = !editor.selection.isEmpty;
+    const target = hasSelection
+      ? editor.selection
+      : new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
+    const relativePath = vscode.workspace.asRelativePath(document.uri, false);
+    const scope = hasSelection
+      ? `lines ${target.start.line + 1}–${target.end.line + 1}`
+      : 'the whole file';
+
+    const proposed = document.getText().slice(0, document.offsetAt(target.start))
+      + code
+      + document.getText().slice(document.offsetAt(target.end));
+    if (proposed === document.getText()) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That block already matches the file.' });
+      return;
+    }
+
+    ChatPanel.pendingApplyPreview = proposed;
+    const previewUri = vscode.Uri.parse(`${ChatPanel.APPLY_PREVIEW_SCHEME}:${relativePath}`);
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      document.uri,
+      previewUri,
+      `${relativePath} ↔ proposed (${scope})`,
+      { preview: true },
+    );
+
+    const choice = await vscode.window.showWarningMessage(
+      `Apply this code block to ${relativePath}?`,
+      {
+        modal: true,
+        detail: `Replaces ${scope}. The diff beside this dialog is exactly what will change, and the edit is undoable.`,
+      },
+      'Apply',
+    );
+    if (choice !== 'Apply') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Not applied.' });
+      return;
+    }
+
+    const applied = await editor.edit(builder => builder.replace(target, code));
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: applied ? `Applied to ${relativePath}. Undo reverts it.` : 'Could not apply to that editor.',
     });
   }
 
@@ -943,20 +1258,20 @@ export class ChatPanel {
       if (mode === 'steer') {
         const steerPrompt = rawPrompt.trim();
         if (!steerPrompt) {
-          await this.host.webview.postMessage({ type: 'status', payload: 'Enter a steer prompt before redirecting the current request.' });
+          await this.host.webview.postMessage({ type: 'status', payload: 'Type what to change before steering.' });
           return;
         }
         this.pendingPromptSubmission = { prompt: steerPrompt, mode };
         await this.stopActivePrompt('Steering the current chat request. AtlasMind will apply your steer prompt next.');
         return;
       }
-      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message. Stop it first, or use Steer to redirect it.' });
       return;
     }
 
     const prompt = rawPrompt.trim();
     if (!prompt) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'Enter a prompt before sending a chat request.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Type something to send.' });
       return;
     }
 
@@ -1105,7 +1420,7 @@ export class ChatPanel {
       type: 'busy',
       payload: { busy: true, sessionId: activeSessionId, assistantMessageId },
     });
-    await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Working on it…' });
 
     let streamedText = '';
     const streamingThoughtLines: string[] = [];
@@ -1203,6 +1518,11 @@ export class ChatPanel {
         return;
       }
 
+      // Taken once for the turn, before the branch: the terminal path and the
+      // ordinary path are alternatives, and a turn-scoped pin must be consumed
+      // exactly once whichever one runs.
+      const preferredModel = this.takeModelOverrideForTurn();
+
       if (preparedRequest.terminalDirective) {
         await this.runManagedTerminalPrompt(
           preparedRequest,
@@ -1210,6 +1530,7 @@ export class ChatPanel {
           activeSessionId,
           taskId,
           sessionContext,
+          preferredModel,
         );
         return;
       }
@@ -1225,6 +1546,7 @@ export class ChatPanel {
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
           speed: toSpeedMode(configuration.get<string>('speedMode')),
+          ...(preferredModel ? { preferredModel } : {}),
           ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
         },
         timestamp: new Date().toISOString(),
@@ -1269,6 +1591,10 @@ export class ChatPanel {
         : undefined;
       this.streamingModels = [];
       const assistantMeta = {
+        // Recorded so the transcript can point at this turn's file snapshot
+        // later. Without it a checkpoint exists but nothing on screen knows
+        // which turn produced it.
+        taskId,
         ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
           hasSessionContext: Boolean(sessionContext),
           responseText: reconciled.transcriptText,
@@ -1429,13 +1755,13 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis saved back to the Project Dashboard.' });
   }
 
-  private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
+  private async stopActivePrompt(statusMessage = 'Stopped.'): Promise<void> {
     const targetExecution = this.activePromptExecution
       ?? ChatPanel.findBusyExecution(this.selectedSessionId)
       ?? ChatPanel.findBusyExecution();
 
     if (!targetExecution) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing is running.' });
       return;
     }
 
@@ -1450,7 +1776,7 @@ export class ChatPanel {
 
   private async continueFromIterationLimit(entryId: string): Promise<void> {
     if (this.activePromptExecution) {
-      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message.' });
       return;
     }
     const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
@@ -1554,6 +1880,7 @@ export class ChatPanel {
     activeSessionId: string,
     taskId: string,
     sessionContext: string,
+    preferredModel?: string,
   ): Promise<void> {
     const directive = preparedRequest.terminalDirective;
     if (!directive) {
@@ -1654,6 +1981,7 @@ export class ChatPanel {
       constraints: {
         budget: toBudgetMode(configuration.get<string>('budgetMode')),
         speed: toSpeedMode(configuration.get<string>('speedMode')),
+        ...(preferredModel ? { preferredModel } : {}),
         ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
       },
       timestamp: new Date().toISOString(),
@@ -2176,6 +2504,22 @@ export class ChatPanel {
 
   private async syncState(): Promise<void> {
     if (this._isDisposed) return;
+    // Refreshed once per sync rather than per keystroke: enumerating providers
+    // touches credential storage, and the set changes when the operator
+    // configures one, not while they type.
+    await this.refreshPickableModels();
+    try {
+      this.checkpointTaskIds = (await this.atlas.listCheckpoints?.() ?? []).map(item => item.taskId);
+    } catch {
+      // A store that cannot be read offers nothing, rather than offering a
+      // restore that would fail when clicked.
+      this.checkpointTaskIds = [];
+    }
+    const meterConfiguration = vscode.workspace.getConfiguration('atlasmind');
+    const contextMeter = this.buildContextMeter(
+      meterConfiguration.get<number>('chatSessionContextChars', 2500),
+      meterConfiguration.get<number>('chatSessionTurnLimit', 6),
+    );
     const sessions = this.atlas.sessionConversation.listSessions();
     if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -2215,6 +2559,11 @@ export class ChatPanel {
       ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
+      slashCommands: ChatPanel.slashCommandCatalogue(),
+      availableModels: this.pickableModels,
+      ...(contextMeter ? { contextMeter } : {}),
+      ...(this.checkpointTaskIds.length > 0 ? { checkpointTaskIds: this.checkpointTaskIds } : {}),
+      ...(this.modelOverride ? { modelOverride: this.modelOverride } : {}),
       sessions,
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
@@ -2559,7 +2908,28 @@ export class ChatPanel {
           summary: routedIntent.summary,
         }
       : undefined;
-    const roadmapStatus = forceSteer ? undefined : await buildRoadmapStatusResult(prompt);
+    // Answered from the transcript, before any model sees it.
+    //
+    // This was deferred on the belief that the panel already had it. It did not
+    // — `parseConversationRecallRequest` was only ever called from the
+    // participant — so "what was my question three turns ago" went to a model
+    // here and came back with a confident, entirely invented question, plus an
+    // invented summary of a conversation that had a verbatim record sitting in
+    // memory. Of every fabrication available in this product that is the
+    // worst-shaped: it contradicts something the operator can scroll up and read.
+    const recallRequest = forceSteer ? undefined : parseConversationRecallRequest(prompt);
+    const recalled = recallRequest
+      ? answerConversationRecall(
+        recallRequest,
+        // Excludes the question being asked right now: it was appended before
+        // `preparePromptRequest` ran, and "three turns ago" means three before
+        // this one.
+        this.atlas.sessionConversation.getTranscript(activeSessionId).slice(0, -1),
+        prompt,
+      )
+      : undefined;
+
+    const roadmapStatus = forceSteer || recalled ? undefined : await buildRoadmapStatusResult(prompt);
     const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
@@ -2614,6 +2984,9 @@ export class ChatPanel {
       userMessage,
       projectGoal,
       ...(loopGoal ? { loopGoal } : {}),
+      ...(recalled
+        ? { directResponse: { markdown: recalled.markdown, modelUsed: 'atlasmind/conversation-recall' } }
+        : {}),
       ...(roadmapStatus
         ? {
           directResponse: {
@@ -2727,6 +3100,463 @@ export class ChatPanel {
       return;
     }
     await this.addAttachmentUris([vscode.Uri.file(path.resolve(workspaceRoot, relativePath))]);
+  }
+
+  /**
+   * The editor selection, attached as ordinary text.
+   *
+   * An attachment rather than a new context field, so it travels the pipeline
+   * every other attachment already uses — including the secret redaction added
+   * in 0.329.0, which a bespoke context key would have quietly bypassed.
+   */
+  private async attachEditorSelection(): Promise<void> {
+    const editor = this.lastActiveTextEditor && !this.lastActiveTextEditor.document.isClosed
+      ? this.lastActiveTextEditor
+      : vscode.window.activeTextEditor;
+    if (!editor || editor.selection.isEmpty) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: 'Select some code in an editor first, then attach it.',
+      });
+      return;
+    }
+
+    const document = editor.document;
+    const relativePath = vscode.workspace.asRelativePath(document.uri, false);
+    const startLine = editor.selection.start.line + 1;
+    const endLine = editor.selection.end.line + 1;
+    const raw = document.getText(editor.selection);
+    const truncated = raw.length > ChatPanel.MAX_SELECTION_CHARS;
+    const body = redactSecrets(truncated ? raw.slice(0, ChatPanel.MAX_SELECTION_CHARS) : raw).text;
+    const range = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
+
+    await this.addAttachmentUris([], [{
+      id: `selection:${relativePath}:${startLine}-${endLine}`,
+      label: `${relativePath} · ${range}`,
+      kind: 'text',
+      source: relativePath,
+      inlineText: [
+        `Selected from ${relativePath}, ${range}${truncated ? ' (truncated)' : ''}:`,
+        '',
+        '```' + (document.languageId || ''),
+        body,
+        '```',
+      ].join('\n'),
+    }]);
+  }
+
+  /**
+   * The Problems panel, attached as ordinary text.
+   *
+   * Counted in the label because "Problems" alone says nothing about whether it
+   * is worth sending: three errors and four hundred warnings are different
+   * attachments, and only one of them is worth a model's context.
+   */
+  private async attachProblems(): Promise<void> {
+    const bySeverity = { errors: 0, warnings: 0, other: 0 };
+    const lines: string[] = [];
+    let listed = 0;
+    let omitted = 0;
+
+    for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+      const relativePath = vscode.workspace.asRelativePath(uri, false);
+      for (const diagnostic of diagnostics) {
+        if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
+          bySeverity.errors += 1;
+        } else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
+          bySeverity.warnings += 1;
+        } else {
+          bySeverity.other += 1;
+        }
+        if (listed >= ChatPanel.MAX_PROBLEMS) {
+          omitted += 1;
+          continue;
+        }
+        const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error
+          ? 'error'
+          : diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 'warning' : 'info';
+        const source = diagnostic.source ? `${diagnostic.source}: ` : '';
+        lines.push(`- ${relativePath}:${diagnostic.range.start.line + 1} — ${severity} — ${source}${diagnostic.message}`);
+        listed += 1;
+      }
+    }
+
+    const total = bySeverity.errors + bySeverity.warnings + bySeverity.other;
+    if (total === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'No problems reported in this workspace.' });
+      return;
+    }
+
+    const summary = [
+      bySeverity.errors ? `${bySeverity.errors} error${bySeverity.errors === 1 ? '' : 's'}` : '',
+      bySeverity.warnings ? `${bySeverity.warnings} warning${bySeverity.warnings === 1 ? '' : 's'}` : '',
+      bySeverity.other ? `${bySeverity.other} other` : '',
+    ].filter(Boolean).join(', ');
+
+    const body = redactSecrets([
+      `Problems reported in this workspace (${summary}):`,
+      '',
+      ...lines,
+      // Stated rather than silently dropped: a truncated list read as the whole
+      // list is how a model concludes a problem was fixed.
+      ...(omitted > 0 ? ['', `_${omitted} further problem${omitted === 1 ? '' : 's'} not listed._`] : []),
+    ].join('\n')).text.slice(0, ChatPanel.MAX_PROBLEMS_CHARS);
+
+    await this.addAttachmentUris([], [{
+      id: 'problems:workspace',
+      label: `Problems · ${summary}`,
+      kind: 'text',
+      source: 'Problems panel',
+      inlineText: body,
+    }]);
+  }
+
+  /**
+   * Answers an `@`-mention lookup.
+   *
+   * The query is echoed back so the webview can discard a stale reply: typing is
+   * faster than a workspace search, and replies do not necessarily arrive in the
+   * order they were asked for — without the echo, pausing after "src/ch" could
+   * leave the list showing matches for "src/c".
+   */
+  /**
+   * Pin a model, or clear the pin.
+   *
+   * The requested id is checked against the list this panel published rather
+   * than trusted: the webview supplies data, and "which models exist" is a
+   * question only the host can answer.
+   */
+  private async applyModelOverride(request: { modelId: string | null; scope: 'turn' | 'session' }): Promise<void> {
+    // Refreshed before validating rather than trusting the last sync: the first
+    // pin can arrive before the opening `syncState` has resolved, and validating
+    // against an empty list would reject a model the operator was just shown.
+    await this.refreshPickableModels();
+    const resolved = resolveModelOverride(request, this.pickableModels);
+    if (resolved === 'unknown-model') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That model is not available.' });
+      return;
+    }
+    this.modelOverride = resolved;
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: resolved
+        ? `Using ${resolved.modelId}${resolved.scope === 'turn' ? ' for the next message' : ' for this chat'}.`
+        : 'Back to automatic model routing.',
+    });
+    await this.syncState();
+  }
+
+  /**
+   * The pin to apply to the turn being sent, consuming a turn-scoped one.
+   *
+   * Consumed here rather than after the turn completes, so a pin cannot survive
+   * a failed or cancelled request and quietly apply to the next thing typed.
+   */
+  private takeModelOverrideForTurn(): string | undefined {
+    const override = this.modelOverride;
+    if (!override) {
+      return undefined;
+    }
+    if (override.scope === 'turn') {
+      this.modelOverride = undefined;
+      void this.syncState();
+    }
+    return override.modelId;
+  }
+
+  /**
+   * What the next turn would carry.
+   *
+   * Measured from the same `buildContext` call the turn itself uses, plus the
+   * attachment text, so the bar and the packing cannot disagree. The unsent
+   * draft is deliberately excluded and added client-side instead: recomputing
+   * this on every keystroke would mean a session-context rebuild per character.
+   */
+  private buildContextMeter(sessionContextChars: number, turnLimit: number): ChatContextMeter | undefined {
+    // A meter that cannot measure is absent, never zero, and never fatal: this
+    // runs inside `syncState` on every render, so an optional capability being
+    // missing must cost a bar, not the panel.
+    if (typeof this.atlas.sessionConversation?.buildContext !== 'function') {
+      return undefined;
+    }
+    const sessionContext = this.atlas.sessionConversation.buildContext({
+      maxTurns: turnLimit,
+      maxChars: sessionContextChars,
+      sessionId: this.selectedSessionId,
+    });
+    const attachmentText = this.composerAttachments
+      .map(attachment => attachment.inlineText ?? '')
+      .join('\n');
+    const carried = [sessionContext, attachmentText].join('\n');
+
+    // Pinned first, then whoever answered last. Neither is a promise about the
+    // next turn — the router may choose differently — which is why the absence
+    // of both falls back to the session budget rather than guessing a window.
+    const modelId = this.modelOverride?.modelId
+      ?? [...this.atlas.sessionConversation.getTranscript(this.selectedSessionId)]
+        .reverse()
+        .find(entry => entry.role === 'assistant' && typeof entry.meta?.modelUsed === 'string')
+        ?.meta?.modelUsed;
+    const contextWindow = modelId
+      ? this.atlas.modelRouter?.getModelInfo?.(modelId)?.contextWindow
+      : undefined;
+
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    return {
+      estimatedTokens: estimateTokens(carried),
+      ...(modelId ? { modelId } : {}),
+      ...(typeof contextWindow === 'number' && contextWindow > 0 ? { contextWindow } : {}),
+      contextChars: carried.trim().length,
+      charBudget: sessionContextChars,
+      turnCount: Math.ceil(transcript.length / 2),
+      turnLimit,
+    };
+  }
+
+  private async refreshPickableModels(): Promise<void> {
+    const router = this.atlas.modelRouter as { listProviders?: unknown } | undefined;
+    if (!router || typeof router.listProviders !== 'function') {
+      this.pickableModels = [];
+      return;
+    }
+    try {
+      this.pickableModels = await collectPickableModels(
+        this.atlas.modelRouter as never,
+        providerId => this.atlas.isProviderConfigured(providerId),
+      );
+    } catch {
+      // A picker that cannot enumerate is empty, never stale: offering a model
+      // that is no longer configured would pin a turn to something that fails.
+      this.pickableModels = [];
+    }
+  }
+
+  /**
+   * Search every stored session for a phrase.
+   *
+   * Host-side because only the host holds the other sessions — the webview has
+   * the open one and nothing else. Cheap enough to run per request: the store
+   * caps at 30 sessions, so this is a scan over what is already in memory
+   * rather than a query anyone needs to index for.
+   */
+  /**
+   * Rewind the conversation to a message and run it again.
+   *
+   * One method for both editing a prompt and regenerating a reply, because they
+   * are the same operation seen from two ends: find the user turn to run, drop
+   * everything after it, and send it. Splitting them would give two chances to
+   * get the discard boundary wrong.
+   */
+  /**
+   * Put the files back as they were before a turn.
+   *
+   * Files only, and the dialog says so: the conversation is untouched, because
+   * a transcript that silently rewound itself alongside the working tree would
+   * leave no record of what had been tried. The two are separate decisions and
+   * `Edit`/`Regenerate` is the one that rewinds the conversation.
+   */
+  /**
+   * Turn a dictated utterance into composer text.
+   *
+   * The transcript is **inserted, never submitted**. Speech recognition gets
+   * words wrong, and a mis-heard sentence that sends itself is a turn the
+   * operator did not ask for — with a cost. Reading it first is the whole
+   * safeguard, and it costs one keystroke.
+   */
+  private async transcribeComposerAudio(dataBase64: string): Promise<void> {
+    const transcribe = this.atlas.voiceManager?.transcribeWav?.bind(this.atlas.voiceManager);
+    if (!transcribe) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Dictation is unavailable here.' });
+      return;
+    }
+
+    await this.host.webview.postMessage({ type: 'status', payload: 'Transcribing on this machine…' });
+    let wav: Buffer;
+    try {
+      wav = Buffer.from(dataBase64, 'base64');
+    } catch {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That recording could not be read.' });
+      return;
+    }
+
+    const result = await transcribe(wav);
+    if (!result.ok) {
+      // Named rather than generic: "the model is not downloaded yet" and "the
+      // microphone recorded nothing" want different things from the operator.
+      await this.host.webview.postMessage({ type: 'status', payload: `Dictation failed — ${result.reason}` });
+      return;
+    }
+    if (result.text.length === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing was heard.' });
+      return;
+    }
+    await this.host.webview.postMessage({ type: 'transcriptReady', payload: { text: result.text } });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Ready.' });
+  }
+
+  private async restoreCheckpointForTurn(entryId: string): Promise<void> {
+    const entry = this.atlas.sessionConversation
+      .getTranscript(this.selectedSessionId)
+      .find(item => item.id === entryId);
+    const taskId = entry?.meta?.taskId;
+    if (!taskId) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'This turn has no file snapshot.' });
+      return;
+    }
+
+    const available = await this.atlas.listCheckpoints?.().catch(() => []) ?? [];
+    const checkpoint = available.find(item => item.taskId === taskId);
+    if (!checkpoint) {
+      // Snapshots age out of a ring buffer, so "there was one" and "there is
+      // one" are different facts and the operator should be told which.
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: 'The file snapshot for that turn is no longer stored.',
+      });
+      return;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Restore ${checkpoint.fileCount} file${checkpoint.fileCount === 1 ? '' : 's'} to their state before this turn?`,
+      {
+        modal: true,
+        detail: 'Only files are restored. The conversation is left exactly as it is, and anything changed since is overwritten.',
+      },
+      'Restore files',
+    );
+    if (choice !== 'Restore files') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Nothing restored.' });
+      return;
+    }
+
+    const result = await this.atlas.rollbackCheckpointByTaskId?.(taskId)
+      ?? { ok: false, summary: 'Restoring files is unavailable here.', restoredPaths: [] };
+    await this.host.webview.postMessage({ type: 'status', payload: result.summary });
+    await this.syncState();
+  }
+
+  private async rewindAndResubmit(entryId: string, replacementText?: string): Promise<void> {
+    if (this.activePromptExecution) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message.' });
+      return;
+    }
+
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const index = transcript.findIndex(entry => entry.id === entryId);
+    if (index === -1) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That message is no longer in this chat.' });
+      return;
+    }
+
+    // Regenerating names an assistant reply; the thing to re-run is the prompt
+    // that produced it, which is the nearest user turn above.
+    let userIndex = index;
+    while (userIndex >= 0 && transcript[userIndex]?.role !== 'user') {
+      userIndex -= 1;
+    }
+    const userEntry = userIndex >= 0 ? transcript[userIndex] : undefined;
+    if (!userEntry) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'There is no message of yours to re-run here.' });
+      return;
+    }
+
+    const prompt = (replacementText ?? userEntry.content).trim();
+    if (!prompt) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That message is empty.' });
+      return;
+    }
+
+    const discarded = transcript.length - (userIndex + 1);
+    if (discarded > 0) {
+      const choice = await vscode.window.showWarningMessage(
+        replacementText ? 'Edit this message and run it again?' : 'Generate a new reply?',
+        {
+          modal: true,
+          detail: `This discards the ${discarded} message${discarded === 1 ? '' : 's'} after it in this chat. They cannot be recovered.`,
+        },
+        replacementText ? 'Edit and re-run' : 'Regenerate',
+      );
+      if (choice === undefined) {
+        await this.host.webview.postMessage({ type: 'status', payload: 'Left as it was.' });
+        return;
+      }
+    }
+
+    if (replacementText) {
+      this.atlas.sessionConversation.updateMessage(userEntry.id, prompt, this.selectedSessionId);
+    }
+    // Truncate from the user turn itself: `runPrompt` appends it again, and a
+    // rewind that kept the old copy would show the prompt twice.
+    this.atlas.sessionConversation.truncateAfter(userEntry.id, this.selectedSessionId);
+    this.atlas.sessionConversation.deleteMessage(userEntry.id, this.selectedSessionId);
+
+    // The session bundle is a rolling summary with no per-turn identity, so it
+    // cannot be rewound — only rebuilt from what the transcript now says. Left
+    // stale it would keep describing turns that no longer exist.
+    void this.atlas.sessionContextManager
+      ?.bootstrapFromTranscript(
+        this.selectedSessionId,
+        this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
+      )
+      .catch(() => undefined);
+
+    await this.syncState();
+    await this.runPrompt(prompt, 'send');
+  }
+
+  private async replyWithCrossSessionResults(query: string): Promise<void> {
+    const needle = query.trim().toLowerCase();
+    const results: Array<{ sessionId: string; sessionTitle: string; entryId: string; snippet: string; timestamp: string }> = [];
+
+    for (const summary of this.atlas.sessionConversation.listSessions()) {
+      for (const entry of this.atlas.sessionConversation.getTranscript(summary.id)) {
+        if (results.length >= ChatPanel.MAX_CROSS_SESSION_RESULTS) {
+          break;
+        }
+        if (typeof entry.content !== 'string') {
+          continue;
+        }
+        const at = entry.content.toLowerCase().indexOf(needle);
+        if (at === -1) {
+          continue;
+        }
+        // A window around the hit rather than the head of the message: the
+        // match is what the reader is looking for, and a snippet that does not
+        // contain it makes them open every result to find out.
+        const from = Math.max(0, at - 60);
+        const snippet = `${from > 0 ? '…' : ''}${entry.content.slice(from, at + needle.length + 90).replace(/\s+/g, ' ').trim()}…`;
+        results.push({
+          sessionId: summary.id,
+          sessionTitle: summary.title,
+          entryId: entry.id,
+          snippet: redactSecrets(snippet).text,
+          timestamp: entry.timestamp,
+        });
+      }
+    }
+
+    await this.host.webview.postMessage({
+      type: 'crossSessionSearchResults',
+      payload: { query, results, capped: results.length >= ChatPanel.MAX_CROSS_SESSION_RESULTS },
+    });
+  }
+
+  private async replyWithFileMentions(query: string): Promise<void> {
+    const trimmed = query.trim();
+    let files: string[] = [];
+    if (trimmed.length > 0) {
+      try {
+        const found = await vscode.workspace.findFiles(
+          `**/*${trimmed.replace(/[*?[\]{}]/g, '')}*`,
+          '**/{node_modules,out,dist,.git}/**',
+          ChatPanel.MAX_FILE_MENTIONS,
+        );
+        files = found.map(uri => vscode.workspace.asRelativePath(uri, false));
+      } catch {
+        files = [];
+      }
+    }
+    await this.host.webview.postMessage({ type: 'fileMentions', payload: { query, files } });
   }
 
   private async addDroppedItems(items: string[]): Promise<void> {
@@ -2894,7 +3724,17 @@ export class ChatPanel {
     const scriptUri = this.host.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'chatPanel.js'),
     ).toString();
-    return buildChatWebviewHtml({ scriptUri, cspSource: this.host.webview.cspSource });
+    // Loaded first so `window.hljs` exists by the time the panel script runs.
+    // Built from the pinned devDependency by esbuild.mjs, never fetched: the
+    // panel's CSP has no CDN in it, deliberately.
+    const highlightUri = this.host.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'vendor', 'highlight.min.js'),
+    ).toString();
+    return buildChatWebviewHtml({
+      scriptUri,
+      vendorScriptUris: [highlightUri],
+      cspSource: this.host.webview.cspSource,
+    });
   }
 }
 
@@ -3523,11 +4363,26 @@ function truncateManagedTerminalTranscript(output: string): string {
   return `... output truncated ...\n${output.slice(-12000)}`;
 }
 
-function truncateManagedTerminalContext(output: string): string {
-  if (output.length <= 8000) {
-    return output;
+/**
+ * Terminal output on its way into a model prompt.
+ *
+ * Redacted here rather than at each of the three prompt builders, because this
+ * is the only path any of them uses and a boundary with three doors is one
+ * somebody eventually walks around. A managed terminal runs whatever the
+ * operator typed — `env`, a failing deploy that echoes its connection string, a
+ * CLI printing the token it just used — and that output went to the model
+ * verbatim. The orchestrator redacts the context it assembles itself; this text
+ * is assembled by the panel and never passed through it.
+ *
+ * Truncation keeps the tail, so redaction runs first: a secret split across the
+ * cut would otherwise leave half a credential looking like ordinary text.
+ */
+export function truncateManagedTerminalContext(output: string): string {
+  const safe = redactSecrets(output).text;
+  if (safe.length <= 8000) {
+    return safe;
   }
-  return `... output truncated ...\n${output.slice(-8000)}`;
+  return `... output truncated ...\n${safe.slice(-8000)}`;
 }
 
 function buildManagedTerminalFollowUpPrompt(
@@ -3860,7 +4715,8 @@ function decodeInlineText(dataBase64: string): string | undefined {
     if (!text || text.includes('\0')) {
       return undefined;
     }
-    return text.slice(0, 6000);
+    // The paste and drag-drop path into the same context as readAttachmentSnippet.
+    return redactSecrets(text).text.slice(0, 6000);
   } catch {
     return undefined;
   }
@@ -3891,7 +4747,11 @@ async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefine
     if (!text || text.includes('\0')) {
       return undefined;
     }
-    return text.slice(0, 6000);
+    // Attaching a file is the easiest way to send a model a `.env`, a
+    // `wrangler.toml` or a log holding a bearer token — it is one drag from the
+    // explorer, and nothing about the gesture suggests the contents are being
+    // read. Redacted before the slice for the same reason as the terminal path.
+    return redactSecrets(text).text.slice(0, 6000);
   } catch {
     return undefined;
   }

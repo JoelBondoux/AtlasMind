@@ -2,8 +2,8 @@
  * Deciding what a leading `/` in the AtlasMind chat panel means.
  *
  * The panel had no answer to that question at all. `runPrompt` passed whatever
- * was typed straight to the orchestrator, so every one of the nineteen slash
- * commands the manifest declares **silently reached a model** — and on a machine
+ * was typed straight to the orchestrator, so every one of the twenty
+ * deterministic slash commands **silently reached a model** — and on a machine
  * with no provider configured that meant the built-in echo adapter replying
  * "Answered from context." to `/acp`. The command was declared, documented,
  * autocompleted by the composer, and inert.
@@ -51,7 +51,7 @@ const KNOWN = new Set<string>(ATLAS_SLASH_COMMANDS);
  * a collecting stream, rather than by mapping each one to a VS Code command.
  *
  * One dispatch, two surfaces. The alternative — a table pairing every slash
- * command with an equivalent command id — is nineteen chances for the panel to
+ * command with an equivalent command id — is twenty chances for the panel to
  * answer a question differently from `@atlas`, and it would have to be kept
  * correct by hand forever. These handlers are already deterministic and already
  * produce markdown; the panel's only real gap was having nowhere to put it.

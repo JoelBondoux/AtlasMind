@@ -351,6 +351,22 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'const a = 1;' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'queryFileMentions', payload: { query: 'chatPan' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'queryFileMentions', payload: { query: '' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'queryFileMentions', payload: { query: 'x'.repeat(201) } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'attachEditorSelection' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'attachProblems' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'applyCodeToFile', payload: { code: 'const a = 1;' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'ts' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x' } })).toBe(true);
+    // An empty block is nothing to act on, and the cap bounds what a crafted
+    // message can hand the host in one go.
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: '' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'x'.repeat(200_001) } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'y'.repeat(41) } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);

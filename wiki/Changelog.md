@@ -19,6 +19,185 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.341.0 — Dictate straight into the chat box
+
+There is a microphone beside the attachment buttons. Click it, speak, click again — the words appear in the
+composer for you to read and edit before sending. Nothing is submitted automatically, because speech
+recognition mishears and a wrong sentence that sends itself costs you a turn.
+
+Transcription happens on your machine using the same local model the Voice panel uses. No audio leaves it.
+
+## v0.340.0 — Undo the files a turn changed
+
+AtlasMind already took a snapshot of your files before making changes, but the only way to use one was to
+undo the most recent thing. Replies that changed files now carry a **Restore files** button that puts those
+specific files back.
+
+It restores files only — your conversation stays exactly as it is, so the record of what was tried survives.
+The button appears only when that turn really has a snapshot, and if one has aged out it says so rather than
+failing when you click.
+
+## v0.339.0 — Edit a message, or ask for a different answer
+
+Two things every other chat tool has had for a while. **Edit** on one of your own messages lets you correct
+it and run it again; **Regenerate** on a reply asks the same question afresh. Both rewind the conversation
+to that point, and both tell you exactly how many messages that discards before doing it.
+
+Editing happens in the message itself rather than taking over the composer, so anything you were part-way
+through typing survives.
+
+## v0.338.0 — Rename a chat, and search all of them
+
+Chat titles came from your first message and could not be changed, so a thread that turned into something
+else kept describing what it used to be. Click the pencil in the session list and type — Enter or clicking
+away saves, Escape cancels.
+
+And searching now looks beyond the chat you have open. Matches from your other sessions appear underneath
+the current ones, each showing the text around the match, and clicking one opens that chat.
+
+## v0.337.0 — See how full the context is
+
+A thin bar above the composer showing what your next message would carry. When AtlasMind knows which model
+is answering it measures against that model's real context window; when it does not, it shows how many turns
+of history are travelling with you instead of inventing a percentage.
+
+It counts what you are typing as you type it, and tints amber as the window fills — which is the point at
+which older turns start being dropped and the assistant starts "forgetting" things.
+
+## v0.336.0 — Pin the model when you want to
+
+AtlasMind chooses a model per task, which is usually what you want and occasionally not. There is now a
+control beside the composer: leave it on **Auto** and nothing changes, or pin a specific model either for
+your next message or for the whole chat.
+
+It is an override rather than a replacement — the footer still reports which model actually answered, so if
+the router had to refuse your pin (an unhealthy provider, a model that cannot see images) you find out
+rather than assuming.
+
+## v0.335.0 — "What did I ask?" is answered from what you asked
+
+Asking the chat panel what you said earlier sent the question to a model, which confidently made up both a
+question you never asked and a summary of a conversation that was sitting on screen. The panel now answers
+from the transcript itself, quoting you, without asking a model at all — which the `@atlas` view has done
+since v0.324.0 and the panel, it turns out, never did.
+
+Related: typing a question without a question mark no longer makes it look like a job. "carry on" after
+"what was my question three turns ago" used to start an autonomous run with that sentence as the goal.
+
+## v0.334.1 — Stop says it stopped
+
+While waiting for a reply to start, the panel used to read "The model has not stopped; waiting for the next
+token batch" — and it kept saying that after you pressed **Stop**, which is the least reassuring thing it
+could have told you at that moment.
+
+It now says "Thinking — nothing written yet", "Still writing…", or "Stopping — finishing the step in
+progress", and the last one appears the instant you click Stop.
+
+## v0.334.0 — The activity line becomes part of the conversation
+
+The line telling you what AtlasMind was doing sat as bare grey text next to the toolbar icons, saying things
+like "Running AtlasMind chat request…" — the product describing its own plumbing in its own vocabulary. It is
+now a full-width bubble below the thread, in its own colour, and it says "Working on it…" instead. When
+nothing is happening it disappears rather than sitting there reading "Ready."
+
+## v0.333.1 — Replies render again
+
+A regression in v0.329.1 stopped assistant replies from appearing in the chat panel: your own message showed
+up, nothing after it did, and the status line still said the reply was ready — because the answer had
+arrived and only the drawing of it had failed. Fixed.
+
+The chat panel also gains its first tests that genuinely run it in a browser-like environment rather than
+reading its source. That is the gap this bug came through, and five of the six new cases fail against it.
+
+## v0.333.0 — The composer completes as you type
+
+Type `/` in the AtlasMind chat panel and the command list appears; type `@` and it searches your workspace
+for a file. Until now the panel offered no completion at all, so you had to remember the exact spelling of a
+command and type paths from memory — while VS Code's own chat view had completed `@atlas /…` all along.
+
+Arrow keys move, Enter or Tab accepts, Escape closes. Picking a file **attaches** it rather than just
+writing its name into your message.
+
+## v0.332.0 — Attach what you are looking at
+
+Two new buttons beside the paperclip: **add the current editor selection**, and **add the Problems panel**.
+Previously, showing AtlasMind the code you were staring at meant copying it in by hand, and asking about an
+error meant retyping a message that was already on your screen.
+
+The selection arrives labelled with its file and line range. The problems arrive counted — "3 errors, 12
+warnings" — so you can see whether it is worth sending before you send it, and if the list is long enough to
+be trimmed, the trimming is stated rather than hidden.
+
+## v0.331.0 — Code blocks reach the editor
+
+A code block in a reply could be copied or sent to a terminal, and that was all — getting a suggested change
+into a file meant selecting it, switching editors, finding the spot and pasting. Three buttons now sit beside
+those: **insert at the cursor**, **open as a new unsaved file**, and **apply with a diff preview**.
+
+The last one opens a real diff showing exactly what would change and only then asks, so you answer a question
+you have already seen the answer to. It replaces what the diff showed — your selection, or the whole file if
+nothing is selected — and nothing is guessed or merged for you. The edit is undoable like anything you typed.
+
+## v0.330.0 — Code blocks have colour
+
+Code in chat answers rendered as flat grey text, which is the hardest thing to read in the place a
+conversation about code spends most of its time. It is syntax highlighted now, in about forty languages,
+using your editor's own theme colours rather than a palette bolted on top — so a snippet in chat looks like
+the same code in the file beside it.
+
+The highlighter is built into the extension from a pinned dependency rather than fetched from the internet,
+and the coloured output is rebuilt element by element instead of being injected as markup, because a code
+block in a reply is model output and gets treated as such.
+
+## v0.329.1 — A transcript that stops rebuilding itself
+
+While an answer streamed in, the chat panel rebuilt the entire conversation on every chunk. If you had
+selected some text further up to read it, the selection vanished; on a long thread it got slower the longer
+you talked; and with a screen reader, the whole conversation was re-announced dozens of times per answer.
+Only the part being written is redrawn now, and only that part is announced.
+
+Two smaller ones alongside it: the model badge that lists which models answered can now be opened from the
+keyboard, and the spinners honour your system's reduce-motion setting.
+
+## v0.329.0 — Secrets stripped from what chat sends, and images that say why they didn't
+
+Three things the chat panel adds to a prompt were never passed through secret redaction: output from a
+managed `@t` terminal, a file you attached, and text you pasted. A terminal running `env`, or a `.env`
+dragged onto the composer, went to the model as written. All three are now redacted first.
+
+Separately: when an image could not be attached — too large, wrong format, unreadable — AtlasMind sent the
+turn anyway and said nothing, so you would read the answer believing the model had seen your screenshot. It
+now tells you which image it skipped and why.
+
+## v0.328.0 — Deleting a chat now asks
+
+Deleting a chat session, clearing a conversation, and deleting a single message all happened the instant
+you clicked. There is no undo in the chat panel and no copy of your transcript anywhere else, so a
+mis-click on the wrong row took the whole thread with it.
+
+All three now confirm first, and the dialog tells you how many messages you are about to lose — the thing
+you cannot tell from looking at the button.
+
+## v0.327.2 — Saying what the commands actually do
+
+`/cost` was documented as this session's spend in both the README and the wiki. It is the running total for
+the whole workspace across every session, and has been since v0.322.0 — a number you might act on, described
+as something much smaller than it is.
+
+`/agents`, `/skills` and `/memory` were advertised as "list **or manage**", including in the command picker
+VS Code shows you. All three only read; managing happens in the Agent Manager and the Memory view.
+
+And a set of sub-commands that have always worked were written down nowhere — `/buzz read`, `/setup acp`,
+`/research all`, `/sync-instructions apply` and several more. They now have their own section in
+[Chat Commands](Chat-Commands), which also notes that autocomplete will not suggest them.
+
+## v0.327.1 — Buttons that do what they say
+
+Both "Open Run Center" buttons in the chat panel did nothing at all when clicked. And when a long task
+paused at its execution limit, the message told you to "select Continue" — but no Continue button was ever
+drawn, so the only way to carry on at the current limit was to type "Proceed" yourself. Both are fixed, and
+the panel now has a test that checks every button is wired to something the host actually accepts.
+
 ## v0.327.0 — Nothing writes to your repository without asking
 
 Two things in chat used to change files you commit, without asking and without saying so afterwards.

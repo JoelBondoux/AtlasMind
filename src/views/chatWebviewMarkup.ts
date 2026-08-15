@@ -6,7 +6,7 @@ import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
  * behaviour lives in media/chatPanel.js, which only talks to its host via
  * postMessage and therefore works unchanged behind a local or remote host.
  */
-export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: string }): string {
+export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: string; vendorScriptUris?: readonly string[] }): string {
   return getWebviewHtmlShell({
     dashboardSkin: true,
     title: 'AtlasMind Chat',
@@ -91,7 +91,16 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="recoveryNoticeTitle" class="recovery-notice-title">Direct recovery mode</div>
                 <div id="recoveryNoticeSummary" class="recovery-notice-summary"></div>
               </section>
-              <section id="transcript" class="chat-transcript" aria-live="polite"></section>
+              <!--
+                No aria-live here, deliberately. The whole conversation lived in
+                one polite live region while the renderer rebuilt every bubble on
+                each streamed chunk, so a screen reader was asked to re-announce
+                the entire transcript dozens of times per answer. The live region
+                is now the streaming bubble's own content node, announced by
+                buildMessageElement only while that turn is in flight — the part
+                that is actually new.
+              -->
+              <section id="transcript" class="chat-transcript"></section>
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
@@ -108,7 +117,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                  thinking indicator, the streaming reply, the send state -- is pinned
                  to the bottom of the panel, while this used to sit at the very top,
                  off-screen on a tall transcript. -->
-            <div id="status" class="status-label" role="status" aria-live="polite">Ready.</div>
+            <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -127,12 +136,39 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                       <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
                     </svg>
                   </button>
+                  <button id="dictate" type="button" class="icon-btn compact-icon-btn dictate-btn" title="Dictate a message" aria-label="Dictate a message" aria-pressed="false">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="6" y="1.5" width="4" height="8" rx="2"/>
+                      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0"/>
+                      <line x1="8" y1="12" x2="8" y2="14.5"/>
+                    </svg>
+                  </button>
+                  <button id="attachSelection" type="button" class="icon-btn compact-icon-btn" title="Add the current editor selection" aria-label="Add editor selection">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 2.5h2M11 2.5h2M3 13.5h2M11 13.5h2M2.5 3v2M2.5 11v2M13.5 3v2M13.5 11v2"/>
+                      <line x1="5.5" y1="6.5" x2="10.5" y2="6.5"/>
+                      <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
+                    </svg>
+                  </button>
+                  <button id="attachProblems" type="button" class="icon-btn compact-icon-btn" title="Add the Problems panel" aria-label="Add problems">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 2.5 14 13H2z"/>
+                      <line x1="8" y1="6.5" x2="8" y2="9.5"/>
+                      <line x1="8" y1="11" x2="8" y2="11"/>
+                    </svg>
+                  </button>
                   <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <line x1="4" y1="4" x2="12" y2="12"/>
                       <line x1="12" y1="4" x2="4" y2="12"/>
                     </svg>
                   </button>
+                </div>
+                <div class="model-pin-wrap">
+                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose which model answers" aria-label="Choose which model answers">
+                    <span id="modelPinLabel">Auto</span>
+                  </button>
+                  <div id="modelPinList" class="composer-typeahead model-pin-list hidden" role="listbox" aria-label="Model"></div>
                 </div>
                 <button id="toggleAutopilot" class="icon-btn compact-icon-btn autopilot-btn" type="button" title="Toggle Autopilot — grant all tool approvals automatically" aria-label="Toggle Autopilot" aria-pressed="false">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -158,7 +194,21 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
-              <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+              <!--
+                Combobox pattern: the textarea owns the input and the listbox is
+                its popup, referenced by aria-controls and aria-activedescendant.
+                The list is not focusable — focus stays in the textarea while the
+                arrow keys move the highlighted option, which is how a screen
+                reader is told about a suggestion without losing the caret.
+              -->
+              <div id="contextMeter" class="context-meter hidden" role="status" aria-live="off">
+                <div class="context-meter-track"><div id="contextMeterFill" class="context-meter-fill"></div></div>
+                <span id="contextMeterLabel" class="context-meter-label"></span>
+              </div>
+              <div class="composer-typeahead-anchor">
+                <div id="composerTypeahead" class="composer-typeahead hidden" role="listbox" aria-label="Suggestions"></div>
+                <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="composerTypeahead"></textarea>
+              </div>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
                   <select id="sendMode" aria-label="Choose send mode">
@@ -403,7 +453,56 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-descriptionForeground);
           font-size: 0.85em;
         }
-        .status-label { flex: 0 0 auto; }
+        /*
+          The activity strip, directly under the thread.
+          -----------------------------------------------------------------
+          This was a bare line of grey text sharing a row with the toolbar
+          icons, which read as instrumentation rather than as part of the
+          conversation -- the panel telling you about itself in its own
+          voice. It is a bubble of its own now: full width, its own colour,
+          and sitting at the end of the thread where the thing it is
+          describing is happening.
+
+          Deliberately a different shape from a message. It spans the whole
+          width while user and assistant bubbles are inset and side-aligned,
+          so it never reads as somebody's turn -- it is the panel's own
+          margin note.
+
+          Hidden when there is nothing happening. A strip permanently
+          announcing "Ready." is exactly the out-of-place instrumentation
+          this replaces; the interesting state is the one worth a bubble.
+        */
+        .status-label {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 8px 10px 0;
+          padding: 7px 12px;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, transparent);
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 10%, var(--vscode-editor-background));
+          color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--vscode-textLink-foreground, #3794ff));
+          font-size: calc(0.85rem * var(--atlas-chat-font-scale));
+          line-height: 1.4;
+          overflow-wrap: anywhere;
+        }
+        .status-label.idle { display: none; }
+        /* A quiet pulse marking it as live, not a decoration: it stops with
+           the activity, and with prefers-reduced-motion. */
+        .status-label::before {
+          content: "";
+          flex: 0 0 auto;
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--vscode-textLink-foreground, #3794ff);
+          animation: status-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes status-pulse {
+          0%, 100% { opacity: 0.35; }
+          50% { opacity: 1; }
+        }
         .recovery-notice {
           display: grid;
           gap: 0.25rem;
@@ -1072,6 +1171,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           line-height: 1;
         }
         .chat-model-badge {
+          /* Rendered as a <button> when it opens the model list, so the browser's
+             default control styling has to be reset back to the badge shape. */
+          font-family: inherit;
+          line-height: inherit;
+          text-align: center;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -2015,6 +2119,271 @@ ${QUICK_REPLY_CSS}
         .session-item-busy-logo .atlas-outline { opacity: 0.9; }
         .session-item-busy-logo .atlas-axis { transform-origin: center; animation: atlas-spin 2.6s linear infinite; transform-box: view-box; }
 
+        /*
+          Four of the animations above run forever while a turn is in flight, and
+          this panel is where a long task is watched. Honouring the OS setting is
+          not decoration: for a reader with vestibular sensitivity a permanently
+          moving pulse is the difference between usable and not. The elements stay
+          exactly where they are — only the motion stops, so the busy state is
+          still legible from the spinner's presence and the status line.
+        */
+        @media (prefers-reduced-motion: reduce) {
+          .live-dot,
+          .status-label::before,
+          .dictate-btn.recording,
+          .atlas-thinking-logo,
+          .atlas-thinking-logo svg,
+          .atlas-thinking-logo .atlas-axis,
+          .session-item-busy-logo svg,
+          .session-item-busy-logo .atlas-axis {
+            animation: none !important;
+          }
+          * {
+            scroll-behavior: auto !important;
+          }
+        }
+
+        /*
+          Syntax colours, mapped onto the editor's own theme variables rather
+          than shipping one of highlight.js's stylesheets. A fixed palette would
+          be a second theme sitting inside the user's theme — right in exactly
+          one colour scheme and wrong in every other, including the high-contrast
+          ones. These follow whatever the editor is already using, so a code
+          block in chat looks like the same code in the editor beside it.
+        */
+        .chat-code-block code.hljs { color: var(--vscode-editor-foreground); }
+        .hljs-comment,
+        .hljs-quote { color: var(--vscode-descriptionForeground); font-style: italic; }
+        .hljs-keyword,
+        .hljs-selector-tag,
+        .hljs-literal,
+        .hljs-doctag,
+        .hljs-formula { color: var(--vscode-debugTokenExpression-name, #569cd6); }
+        .hljs-string,
+        .hljs-regexp,
+        .hljs-addition,
+        .hljs-attribute,
+        .hljs-meta .hljs-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+        .hljs-number,
+        .hljs-symbol,
+        .hljs-bullet,
+        .hljs-link,
+        .hljs-selector-attr,
+        .hljs-selector-pseudo { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+        .hljs-title,
+        .hljs-section,
+        .hljs-name,
+        .hljs-selector-id,
+        .hljs-selector-class,
+        .hljs-title.function_ { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+        .hljs-type,
+        .hljs-class .hljs-title,
+        .hljs-built_in,
+        .hljs-builtin-name { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+        .hljs-variable,
+        .hljs-template-variable,
+        .hljs-params,
+        .hljs-property { color: var(--vscode-symbolIcon-variableForeground, #9cdcfe); }
+        .hljs-meta,
+        .hljs-tag { color: var(--vscode-descriptionForeground); }
+        .hljs-deletion { color: var(--vscode-errorForeground); }
+        .hljs-emphasis { font-style: italic; }
+        .hljs-strong { font-weight: 600; }
+
+        .composer-typeahead-anchor { position: relative; display: block; }
+        .composer-typeahead {
+          position: absolute;
+          bottom: calc(100% + 4px);
+          left: 0;
+          right: 0;
+          max-height: 220px;
+          overflow-y: auto;
+          z-index: 40;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 6px;
+          background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+          padding: 4px;
+        }
+        .composer-typeahead.hidden { display: none; }
+        .composer-typeahead-item {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          padding: 4px 8px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.82rem;
+        }
+        .composer-typeahead-item[aria-selected="true"] {
+          background: var(--vscode-list-activeSelectionBackground);
+          color: var(--vscode-list-activeSelectionForeground);
+        }
+        .composer-typeahead-name { font-weight: 600; white-space: nowrap; }
+        .composer-typeahead-detail {
+          color: var(--vscode-descriptionForeground);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .composer-typeahead-item[aria-selected="true"] .composer-typeahead-detail { color: inherit; opacity: 0.85; }
+        .composer-typeahead-empty { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
+
+        .model-pin-wrap { position: relative; display: inline-flex; }
+        .model-pin-btn {
+          width: auto;
+          max-width: 160px;
+          padding: 0 8px;
+          gap: 4px;
+          font-size: 0.72rem;
+          overflow: hidden;
+        }
+        .model-pin-btn #modelPinLabel {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        /* Pinned reads differently from Auto, because a pin is a decision that
+           outlives the click and the operator should see it without opening
+           anything. */
+        .model-pin-btn.pinned {
+          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 55%, transparent);
+          color: var(--vscode-textLink-foreground, #3794ff);
+        }
+        .model-pin-list {
+          right: 0;
+          left: auto;
+          min-width: 260px;
+          max-width: 340px;
+        }
+        .model-pin-scope {
+          display: flex;
+          gap: 4px;
+          padding: 4px 8px 6px;
+          border-top: 1px solid var(--rule, var(--vscode-widget-border, #444));
+          margin-top: 4px;
+        }
+        .model-pin-scope button {
+          flex: 1 1 auto;
+          font-size: 0.72rem;
+          padding: 3px 6px;
+        }
+
+        /*
+          What the next turn would carry. A thin rule rather than a widget: it is
+          reference information, consulted when a long conversation starts
+          behaving oddly, and it should cost nothing to ignore the rest of the
+          time. aria-live is off deliberately — a bar that re-announced itself on
+          every keystroke would be unusable with a screen reader, and the number
+          is available on demand from the label.
+        */
+        .context-meter {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 2px 5px;
+          font-size: calc(0.72rem * var(--atlas-chat-font-scale));
+          color: var(--vscode-descriptionForeground);
+        }
+        .context-meter.hidden { display: none; }
+        .context-meter-track {
+          flex: 1 1 auto;
+          height: 3px;
+          border-radius: 2px;
+          background: color-mix(in srgb, var(--vscode-descriptionForeground) 22%, transparent);
+          overflow: hidden;
+        }
+        .context-meter-fill {
+          height: 100%;
+          width: 0;
+          border-radius: 2px;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, transparent);
+        }
+        .context-meter.warn .context-meter-fill {
+          background: var(--vscode-editorWarning-foreground, #c27803);
+        }
+        .context-meter.warn .context-meter-label { color: var(--vscode-editorWarning-foreground, #c27803); }
+        .context-meter-label { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+        .session-rename-input {
+          width: 100%;
+          font: inherit;
+          padding: 1px 4px;
+          border-radius: 4px;
+          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+        }
+        .cross-session-results {
+          margin-top: 10px;
+          padding-top: 8px;
+          border-top: 1px dashed var(--vscode-widget-border, #444);
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .cross-session-heading {
+          font-size: 0.74rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+          margin-bottom: 2px;
+        }
+        .cross-session-result {
+          display: block;
+          width: 100%;
+          text-align: left;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 8px;
+          padding: 6px 9px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, transparent);
+          cursor: pointer;
+        }
+        .cross-session-result:hover { border-color: var(--vscode-focusBorder, var(--vscode-button-background)); }
+        .cross-session-where {
+          font-size: 0.76rem;
+          font-weight: 600;
+          color: var(--vscode-foreground);
+          margin-bottom: 2px;
+        }
+        .cross-session-snippet {
+          font-size: 0.78rem;
+          color: var(--vscode-descriptionForeground);
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
+
+        .message-edit-input {
+          width: 100%;
+          min-height: 3.2em;
+          font: inherit;
+          resize: vertical;
+          padding: 6px 8px;
+          border-radius: 8px;
+          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+        }
+        .message-edit-hint {
+          margin-top: 4px;
+          font-size: 0.72rem;
+          color: var(--vscode-descriptionForeground);
+        }
+
+        /* Recording is a state worth seeing from across the room: the panel is
+           listening to the microphone, and that should never be ambiguous. */
+        .dictate-btn.recording {
+          color: var(--vscode-inputValidation-errorForeground, #f48771);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 60%, transparent);
+          animation: dictate-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes dictate-pulse {
+          0%, 100% { opacity: 0.65; }
+          50% { opacity: 1; }
+        }
+
         /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);
@@ -2140,5 +2509,6 @@ ${QUICK_REPLY_CSS}
         .nudge-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 `,
     scriptUri: opts.scriptUri,
+    ...(opts.vendorScriptUris ? { vendorScriptUris: opts.vendorScriptUris } : {}),
   });
 }

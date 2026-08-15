@@ -81,9 +81,19 @@ vi.mock('vscode', () => ({
     showInformationMessage: mocks.showInformationMessage,
     showWarningMessage: mocks.showWarningMessage,
     setStatusBarMessage: mocks.setStatusBarMessage,
+    showTextDocument: vi.fn(async () => undefined),
   },
   commands: {
     executeCommand: mocks.executeCommand,
+  },
+  languages: {
+    getDiagnostics: vi.fn(() => []),
+  },
+  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+  Position: class { constructor(public line: number, public character: number) {} },
+  Range: class {
+    constructor(public start: { line: number; character: number }, public end: { line: number; character: number }) {}
+    get isEmpty() { return this.start.line === this.end.line && this.start.character === this.end.character; }
   },
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: () => undefined })),
@@ -92,7 +102,11 @@ vi.mock('vscode', () => ({
       inspect: mocks.configurationInspect,
       update: mocks.configurationUpdate,
     }),
-    asRelativePath: (value: unknown) => String(value),
+    asRelativePath: (value: unknown) => typeof value === 'string'
+      ? value
+      : String((value as { path?: string; fsPath?: string })?.path ?? (value as { fsPath?: string })?.fsPath ?? value),
+    openTextDocument: vi.fn(async (options: unknown) => ({ options })),
+    registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => undefined })),
     findFiles: vi.fn().mockResolvedValue([]),
     fs: {
       stat: vi.fn(),
@@ -115,6 +129,7 @@ vi.mock('vscode', () => ({
       path: segments.map(segment => typeof segment === 'string' ? segment : (segment.path ?? segment.fsPath ?? '')).join('/'),
     }),
     file: (filePath: string) => ({ fsPath: filePath, path: filePath }),
+    parse: (value: string) => ({ fsPath: value, path: value, toString: () => value }),
   },
   TreeItemCollapsibleState: { None: 0 },
   ThemeIcon: class {},
@@ -150,8 +165,9 @@ import {
   useSubscriptionForProvider,
 } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
+import * as vscodeModule from 'vscode';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
-import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
+import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode, truncateManagedTerminalContext } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel, calculateLocalModelSavings } from '../../src/views/costDashboardPanel.ts';
 import {
   buildDashboardErrorDiscussionPrompt,
@@ -1154,6 +1170,72 @@ describe('panel refresh flows', () => {
         composerMode: 'send',
       }),
     }));
+  });
+
+  /**
+   * Deleting a session, clearing a conversation and deleting a message all used
+   * to fire on the click. There is no undo in this panel and no copy of the
+   * transcript anywhere else, so a mis-click took a day's work with it. These
+   * assert the decline path specifically: a confirmation that only works when
+   * you accept it is not a confirmation.
+   */
+  describe.each([
+    ['deleteSession', { type: 'deleteSession', payload: 'chat-1' }, 'deleteSession'],
+    ['clearConversation', { type: 'clearConversation' }, 'clearSession'],
+    ['deleteMessage', { type: 'deleteMessage', payload: 'msg-1' }, 'deleteMessage'],
+  ])('%s confirmation', (_label, message, destructiveMethod) => {
+    function mountChatPanel() {
+      const conversation = {
+        buildContext: vi.fn().mockReturnValue(''),
+        listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'Release prep', createdAt: '2026-08-15T00:00:00.000Z', updatedAt: '2026-08-15T00:00:00.000Z', turnCount: 2, preview: 'x', isActive: true }]),
+        getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+        getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Release prep', entries: [{ id: 'msg-1' }, { id: 'msg-2' }] }),
+        selectSession: vi.fn().mockReturnValue(true),
+        getTranscript: vi.fn().mockReturnValue([{ id: 'msg-1', role: 'user', content: 'the secret is sk-ant-api03-XXXX', timestamp: '2026-08-15T00:00:00.000Z' }]),
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        deleteSession: vi.fn(),
+        clearSession: vi.fn(),
+        deleteMessage: vi.fn().mockReturnValue(true),
+      };
+      ChatPanel.createOrShow(
+        { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+        {
+          orchestrator: { processTask: vi.fn() },
+          sessionConversation: conversation,
+          projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+          projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+          voiceManager: { speak: vi.fn() },
+        } as never,
+      );
+      return conversation;
+    }
+
+    it('destroys nothing when the operator declines', async () => {
+      const conversation = mountChatPanel();
+      mocks.showWarningMessage.mockResolvedValue(undefined);
+
+      await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+        .handleMessage(message);
+
+      expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ modal: true }),
+        expect.any(String),
+      );
+      expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).not.toHaveBeenCalled();
+    });
+
+    it('proceeds once the operator confirms', async () => {
+      const conversation = mountChatPanel();
+      // Answer with whatever verb the dialog offered, so the test does not have
+      // to restate the three confirm labels and drift from them.
+      mocks.showWarningMessage.mockImplementation(async (_message: string, _options: unknown, action: string) => action);
+
+      await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+        .handleMessage(message);
+
+      expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).toHaveBeenCalled();
+    });
   });
 
   it('includes pending tool approvals in chat panel state and resolves approval actions', async () => {
@@ -4139,5 +4221,769 @@ describe('provider card buttons promise what the button actually does', () => {
         expect(getProviderActionLabel(provider)).toBe('Set API Key');
       }
     }
+  });
+});
+
+describe('managed terminal context redaction', () => {
+  const SECRET = 'sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL';
+
+  it('redacts a secret inside the output it keeps', () => {
+    const result = truncateManagedTerminalContext(`${'x'.repeat(9000)}\nANTHROPIC_API_KEY=${SECRET}`);
+
+    expect(result).not.toContain(SECRET);
+    expect(result).toContain('[REDACTED]');
+  });
+
+  it('leaves no fragment when the secret straddles the truncation boundary', () => {
+    // Redacting *after* the slice is the bug this guards: the cut would land
+    // mid-key, the remaining half would no longer match any credential pattern,
+    // and a piece of a live key would travel to the model looking like noise.
+    const head = 'y'.repeat(8000 - Math.floor(SECRET.length / 2));
+    const result = truncateManagedTerminalContext(`${head}${SECRET}${'z'.repeat(500)}`);
+
+    expect(result).not.toContain(SECRET);
+    expect(result).not.toContain(SECRET.slice(0, 20));
+    expect(result).not.toContain(SECRET.slice(-20));
+  });
+
+  it('leaves ordinary output untouched', () => {
+    expect(truncateManagedTerminalContext('npm test\n42 passing')).toBe('npm test\n42 passing');
+  });
+});
+
+describe('chat code block actions', () => {
+  function mountPanel() {
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function fakeEditor(text: string, selectionEmpty: boolean) {
+    const edit = vi.fn(async () => true);
+    return {
+      edit,
+      viewColumn: 1,
+      selection: {
+        isEmpty: selectionEmpty,
+        start: { line: 0, character: 0 },
+        end: selectionEmpty ? { line: 0, character: 0 } : { line: 1, character: 0 },
+      },
+      document: {
+        isClosed: false,
+        uri: { fsPath: '/w/src/a.ts', path: '/w/src/a.ts', scheme: 'file' },
+        getText: () => text,
+        positionAt: (offset: number) => ({ line: 0, character: offset }),
+        offsetAt: (position: { character: number }) => position.character,
+      },
+    };
+  }
+
+  it('says where to put the code when no editor is open', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'insertCodeAtCursor', payload: { code: 'const a = 1;' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('Open a file first'),
+    }));
+  });
+
+  it('opens a new file as an unsaved buffer, with no confirmation and no write', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'createFileFromCode', payload: { code: 'print(1)', language: 'python' } });
+
+    // Untitled and discardable, so there is nothing to confirm and nothing on disk.
+    expect(vscodeModule.workspace.openTextDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'print(1)', language: 'python' }),
+    );
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled();
+    expect(vscodeModule.workspace.fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The diff is shown *before* the dialog, so the operator answers a question
+   * they have already seen the answer to. Declining must leave the file alone —
+   * that is the whole contract of a preview.
+   */
+  it('shows a diff and changes nothing when the apply is declined', async () => {
+    const panel = mountPanel();
+    const editor = fakeEditor('let a = 0;\n', false);
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = editor;
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'applyCodeToFile', payload: { code: 'let a = 1;' } });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      expect.anything(),
+      expect.anything(),
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(editor.edit).not.toHaveBeenCalled();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+
+  it('applies through the editor once confirmed, so the change is undoable', async () => {
+    const panel = mountPanel();
+    const editor = fakeEditor('let a = 0;\n', false);
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = editor;
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'applyCodeToFile', payload: { code: 'let a = 1;' } });
+
+    // editor.edit, never workspace.fs.writeFile: the edit lands on the undo
+    // stack like anything the user typed.
+    expect(editor.edit).toHaveBeenCalled();
+    expect(vscodeModule.workspace.fs.writeFile).not.toHaveBeenCalled();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+});
+
+describe('editor selection and problems as chat context', () => {
+  function mountPanel(processTask = vi.fn()) {
+    // createOrShow reuses currentPanel, so every test in this block must mount
+    // through one helper or a later test silently drives an earlier panel.
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage: vi.fn().mockReturnValue('msg-1'),
+          updateMessage: vi.fn(),
+          recordTurn: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function lastAttachments() {
+    const stateCalls = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { attachments?: Array<{ label: string; inlineText?: string }> } })
+      .filter(message => message?.type === 'state' && message.payload?.attachments);
+    return stateCalls[stateCalls.length - 1]?.payload?.attachments ?? [];
+  }
+
+  it('asks for a selection rather than attaching an empty one', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('Select some code'),
+    }));
+  });
+
+  it('attaches the selection with its file and line range, redacted', async () => {
+    const panel = mountPanel();
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = {
+      selection: { isEmpty: false, start: { line: 9 }, end: { line: 11 } },
+      document: {
+        isClosed: false,
+        languageId: 'typescript',
+        uri: { fsPath: 'src/a.ts', path: 'src/a.ts', scheme: 'file' },
+        getText: () => 'const key = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL";',
+      },
+    };
+
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+
+    const attachment = lastAttachments().find(item => item.label.includes('lines 10'));
+    expect(attachment, 'selection attachment missing').toBeDefined();
+    expect(attachment!.label).toContain('src/a.ts');
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+  });
+
+  it('counts the problems it attaches, and says what it left out', async () => {
+    const panel = mountPanel();
+    const many = Array.from({ length: 130 }, (_unused, index) => ({
+      severity: index < 3 ? 0 : 1,
+      message: `problem ${index}`,
+      range: { start: { line: index } },
+      source: 'ts',
+    }));
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue(
+      [[{ fsPath: 'src/a.ts', path: 'src/a.ts' }, many]] as never,
+    );
+
+    await panel.handleMessage({ type: 'attachProblems' });
+
+    const attachment = lastAttachments().find(item => item.label.startsWith('Problems'));
+    expect(attachment, 'problems attachment missing').toBeDefined();
+    // The label carries the counts, because "Problems" alone says nothing about
+    // whether the attachment is worth sending.
+    expect(attachment!.label).toContain('3 errors');
+    expect(attachment!.label).toContain('127 warnings');
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue([] as never);
+  });
+
+
+  /**
+   * The label is what the operator sees; this is what the model sees. Both
+   * matter, and only the second one can show that the attachment inherits the
+   * redaction boundary and states its own truncation.
+   */
+  it('sends the selection and the problem list to the model, redacted and honest about truncation', async () => {
+    const processTask = vi.fn().mockResolvedValue({
+      id: 't', agentId: 'a', modelUsed: 'm', response: 'ok',
+      inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+    });
+    const panel = mountPanel(processTask);
+
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = {
+      selection: { isEmpty: false, start: { line: 0 }, end: { line: 0 } },
+      document: {
+        isClosed: false,
+        languageId: 'typescript',
+        uri: { fsPath: 'src/a.ts', path: 'src/a.ts', scheme: 'file' },
+        getText: () => 'const key = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL";',
+      },
+    };
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue(
+      [[{ fsPath: 'src/a.ts', path: 'src/a.ts' }, Array.from({ length: 130 }, (_u, i) => ({
+        severity: 1, message: `problem ${i}`, range: { start: { line: i } }, source: 'ts',
+      }))]] as never,
+    );
+
+    await panel.handleMessage({ type: 'attachEditorSelection' });
+    await panel.handleMessage({ type: 'attachProblems' });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'what is wrong here?', mode: 'send' } });
+
+    const context = processTask.mock.calls[0]?.[0]?.context ?? {};
+    const attachmentContext = String(context.attachmentContext ?? '');
+    expect(attachmentContext).toContain('src/a.ts');
+    // Inherited from the ordinary attachment path, not re-implemented here.
+    expect(attachmentContext).not.toContain('sk-ant-api03-AAAABBBB');
+    expect(attachmentContext).toContain('[REDACTED]');
+    // A truncated list read as the whole list is how a model concludes a
+    // problem was fixed, so the remainder is stated in the text itself.
+    expect(attachmentContext).toContain('further problem');
+
+    (vscodeModule.window as { activeTextEditor?: unknown }).activeTextEditor = undefined;
+    vi.mocked(vscodeModule.languages.getDiagnostics).mockReturnValue([] as never);
+  });
+
+  it('says so when there are no problems, instead of attaching an empty list', async () => {
+    const panel = mountPanel();
+    await panel.handleMessage({ type: 'attachProblems' });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: expect.stringContaining('No problems reported'),
+    }));
+  });
+});
+
+describe('file mention lookup', () => {
+  it('echoes the query back so a late reply can be discarded', async () => {
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    vi.mocked(vscodeModule.workspace.findFiles).mockResolvedValue(
+      [{ fsPath: 'src/views/chatPanel.ts', path: 'src/views/chatPanel.ts' }] as never,
+    );
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'queryFileMentions', payload: { query: 'chatPan' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith({
+      type: 'fileMentions',
+      payload: { query: 'chatPan', files: ['src/views/chatPanel.ts'] },
+    });
+  });
+
+  it('searches nothing and answers empty for an empty query', async () => {
+    vi.mocked(vscodeModule.workspace.findFiles).mockClear();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'queryFileMentions', payload: { query: '   ' } });
+
+    expect(vscodeModule.workspace.findFiles).not.toHaveBeenCalled();
+    expect(mocks.postMessage).toHaveBeenCalledWith({
+      type: 'fileMentions',
+      payload: { query: '   ', files: [] },
+    });
+  });
+});
+
+describe('conversation recall in the chat panel', () => {
+  /**
+   * From a live Lane 4 run: "what was my question three turns ago" was routed to
+   * a model, which invented both the question and a summary of a conversation
+   * that had a verbatim record in memory. `parseConversationRecallRequest` was
+   * only ever called from the participant — the panel never had it — so the one
+   * surface most people use answered from a guess.
+   */
+  it('answers from the transcript without calling a model', async () => {
+    const processTask = vi.fn();
+    const transcript = [
+      { id: '1', role: 'user', content: 'Tell me about our current ci tests', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: '2', role: 'assistant', content: 'Two suites.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: '3', role: 'user', content: 'what is the cost of running these?', timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: '4', role: 'assistant', content: 'About a penny.', timestamp: '2026-08-15T10:01:10.000Z' },
+      { id: '5', role: 'user', content: 'use playwright instead', timestamp: '2026-08-15T10:02:00.000Z' },
+      { id: '6', role: 'assistant', content: 'Switching.', timestamp: '2026-08-15T10:02:10.000Z' },
+      { id: '7', role: 'user', content: 'what was my question three turns ago', timestamp: '2026-08-15T10:03:00.000Z' },
+    ];
+
+    // createOrShow reuses currentPanel, so an earlier test's panel would be the
+    // one driven here, with its own stubs.
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue(transcript),
+          appendMessage: vi.fn().mockReturnValue('msg-x'),
+          updateMessage: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
+      .handleMessage({ type: 'submitPrompt', payload: { prompt: 'what was my question three turns ago', mode: 'send' } });
+
+    // No model, and the answer quotes the record rather than paraphrasing it.
+    expect(processTask).not.toHaveBeenCalled();
+    const updates = vi.mocked(
+      (ChatPanel.currentPanel as unknown as { atlas: { sessionConversation: { updateMessage: ReturnType<typeof vi.fn> } } })
+        .atlas.sessionConversation.updateMessage,
+    );
+    const answered = updates.mock.calls.map(call => String(call[1] ?? '')).join('\n');
+    expect(answered).toContain('Tell me about our current ci tests');
+  });
+});
+
+describe('model override in the chat panel', () => {
+  function mountWithModels(processTask = vi.fn().mockResolvedValue({
+    id: 't', agentId: 'a', modelUsed: 'openai/gpt-5', response: 'ok',
+    inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+  })) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        modelRouter: {
+          listProviders: () => [{ id: 'openai', displayName: 'OpenAI', models: [{ id: 'openai/gpt-5', name: 'GPT-5' }] }],
+        },
+        isProviderConfigured: async () => true,
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage: vi.fn().mockReturnValue('msg-1'),
+          updateMessage: vi.fn(),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      processTask,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('refuses a model it never offered', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'evil/backdoor', scope: 'turn' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('not available'),
+    }));
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+
+  it('sends a pinned model to the router as preferredModel', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+  });
+
+  it('consumes a next-message pin exactly once', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'turn' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'first', mode: 'send' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'second', mode: 'send' } });
+
+    expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+    // The second turn is back to automatic routing.
+    expect(processTask.mock.calls[1]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+
+  it('keeps a chat-scoped pin across turns until cleared', async () => {
+    const { panel, processTask } = mountWithModels();
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: 'openai/gpt-5', scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'first', mode: 'send' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'second', mode: 'send' } });
+    expect(processTask.mock.calls[1]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+
+    await panel.handleMessage({ type: 'setModelOverride', payload: { modelId: null, scope: 'session' } });
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'third', mode: 'send' } });
+    expect(processTask.mock.calls[2]?.[0]?.constraints?.preferredModel).toBeUndefined();
+  });
+});
+
+describe('session rename and cross-session search', () => {
+  function mount(sessions: Array<{ id: string; title: string }>, transcripts: Record<string, unknown[]>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const renameSession = vi.fn().mockReturnValue(true);
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue(sessions.map(session => ({
+            ...session, createdAt: '', updatedAt: '', turnCount: 1, preview: '', isActive: session.id === 'chat-1',
+          }))),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Current', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn((id: string) => transcripts[id] ?? []),
+          renameSession,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return {
+      renameSession,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('renames a session and reports the outcome', async () => {
+    const { panel, renameSession } = mount([{ id: 'chat-1', title: 'Current' }], {});
+    await panel.handleMessage({ type: 'renameSession', payload: { sessionId: 'chat-1', title: 'CI investigation' } });
+
+    expect(renameSession).toHaveBeenCalledWith('chat-1', 'CI investigation');
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'status', payload: 'Renamed.' }));
+  });
+
+  it('says so when the rename did not take', async () => {
+    // A rename that silently did nothing is worse than one that failed loudly:
+    // the operator reads the old name and assumes they mistyped.
+    const { panel } = mount([{ id: 'chat-1', title: 'Current' }], {});
+    const conversation = (ChatPanel.currentPanel as unknown as { atlas: { sessionConversation: { renameSession: ReturnType<typeof vi.fn> } } })
+      .atlas.sessionConversation;
+    conversation.renameSession.mockReturnValue(false);
+
+    await panel.handleMessage({ type: 'renameSession', payload: { sessionId: 'chat-1', title: 'Current' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('already in use'),
+    }));
+  });
+
+  it('finds a phrase in a session that is not open, with the match in the snippet', async () => {
+    const { panel } = mount(
+      [{ id: 'chat-1', title: 'Current' }, { id: 'chat-2', title: 'Last week' }],
+      {
+        'chat-1': [{ id: 'a', role: 'user', content: 'nothing relevant here', timestamp: '2026-08-01T00:00:00.000Z' }],
+        'chat-2': [{
+          id: 'b', role: 'assistant',
+          content: `${'padding '.repeat(30)}we decided to keep Playwright for the browser tests${' trailing'.repeat(30)}`,
+          timestamp: '2026-08-02T00:00:00.000Z',
+        }],
+      },
+    );
+
+    await panel.handleMessage({ type: 'searchAllSessions', payload: { query: 'Playwright' } });
+
+    const reply = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { results?: Array<{ sessionId: string; snippet: string }> } })
+      .find(message => message?.type === 'crossSessionSearchResults');
+    expect(reply?.payload?.results).toHaveLength(1);
+    expect(reply?.payload?.results?.[0]?.sessionId).toBe('chat-2');
+    // A snippet that does not contain the match makes the reader open every
+    // result to find out whether it was the one they wanted.
+    expect(reply?.payload?.results?.[0]?.snippet).toContain('Playwright');
+  });
+
+  it('redacts a secret that happens to sit beside the match', async () => {
+    const { panel } = mount(
+      [{ id: 'chat-2', title: 'Old' }],
+      {
+        'chat-2': [{
+          id: 'b', role: 'user',
+          content: 'deploy notes ANTHROPIC_API_KEY=sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL',
+          timestamp: '2026-08-02T00:00:00.000Z',
+        }],
+      },
+    );
+
+    await panel.handleMessage({ type: 'searchAllSessions', payload: { query: 'deploy notes' } });
+
+    const reply = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { results?: Array<{ snippet: string }> } })
+      .find(message => message?.type === 'crossSessionSearchResults');
+    expect(reply?.payload?.results?.[0]?.snippet).not.toContain('sk-ant-api03-AAAA');
+  });
+});
+
+describe('editing and regenerating a message', () => {
+  function mount() {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const transcript = [
+      { id: 'u1', role: 'user', content: 'add e2e tests', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: 'a1', role: 'assistant', content: 'Here is a plan.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: 'u2', role: 'user', content: 'use vitest', timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: 'a2', role: 'assistant', content: 'Switching to vitest.', timestamp: '2026-08-15T10:01:10.000Z' },
+    ];
+    const truncateAfter = vi.fn().mockReturnValue(2);
+    const updateMessage = vi.fn();
+    const deleteMessage = vi.fn().mockReturnValue(true);
+    const processTask = vi.fn().mockResolvedValue({
+      id: 't', agentId: 'a', modelUsed: 'm', response: 'ok',
+      inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+    });
+
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue(transcript),
+          appendMessage: vi.fn().mockReturnValue('new-1'),
+          updateMessage,
+          truncateAfter,
+          deleteMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      truncateAfter, updateMessage, deleteMessage, processTask,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('discards nothing when the operator declines', async () => {
+    const { panel, truncateAfter, processTask } = mount();
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'add e2e tests with playwright' } });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.any(String), expect.objectContaining({ modal: true }), expect.any(String),
+    );
+    expect(truncateAfter).not.toHaveBeenCalled();
+    expect(processTask).not.toHaveBeenCalled();
+  });
+
+  it('names how many messages an edit would discard', async () => {
+    const { panel } = mount();
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'changed' } });
+
+    // A confirmation that cannot name the cost is not much of a confirmation.
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ detail: expect.stringContaining('3 messages') }),
+      expect.any(String),
+    );
+  });
+
+  it('rewinds and re-runs the edited text', async () => {
+    const { panel, updateMessage, truncateAfter, processTask } = mount();
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'add e2e tests with playwright' } });
+
+    expect(updateMessage).toHaveBeenCalledWith('u1', 'add e2e tests with playwright', 'chat-1');
+    expect(truncateAfter).toHaveBeenCalledWith('u1', 'chat-1');
+    expect(processTask.mock.calls[0]?.[0]?.userMessage).toContain('add e2e tests with playwright');
+  });
+
+  /**
+   * Regenerating names an assistant reply, and the thing to re-run is the prompt
+   * that produced it — the nearest user turn above, not the reply itself.
+   */
+  it('re-runs the prompt above the reply being regenerated', async () => {
+    const { panel, truncateAfter, updateMessage, processTask } = mount();
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'regenerateMessage', payload: { entryId: 'a2' } });
+
+    expect(truncateAfter).toHaveBeenCalledWith('u2', 'chat-1');
+    // Regenerating rewrites no prompt; only editing does. (updateMessage is also
+    // how a streaming reply is written, so this checks the prompt specifically.)
+    expect(updateMessage).not.toHaveBeenCalledWith('u2', expect.anything(), expect.anything());
+    expect(processTask.mock.calls[0]?.[0]?.userMessage).toContain('use vitest');
+  });
+
+  it('refuses while a turn is already running', async () => {
+    const { panel } = mount();
+    (ChatPanel.currentPanel as unknown as { activePromptExecution?: unknown }).activePromptExecution = { taskId: 'x' };
+
+    await panel.handleMessage({ type: 'regenerateMessage', payload: { entryId: 'a2' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('Still working'),
+    }));
+    (ChatPanel.currentPanel as unknown as { activePromptExecution?: unknown }).activePromptExecution = undefined;
+  });
+});
+
+describe('restoring files from before a turn', () => {
+  function mount(checkpoints: Array<{ id: string; taskId: string; createdAt: string; fileCount: number }>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const rollbackCheckpointByTaskId = vi.fn().mockResolvedValue({
+      ok: true, summary: 'Restored 3 files.', restoredPaths: ['a.ts', 'b.ts', 'c.ts'],
+    });
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        listCheckpoints: async () => checkpoints,
+        rollbackCheckpointByTaskId,
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([
+            { id: 'u1', role: 'user', content: 'change the config', timestamp: '2026-08-15T10:00:00.000Z' },
+            { id: 'a1', role: 'assistant', content: 'Done.', timestamp: '2026-08-15T10:00:10.000Z', meta: { taskId: 'chat-panel-111' } },
+            { id: 'a2', role: 'assistant', content: 'Also done.', timestamp: '2026-08-15T10:01:00.000Z' },
+          ]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+    return {
+      rollbackCheckpointByTaskId,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  const SNAPSHOT = [{ id: 'cp-1', taskId: 'chat-panel-111', createdAt: '2026-08-15T10:00:05.000Z', fileCount: 3 }];
+
+  it('restores by the turn, not by whatever is newest', async () => {
+    const { panel, rollbackCheckpointByTaskId } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+
+    expect(rollbackCheckpointByTaskId).toHaveBeenCalledWith('chat-panel-111');
+  });
+
+  it('says the restore is files only, and names how many', async () => {
+    const { panel } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('3 files'),
+      // A transcript that silently rewound alongside the working tree would
+      // leave no record of what had been tried, so the dialog says it does not.
+      expect.objectContaining({ detail: expect.stringContaining('conversation is left') }),
+      expect.any(String),
+    );
+  });
+
+  it('restores nothing when declined', async () => {
+    const { panel, rollbackCheckpointByTaskId } = mount(SNAPSHOT);
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+    expect(rollbackCheckpointByTaskId).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes a turn with no snapshot from one whose snapshot aged out', async () => {
+    const { panel } = mount([]);
+    // Snapshots live in a ring buffer, so "there was one" and "there is one" are
+    // different facts and the operator should be told which.
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a1' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('no longer stored'),
+    }));
+
+    await panel.handleMessage({ type: 'restoreCheckpoint', payload: { entryId: 'a2' } });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('no file snapshot'),
+    }));
   });
 });

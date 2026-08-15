@@ -108,6 +108,14 @@ export interface SessionTranscriptMetadata {
    * facts about the same absence: one the operator caused deliberately.
    */
   turnError?: { kind: 'cancelled' | 'failed'; message?: string };
+  /**
+   * The orchestrator task this turn ran as.
+   *
+   * Carried so a checkpoint — which is filed by task id — can be found from the
+   * turn that produced it. Nothing here reads the checkpoint store; this is the
+   * key, not the record.
+   */
+  taskId?: string;
 }
 
 export interface SessionConversationRecord {
@@ -441,6 +449,39 @@ export class SessionConversation {
     this.persist();
     this.onDidChangeEmitter.fire();
     return true;
+  }
+
+  /**
+   * Drop everything after an entry, keeping the entry itself.
+   *
+   * The primitive editing and regenerating both need: rewinding to a point in
+   * the conversation and continuing from there. Returns the number removed so
+   * the caller can say what it is about to discard — a confirmation that cannot
+   * name the cost is not much of a confirmation.
+   *
+   * Nothing here re-derives the session context bundle. That is deliberately the
+   * caller's job: the bundle is a rolling summary with no per-turn identity, so
+   * it cannot be surgically rewound and has to be rebuilt from the transcript
+   * afterwards.
+   */
+  truncateAfter(entryId: string, sessionId = this.activeSessionId): number {
+    const session = this.getMutableSession(sessionId);
+    if (!session) {
+      return 0;
+    }
+    const index = session.entries.findIndex(entry => entry.id === entryId);
+    if (index === -1) {
+      return 0;
+    }
+    const removed = session.entries.length - (index + 1);
+    if (removed <= 0) {
+      return 0;
+    }
+    session.entries.length = index + 1;
+    session.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return removed;
   }
 
   getTranscript(sessionId = this.activeSessionId): SessionTranscriptEntry[] {

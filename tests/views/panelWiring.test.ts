@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -535,5 +535,243 @@ describe('tool webhook panel', () => {
     // The token lives in SecretStorage; the panel may report whether one is
     // configured but must not echo the value.
     expect(source).not.toMatch(/value="\$\{[^}]*token[^}]*\}"/i);
+  });
+});
+
+describe('chat webview message protocol', () => {
+  const webviewJs = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const protocol = readFileSync(path.join(VIEWS_DIR, 'chatProtocol.ts'), 'utf8');
+  const host = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  /**
+   * Message types the webview actually sends to the host.
+   *
+   * Matched on the message *shape* — a `type` with a `payload`, or a `type`
+   * alone — rather than on a `postMessage(` prefix, because several are built
+   * inside a ternary and passed in. The shape also excludes the webview's
+   * internal `{ type: 'aux', blocks }`-style literals, which carry neither.
+   */
+  const sent = new Set(
+    [...webviewJs.matchAll(/\{\s*type:\s*'([a-zA-Z]+)'\s*(?:\}|,\s*payload)/g)].map(match => match[1]!),
+  );
+  /** Message types `ChatPanelMessage` declares, i.e. the ones `isChatPanelMessage` can pass. */
+  const declared = new Set(
+    [...protocol.matchAll(/\|\s*\{\s*type:\s*'([a-zA-Z]+)'/g)].map(match => match[1]!),
+  );
+
+  /**
+   * Both of these shipped, and neither is visible to the compiler: the webview
+   * is `@ts-nocheck` and talks to the host through `postMessage`, so a control
+   * can be wired to a message nothing accepts and look completely fine.
+   *
+   * `openProjectRunCenter` was posted by two "Open Run Center" buttons and was
+   * absent from the union, so `isChatPanelMessage` rejected it and
+   * `handleMessage` dropped it — both buttons were silently inert. In the other
+   * direction `continueExecution` had a validated member *and* a host handler
+   * and was never posted by anything, while the pause copy told the operator to
+   * "select Continue"; and `searchSession` had a whole host-side implementation
+   * the webview never called, because the working search is client-side.
+   */
+  it('sends no message the protocol would reject', () => {
+    const undeclared = [...sent].filter(type => !declared.has(type));
+    expect(undeclared, `webview posts message types absent from ChatPanelMessage: ${undeclared.join(', ')}`)
+      .toEqual([]);
+  });
+
+  it('declares no message nothing sends', () => {
+    const unsent = [...declared].filter(type => !sent.has(type));
+    expect(unsent, `ChatPanelMessage declares types the webview never posts: ${unsent.join(', ')}`)
+      .toEqual([]);
+  });
+
+  it('handles every message it declares', () => {
+    const unhandled = [...declared].filter(type => !host.includes(`case '${type}'`));
+    expect(unhandled, `declared but never handled in chatPanel.ts: ${unhandled.join(', ')}`)
+      .toEqual([]);
+  });
+});
+
+describe('chat panel context redaction', () => {
+  const chatPanelSource = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  /**
+   * The orchestrator redacts the context *it* assembles. These three paths are
+   * assembled by the panel and never pass through it, and each one carries text
+   * chosen by the operator in a gesture that does not look like sending a file
+   * to a model: running `env` in a managed terminal, dragging a `.env` onto the
+   * composer, pasting a log with a bearer token in it.
+   */
+  it.each([
+    ['truncateManagedTerminalContext', 'terminal output on its way into a prompt'],
+    ['readAttachmentSnippet', 'a file attached from disk'],
+    ['decodeInlineText', 'text pasted or dropped into the composer'],
+  ])('redacts secrets in %s (%s)', (fnName) => {
+    // The declaration, then a window large enough to hold the whole body. A
+    // brace-matching parser would be more precise and is not worth it: these
+    // three functions are short, and the assertion is "the call is in here".
+    const declaration = chatPanelSource.indexOf(`function ${fnName}(`);
+    expect(declaration, `${fnName} not found in chatPanel.ts`).toBeGreaterThan(-1);
+    expect(chatPanelSource.slice(declaration, declaration + 900)).toContain('redactSecrets');
+  });
+});
+
+describe('chat transcript rendering and motion', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+
+  /**
+   * `renderTranscript` rebuilds every bubble, and the state handler runs on each
+   * streamed chunk — so a long answer tore down and rebuilt the whole
+   * conversation dozens of times, destroying any selection inside it and asking
+   * a screen reader to re-announce everything. There is no DOM harness in this
+   * repo, so these hold the wiring rather than the behaviour.
+   */
+  it('routes streamed state updates through the incremental renderer', () => {
+    expect(webview).toContain('renderTranscriptDelta(state.transcript');
+  });
+
+  it('shares one bubble builder between the full and incremental paths', () => {
+    // Two builders would drift, and the drift would only be visible mid-stream.
+    expect(webview).toContain('function buildMessageElement(');
+    const callers = webview.match(/buildMessageElement\(/g) ?? [];
+    expect(callers.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('falls back to a full render whenever the fast path cannot be established', () => {
+    const delta = webview.slice(webview.indexOf('function renderTranscriptDelta('));
+    expect(delta).toContain('if (!canPatch)');
+    // The narrowing conditions are the whole safety argument.
+    expect(delta).toContain('isSearchMode');
+    expect(delta).toContain('renderedEntryIds.every');
+  });
+
+  it('announces only the streaming bubble, not the whole transcript', () => {
+    expect(markup).toMatch(/id="transcript" class="chat-transcript"(?![^>]*aria-live)/);
+    const contentBlock = webview.slice(webview.indexOf("content.className = 'chat-content'"));
+    expect(contentBlock.slice(0, 500)).toContain("content.setAttribute('aria-live', 'polite')");
+  });
+
+  it('gives the model dropdown a control that can hold focus', () => {
+    // It was a <div> with a click handler, so the Escape handler and the
+    // badge.focus() call beside it could never run.
+    expect(webview).toContain("document.createElement(hasMultiple ? 'button' : 'div')");
+    expect(webview).toContain("badge.setAttribute('aria-expanded'");
+  });
+
+  it('stops the infinite animations when the reader asked for reduced motion', () => {
+    expect(markup).toContain('@media (prefers-reduced-motion: reduce)');
+    const guard = markup.slice(markup.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(guard.slice(0, 600)).toContain('.live-dot');
+    expect(guard.slice(0, 600)).toContain('animation: none !important');
+  });
+});
+
+describe('chat code block syntax highlighting', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+  const host = readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8');
+
+  it('ships the highlighter it loads, built from the pinned dependency', () => {
+    const bundle = path.join(MEDIA_DIR, 'vendor', 'highlight.min.js');
+    expect(existsSync(bundle), 'run `npm run compile` to build media/vendor/highlight.min.js').toBe(true);
+    const built = readFileSync(bundle, 'utf8');
+    expect(built).toContain('highlight.js v11.12.0');
+    expect(built).toContain('window.hljs');
+    // The licence travels with the code it covers.
+    expect(existsSync(path.join(MEDIA_DIR, 'vendor', 'highlight.js.LICENSE'))).toBe(true);
+  });
+
+  it('loads it from the extension, never from a CDN', () => {
+    expect(host).toContain("'vendor', 'highlight.min.js'");
+    expect(host).toContain('vendorScriptUris');
+    expect(webview).not.toMatch(/https?:\/\/[^\s'"]*highlight/i);
+  });
+
+  /**
+   * `innerHTML = hljs.highlight(...).value` is the ordinary way to use this
+   * library, and it is the one thing this panel must not do: every dynamic value
+   * in the transcript reaches the DOM through textContent, and a code block
+   * holds model output, which is the least trusted text on screen.
+   */
+  it('rebuilds the highlight tree instead of assigning markup', () => {
+    const fn = webview.slice(webview.indexOf('function applySyntaxHighlight('));
+    const body = fn.slice(0, fn.indexOf('\n  function appendHighlightNodes('));
+    expect(body).not.toContain('innerHTML');
+    expect(body).toContain('DOMParser');
+    expect(body).toContain('appendHighlightNodes');
+    // Only hljs-* class names survive the walk.
+    expect(webview).toContain(String.raw`/^hljs[\w-]*( hljs[\w-]*)*$/`);
+  });
+
+  it('falls back to plain text rather than risking a wrong render', () => {
+    const fn = webview.slice(webview.indexOf('function applySyntaxHighlight('));
+    const body = fn.slice(0, fn.indexOf('\n  function appendHighlightNodes('));
+    // No highlighter, no language, an unknown language, an oversized block, a
+    // throwing call, or a walk whose text does not match the source.
+    expect(body).toContain('!hljs.getLanguage(language)');
+    expect(body).toContain('HIGHLIGHT_MAX_CHARS');
+    expect(body).toContain('probe.textContent !== codeText');
+    expect((body.match(/codeEl\.textContent = codeText/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('colours from the editor theme rather than shipping a palette', () => {
+    expect(markup).toContain('.hljs-keyword');
+    expect(markup).toContain('var(--vscode-');
+    // A hard-coded hex as the *only* value would be a second theme inside the
+    // user's theme; these are fallbacks behind a variable.
+    expect(markup).not.toMatch(/\.hljs-keyword[^{]*\{[^}]*color:\s*#[0-9a-f]{3,6}\s*;/i);
+  });
+});
+
+describe('composer typeahead', () => {
+  const webview = readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8');
+  const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+
+  it('is one component serving both triggers', () => {
+    // Two lists would drift in their keyboard handling, and the difference
+    // would only show up under the one people use less.
+    expect(webview).toContain('function activeTypeaheadToken(');
+    expect(webview).toContain("kind: ch === '/' ? 'command' : 'file'");
+    expect((webview.match(/function renderTypeahead\(/g) ?? []).length).toBe(1);
+  });
+
+  it('keeps focus in the textarea and announces the highlighted option', () => {
+    // The list is a popup, not a focus target: the caret must not move while
+    // the arrows change the selection.
+    expect(markup).toContain('role="combobox"');
+    expect(markup).toContain('aria-controls="composerTypeahead"');
+    expect(markup).toContain('role="listbox"');
+    expect(webview).toContain("promptInput.setAttribute('aria-activedescendant'");
+    expect(webview).not.toMatch(/typeaheadEl\.(focus|tabIndex)/);
+  });
+
+  it('lets the open list take Enter and the arrows before the composer does', () => {
+    // Otherwise Enter sends the prompt while a suggestion is highlighted, and
+    // ArrowUp walks the prompt history instead of the list.
+    // The composer's own handler, not the session-search one that shares the
+    // pattern: this is the one that guards against IME composition.
+    const start = webview.indexOf('if (event.isComposing) {');
+    expect(start, 'composer keydown handler not found').toBeGreaterThan(-1);
+    expect(webview.slice(start, start + 500)).toContain('handleTypeaheadKey(event)');
+  });
+
+  it('offers only commands the router would dispatch', () => {
+    // The names come from the same set routePanelPrompt matches on, so the list
+    // cannot advertise something that would fall through to a model.
+    expect(readFileSync(path.join(VIEWS_DIR, 'chatPanel.ts'), 'utf8')).toContain('[...ATLAS_SLASH_COMMANDS]');
+  });
+
+  it('debounces file lookups and discards stale replies', () => {
+    expect(webview).toContain("vscode.postMessage({ type: 'queryFileMentions'");
+    expect(webview).toContain('fileMentionTimer');
+    // The echoed query is what makes an out-of-order reply harmless.
+    expect(webview).toContain('payload.query !== fileMentionQuery');
+  });
+
+  it('attaches a picked file rather than only naming it', () => {
+    // A path in the prose tells the model a name; the attachment is what
+    // actually carries the contents.
+    const accept = webview.slice(webview.indexOf('function acceptTypeahead('));
+    expect(accept.slice(0, 900)).toContain("type: 'attachOpenFile'");
   });
 });
