@@ -331,3 +331,27 @@ a rhetorical question followed by a full paragraph stays prose.
 
 **Withdrawn:** `local/ollama@@qwen3:…` is not a malformed id. `@@` is `LOCAL_MODEL_ID_DELIMITER`, separating
 endpoint from model on purpose.
+
+**Lane 4 — 3/12.** The weakest lane, and the most informative.
+
+| # | Score | Note |
+|---|---:|---|
+| 4.1 setup turn | **0** | Eight tool calls (3 reads, 5 edits) and the reply was *"I will now provide both to add the new test case… I will add the new test case to the end of…"* — a future-tense promise, never kept. It also leaked plumbing: *"The `file-edit` tool requires both a `search` and a `replace` parameter."* |
+| 4.2 `what would that cost to run in CI?` | **0** | Five attempts, no answer: one GPU deferral and **four Mistral 429s in a row**. |
+| 4.3 `use Playwright instead` | **1** | The referent was understood — *"I'm switching the coverage to Playwright"* — so carry-forward worked. The rest was raw internal monologue: *"Need maybe use list_dir etc. We'll use terminal? Probably easier. Let's run pwd && ls… Since tool list unknown, maybe use terminal commands."* |
+| 4.4 `go back to what we decided…` | **2** | Genuinely good. Recalled the thread, corrected the earlier confusion about where Alcyone lives, gave two options with exact paths and a recommendation. |
+| 4.5 `what was my question two turns ago?` | **0** | **Invented one.** It answered with *"Improve end-to-end test coverage by adding a Playwright test for Alcyone's initial rendering state…"* — a paraphrase of the task, not a question the operator ever asked. A fabrication about the conversation itself. |
+| 4.6 `carry on` | **0** | Started an autonomous project run with **Goal: "tell me about who makes playwright"** — the previous prompt, an informational question. It touched four `.wrangler` files and every model attempt failed. |
+
+**The failover fix is confirmed working.** 4.2 stopped at *"the safety ceiling of 5 attempts is reached"* rather than *"the failover budget of 3 is spent"* — the deferral no longer consumes the budget, so the turn got further before giving up. It still failed, for a different reason.
+
+**And the Preview goal line earned its keep.** 4.6 printed `Goal: tell me about who makes playwright` before doing anything, which is the only reason that run is legible as wrong rather than merely unsuccessful.
+
+**Findings**
+
+1. **A 429 should block the provider for the turn, exactly as a busy GPU now does.** 4.2 spent four of five attempts on Mistral models while Mistral was rate-limiting: `magistral-small` (10s), `mistral-large-2512` (60s), `mistral-large-latest` (9s). The refusal is about the *account*, not the model, so a sibling refuses identically — the same argument that fixed the GPU case, one provider along.
+2. **`looksLikePreambleOnly` misses the commonest shape.** Its verb list is inspection-only (`inspect|check|look|read|search|…`) and it caps at 240 characters. 4.1's reply promised to **add** and ran ~450 characters, so it matched neither condition — and it is the exact failure the function exists to catch.
+3. **Raw chain-of-thought reached the operator as the answer** on the Copilot turn, including *"Since tool list unknown"* — a model reasoning aloud about not having been given tools, printed as prose.
+4. **A question about the conversation was answered with a fabricated question.** Worse than fabricating about code: there is a verbatim record, and it disagreed with it.
+5. **`carry on` started a run on "tell me about who makes playwright".** `INFORMATIONAL_QUESTION_PATTERN` matches an opening `what|why|how|which|where|when|who`, so it misses `tell me about…`, `explain…`, `describe…` — the imperative forms of the same thing.
+6. **The capability index leaked into project reasoning.** 4.4 discussed `settings:overview` as though it were part of the operator's own project. The index says what AtlasMind has; nothing says it is *not* part of the workspace under discussion.
