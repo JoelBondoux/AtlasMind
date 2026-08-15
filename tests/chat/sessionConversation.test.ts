@@ -156,3 +156,36 @@ describe('turn classification', () => {
     expect(conversation.buildContext({ maxTurns: 6, maxChars: 12_000 })).not.toContain('scratch');
   });
 });
+
+describe('truncateAfter', () => {
+  function seeded() {
+    const conversation = new SessionConversation();
+    conversation.recordTurn('first question', 'first answer');
+    conversation.recordTurn('second question', 'second answer');
+    conversation.recordTurn('third question', 'third answer');
+    return conversation;
+  }
+
+  it('keeps the named entry and drops what follows', () => {
+    const conversation = seeded();
+    const target = conversation.getTranscript()[2]!; // "second question"
+
+    expect(conversation.truncateAfter(target.id)).toBe(3);
+    expect(conversation.getTranscript().map(entry => entry.content)).toEqual([
+      'first question', 'first answer', 'second question',
+    ]);
+  });
+
+  it('reports how many it removed, so a confirmation can name the cost', () => {
+    const conversation = seeded();
+    const last = conversation.getTranscript().at(-1)!;
+    // Nothing after the final entry: no removal, and nothing to warn about.
+    expect(conversation.truncateAfter(last.id)).toBe(0);
+  });
+
+  it('does nothing for an entry that is not there', () => {
+    const conversation = seeded();
+    expect(conversation.truncateAfter('missing')).toBe(0);
+    expect(conversation.getTranscript()).toHaveLength(6);
+  });
+});

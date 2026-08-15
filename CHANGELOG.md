@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.339.0] - 2026-08-15
+
+### Added
+
+- **Edit a message and run it again, or ask for a different reply.** Getting a prompt slightly wrong meant
+  retyping it and living with the failed attempt in the transcript; a poor answer meant rephrasing the
+  question and hoping. Both now rewind: **Edit** on one of your messages replaces it and re-runs from
+  there, **Regenerate** on a reply re-runs the prompt that produced it.
+
+  One method serves both, because they are the same operation seen from two ends — find the prompt to run,
+  drop everything after it, send it. Two implementations would give two chances to get the discard
+  boundary wrong, and regenerating in particular has a trap: it names an *assistant* reply, and the thing
+  to re-run is the nearest **user** turn above it.
+
+  **The confirmation names the cost**: "this discards the 3 messages after it in this chat". A dialog that
+  cannot say what you lose is not much of a dialog. Declining changes nothing, and neither does either
+  action while a turn is already running.
+
+  Editing happens **in the bubble**, not in the composer — the composer may already hold something you
+  were part-way through writing, and commandeering it to correct an older message would lose that. Enter
+  re-runs, Escape cancels and redraws from state rather than reconstructing the transcript locally.
+
+  `SessionConversation.truncateAfter` is the new primitive, returning how many entries it removed so the
+  caller can name them. It deliberately does **not** touch the session context bundle: that is a rolling
+  summary with no per-turn identity, so it cannot be surgically rewound and is instead rebuilt from the
+  transcript afterwards. Left stale it would keep describing turns that no longer exist.
+
 ## [0.338.0] - 2026-08-15
 
 ### Added

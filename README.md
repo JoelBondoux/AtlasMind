@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.338.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.339.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,13 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.338.0
+## What's new in 0.339.0
 
 The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Edit a message and re-run it, or regenerate a reply.** Both rewind the conversation to that point, and
+  both say how many messages that discards first.
 
 - **Rename a chat, and search across all of them.** Titles are editable in the session list, and searching
   now surfaces matches from your other chats with the text around each one.

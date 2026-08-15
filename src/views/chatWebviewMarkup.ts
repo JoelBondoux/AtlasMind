@@ -2347,6 +2347,23 @@ ${QUICK_REPLY_CSS}
           -webkit-box-orient: vertical;
         }
 
+        .message-edit-input {
+          width: 100%;
+          min-height: 3.2em;
+          font: inherit;
+          resize: vertical;
+          padding: 6px 8px;
+          border-radius: 8px;
+          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+        }
+        .message-edit-hint {
+          margin-top: 4px;
+          font-size: 0.72rem;
+          color: var(--vscode-descriptionForeground);
+        }
+
         /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);

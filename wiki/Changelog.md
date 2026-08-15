@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.339.0 — Edit a message, or ask for a different answer
+
+Two things every other chat tool has had for a while. **Edit** on one of your own messages lets you correct
+it and run it again; **Regenerate** on a reply asks the same question afresh. Both rewind the conversation
+to that point, and both tell you exactly how many messages that discards before doing it.
+
+Editing happens in the message itself rather than taking over the composer, so anything you were part-way
+through typing survives.
+
 ## v0.338.0 — Rename a chat, and search all of them
 
 Chat titles came from your first message and could not be changed, so a thread that turned into something

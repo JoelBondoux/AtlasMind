@@ -4787,3 +4787,117 @@ describe('session rename and cross-session search', () => {
     expect(reply?.payload?.results?.[0]?.snippet).not.toContain('sk-ant-api03-AAAA');
   });
 });
+
+describe('editing and regenerating a message', () => {
+  function mount() {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const transcript = [
+      { id: 'u1', role: 'user', content: 'add e2e tests', timestamp: '2026-08-15T10:00:00.000Z' },
+      { id: 'a1', role: 'assistant', content: 'Here is a plan.', timestamp: '2026-08-15T10:00:10.000Z' },
+      { id: 'u2', role: 'user', content: 'use vitest', timestamp: '2026-08-15T10:01:00.000Z' },
+      { id: 'a2', role: 'assistant', content: 'Switching to vitest.', timestamp: '2026-08-15T10:01:10.000Z' },
+    ];
+    const truncateAfter = vi.fn().mockReturnValue(2);
+    const updateMessage = vi.fn();
+    const deleteMessage = vi.fn().mockReturnValue(true);
+    const processTask = vi.fn().mockResolvedValue({
+      id: 't', agentId: 'a', modelUsed: 'm', response: 'ok',
+      inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
+    });
+
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue(transcript),
+          appendMessage: vi.fn().mockReturnValue('new-1'),
+          updateMessage,
+          truncateAfter,
+          deleteMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      truncateAfter, updateMessage, deleteMessage, processTask,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('discards nothing when the operator declines', async () => {
+    const { panel, truncateAfter, processTask } = mount();
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'add e2e tests with playwright' } });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.any(String), expect.objectContaining({ modal: true }), expect.any(String),
+    );
+    expect(truncateAfter).not.toHaveBeenCalled();
+    expect(processTask).not.toHaveBeenCalled();
+  });
+
+  it('names how many messages an edit would discard', async () => {
+    const { panel } = mount();
+    mocks.showWarningMessage.mockResolvedValue(undefined);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'changed' } });
+
+    // A confirmation that cannot name the cost is not much of a confirmation.
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ detail: expect.stringContaining('3 messages') }),
+      expect.any(String),
+    );
+  });
+
+  it('rewinds and re-runs the edited text', async () => {
+    const { panel, updateMessage, truncateAfter, processTask } = mount();
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'add e2e tests with playwright' } });
+
+    expect(updateMessage).toHaveBeenCalledWith('u1', 'add e2e tests with playwright', 'chat-1');
+    expect(truncateAfter).toHaveBeenCalledWith('u1', 'chat-1');
+    expect(processTask.mock.calls[0]?.[0]?.userMessage).toContain('add e2e tests with playwright');
+  });
+
+  /**
+   * Regenerating names an assistant reply, and the thing to re-run is the prompt
+   * that produced it — the nearest user turn above, not the reply itself.
+   */
+  it('re-runs the prompt above the reply being regenerated', async () => {
+    const { panel, truncateAfter, updateMessage, processTask } = mount();
+    mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
+
+    await panel.handleMessage({ type: 'regenerateMessage', payload: { entryId: 'a2' } });
+
+    expect(truncateAfter).toHaveBeenCalledWith('u2', 'chat-1');
+    // Regenerating rewrites no prompt; only editing does. (updateMessage is also
+    // how a streaming reply is written, so this checks the prompt specifically.)
+    expect(updateMessage).not.toHaveBeenCalledWith('u2', expect.anything(), expect.anything());
+    expect(processTask.mock.calls[0]?.[0]?.userMessage).toContain('use vitest');
+  });
+
+  it('refuses while a turn is already running', async () => {
+    const { panel } = mount();
+    (ChatPanel.currentPanel as unknown as { activePromptExecution?: unknown }).activePromptExecution = { taskId: 'x' };
+
+    await panel.handleMessage({ type: 'regenerateMessage', payload: { entryId: 'a2' } });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status', payload: expect.stringContaining('Still working'),
+    }));
+    (ChatPanel.currentPanel as unknown as { activePromptExecution?: unknown }).activePromptExecution = undefined;
+  });
+});

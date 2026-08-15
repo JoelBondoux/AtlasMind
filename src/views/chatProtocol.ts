@@ -75,6 +75,14 @@ export type ChatPanelMessage =
    * already offer.
    */
   | { type: 'setModelOverride'; payload: { modelId: string | null; scope: 'turn' | 'session' } }
+  /**
+   * Rewind to a message and continue from it. `editMessage` replaces a prompt of
+   * the operator's and re-runs it; `regenerateMessage` re-runs the prompt that
+   * produced a given reply. Both discard everything after that point, which is
+   * why both are confirmed at the call site.
+   */
+  | { type: 'editMessage'; payload: { entryId: string; content: string } }
+  | { type: 'regenerateMessage'; payload: { entryId: string } }
   | { type: 'renameSession'; payload: { sessionId: string; title: string } }
   /**
    * Search every stored session, not just the open one. Replaces the dead
@@ -306,6 +314,21 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'editMessage') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const { entryId, content } = message.payload as { entryId?: unknown; content?: unknown };
+    return typeof entryId === 'string' && entryId.length > 0
+      && typeof content === 'string' && content.trim().length > 0 && content.length <= 100_000;
+  }
+
+  if (message.type === 'regenerateMessage') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && (message.payload as { entryId: string }).entryId.length > 0;
   }
 
   if (message.type === 'renameSession') {

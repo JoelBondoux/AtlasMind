@@ -739,6 +739,12 @@ export class ChatPanel {
       case 'attachOpenFiles':
         await this.attachOpenFiles();
         return;
+      case 'editMessage':
+        await this.rewindAndResubmit(message.payload.entryId, message.payload.content);
+        return;
+      case 'regenerateMessage':
+        await this.rewindAndResubmit(message.payload.entryId);
+        return;
       case 'renameSession': {
         const renamed = this.atlas.sessionConversation.renameSession(message.payload.sessionId, message.payload.title);
         await this.host.webview.postMessage({
@@ -3305,6 +3311,83 @@ export class ChatPanel {
    * caps at 30 sessions, so this is a scan over what is already in memory
    * rather than a query anyone needs to index for.
    */
+  /**
+   * Rewind the conversation to a message and run it again.
+   *
+   * One method for both editing a prompt and regenerating a reply, because they
+   * are the same operation seen from two ends: find the user turn to run, drop
+   * everything after it, and send it. Splitting them would give two chances to
+   * get the discard boundary wrong.
+   */
+  private async rewindAndResubmit(entryId: string, replacementText?: string): Promise<void> {
+    if (this.activePromptExecution) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Still working on your last message.' });
+      return;
+    }
+
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const index = transcript.findIndex(entry => entry.id === entryId);
+    if (index === -1) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That message is no longer in this chat.' });
+      return;
+    }
+
+    // Regenerating names an assistant reply; the thing to re-run is the prompt
+    // that produced it, which is the nearest user turn above.
+    let userIndex = index;
+    while (userIndex >= 0 && transcript[userIndex]?.role !== 'user') {
+      userIndex -= 1;
+    }
+    const userEntry = userIndex >= 0 ? transcript[userIndex] : undefined;
+    if (!userEntry) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'There is no message of yours to re-run here.' });
+      return;
+    }
+
+    const prompt = (replacementText ?? userEntry.content).trim();
+    if (!prompt) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That message is empty.' });
+      return;
+    }
+
+    const discarded = transcript.length - (userIndex + 1);
+    if (discarded > 0) {
+      const choice = await vscode.window.showWarningMessage(
+        replacementText ? 'Edit this message and run it again?' : 'Generate a new reply?',
+        {
+          modal: true,
+          detail: `This discards the ${discarded} message${discarded === 1 ? '' : 's'} after it in this chat. They cannot be recovered.`,
+        },
+        replacementText ? 'Edit and re-run' : 'Regenerate',
+      );
+      if (choice === undefined) {
+        await this.host.webview.postMessage({ type: 'status', payload: 'Left as it was.' });
+        return;
+      }
+    }
+
+    if (replacementText) {
+      this.atlas.sessionConversation.updateMessage(userEntry.id, prompt, this.selectedSessionId);
+    }
+    // Truncate from the user turn itself: `runPrompt` appends it again, and a
+    // rewind that kept the old copy would show the prompt twice.
+    this.atlas.sessionConversation.truncateAfter(userEntry.id, this.selectedSessionId);
+    this.atlas.sessionConversation.deleteMessage(userEntry.id, this.selectedSessionId);
+
+    // The session bundle is a rolling summary with no per-turn identity, so it
+    // cannot be rewound — only rebuilt from what the transcript now says. Left
+    // stale it would keep describing turns that no longer exist.
+    void this.atlas.sessionContextManager
+      ?.bootstrapFromTranscript(
+        this.selectedSessionId,
+        this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
+      )
+      .catch(() => undefined);
+
+    await this.syncState();
+    await this.runPrompt(prompt, 'send');
+  }
+
   private async replyWithCrossSessionResults(query: string): Promise<void> {
     const needle = query.trim().toLowerCase();
     const results: Array<{ sessionId: string; sessionTitle: string; entryId: string; snippet: string; timestamp: string }> = [];

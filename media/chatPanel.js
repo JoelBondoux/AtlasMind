@@ -2193,7 +2193,7 @@
     }
 
     if (entry.role === 'user' && entry.id) {
-      item.appendChild(renderMessageDeleteRow(entry.id));
+      item.appendChild(renderMessageDeleteRow(entry.id, entry));
     }
 
     var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
@@ -2479,6 +2479,9 @@
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
+    // Beside the thumbs, because it is the same judgement one step further on:
+    // this answer was not good enough, try again.
+    actions.appendChild(createRegenerateButton(entry.id));
     actions.appendChild(createDeleteButton(entry.id));
     return actions;
   }
@@ -2602,14 +2605,97 @@
     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  function renderMessageDeleteRow(entryId) {
+  function renderMessageDeleteRow(entryId, entry) {
     var row = document.createElement('div');
     row.className = 'assistant-utility-row';
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
+    if (entry) {
+      actions.appendChild(createEditButton(entry));
+    }
     actions.appendChild(createDeleteButton(entryId));
     row.appendChild(actions);
     return row;
+  }
+
+  /**
+   * Edit one of your own messages and run it again.
+   *
+   * Edited in place in the bubble rather than in the composer: the composer may
+   * already hold something you were part-way through typing, and taking it over
+   * to correct an older message would lose that.
+   */
+  function createEditButton(entry) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Edit and re-run this message');
+    button.title = 'Edit and re-run this message';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      beginMessageEdit(entry);
+    });
+    return button;
+  }
+
+  function beginMessageEdit(entry) {
+    var bubble = transcript.querySelector('[data-entry-id="' + cssEscape(entry.id) + '"]');
+    var content = bubble ? bubble.querySelector('.chat-content') : null;
+    if (!content || content.querySelector('.message-edit-input')) {
+      return;
+    }
+
+    var editor = document.createElement('textarea');
+    editor.className = 'message-edit-input';
+    editor.value = entry.content || '';
+    editor.rows = Math.min(10, Math.max(2, String(entry.content || '').split(String.fromCharCode(10)).length));
+    editor.setAttribute('aria-label', 'Edit your message');
+
+    var hint = document.createElement('div');
+    hint.className = 'message-edit-hint';
+    hint.textContent = 'Enter to re-run · Escape to cancel';
+
+    content.textContent = '';
+    content.appendChild(editor);
+    content.appendChild(hint);
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+
+    var settled = false;
+    function finish(commit) {
+      if (settled) { return; }
+      settled = true;
+      var next = editor.value.trim();
+      if (commit && next.length > 0) {
+        vscode.postMessage({ type: 'editMessage', payload: { entryId: entry.id, content: next } });
+      } else {
+        // Redraw from state rather than restoring by hand: the transcript is the
+        // host's, and reconstructing it here is how the two drift.
+        renderTranscriptFromLatestState();
+      }
+    }
+
+    editor.addEventListener('keydown', function (event) {
+      event.stopPropagation();
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finish(true); }
+      if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+    });
+  }
+
+  /** Ask for a different answer to the same question. */
+  function createRegenerateButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Generate a new reply');
+    button.title = 'Generate a new reply';
+    button.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><polyline points="13 2 13 5 10 5"/></svg>';
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'regenerateMessage', payload: { entryId: entryId } });
+    });
+    return button;
   }
 
   function renderIterationLimitActions(entryId, meta) {
