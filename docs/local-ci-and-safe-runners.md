@@ -276,13 +276,36 @@ docker buildx imagetools inspect ghcr.io/actions/actions-runner:2.336.0
 docker pull $RunnerImage
 ```
 
+If registration reports `PartialChain` or `unable to get local issuer certificate`, first inspect the
+certificate presented inside the container. Antivirus or enterprise TLS inspection may issue it from a
+local root that Windows trusts but the Linux VM does not. Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`, use
+the runner's TLS-disable switch, or download through `curl -k`. Verify that the named issuer is an intended,
+self-signed certificate in a Windows trusted-root store, that it has no private key, and that the exported
+certificate hash matches before adding that public root to a locally derived image. A minimal Dockerfile is:
+
+```dockerfile
+FROM ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda
+USER root
+COPY verified-local-root.cer /tmp/verified-local-root.cer
+RUN openssl x509 -inform DER -in /tmp/verified-local-root.cer \
+      -out /usr/local/share/ca-certificates/verified-local-root.crt \
+    && rm /tmp/verified-local-root.cer \
+    && update-ca-certificates
+USER runner
+```
+
+Build it under a local-only tag, smoke-test HTTPS with verification enabled, and use that tag as
+`$RunnerImage`. Do not commit the machine-specific certificate or build context. The workflow sets
+`NODE_EXTRA_CA_CERTS` to Linux's system CA bundle so JavaScript actions and npm use the same verified trust
+store as the runner.
+
 The container receives no host filesystem mount, Docker socket, inbound port, repository secret, or OIDC
 permission. It is non-root, drops Linux capabilities, prevents privilege escalation, and is capped so a
 bad job cannot consume the whole workstation. Pipe the one-hour registration token directly over standard
 input; do not put it in the Docker command, environment, image, shell history, or a transcript:
 
 ```powershell
-$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda'
+$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda' # or the verified local-only derivative
 gh api --method POST repos/JoelBondoux/AtlasMind/actions/runners/registration-token --jq .token | `
   docker run --name atlasmind-trusted-runner --interactive --rm `
   --cpus 8 --memory 16g --pids-limit 1024 `

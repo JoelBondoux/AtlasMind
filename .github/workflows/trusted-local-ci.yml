@@ -29,6 +29,9 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
+      # Keep TLS verification enabled while allowing a verified operator CA
+      # installed in the Linux system trust store (for example, AV inspection).
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
 
     steps:
       - name: Checkout reviewed develop commit

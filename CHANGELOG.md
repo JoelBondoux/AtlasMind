@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.344.4] - 2026-08-16
+
+### Fixed
+
+- **JavaScript actions on the trusted Linux runner now use its verified system CA bundle.** This preserves
+  TLS validation while supporting a deliberately installed antivirus or enterprise inspection root.
+  The runner guide now documents how to diagnose a partial chain, verify and add only the intended public
+  root to a local derived image, and explicitly prohibits certificate-validation bypasses.
+
 ## [0.344.3] - 2026-08-16
 
 ### Fixed

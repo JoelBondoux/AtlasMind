@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.344.4 — Keep TLS verification on for locally inspected traffic
+
+The trusted Linux workflow now points JavaScript actions at the worker's verified system CA bundle. The
+runner guide covers a local antivirus or enterprise interception root without recommending any TLS bypass.
+
+---
+
 ## v0.344.3 — Make the trusted runner workflow dispatchable
 
 The local-runner workflow now derives its per-job npm cache path only after a worker exists. This fixes the

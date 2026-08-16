@@ -48,6 +48,8 @@ describe('cost-aware CI workflow policy', () => {
     expect(workflow).not.toContain('id-token: write');
     expect(workflow).not.toContain('secrets.');
     expect(workflow).toContain('persist-credentials: false');
+    expect(workflow).toContain('NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt');
+    expect(workflow).not.toContain('NODE_TLS_REJECT_UNAUTHORIZED');
     expect(workflow).not.toContain('${{ runner.temp }}');
     expect(workflow).toContain('echo "NPM_CONFIG_CACHE=$RUNNER_TEMP/npm-cache" >> "$GITHUB_ENV"');
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
