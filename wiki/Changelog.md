@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.344.3 — Make the trusted runner workflow dispatchable
+
+The local-runner workflow now derives its per-job npm cache path only after a worker exists. This fixes the
+GitHub validation failure caused by trying to read runner context while the job was still being planned.
+
+---
+
 ## v0.344.2 — Run CI locally without making the workstation a public runner
 
 A new runbook reproduces the repository's compile, lint, integration-audit, test, coverage, packaging and

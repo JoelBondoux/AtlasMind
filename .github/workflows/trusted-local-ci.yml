@@ -29,7 +29,6 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
-      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
 
     steps:
       - name: Checkout reviewed develop commit
@@ -45,6 +44,10 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 20
+
+      - name: Configure per-job npm cache
+        shell: bash
+        run: echo "NPM_CONFIG_CACHE=$RUNNER_TEMP/npm-cache" >> "$GITHUB_ENV"
 
       - name: Install locked dependencies
         run: npm ci

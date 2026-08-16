@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.344.3] - 2026-08-16
+
+### Fixed
+
+- **Trusted local CI now passes GitHub's workflow validation.** The runner-specific temporary directory is
+  resolved inside an executed shell step, after a worker exists, instead of using the unavailable
+  `runner.temp` context in job-level environment configuration. A policy test prevents that invalid
+  pre-run context from returning.
+
 ## [0.344.2] - 2026-08-16
 
 ### Changed
