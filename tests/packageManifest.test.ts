@@ -810,7 +810,7 @@ describe('.vscodeignore excludes generated local artifacts', () => {
       .map(line => line.trim())
       .filter(line => line.length > 0 && !line.startsWith('#'));
 
-    for (const directory of ['coverage', 'test-results']) {
+    for (const directory of ['coverage', 'test-results', 'website']) {
       expect(
         patterns.some(pattern => pattern === `${directory}/**` || pattern === `${directory}/`),
         `.vscodeignore does not exclude ${directory}/ — it would ship inside the VSIX`,

@@ -158,6 +158,13 @@ automation remains separate because it is not evidence of pull-request validatio
 workflows can be opened or reviewed as proposals, never overwritten, disabled or deleted from this
 surface.
 
+**A runner is execution authority, not merely a destination.** AtlasMind's repository does not expose its
+isolated runner to `pull_request` or `pull_request_target` events. Its separate workflow accepts an owner
+`develop` push or exact-ref manual dispatch before selecting one custom label; the
+job gets read-only contents access, no secrets or OIDC, and checkout does not leave its token in Git. The
+hosted release matrix retains different check names, so a single local Linux job cannot impersonate
+Windows and macOS release evidence.
+
 **Checkpoints.** A snapshot is taken before each write, so a failed step can be rolled back to exactly
 how things were.
 

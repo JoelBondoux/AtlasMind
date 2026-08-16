@@ -13,6 +13,14 @@ npm install     # required whenever the branch changed dependencies
 
 **To install a branch into your real editor** rather than a development host, download the `.vsix` artifact from that commit's CI run (Actions → the run → Artifacts → `atlasmind-vsix-<sha>`, retained 14 days). CI can also be started by hand from the Actions tab for a branch with no open pull request.
 
+**To validate without a hosted run**, use the complete command sequence and trust boundaries in
+[Local CI and safe self-hosted runners](local-ci-and-safe-runners.md). After `npm ci`, use
+`npm run ci:local:quick` while iterating and `npm run ci:local` before pushing. The
+`trusted-local-ci.yml` route runs that same complete gate only for the repository owner's `develop` push
+or exact-ref manual dispatch.
+A GitHub-connected runner belongs on a dedicated or disposable low-privilege host; it does not belong on a
+daily-use development machine and must not accept untrusted pull-request code.
+
 
 
 ## UI/UX (Composer Input)
@@ -114,6 +122,8 @@ npm run test
 npm run test:coverage
 npm run test:mutation
 npm run test:providers:local-recommendations
+npm run ci:local:quick   # compile + lint + integration audit + full suite
+npm run ci:local         # quick gate + focused regression + coverage + VSIX
 npx vitest run --config evals/vitest.stress.config.ts   # chat-window stress battery (findings, not gates)
 ```
 
@@ -130,7 +140,8 @@ AtlasMind/
 ├── .gitignore            Git ignore rules
 ├── .github/
 │   ├── copilot-instructions.md   Copilot documentation maintenance rules
-│   ├── workflows/ci.yml          CI quality gates
+│   ├── workflows/ci.yml          Hosted release-PR operating-system matrix
+│   ├── workflows/trusted-local-ci.yml  Owner-only develop route to isolated hardware
 │   ├── ISSUE_TEMPLATE/           GitHub issue templates
 │   ├── pull_request_template.md  GitHub PR checklist
 │   └── CODEOWNERS               Review ownership
@@ -657,7 +668,7 @@ npm run tag:release    # Re-run the git tag step on its own if it failed after p
 
 `publish:release` runs `vsce publish` and nothing else, authenticating with whatever credential `vsce login` stored in the OS keychain — it is the emergency path for publishing from a developer machine. **CI uses `publish:release:ci` instead** (`vsce publish --azure-credential`), which authenticates as the managed identity `vscode-marketplace-publisher` through workload identity federation; there is no Marketplace secret in the repository. The two are kept separate because adding `--azure-credential` to the local script would break publishing from a machine that has no Azure sign-in. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag.
 
-The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. Review the `vsce package` file listing before publishing; a workspace-memory directory in that listing is a release blocker.
+The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), a top-level local/generated `website/` tree, `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. `tests/packageManifest.test.ts` pins the generated directory exclusions. Review the `vsce package` file listing before publishing; workspace memory or a project website in that listing is a release blocker.
 
 Requires `vsce` to be installed globally or as a dev dependency:
 ```bash

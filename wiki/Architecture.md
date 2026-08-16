@@ -17,6 +17,14 @@ All three share the same core, so orchestration, model routing, tools, memory an
 identically whichever way you reach them. There's one implementation of "how AtlasMind decides things",
 not three.
 
+Repository checks also have one declared boundary with three execution locations. The quick and complete
+local npm gates need no GitHub capacity. A separate workflow may send only the repository owner's
+`develop` push or exact-ref manual dispatch to an isolated Linux runner. The provider-hosted
+Linux/Windows/macOS matrix is
+reserved for pull requests into protected `main`, where it supplies release evidence. The trusted runner
+never substitutes its one operating system for those three required release checks and never accepts a
+public pull-request event.
+
 ---
 
 ## What happens when you ask a question

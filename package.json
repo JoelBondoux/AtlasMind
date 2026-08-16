@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.344.1",
+  "version": "0.344.2",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2644,6 +2644,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "ci:local:quick": "npm run compile && npm run lint && npm run monitor:integrations:audit && npm run test",
+    "ci:local": "npm run ci:local:quick && npm run test:providers:local-recommendations && npm run test:coverage && npm run package",
     "compile": "tsc -p ./ && tsc -p ./src/web/tsconfig.json && node esbuild.mjs",
     "compile:web": "tsc -p ./src/web/tsconfig.json && node esbuild.mjs",
     "watch": "tsc -watch -p ./",

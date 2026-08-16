@@ -16,6 +16,7 @@ project_memory*/**
 # Exclude local workspace-only artifacts
 .claude/**
 .continue/**
+website/**
 .vitest-*.json
 *.vsix
 package-lock.json

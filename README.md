@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.344.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.344.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,19 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.344.1
+## What's new in 0.344.2
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Run the complete quality workflow locally without exposing a workstation as a public runner.** The new
+  local-CI runbook covers compilation, lint, tests, coverage, packaging and full-history secret scanning,
+  states exactly what a local pass cannot prove, and defines four explicit execution postures: direct
+  local, protected trusted-branch, ephemeral/JIT, and provider-hosted PRs. A public repository may use a
+  dedicated self-hosted runner for reviewed branch code; untrusted PR code and personal credentials remain
+  outside that boundary. `npm run ci:local:quick` handles iteration and `npm run ci:local` runs the complete
+  pre-push gate. Hosted matrix jobs now run automatically only on release PRs into `main`; an owner-only
+  `develop` push/manual workflow targets an ephemeral Linux runner in Docker Desktop's isolated WSL2 VM.
 
 - **Replies stream faster, and long chats no longer get slower.** Every streamed chunk used to rebuild the
   panel's entire state — re-reading your credential store, the checkpoint store and the run history from
@@ -1010,6 +1019,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
+| `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |
 | `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
 
@@ -1025,7 +1035,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

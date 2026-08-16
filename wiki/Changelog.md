@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.344.2 — Run CI locally without making the workstation a public runner
+
+A new runbook reproduces the repository's compile, lint, integration-audit, test, coverage, packaging and
+secret-scan gates locally, and says which GitHub-specific behaviour a local pass cannot prove.
+
+The connected-runner instructions start with the security boundary: public visibility does not by itself
+prohibit self-hosting, but untrusted pull-request code does not belong on a persistent machine. Operators
+can choose direct local, protected trusted-branch, ephemeral/JIT, or provider-hosted PR execution. A
+dedicated persistent host is supported for reviewed branch code when it has a low-privilege account, no
+personal credentials or long-lived secrets, least-privilege job tokens and a clean worker state; the
+stronger disposable path still deregisters and destroys the worker after one job.
+
+For AtlasMind's current development phase, local CI is the normal evidence path, trusted-branch hardware
+is the controlled bridge when GitHub dispatch adds value, and hosted operating-system matrices are
+reserved for release or genuinely platform-specific evidence. Safety gates remain; only their execution
+location changes. That split is now implemented: two npm commands cover quick and complete local checks,
+the hosted matrix starts automatically only for release PRs into `main`, and a separate workflow accepts
+only the owner's `develop` push or exact-ref manual dispatch on an ephemeral Linux container. The official
+runner image is digest-pinned, its token is read-only, action versions are immutable, and it receives no
+secrets or OIDC permission.
+
+The first complete run also caught a packaging boundary defect: an untracked local `website/` tree entered
+the VSIX and inflated it to 142 MB. That directory is now excluded from extension packages and a manifest
+test keeps it excluded, without deleting or changing the local website itself.
+
+The guide also compares `act`, Woodpecker, Semaphore Community Edition, Dagger and Buildkite. `act` is the
+first local adapter to prototype because it can consume existing GitHub workflow YAML; Woodpecker is the
+lightweight daemon candidate; Semaphore is the complete free self-hosted platform. None is described as a
+sandbox for untrusted code merely because it uses containers.
+
 ## v0.344.1 — Clicking between files stops waking the chat panel
 
 The same rebuild that used to run per streamed word also ran every time you changed editor tab — re-reading

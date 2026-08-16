@@ -458,6 +458,14 @@ an unreadable workflow, or occupied `.github/workflows/ci.yml` target suppresses
 pipeline that spends twice and can disagree with the first; release-only automation remains visibly
 distinct from quality coverage. Existing workflows are reduced to non-executable metadata for display; raw commands, action
 inputs, environment values and YAML remain in the extension host.
+
+AtlasMind's own repository keeps local hardware in a separate workflow for the same reason. The hosted
+workflow accepts release PRs into `main`; the trusted local workflow accepts no PR event. It requires the
+repository owner's `develop` push or exact-ref manual dispatch, a custom runner label without
+generic self-hosted labels, a read-only token, no secrets or OIDC, full-SHA action references and
+non-persistent checkout credentials. Policy tests read the YAML as source because a trigger or permission
+regression is a security defect even when every TypeScript test remains green. Fork workflows require
+approval for every external contributor, not only their first contribution.
 - **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
   confirmation protects the moment the file is written; the environment protects every run after that.
 - **Secrets are named, never written.** You are told which to add and where; no value goes near the

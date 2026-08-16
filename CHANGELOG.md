@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.344.2] - 2026-08-16
+
+### Changed
+
+- **Routine development no longer spends hosted Actions capacity automatically.** `.github/workflows/ci.yml`
+  now runs automatically only for pull requests into protected `main`, preserving the existing
+  `quality (ubuntu-latest)`, `quality (windows-latest)`, and `quality (macos-latest)` release checks. It
+  remains manually dispatchable when cross-platform evidence is worth the hosted run. Pushes and pull
+  requests into `develop` no longer start the hosted four-job workflow.
+
+  `npm run ci:local:quick` provides the inner loop; `npm run ci:local` runs compile, lint, integration
+  coverage audit, the full and focused test gates, coverage, and packaging. A separate
+  `.github/workflows/trusted-local-ci.yml` accepts only the repository owner's `develop` push or exact-ref
+  manual dispatch on an isolated Linux runner registered with only `atlasmind-trusted-linux-x64`. The
+  documented installation pins GitHub's official runner container by digest, uses an ephemeral one-job
+  registration, mounts neither host files nor the Docker socket, and drops capabilities. The job has a
+  read-only token, no secrets or OIDC, full-SHA action pins, non-persistent checkout credentials, a per-job
+  npm cache, concurrency cancellation and a timeout. Source-level policy tests pin those rules.
+  The live repository fork-workflow policy is also tightened from first-time contributors to **all external
+  contributors**, preventing a previously accepted harmless change from granting later workflow code
+  automatic execution. Every action used by the remaining hosted release workflow is now full-SHA pinned
+  as well, so a moved major tag cannot change what release evidence executes.
+
+### Fixed
+
+- **A local website tree could silently turn the VSIX into a 142 MB package.** The complete local gate did
+  exactly what it was supposed to do and exposed that the existing untracked `website/` workspace was not
+  part of `.vscodeignore`: `vsce` accepted 21,167 website files and produced a 26,332-file artifact.
+  Packaging now excludes the top-level `website/` boundary without modifying that local directory, and the
+  manifest test pins the exclusion so a generated site cannot enter a later Marketplace build unnoticed.
+
+### Documentation
+
+- **Added a safety-first local CI and self-hosted runner runbook.** It gives contributors the complete
+  compile, lint, integration-audit, test, coverage, packaging and full-history secret-scan sequence without
+  requiring a hosted run. It also records what that evidence cannot prove.
+
+  Public visibility is not treated as an automatic prohibition. The guide defines four explicit postures:
+  direct local execution, a dedicated runner for reviewed commits on a protected trusted branch,
+  ephemeral/JIT workers, and provider-hosted execution for untrusted pull requests. The shared boundary is
+  precise: never a persistent runner on a personal workstation; no PR jobs, personal credentials,
+  long-lived secrets or sensitive network access on the trusted-branch runner; least-privilege job tokens;
+  and a clean or reimaged worker after execution. It also explains why a label routes work but does not
+  authorize it, and why organization workflow-restricted runner groups are stronger than personal-repo
+  label routing.
+
+  The guide links to GitHub's current security, installation, runner-group, workflow-protection and billing
+  references rather than freezing a runner version that GitHub may no longer accept.
+
+  The interim AtlasMind decision is explicit: local CI is the normal evidence path during active
+  development, isolated trusted-branch execution is available when GitHub dispatch adds value, and hosted
+  cross-platform matrices are reserved for release confidence or platform-specific evidence. The guide
+  now includes the exact AtlasMind registration label, queue-before-start procedure, and the distinction
+  between the quick and complete local commands.
+
+  It also compares callable third-party executors: `act` as the first GitHub-YAML local adapter,
+  Woodpecker as the lightweight daemon/control-plane candidate, Semaphore Community Edition as the full
+  free self-hosted platform, Dagger as a portable pipeline engine, and Buildkite as a professionally
+  operated provider integration. Each entry records the isolation limit that prevents “container-based”
+  from being mistaken for “safe for untrusted code”.
+
 ## [0.344.1] - 2026-08-15
 
 ### Changed

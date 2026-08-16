@@ -65,6 +65,13 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `ux-consultant` | UX Consultant | Accessible UX critique and implementation using the project's own design stack, content-driven responsive behavior, and complete interaction states; does not create graphic assets |
 | `memory-agent` | Memory Agent | Background only — maintains session `context.md` and refreshes SSOT snippets. Not invoked via the orchestrator task loop; configure `allowedModels` to pin to a local LLM. |
 
+CI evidence keeps the same separation of duties regardless of where it executes. The `ci-analyst` may
+explain a recorded failure but cannot edit or re-run a workflow. Direct local scripts and the isolated
+trusted-runner workflow execute the declared repository gates; they do not grant an agent new skills or
+bypass ordinary terminal approval. AtlasMind's own trusted workflow accepts only an owner `develop` push
+or exact-ref manual dispatch, while the provider-hosted operating-system matrix remains the release gate.
+One local Linux pass is never reported as Windows/macOS evidence.
+
 When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
 | Field | Value |

@@ -1,12 +1,16 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main, develop]
-  # Lets a feature branch be built on demand without opening a pull request.
+    # The hosted matrix is release evidence. Routine work lands on develop and
+    # is checked locally or by the separately gated trusted-runner workflow.
+    branches: [main]
+  # Explicit escape hatch for platform-specific diagnosis. Manual means hosted
+  # capacity is spent deliberately rather than on every development push.
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   # Runs once rather than across the OS matrix: a secret in the history is a
@@ -19,14 +23,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Full history: a credential that was committed and then removed is
           # still a credential that leaked, and a shallow clone cannot see it.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
+        # v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -41,10 +48,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 20
           cache: npm
@@ -72,7 +83,8 @@ jobs:
       # artifact survive the step that produced it.
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v7
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: test-report-${{ matrix.os }}
           path: test-results/
@@ -85,7 +97,8 @@ jobs:
 
       - name: Upload coverage artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v7
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: coverage-report
           path: coverage/
@@ -101,7 +114,8 @@ jobs:
 
       - name: Upload VSIX artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v7
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: atlasmind-vsix-${{ github.sha }}
           path: '*.vsix'

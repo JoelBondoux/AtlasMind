@@ -21,10 +21,14 @@
 
 5. Run quality checks before opening a PR:
    ```bash
-   npm run lint
-   npm run test
-   npm run compile
+   npm run ci:local:quick
    ```
+
+   Before pushing an integration-ready change, run `npm ci` followed by `npm run ci:local`. This adds the
+   focused provider regression, coverage and VSIX packaging without spending hosted runner capacity. The
+   full-history secret scan and trusted-runner procedure are in
+   [Local CI and safe self-hosted runners](docs/local-ci-and-safe-runners.md).
+   AtlasMind is public: do not attach a persistent self-hosted runner to a personal workstation.
 
 ## Project Conventions
 

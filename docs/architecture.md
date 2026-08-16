@@ -57,6 +57,28 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## CI execution boundary
+
+Repository validation has three deliberately separate execution planes. `npm run ci:local:quick` is the
+inner-loop plane; `npm run ci:local` is the complete local pre-push gate. Both are static package scripts,
+so neither needs GitHub or a runner registration. `.github/workflows/trusted-local-ci.yml` is the optional
+development dispatch plane: only an owner `develop` push or exact-ref manual dispatch, read-only token, no
+secrets/OIDC, full-SHA actions, and one custom label registered without GitHub's generic self-hosted labels.
+The worker is an ephemeral non-root Linux container in Docker Desktop's WSL2 VM, with no host mounts or
+Docker socket, and is started only for the reviewed job.
+
+`.github/workflows/ci.yml` is a different plane: provider-hosted release evidence. It runs automatically
+only for pull requests into protected `main`, preserves the three check contexts branch protection already
+requires, and can be dispatched manually for an intentional platform investigation. Separating workflow
+files prevents adding a local runner from silently making it eligible for public PR jobs, and separating
+job names prevents one Linux machine from impersonating Windows/macOS release evidence.
+
+`tests/ciWorkflowPolicy.test.ts` reads both workflow files and the manifest as policy artifacts. It pins the
+hosted trigger boundary, local workflow event/ref/actor/repository checks, least-privilege permissions,
+absence of secrets and OIDC, immutable action references, non-persistent checkout credentials, runner
+label, and the distinction between quick and complete local scripts. This is intentionally a source-level
+contract: workflow security can regress while TypeScript compiles perfectly.
+
 ## Activation Flow
 
 1. VS Code triggers `onStartupFinished`.
