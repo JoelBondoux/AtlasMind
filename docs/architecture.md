@@ -529,6 +529,40 @@ release-only automation is not treated as quality coverage. Unit coverage lives 
 `tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
 `webviewMessages.test.ts`.
 
+### LocalCiRunnerManager (`src/core/localCiRunner.ts`)
+
+The execution half of Project Dashboard → Pipeline. It is intentionally separate from `CiManager`:
+workflow inventory is a pure, always-safe local read; lending a machine to GitHub is an explicit,
+machine-scoped lifecycle with network, process and resource authority.
+
+The lifecycle is `disabled → not-inspected → ready → starting → waiting → running → finished/failed`.
+Opening or rendering the page performs no Docker or GitHub probe. **Inspect machine** reads `os.cpus()` /
+`os.totalmem()` and Docker's actual `NCPU`, `MemTotal`, `OSType` and `Architecture`; resource planning uses
+the lower execution capacity, reserves at least 25% (and 2 GB), applies operator maximums, and refuses
+below 2 CPUs or 4 GB. The container receives matching `--cpus`, `--memory`, `--memory-swap` and
+`--pids-limit 1024` limits. OS/architecture are carried in the snapshot as evidence, so a Linux Docker
+result can never be presented as native Windows or macOS coverage.
+
+`prepare()` is the authorization gate and **never queues work**. It requires exactly one queued
+`push`/`workflow_dispatch` run for the current HEAD and trusted branch, with the repository owner as actor.
+The target workflow must be committed and is re-read immediately: exact repository/ref/owner conditions,
+read-only contents permission, no secret reference/write/OIDC permission, full-SHA action pins,
+`persist-credentials: false`, and one architecture-specific label that occurs in no sibling workflow. Any
+registered runner carrying that label refuses, preventing a stale/competing worker from sharing the route.
+
+After a host modal names the repository, SHA, run, image, evidence platform, limits, reserve and shutdown
+effect, the runner starts as a non-root ephemeral container with no mounts, socket, ports, GPU, persistent
+volume or default labels; all Linux capabilities are dropped and privilege escalation is disabled. A
+digest-pinned image may be pulled; any installed local derivative is resolved to its immutable image id
+before `docker run`. `pipeGhStdoutOrThrow` in `GhClient` connects the one-hour registration token directly
+from `gh` stdout to Docker stdin, so AtlasMind never materializes it as a string or webview/log field.
+
+Docker Desktop ownership is explicit. `ifStartedByAtlasMind` (default) stops it only when this lifecycle
+started it; `never` leaves it open; `always` asks to stop it even if already running. Every mode leaves it
+open when container inventory fails or any unrelated container is running. An unmanaged Linux Docker
+system service is never started or stopped. Pure policy coverage lives in `tests/core/localCiRunner.test.ts`;
+the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`.
+
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
@@ -1195,7 +1229,7 @@ The single boundary between AtlasMind and the GitHub CLI. Before it there were t
 
 **No shell, ever.** Every call is `execFile(cmd, args)` with an argv array, so a repository name, an issue title, or a branch name may contain a semicolon or a backtick without becoming a second command. `assertNoShellMetacharacters` sits on top of that and can never fire in correct code — which is the point: it converts a future refactor that reintroduces string composition from a silent vulnerability into a loud failure at the call site.
 
-**AtlasMind holds no credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong.
+**AtlasMind holds no long-lived credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong. The local runner's short-lived registration token follows a stricter variant: `pipeGhStdoutOrThrow` connects `gh` stdout directly to Docker stdin without collecting the value, while retaining the same argv-only, timeout, bounded-stderr and classified-failure contract.
 
 **A failure names its fix.** `classifyGhFailure` distinguishes not-installed, not-authenticated, rate-limited, forbidden, not-found and timeout, each with the command that resolves it — ordered most-specific first, because a rate-limit message mentions tokens and sending somebody to re-authenticate when they are merely throttled wastes their time. Every method returns a result rather than throwing: a dashboard that throws on a network failure disappears exactly when you wanted it to say what was wrong. The process runner is injected, so the module is unit-tested without a `gh` binary.
 

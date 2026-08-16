@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.344.4",
+  "version": "0.345.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2304,6 +2304,76 @@
           "maximum": 65535,
           "description": "Localhost port for the remote-control server. Use 0 to pick a free port automatically.",
           "markdownDescription": "Localhost port for the remote-control server. AtlasMind binds the server to `127.0.0.1` on this port.\n\nExamples:\n- Pick a free port automatically (recommended): `0`\n- Pin a stable port so the web client's saved URL keeps working: `38917`\n\nOnly pin a port if you need the `ws://localhost:PORT` URL to stay constant across restarts."
+        },
+        "atlasmind.ci.localRunner.enabled": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Allow the Pipeline dashboard to start one ephemeral GitHub Actions runner inside Docker for an already-queued trusted job. Off by default.",
+          "markdownDescription": "**Off by default and machine-scoped.** Allows AtlasMind's Pipeline dashboard to lend this machine to exactly one already-queued GitHub Actions job through an ephemeral Docker container.\n\nAtlasMind does not dispatch or rerun CI. Before starting it requires an owner-triggered run for the current commit, a trusted-branch-only workflow, read-only permissions, no secrets, SHA-pinned actions, a unique custom label, and an explicit confirmation. The container receives no host mount, Docker socket, GPU, workspace credential, or persistent volume."
+        },
+        "atlasmind.ci.localRunner.workflowFile": {
+          "type": "string",
+          "scope": "machine",
+          "default": "trusted-local-ci.yml",
+          "description": "Trusted GitHub Actions workflow filename inside .github/workflows. AtlasMind validates the committed file before every local runner start.",
+          "markdownDescription": "The one workflow file the local executor may serve, as a filename inside `.github/workflows`. This is machine-scoped so an untrusted workspace cannot silently point your machine at another job.\n\nThe filename is only a selector, never authority: AtlasMind re-reads and validates the committed workflow before every start."
+        },
+        "atlasmind.ci.localRunner.trustedBranch": {
+          "type": "string",
+          "scope": "machine",
+          "default": "develop",
+          "description": "Only queued runs on this exact branch and current commit may claim the local runner.",
+          "markdownDescription": "The exact branch the local executor trusts. The workflow, queued run, current checkout, repository condition, and `github.ref` job condition must all agree with this value. Machine-scoped so repository configuration cannot broaden the trust boundary."
+        },
+        "atlasmind.ci.localRunner.runnerLabel": {
+          "type": "string",
+          "scope": "machine",
+          "default": "atlasmind-trusted-linux-{arch}",
+          "description": "Dedicated no-default-labels runner label. {arch} expands to x64 or arm64 from Docker's actual architecture.",
+          "markdownDescription": "The dedicated routing label registered with `--no-default-labels`. `{arch}` expands from Docker's actual engine architecture (`x64` or `arm64`), not from a guess about the host.\n\nAtlasMind refuses to start if this label appears in another local workflow or if a runner with the label is already registered. A label routes work; the workflow and queued-run checks authorise it."
+        },
+        "atlasmind.ci.localRunner.image": {
+          "type": "string",
+          "scope": "machine",
+          "default": "ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+          "description": "Runner container image. AtlasMind auto-pulls only digest-pinned references and always runs the resolved immutable image id.",
+          "markdownDescription": "The runner container image for this machine. The shipped value is an immutable GitHub Actions runner digest. AtlasMind auto-pulls only a `@sha256:` reference and then runs Docker's resolved image id.\n\nA locally built tag is accepted only when it is already installed; AtlasMind resolves it to an image id before use, so a tag cannot move between confirmation and start. This supports locally trusted CA images without teaching AtlasMind the certificate or mounting it from the host."
+        },
+        "atlasmind.ci.localRunner.maxCpus": {
+          "type": "number",
+          "scope": "machine",
+          "default": 8,
+          "minimum": 2,
+          "maximum": 128,
+          "description": "Maximum logical CPUs the local runner container may use. AtlasMind may allocate less to preserve at least 25% for the host.",
+          "markdownDescription": "Upper CPU limit for the local runner container. AtlasMind reads both host and Docker-engine capacity, preserves at least 25% for the desktop, and uses the lower of the calculated allowance and this cap. It refuses to run below two CPUs."
+        },
+        "atlasmind.ci.localRunner.maxMemoryGb": {
+          "type": "number",
+          "scope": "machine",
+          "default": 16,
+          "minimum": 4,
+          "maximum": 512,
+          "description": "Maximum memory in GB the local runner container may use. AtlasMind may allocate less to preserve at least 25% for the host.",
+          "markdownDescription": "Upper memory limit for the local runner container. AtlasMind reads both host and Docker-engine capacity, preserves at least 25% (and at least 2 GB) for the desktop, and uses the lower of the calculated allowance and this cap. It refuses to run below 4 GB and disables container swap."
+        },
+        "atlasmind.ci.localRunner.shutdownPolicy": {
+          "type": "string",
+          "scope": "machine",
+          "enum": [
+            "ifStartedByAtlasMind",
+            "never",
+            "always"
+          ],
+          "enumDescriptions": [
+            "Recommended: stop Docker Desktop only when AtlasMind started it for this run.",
+            "Always leave Docker Desktop open after the runner exits.",
+            "Stop Docker Desktop after the runner exits, even if it was already open. AtlasMind still refuses while another container is running."
+          ],
+          "default": "ifStartedByAtlasMind",
+          "description": "Whether AtlasMind closes Docker Desktop after the ephemeral runner exits.",
+          "markdownDescription": "Controls Docker Desktop cleanup after the ephemeral runner exits.\n\n- **`ifStartedByAtlasMind`** (recommended) — close it only when AtlasMind opened it for this run.\n- **`never`** — leave it open.\n- **`always`** — close it even if it was already open.\n\nEvery policy has the same hard guard: AtlasMind leaves Docker open if it cannot inventory containers or if any unrelated container is running. It never starts or stops a Linux system Docker service."
         },
         "atlasmind.workflow.enabled": {
           "type": "boolean",

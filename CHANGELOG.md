@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.345.0] - 2026-08-16
+
+### Added
+
+- **The Pipeline page now operates the trusted local runner, not just documents it.** Its execution-fabric
+  command centre shows GitHub Actions as the connected provider, Docker as the executor, future Buildkite/
+  Semaphore adapter points, the queue gate, live runner lifecycle, host and engine capacity, computed
+  container limits and desktop reserve, running-container shutdown inhibition, immutable image identity,
+  trusted workflow/branch/label, and the exact Linux OS/architecture evidence produced. Inspect, start,
+  live-output and machine-settings controls remain useful before CI history has been fetched.
+
+- **`LocalCiRunnerManager` provides a guarded one-job lifecycle.** AtlasMind will serve only one already-
+  queued `push` or `workflow_dispatch` run at the current commit, triggered by the repository owner. Before
+  registration it re-reads the committed workflow and requires the exact repository/ref/actor conditions,
+  read-only contents permission, no GitHub secret references or write/OIDC grant, full-SHA action pins,
+  non-persistent checkout credentials and a unique dedicated label; any competing registration refuses.
+  It never dispatches or reruns a workflow. The short-lived registration token streams directly from `gh`
+  into Docker stdin and is never retained by AtlasMind.
+
+- **Local resources are sized from the machine rather than guessed.** AtlasMind reads the host CPU/RAM and,
+  when available, Docker's actual CPU/RAM/OS/architecture allocation. It reserves at least 25% for the
+  desktop, applies machine-scoped maximums, refuses below 2 CPUs/4 GB, and starts the container with CPU,
+  memory, no-swap and 1,024-process ceilings. The runner has no host mount, Docker socket, GPU, persistent
+  volume or default labels; it runs the resolved immutable image id with all Linux capabilities dropped
+  and privilege escalation disabled.
+
+### Configuration
+
+- **Eight machine-scoped `atlasmind.ci.localRunner.*` settings** cover the deny-by-default enablement,
+  trusted workflow file, branch, architecture-expanded label, image, CPU/memory caps and Docker Desktop
+  shutdown policy. Cleanup defaults to `ifStartedByAtlasMind`; `never` keeps Docker open and `always` asks
+  to close it even when it was already open. Every option refuses to stop Docker when container inventory
+  is unavailable or another container is running, and AtlasMind never manages a Linux system daemon.
+
+### Security
+
+- **Linux container evidence cannot impersonate a native platform result.** Engine OS and architecture are
+  read after Docker starts and must still match the queued label. Windows, Intel/Apple-silicon macOS and
+  Linux can host the control plane, but this executor reports only Linux x64/arm64 evidence; native Windows
+  and macOS checks continue to require native runners.
+
 ## [0.344.4] - 2026-08-16
 
 ### Fixed

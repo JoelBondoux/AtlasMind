@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.344.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.345.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,21 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.344.4
+## What's new in 0.345.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Operate trusted local CI from the Pipeline dashboard.** A provider-aware runner command centre now
+  inspects host and Docker capacity, preserves at least 25% for the desktop, applies CPU/memory/process
+  limits, and shows the calculation before execution. It can lend the machine to one already-queued,
+  owner-authored GitHub Actions run for the current trusted commit; it never dispatches or reruns CI.
+  The runner is an ephemeral Linux container with no host mounts, Docker socket, GPU, persistent volume,
+  repository secrets or OIDC permission. Machine-scoped settings choose the workflow, branch, unique
+  architecture label, immutable image, resource caps, and whether Docker Desktop is kept open, closed only
+  when AtlasMind opened it, or always closed when no unrelated container is running. Linux-container
+  evidence remains visibly distinct from native Windows/macOS evidence, while provider cards reserve the
+  integration boundary for Buildkite, Semaphore and other executors.
 
 - **Run the complete quality workflow locally without exposing a workstation as a public runner.** The new
   local-CI runbook covers compilation, lint, tests, coverage, packaging and full-history secret scanning,
@@ -1000,8 +1011,10 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
+| `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
+| `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 
-All 116 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 142 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -1009,7 +1022,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

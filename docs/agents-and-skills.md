@@ -409,6 +409,14 @@ creation sends no payload at all and uses a closed template built from host-deri
 and package-script names. The host shows the exact create-only plan and writes with `wx`; agents cannot
 use this surface to overwrite, disable, delete or silently weaken CI.
 
+Local runner operation remains on that host-only side. No agent skill can register a runner, obtain its
+token, start Docker Desktop, choose a queued job or change the shutdown policy. The Pipeline webview sends
+only three no-payload intents (inspect/start/show output); the host reads machine-scoped configuration,
+revalidates the committed workflow and live GitHub queue, and shows its own modal. The short-lived token is
+streamed from the shared GitHub CLI boundary to Docker stdin and never becomes agent context. Provider
+cards for Buildkite, Semaphore and other executors are architectural adapter positions, not new tools or
+permissions; connecting one later must preserve the same host-owned trust gate and evidence labels.
+
 Execution-oriented built-in skills now include a dedicated `docker-cli` helper for container work. Instead of passing arbitrary Docker commands through the generic terminal skill, AtlasMind exposes a separate allow-list for `docker` and `docker compose` inspection and lifecycle operations such as `ps`, `logs`, `inspect`, `compose up`, and `compose down`.
 
 ### Operational Boundaries

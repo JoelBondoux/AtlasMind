@@ -266,9 +266,57 @@ section and never register the machine.
 
 ### Connect the AtlasMind runner in Docker Desktop
 
-AtlasMind's current local route uses GitHub's official Linux x64 runner image inside Docker Desktop's WSL2
-VM. The image is pinned to runner `2.336.0` by its multi-platform manifest digest. Before updating it,
-compare the digest with GitHub's package page and inspect the selected `linux/amd64` manifest:
+AtlasMind's current local route uses GitHub's official Linux runner image inside Docker Desktop/Engine.
+The repository's tested image is pinned to runner `2.336.0` by digest on Linux x64; arm64 operators must
+select and pin the matching reviewed manifest digest in the machine-scoped image setting. Before updating
+either, compare the digest with GitHub's package page and inspect the selected platform manifest:
+
+#### Use the Pipeline dashboard
+
+The supported day-to-day path is **Project Dashboard → Pipeline → Execution fabric**:
+
+1. Open VS Code settings filtered to `atlasmind.ci.localRunner` (the card's **Runner settings** button does
+   this). Enable the runner for this machine. Confirm the workflow file, trusted branch and dedicated label.
+2. Leave the resource caps at 8 CPUs / 16 GB initially. **Inspect machine** reads both the host and Docker
+   engine; AtlasMind preserves at least 25% of CPU/RAM for the desktop and shows the exact calculation. It
+   refuses if fewer than 2 CPUs or 4 GB remain for the job.
+3. Choose the Docker cleanup setting:
+   - `ifStartedByAtlasMind` (default) closes Desktop only when this run opened it;
+   - `never` keeps Desktop open for other work;
+   - `always` closes it after the job even if it was already open.
+   All three leave Docker open when another container is running or inventory cannot be read.
+4. Push the reviewed commit to the trusted branch, or manually dispatch the trusted workflow, so GitHub
+   shows one queued run for that exact SHA. AtlasMind deliberately has no Queue or Rerun button.
+5. Select **Start one-job runner**. Read the modal: repository, branch, SHA, run id, evidence platform,
+   immutable image, container limits/reserve, whether Docker will start or an image will download, and the
+   cleanup effect must all be right before confirming.
+6. Follow Trust gate → Isolate → Execute → Clean up on the card or open **Live output**. When the runner
+   exits, select **Refresh CI** to read GitHub's job verdict; a clean listener exit is not itself a passing
+   test result.
+
+The start preflight re-reads the committed workflow and live GitHub state. It requires one owner-triggered
+queued `push`/`workflow_dispatch` run at current HEAD, exact repository/ref/owner job conditions,
+`contents: read`, no GitHub secret reference or write/OIDC grant, full-SHA actions,
+`persist-credentials: false`, a label unused by every other local workflow, and no existing registration
+with that label. The one-hour registration token streams directly from `gh` stdout to Docker stdin and is
+never retained by AtlasMind.
+
+The control plane is multi-OS; the evidence is not conflated:
+
+| Host | Docker executor result | What it proves |
+|---|---|---|
+| Windows + Docker Desktop/WSL2 | Linux x64 or arm64 | Linux container behaviour only |
+| Intel macOS + Docker Desktop | Linux x64 | Linux container behaviour only |
+| Apple silicon macOS + Docker Desktop | Linux arm64 | Linux container behaviour only; workflow label must expand to arm64 |
+| Linux + Docker Engine/Desktop | Linux x64 or arm64 | Linux container behaviour; AtlasMind never manages a system Docker service |
+
+Native Windows/macOS checks require native executors and remain separate release evidence. The current
+connected provider is GitHub Actions; Buildkite, Semaphore and other cards mark the provider adapter
+boundary for future implementations rather than claiming those systems ran.
+
+The command below remains the auditable manual fallback and troubleshooting reference. It uses the same
+isolation shape as the dashboard, but the dashboard additionally performs queue, actor, workflow collision,
+capacity, immutable-image and Docker-ownership checks.
 
 ```powershell
 $RunnerImage = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda'

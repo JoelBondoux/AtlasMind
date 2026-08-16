@@ -213,6 +213,15 @@ import {
   type CiWorkflowSummary,
 } from '../core/ciManager.js';
 import {
+  DEFAULT_LOCAL_CI_IMAGE,
+  LocalCiRunnerManager,
+  initialLocalCiRunnerSnapshot,
+  type LocalCiRunnerConfiguration,
+  type LocalCiRunnerSnapshot,
+  type LocalCiShutdownPolicy,
+  type LocalCiStartPlan,
+} from '../core/localCiRunner.js';
+import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
   permits,
@@ -610,6 +619,9 @@ type ProjectDashboardMessage =
    * whole subject is "did the build pass" could not go and find out.
    */
   | { type: 'refreshCi' }
+  | { type: 'inspectLocalCiRunner' }
+  | { type: 'startLocalCiRunner' }
+  | { type: 'showLocalCiOutput' }
   | { type: 'createCiStarter' }
   /** Opaque workflow filename; the host re-reads the directory before use. */
   | { type: 'reviewCiWorkflow'; payload: string }
@@ -1255,6 +1267,24 @@ interface DashboardCiManagement {
   assessment: CiPortfolioAssessment;
   starterAvailable: boolean;
   starterReason: string;
+}
+
+function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const shutdown = configuration.get<string>('ci.localRunner.shutdownPolicy', 'ifStartedByAtlasMind');
+  const shutdownPolicy: LocalCiShutdownPolicy = shutdown === 'never' || shutdown === 'always'
+    ? shutdown
+    : 'ifStartedByAtlasMind';
+  return {
+    enabled: configuration.get<boolean>('ci.localRunner.enabled', false),
+    workflowFile: configuration.get<string>('ci.localRunner.workflowFile', 'trusted-local-ci.yml').trim(),
+    trustedBranch: configuration.get<string>('ci.localRunner.trustedBranch', 'develop').trim(),
+    runnerLabel: configuration.get<string>('ci.localRunner.runnerLabel', 'atlasmind-trusted-linux-{arch}').trim(),
+    image: configuration.get<string>('ci.localRunner.image', DEFAULT_LOCAL_CI_IMAGE).trim(),
+    shutdownPolicy,
+    maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
+    maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+  };
 }
 
 const UNREADABLE_CI_WORKFLOW_CAUTION = 'Workflow metadata could not be read safely.';
@@ -2112,6 +2142,8 @@ interface DashboardSnapshot {
     keyScripts: string[];
     workflows: DashboardWorkflow[];
     ciManagement: DashboardCiManagement;
+    /** Machine-owned execution fabric. Never populated from webview input. */
+    localRunner: LocalCiRunnerSnapshot;
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
@@ -3419,6 +3451,16 @@ export class ProjectDashboardPanel {
   private ciState: DashboardCiIntelligence | undefined;
 
   /**
+   * The machine-owned local executor. It is created only after an explicit
+   * inspect/start action, so opening the dashboard never starts Docker or makes
+   * a GitHub request. The manager may outlive the panel while its one job
+   * finishes; closing a dashboard is not permission to kill a build.
+   */
+  private localCiRunnerInstance: LocalCiRunnerManager | undefined;
+  private localCiOutput: vscode.OutputChannel | undefined;
+  private disposed = false;
+
+  /**
    * Published releases, from the same explicit refresh.
    *
    * Only the *fetched* half lives here. The release plan is rebuilt from local
@@ -3498,6 +3540,33 @@ export class ProjectDashboardPanel {
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     );
     return this.workflowConfigManager;
+  }
+
+  private getLocalCiRunner(): LocalCiRunnerManager | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    if (!this.localCiRunnerInstance) {
+      this.localCiOutput = vscode.window.createOutputChannel('AtlasMind Local CI');
+      this.context.subscriptions.push(this.localCiOutput);
+      this.localCiRunnerInstance = new LocalCiRunnerManager(
+        workspaceRoot,
+        readLocalCiRunnerConfiguration(),
+        line => this.localCiOutput?.appendLine(line),
+        () => {
+          if (!this.disposed) {
+            void this.syncState();
+          }
+        },
+      );
+    }
+    return this.localCiRunnerInstance;
+  }
+
+  private localCiRunnerSnapshot(): LocalCiRunnerSnapshot {
+    return this.localCiRunnerInstance?.getSnapshot()
+      ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration());
   }
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: unknown): void {
@@ -3583,6 +3652,9 @@ export class ProjectDashboardPanel {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('atlasmind')) {
+          if (event.affectsConfiguration('atlasmind.ci.localRunner')) {
+            this.localCiRunnerInstance?.applyConfiguration(readLocalCiRunnerConfiguration());
+          }
           void this.syncState();
         }
       }),
@@ -3596,6 +3668,7 @@ export class ProjectDashboardPanel {
   }
 
   private dispose(): void {
+    this.disposed = true;
     ProjectDashboardPanel.currentPanel = undefined;
     this.panel.dispose();
     for (const disposable of this.disposables) {
@@ -3742,6 +3815,16 @@ export class ProjectDashboardPanel {
         return;
       case 'refreshCi':
         await this.handleRefreshCi();
+        return;
+      case 'inspectLocalCiRunner':
+        await this.handleInspectLocalCiRunner();
+        return;
+      case 'startLocalCiRunner':
+        await this.handleStartLocalCiRunner();
+        return;
+      case 'showLocalCiOutput':
+        this.getLocalCiRunner();
+        this.localCiOutput?.show(true);
         return;
       case 'createCiStarter':
         await this.handleCreateCiStarter();
@@ -4171,7 +4254,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot());
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
@@ -5359,6 +5442,72 @@ export class ProjectDashboardPanel {
       this.repositoryActivityRefreshRunning = false;
       await this.syncState();
       await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
+    }
+  }
+
+  private async handleInspectLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before inspecting a local CI runner.');
+      return;
+    }
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'AtlasMind: inspecting local CI capacity',
+        cancellable: false,
+      }, () => runner.inspect(readLocalCiRunnerConfiguration()));
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not inspect the local executor: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  private async handleStartLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before starting a local CI runner.');
+      return;
+    }
+    try {
+      await runner.start(readLocalCiRunnerConfiguration(), async (plan: LocalCiStartPlan) => {
+        const shutdown = plan.shutdownPolicy === 'never'
+          ? 'Docker Desktop will be left open.'
+          : plan.shutdownPolicy === 'always'
+            ? 'Docker Desktop will be stopped afterwards unless another container is running.'
+            : plan.engineWillStart
+              ? 'Docker Desktop will be stopped afterwards because AtlasMind is starting it.'
+              : 'Docker Desktop was already open, so AtlasMind will leave it open.';
+        const confirmation = await vscode.window.showWarningMessage(
+          `Lend this machine to queued run #${plan.queuedRun.databaseId}?`,
+          {
+            modal: true,
+            detail: [
+              `${plan.repoSlug} · ${plan.trustedBranch} · ${plan.currentSha.slice(0, 12)}`,
+              `${plan.queuedRun.workflowName || plan.workflowFile}: ${plan.queuedRun.displayTitle || 'queued job'}`,
+              '',
+              `Evidence: Linux container (${plan.runnerLabel.endsWith('arm64') ? 'arm64' : 'x64'}), not native host evidence`,
+              `Image: ${plan.image}`,
+              `Limit: ${plan.resources.cpus} CPUs, ${plan.resources.memoryGb} GB RAM, ${plan.resources.pidsLimit} processes`,
+              `Host reserve: ${plan.resources.reserveCpus} CPUs and ${plan.resources.reserveMemoryGb} GB RAM`,
+              ...(plan.engineWillStart ? ['Docker Desktop is stopped and will be started.'] : []),
+              ...(plan.imageMayBePulled ? ['The digest-pinned image is absent and will be downloaded.'] : []),
+              shutdown,
+              '',
+              'The runner is ephemeral and has no host mounts, Docker socket, GPU, persistent volume, default labels, repository secrets, or OIDC permission. AtlasMind will not dispatch or rerun a workflow.',
+            ].join('\n'),
+          },
+          'Start one-job runner',
+        );
+        return confirmation === 'Start one-job runner';
+      });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.localCiOutput?.show(true);
+      void vscode.window.showErrorMessage(`AtlasMind did not start the local runner: ${detail.slice(0, 300)}`);
+      await this.syncState();
     }
   }
 
@@ -8807,8 +8956,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if (candidate['type'] === 'refreshCi') {
-    return true;
+  if (candidate['type'] === 'refreshCi'
+    || candidate['type'] === 'inspectLocalCiRunner'
+    || candidate['type'] === 'startLocalCiRunner'
+    || candidate['type'] === 'showLocalCiOutput') {
+    return candidate['payload'] === undefined;
   }
 
   if (candidate['type'] === 'createCiStarter') {
@@ -9915,6 +10067,9 @@ async function collectDashboardSnapshot(
   // Why the pull-request read is incomplete, when it is. Trailing and optional
   // so the seven existing call sites are unaffected.
   pullRequestsNotice?: string,
+  // Machine-owned and collected only after an explicit inspect/start. Keeping
+  // it trailing preserves cheap local snapshots used by unrelated actions.
+  localRunner?: LocalCiRunnerSnapshot,
 ): Promise<DashboardSnapshot> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const workspaceRoot = workspaceFolder?.uri.fsPath;
@@ -10459,6 +10614,7 @@ async function collectDashboardSnapshot(
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
       ciManagement,
+      localRunner: localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration()),
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
@@ -17872,6 +18028,119 @@ const DASHBOARD_CSS = `
   .ci-manager-card {
     display: grid;
     gap: 14px;
+  }
+
+  .ci-control-plane {
+    display: grid;
+    gap: 16px;
+  }
+
+  .ci-runner-card {
+    display: grid;
+    gap: 14px;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 30%, var(--dash-border));
+    background:
+      radial-gradient(circle at 94% 4%, color-mix(in srgb, var(--dash-accent) 10%, transparent), transparent 32%),
+      var(--dash-panel);
+  }
+
+  .ci-runner-provider-grid,
+  .ci-runner-lifecycle,
+  .ci-runner-spec {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+
+  .ci-runner-provider {
+    display: grid;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px dashed var(--dash-border);
+    border-radius: 10px;
+    color: var(--dash-muted);
+  }
+
+  .ci-runner-provider.active {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--dash-good) 48%, var(--dash-border));
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-good) 6%, transparent);
+  }
+
+  .ci-runner-provider small,
+  .ci-runner-stage small {
+    color: var(--dash-muted);
+    line-height: 1.35;
+  }
+
+  .ci-runner-stage {
+    position: relative;
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    padding: 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 20%, transparent);
+  }
+
+  .ci-runner-stage > span {
+    flex: 0 0 10px;
+    width: 10px;
+    height: 10px;
+    margin-top: 3px;
+    border: 2px solid var(--dash-border);
+    border-radius: 999px;
+  }
+
+  .ci-runner-stage.active > span {
+    border-color: var(--dash-good);
+    background: var(--dash-good);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-good) 16%, transparent);
+  }
+
+  .ci-runner-stage div,
+  .ci-runner-spec > div,
+  .ci-runner-queue > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .ci-runner-spec > div,
+  .ci-resource-rationale,
+  .ci-runner-queue,
+  .ci-runner-last {
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 16%, transparent);
+  }
+
+  .ci-runner-spec code,
+  .ci-runner-last code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ci-runner-queue {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    align-items: start;
+    border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border));
+  }
+
+  .ci-runner-queue p { grid-column: 1 / -1; margin: 0; }
+  .ci-runner-last { display: grid; gap: 5px; }
+  .ci-runner-honesty { margin: 0; }
+  .ci-runner-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
+
+  .metric-detail {
+    color: var(--dash-muted);
+    font-size: 10px;
+    line-height: 1.35;
   }
 
   .ci-concept-grid {

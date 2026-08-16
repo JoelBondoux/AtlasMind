@@ -466,6 +466,28 @@ generic self-hosted labels, a read-only token, no secrets or OIDC, full-SHA acti
 non-persistent checkout credentials. Policy tests read the YAML as source because a trigger or permission
 regression is a security defect even when every TypeScript test remains green. Fork workflows require
 approval for every external contributor, not only their first contribution.
+
+The Pipeline dashboard can now operate that one-job lifecycle, but it does not turn the label into an
+authorization rule. The webview sends no configuration or command payload. The extension host re-reads
+machine-scoped settings, requires one queued owner-authored run for current HEAD, rejects a dirty workflow,
+and checks the exact repository/ref/actor conditions, trigger set, read-only permission, secret/OIDC/write
+absence, immutable action references, checkout credential setting, unique label and existing runner list.
+It cannot dispatch or rerun a workflow.
+
+The one-hour registration token is streamed directly from `gh` stdout into Docker stdin, so it is never a
+JavaScript string, setting, log line, webview field or model input. The runner itself is still trusted
+infrastructure and receives GitHub's job-scoped token; the workflow limits that token to `contents: read`
+and checkout does not persist it. The ephemeral container receives no host paths, Docker socket, inbound
+port, GPU, persistent volume, repository/environment secrets or OIDC permission. Its immutable image id,
+non-root user, capability drop, no-new-privileges flag, CPU/memory/no-swap limits and process ceiling are
+shown in the confirmation and dashboard.
+
+Hardware detection is an evidence boundary as well as a convenience. AtlasMind reads Docker's actual
+OS/architecture and capacity after startup, reserves at least 25% for the desktop, and refuses if the safe
+remainder is below 2 CPUs/4 GB or if the workflow label does not match the engine. A Windows or macOS host
+therefore produces an explicitly labelled Linux-container result; it can never satisfy a native platform
+check. Docker Desktop stops only under the machine's cleanup policy and only when unrelated containers are
+absent and inventory succeeded. AtlasMind never starts or stops a Linux system Docker daemon.
 - **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
   confirmation protects the moment the file is written; the environment protects every run after that.
 - **Secrets are named, never written.** You are told which to add and where; no value goes near the

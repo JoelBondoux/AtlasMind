@@ -165,6 +165,26 @@ job gets read-only contents access, no secrets or OIDC, and checkout does not le
 hosted release matrix retains different check names, so a single local Linux job cannot impersonate
 Windows and macOS release evidence.
 
+**The Pipeline runner controls are host-owned and payload-free.** The browser can ask to inspect, start,
+or show output; it cannot supply a repository, workflow, ref, SHA, actor, label, image, resource limit,
+container argument or shutdown policy. The host reads machine-scoped settings and performs the complete
+preflight again. Start requires exactly one queued owner-authored run for current HEAD, a committed trusted
+workflow with only push/manual reachability, exact repository/ref/owner conditions, `contents: read`, no
+secret or OIDC/write grant, full-SHA action pins, `persist-credentials: false`, a label unique across local
+workflows, and no competing runner registration. It does not expose a dispatch or rerun operation.
+
+The registration token is the exception that proves the GitHub CLI boundary: `pipeGhStdoutOrThrow` starts
+`gh` with argv and no shell, connects stdout directly to Docker stdin, bounds/redacts failure text, and
+never returns the token to its caller. Docker also receives argv, not a composed host command line. The
+fixed shell fragment inside the already-isolated Linux image reads the token into one variable, registers
+with `--ephemeral --no-default-labels`, unsets it, and replaces itself with the runner listener; no
+repository-derived value is interpolated into that fragment.
+
+The container gets no host mount, Docker socket, inbound port, GPU, persistent volume or default label.
+It runs a resolved image id with CPU, memory, no-swap and process limits, all capabilities dropped and
+privilege escalation disabled. Docker Desktop starts only after confirmation. Cleanup refuses to stop it
+when another container runs or inventory cannot be read, and never manages an ordinary Linux daemon.
+
 **Checkpoints.** A snapshot is taken before each write, so a failed step can be rolled back to exactly
 how things were.
 

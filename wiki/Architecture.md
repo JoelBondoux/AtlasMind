@@ -350,6 +350,26 @@ is a closed create-only template derived host-side from declared branches and pa
 browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
 file appears between review and write.
 
+The same Pipeline page now has a separate **execution fabric** backed by `localCiRunner.ts`. GitHub Actions
+is the connected provider and Docker is the current executor; Buildkite, Semaphore and other systems are
+shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
+inspection reads both host and Docker-engine CPU, memory, OS and architecture, preserves at least 25% for
+the desktop, applies machine-scoped ceilings, and publishes the exact calculation and Linux-container
+evidence boundary on the card.
+
+Starting is a one-job transaction. AtlasMind finds exactly one queued owner-authored run at current HEAD,
+then re-validates the committed workflow's trigger, repository, branch, actor, read-only permissions,
+secret/OIDC absence, immutable action pins, checkout credential handling and unique dedicated label. Only
+then does a modal name the run, image, resource limits and cleanup effect. The registration token streams
+from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
+container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
+by CPU, memory, swap, process, capability and privilege-escalation controls.
+
+Docker Desktop cleanup records who opened it. The default stops it only when AtlasMind did; the operator
+may keep it open or request an always-close policy, but an unreadable inventory or unrelated running
+container inhibits shutdown. Linux system services are outside this lifecycle. Windows, macOS and Linux
+can host the control plane, while native Windows/macOS evidence still requires native executors.
+
 The Branches panel follows the same host-authority boundary for daily Git work. An expanded card groups
 **Work** separately from **Review**, but a work button sends only the card's opaque inventory id and a
 closed action name. The host rebuilds live branch, working-tree, tracking, remote and commit state before
@@ -460,7 +480,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

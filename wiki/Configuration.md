@@ -179,6 +179,29 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 
 ---
 
+## Local CI runner
+
+All local-runner settings are **machine-scoped**, so a repository cannot raise the limits or redirect your
+machine by committing workspace settings. The Pipeline page validates one queued job and asks before it
+starts anything.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.ci.localRunner.enabled` | `false` | Allows one ephemeral Docker runner for one already-queued trusted GitHub Actions job |
+| `atlasmind.ci.localRunner.workflowFile` | `trusted-local-ci.yml` | Selects the one committed workflow AtlasMind may serve; the filename itself grants no authority |
+| `atlasmind.ci.localRunner.trustedBranch` | `develop` | Requires this exact branch in the workflow, queue and current checkout |
+| `atlasmind.ci.localRunner.runnerLabel` | `atlasmind-trusted-linux-{arch}` | Uses one dedicated label, expanded from Docker's real x64/arm64 architecture |
+| `atlasmind.ci.localRunner.image` | pinned official digest | Auto-pulls only immutable digests and runs a resolved image id |
+| `atlasmind.ci.localRunner.maxCpus` | `8` | Caps CPU after keeping at least 25% for the desktop |
+| `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after keeping at least 25%/2 GB; disables container swap |
+| `atlasmind.ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Close Desktop only when AtlasMind opened it, never close it, or close whenever no other container is running |
+
+The container has no host mount, Docker socket, GPU or persistent volume. Its result is Linux-container
+evidence even on Windows or macOS; native platform checks still need native runners. See the
+[safe local runner guide](../docs/local-ci-and-safe-runners.md).
+
+---
+
 ## The GitHub workflow
 
 All off by default. See [[GitHub Workflow]].

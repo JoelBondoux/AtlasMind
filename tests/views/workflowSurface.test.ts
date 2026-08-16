@@ -308,8 +308,36 @@ describe('the Pipeline CI management surface', () => {
 
   it('stays useful before CI run history has been fetched', () => {
     const body = source();
-    expect(body).toContain('${managerCard}');
+    expect(body).toContain('${controlPlaneCards}');
     expect(body.indexOf('const managerCard')).toBeLessThan(body.indexOf('if (!intel)'));
+  });
+
+  it('renders a provider-aware local runner command centre before any job starts', () => {
+    const body = source();
+    expect(body).toContain('Execution fabric · local ephemeral runner');
+    expect(body).toContain('GitHub Actions → Docker');
+    expect(body).toContain('Buildkite');
+    expect(body).toContain('Semaphore');
+    expect(body).toContain('pipeline-runner-inspect');
+    expect(body).toContain('pipeline-runner-start');
+    expect(body).toContain('pipeline-runner-output');
+    expect(body).toContain('Evidence boundary:');
+  });
+
+  it('shows the actual resource calculation and Docker shutdown guard', () => {
+    const body = source();
+    expect(body).toContain('Docker capacity');
+    expect(body).toContain('Runner limit');
+    expect(body).toContain('Desktop reserve');
+    expect(body).toContain('Other containers');
+    expect(body).toContain('runnerResources.explanation');
+    expect(body).toContain('Machine-scoped policy');
+  });
+
+  it('posts no workflow, image, branch, label, or resource value when starting', () => {
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'startLocalCiRunner' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'startLocalCiRunner',\s*payload/);
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'inspectLocalCiRunner' });");
   });
 
   it('shows workflow triggers, jobs, safeguards, and declared delivery bindings', () => {

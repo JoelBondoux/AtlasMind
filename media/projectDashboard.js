@@ -1136,6 +1136,18 @@
       requestRepositoryRefresh('refreshCi');
       return;
     }
+    if (action === 'pipeline-runner-inspect') {
+      vscode.postMessage({ type: 'inspectLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-start') {
+      vscode.postMessage({ type: 'startLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-output') {
+      vscode.postMessage({ type: 'showLocalCiOutput' });
+      return;
+    }
     if (action === 'pipeline-create-starter') {
       vscode.postMessage({ type: 'createCiStarter' });
       return;
@@ -6134,6 +6146,86 @@
             </div></div>`}
       </article>`;
 
+    const runner = delivery.localRunner || {};
+    const runnerEngine = runner.engine || {};
+    const runnerResources = runner.resources || {};
+    const runnerHost = runner.host || {};
+    const runnerBlockers = runner.blockers || [];
+    const runnerWarnings = runner.warnings || [];
+    const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
+    const runnerTone = runner.lifecycle === 'running' || runner.lifecycle === 'finished' || runner.lifecycle === 'ready'
+      ? 'tag-good'
+      : runner.lifecycle === 'blocked' || runner.lifecycle === 'failed' ? 'tag-critical' : 'tag-warn';
+    const runnerLifecycle = [
+      { id: 'gate', label: 'Trust gate', active: ['starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle), detail: 'Owner · branch · SHA · workflow' },
+      { id: 'isolate', label: 'Isolate', active: ['waiting', 'running', 'finished'].includes(runner.lifecycle), detail: 'No mounts · no socket · hard limits' },
+      { id: 'execute', label: 'Execute', active: ['running', 'finished'].includes(runner.lifecycle), detail: 'Exactly one ephemeral job' },
+      { id: 'cleanup', label: 'Clean up', active: runner.lifecycle === 'finished', detail: 'Registration removed · policy applied' },
+    ];
+    const shutdownLabel = runner.shutdownPolicy === 'never' ? 'Keep Docker open'
+      : runner.shutdownPolicy === 'always' ? 'Close when safe'
+        : 'Close only if AtlasMind opened it';
+    const engineCapacity = runnerEngine.available
+      ? `${runnerEngine.cpuCount || '—'} CPU · ${runnerEngine.memoryGb || '—'} GB`
+      : runnerEngine.cliInstalled ? 'Engine stopped' : 'Not detected';
+    const queuedRunCard = runner.queuedRun ? `
+      <div class="ci-runner-queue">
+        <div><span class="ci-workflow-label">Authorised queue item</span><strong>#${escapeHtml(String(runner.queuedRun.databaseId))} · ${escapeHtml(runner.queuedRun.workflowName || runner.workflowFile || 'Trusted workflow')}</strong></div>
+        <span class="tag tag-good">${escapeHtml((runner.queuedRun.headSha || '').slice(0, 12))}</span>
+        <p class="stat-detail">${escapeHtml(runner.queuedRun.displayTitle || 'Queued job')} · ${escapeHtml(runner.queuedRun.event || 'unknown event')}</p>
+      </div>` : `
+      <div class="inline-notice">
+        <strong>Queue first, then lend the machine</strong>
+        <p class="stat-detail">Push or manually dispatch <code>${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')}</code>. AtlasMind starts no workflow and reruns no failure; it can only serve one queued run for the checked-out commit.</p>
+      </div>`;
+    const runnerCard = `
+      <article class="panel-card ci-runner-card">
+        <div class="row-head">
+          <div>
+            <p class="card-kicker">Execution fabric · local ephemeral runner</p>
+            <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
+            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')}</div>
+          </div>
+          <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
+        </div>
+        <div class="ci-runner-provider-grid" aria-label="CI provider adapters">
+          <div class="ci-runner-provider active"><strong>GitHub Actions</strong><small>Connected executor</small></div>
+          <div class="ci-runner-provider"><strong>Buildkite</strong><small>Adapter-ready · not configured</small></div>
+          <div class="ci-runner-provider"><strong>Semaphore</strong><small>Adapter-ready · not configured</small></div>
+          <div class="ci-runner-provider"><strong>Other runners</strong><small>Provider boundary reserved</small></div>
+        </div>
+        <div class="ci-runner-lifecycle" aria-label="Runner lifecycle">
+          ${runnerLifecycle.map(step => `<div class="ci-runner-stage ${step.active ? 'active' : ''}"><span></span><div><strong>${escapeHtml(step.label)}</strong><small>${escapeHtml(step.detail)}</small></div></div>`).join('')}
+        </div>
+        <div class="mini-grid">
+          ${renderMetricPill('Host', `${String(runnerHost.cpuCount || '—')} CPU · ${String(runnerHost.memoryGb || '—')} GB`, { detail: `${runnerHost.os || 'unknown'} · ${runnerHost.arch || 'unknown'}` })}
+          ${renderMetricPill('Docker capacity', engineCapacity, { tone: runnerEngine.available ? 'good' : 'warn', detail: runnerEngine.available ? `${runnerEngine.os || 'unknown'} · ${runnerEngine.arch || 'unknown'}` : 'Read from the engine, never assumed' })}
+          ${renderMetricPill('Runner limit', `${String(runnerResources.cpus || '—')} CPU · ${String(runnerResources.memoryGb || '—')} GB`, { detail: `${String(runnerResources.pidsLimit || '—')} process ceiling` })}
+          ${renderMetricPill('Desktop reserve', `${String(runnerResources.reserveCpus || '—')} CPU · ${String(runnerResources.reserveMemoryGb || '—')} GB`, { tone: 'good', detail: runnerResources.provisional ? 'Provisional until Docker is read' : 'Based on Docker’s actual allocation' })}
+          ${renderMetricPill('Other containers', String(runnerEngine.otherRunningContainers || 0), { tone: runnerEngine.otherRunningContainers ? 'warn' : 'good', detail: runnerEngine.otherRunningContainers ? 'Docker shutdown is inhibited' : 'Shutdown guard is clear' })}
+          ${renderMetricPill('After the job', shutdownLabel, { detail: 'Machine-scoped policy' })}
+        </div>
+        <div class="ci-runner-spec">
+          <div><span class="ci-workflow-label">Workflow</span><code>${escapeHtml(runner.workflowFile || '—')}</code></div>
+          <div><span class="ci-workflow-label">Trusted branch</span><code>${escapeHtml(runner.trustedBranch || '—')}</code></div>
+          <div><span class="ci-workflow-label">Dedicated label</span><code>${escapeHtml(runner.runnerLabel || 'invalid')}</code></div>
+          <div><span class="ci-workflow-label">Image</span><code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code></div>
+        </div>
+        <div class="ci-resource-rationale"><strong>Capacity calculation</strong><p class="stat-detail">${escapeHtml(runnerResources.explanation || 'Inspect Docker to calculate an allocation.')}</p></div>
+        ${queuedRunCard}
+        ${runnerBlockers.length ? `<div class="inline-notice critical"><strong>Start blocked</strong><ul class="ci-caution-list">${runnerBlockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+        ${runnerWarnings.length ? `<div class="inline-notice warning"><strong>Operator notes</strong><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+        ${runner.lastOutput ? `<div class="ci-runner-last"><span class="ci-workflow-label">Latest runner event</span><code>${escapeHtml(runner.lastOutput)}</code></div>` : ''}
+        <div class="tag-row ci-runner-actions">
+          <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect machine</button>
+          <button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Start one-job runner</button>
+          <button type="button" class="action-link" data-action="pipeline-runner-output">Open live output</button>
+          <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Runner settings</button>
+        </div>
+        <p class="stat-detail ci-runner-honesty"><strong>Evidence boundary:</strong> this Docker executor proves Linux ${escapeHtml(runnerEngine.arch || runnerHost.arch || 'architecture')} behaviour. Native Windows and macOS checks need native executors and are never inferred from this result.</p>
+      </article>`;
+    const controlPlaneCards = `<div class="ci-control-plane">${runnerCard}${managerCard}</div>`;
+
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
         : run.conclusion === 'success' ? 'passing'
@@ -6156,7 +6248,7 @@
     if (!intel) {
       return `${pageSectionOpen('pipeline')}
         ${intro}
-        ${managerCard}
+        ${controlPlaneCards}
         <div class="dashboard-empty"><div>
           <strong>CI has not been read</strong>
           <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
@@ -6168,7 +6260,7 @@
     if (fetchFailure) {
       return `${pageSectionOpen('pipeline')}
         ${intro}
-        ${managerCard}
+        ${controlPlaneCards}
         <div class="dashboard-empty"><div>
           <strong>The run list could not be read</strong>
           <div class="stat-detail">${escapeHtml(fetchFailure)}</div>
@@ -6191,7 +6283,7 @@
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
-      ${managerCard}
+      ${controlPlaneCards}
       <div class="tag-row">
         ${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, {
           busyLabel: 'Reading CI…',
@@ -10006,7 +10098,8 @@
     const meter = typeof options.meter === 'number' && Number.isFinite(options.meter)
       ? `<span class="metric-meter"><span data-anim-key="${escapeAttr(options.meterKey || `metric:${label}`)}" data-anim-to="${Math.max(0, Math.min(100, options.meter))}%" style="width:0%"></span></span>`
       : '';
-    const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${meter}`;
+    const detail = options.detail ? `<span class="metric-detail">${escapeHtml(options.detail)}</span>` : '';
+    const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${detail}${meter}`;
     const resolved = resolveActionAttrs(options.action);
     if (resolved) {
       if (resolved.action === 'prompt') {
@@ -10295,6 +10388,14 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function shortenMiddle(value, maxLength) {
+    const text = String(value || '');
+    const limit = Math.max(12, Number(maxLength) || 48);
+    if (text.length <= limit) { return text; }
+    const left = Math.ceil((limit - 1) * 0.58);
+    return `${text.slice(0, left)}…${text.slice(-(limit - left - 1))}`;
   }
 
   /**

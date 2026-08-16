@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.345.0 — Run trusted local CI from the Pipeline dashboard
+
+The Pipeline page now has a provider-aware execution command centre alongside its workflow inventory and
+failure analysis. It reads the host and Docker engine separately, shows exactly how many CPUs and how much
+memory remain for the desktop, caps the container and process count, tracks the trust → isolation → run →
+cleanup lifecycle, and keeps Linux container evidence visibly separate from native Windows or macOS
+evidence. GitHub Actions is connected today; Buildkite, Semaphore and other providers have explicit adapter
+positions rather than being presented as if they already ran.
+
+The start button does not queue or rerun work. It accepts exactly one already-queued run for the current
+commit after re-validating the committed workflow, owner, repository, trusted branch, unique runner label,
+read-only permission, secret-free job, immutable action references and clean checkout credentials. The
+registration token goes directly from GitHub CLI stdout to Docker stdin. The ephemeral container receives
+no host mounts, Docker socket, GPU, persistent volume or default labels, and runs under hard CPU, memory,
+swap, process, capability and privilege-escalation limits.
+
+Eight machine-scoped settings govern the workflow, branch, architecture label, image and resource caps.
+The Docker shutdown policy defaults to closing Desktop only when AtlasMind started it; operators may keep
+it open or request closing every time, but AtlasMind still leaves it open if another container is running
+or the inventory cannot be read. It never starts or stops a Linux system Docker service.
+
+---
+
 ## v0.344.4 — Keep TLS verification on for locally inspected traffic
 
 The trusted Linux workflow now points JavaScript actions at the worker's verified system CA bundle. The
