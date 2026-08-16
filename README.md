@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.345.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.346.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -12,6 +12,14 @@
   <strong>Your AI delivery team, inside VS Code.</strong><br />
   <em>Describe what you want built. Watch it get done. Keep every decision.</em>
 </p>
+
+## What's new in 0.345.1
+
+- **Delivery checks now show current local CI readiness and working-tree blockers.** The dashboard pipeline surface
+  surfaces queue state, run lifecycle and blocker summaries from local CI with cleaner state transitions, so the
+  shipping runbook reflects repository reality before you promote.
+
+---
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind"><strong>Install from the VS Code Marketplace</strong></a>
@@ -127,10 +135,25 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.345.0
+## What's new in 0.346.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Follow CI as a workflow, then zoom into the evidence.** Pipeline Studio opens with four plain-language
+  steps and accessible information controls, then separates workflow mapping, the local runner, tests,
+  analytics, and packages/monorepo context into focused views. Measured status dials resolve to ticks; the
+  read-only node graph can be rearranged with a pointer or keyboard; current test reports animate into
+  honest pass/fail/skip cells; and bounded GitHub history drives outcome, answer-time and per-workflow
+  reliability charts. Missing history, timing, registry or report data stays labelled unknown rather than
+  being rendered as a healthy zero.
+
+- **See the hardware and repository shape behind a run.** Machine inspection now reports GPU identity and
+  trustworthy VRAM readings alongside Docker's advertised GPU runtime, while keeping container GPU access
+  off by policy. The package view maps declared Node workspaces or a bounded first-level manifest scan,
+  highlights current-worktree impact, and inventories package formats, lockfiles, dependency monitors,
+  image pinning and artifacts. Registry configuration values are never read and external registry metrics
+  are shown only after a real provider adapter exists.
 
 - **Operate trusted local CI from the Pipeline dashboard.** A provider-aware runner command centre now
   inspects host and Docker capacity, preserves at least 25% for the desktop, applies CPU/memory/process

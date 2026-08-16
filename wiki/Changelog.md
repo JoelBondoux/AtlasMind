@@ -19,6 +19,35 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.345.1 — Delivery dashboard and local CI blocker visibility
+
+The project dashboard now presents live local CI state and delivery check blockers in a more direct form,
+including working-tree cleanliness and runbook gate signals, so shipping checks better match what the local
+runner and workflow state show at the moment.
+
+---
+
+## v0.346.0 — Pipeline Studio, visual CI evidence, and GPU discovery
+
+Pipeline is now organised around a four-step beginner route, followed by six focused views for the
+workflow, runner, tests, analytics, packages and monorepo context. Accessible information controls explain
+the unfamiliar parts in place. Measured status dials resolve to ticks, the read-only dependency canvas can
+be rearranged by pointer or keyboard, aggregate test results animate into honest pass/fail/skip states,
+and bounded GitHub history drives outcome, feedback-time and per-workflow reliability charts. Every motion
+has a reduced-motion final state.
+
+The package view maps declared Node workspaces or bounded first-level manifests, highlights units touched
+by the current worktree, inventories package formats, lockfiles, dependency monitors and pinned runner
+images, and reuses the artifact ledger. It does not pretend AtlasMind is already a package registry:
+configuration-file values remain unread and external cache, approval, vulnerability and publish data stay
+explicitly unconfigured.
+
+Machine inspection now includes GPU identity and trustworthy VRAM readings, and separately reports whether
+Docker advertises a GPU-capable runtime. That is capability evidence only. The trusted runner remains
+CPU-only, receives no GPU device and never adds `--gpus`.
+
+---
+
 ## v0.345.0 — Run trusted local CI from the Pipeline dashboard
 
 The Pipeline page now has a provider-aware execution command centre alongside its workflow inventory and

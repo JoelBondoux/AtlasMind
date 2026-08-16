@@ -47,6 +47,7 @@ export const DASHBOARD_TOKENS_CSS = `
     --dash-radius-sm: 12px;
     --dash-radius-xs: 8px;
     --dash-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+    --dash-shadow-soft: 0 10px 32px rgba(0, 0, 0, 0.18);
     /* Layout measures.
 
        Every dashboard grid used to be a fixed column count of 1fr — six stat

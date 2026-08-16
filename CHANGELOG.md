@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.346.0] - 2026-08-16
+
+### Added
+
+- **Pipeline Studio turns the CI page into a guided, progressive workspace.** A beginner route separates
+  defining checks, reading GitHub evidence, inspecting compute and serving one trusted job. Six focused
+  views then expose the workflow canvas, runner, test intelligence, delivery analytics, and package/
+  monorepo inventory without making the first screen read like an operator console. Reusable accessible
+  information controls explain unfamiliar terms in place.
+
+- **Workflow, test and delivery data now have visual operating surfaces.** Status dials animate to ticks
+  only for resolved measured states; the read-only workflow graph supports pointer dragging, arrow-key
+  movement and locally persisted/resettable layout; test report cells distinguish passing, failing,
+  skipped and merely discovered cases; and bounded GitHub history drives outcome, answer-time waterfall
+  and per-workflow reliability charts. Reduced-motion users receive the final states without animation.
+
+- **Monorepo and package context is visible without running repository code.** AtlasMind maps declared
+  Node workspaces or a bounded first-level set of supported manifests, marks units affected by current
+  worktree paths, inventories package formats, lockfiles, dependency monitors and immutable runner-image
+  posture, and reuses the existing artifact ledger. Registry configuration is presence-only: values are
+  never read, and provider-only cache, approval, scan and publication metrics stay labelled unconfigured.
+
+- **Local runner inspection now reports GPU capability.** The Runner view displays detected devices and
+  trustworthy VRAM readings plus Docker-advertised GPU runtime capability. Detection grants no execution
+  privilege: the trusted CI container remains CPU-only and the runner command never adds `--gpus`.
+
+### Security
+
+- **Visual interaction cannot mutate CI configuration.** Pipeline subview selection and graph positions
+  live only in webview state; workflow YAML remains extension-host-owned. Workspace scans are path-
+  constrained and bounded, registry files are never opened for values, and absent test/history/registry
+  evidence continues to render as unknown or unconfigured rather than healthy.
+
 ## [0.345.1] - 2026-08-16
 
 ### Fixed
