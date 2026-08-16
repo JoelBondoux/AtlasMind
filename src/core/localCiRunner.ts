@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { pipeGhStdoutOrThrow, runGhOrThrow } from './ghClient.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
+import { probeGpuDevices } from '../providers/gpuProbe.js';
+import type { GpuDevice } from '../providers/gpuProbeParse.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +76,26 @@ export interface LocalCiEngineSnapshot {
   otherRunningContainers: number;
 }
 
+export interface LocalCiGpuDevice {
+  name: string;
+  index?: number;
+  totalGb?: number;
+  usedGb?: number;
+  freeGb?: number;
+  measurement: 'live-memory' | 'reported-total' | 'identity-only';
+}
+
+export interface LocalCiGpuSnapshot {
+  detection: 'not-inspected' | 'detected' | 'not-detected';
+  devices: LocalCiGpuDevice[];
+  /** Whether Docker advertised a GPU-capable runtime; not proof that a container was granted a GPU. */
+  dockerRuntimeKnown: boolean;
+  dockerRuntimeAvailable: boolean;
+  dockerRuntimes: string[];
+  /** Detection is informational. This runner deliberately never supplies `--gpus`. */
+  accessPolicy: 'disabled';
+}
+
 export interface LocalCiQueuedRun {
   databaseId: number;
   workflowName: string;
@@ -91,6 +113,7 @@ export interface LocalCiRunnerSnapshot {
   enabled: boolean;
   host: LocalCiCapacity;
   engine: LocalCiEngineSnapshot;
+  gpu: LocalCiGpuSnapshot;
   resources: LocalCiResourcePlan;
   workflowFile: string;
   trustedBranch: string;
@@ -133,6 +156,8 @@ interface DockerInfoShape {
   NCPU?: unknown;
   MemTotal?: unknown;
   ServerVersion?: unknown;
+  Runtimes?: unknown;
+  DefaultRuntime?: unknown;
 }
 
 interface QueuedRunShape {
@@ -152,6 +177,56 @@ function finitePositive(value: unknown): number | undefined {
 
 function bounded(value: unknown, limit = 240): string {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
+}
+
+function bytesToRoundedGb(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value >= 0
+    ? Math.round((value / (1024 ** 3)) * 10) / 10
+    : undefined;
+}
+
+export function summarizeLocalCiGpuDevices(devices: readonly GpuDevice[]): LocalCiGpuDevice[] {
+  return devices.slice(0, 16).map(device => {
+    // Win32_VideoController truncates large cards to roughly 4 GB. Preserve the
+    // identity but omit that misleading number; nvidia-smi and macOS readings
+    // remain usable where the source can stand behind them.
+    const totalGb = device.totalUntrustworthy ? undefined : bytesToRoundedGb(device.totalBytes);
+    const usedGb = bytesToRoundedGb(device.usedBytes);
+    const freeGb = bytesToRoundedGb(device.freeBytes);
+    return {
+      name: bounded(device.name, 160) || 'Unknown GPU',
+      ...(device.index === undefined ? {} : { index: Math.max(0, Math.floor(device.index)) }),
+      ...(totalGb === undefined ? {} : { totalGb }),
+      ...(usedGb === undefined ? {} : { usedGb }),
+      ...(freeGb === undefined ? {} : { freeGb }),
+      measurement: freeGb !== undefined || usedGb !== undefined
+        ? 'live-memory'
+        : totalGb !== undefined ? 'reported-total' : 'identity-only',
+    };
+  });
+}
+
+export function parseDockerGpuRuntimes(raw: string): Pick<LocalCiGpuSnapshot,
+  'dockerRuntimeKnown' | 'dockerRuntimeAvailable' | 'dockerRuntimes'> {
+  try {
+    const parsed = JSON.parse(raw) as DockerInfoShape;
+    const runtimes = parsed.Runtimes && typeof parsed.Runtimes === 'object' && !Array.isArray(parsed.Runtimes)
+      ? Object.keys(parsed.Runtimes as Record<string, unknown>)
+        .map(value => value.trim().toLowerCase())
+        .filter(value => /^[a-z0-9._-]{1,40}$/.test(value))
+        .slice(0, 20)
+        .sort((left, right) => left.localeCompare(right))
+      : [];
+    const defaultRuntime = bounded(parsed.DefaultRuntime, 40).toLowerCase();
+    return {
+      dockerRuntimeKnown: true,
+      dockerRuntimeAvailable: runtimes.some(runtime => runtime === 'nvidia' || runtime.includes('gpu'))
+        || defaultRuntime === 'nvidia',
+      dockerRuntimes: runtimes,
+    };
+  } catch {
+    return { dockerRuntimeKnown: false, dockerRuntimeAvailable: false, dockerRuntimes: [] };
+  }
 }
 
 export function normalizeLocalCiArch(value: string): string {
@@ -340,6 +415,17 @@ function defaultEngine(): LocalCiEngineSnapshot {
   };
 }
 
+function defaultGpu(): LocalCiGpuSnapshot {
+  return {
+    detection: 'not-inspected',
+    devices: [],
+    dockerRuntimeKnown: false,
+    dockerRuntimeAvailable: false,
+    dockerRuntimes: [],
+    accessPolicy: 'disabled',
+  };
+}
+
 export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfiguration): LocalCiRunnerSnapshot {
   const host = detectLocalCiHostCapacity();
   const runnerLabel = resolveLocalCiRunnerLabel(configuration.runnerLabel, host.arch);
@@ -350,6 +436,7 @@ export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfigu
     enabled: configuration.enabled,
     host,
     engine: defaultEngine(),
+    gpu: defaultGpu(),
     resources: planLocalCiResources(host, undefined, configuration),
     workflowFile: configuration.workflowFile,
     trustedBranch: configuration.trustedBranch,
@@ -385,6 +472,7 @@ export class LocalCiRunnerManager {
       ...this.snapshot,
       host: { ...this.snapshot.host },
       engine: { ...this.snapshot.engine },
+      gpu: { ...this.snapshot.gpu, devices: this.snapshot.gpu.devices.map(device => ({ ...device })), dockerRuntimes: [...this.snapshot.gpu.dockerRuntimes] },
       resources: { ...this.snapshot.resources, blockers: [...this.snapshot.resources.blockers] },
       blockers: [...this.snapshot.blockers],
       warnings: [...this.snapshot.warnings],
@@ -439,6 +527,15 @@ export class LocalCiRunnerManager {
     this.update({ lifecycle: retainedLifecycle ?? (configuration.enabled ? 'inspecting' : 'disabled'), message: 'Inspecting the local executor…' });
     const host = detectLocalCiHostCapacity();
     const engine = defaultEngine();
+    const gpuDevices = summarizeLocalCiGpuDevices(await probeGpuDevices().catch(() => []));
+    const gpu: LocalCiGpuSnapshot = {
+      detection: gpuDevices.length > 0 ? 'detected' : 'not-detected',
+      devices: gpuDevices,
+      dockerRuntimeKnown: false,
+      dockerRuntimeAvailable: false,
+      dockerRuntimes: [],
+      accessPolicy: 'disabled',
+    };
     const blockers: string[] = [];
     const warnings: string[] = [];
 
@@ -469,6 +566,7 @@ export class LocalCiRunnerManager {
           } catch {
             // Capacity was already parsed; a missing display version is harmless.
           }
+          Object.assign(gpu, parseDockerGpuRuntimes(raw));
           try {
             const rows = await execCommand('docker', ['ps', '--format', '{{json .}}'], this.workspaceRoot);
             engine.otherRunningContainers = rows.split(/\r?\n/).filter(line => line.trim() && !line.includes(LOCAL_CI_LABEL)).length;
@@ -531,6 +629,7 @@ export class LocalCiRunnerManager {
       enabled: configuration.enabled,
       host,
       engine: { ...engine, startedByAtlasMind: this.startedDesktop },
+      gpu,
       resources,
       workflowFile: configuration.workflowFile,
       trustedBranch: configuration.trustedBranch,

@@ -1239,6 +1239,8 @@ interface GitSnapshot {
   commits: DashboardCommit[];
   commitDates: string[];
   commitLog: DashboardCommitLogEntry[];
+  /** Bounded worktree paths only; used to highlight affected workspace units. */
+  changedPaths: string[];
   /**
    * `origin`'s URL, for deriving the GitHub slug without a network call.
    *
@@ -1257,6 +1259,45 @@ interface PackageSnapshot {
   devDependencyCount: number;
   scriptCount: number;
   keyScripts: string[];
+}
+
+interface DashboardCiWorkspaceUnit {
+  id: string;
+  name: string;
+  path: string;
+  kind: 'node' | 'python' | 'rust' | 'go' | 'java' | 'dotnet' | 'other';
+  manifest: string;
+  buildCommand?: string;
+  testCommand?: string;
+  affected: boolean;
+}
+
+interface DashboardCiWorkspaceSnapshot {
+  detected: boolean;
+  basis: 'declared-workspaces' | 'manifest-discovery' | 'single-project';
+  units: DashboardCiWorkspaceUnit[];
+  changedPathCount: number;
+  affectedCount: number;
+  truncated: boolean;
+  summary: string;
+}
+
+interface DashboardPackageFormat {
+  id: string;
+  label: string;
+  manifest: string;
+  lockfile?: string;
+  registryConfig?: string;
+}
+
+interface DashboardSupplyChainSnapshot {
+  formats: DashboardPackageFormat[];
+  dependencyCount: number;
+  lockfileCount: number;
+  registryConfigCount: number;
+  dependencyMonitoring: string[];
+  runnerImagePinned: boolean;
+  summary: string;
 }
 
 interface DashboardWorkflow extends CiWorkflowSummary {
@@ -2147,6 +2188,10 @@ interface DashboardSnapshot {
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
+    /** Project/workspace units and current worktree impact; no build is run to derive this. */
+    workspace: DashboardCiWorkspaceSnapshot;
+    /** Package-format and registry-configuration presence only; credential values are never read. */
+    supplyChain: DashboardSupplyChainSnapshot;
     stages: DashboardStagePipeline;
     /** Detected commands and human gates, grouped in the order a newcomer ships. */
     guide: ProjectDeliveryGuide;
@@ -10618,6 +10663,12 @@ async function collectDashboardSnapshot(
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
+      workspace: await collectCiWorkspaceSnapshot(workspaceRoot, gitSnapshot.changedPaths),
+      supplyChain: await collectSupplyChainSnapshot(
+        workspaceRoot,
+        packageSnapshot.dependencyCount + packageSnapshot.devDependencyCount,
+        localRunner?.image ?? readLocalCiRunnerConfiguration().image,
+      ),
       stages: stagePipeline,
       guide: deliveryGuide,
     },
@@ -11837,6 +11888,14 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const modified = statusLines.slice(1).filter(line => line.length >= 2 && line[1] !== ' ' && line[0] !== '?').length;
   const untracked = statusLines.slice(1).filter(line => line.startsWith('??')).length;
   const dirty = staged + modified + untracked > 0;
+  const changedPaths = statusLines.slice(1).flatMap(line => {
+    const raw = line.length >= 4 ? line.slice(3).trim() : '';
+    const candidate = raw.includes(' -> ') ? raw.slice(raw.lastIndexOf(' -> ') + 4) : raw;
+    const normalized = candidate.replace(/\\/g, '/').replace(/^"|"$/g, '');
+    return normalized && !path.posix.isAbsolute(normalized) && !normalized.split('/').includes('..')
+      ? [normalized.slice(0, 500)]
+      : [];
+  }).slice(0, 200);
 
   const branches = branchOutput
     .split(/\r?\n/)
@@ -11898,6 +11957,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     commits,
     commitDates,
     commitLog,
+    changedPaths,
     ...(gitUserName ? { gitUserName } : {}),
     ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
@@ -11956,6 +12016,254 @@ async function collectPackageSnapshot(workspaceRoot: string | undefined): Promis
       keyScripts: [],
     };
   }
+}
+
+const CI_WORKSPACE_MANIFESTS = [
+  ['package.json', 'node'],
+  ['pyproject.toml', 'python'],
+  ['Cargo.toml', 'rust'],
+  ['go.mod', 'go'],
+  ['pom.xml', 'java'],
+  ['build.gradle', 'java'],
+] as const;
+
+const CI_WORKSPACE_IGNORED_DIRECTORIES = new Set([
+  '.git', '.github', '.vscode', 'node_modules', 'out', 'dist', 'coverage',
+  'project_memory', 'test-results',
+]);
+
+function normalizeWorkspaceCandidate(value: string): string | undefined {
+  const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
+  if (!normalized || normalized === '.' || path.posix.isAbsolute(normalized)
+    || normalized.split('/').some(part => !part || part === '.' || part === '..')) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function declaredNodeWorkspacePatterns(parsed: Record<string, unknown>): string[] {
+  const value = parsed['workspaces'];
+  const candidates = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>)['packages'])
+      ? (value as Record<string, unknown>)['packages'] as unknown[]
+      : [];
+  return candidates.flatMap(candidate => typeof candidate === 'string' && candidate.length <= 180
+    ? [candidate]
+    : []).slice(0, 80);
+}
+
+async function expandWorkspacePattern(workspaceRoot: string, rawPattern: string): Promise<string[]> {
+  const normalized = normalizeWorkspaceCandidate(rawPattern);
+  if (!normalized) {
+    return [];
+  }
+  if (!normalized.includes('*')) {
+    return await fileExists(path.join(workspaceRoot, normalized)) ? [normalized] : [];
+  }
+  // Deliberately support one directory wildcard only. Recursive or brace globs
+  // would turn opening a dashboard into an unbounded repository walk.
+  const parts = normalized.split('/');
+  const wildcardIndex = parts.indexOf('*');
+  if (wildcardIndex < 0 || wildcardIndex !== parts.length - 1 || parts.filter(part => part === '*').length !== 1) {
+    return [];
+  }
+  const parent = parts.slice(0, -1).join('/');
+  try {
+    const entries = await fs.readdir(path.join(workspaceRoot, parent), { withFileTypes: true });
+    return entries
+      .filter(entry => entry.isDirectory() && !CI_WORKSPACE_IGNORED_DIRECTORIES.has(entry.name))
+      .slice(0, 80)
+      .map(entry => `${parent}/${entry.name}`);
+  } catch {
+    return [];
+  }
+}
+
+async function describeCiWorkspaceUnit(
+  workspaceRoot: string,
+  relativeDirectory: string,
+): Promise<Omit<DashboardCiWorkspaceUnit, 'affected'> | undefined> {
+  const directory = relativeDirectory === '.' ? workspaceRoot : path.join(workspaceRoot, relativeDirectory);
+  for (const [manifest, kind] of CI_WORKSPACE_MANIFESTS) {
+    const manifestPath = path.join(directory, manifest);
+    if (!await fileExists(manifestPath)) {
+      continue;
+    }
+    let name = relativeDirectory === '.' ? path.basename(workspaceRoot) : path.posix.basename(relativeDirectory);
+    let buildCommand: string | undefined;
+    let testCommand: string | undefined;
+    if (manifest === 'package.json') {
+      try {
+        const parsed = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+        name = typeof parsed['name'] === 'string' && parsed['name'].trim()
+          ? parsed['name'].trim().slice(0, 120)
+          : name;
+        const scripts = asStringMap(parsed['scripts']);
+        const buildScript = ['build', 'compile', 'package'].find(key => typeof scripts[key] === 'string');
+        const testScript = ['test:ci', 'test', 'check'].find(key => typeof scripts[key] === 'string');
+        buildCommand = buildScript ? `npm run ${buildScript}` : undefined;
+        testCommand = testScript ? `npm run ${testScript}` : undefined;
+      } catch {
+        // A malformed manifest still identifies a unit; commands remain unknown.
+      }
+    }
+    const safePath = relativeDirectory === '.' ? '.' : relativeDirectory.replace(/\\/g, '/');
+    return {
+      id: `workspace-${safePath.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 100) || 'root'}`,
+      name,
+      path: safePath,
+      kind,
+      manifest: safePath === '.' ? manifest : `${safePath}/${manifest}`,
+      ...(buildCommand ? { buildCommand } : {}),
+      ...(testCommand ? { testCommand } : {}),
+    };
+  }
+  return undefined;
+}
+
+async function collectCiWorkspaceSnapshot(
+  workspaceRoot: string | undefined,
+  changedPaths: readonly string[],
+): Promise<DashboardCiWorkspaceSnapshot> {
+  if (!workspaceRoot) {
+    return {
+      detected: false,
+      basis: 'single-project',
+      units: [],
+      changedPathCount: 0,
+      affectedCount: 0,
+      truncated: false,
+      summary: 'Open a workspace to map buildable units.',
+    };
+  }
+
+  let declaredPatterns: string[] = [];
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf8')) as Record<string, unknown>;
+    declaredPatterns = declaredNodeWorkspacePatterns(parsed);
+  } catch {
+    declaredPatterns = [];
+  }
+
+  const candidateDirectories = new Set<string>(['.']);
+  if (declaredPatterns.length > 0) {
+    const expanded = await Promise.all(declaredPatterns.map(pattern => expandWorkspacePattern(workspaceRoot, pattern)));
+    expanded.flat().forEach(candidate => candidateDirectories.add(candidate));
+  } else {
+    try {
+      const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      entries
+        .filter(entry => entry.isDirectory() && !CI_WORKSPACE_IGNORED_DIRECTORIES.has(entry.name))
+        .slice(0, 120)
+        .forEach(entry => candidateDirectories.add(entry.name));
+    } catch {
+      // Root-only detection remains available.
+    }
+  }
+
+  const candidates = [...candidateDirectories].slice(0, 80);
+  const described = (await Promise.all(candidates.map(candidate => describeCiWorkspaceUnit(workspaceRoot, candidate))))
+    .filter((unit): unit is Omit<DashboardCiWorkspaceUnit, 'affected'> => unit !== undefined);
+  const normalizedChanges = changedPaths
+    .map(value => value.replace(/\\/g, '/').replace(/^\.\//, ''))
+    .filter(Boolean)
+    .slice(0, 200);
+  const childPaths = described.filter(unit => unit.path !== '.').map(unit => `${unit.path}/`);
+  const units = described.map(unit => ({
+    ...unit,
+    affected: unit.path === '.'
+      ? normalizedChanges.some(changed => !childPaths.some(child => changed.startsWith(child)))
+      : normalizedChanges.some(changed => changed === unit.path || changed.startsWith(`${unit.path}/`)),
+  }));
+  const detected = declaredPatterns.length > 0 || units.filter(unit => unit.path !== '.').length > 0;
+  const affectedCount = units.filter(unit => unit.affected).length;
+  const basis = declaredPatterns.length > 0
+    ? 'declared-workspaces' as const
+    : detected ? 'manifest-discovery' as const : 'single-project' as const;
+  return {
+    detected,
+    basis,
+    units,
+    changedPathCount: normalizedChanges.length,
+    affectedCount,
+    truncated: candidateDirectories.size > candidates.length || changedPaths.length > normalizedChanges.length,
+    summary: detected
+      ? `${units.length} buildable unit${units.length === 1 ? '' : 's'} mapped; ${affectedCount} affected by the current worktree.`
+      : units.length > 0 ? 'One buildable project detected; monorepo impact filtering is not needed.'
+        : 'No supported build manifest was detected.',
+  };
+}
+
+const PACKAGE_FORMAT_CATALOG: ReadonlyArray<{
+  id: string;
+  label: string;
+  manifests: string[];
+  lockfiles: string[];
+  registryConfigs: string[];
+}> = [
+  { id: 'npm', label: 'npm / Node', manifests: ['package.json'], lockfiles: ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock'], registryConfigs: ['.npmrc', '.yarnrc.yml'] },
+  { id: 'python', label: 'Python', manifests: ['pyproject.toml', 'requirements.txt'], lockfiles: ['poetry.lock', 'uv.lock', 'Pipfile.lock'], registryConfigs: ['pip.conf', '.pypirc'] },
+  { id: 'maven', label: 'Maven / Gradle', manifests: ['pom.xml', 'build.gradle', 'build.gradle.kts'], lockfiles: ['gradle.lockfile'], registryConfigs: ['settings.xml'] },
+  { id: 'nuget', label: 'NuGet', manifests: ['global.json', 'Directory.Build.props'], lockfiles: ['packages.lock.json'], registryConfigs: ['nuget.config', 'NuGet.Config'] },
+  { id: 'cargo', label: 'Cargo', manifests: ['Cargo.toml'], lockfiles: ['Cargo.lock'], registryConfigs: ['.cargo/config.toml'] },
+  { id: 'go', label: 'Go modules', manifests: ['go.mod'], lockfiles: ['go.sum'], registryConfigs: [] },
+  { id: 'docker', label: 'OCI / Docker', manifests: ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'], lockfiles: [], registryConfigs: [] },
+  { id: 'helm', label: 'Helm', manifests: ['Chart.yaml'], lockfiles: ['Chart.lock'], registryConfigs: [] },
+];
+
+async function firstExistingRelative(workspaceRoot: string, candidates: readonly string[]): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    if (await fileExists(path.join(workspaceRoot, candidate))) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+async function collectSupplyChainSnapshot(
+  workspaceRoot: string | undefined,
+  dependencyCount: number,
+  runnerImage: string,
+): Promise<DashboardSupplyChainSnapshot> {
+  if (!workspaceRoot) {
+    return {
+      formats: [], dependencyCount, lockfileCount: 0, registryConfigCount: 0,
+      dependencyMonitoring: [], runnerImagePinned: /@sha256:[a-f0-9]{64}$/i.test(runnerImage),
+      summary: 'Open a workspace to inventory package formats.',
+    };
+  }
+  const formats = (await Promise.all(PACKAGE_FORMAT_CATALOG.map(async format => {
+    const manifest = await firstExistingRelative(workspaceRoot, format.manifests);
+    if (!manifest) {
+      return undefined;
+    }
+    const lockfile = await firstExistingRelative(workspaceRoot, format.lockfiles);
+    const registryConfig = await firstExistingRelative(workspaceRoot, format.registryConfigs);
+    return {
+      id: format.id,
+      label: format.label,
+      manifest,
+      ...(lockfile ? { lockfile } : {}),
+      ...(registryConfig ? { registryConfig } : {}),
+    } satisfies DashboardPackageFormat;
+  }))).filter((format): format is DashboardPackageFormat => format !== undefined);
+  const monitors: string[] = [];
+  if (await fileExists(path.join(workspaceRoot, '.github', 'dependabot.yml'))) { monitors.push('Dependabot'); }
+  if (await firstExistingRelative(workspaceRoot, ['renovate.json', 'renovate.json5', '.github/renovate.json'])) { monitors.push('Renovate'); }
+  const lockfileCount = formats.filter(format => format.lockfile).length;
+  const registryConfigCount = formats.filter(format => format.registryConfig).length;
+  return {
+    formats,
+    dependencyCount,
+    lockfileCount,
+    registryConfigCount,
+    dependencyMonitoring: monitors,
+    runnerImagePinned: /@sha256:[a-f0-9]{64}$/i.test(runnerImage),
+    summary: formats.length > 0
+      ? `${formats.length} package ecosystem${formats.length === 1 ? '' : 's'} observed; ${lockfileCount} reproducible lockfile${lockfileCount === 1 ? '' : 's'} and ${monitors.length} update monitor${monitors.length === 1 ? '' : 's'}.`
+      : 'No supported package ecosystem was observed.',
+  };
 }
 
 /**
@@ -16421,6 +16729,7 @@ function emptyGitSnapshot(): GitSnapshot {
     commits: [],
     commitDates: [],
     commitLog: [],
+    changedPaths: [],
   };
 }
 
@@ -18136,6 +18445,333 @@ const DASHBOARD_CSS = `
   .ci-runner-last { display: grid; gap: 5px; }
   .ci-runner-honesty { margin: 0; }
   .ci-runner-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
+
+  /* ── Pipeline Studio ───────────────────────────────────────────────────
+     Progressive disclosure keeps the first screen instructional while the
+     specialist views retain the density experienced teams need. */
+  .info-help-toggle {
+    width: 20px;
+    height: 20px;
+    margin-left: 0;
+    font-family: Georgia, serif;
+    font-style: italic;
+    text-transform: none;
+  }
+
+  .ci-studio-tabs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(130px, 1fr));
+    gap: 6px;
+    margin: 0 0 16px;
+    overflow-x: auto;
+    padding: 2px 1px 7px;
+  }
+
+  .ci-studio-tabs button {
+    display: grid;
+    gap: 2px;
+    min-width: 130px;
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-panel) 88%, transparent);
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .ci-studio-tabs button span { color: var(--vscode-foreground); font-weight: 650; }
+  .ci-studio-tabs button small { color: var(--dash-muted); }
+  .ci-studio-tabs button:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border)); }
+  .ci-studio-tabs button.active {
+    border-color: var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 12%, var(--dash-panel));
+    box-shadow: inset 0 -2px 0 var(--dash-accent-strong);
+  }
+
+  .ci-studio-view,
+  .ci-studio-stack { display: grid; gap: 16px; }
+
+  .ci-section-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .ci-section-heading > div:first-child { min-width: 0; }
+  .ci-section-heading h3 { margin: 2px 0 0; }
+  .ci-section-heading p { margin: 4px 0 0; }
+
+  .ci-command-deck {
+    display: grid;
+    gap: 16px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--dash-accent-strong) 15%, transparent), transparent 33%),
+      radial-gradient(circle at 96% 12%, color-mix(in srgb, var(--dash-good) 9%, transparent), transparent 28%),
+      var(--dash-panel);
+  }
+
+  .ci-dial-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+    gap: 12px;
+  }
+
+  .ci-status-dial {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    min-height: 104px;
+    border: 1px solid var(--dash-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 82%, transparent);
+  }
+
+  .ci-status-dial svg { width: 88px; height: 88px; overflow: visible; }
+  .ci-dial-track,
+  .ci-dial-value {
+    fill: none;
+    stroke-width: 8;
+    transform: rotate(-90deg);
+    transform-origin: 56px 56px;
+  }
+  .ci-dial-track { stroke: color-mix(in srgb, var(--dash-muted) 20%, transparent); }
+  .ci-dial-value {
+    stroke: var(--dash-accent-strong);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 700ms var(--dash-ease);
+  }
+  .dial-good .ci-dial-value { stroke: var(--dash-good); }
+  .dial-warn .ci-dial-value { stroke: var(--dash-warn); }
+  .dial-critical .ci-dial-value { stroke: var(--dash-critical); }
+  .dial-muted .ci-dial-value { stroke: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+  .ci-dial-check {
+    fill: none;
+    stroke: var(--dash-good);
+    stroke-width: 7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 52;
+    stroke-dashoffset: 52;
+    opacity: 0;
+  }
+  .ci-status-dial.is-resolved .ci-dial-check {
+    animation: ciDialResolve 520ms var(--dash-ease) 520ms forwards;
+  }
+  @keyframes ciDialResolve {
+    0% { stroke-dashoffset: 52; opacity: 0; transform: scale(.82); transform-origin: center; }
+    40% { opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 1; transform: scale(1); transform-origin: center; }
+  }
+  .ci-dial-copy { display: grid; gap: 2px; min-width: 0; }
+  .ci-dial-copy strong { font-size: 21px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .ci-dial-copy span { font-weight: 650; }
+  .ci-dial-copy small { color: var(--dash-muted); line-height: 1.35; }
+
+  .ci-journey-card { display: grid; gap: 14px; }
+  .ci-journey {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    position: relative;
+    gap: 10px;
+  }
+  .ci-journey::before {
+    content: '';
+    position: absolute;
+    left: 7%; right: 7%; top: 20px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-accent-strong) 42%, var(--dash-border));
+  }
+  .ci-journey-step {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--dash-panel);
+  }
+  .ci-journey-step.current { border-color: var(--dash-accent-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); }
+  .ci-journey-step.done { border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border)); }
+  .ci-step-marker {
+    display: grid;
+    place-items: center;
+    width: 38px; height: 38px;
+    border-radius: 999px;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, var(--dash-panel));
+    border: 1px solid var(--dash-accent-strong);
+    font-weight: 750;
+  }
+  .ci-journey-step.done .ci-step-marker { color: var(--dash-panel-strong); background: var(--dash-good); border-color: var(--dash-good); }
+  .ci-journey-step p { min-height: 48px; margin: 4px 0 10px; color: var(--dash-muted); font-size: 12px; line-height: 1.45; }
+
+  .ci-capability-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 10px;
+  }
+  .ci-capability-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px;
+    text-align: left;
+    color: var(--vscode-foreground);
+    background: var(--dash-panel);
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    cursor: pointer;
+    font: inherit;
+  }
+  .ci-capability-card:hover { border-color: var(--dash-accent-strong); transform: translateY(-1px); }
+  .ci-capability-card > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; color: var(--dash-accent-strong); background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); font-size: 18px; }
+  .ci-capability-card div { display: grid; gap: 2px; }
+  .ci-capability-card small { color: var(--dash-muted); }
+
+  .ci-graph-card { display: grid; gap: 12px; overflow: hidden; }
+  .ci-graph-scroll {
+    overflow: auto;
+    border: 1px solid var(--dash-border);
+    border-radius: 14px;
+    background:
+      linear-gradient(color-mix(in srgb, var(--dash-border) 18%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--dash-border) 18%, transparent) 1px, transparent 1px),
+      color-mix(in srgb, var(--dash-panel-strong) 72%, transparent);
+    background-size: 24px 24px;
+    max-height: 610px;
+  }
+  .ci-graph-canvas { position: relative; width: 100%; }
+  .ci-graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  .ci-graph-edges path {
+    fill: none;
+    stroke: color-mix(in srgb, var(--dash-accent-strong) 65%, var(--dash-border));
+    stroke-width: 2;
+    stroke-dasharray: 7 5;
+    animation: ciEdgeFlow 1.8s linear infinite;
+  }
+  @keyframes ciEdgeFlow { to { stroke-dashoffset: -24; } }
+  .ci-graph-node {
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    gap: 4px;
+    width: 164px;
+    min-height: 66px;
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel-strong) 95%, transparent);
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid var(--dash-accent-strong);
+    border-radius: 10px;
+    box-shadow: var(--dash-shadow-soft);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    font: inherit;
+  }
+  .ci-graph-node small { color: var(--dash-muted); line-height: 1.3; overflow-wrap: anywhere; }
+  .ci-graph-node.node-trigger { border-left-color: var(--dash-warn); }
+  .ci-graph-node.node-job { border-left-color: var(--dash-good); }
+  .ci-graph-node.node-gate { border-left-color: var(--dash-critical); }
+  .ci-graph-node.is-dragging { cursor: grabbing; border-color: var(--dash-accent-strong); box-shadow: 0 10px 30px color-mix(in srgb, black 28%, transparent); }
+  .ci-graph-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--dash-muted); font-size: 11px; }
+  .ci-graph-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .ci-graph-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--dash-accent-strong); }
+  .ci-graph-legend i.trigger { background: var(--dash-warn); }
+  .ci-graph-legend i.job { background: var(--dash-good); }
+  .ci-graph-legend i.gate { background: var(--dash-critical); }
+
+  .ci-test-engine-card { display: grid; gap: 15px; }
+  .ci-test-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 72%, transparent);
+  }
+  .test-cell {
+    display: grid;
+    place-items: center;
+    min-height: 34px;
+    border-radius: 7px;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-muted) 16%, transparent);
+    border: 1px solid var(--dash-border);
+    font-weight: 750;
+    animation: ciCellResolve 360ms var(--dash-ease) backwards;
+    animation-delay: calc(var(--cell-index, 0) * 9ms);
+  }
+  .test-cell.pass { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); background: color-mix(in srgb, var(--dash-good) 9%, transparent); }
+  .test-cell.fail { color: var(--dash-critical); border-color: color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border)); background: color-mix(in srgb, var(--dash-critical) 9%, transparent); }
+  .test-cell.skip { color: var(--dash-warn); }
+  @keyframes ciCellResolve { from { opacity: 0; transform: scale(.72); } to { opacity: 1; transform: scale(1); } }
+
+  .ci-run-waterfall { display: grid; gap: 9px; margin-top: 12px; }
+  .ci-run-lane { display: grid; grid-template-columns: minmax(90px, 180px) minmax(120px, 1fr) 68px; align-items: center; gap: 10px; }
+  .ci-run-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .ci-run-track { height: 12px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--dash-border) 40%, transparent); }
+  .ci-run-bar { display: block; height: 100%; border-radius: inherit; background: var(--dash-accent-strong); transition: width var(--dash-dur-value) var(--dash-ease); }
+  .ci-run-bar.good { background: linear-gradient(90deg, color-mix(in srgb, var(--dash-good) 48%, transparent), var(--dash-good)); }
+  .ci-run-bar.critical { background: linear-gradient(90deg, color-mix(in srgb, var(--dash-critical) 48%, transparent), var(--dash-critical)); }
+  .ci-run-lane > strong { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ci-reliability-table { display: grid; gap: 10px; margin-top: 12px; }
+  .ci-reliability-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(100px, 2fr) 48px; align-items: center; gap: 12px; }
+  .ci-reliability-row > div:first-child { display: grid; gap: 2px; min-width: 0; }
+  .ci-reliability-row small { color: var(--dash-muted); }
+  .ci-reliability-meter { height: 9px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--dash-border) 42%, transparent); }
+  .ci-reliability-meter span { display: block; height: 100%; border-radius: inherit; background: var(--dash-good); transition: width var(--dash-dur-value) var(--dash-ease); }
+  .ci-reliability-row > strong { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .ci-unit-grid,
+  .ci-package-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 10px; margin-top: 12px; }
+  .ci-unit-card,
+  .ci-package-card { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--dash-border); border-radius: 11px; background: color-mix(in srgb, var(--dash-panel-strong) 76%, transparent); }
+  .ci-unit-card.affected { border-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); box-shadow: inset 3px 0 0 var(--dash-warn); }
+  .ci-unit-card code,
+  .ci-package-card code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ci-unit-card small,
+  .ci-package-card small { color: var(--dash-muted); line-height: 1.4; }
+
+  .ci-gpu-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 28%, var(--dash-border)); border-radius: 12px; background: color-mix(in srgb, var(--dash-accent-strong) 5%, transparent); }
+  .ci-gpu-panel .wf-help-panel { grid-column: 1 / -1; }
+  .ci-gpu-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); gap: 10px; }
+  .ci-gpu-devices { display: grid; gap: 8px; }
+  .ci-gpu-device { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 9px; border: 1px solid var(--dash-border); border-radius: 9px; background: var(--dash-panel); }
+  .ci-gpu-device > div { display: grid; gap: 2px; min-width: 0; }
+  .ci-gpu-device small { color: var(--dash-muted); }
+  .ci-gpu-icon { display: grid; place-items: center; width: 38px; height: 28px; border-radius: 6px; color: var(--dash-accent-strong); background: color-mix(in srgb, var(--dash-accent-strong) 13%, transparent); border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 36%, var(--dash-border)); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+  .ci-gpu-policy { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--dash-border); border-radius: 9px; background: var(--dash-panel); }
+  .ci-gpu-policy > div { display: flex; justify-content: space-between; gap: 10px; }
+  .ci-gpu-policy span,
+  .ci-gpu-policy small { color: var(--dash-muted); }
+  .ci-gpu-policy .policy-off { color: var(--dash-warn); }
+
+  @media (max-width: 900px) {
+    .ci-journey { grid-template-columns: 1fr 1fr; }
+    .ci-journey::before { display: none; }
+  }
+
+  @media (max-width: 620px) {
+    .ci-journey { grid-template-columns: 1fr; }
+    .ci-status-dial { grid-template-columns: 72px minmax(0, 1fr); }
+    .ci-status-dial svg { width: 72px; height: 72px; }
+    .ci-run-lane { grid-template-columns: minmax(80px, 120px) minmax(80px, 1fr) 58px; }
+    .ci-reliability-row { grid-template-columns: 1fr 44px; }
+    .ci-reliability-meter { grid-column: 1 / -1; grid-row: 2; }
+    .ci-gpu-grid { grid-template-columns: 1fr; }
+  }
 
   .metric-detail {
     color: var(--dash-muted);
@@ -20604,7 +21240,17 @@ const DASHBOARD_CSS = `
     .chart-bars.is-animating .chart-bar-column {
       animation: none;
     }
+    .ci-status-dial.is-resolved .ci-dial-check {
+      animation: none;
+      stroke-dashoffset: 0;
+      opacity: 1;
+    }
+    .ci-graph-edges path,
+    .test-cell { animation: none; }
     .score-ring-progress,
+    .ci-dial-value,
+    .ci-run-bar,
+    .ci-reliability-meter span,
     .metric-meter > span,
     .coverage-bar > span,
     .mvp-progress-fill,
@@ -20613,6 +21259,7 @@ const DASHBOARD_CSS = `
     .stat-card,
     .chart-bar,
     .action-card,
+    .ci-capability-card,
     .recent-item,
     .signal-card,
     .risk-cell,

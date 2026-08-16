@@ -4,19 +4,19 @@
   "runs": [
     {
       "domain": "ethics",
-      "ranAt": "2026-07-26T14:34:27.027Z",
+      "ranAt": "2026-08-15T23:10:09.832Z",
       "findingCount": 0
     },
     {
       "domain": "legal",
-      "ranAt": "2026-07-26T14:35:21.949Z",
+      "ranAt": "2026-08-15T23:11:57.897Z",
       "findingCount": 0
     },
     {
       "domain": "commercial",
-      "ranAt": "2026-07-26T14:38:13.346Z",
+      "ranAt": "2026-08-15T23:14:09.710Z",
       "findingCount": 0
     }
   ],
-  "updatedAt": "2026-07-26T14:38:13.349Z"
+  "updatedAt": "2026-08-15T23:14:09.712Z"
 }

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.345.1] - 2026-08-16
+
+### Fixed
+
+- **Dashboard CI and risk-oversight surfaces now reflect local CI delivery state more reliably.** The local
+  runner and project dashboard path now persist and display updated run status, including working-tree checks
+  and risk history snapshots, so the shipping workflow receives current signals during routine operations.
+
 ## [0.345.0] - 2026-08-16
 
 ### Added

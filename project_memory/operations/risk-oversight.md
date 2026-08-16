@@ -16,9 +16,9 @@ was decided.
 
 ## Last analysed
 
-- **Ethics** — 2026-07-26 (0 findings)
-- **Legal** — 2026-07-26 (0 findings)
-- **Commercial** — 2026-07-26 (0 findings)
+- **Ethics** — 2026-08-15 (0 findings)
+- **Legal** — 2026-08-15 (0 findings)
+- **Commercial** — 2026-08-15 (0 findings)
 
 ## Open findings (0)
 
@@ -33,4 +33,4 @@ _Nothing resolved yet._
 _The full audit trail lives in `risk-oversight-history.json`, which retains the most
 recent 1000 records; the register above is complete and is not truncated._
 
-_Last updated: 2026-07-26T14:38:13.349Z._
+_Last updated: 2026-08-15T23:14:09.712Z._

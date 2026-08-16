@@ -6,11 +6,13 @@ import {
   LOCAL_CI_MIN_MEMORY_GB,
   assessTrustedLocalCiWorkflow,
   normalizeLocalCiArch,
+  parseDockerGpuRuntimes,
   parseDockerInfo,
   parseQueuedRuns,
   planLocalCiResources,
   registeredRunnerNames,
   resolveLocalCiRunnerLabel,
+  summarizeLocalCiGpuDevices,
 } from '../../src/core/localCiRunner.ts';
 
 describe('local CI resource planning', () => {
@@ -71,6 +73,49 @@ describe('local CI platform evidence', () => {
     }))).toMatchObject({ os: 'linux', arch: 'x64', cpuCount: 12, memoryGb: 16 });
     expect(parseDockerInfo(JSON.stringify({ OSType: '', Architecture: '', NCPU: 0, MemTotal: 0 })))
       .toBeUndefined();
+  });
+
+  it('reports host GPU memory honestly and does not repeat a truncated Windows total', () => {
+    expect(summarizeLocalCiGpuDevices([{
+      index: 0,
+      name: 'NVIDIA GeForce RTX 4090',
+      totalBytes: 24 * 1024 ** 3,
+      usedBytes: 8 * 1024 ** 3,
+      freeBytes: 16 * 1024 ** 3,
+    }])).toEqual([{
+      index: 0,
+      name: 'NVIDIA GeForce RTX 4090',
+      totalGb: 24,
+      usedGb: 8,
+      freeGb: 16,
+      measurement: 'live-memory',
+    }]);
+    expect(summarizeLocalCiGpuDevices([{
+      name: 'Large GPU with truncated CIM value',
+      totalBytes: 4_293_918_720,
+      totalUntrustworthy: true,
+    }])[0]).toMatchObject({ measurement: 'identity-only' });
+    expect(summarizeLocalCiGpuDevices([{
+      name: 'Large GPU with truncated CIM value',
+      totalBytes: 4_293_918_720,
+      totalUntrustworthy: true,
+    }])[0]).not.toHaveProperty('totalGb');
+  });
+
+  it('distinguishes a Docker GPU runtime from GPU access granted to the runner', () => {
+    expect(parseDockerGpuRuntimes(JSON.stringify({
+      Runtimes: { runc: {}, ioContainerdRuncV2: {}, nvidia: {} },
+      DefaultRuntime: 'runc',
+    }))).toEqual({
+      dockerRuntimeKnown: true,
+      dockerRuntimeAvailable: true,
+      dockerRuntimes: ['iocontainerdruncv2', 'nvidia', 'runc'],
+    });
+    expect(parseDockerGpuRuntimes('not json')).toEqual({
+      dockerRuntimeKnown: false,
+      dockerRuntimeAvailable: false,
+      dockerRuntimes: [],
+    });
   });
 });
 

@@ -16,6 +16,22 @@
     ...(vscode.getState() || {}),
     ...hostBranchPreferences,
   };
+  const PIPELINE_SECTIONS = ['overview', 'workflow', 'runner', 'tests', 'analytics', 'packages'];
+
+  function normalizedPipelineNodePositions(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return {}; }
+    return Object.entries(value).slice(0, 160).reduce((all, entry) => {
+      const key = String(entry[0] || '');
+      const point = entry[1];
+      if (!/^[a-z0-9._:-]{1,120}$/i.test(key) || !point || typeof point !== 'object') { return all; }
+      const x = Number(point.x);
+      const y = Number(point.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        all[key] = { x: Math.max(0, Math.min(2200, Math.round(x))), y: Math.max(0, Math.min(1800, Math.round(y))) };
+      }
+      return all;
+    }, {});
+  }
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
@@ -285,6 +301,11 @@
     },
     /** Which release gate the Road-to card is showing. '' = the first (MVP). */
     activeRoadmapGate: 'mvp',
+    /** Progressive-disclosure view inside Pipeline Studio. */
+    pipelineSection: PIPELINE_SECTIONS.includes(persistedWebviewState.pipelineSection)
+      ? persistedWebviewState.pipelineSection : 'overview',
+    /** Visual layout only. Moving a node never edits a workflow file. */
+    pipelineNodePositions: normalizedPipelineNodePositions(persistedWebviewState.pipelineNodePositions),
     /** '' = everyone; otherwise a git author name from the contributor chart. */
     contributorFilter: '',
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
@@ -1134,6 +1155,27 @@
     // permits one repository read at a time.
     if (action === 'pipeline-refresh') {
       requestRepositoryRefresh('refreshCi');
+      return;
+    }
+    if (action === 'pipeline-section') {
+      state.pipelineSection = PIPELINE_SECTIONS.includes(payload) ? payload : 'overview';
+      vscode.setState({
+        ...(vscode.getState() || {}),
+        pipelineSection: state.pipelineSection,
+        pipelineNodePositions: state.pipelineNodePositions,
+      });
+      refocusAfterRender = 'button[data-action="pipeline-section"][data-payload="' + cssEscape(state.pipelineSection) + '"]';
+      render();
+      return;
+    }
+    if (action === 'pipeline-graph-reset') {
+      state.pipelineNodePositions = {};
+      vscode.setState({
+        ...(vscode.getState() || {}),
+        pipelineSection: state.pipelineSection,
+        pipelineNodePositions: {},
+      });
+      render();
       return;
     }
     if (action === 'pipeline-runner-inspect') {
@@ -2433,6 +2475,7 @@
       // see applyValueAnimations() for why a plain transition cannot work
       // against a wholesale innerHTML swap.
       applyValueAnimations();
+      bindPipelineGraph();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -5335,11 +5378,13 @@
   const WF_STATUS_WORD = { done: 'done', todo: 'to do', blocked: 'blocked', optional: 'optional' };
 
   /** A "?" toggle plus, when open, the explanation panel it controls. */
-  function renderWorkflowHelp(id, payload) {
+  function renderWorkflowHelp(id, payload, options = {}) {
     const open = state.workflowHelpOpen[id] === true;
-    const button = `<button type="button" class="wf-help-toggle" data-action="workflow-help" data-payload="${escapeAttr(id)}"
+    const symbol = options.symbol === 'i' ? 'i' : '?';
+    const button = `<button type="button" class="wf-help-toggle${symbol === 'i' ? ' info-help-toggle' : ''}" data-action="workflow-help" data-payload="${escapeAttr(id)}"
       aria-expanded="${open ? 'true' : 'false'}" aria-controls="wf-help-${escapeAttr(id)}"
-      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">?</button>`;
+      title="${open ? 'Hide' : 'Explain'} ${escapeAttr(payload.label || 'this section')}"
+      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">${symbol}</button>`;
     if (!open) { return { button, panel: '' }; }
 
     const section = (heading, body) => body ? `<h5>${escapeHtml(heading)}</h5>${body}` : '';
@@ -5377,6 +5422,10 @@
       </div>
       ${mistakes}`;
     return { button, panel };
+  }
+
+  function renderInfoHelp(id, payload) {
+    return renderWorkflowHelp(id, payload, { symbol: 'i' });
   }
 
   /** Glossary lookup, keyed, from the current snapshot. */
@@ -6014,6 +6063,377 @@
     </section>`;
   }
 
+  function renderPipelineDial(id, percent, options = {}) {
+    const known = typeof percent === 'number' && Number.isFinite(percent);
+    const boundedPercent = known ? Math.max(0, Math.min(100, Math.round(percent))) : 0;
+    const radius = 44;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (boundedPercent / 100) * circumference;
+    const tone = options.tone || (!known ? 'muted' : boundedPercent >= 90 ? 'good' : boundedPercent >= 70 ? 'warn' : 'critical');
+    const resolved = options.resolved === true;
+    const value = options.value || (known ? `${boundedPercent}%` : '—');
+    const aria = `${options.label || 'Status'}: ${value}. ${options.detail || ''}`.trim();
+    return `
+      <div class="ci-status-dial dial-${escapeAttr(tone)}${resolved ? ' is-resolved' : ''}" role="img" aria-label="${escapeAttr(aria)}">
+        <svg viewBox="0 0 112 112" aria-hidden="true">
+          <circle class="ci-dial-track" cx="56" cy="56" r="${radius}"></circle>
+          <circle class="ci-dial-value" cx="56" cy="56" r="${radius}"
+            stroke-dasharray="${circumference}" data-anim-key="ci-dial:${escapeAttr(id)}"
+            data-anim-prop="dashoffset" data-anim-from="${circumference}" data-anim-to="${offset}"></circle>
+          <path class="ci-dial-check" d="M38 57l11 11 25-27"></path>
+        </svg>
+        <div class="ci-dial-copy">
+          <strong>${escapeHtml(value)}</strong>
+          <span>${escapeHtml(options.label || 'Status')}</span>
+          ${options.detail ? `<small>${escapeHtml(options.detail)}</small>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function renderPipelineTabs(snapshot, runs) {
+    const delivery = snapshot.delivery || {};
+    const testing = snapshot.testing || {};
+    const runner = delivery.localRunner || {};
+    const supply = delivery.supplyChain || {};
+    const tabs = [
+      { id: 'overview', label: 'Start here', meta: 'guided' },
+      { id: 'workflow', label: 'Workflow map', meta: `${(delivery.workflows || []).length} file${(delivery.workflows || []).length === 1 ? '' : 's'}` },
+      { id: 'runner', label: 'Runner', meta: runner.lifecycle || 'not inspected' },
+      { id: 'tests', label: 'Tests', meta: testing.policyCoverage && testing.policyCoverage.report ? `${testing.policyCoverage.report.tests} results` : `${testing.totalCases || 0} found` },
+      { id: 'analytics', label: 'Analytics', meta: `${runs.length} run${runs.length === 1 ? '' : 's'}` },
+      { id: 'packages', label: 'Packages & repo', meta: `${(supply.formats || []).length} ecosystem${(supply.formats || []).length === 1 ? '' : 's'}` },
+    ];
+    return `<div class="ci-studio-tabs" role="tablist" aria-label="Pipeline Studio views">
+      ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${tab.id}"
+        aria-selected="${state.pipelineSection === tab.id ? 'true' : 'false'}" class="${state.pipelineSection === tab.id ? 'active' : ''}">
+        <span>${escapeHtml(tab.label)}</span><small>${escapeHtml(tab.meta)}</small>
+      </button>`).join('')}
+    </div>`;
+  }
+
+  function renderPipelineJourney(assessment, intel, runner, workflows) {
+    const inspected = runner && !['disabled', 'not-inspected', 'inspecting'].includes(runner.lifecycle || 'not-inspected');
+    const runnable = runner && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle);
+    const steps = [
+      {
+        title: 'Define the checks',
+        detail: assessment.qualityWorkflowCount > 0
+          ? `${assessment.qualityWorkflowCount} quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found.`
+          : 'Add one workflow that builds, lints and tests the project.',
+        done: assessment.qualityWorkflowCount > 0,
+        action: assessment.qualityWorkflowCount > 0 ? 'pipeline-section' : 'pipeline-create-starter',
+        payload: assessment.qualityWorkflowCount > 0 ? 'workflow' : '',
+        actionLabel: assessment.qualityWorkflowCount > 0 ? 'See workflow map' : 'Preview starter CI',
+      },
+      {
+        title: 'Read the current result',
+        detail: intel && !intel.fetchFailure ? `${(intel.runs || []).length} recent run${(intel.runs || []).length === 1 ? '' : 's'} loaded.` : 'Ask GitHub for this branch’s recent runs.',
+        done: Boolean(intel && !intel.fetchFailure),
+        action: intel && !intel.fetchFailure ? 'pipeline-section' : 'pipeline-refresh',
+        payload: intel && !intel.fetchFailure ? 'analytics' : '',
+        actionLabel: intel && !intel.fetchFailure ? 'Open analytics' : 'Read CI for this branch',
+      },
+      {
+        title: 'Inspect this machine',
+        detail: inspected ? (runner.message || 'The executor was inspected.') : runner.enabled ? 'Read Docker, CPU, memory and GPU capacity.' : 'Enable the local runner, then inspect it.',
+        done: inspected,
+        action: runner.enabled ? 'pipeline-runner-inspect' : 'setting',
+        payload: runner.enabled ? '' : 'atlasmind.ci.localRunner.enabled',
+        actionLabel: runner.enabled ? 'Inspect machine' : 'Enable runner',
+      },
+      {
+        title: 'Run one trusted job',
+        detail: runner.queuedRun ? `Queued run #${runner.queuedRun.databaseId} is authorised for this commit.`
+          : runnable ? 'Queue the trusted workflow for this commit, then lend it this machine.'
+            : 'Resolve the runner readiness steps first.',
+        done: ['waiting', 'running', 'finished'].includes(runner.lifecycle),
+        action: runnable && runner.queuedRun ? 'pipeline-runner-start' : 'pipeline-section',
+        payload: runnable && runner.queuedRun ? '' : 'runner',
+        actionLabel: runnable && runner.queuedRun ? 'Start one-job runner' : 'Open runner',
+        disabled: runnable && runner.queuedRun ? (runner.blockers || []).length > 0 : false,
+      },
+    ];
+    const nextIndex = steps.findIndex(step => !step.done);
+    const help = renderInfoHelp('pipeline.journey', {
+      label: 'the safe CI workflow',
+      why: 'The sequence keeps “a workflow exists”, “GitHub queued it”, and “this computer may execute it” as separate decisions. That prevents a convenient runner button from becoming permission to execute arbitrary pull-request code.',
+      how: [
+        { text: 'Define checks once in a reviewed workflow file.' },
+        { text: 'Read the branch result so missing evidence is not mistaken for green.' },
+        { text: 'Inspect the machine before allocating compute.' },
+        { text: 'Serve exactly one owner-triggered, trusted-branch job.' },
+      ],
+    });
+    return `<article class="panel-card ci-journey-card">
+      <div class="ci-section-heading"><div><p class="card-kicker">Beginner route</p><h3>Four steps from code to a trusted result</h3></div>${help.button}</div>
+      ${help.panel}
+      <div class="ci-journey" aria-label="Safe local CI setup progress">
+        ${steps.map((step, index) => `<div class="ci-journey-step${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}">
+          <span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : index + 1}</span>
+          <div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p>
+            <button type="button" class="action-link${index === nextIndex ? ' primary' : ''}" data-action="${step.action}"${step.payload ? ` data-payload="${escapeAttr(step.payload)}"` : ''} ${step.disabled ? 'disabled' : ''}>${escapeHtml(step.actionLabel)}</button>
+          </div>
+        </div>`).join('')}
+      </div>
+      <p class="stat-detail">${workflows.length > 0 ? 'Your workflow files stay the source of truth.' : 'AtlasMind will only propose a starter; it never overwrites an existing workflow.'}</p>
+    </article>`;
+  }
+
+  function renderPipelineGraph(workflows, requiredChecks) {
+    const help = renderInfoHelp('pipeline.graph', {
+      label: 'the workflow map',
+      why: 'A dependency map makes fan-out, gates and duplicate work visible faster than reading YAML. This canvas is a view, not an editor: dragging changes the layout on this computer and nothing else.',
+      how: [
+        { text: 'Follow arrows from triggers, through the workflow and its jobs, to the declared merge gate.' },
+        { text: 'Drag nodes to untangle a busy graph, or focus one and use the arrow keys. Hold Shift for larger keyboard steps.' },
+        { text: 'Open the workflow file when you actually want to change execution.' },
+      ],
+    });
+    if (!workflows.length) {
+      return `<article class="panel-card ci-graph-card"><div class="ci-section-heading"><div><p class="card-kicker">Workflow canvas</p><h3>No workflow to map yet</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Create or review a CI workflow first; AtlasMind will draw its observed triggers and jobs here.</p></article>`;
+    }
+    const nodes = [];
+    const edges = [];
+    let cursorY = 24;
+    const saved = state.pipelineNodePositions || {};
+    const addNode = (key, kind, title, detail, x, y) => {
+      const position = saved[key] || { x, y };
+      nodes.push({ key, kind, title, detail, x: position.x, y: position.y });
+    };
+    workflows.slice(0, 12).forEach((workflow, workflowIndex) => {
+      const jobs = (workflow.jobs || []).slice(0, 20);
+      const rowHeight = Math.max(132, jobs.length * 82);
+      const triggerKey = `trigger-${workflowIndex}`;
+      const workflowKey = `workflow-${workflowIndex}`;
+      const gateKey = `gate-${workflowIndex}`;
+      const triggerLabel = (workflow.triggers || []).map(trigger => trigger.event).join(' · ') || 'No trigger read';
+      addNode(triggerKey, 'trigger', 'Trigger', triggerLabel, 22, cursorY + Math.max(0, rowHeight / 2 - 38));
+      addNode(workflowKey, 'workflow', workflow.name || workflow.path, workflow.role || 'automation', 224, cursorY + Math.max(0, rowHeight / 2 - 38));
+      addNode(gateKey, 'gate', 'Merge gate', requiredChecks.length ? requiredChecks.join(', ') : 'Not bound in AtlasMind', 690, cursorY + Math.max(0, rowHeight / 2 - 38));
+      edges.push([triggerKey, workflowKey]);
+      if (jobs.length === 0) {
+        const jobKey = `job-${workflowIndex}-empty`;
+        addNode(jobKey, 'job', 'Jobs unreadable', 'Open the workflow to inspect', 454, cursorY + Math.max(0, rowHeight / 2 - 38));
+        edges.push([workflowKey, jobKey], [jobKey, gateKey]);
+      } else {
+        jobs.forEach((job, jobIndex) => {
+          const jobKey = `job-${workflowIndex}-${jobIndex}`;
+          addNode(jobKey, 'job', job.name || `Job ${jobIndex + 1}`, `${job.runsOn || 'runner unknown'} · ${job.stepCount || 0} steps`, 454, cursorY + jobIndex * 82);
+          edges.push([workflowKey, jobKey], [jobKey, gateKey]);
+        });
+      }
+      cursorY += rowHeight + 34;
+    });
+    const height = Math.max(250, cursorY + 20);
+    return `<article class="panel-card ci-graph-card">
+      <div class="ci-section-heading"><div><p class="card-kicker">Workflow canvas</p><h3>Triggers → jobs → enforcement</h3><p class="stat-detail">Read-only map. Dragging changes presentation only.</p></div><div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-graph-reset">Reset layout</button></div></div>
+      ${help.panel}
+      <div class="ci-graph-scroll" data-scroll-key="pipeline-graph">
+        <div class="ci-graph-canvas" style="height:${height}px; min-width:900px" aria-label="Interactive read-only CI workflow graph">
+          <svg class="ci-graph-edges" width="100%" height="100%" aria-hidden="true">${edges.map(edge => `<path data-edge-from="${edge[0]}" data-edge-to="${edge[1]}"></path>`).join('')}</svg>
+          ${nodes.map(node => `<button type="button" class="ci-graph-node node-${node.kind}" data-node-key="${node.key}" style="left:${node.x}px;top:${node.y}px" aria-label="${escapeAttr(`${node.title}. ${node.detail}. Drag to rearrange; arrow keys also move this node.`)}"><span>${escapeHtml(node.title)}</span><small>${escapeHtml(node.detail)}</small></button>`).join('')}
+        </div>
+      </div>
+      <div class="ci-graph-legend"><span><i class="trigger"></i>Event</span><span><i class="workflow"></i>Workflow</span><span><i class="job"></i>Job</span><span><i class="gate"></i>Enforcement</span></div>
+    </article>`;
+  }
+
+  function renderPipelineTestEngine(testing) {
+    const coverage = testing.policyCoverage || {};
+    const report = coverage.report;
+    const reportTests = report ? Math.max(0, Number(report.tests) || 0) : 0;
+    const failed = report ? Math.max(0, Number(report.failed) || 0) : 0;
+    const skipped = report ? Math.max(0, Number(report.skipped) || 0) : 0;
+    const passed = Math.max(0, reportTests - failed - skipped);
+    const completed = Math.max(0, reportTests - skipped);
+    const completionPercent = reportTests > 0 ? Math.round((completed / reportTests) * 100) : undefined;
+    const passPercent = completed > 0 ? Math.round((passed / completed) * 100) : undefined;
+    const help = renderInfoHelp('pipeline.tests', {
+      label: 'test intelligence',
+      why: 'A discovered test file says coverage exists; only a fresh report says what passed. AtlasMind keeps those claims separate and never turns “no report” into zero failures.',
+      how: [
+        { text: 'Generate the project’s JUnit report using the command shown on the Testing page.' },
+        { text: 'Use failed and skipped counts as the immediate queue signal.' },
+        { text: 'Use policy and subject coverage to find behaviour no test names.' },
+      ],
+    });
+    const flakeHelp = renderInfoHelp('pipeline.flakes', {
+      label: 'flaky-test detection',
+      why: 'A test is flaky only when the same code sometimes passes and sometimes fails. One result cannot establish that pattern.',
+      how: [{ text: 'Retain per-test results across several runs.' }, { text: 'Compare the same test identity against the same commit or equivalent inputs.' }],
+    });
+    const slowHelp = renderInfoHelp('pipeline.slowest', {
+      label: 'slow-test analysis',
+      why: 'Useful test splitting needs testcase durations, not file size or alphabetical order. The current safe JUnit reader deliberately retains status and identity but not timing.',
+      how: [{ text: 'Add bounded testcase duration ingestion before proposing timing-based shards.' }],
+    });
+    const cellCount = report ? Math.min(64, reportTests) : Math.min(32, Math.max(0, testing.totalCases || 0));
+    const cells = Array.from({ length: cellCount }, (_, index) => {
+      if (!report) { return 'unknown'; }
+      const ratio = (index + 0.5) / Math.max(1, cellCount);
+      if (ratio <= passed / Math.max(1, reportTests)) { return 'pass'; }
+      if (ratio <= (passed + failed) / Math.max(1, reportTests)) { return 'fail'; }
+      return 'skip';
+    });
+    return `<div class="ci-studio-stack">
+      <article class="panel-card ci-test-engine-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Test intelligence</p><h3>${report ? 'Latest test report' : 'Tests found, result not measured'}</h3><p class="stat-detail">${escapeHtml(report ? `${report.relativePath}${report.stale ? ' · stale' : ' · current relative to detected tests'}` : coverage.reportHint || 'Produce a JUnit report to resolve pass/fail state.')}</p></div>${help.button}</div>
+        ${help.panel}
+        <div class="ci-dial-grid">
+          ${renderPipelineDial('test-complete', completionPercent, { value: report ? `${completed}/${reportTests}` : '—', label: 'resolved', detail: report ? `${skipped} skipped` : 'No report', resolved: reportTests > 0 && completionPercent === 100 })}
+          ${renderPipelineDial('test-pass', passPercent, { value: report ? `${passed}/${completed}` : '—', label: 'passing', detail: report ? `${failed} failing` : `${testing.totalCases || 0} discovered`, resolved: reportTests > 0 && failed === 0 && !report.stale, tone: failed > 0 ? 'critical' : report ? 'good' : 'muted' })}
+          ${renderPipelineDial('policy-cover', coverage.activeCount > 0 ? (coverage.coveredCount / coverage.activeCount) * 100 : undefined, { value: coverage.activeCount > 0 ? `${coverage.coveredCount}/${coverage.activeCount}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: coverage.activeCount > 0 && coverage.coveredCount === coverage.activeCount, tone: coverage.missingCount > 0 ? 'warn' : 'good' })}
+        </div>
+        ${cells.length ? `<div class="ci-test-grid" role="img" aria-label="${escapeAttr(report ? `Aggregate display of ${passed} passing, ${failed} failing and ${skipped} skipped tests` : `${testing.totalCases || 0} tests discovered with no current result`)}">${cells.map((status, index) => `<span class="test-cell ${status}" style="--cell-index:${index}" title="${report ? 'Aggregate result display' : 'Discovered; not run'}">${status === 'pass' ? '✓' : status === 'fail' ? '×' : status === 'skip' ? '–' : '?'}</span>`).join('')}</div><p class="stat-detail">${report && reportTests > cellCount ? `${cellCount} proportional display cells summarise ${reportTests} aggregate results; they are not individual named tests.` : report ? 'One cell per reported result.' : 'Discovery cells are not pass results.'}</p>` : ''}
+        ${renderDistributionBar('pipeline-test-categories', (testing.categoryCounts || []).map(item => ({ key: item.key, label: item.label, value: item.count, tone: item.key === 'e2e' ? 'accent' : item.key === 'integration' ? 'warn' : 'good' })), { title: 'Test files by category', caption: `${testing.totalFiles || 0} files`, emptyLabel: 'No test files classified.' })}
+      </article>
+      <div class="panel-grid">
+        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Flaky tests</p><h3>History required</h3></div>${flakeHelp.button}</div>${flakeHelp.panel}<p class="section-copy">AtlasMind has no per-test run history yet, so it reports no flake count. It will not infer “stable” from one report.</p><button type="button" class="action-link" data-action="page" data-payload="testing">Open detailed Testing</button></article>
+        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Slowest tests</p><h3>Timing not recorded</h3></div>${slowHelp.button}</div>${slowHelp.panel}<p class="section-copy">No synthetic ranking is shown. Current CI answer-time analytics are available under Analytics.</p><button type="button" class="action-link" data-action="pipeline-section" data-payload="analytics">Open run analytics</button></article>
+      </div>
+    </div>`;
+  }
+
+  function renderPipelineAnalytics(runs, fetchFailure) {
+    const help = renderInfoHelp('pipeline.analytics', {
+      label: 'pipeline analytics',
+      why: 'Recent-run shape exposes recurring failures, long feedback cycles and workflows that are disproportionately noisy. AtlasMind uses the run timestamps GitHub reports, so “answer time” includes queue time as well as execution.',
+      how: [
+        { text: 'Compare pass rate by workflow before optimizing the global average.' },
+        { text: 'Treat a duration spike as a lead, not a diagnosis; open the run log for the cause.' },
+        { text: 'Refresh when the branch or queued run changes.' },
+      ],
+    });
+    if (fetchFailure) {
+      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Analytics</p><h3>Run history could not be read</h3></div>${help.button}</div>${help.panel}<p class="section-copy">${escapeHtml(fetchFailure)}</p><button type="button" class="action-link primary" data-action="pipeline-refresh">Try again</button></article>`;
+    }
+    if (!runs.length) {
+      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Analytics</p><h3>No run history loaded</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Read CI to populate outcome, duration and per-workflow reliability charts.</p><button type="button" class="action-link primary" data-action="pipeline-refresh">Read CI</button></article>`;
+    }
+    const completed = runs.filter(run => run.status === 'completed');
+    const passing = completed.filter(run => run.conclusion === 'success').length;
+    const failing = completed.filter(run => run.conclusion === 'failure').length;
+    const other = Math.max(0, completed.length - passing - failing);
+    const durations = completed.flatMap(run => {
+      const start = Date.parse(run.createdAt || '');
+      const end = Date.parse(run.updatedAt || '');
+      return Number.isFinite(start) && Number.isFinite(end) && end >= start
+        ? [{ ...run, durationMs: end - start }]
+        : [];
+    });
+    const sortedDuration = durations.map(run => run.durationMs).sort((a, b) => a - b);
+    const medianMs = sortedDuration.length >= 3 ? sortedDuration[Math.floor(sortedDuration.length / 2)] : undefined;
+    const workflowMap = new Map();
+    runs.forEach(run => {
+      const name = run.workflowName || run.displayTitle || 'Unnamed workflow';
+      const row = workflowMap.get(name) || { name, pass: 0, fail: 0, pending: 0, total: 0 };
+      row.total += 1;
+      if (run.status !== 'completed') { row.pending += 1; }
+      else if (run.conclusion === 'success') { row.pass += 1; }
+      else { row.fail += 1; }
+      workflowMap.set(name, row);
+    });
+    const workflows = [...workflowMap.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+    const maxDuration = Math.max(1, ...durations.map(run => run.durationMs));
+    const waterfallHelp = renderInfoHelp('pipeline.waterfall', {
+      label: 'the answer-time waterfall',
+      why: 'This is elapsed time from GitHub’s creation timestamp to its last completed update. It includes queueing, which is part of how long a developer waited for feedback.',
+      how: [{ text: 'Compare bars inside the same workflow before comparing unlike jobs.' }],
+    });
+    const reliabilityHelp = renderInfoHelp('pipeline.reliability', {
+      label: 'workflow reliability',
+      why: 'A project-wide percentage can hide one consistently noisy workflow. This table keeps each workflow’s sample size beside its rate.',
+      how: [{ text: 'Investigate workflows with repeated failures and enough samples before tuning healthy ones.' }],
+    });
+    return `<div class="ci-studio-stack">
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Delivery analytics</p><h3>Feedback speed and reliability</h3><p class="stat-detail">Bounded to the ${runs.length} recent runs GitHub returned for this branch.</p></div><div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-refresh">Refresh</button></div></div>
+        ${help.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Pass rate', completed.length ? `${Math.round((passing / completed.length) * 100)}%` : '—', { tone: failing ? 'warn' : 'good', detail: `${passing}/${completed.length} completed runs` })}
+          ${renderMetricPill('Median answer time', medianMs === undefined ? '—' : formatDurationCompact(medianMs), { detail: medianMs === undefined ? 'Needs 3 completed samples' : 'Queue + execution time' })}
+          ${renderMetricPill('Active now', String(runs.filter(run => run.status !== 'completed').length), { tone: runs.some(run => run.status !== 'completed') ? 'accent' : 'good', detail: 'Queued or in progress' })}
+          ${renderMetricPill('Workflow variants', String(workflows.length), { detail: 'Named workflows in this sample' })}
+        </div>
+        ${renderDonutChart('pipeline-run-outcomes', [
+          { label: 'Passing', value: passing, tone: 'good' },
+          { label: 'Failing', value: failing, tone: 'critical' },
+          { label: 'Other', value: other, tone: 'warn' },
+          { label: 'Running', value: runs.length - completed.length, tone: 'accent' },
+        ], { centerValue: completed.length ? `${Math.round((passing / completed.length) * 100)}%` : '—', centerLabel: 'pass rate', emptyLabel: 'No completed runs.' })}
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Answer-time waterfall</p><h3>Recent completed runs</h3></div>${waterfallHelp.button}</div>${waterfallHelp.panel}
+        <div class="ci-run-waterfall">${durations.slice(0, 20).map((run, index) => `<div class="ci-run-lane"><span class="ci-run-label" title="${escapeAttr(run.workflowName || run.displayTitle)}">${escapeHtml(shortenMiddle(run.workflowName || run.displayTitle || 'Run', 32))}</span><span class="ci-run-track"><span class="ci-run-bar ${run.conclusion === 'success' ? 'good' : 'critical'}" data-anim-key="run-duration:${run.databaseId}" data-anim-to="${Math.max(3, Math.round((run.durationMs / maxDuration) * 100))}%" style="width:0%;--run-index:${index}"></span></span><strong>${escapeHtml(formatDurationCompact(run.durationMs))}</strong></div>`).join('') || '<p class="stat-detail">No completed run carries a usable time window.</p>'}</div>
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Workflow reliability</p><h3>Where failures concentrate</h3></div>${reliabilityHelp.button}</div>${reliabilityHelp.panel}
+        <div class="ci-reliability-table">${workflows.map(workflow => {
+          const resolved = workflow.pass + workflow.fail;
+          const rate = resolved ? Math.round((workflow.pass / resolved) * 100) : undefined;
+          return `<div class="ci-reliability-row"><div><strong>${escapeHtml(workflow.name)}</strong><small>${workflow.total} sampled · ${workflow.pending} active</small></div><div class="ci-reliability-meter"><span data-anim-key="workflow-reliability:${escapeAttr(workflow.name)}" data-anim-to="${rate ?? 0}%" style="width:0%"></span></div><strong>${rate === undefined ? '—' : `${rate}%`}</strong></div>`;
+        }).join('')}</div>
+      </article>
+    </div>`;
+  }
+
+  function renderPipelinePackages(delivery) {
+    const workspace = delivery.workspace || { units: [], summary: 'Workspace topology was not read.' };
+    const supply = delivery.supplyChain || { formats: [], dependencyMonitoring: [], summary: 'Supply-chain inventory was not read.' };
+    const artifacts = delivery.artifacts || [];
+    const help = renderInfoHelp('pipeline.packages', {
+      label: 'packages and artifacts',
+      why: 'AtlasMind inventories what the repository produces and which package controls exist. It is not itself a package registry, and seeing a registry configuration file never means AtlasMind read or received its credentials.',
+      how: [
+        { text: 'Use manifests and lockfiles to assess reproducibility.' },
+        { text: 'Use dependency monitoring and pinned runner images as supply-chain guardrails.' },
+        { text: 'Connect an external registry adapter before claiming publish, cache or vulnerability data.' },
+      ],
+    });
+    const monorepoHelp = renderInfoHelp('pipeline.monorepo', {
+      label: 'monorepo impact',
+      why: 'The map is derived from declared package workspaces or bounded first-level manifests. “Affected” means the current worktree has a path inside that unit; it is not a dependency-graph claim.',
+      how: [{ text: 'Use affected units to propose conditional jobs.' }, { text: 'Add an explicit dependency graph before skipping downstream dependants.' }],
+    });
+    const artifactHelp = renderInfoHelp('pipeline.artifacts', {
+      label: 'the artifact ledger',
+      why: 'Artifacts have different lifetimes. A changelog should persist; coverage and build output should be reproducible; a dependency cache should be replaceable.',
+      how: [{ text: 'Open persistent artifacts for review.' }, { text: 'Treat generated output as evidence only when the producing run is known.' }],
+    });
+    return `<div class="ci-studio-stack">
+      <article class="panel-card ci-monorepo-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Monorepo impact</p><h3>${workspace.detected ? 'Build only what changed' : 'Single-project topology'}</h3><p class="stat-detail">${escapeHtml(workspace.summary || '')}</p></div>${monorepoHelp.button}</div>${monorepoHelp.panel}
+        <div class="ci-unit-grid">${(workspace.units || []).map(unit => `<div class="ci-unit-card${unit.affected ? ' affected' : ''}"><div class="row-head"><strong>${escapeHtml(unit.name)}</strong><span class="tag ${unit.affected ? 'tag-warn' : 'tag-good'}">${unit.affected ? 'affected' : 'unchanged'}</span></div><code>${escapeHtml(unit.path)}</code><small>${escapeHtml(unit.kind)} · ${escapeHtml(unit.manifest)}</small><div class="tag-row">${unit.buildCommand ? `<span class="tag mono">${escapeHtml(unit.buildCommand)}</span>` : ''}${unit.testCommand ? `<span class="tag mono">${escapeHtml(unit.testCommand)}</span>` : ''}</div></div>`).join('') || '<p class="stat-detail">No buildable units mapped.</p>'}</div>
+        ${workspace.truncated ? '<p class="stat-detail wf-unknown">The bounded scan was truncated; no absent unit should be inferred from this list.</p>' : ''}
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Supply-chain inventory</p><h3>Package formats and controls</h3><p class="stat-detail">${escapeHtml(supply.summary || '')}</p></div>${help.button}</div>
+        ${help.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Dependencies', String(supply.dependencyCount || 0), { detail: 'Runtime + development declarations' })}
+          ${renderMetricPill('Lockfiles', String(supply.lockfileCount || 0), { tone: supply.lockfileCount ? 'good' : 'warn', detail: 'Observed reproducibility controls' })}
+          ${renderMetricPill('Update monitors', String((supply.dependencyMonitoring || []).length), { tone: (supply.dependencyMonitoring || []).length ? 'good' : 'warn', detail: (supply.dependencyMonitoring || []).join(', ') || 'None observed' })}
+          ${renderMetricPill('Runner image', supply.runnerImagePinned ? 'Digest pinned' : 'Review', { tone: supply.runnerImagePinned ? 'good' : 'critical', detail: 'Execution supply chain' })}
+        </div>
+        <div class="ci-package-grid">${(supply.formats || []).map(format => `<div class="ci-package-card"><div class="row-head"><strong>${escapeHtml(format.label)}</strong><span class="tag ${format.lockfile ? 'tag-good' : 'tag-warn'}">${format.lockfile ? 'locked' : 'no lockfile read'}</span></div><code>${escapeHtml(format.manifest)}</code><small>${format.registryConfig ? `Registry config present: ${escapeHtml(format.registryConfig)} (values unread)` : 'No workspace registry configuration observed'}</small></div>`).join('') || '<p class="stat-detail">No supported package formats observed.</p>'}</div>
+        <div class="inline-notice"><strong>Registry adapter not configured</strong><p class="stat-detail">AtlasMind does not host packages or claim cache hits, approvals, vulnerability scans or publish state. Those become live metrics only when a provider adapter supplies them.</p></div>
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Artifact ledger</p><h3>Source → build → test → deploy</h3></div>${artifactHelp.button}</div>${artifactHelp.panel}
+        <div class="artifact-list">${artifacts.map(artifact => renderArtifactRow(artifact)).join('') || '<p class="stat-detail">No artifact signals available.</p>'}</div>
+      </article>
+    </div>`;
+  }
+
+  function formatDurationCompact(milliseconds) {
+    const seconds = Math.max(0, Math.round(Number(milliseconds) / 1000));
+    if (seconds < 60) { return `${seconds}s`; }
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    if (minutes < 60) { return `${minutes}m ${remainder}s`; }
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  }
+
   function renderPipeline(snapshot) {
     // Computed once: the button and the panel are two halves of one control,
     // and calling the builder twice would recompute the whole payload.
@@ -6150,6 +6570,7 @@
     const runnerEngine = runner.engine || {};
     const runnerResources = runner.resources || {};
     const runnerHost = runner.host || {};
+    const runnerGpu = runner.gpu || { detection: 'not-inspected', devices: [], dockerRuntimeKnown: false, dockerRuntimeAvailable: false, dockerRuntimes: [], accessPolicy: 'disabled' };
     const runnerBlockers = runner.blockers || [];
     const runnerWarnings = runner.warnings || [];
     const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
@@ -6168,6 +6589,20 @@
     const engineCapacity = runnerEngine.available
       ? `${runnerEngine.cpuCount || '—'} CPU · ${runnerEngine.memoryGb || '—'} GB`
       : runnerEngine.cliInstalled ? 'Engine stopped' : 'Not detected';
+    const gpuHelp = renderInfoHelp('pipeline.runner-gpu', {
+      label: 'GPU capability and access',
+      why: 'Detection answers what hardware exists. Container access is a separate privilege: the trusted local CI runner receives no GPU device by default, even when Docker advertises an NVIDIA runtime.',
+      how: [
+        { text: 'Inspect the machine to read GPU identity and, where available, live VRAM from the operating-system driver.' },
+        { text: 'Treat Docker runtime availability as capability only; it does not prove a container can or should use the device.' },
+        { text: 'Keep general CI CPU-only. A future GPU workload needs its own trusted label, image, resource policy and explicit confirmation.' },
+      ],
+    });
+    const gpuDevices = (runnerGpu.devices || []).map((device, index) => {
+      const memory = device.totalGb === undefined ? 'VRAM total unavailable'
+        : `${device.totalGb} GB total${device.freeGb === undefined ? '' : ` · ${device.freeGb} GB free`}${device.usedGb === undefined ? '' : ` · ${device.usedGb} GB used`}`;
+      return `<div class="ci-gpu-device"><span class="ci-gpu-icon" aria-hidden="true">GPU</span><div><strong>${escapeHtml(device.name || `GPU ${index + 1}`)}</strong><small>${escapeHtml(memory)} · ${escapeHtml((device.measurement || 'identity-only').replaceAll('-', ' '))}</small></div></div>`;
+    }).join('');
     const queuedRunCard = runner.queuedRun ? `
       <div class="ci-runner-queue">
         <div><span class="ci-workflow-label">Authorised queue item</span><strong>#${escapeHtml(String(runner.queuedRun.databaseId))} · ${escapeHtml(runner.queuedRun.workflowName || runner.workflowFile || 'Trusted workflow')}</strong></div>
@@ -6205,6 +6640,18 @@
           ${renderMetricPill('Other containers', String(runnerEngine.otherRunningContainers || 0), { tone: runnerEngine.otherRunningContainers ? 'warn' : 'good', detail: runnerEngine.otherRunningContainers ? 'Docker shutdown is inhibited' : 'Shutdown guard is clear' })}
           ${renderMetricPill('After the job', shutdownLabel, { detail: 'Machine-scoped policy' })}
         </div>
+        <section class="ci-gpu-panel" aria-label="GPU capability">
+          <div class="ci-section-heading"><div><span class="ci-workflow-label">Graphics capability</span><strong>${runnerGpu.detection === 'detected' ? `${runnerGpu.devices.length} GPU${runnerGpu.devices.length === 1 ? '' : 's'} detected` : runnerGpu.detection === 'not-detected' ? 'No GPU reported by the host probes' : 'Inspect the machine to read GPU capability'}</strong></div>${gpuHelp.button}</div>
+          ${gpuHelp.panel}
+          <div class="ci-gpu-grid">
+            <div class="ci-gpu-devices">${gpuDevices || '<p class="stat-detail">No device details available yet.</p>'}</div>
+            <div class="ci-gpu-policy">
+              <div><span>Docker GPU runtime</span><strong>${runnerGpu.dockerRuntimeKnown ? (runnerGpu.dockerRuntimeAvailable ? 'Available' : 'Not advertised') : 'Not inspected'}</strong></div>
+              <div><span>CI container access</span><strong class="policy-off">Off by policy</strong></div>
+              <small>${runnerGpu.dockerRuntimes && runnerGpu.dockerRuntimes.length ? `Docker runtimes: ${escapeHtml(runnerGpu.dockerRuntimes.join(', '))}` : 'The runner command never adds --gpus.'}</small>
+            </div>
+          </div>
+        </section>
         <div class="ci-runner-spec">
           <div><span class="ci-workflow-label">Workflow</span><code>${escapeHtml(runner.workflowFile || '—')}</code></div>
           <div><span class="ci-workflow-label">Trusted branch</span><code>${escapeHtml(runner.trustedBranch || '—')}</code></div>
@@ -6224,8 +6671,6 @@
         </div>
         <p class="stat-detail ci-runner-honesty"><strong>Evidence boundary:</strong> this Docker executor proves Linux ${escapeHtml(runnerEngine.arch || runnerHost.arch || 'architecture')} behaviour. Native Windows and macOS checks need native executors and are never inferred from this result.</p>
       </article>`;
-    const controlPlaneCards = `<div class="ci-control-plane">${runnerCard}${managerCard}</div>`;
-
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
         : run.conclusion === 'success' ? 'passing'
@@ -6234,43 +6679,39 @@
       return acc;
     }, {});
     const completed = (counts.passing || 0) + (counts.failing || 0);
+    const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
+    const testReport = snapshot.testing && snapshot.testing.policyCoverage
+      ? snapshot.testing.policyCoverage.report : undefined;
+    const testPassed = testReport ? Math.max(0, testReport.tests - testReport.failed - testReport.skipped) : 0;
+    const testResolved = testReport ? Math.max(0, testReport.tests - testReport.skipped) : 0;
+    const testPassRate = testResolved > 0 ? Math.round((testPassed / testResolved) * 100) : undefined;
+    const setupSignals = [
+      (assessment.qualityWorkflowCount || 0) > 0,
+      Boolean(intel && !fetchFailure),
+      runner.enabled && !['disabled', 'not-inspected'].includes(runner.lifecycle),
+      ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle),
+    ];
+    const setupDone = setupSignals.filter(Boolean).length;
+    const overviewHelp = renderInfoHelp('pipeline.overview', {
+      label: 'Pipeline Studio',
+      why: 'This page combines CI definition, trusted execution and observed results without collapsing them into one green badge. Start with the numbered route, then open a specialist view only when you need it.',
+      how: [
+        { text: 'Use Start here for the next safe action.' },
+        { text: 'Use Workflow map to understand fan-out and merge gates.' },
+        { text: 'Use Runner only when a trusted job is already queued.' },
+        { text: 'Use Tests and Analytics for evidence; Packages & repo for monorepo and supply-chain context.' },
+      ],
+    });
 
     const intro = renderPageIntro({
       kicker: 'Stage 5',
-      title: 'Pipeline and failure analysis',
+      title: 'Pipeline Studio',
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
           intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}`
-        : 'CI has not been read yet. Fetching runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.',
+        : 'Follow the four-step route to define checks, read GitHub, inspect compute and run one trusted job. Deeper views stay one click away.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
-
-    if (!intel) {
-      return `${pageSectionOpen('pipeline')}
-        ${intro}
-        ${controlPlaneCards}
-        <div class="dashboard-empty"><div>
-          <strong>CI has not been read</strong>
-          <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
-          ${renderRefreshAction('pipeline-refresh', 'Read CI for this branch', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
-        </div></div>
-      </section>`;
-    }
-
-    if (fetchFailure) {
-      return `${pageSectionOpen('pipeline')}
-        ${intro}
-        ${controlPlaneCards}
-        <div class="dashboard-empty"><div>
-          <strong>The run list could not be read</strong>
-          <div class="stat-detail">${escapeHtml(fetchFailure)}</div>
-          ${intel.fetchFixCommand ? `<div class="policy-report-line"><code>${escapeHtml(intel.fetchFixCommand)}</code></div>` : ''}
-          <p class="section-copy">No runs are shown because none were read — not because none exist. Nothing on this page should be taken as a verdict on the build until this succeeds.</p>
-          ${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
-        </div></div>
-      </section>`;
-    }
-
     const runRows = runs.slice(0, 15).map(run => `
       <div class="recent-item">
         <div class="row-head">
@@ -6280,52 +6721,49 @@
         </div>
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
+    const overviewContent = `<div class="ci-studio-stack">
+      <article class="panel-card ci-command-deck">
+        <div class="ci-section-heading"><div><p class="card-kicker">Live command deck</p><h3>What is ready right now?</h3></div>${overviewHelp.button}</div>
+        ${overviewHelp.panel}
+        <div class="ci-dial-grid">
+          ${renderPipelineDial('setup', (setupDone / setupSignals.length) * 100, { value: `${setupDone}/${setupSignals.length}`, label: 'setup steps', detail: setupDone === setupSignals.length ? 'Ready to operate' : 'Follow the route below', resolved: setupDone === setupSignals.length, tone: setupDone >= 3 ? 'good' : 'warn' })}
+          ${renderPipelineDial('ci-health', passRate, { value: passRate === undefined ? '—' : `${passRate}%`, label: 'recent runs passing', detail: completed ? `${completed} completed` : 'Read CI first', resolved: completed > 0 && (counts.failing || 0) === 0, tone: (counts.failing || 0) > 0 ? 'critical' : passRate === undefined ? 'muted' : 'good' })}
+          ${renderPipelineDial('test-health', testPassRate, { value: testReport ? `${testPassed}/${testResolved}` : '—', label: 'tests passing', detail: testReport ? `${testReport.failed} failed · ${testReport.skipped} skipped` : 'No current report', resolved: Boolean(testReport && !testReport.stale && testReport.failed === 0), tone: testReport && testReport.failed > 0 ? 'critical' : testReport ? 'good' : 'muted' })}
+          ${renderPipelineDial('runner-ready', ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle) ? 100 : runner.enabled ? 50 : 0, { value: runner.lifecycle || 'unknown', label: 'local runner', detail: `${runnerResources.cpus || '—'} CPU · ${runnerResources.memoryGb || '—'} GB`, resolved: ['ready', 'waiting', 'running', 'finished'].includes(runner.lifecycle), tone: runnerBlockers.length ? 'critical' : runner.enabled ? 'accent' : 'muted' })}
+        </div>
+      </article>
+      ${renderPipelineJourney(assessment, intel, runner, workflows)}
+      <div class="ci-capability-grid" aria-label="Pipeline Studio capabilities">
+        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="workflow"><span aria-hidden="true">⌘</span><div><strong>Visual workflow</strong><small>Triggers, fan-out, jobs and gates</small></div></button>
+        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="tests"><span aria-hidden="true">✓</span><div><strong>Test intelligence</strong><small>Resolved, failing, skipped and coverage</small></div></button>
+        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="analytics"><span aria-hidden="true">↗</span><div><strong>Delivery analytics</strong><small>Reliability and answer-time trends</small></div></button>
+        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="packages"><span aria-hidden="true">◇</span><div><strong>Monorepo & supply chain</strong><small>Affected units, packages and artifacts</small></div></button>
+        <button type="button" class="ci-capability-card" data-action="page" data-payload="delivery"><span aria-hidden="true">⇢</span><div><strong>Promotions</strong><small>Environments, approvals and gates</small></div></button>
+        <button type="button" class="ci-capability-card" data-action="page" data-payload="security"><span aria-hidden="true">⌾</span><div><strong>Security & audit</strong><small>Permissions, policy and evidence</small></div></button>
+      </div>
+      ${!intel ? '<div class="inline-notice"><strong>CI has not been read</strong><p class="stat-detail">AtlasMind reports no verdict rather than implying a green build. Read CI for this branch when you want GitHub evidence.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI for this branch</button></div>' : ''}
+      ${fetchFailure ? `<div class="inline-notice critical"><strong>The run list could not be read</strong><p class="stat-detail">${escapeHtml(fetchFailure)}</p>${intel && intel.fetchFixCommand ? `<code>${escapeHtml(intel.fetchFixCommand)}</code>` : ''}<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Try again</button></div></div>` : ''}
+      ${intel && !fetchFailure ? `<div class="panel-grid"><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Recent outcome</p><h3>${completed ? `${passRate}% passing` : 'Runs are still active'}</h3></div>${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, { busyLabel: 'Reading CI…' })}</div>${renderDistributionBar('pipeline-outcome', [
+        { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
+        { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
+        { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
+        { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
+      ], { title: 'Recent runs on this branch', caption: 'Latest bounded GitHub sample', emptyLabel: 'No runs recorded for this branch.' })}</article><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Latest failure</p><h3>${report ? escapeHtml(report.classification) : 'No failing runs'}</h3></div>${taxonomyHelp.button}</div>${taxonomyHelp.panel}${report ? renderCiFailure(report) : intel.logFailure ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>` : '<p class="section-copy">No failing runs in the loaded sample currently need failure analysis.</p>'}</article></div><article class="panel-card"><p class="card-kicker">Recent runs</p><div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div></article>` : ''}
+    </div>`;
+
+    const sectionContent = {
+      overview: overviewContent,
+      workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`,
+      runner: runnerCard,
+      tests: renderPipelineTestEngine(snapshot.testing || {}),
+      analytics: renderPipelineAnalytics(runs, fetchFailure),
+      packages: renderPipelinePackages(delivery),
+    }[state.pipelineSection] || overviewContent;
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
-      ${controlPlaneCards}
-      <div class="tag-row">
-        ${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, {
-          busyLabel: 'Reading CI…',
-          title: 'Re-read this branch’s runs, and the log of the latest failure',
-        })}
-      </div>
-      <div class="panel-grid">
-        <article class="panel-card">
-          <p class="card-kicker">Outcome</p>
-          <div class="mini-grid">
-            ${renderMetricPill('Passing', String(counts.passing || 0), { tone: 'good' })}
-            ${renderMetricPill('Failing', String(counts.failing || 0), { tone: (counts.failing || 0) > 0 ? 'critical' : 'good' })}
-            ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) + '%' : '—')}
-          </div>
-          ${renderDistributionBar('pipeline-outcome', [
-            { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
-            { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
-            { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
-            { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
-          ], {
-            title: 'Recent runs on this branch',
-            caption: 'The shape over time matters more than the latest result',
-            emptyLabel: 'No runs recorded for this branch.',
-          })}
-        </article>
-        <article class="panel-card">
-          <p class="card-kicker">Latest failure</p>
-          ${report ? renderCiFailure(report) : ''}
-          ${!report && intel.logFailure
-            ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
-            : ''}
-          ${!report && !intel.logFailure
-            ? '<div class="dashboard-empty"><div><strong>No failing runs</strong><p class="section-copy">Nothing on this branch has failed recently.</p></div></div>'
-            : ''}
-          ${taxonomyHelp.button}
-          ${taxonomyHelp.panel}
-        </article>
-      </div>
-      <article class="panel-card">
-        <p class="card-kicker">Recent runs</p>
-        <div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div>
-      </article>
+      ${renderPipelineTabs(snapshot, runs)}
+      <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(state.pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;
   }
 
@@ -10388,6 +10826,92 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function persistPipelineGraphPositions() {
+    vscode.setState({
+      ...(vscode.getState() || {}),
+      pipelineSection: state.pipelineSection,
+      pipelineNodePositions: state.pipelineNodePositions,
+    });
+  }
+
+  /**
+   * Add read-only canvas interaction after the dashboard's innerHTML swap.
+   * Dragging changes only this webview's saved presentation; workflow YAML is
+   * never written and every node also moves with the arrow keys.
+   */
+  function bindPipelineGraph() {
+    if (!root) { return; }
+    const canvas = root.querySelector('.ci-graph-canvas');
+    if (!(canvas instanceof HTMLElement)) { return; }
+    const svg = canvas.querySelector('.ci-graph-edges');
+    const nodes = [...canvas.querySelectorAll('.ci-graph-node')].filter(node => node instanceof HTMLElement);
+    const byKey = new Map(nodes.map(node => [node.dataset.nodeKey || '', node]));
+
+    const updateEdges = () => {
+      if (!svg) { return; }
+      svg.querySelectorAll('[data-edge-from][data-edge-to]').forEach(edge => {
+        const from = byKey.get(edge.getAttribute('data-edge-from') || '');
+        const to = byKey.get(edge.getAttribute('data-edge-to') || '');
+        if (!from || !to) { return; }
+        const x1 = from.offsetLeft + from.offsetWidth;
+        const y1 = from.offsetTop + from.offsetHeight / 2;
+        const x2 = to.offsetLeft;
+        const y2 = to.offsetTop + to.offsetHeight / 2;
+        const bend = Math.max(32, Math.abs(x2 - x1) * 0.45);
+        edge.setAttribute('d', `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
+      });
+    };
+
+    const moveNode = (node, x, y) => {
+      const maxX = Math.max(0, canvas.scrollWidth - node.offsetWidth - 12);
+      const maxY = Math.max(0, canvas.scrollHeight - node.offsetHeight - 12);
+      const next = {
+        x: Math.max(0, Math.min(maxX, Math.round(x))),
+        y: Math.max(0, Math.min(maxY, Math.round(y))),
+      };
+      node.style.left = `${next.x}px`;
+      node.style.top = `${next.y}px`;
+      const key = node.dataset.nodeKey || '';
+      if (key) { state.pipelineNodePositions[key] = next; }
+      updateEdges();
+    };
+
+    nodes.forEach(node => {
+      let drag = null;
+      node.addEventListener('pointerdown', event => {
+        if (event.button !== 0) { return; }
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: node.offsetLeft, top: node.offsetTop };
+        node.setPointerCapture(event.pointerId);
+        node.classList.add('is-dragging');
+        event.preventDefault();
+      });
+      node.addEventListener('pointermove', event => {
+        if (!drag || drag.id !== event.pointerId) { return; }
+        moveNode(node, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+      });
+      const finish = event => {
+        if (!drag || drag.id !== event.pointerId) { return; }
+        drag = null;
+        node.classList.remove('is-dragging');
+        if (node.hasPointerCapture(event.pointerId)) { node.releasePointerCapture(event.pointerId); }
+        persistPipelineGraphPositions();
+      };
+      node.addEventListener('pointerup', finish);
+      node.addEventListener('pointercancel', finish);
+      node.addEventListener('keydown', event => {
+        const direction = {
+          ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+        }[event.key];
+        if (!direction) { return; }
+        const step = event.shiftKey ? 24 : 8;
+        moveNode(node, node.offsetLeft + direction[0] * step, node.offsetTop + direction[1] * step);
+        persistPipelineGraphPositions();
+        event.preventDefault();
+      });
+    });
+    requestAnimationFrame(updateEdges);
   }
 
   function shortenMiddle(value, maxLength) {

@@ -106,7 +106,7 @@ describe('help toggles stay reachable by keyboard', () => {
 
   it('uses a real button so it inherits the shared focus ring', () => {
     const source = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf('function renderWorkflowHelp'));
-    expect(source).toContain('<button type="button" class="wf-help-toggle"');
+    expect(source).toMatch(/<button type="button" class="wf-help-toggle\$\{/);
   });
 
   it('escapes the id before building a selector from it', () => {
@@ -140,7 +140,7 @@ describe('empty states teach rather than report emptiness', () => {
     // An empty run list means one of two opposite things, and only one of them
     // is news about the build.
     expect(pipelineSource).toContain('The run list could not be read');
-    expect(pipelineSource).toMatch(/if \(fetchFailure\)/);
+    expect(pipelineSource).toContain('${fetchFailure ?');
   });
 
   it('distinguishes "no pull requests loaded" from "none open"', () => {
@@ -172,7 +172,7 @@ describe('empty states teach rather than report emptiness', () => {
   it('shows an unknown CI classification as itself rather than dressing it up', () => {
     const failure = WEBVIEW_SCRIPT.slice(
       WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
-      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration(verdict)'),
     );
     expect(failure).toContain('AtlasMind is not guessing');
     expect(failure).toContain('needs a human');
@@ -181,7 +181,7 @@ describe('empty states teach rather than report emptiness', () => {
   it('reports log truncation and redaction rather than hiding them', () => {
     const failure = WEBVIEW_SCRIPT.slice(
       WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
-      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration(verdict)'),
     );
     expect(failure).toContain('report.truncated');
     expect(failure).toContain('report.redacted');
@@ -192,7 +192,7 @@ describe('empty states teach rather than report emptiness', () => {
     // whatever else ended up in the build output.
     const failure = WEBVIEW_SCRIPT.slice(
       WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
-      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration(verdict)'),
     );
     expect(failure).toContain('report.evidenceLines || []).map(line => escapeHtml(line))');
     expect(failure).toContain('escapeHtml(report.jobName');
@@ -308,8 +308,11 @@ describe('the Pipeline CI management surface', () => {
 
   it('stays useful before CI run history has been fetched', () => {
     const body = source();
-    expect(body).toContain('${controlPlaneCards}');
-    expect(body.indexOf('const managerCard')).toBeLessThan(body.indexOf('if (!intel)'));
+    expect(body).toContain('${renderPipelineTabs(snapshot, runs)}');
+    expect(body).toContain('overview: overviewContent');
+    expect(body).toContain('workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`');
+    expect(body).toContain('runner: runnerCard');
+    expect(body).not.toMatch(/if \(!intel\)\s*\{\s*return/);
   });
 
   it('renders a provider-aware local runner command centre before any job starts', () => {
