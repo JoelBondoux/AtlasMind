@@ -411,11 +411,32 @@ use this surface to overwrite, disable, delete or silently weaken CI.
 
 Local runner operation remains on that host-only side. No agent skill can register a runner, obtain its
 token, start Docker Desktop, choose a queued job or change the shutdown policy. The Pipeline webview sends
-only three no-payload intents (inspect/start/show output); the host reads machine-scoped configuration,
+no-payload inspect/start/show-output and queue-command Copy/Send intents; the host reads machine-scoped configuration,
 revalidates the committed workflow and live GitHub queue, and shows its own modal. The short-lived token is
 streamed from the shared GitHub CLI boundary to Docker stdin and never becomes agent context. Provider
 cards for Buildkite, Semaphore and other executors are architectural adapter positions, not new tools or
 permissions; connecting one later must preserve the same host-owned trust gate and evidence labels.
+
+Machine setup adds no install tool. The host's explicit inspection runs bounded argv-only version/status
+probes for Docker and GitHub CLI plus the existing hardware scan; it does not install software, authenticate,
+or expose CLI output to an agent. The webview receives only readiness booleans, an inspected/not-inspected
+marker and the effective VS Code permission source. Missing-tool buttons submit only opaque ids; the host
+maps them to fixed official pages and accepts no URL or installer command. Browser login remains static
+operator guidance. Queue discovery remains inside Start preflight, checks pending and queued states, and
+accepts only one total waiting run for current HEAD, so an agent and the browser still cannot choose,
+dispatch or rerun a GitHub job.
+Queue command controls add no agent skill: the host reconstructs the validated complete command, while a
+stale-run Copy/Send request contains only a numeric id that must still exist in the current preflight issue.
+Sending types into the configured terminal without executing, preserving the human review boundary on
+Windows, macOS, and Linux.
+
+Pipeline Studio's graph, dials, analytics, monorepo map and package inventory do not add agent authority.
+Subview selection and graph coordinates are presentation state; the webview cannot submit workflow YAML.
+Workspace/package collection is a bounded extension-host read and registry configuration values are never
+opened. GPU discovery is likewise evidence, not a skill grant: `LocalCiRunnerManager` can report a device
+and Docker runtime while its fixed access policy remains disabled and the container receives no `--gpus`.
+Missing flake history, testcase timing or provider registry data remains visibly unavailable instead of
+being filled by a model.
 
 Execution-oriented built-in skills now include a dedicated `docker-cli` helper for container work. Instead of passing arbitrary Docker commands through the generic terminal skill, AtlasMind exposes a separate allow-list for `docker` and `docker compose` inspection and lifecycle operations such as `ps`, `logs`, `inspect`, `compose up`, and `compose down`.
 

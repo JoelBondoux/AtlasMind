@@ -353,12 +353,18 @@ file appears between review and write.
 The same Pipeline page now has a separate **execution fabric** backed by `localCiRunner.ts`. GitHub Actions
 is the connected provider and Docker is the current executor; Buildkite, Semaphore and other systems are
 shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
-inspection reads both host and Docker-engine CPU, memory, OS and architecture, preserves at least 25% for
-the desktop, applies machine-scoped ceilings, and publishes the exact calculation and Linux-container
-evidence boundary on the card.
+inspection checks GitHub CLI availability/authentication and reads host CPU/RAM/GPU capability plus
+Docker-engine CPU, memory, OS, architecture and advertised runtimes. Unchecked prerequisites stay “Not
+checked” rather than becoming false missing-tool claims. Capacity planning preserves at least 25% for the
+desktop, applies machine-scoped ceilings, and publishes
+the exact calculation and Linux-container evidence boundary on the card. GPU identity and trustworthy
+VRAM are capability evidence only: the access policy remains disabled and Docker receives no `--gpus`.
 
-Starting is a one-job transaction. AtlasMind finds exactly one queued owner-authored run at current HEAD,
-then re-validates the committed workflow's trigger, repository, branch, actor, read-only permissions,
+Starting is a one-job transaction. AtlasMind reads and deduplicates GitHub's `pending` and `queued` workflow
+states and requires exactly one waiting owner-authored run in total at current HEAD. A current run alongside
+a stale run refuses because GitHub may assign either job sharing the label. Queue absence or mismatch returns
+to a retryable ready state and carries the local/waiting SHAs for explanation. AtlasMind then re-validates
+the committed workflow's trigger, repository, branch, actor, read-only permissions,
 secret/OIDC absence, immutable action pins, checkout credential handling and unique dedicated label. Only
 then does a modal name the run, image, resource limits and cleanup effect. The registration token streams
 from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
@@ -369,6 +375,38 @@ Docker Desktop cleanup records who opened it. The default stops it only when Atl
 may keep it open or request an always-close policy, but an unreadable inventory or unrelated running
 container inhibits shutdown. Linux system services are outside this lifecycle. Windows, macOS and Linux
 can host the control plane, while native Windows/macOS evidence still requires native executors.
+
+The dashboard re-reads the effective runner permission before every snapshot. The manager remembers the
+last configuration so identical reads do not reset an inspected runner, while a profile/extension-host
+change invalidates readiness and requires inspection again. The webview receives the effective setting
+source for explanation only and cannot submit a replacement value.
+
+The surrounding **Pipeline Studio** is a progressive webview over those host-owned services. A four-decision
+beginner route follows the real order—choose checks, prepare the computer, queue GitHub, lend one temporary
+runner—then presents result reading as the follow-up. Start here derives the first incomplete decision and
+shows one primary action with a compact progress strip; the full step list, specialist shortcuts, and recent
+history begin collapsed. Six local subviews cover workflow, runner, tests,
+analytics, and packages/monorepo context around the Start view. Runner setup explicitly says no permanent
+daemon is required and separates permission, Docker, GitHub CLI/sign-in and pinned-image readiness.
+The current runner action and critical blockers precede the setup disclosure. Missing prerequisites expand
+that disclosure automatically; completed diagnostics collapse, while hardware, GPU, providers, resource
+limits, lifecycle and evidence remain available in a separate technical disclosure.
+Installation help appears only for a missing item and opens a host-allowlisted official page from an opaque
+webview id; raw machine installer commands are not presented as repository steps. The page explicitly
+distinguishes operating-system applications from project dependencies.
+Queue guidance renders the trusted branch as prose and only complete `gh` commands as code. Standard Copy
+and Send controls post no queue command string; the host rebuilds it from validated configuration. Cancel
+posts only a positive run id that must still belong to the current waiting-run issue. Send writes without a
+newline into a workspace-rooted terminal using the configured Windows, macOS, or Linux shell.
+Accessible information disclosures reuse persisted open/focus state;
+measured dials, test cells and charts have reduced-motion final states. The draggable workflow graph saves
+only presentation coordinates in webview state and cannot edit or supply workflow YAML.
+
+Workspace topology is derived from declared Node workspaces or a bounded first-level manifest scan, with
+candidate paths constrained under the workspace. “Affected” means a current worktree path falls inside a
+unit; it is not dependency-graph evidence. The package inventory checks only manifest, lockfile, dependency
+monitor and registry-configuration presence. It never reads registry values, and external cache, approval,
+vulnerability or publication state stays unconfigured until a provider adapter supplies it.
 
 The Branches panel follows the same host-authority boundary for daily Git work. An expanded card groups
 **Work** separately from **Review**, but a work button sends only the card's opaque inventory id and a

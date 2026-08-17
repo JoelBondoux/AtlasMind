@@ -1190,6 +1190,28 @@
       vscode.postMessage({ type: 'showLocalCiOutput' });
       return;
     }
+    if (action === 'pipeline-queue-command-copy') {
+      vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
+      return;
+    }
+    if (action === 'pipeline-queue-command-send') {
+      vscode.postMessage({ type: 'sendLocalCiQueueCommandToTerminal' });
+      return;
+    }
+    if (action === 'pipeline-cancel-command-copy') {
+      const runId = Number(payload);
+      if (Number.isSafeInteger(runId) && runId > 0) { vscode.postMessage({ type: 'copyLocalCiCancelCommand', payload: runId }); }
+      return;
+    }
+    if (action === 'pipeline-cancel-command-send') {
+      const runId = Number(payload);
+      if (Number.isSafeInteger(runId) && runId > 0) { vscode.postMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: runId }); }
+      return;
+    }
+    if (action === 'pipeline-setup-help') {
+      vscode.postMessage({ type: 'openLocalCiSetupHelp', payload: payload });
+      return;
+    }
     if (action === 'pipeline-create-starter') {
       vscode.postMessage({ type: 'createCiStarter' });
       return;
@@ -6112,70 +6134,95 @@
   }
 
   function renderPipelineJourney(assessment, intel, runner, workflows) {
-    const inspected = runner && !['disabled', 'not-inspected', 'inspecting'].includes(runner.lifecycle || 'not-inspected');
+    const inspected = runner && runner.prerequisites && runner.prerequisites.inspection === 'inspected';
     const runnable = runner && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle);
+    const permissionOn = Boolean(runner && runner.enabled);
     const steps = [
       {
-        title: 'Define the checks',
+        title: 'Choose what GitHub should test',
         detail: assessment.qualityWorkflowCount > 0
-          ? `${assessment.qualityWorkflowCount} quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found.`
-          : 'Add one workflow that builds, lints and tests the project.',
+          ? `${assessment.qualityWorkflowCount} reviewed quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found.`
+          : 'Add one reviewed workflow that builds, lints and tests the project.',
         done: assessment.qualityWorkflowCount > 0,
         action: assessment.qualityWorkflowCount > 0 ? 'pipeline-section' : 'pipeline-create-starter',
         payload: assessment.qualityWorkflowCount > 0 ? 'workflow' : '',
         actionLabel: assessment.qualityWorkflowCount > 0 ? 'See workflow map' : 'Preview starter CI',
       },
       {
-        title: 'Read the current result',
-        detail: intel && !intel.fetchFailure ? `${(intel.runs || []).length} recent run${(intel.runs || []).length === 1 ? '' : 's'} loaded.` : 'Ask GitHub for this branch’s recent runs.',
-        done: Boolean(intel && !intel.fetchFailure),
-        action: intel && !intel.fetchFailure ? 'pipeline-section' : 'pipeline-refresh',
-        payload: intel && !intel.fetchFailure ? 'analytics' : '',
-        actionLabel: intel && !intel.fetchFailure ? 'Open analytics' : 'Read CI for this branch',
+        title: 'Prepare this computer',
+        detail: !permissionOn
+          ? 'Runner permission is Off for the current VS Code extension host. You can still inspect prerequisites safely.'
+          : inspected ? (runner.message || 'Docker and GitHub prerequisites were inspected.')
+            : 'Permission is On. Check Docker, GitHub sign-in, CPU, memory and GPU.',
+        done: permissionOn && runnable,
+        action: 'pipeline-section',
+        payload: 'runner',
+        actionLabel: permissionOn && inspected ? 'Review machine setup' : 'Set up this computer',
       },
       {
-        title: 'Inspect this machine',
-        detail: inspected ? (runner.message || 'The executor was inspected.') : runner.enabled ? 'Read Docker, CPU, memory and GPU capacity.' : 'Enable the local runner, then inspect it.',
-        done: inspected,
-        action: runner.enabled ? 'pipeline-runner-inspect' : 'setting',
-        payload: runner.enabled ? '' : 'atlasmind.ci.localRunner.enabled',
-        actionLabel: runner.enabled ? 'Inspect machine' : 'Enable runner',
+        title: 'Queue one trusted job',
+        detail: runner.queuedRun ? `Queued run #${runner.queuedRun.databaseId} matches this checked-out commit.`
+          : 'Push the trusted branch or manually queue the trusted workflow. This step does not lend GitHub your computer yet.',
+        done: Boolean(runner.queuedRun),
+        action: 'pipeline-section',
+        payload: 'runner',
+        actionLabel: runner.queuedRun ? 'Review queued job' : 'See the queue command',
       },
       {
-        title: 'Run one trusted job',
-        detail: runner.queuedRun ? `Queued run #${runner.queuedRun.databaseId} is authorised for this commit.`
-          : runnable ? 'Queue the trusted workflow for this commit, then lend it this machine.'
-            : 'Resolve the runner readiness steps first.',
-        done: ['waiting', 'running', 'finished'].includes(runner.lifecycle),
-        action: runnable && runner.queuedRun ? 'pipeline-runner-start' : 'pipeline-section',
-        payload: runnable && runner.queuedRun ? '' : 'runner',
-        actionLabel: runnable && runner.queuedRun ? 'Start one-job runner' : 'Open runner',
-        disabled: runnable && runner.queuedRun ? (runner.blockers || []).length > 0 : false,
+        title: 'Lend this computer to that job',
+        detail: runner.lifecycle === 'finished'
+          ? 'The one-job runner finished and removed its temporary registration.'
+          : runner.lifecycle === 'running' ? 'The isolated container is executing the authorised job.'
+            : runnable ? 'AtlasMind will re-check the queue, show the exact plan, and ask before starting.'
+              : 'Finish the machine setup before starting.',
+        done: runner.lifecycle === 'finished',
+        action: runnable ? 'pipeline-runner-start' : 'pipeline-section',
+        payload: runnable ? '' : 'runner',
+        actionLabel: runner.lifecycle === 'finished' ? 'Run another trusted job…'
+          : runnable ? 'Check queue → review plan' : 'Resolve setup steps',
+        disabled: runnable ? (runner.blockers || []).length > 0 || ['starting', 'waiting', 'running'].includes(runner.lifecycle) : false,
       },
     ];
     const nextIndex = steps.findIndex(step => !step.done);
+    const completedSteps = steps.filter(step => step.done).length;
+    const nextStep = nextIndex >= 0 ? steps[nextIndex] : undefined;
+    const resultLoaded = Boolean(intel && !intel.fetchFailure);
+    const focus = nextStep || {
+      title: 'Review the result',
+      detail: resultLoaded
+        ? `${(intel.runs || []).length} recent run${(intel.runs || []).length === 1 ? '' : 's'} loaded. Open Analytics to review the evidence.`
+        : 'The runner finished. Read GitHub’s result before treating the job as passing.',
+      action: resultLoaded ? 'pipeline-section' : 'pipeline-refresh',
+      payload: resultLoaded ? 'analytics' : '',
+      actionLabel: resultLoaded ? 'Review CI evidence' : 'Read CI result',
+      disabled: false,
+    };
     const help = renderInfoHelp('pipeline.journey', {
       label: 'the safe CI workflow',
       why: 'The sequence keeps “a workflow exists”, “GitHub queued it”, and “this computer may execute it” as separate decisions. That prevents a convenient runner button from becoming permission to execute arbitrary pull-request code.',
       how: [
-        { text: 'Define checks once in a reviewed workflow file.' },
-        { text: 'Read the branch result so missing evidence is not mistaken for green.' },
-        { text: 'Inspect the machine before allocating compute.' },
-        { text: 'Serve exactly one owner-triggered, trusted-branch job.' },
+        { text: 'Define checks once in a reviewed, secret-free workflow file.' },
+        { text: 'Install and inspect Docker and GitHub CLI; no permanent runner daemon is required.' },
+        { text: 'Queue the owner-triggered workflow without starting a runner.' },
+        { text: 'Confirm the plan, then serve exactly one trusted-branch job in a temporary container.' },
       ],
     });
-    return `<article class="panel-card ci-journey-card">
-      <div class="ci-section-heading"><div><p class="card-kicker">Beginner route</p><h3>Four steps from code to a trusted result</h3></div>${help.button}</div>
+    return `<article class="panel-card ci-journey-card ci-next-action-card">
+      <div class="ci-section-heading"><div><p class="card-kicker">Setup · ${completedSteps} of 4 complete</p><h3>${nextStep ? `Next: ${escapeHtml(focus.title)}` : 'Setup complete'}</h3><p class="section-copy">${escapeHtml(focus.detail)}</p></div>${help.button}</div>
       ${help.panel}
-      <div class="ci-journey" aria-label="Safe local CI setup progress">
-        ${steps.map((step, index) => `<div class="ci-journey-step${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}">
-          <span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : index + 1}</span>
-          <div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p>
-            <button type="button" class="action-link${index === nextIndex ? ' primary' : ''}" data-action="${step.action}"${step.payload ? ` data-payload="${escapeAttr(step.payload)}"` : ''} ${step.disabled ? 'disabled' : ''}>${escapeHtml(step.actionLabel)}</button>
-          </div>
-        </div>`).join('')}
+      <div class="ci-journey-progress" role="list" aria-label="Safe local CI setup progress">
+        ${steps.map((step, index) => `<div role="listitem" class="ci-progress-step${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.title)}</small></div>`).join('')}
       </div>
-      <p class="stat-detail">${workflows.length > 0 ? 'Your workflow files stay the source of truth.' : 'AtlasMind will only propose a starter; it never overwrites an existing workflow.'}</p>
+      <div class="ci-next-action-row">
+        <button type="button" class="action-link primary" data-action="${focus.action}"${focus.payload ? ` data-payload="${escapeAttr(focus.payload)}"` : ''} ${focus.disabled ? 'disabled' : ''}>${escapeHtml(focus.actionLabel)}</button>
+        <span>${workflows.length > 0 ? 'Reviewed workflow files remain the source of truth.' : 'A starter is always previewed and never overwrites a workflow.'}</span>
+      </div>
+      <details class="ci-progressive-details">
+        <summary>Show all four setup steps</summary>
+        <div class="ci-journey-list">
+          ${steps.map((step, index) => `<div class="ci-journey-list-row${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : index + 1}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : index === nextIndex ? '' : 'tag-warn'}">${step.done ? 'Done' : index === nextIndex ? 'Next' : 'Later'}</span></div>`).join('')}
+        </div>
+      </details>
     </article>`;
   }
 
@@ -6410,7 +6457,7 @@
         <div class="ci-section-heading"><div><p class="card-kicker">Supply-chain inventory</p><h3>Package formats and controls</h3><p class="stat-detail">${escapeHtml(supply.summary || '')}</p></div>${help.button}</div>
         ${help.panel}
         <div class="mini-grid">
-          ${renderMetricPill('Dependencies', String(supply.dependencyCount || 0), { detail: 'Runtime + development declarations' })}
+          ${renderMetricPill('Root dependencies', String(supply.dependencyCount || 0), { detail: 'Root package manifest declarations' })}
           ${renderMetricPill('Lockfiles', String(supply.lockfileCount || 0), { tone: supply.lockfileCount ? 'good' : 'warn', detail: 'Observed reproducibility controls' })}
           ${renderMetricPill('Update monitors', String((supply.dependencyMonitoring || []).length), { tone: (supply.dependencyMonitoring || []).length ? 'good' : 'warn', detail: (supply.dependencyMonitoring || []).join(', ') || 'None observed' })}
           ${renderMetricPill('Runner image', supply.runnerImagePinned ? 'Digest pinned' : 'Review', { tone: supply.runnerImagePinned ? 'good' : 'critical', detail: 'Execution supply chain' })}
@@ -6571,9 +6618,13 @@
     const runnerResources = runner.resources || {};
     const runnerHost = runner.host || {};
     const runnerGpu = runner.gpu || { detection: 'not-inspected', devices: [], dockerRuntimeKnown: false, dockerRuntimeAvailable: false, dockerRuntimes: [], accessPolicy: 'disabled' };
+    const runnerPrerequisites = runner.prerequisites || { inspection: 'not-inspected', githubCliInstalled: false, githubAuthenticated: false };
+    const runnerEnablement = runner.enablement || { effective: Boolean(runner.enabled), source: 'default', sourceLabel: 'current VS Code extension host' };
+    const prerequisitesInspected = runnerPrerequisites.inspection === 'inspected';
     const runnerBlockers = runner.blockers || [];
     const runnerWarnings = runner.warnings || [];
     const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
+    const runnerReady = ['ready', 'finished'].includes(runner.lifecycle);
     const runnerTone = runner.lifecycle === 'running' || runner.lifecycle === 'finished' || runner.lifecycle === 'ready'
       ? 'tag-good'
       : runner.lifecycle === 'blocked' || runner.lifecycle === 'failed' ? 'tag-critical' : 'tag-warn';
@@ -6586,9 +6637,61 @@
     const shutdownLabel = runner.shutdownPolicy === 'never' ? 'Keep Docker open'
       : runner.shutdownPolicy === 'always' ? 'Close when safe'
         : 'Close only if AtlasMind opened it';
-    const engineCapacity = runnerEngine.available
+    const engineCapacity = !prerequisitesInspected ? 'Not checked' : runnerEngine.available
       ? `${runnerEngine.cpuCount || '—'} CPU · ${runnerEngine.memoryGb || '—'} GB`
       : runnerEngine.cliInstalled ? 'Engine stopped' : 'Not detected';
+    const setupStatus = (label, status, detail) => {
+      const word = status === 'ready' ? 'Ready' : status === 'action' ? 'Needs action' : status === 'planned' ? 'Handled at start' : 'Not checked';
+      const tone = status === 'ready' ? 'tag-good' : status === 'action' ? 'tag-critical' : status === 'planned' ? '' : 'tag-warn';
+      return `<div class="ci-setup-row"><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div><span class="tag ${tone}">${word}</span></div>`;
+    };
+    const dockerState = !prerequisitesInspected ? 'unknown' : runnerEngine.cliInstalled ? 'ready' : 'action';
+    const engineState = !prerequisitesInspected ? 'unknown' : runnerEngine.available ? 'ready' : runnerEngine.desktopAvailable ? 'planned' : 'action';
+    const ghState = !prerequisitesInspected ? 'unknown' : runnerPrerequisites.githubCliInstalled ? 'ready' : 'action';
+    const ghAuthState = !prerequisitesInspected ? 'unknown' : runnerPrerequisites.githubAuthenticated ? 'ready' : 'action';
+    const imageState = !prerequisitesInspected ? 'unknown' : !runnerEngine.cliInstalled ? 'action' : runnerEngine.imagePresent ? 'ready' : 'planned';
+    const machineSetupNeedsAction = prerequisitesInspected && (
+      !runnerEngine.cliInstalled
+      || (!runnerEngine.available && !runnerEngine.desktopAvailable)
+      || !runnerPrerequisites.githubCliInstalled
+      || !runnerPrerequisites.githubAuthenticated
+    );
+    const platformName = runnerHost.os === 'win32' ? 'Windows' : runnerHost.os === 'darwin' ? 'macOS' : runnerHost.os === 'linux' ? 'Linux' : 'this operating system';
+    const dockerHelpId = runnerHost.os === 'win32' ? 'docker-windows' : runnerHost.os === 'darwin' ? 'docker-macos' : 'docker-linux';
+    const installationHelp = !prerequisitesInspected
+      ? '<div class="inline-notice"><strong>Inspect before installing anything</strong><p class="stat-detail">AtlasMind will first check what this computer already has. Installation help appears only for a missing prerequisite.</p></div>'
+      : runnerEngine.cliInstalled && runnerPrerequisites.githubCliInstalled && runnerPrerequisites.githubAuthenticated
+        ? '<div class="inline-notice"><strong>No installation needed</strong><p class="stat-detail">Docker and GitHub CLI are already available, and GitHub CLI is signed in.</p></div>'
+        : `<section class="ci-install-guide" aria-label="Missing prerequisite guidance for ${escapeAttr(platformName)}">
+            <strong>Only change the computer items marked missing</strong>
+            <p class="stat-detail"><strong>Where software goes:</strong> Docker and GitHub CLI are operating-system applications installed outside this workspace. They do not become project dependencies and do not write application files into this repository.</p>
+            <div class="ci-install-steps">
+              ${!runnerEngine.cliInstalled ? `<div class="ci-install-step"><strong>Install Docker for ${escapeHtml(platformName)}</strong><p>Machine-level change · may request administrator approval or a restart.</p><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="${dockerHelpId}">Open Docker’s official installation guide ↗</button></div>` : ''}
+              ${!runnerPrerequisites.githubCliInstalled ? '<div class="ci-install-step"><strong>Install GitHub CLI</strong><p>Operating-system command-line tool · installed outside the repository.</p><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="github-cli">Open GitHub CLI’s official installation page ↗</button></div>' : ''}
+              ${runnerPrerequisites.githubCliInstalled && !runnerPrerequisites.githubAuthenticated ? '<div class="ci-install-step"><strong>Sign GitHub CLI in for this computer user</strong><p>This may be run in the VS Code terminal. It opens a browser and stores authentication in the operating system’s credential store; it does not change repository files.</p><code>gh auth login --hostname github.com --web</code></div>' : ''}
+            </div>
+            <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>
+          </section>`;
+    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction ? ' open' : ''}>
+      <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
+      <div class="ci-progressive-details-body" aria-label="Local runner installation and readiness">
+        <p class="section-copy"><strong>No permanent runner daemon:</strong> AtlasMind uses a temporary Docker container for one authorised job, then removes it.</p>
+        <div class="ci-setup-grid">
+          ${setupStatus('Runner permission', runnerEnablement.effective ? 'ready' : 'action', `${runnerEnablement.effective ? 'On' : 'Off'} in the ${runnerEnablement.sourceLabel || 'current VS Code extension host'}.`)}
+          ${setupStatus('Docker command', dockerState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerEngine.cliInstalled ? 'The Docker CLI is available.' : 'Install Docker and restart VS Code so PATH is refreshed.')}
+          ${setupStatus('Docker engine', engineState, !prerequisitesInspected ? 'Inspect to check the engine.' : runnerEngine.available ? 'Running and its real capacity was read.' : runnerEngine.desktopAvailable ? 'Docker Desktop can be started after you confirm the run.' : 'Start the managed Docker engine yourself.')}
+          ${setupStatus('GitHub command', ghState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerPrerequisites.githubCliInstalled ? 'GitHub CLI is available.' : 'Install GitHub CLI and restart VS Code.')}
+          ${setupStatus('GitHub sign-in', ghAuthState, !prerequisitesInspected ? 'Inspect to check gh auth status.' : runnerPrerequisites.githubAuthenticated ? 'Signed in to github.com.' : 'Run the browser sign-in command below.')}
+          ${setupStatus('Runner software', imageState, !prerequisitesInspected ? 'Inspect to check the pinned image.' : !runnerEngine.cliInstalled ? 'Install Docker before the runner image can be checked.' : runnerEngine.imagePresent ? 'Digest-pinned runner image is already present.' : 'AtlasMind will download the digest-pinned image only after confirmation.')}
+        </div>
+        ${installationHelp}
+        <div class="tag-row ci-runner-actions">
+          <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>
+          <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Runner permission (${runnerEnablement.effective ? 'On' : 'Off'})</button>
+        </div>
+        <p class="stat-detail">The permission value comes from the ${escapeHtml(runnerEnablement.sourceLabel || 'current VS Code extension host')}. If Settings differs, check the active profile or remote extension host and reload VS Code.</p>
+      </div>
+    </details>`;
     const gpuHelp = renderInfoHelp('pipeline.runner-gpu', {
       label: 'GPU capability and access',
       why: 'Detection answers what hardware exists. Container access is a separate privilege: the trusted local CI runner receives no GPU device by default, even when Docker advertises an NVIDIA runtime.',
@@ -6603,73 +6706,126 @@
         : `${device.totalGb} GB total${device.freeGb === undefined ? '' : ` · ${device.freeGb} GB free`}${device.usedGb === undefined ? '' : ` · ${device.usedGb} GB used`}`;
       return `<div class="ci-gpu-device"><span class="ci-gpu-icon" aria-hidden="true">GPU</span><div><strong>${escapeHtml(device.name || `GPU ${index + 1}`)}</strong><small>${escapeHtml(memory)} · ${escapeHtml((device.measurement || 'identity-only').replaceAll('-', ' '))}</small></div></div>`;
     }).join('');
+    const queueIssue = runner.preflightIssue;
+    const queueIssueEvidence = queueIssue
+      ? `<div class="ci-queue-shas"><div><span>Local checkout</span><code>${escapeHtml((queueIssue.currentSha || '').slice(0, 12))}</code></div>${queueIssue.queuedRuns && queueIssue.queuedRuns.length ? queueIssue.queuedRuns.slice(0, 4).map(run => `<div><span>Waiting run #${escapeHtml(String(run.databaseId))}</span><code>${escapeHtml((run.headSha || '').slice(0, 12))}</code></div>`).join('') : '<div><span>GitHub queue</span><strong>None found</strong></div>'}</div>`
+      : '';
+    const recoveryRuns = !queueIssue ? []
+      : queueIssue.kind === 'duplicates' ? (queueIssue.queuedRuns || [])
+        : queueIssue.kind === 'commit-mismatch' ? (queueIssue.queuedRuns || []).filter(run => String(run.headSha || '').toLowerCase() !== String(queueIssue.currentSha || '').toLowerCase())
+          : [];
+    const queueRecovery = recoveryRuns.length ? `<div class="ci-queue-recovery"><strong>${queueIssue.kind === 'duplicates' ? 'Cancel the waiting duplicates, then queue once' : 'Cancel the stale run before queueing this checkout'}</strong><p class="stat-detail">Each control below uses the complete command. Send to terminal types it into your configured VS Code shell but does not press Enter.</p>${recoveryRuns.slice(0, 8).map(run => `<div class="local-ci-command-block"><pre class="local-ci-command"><code>gh run cancel ${escapeHtml(String(run.databaseId))}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-cancel-command-copy" data-payload="${escapeAttr(String(run.databaseId))}" title="Copy the complete cancel command" aria-label="Copy the complete cancel command for waiting run ${escapeAttr(String(run.databaseId))}">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-cancel-command-send" data-payload="${escapeAttr(String(run.databaseId))}" title="Send complete cancel command to terminal — typed, not run" aria-label="Send the complete cancel command for waiting run ${escapeAttr(String(run.databaseId))} to the terminal">&gt;_</button></div></div>`).join('')}</div>` : '';
     const queuedRunCard = runner.queuedRun ? `
       <div class="ci-runner-queue">
         <div><span class="ci-workflow-label">Authorised queue item</span><strong>#${escapeHtml(String(runner.queuedRun.databaseId))} · ${escapeHtml(runner.queuedRun.workflowName || runner.workflowFile || 'Trusted workflow')}</strong></div>
         <span class="tag tag-good">${escapeHtml((runner.queuedRun.headSha || '').slice(0, 12))}</span>
         <p class="stat-detail">${escapeHtml(runner.queuedRun.displayTitle || 'Queued job')} · ${escapeHtml(runner.queuedRun.event || 'unknown event')}</p>
       </div>` : `
-      <div class="inline-notice">
-        <strong>Queue first, then lend the machine</strong>
-        <p class="stat-detail">Push or manually dispatch <code>${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')}</code>. AtlasMind starts no workflow and reruns no failure; it can only serve one queued run for the checked-out commit.</p>
-      </div>`;
+      <section class="ci-queue-guide" aria-label="Queue a trusted GitHub job">
+        <div><span class="ci-workflow-label">GitHub queue · repository action</span><strong>Queue the same commit that is open locally</strong></div>
+        <ol class="ci-queue-steps">
+          <li><strong>Commit and push first.</strong><span>AtlasMind queues the commit already pushed to the <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> branch. It cannot include uncommitted or unpushed files.</span></li>
+          <li><strong>Queue from this repository’s VS Code terminal.</strong><span>This complete GitHub CLI command works in PowerShell, Command Prompt, bash, and zsh. It installs no software and changes no local files.</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to terminal — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div></li>
+          <li><strong>Return here after GitHub confirms the dispatch.</strong><span>Select <em>Check GitHub queue → review start plan</em>. This checks the queue first; it does not lend the machine until you approve the separate plan.</span></li>
+        </ol>
+        <p class="stat-detail">A waiting self-hosted job may be reported by GitHub as “pending”; AtlasMind checks both pending and queued runs.</p>
+        ${queueIssue ? `<div class="inline-notice warning"><strong>${queueIssue.kind === 'commit-mismatch' ? 'A waiting job targets different code' : queueIssue.kind === 'duplicates' ? 'More than one job is waiting' : 'No matching job is visible yet'}</strong><p class="stat-detail">${escapeHtml(queueIssue.message || '')}</p>${queueIssueEvidence}${queueRecovery}</div>` : ''}
+      </section>`;
+    const runnerProgressSteps = [
+      { label: 'Permission', done: runnerEnablement.effective },
+      { label: 'Computer', done: prerequisitesInspected && !machineSetupNeedsAction },
+      { label: 'GitHub queue', done: Boolean(runner.queuedRun) },
+      { label: 'One-job run', done: runner.lifecycle === 'finished' },
+    ];
+    const runnerProgressCurrent = runnerProgressSteps.findIndex(step => !step.done);
+    let runnerFocusTitle = 'Queue one trusted job';
+    let runnerFocusDetail = 'Use the complete command below, then let AtlasMind verify the queue before it starts anything.';
+    let runnerFocusContext = queuedRunCard;
+    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || !runnerReady || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Check GitHub queue → review start plan</button>`;
+    if (!runnerEnablement.effective) {
+      runnerFocusTitle = 'Allow trusted local CI on this machine';
+      runnerFocusDetail = 'Turn on the machine-scoped permission first. This does not install software or start a runner.';
+      runnerFocusContext = '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Open runner permission</button>';
+    } else if (!prerequisitesInspected || runner.lifecycle === 'inspecting') {
+      runnerFocusTitle = runner.lifecycle === 'inspecting' ? 'Inspecting this computer…' : 'Inspect this computer';
+      runnerFocusDetail = 'AtlasMind checks Docker, GitHub sign-in, CPU, memory, and GPU before suggesting any installation.';
+      runnerFocusContext = '';
+      runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>${runner.lifecycle === 'inspecting' ? 'Inspection in progress…' : 'Inspect this computer'}</button>`;
+    } else if (machineSetupNeedsAction) {
+      runnerFocusTitle = 'Finish the missing computer setup';
+      runnerFocusDetail = 'Only the missing items are expanded below. Install them outside the repository, restart VS Code if needed, then inspect again.';
+      runnerFocusContext = '';
+      runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>`;
+    } else if (['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
+      runnerFocusTitle = runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
+      runnerFocusDetail = 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
+      runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>';
+    } else if (runner.lifecycle === 'finished') {
+      runnerFocusTitle = 'Review the GitHub result';
+      runnerFocusDetail = 'A clean runner exit is not a test verdict. Read GitHub before treating the job as passing.';
+      runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-refresh">Read CI result</button><button type="button" class="action-link" data-action="pipeline-runner-output">Open runner output</button>';
+    } else if (runner.queuedRun) {
+      runnerFocusTitle = 'Review and start this queued job';
+      runnerFocusDetail = 'AtlasMind found one waiting run for the checked-out commit. It will re-check everything and show a confirmation before starting.';
+    } else if (queueIssue) {
+      runnerFocusTitle = 'Fix the GitHub queue';
+      runnerFocusDetail = queueIssue.kind === 'commit-mismatch'
+        ? 'Cancel the stale run, queue this checkout, then check again.'
+        : queueIssue.kind === 'duplicates' ? 'Cancel every duplicate, queue exactly once, then check again.'
+          : 'Queue the trusted workflow, wait for GitHub to accept it, then check again.';
+    }
+    const runnerWarningsPanel = runnerWarnings.length ? `<details class="ci-progressive-details ci-runner-notes"><summary>Show ${runnerWarnings.length} operator note${runnerWarnings.length === 1 ? '' : 's'}</summary><div class="ci-progressive-details-body"><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div></details>` : '';
     const runnerCard = `
       <article class="panel-card ci-runner-card">
         <div class="row-head">
           <div>
-            <p class="card-kicker">Execution fabric · local ephemeral runner</p>
+            <p class="card-kicker">Trusted local CI · temporary runner</p>
             <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
             <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')}</div>
           </div>
           <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
         </div>
-        <div class="ci-runner-provider-grid" aria-label="CI provider adapters">
-          <div class="ci-runner-provider active"><strong>GitHub Actions</strong><small>Connected executor</small></div>
-          <div class="ci-runner-provider"><strong>Buildkite</strong><small>Adapter-ready · not configured</small></div>
-          <div class="ci-runner-provider"><strong>Semaphore</strong><small>Adapter-ready · not configured</small></div>
-          <div class="ci-runner-provider"><strong>Other runners</strong><small>Provider boundary reserved</small></div>
-        </div>
-        <div class="ci-runner-lifecycle" aria-label="Runner lifecycle">
-          ${runnerLifecycle.map(step => `<div class="ci-runner-stage ${step.active ? 'active' : ''}"><span></span><div><strong>${escapeHtml(step.label)}</strong><small>${escapeHtml(step.detail)}</small></div></div>`).join('')}
-        </div>
-        <div class="mini-grid">
-          ${renderMetricPill('Host', `${String(runnerHost.cpuCount || '—')} CPU · ${String(runnerHost.memoryGb || '—')} GB`, { detail: `${runnerHost.os || 'unknown'} · ${runnerHost.arch || 'unknown'}` })}
-          ${renderMetricPill('Docker capacity', engineCapacity, { tone: runnerEngine.available ? 'good' : 'warn', detail: runnerEngine.available ? `${runnerEngine.os || 'unknown'} · ${runnerEngine.arch || 'unknown'}` : 'Read from the engine, never assumed' })}
-          ${renderMetricPill('Runner limit', `${String(runnerResources.cpus || '—')} CPU · ${String(runnerResources.memoryGb || '—')} GB`, { detail: `${String(runnerResources.pidsLimit || '—')} process ceiling` })}
-          ${renderMetricPill('Desktop reserve', `${String(runnerResources.reserveCpus || '—')} CPU · ${String(runnerResources.reserveMemoryGb || '—')} GB`, { tone: 'good', detail: runnerResources.provisional ? 'Provisional until Docker is read' : 'Based on Docker’s actual allocation' })}
-          ${renderMetricPill('Other containers', String(runnerEngine.otherRunningContainers || 0), { tone: runnerEngine.otherRunningContainers ? 'warn' : 'good', detail: runnerEngine.otherRunningContainers ? 'Docker shutdown is inhibited' : 'Shutdown guard is clear' })}
-          ${renderMetricPill('After the job', shutdownLabel, { detail: 'Machine-scoped policy' })}
-        </div>
-        <section class="ci-gpu-panel" aria-label="GPU capability">
-          <div class="ci-section-heading"><div><span class="ci-workflow-label">Graphics capability</span><strong>${runnerGpu.detection === 'detected' ? `${runnerGpu.devices.length} GPU${runnerGpu.devices.length === 1 ? '' : 's'} detected` : runnerGpu.detection === 'not-detected' ? 'No GPU reported by the host probes' : 'Inspect the machine to read GPU capability'}</strong></div>${gpuHelp.button}</div>
-          ${gpuHelp.panel}
-          <div class="ci-gpu-grid">
-            <div class="ci-gpu-devices">${gpuDevices || '<p class="stat-detail">No device details available yet.</p>'}</div>
-            <div class="ci-gpu-policy">
-              <div><span>Docker GPU runtime</span><strong>${runnerGpu.dockerRuntimeKnown ? (runnerGpu.dockerRuntimeAvailable ? 'Available' : 'Not advertised') : 'Not inspected'}</strong></div>
-              <div><span>CI container access</span><strong class="policy-off">Off by policy</strong></div>
-              <small>${runnerGpu.dockerRuntimes && runnerGpu.dockerRuntimes.length ? `Docker runtimes: ${escapeHtml(runnerGpu.dockerRuntimes.join(', '))}` : 'The runner command never adds --gpus.'}</small>
-            </div>
-          </div>
+        <section class="ci-runner-focus" aria-label="Next local runner action">
+          <div><p class="card-kicker">Next action</p><h3>${escapeHtml(runnerFocusTitle)}</h3><p class="section-copy">${escapeHtml(runnerFocusDetail)}</p></div>
+          <div class="ci-runner-progress" role="list" aria-label="Local runner setup progress">${runnerProgressSteps.map((step, index) => `<div role="listitem" class="${step.done ? 'done' : index === runnerProgressCurrent ? 'current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.label)}</small></div>`).join('')}</div>
+          ${runnerFocusContext}
+          ${runnerBlockers.length ? `<div class="inline-notice critical"><strong>Cannot continue yet</strong><ul class="ci-caution-list">${runnerBlockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+          <div class="tag-row ci-runner-actions">${runnerFocusActions}</div>
         </section>
-        <div class="ci-runner-spec">
-          <div><span class="ci-workflow-label">Workflow</span><code>${escapeHtml(runner.workflowFile || '—')}</code></div>
-          <div><span class="ci-workflow-label">Trusted branch</span><code>${escapeHtml(runner.trustedBranch || '—')}</code></div>
-          <div><span class="ci-workflow-label">Dedicated label</span><code>${escapeHtml(runner.runnerLabel || 'invalid')}</code></div>
-          <div><span class="ci-workflow-label">Image</span><code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code></div>
-        </div>
-        <div class="ci-resource-rationale"><strong>Capacity calculation</strong><p class="stat-detail">${escapeHtml(runnerResources.explanation || 'Inspect Docker to calculate an allocation.')}</p></div>
-        ${queuedRunCard}
-        ${runnerBlockers.length ? `<div class="inline-notice critical"><strong>Start blocked</strong><ul class="ci-caution-list">${runnerBlockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
-        ${runnerWarnings.length ? `<div class="inline-notice warning"><strong>Operator notes</strong><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+        ${setupCard}
+        ${runnerWarningsPanel}
+        <details class="ci-progressive-details ci-runner-technical">
+          <summary><span>Hardware, limits, providers, and security details</span><small>${escapeHtml(engineCapacity)} · ${escapeHtml(shutdownLabel)}</small></summary>
+          <div class="ci-progressive-details-body">
+            <div class="ci-runner-provider-grid" aria-label="CI provider adapters">
+              <div class="ci-runner-provider active"><strong>GitHub Actions</strong><small>Connected executor</small></div>
+              <div class="ci-runner-provider"><strong>Buildkite</strong><small>Adapter-ready · not configured</small></div>
+              <div class="ci-runner-provider"><strong>Semaphore</strong><small>Adapter-ready · not configured</small></div>
+              <div class="ci-runner-provider"><strong>Other runners</strong><small>Provider boundary reserved</small></div>
+            </div>
+            <div class="ci-runner-lifecycle" aria-label="Runner lifecycle">${runnerLifecycle.map(step => `<div class="ci-runner-stage ${step.active ? 'active' : ''}"><span></span><div><strong>${escapeHtml(step.label)}</strong><small>${escapeHtml(step.detail)}</small></div></div>`).join('')}</div>
+            <div class="mini-grid">
+              ${renderMetricPill('Host', `${String(runnerHost.cpuCount || '—')} CPU · ${String(runnerHost.memoryGb || '—')} GB`, { detail: `${runnerHost.os || 'unknown'} · ${runnerHost.arch || 'unknown'}` })}
+              ${renderMetricPill('Docker capacity', engineCapacity, { tone: runnerEngine.available ? 'good' : 'warn', detail: runnerEngine.available ? `${runnerEngine.os || 'unknown'} · ${runnerEngine.arch || 'unknown'}` : 'Read from the engine, never assumed' })}
+              ${renderMetricPill('Runner limit', `${String(runnerResources.cpus || '—')} CPU · ${String(runnerResources.memoryGb || '—')} GB`, { detail: `${String(runnerResources.pidsLimit || '—')} process ceiling` })}
+              ${renderMetricPill('Desktop reserve', `${String(runnerResources.reserveCpus || '—')} CPU · ${String(runnerResources.reserveMemoryGb || '—')} GB`, { tone: 'good', detail: runnerResources.provisional ? 'Provisional until Docker is read' : 'Based on Docker’s actual allocation' })}
+              ${renderMetricPill('Other containers', prerequisitesInspected ? String(runnerEngine.otherRunningContainers || 0) : '—', { tone: !prerequisitesInspected ? 'warn' : runnerEngine.otherRunningContainers ? 'warn' : 'good', detail: !prerequisitesInspected ? 'Inspect before making a shutdown decision' : runnerEngine.otherRunningContainers ? 'Docker shutdown is inhibited' : 'Shutdown guard is clear' })}
+              ${renderMetricPill('After the job', shutdownLabel, { detail: 'Machine-scoped policy' })}
+            </div>
+            <section class="ci-gpu-panel" aria-label="GPU capability">
+              <div class="ci-section-heading"><div><span class="ci-workflow-label">Graphics capability</span><strong>${runnerGpu.detection === 'detected' ? `${runnerGpu.devices.length} GPU${runnerGpu.devices.length === 1 ? '' : 's'} detected` : runnerGpu.detection === 'not-detected' ? 'No GPU reported by the host probes' : 'Inspect the machine to read GPU capability'}</strong></div>${gpuHelp.button}</div>
+              ${gpuHelp.panel}
+              <div class="ci-gpu-grid"><div class="ci-gpu-devices">${gpuDevices || '<p class="stat-detail">No device details available yet.</p>'}</div><div class="ci-gpu-policy"><div><span>Docker GPU runtime</span><strong>${runnerGpu.dockerRuntimeKnown ? (runnerGpu.dockerRuntimeAvailable ? 'Available' : 'Not advertised') : 'Not inspected'}</strong></div><div><span>CI container access</span><strong class="policy-off">Off by policy</strong></div><small>${runnerGpu.dockerRuntimes && runnerGpu.dockerRuntimes.length ? `Docker runtimes: ${escapeHtml(runnerGpu.dockerRuntimes.join(', '))}` : 'The runner command never adds --gpus.'}</small></div></div>
+            </section>
+            <div class="ci-runner-spec"><div><span class="ci-workflow-label">Workflow</span><code>${escapeHtml(runner.workflowFile || '—')}</code></div><div><span class="ci-workflow-label">Trusted branch</span><code>${escapeHtml(runner.trustedBranch || '—')}</code></div><div><span class="ci-workflow-label">Dedicated label</span><code>${escapeHtml(runner.runnerLabel || 'invalid')}</code></div><div><span class="ci-workflow-label">Image</span><code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code></div></div>
+            <div class="ci-resource-rationale"><strong>Capacity calculation</strong><p class="stat-detail">${escapeHtml(runnerResources.explanation || 'Inspect Docker to calculate an allocation.')}</p></div>
+            <p class="stat-detail ci-runner-honesty"><strong>Evidence boundary:</strong> this Docker executor proves Linux ${escapeHtml(runnerEngine.arch || runnerHost.arch || 'architecture')} behaviour. Native Windows and macOS checks need native executors and are never inferred from this result.</p>
+          </div>
+        </details>
         ${runner.lastOutput ? `<div class="ci-runner-last"><span class="ci-workflow-label">Latest runner event</span><code>${escapeHtml(runner.lastOutput)}</code></div>` : ''}
-        <div class="tag-row ci-runner-actions">
-          <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect machine</button>
-          <button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Start one-job runner</button>
-          <button type="button" class="action-link" data-action="pipeline-runner-output">Open live output</button>
-          <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Runner settings</button>
-        </div>
-        <p class="stat-detail ci-runner-honesty"><strong>Evidence boundary:</strong> this Docker executor proves Linux ${escapeHtml(runnerEngine.arch || runnerHost.arch || 'architecture')} behaviour. Native Windows and macOS checks need native executors and are never inferred from this result.</p>
       </article>`;
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
@@ -6680,36 +6836,13 @@
     }, {});
     const completed = (counts.passing || 0) + (counts.failing || 0);
     const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
-    const testReport = snapshot.testing && snapshot.testing.policyCoverage
-      ? snapshot.testing.policyCoverage.report : undefined;
-    const testPassed = testReport ? Math.max(0, testReport.tests - testReport.failed - testReport.skipped) : 0;
-    const testResolved = testReport ? Math.max(0, testReport.tests - testReport.skipped) : 0;
-    const testPassRate = testResolved > 0 ? Math.round((testPassed / testResolved) * 100) : undefined;
-    const setupSignals = [
-      (assessment.qualityWorkflowCount || 0) > 0,
-      Boolean(intel && !fetchFailure),
-      runner.enabled && !['disabled', 'not-inspected'].includes(runner.lifecycle),
-      ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle),
-    ];
-    const setupDone = setupSignals.filter(Boolean).length;
-    const overviewHelp = renderInfoHelp('pipeline.overview', {
-      label: 'Pipeline Studio',
-      why: 'This page combines CI definition, trusted execution and observed results without collapsing them into one green badge. Start with the numbered route, then open a specialist view only when you need it.',
-      how: [
-        { text: 'Use Start here for the next safe action.' },
-        { text: 'Use Workflow map to understand fan-out and merge gates.' },
-        { text: 'Use Runner only when a trusted job is already queued.' },
-        { text: 'Use Tests and Analytics for evidence; Packages & repo for monorepo and supply-chain context.' },
-      ],
-    });
-
     const intro = renderPageIntro({
       kicker: 'Stage 5',
       title: 'Pipeline Studio',
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
           intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}`
-        : 'Follow the four-step route to define checks, read GitHub, inspect compute and run one trusted job. Deeper views stay one click away.',
+        : 'Follow the four decisions to choose checks, prepare this computer, queue GitHub and run one trusted job. Deeper views stay one click away.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
     const runRows = runs.slice(0, 15).map(run => `
@@ -6721,34 +6854,28 @@
         </div>
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
-    const overviewContent = `<div class="ci-studio-stack">
-      <article class="panel-card ci-command-deck">
-        <div class="ci-section-heading"><div><p class="card-kicker">Live command deck</p><h3>What is ready right now?</h3></div>${overviewHelp.button}</div>
-        ${overviewHelp.panel}
-        <div class="ci-dial-grid">
-          ${renderPipelineDial('setup', (setupDone / setupSignals.length) * 100, { value: `${setupDone}/${setupSignals.length}`, label: 'setup steps', detail: setupDone === setupSignals.length ? 'Ready to operate' : 'Follow the route below', resolved: setupDone === setupSignals.length, tone: setupDone >= 3 ? 'good' : 'warn' })}
-          ${renderPipelineDial('ci-health', passRate, { value: passRate === undefined ? '—' : `${passRate}%`, label: 'recent runs passing', detail: completed ? `${completed} completed` : 'Read CI first', resolved: completed > 0 && (counts.failing || 0) === 0, tone: (counts.failing || 0) > 0 ? 'critical' : passRate === undefined ? 'muted' : 'good' })}
-          ${renderPipelineDial('test-health', testPassRate, { value: testReport ? `${testPassed}/${testResolved}` : '—', label: 'tests passing', detail: testReport ? `${testReport.failed} failed · ${testReport.skipped} skipped` : 'No current report', resolved: Boolean(testReport && !testReport.stale && testReport.failed === 0), tone: testReport && testReport.failed > 0 ? 'critical' : testReport ? 'good' : 'muted' })}
-          ${renderPipelineDial('runner-ready', ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle) ? 100 : runner.enabled ? 50 : 0, { value: runner.lifecycle || 'unknown', label: 'local runner', detail: `${runnerResources.cpus || '—'} CPU · ${runnerResources.memoryGb || '—'} GB`, resolved: ['ready', 'waiting', 'running', 'finished'].includes(runner.lifecycle), tone: runnerBlockers.length ? 'critical' : runner.enabled ? 'accent' : 'muted' })}
-        </div>
-      </article>
+    const overviewContent = `<div class="ci-studio-stack ci-start-view">
       ${renderPipelineJourney(assessment, intel, runner, workflows)}
-      <div class="ci-capability-grid" aria-label="Pipeline Studio capabilities">
+      ${!intel ? '<div class="inline-notice"><strong>No CI result has been read yet</strong><p class="stat-detail">This does not mean the build passed. Read GitHub only when you need the result.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI result</button></div>' : ''}
+      ${fetchFailure ? `<div class="inline-notice critical"><strong>The run list could not be read</strong><p class="stat-detail">${escapeHtml(fetchFailure)}</p>${intel && intel.fetchFixCommand ? `<code>${escapeHtml(intel.fetchFixCommand)}</code>` : ''}<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Try again</button></div></div>` : ''}
+      <details class="ci-progressive-details ci-explore-details">
+        <summary>Explore specialist dashboards</summary>
+        <p class="stat-detail">Setup stays focused above. Open these views when you need deeper evidence or configuration.</p>
+        <div class="ci-capability-grid" aria-label="Pipeline Studio capabilities">
         <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="workflow"><span aria-hidden="true">⌘</span><div><strong>Visual workflow</strong><small>Triggers, fan-out, jobs and gates</small></div></button>
         <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="tests"><span aria-hidden="true">✓</span><div><strong>Test intelligence</strong><small>Resolved, failing, skipped and coverage</small></div></button>
         <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="analytics"><span aria-hidden="true">↗</span><div><strong>Delivery analytics</strong><small>Reliability and answer-time trends</small></div></button>
         <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="packages"><span aria-hidden="true">◇</span><div><strong>Monorepo & supply chain</strong><small>Affected units, packages and artifacts</small></div></button>
         <button type="button" class="ci-capability-card" data-action="page" data-payload="delivery"><span aria-hidden="true">⇢</span><div><strong>Promotions</strong><small>Environments, approvals and gates</small></div></button>
         <button type="button" class="ci-capability-card" data-action="page" data-payload="security"><span aria-hidden="true">⌾</span><div><strong>Security & audit</strong><small>Permissions, policy and evidence</small></div></button>
-      </div>
-      ${!intel ? '<div class="inline-notice"><strong>CI has not been read</strong><p class="stat-detail">AtlasMind reports no verdict rather than implying a green build. Read CI for this branch when you want GitHub evidence.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI for this branch</button></div>' : ''}
-      ${fetchFailure ? `<div class="inline-notice critical"><strong>The run list could not be read</strong><p class="stat-detail">${escapeHtml(fetchFailure)}</p>${intel && intel.fetchFixCommand ? `<code>${escapeHtml(intel.fetchFixCommand)}</code>` : ''}<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Try again</button></div></div>` : ''}
-      ${intel && !fetchFailure ? `<div class="panel-grid"><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Recent outcome</p><h3>${completed ? `${passRate}% passing` : 'Runs are still active'}</h3></div>${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, { busyLabel: 'Reading CI…' })}</div>${renderDistributionBar('pipeline-outcome', [
+        </div>
+      </details>
+      ${intel && !fetchFailure ? `<details class="ci-progressive-details"><summary>Show recent CI results</summary><div class="ci-progressive-details-body"><div class="panel-grid"><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Recent outcome</p><h3>${completed ? `${passRate}% passing` : 'Runs are still active'}</h3></div>${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, { busyLabel: 'Reading CI…' })}</div>${renderDistributionBar('pipeline-outcome', [
         { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
         { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
         { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
         { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
-      ], { title: 'Recent runs on this branch', caption: 'Latest bounded GitHub sample', emptyLabel: 'No runs recorded for this branch.' })}</article><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Latest failure</p><h3>${report ? escapeHtml(report.classification) : 'No failing runs'}</h3></div>${taxonomyHelp.button}</div>${taxonomyHelp.panel}${report ? renderCiFailure(report) : intel.logFailure ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>` : '<p class="section-copy">No failing runs in the loaded sample currently need failure analysis.</p>'}</article></div><article class="panel-card"><p class="card-kicker">Recent runs</p><div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div></article>` : ''}
+      ], { title: 'Recent runs on this branch', caption: 'Latest bounded GitHub sample', emptyLabel: 'No runs recorded for this branch.' })}</article><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Latest failure</p><h3>${report ? escapeHtml(report.classification) : 'No failing runs'}</h3></div>${taxonomyHelp.button}</div>${taxonomyHelp.panel}${report ? renderCiFailure(report) : intel.logFailure ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>` : '<p class="section-copy">No failing runs in the loaded sample currently need failure analysis.</p>'}</article></div><article class="panel-card"><p class="card-kicker">Recent runs</p><div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div></article></div></details>` : ''}
     </div>`;
 
     const sectionContent = {

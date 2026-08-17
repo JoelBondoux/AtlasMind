@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.346.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.347.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -12,14 +12,6 @@
   <strong>Your AI delivery team, inside VS Code.</strong><br />
   <em>Describe what you want built. Watch it get done. Keep every decision.</em>
 </p>
-
-## What's new in 0.345.1
-
-- **Delivery checks now show current local CI readiness and working-tree blockers.** The dashboard pipeline surface
-  surfaces queue state, run lifecycle and blocker summaries from local CI with cleaner state transitions, so the
-  shipping runbook reflects repository reality before you promote.
-
----
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind"><strong>Install from the VS Code Marketplace</strong></a>
@@ -135,18 +127,35 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.346.0
+## What's new in 0.347.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Follow CI as a workflow, then zoom into the evidence.** Pipeline Studio opens with four plain-language
-  steps and accessible information controls, then separates workflow mapping, the local runner, tests,
+  decisions—choose the checks, prepare the computer, queue GitHub, then lend one temporary runner—and
+  shows only the next required action and a compact progress strip by default. Completed setup detail,
+  specialist dashboards, and recent history are progressively disclosed instead of lengthening the setup
+  path. Pipeline Studio separates workflow mapping, the local runner, tests,
   analytics, and packages/monorepo context into focused views. Measured status dials resolve to ticks; the
   read-only node graph can be rearranged with a pointer or keyboard; current test reports animate into
   honest pass/fail/skip cells; and bounded GitHub history drives outcome, answer-time and per-workflow
   reliability charts. Missing history, timing, registry or report data stays labelled unknown rather than
   being rendered as a healthy zero.
+
+- **Set up local CI without guessing what “enabled” means.** The Runner view now explains that no permanent
+  runner daemon is required and checks permission, PATH, Docker engine, GitHub authentication and the pinned
+  runner image as distinct states. Missing software opens a fixed official installation page and is clearly
+  described as an operating-system application outside the repository; no machine installer command is
+  presented as a project-terminal step. The permission badge shows the effective value and VS Code scope
+  AtlasMind actually read, and settings are re-synchronised before every dashboard snapshot.
+
+- **Queue exactly the code you intend to test.** The Runner view names the trusted branch in plain language,
+  recognises GitHub's `pending` as well as `queued` state, and shows the local and waiting SHAs when they
+  differ. Complete queue and stale-run cancellation commands have Copy and Send-to-Terminal controls; Send
+  works with the configured VS Code shell on Windows, macOS, or Linux and does not press Enter. A queue
+  check is retryable, while one correct run plus any stale run is refused: GitHub could assign either job
+  that shares the runner label.
 
 - **See the hardware and repository shape behind a run.** Machine inspection now reports GPU identity and
   trustworthy VRAM readings alongside Docker's advertised GPU runtime, while keeping container GPU access

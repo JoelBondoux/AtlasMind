@@ -518,10 +518,49 @@ The Project Dashboard (`src/views/projectDashboardPanel.ts`) now includes a dedi
 
 Dashboard refresh controls share `renderRefreshAction` and `.refresh-progress-button`: the indeterminate fill uses `--vscode-progressBar-background`, stays inside the pressed button, disables duplicate clicks, reports `aria-busy`, and becomes a static fill under `prefers-reduced-motion`. The browser sets an optimistic busy bit only for the post-message round-trip; `repositoryRefreshBusy`, `branchFetchBusy`, and branch-id-scoped `branchInspectionBusy` host replies own the real lifetime and clear in `finally`. One repository-activity refresh deliberately animates every matching Issues/PR/CI control because that guarded operation loads issues, pull requests, CI, taxonomy, and releases together. **Two host messages now drive that one flag**: `refreshIssues` (all five reads) and `refreshCi` (`gh run list` for the branch and repo, plus at most one `--log-failed` download). They are separate because the costs differ by more than an order of magnitude and somebody watching a build should not re-read a hundred issues to see whether it went green; they share `repositoryActivityRefreshRunning`, so clicking both is a no-op rather than two bursts of API quota. `handleRefreshCi` **records its failure on the snapshot** rather than swallowing it as `handleRefreshIssues` does — there the CI read is tertiary and hiding it would not hide the primary read that succeeded, here it is the entire point of the click. `DashboardCiIntelligence.fetchFailure` is kept apart from `logFailure` (the run list could not be read, versus one run's log could not be read: different causes, different fixes), and a failure *replaces* previously-read runs rather than sitting above them, because old runs under a fresh timestamp report a stale build as the current one. The header refresh exposes **Ctrl+Shift+R** / **⌘⇧R** through a panel-scoped `keydown` handler, visible platform-aware hint, tooltip, and `aria-keyshortcuts`; it works wherever focus sits inside the webview and does not register or override a global VS Code keybinding.
 
+Pipeline Studio is deliberately progressive rather than one dense renderer. `state.pipelineSection` selects
+**Start here / Workflow map / Runner / Tests / Analytics / Packages & repo** from a closed id list, and the
+start view always remains useful before GitHub history has been loaded. Add unfamiliar pipeline concepts
+through `renderInfoHelp`, which reuses the Workflow disclosure store and focus-restoration path; do not add
+decorative `i` glyphs with no explanation. Dials and charts use `data-anim-*` plus
+`applyValueAnimations()`, while test-cell, checkmark and graph-edge CSS must have a static
+`prefers-reduced-motion` outcome.
+
+The Start and Runner setup paths follow a **one-next-action** rule. Start renders the first incomplete
+decision as the only primary action, then a compact four-step progress strip; the complete list, specialist
+shortcuts, and recent history are native `<details>` disclosures. Runner renders its contextual action and
+critical blockers before `setupCard`; the setup disclosure is `open` only when a prerequisite needs action,
+and technical evidence stays in a separate closed disclosure. Do not move `runnerBlockers` into a disclosure
+or duplicate primary actions at the bottom of the card. Native details are appropriate here because this is
+optional depth; explanatory `renderWorkflowHelp`/`renderInfoHelp` controls still use persisted webview state
+and focus restoration so an open explanation survives a host-driven re-render.
+
+The beginner route must follow operational time rather than dashboard data availability: choose the
+workflow, prepare the machine, queue GitHub, then confirm one temporary runner; read the verdict afterwards.
+Do not make Start conditional on `queuedRun` already being in browser state—`prepare()` is the host-owned
+operation that discovers and authorises it. Runner setup is intentionally visible rather than hidden behind
+an information icon. Render unchecked prerequisites as “Not checked”, keep the live permission badge tied
+to `DashboardLocalCiEnablementSnapshot`, and explain that the Docker container removes the need for a
+permanent local runner daemon. Do not render raw machine installer commands in the repository workflow.
+After inspection finds a missing tool, the webview may post only a closed help id; the host resolves that id
+through `LOCAL_CI_SETUP_HELP_URLS`. Explain that Docker/GitHub CLI install outside the workspace. The browser
+sign-in command may be copied into the VS Code terminal because it changes OS credential state, not files.
+Queue instructions must say `--ref` uses pushed code, recognise both pending and queued workflow states,
+and render a typed queue preflight issue separately from fatal runner blockers so the check remains retryable.
+
+`bindPipelineGraph` runs only after the webview DOM is rebuilt. Its pointer and arrow-key handlers may
+persist layout coordinates in webview state, but graph interaction is presentation-only: editing a
+workflow still goes through the existing host-owned open/review/create boundaries. The Tests view may
+render current JUnit aggregates but must not infer flakiness or slow tests without per-test history and
+timings. Analytics may use the bounded GitHub runs already in the snapshot; creation-to-update duration is
+labelled answer time because it includes queueing. Package/monorepo collection is read-only and bounded:
+declared workspaces or one directory level, no repository command execution, no registry value reads, and
+no cache/scan/publication claim before a provider adapter supplies it.
+
 The Pipeline page also owns **CI configuration and management**, independently of run-history loading. `src/core/ciManager.ts` parses GitHub Actions files into bounded summaries—triggers and branch scopes, jobs/runners/step counts/timeouts, explicit permissions, concurrency, validation categories and declared cautions—while omitting raw YAML, commands, action inputs and environment values from the webview snapshot. The UI teaches the three layers explicitly: definition (workflow jobs), assignment (`on:` events/branches), and enforcement (required status checks/branch protection), then shows AtlasMind delivery-gate bindings without claiming those settings configure GitHub. Existing workflows open in the editor or enter a proposal-only AtlasMind review through an opaque filename that the host re-resolves. `createCiStarter` accepts no payload: the host derives a Node starter from live workflow config, lockfile and package scripts, confirms path/branches/checks, and writes `.github/workflows/ci.yml` with `wx`; an existing quality CI workflow, unreadable workflow, or occupied target filename suppresses creation to avoid duplicated checks and spend, while release-only automation does not masquerade as quality coverage.
 
 The Pipeline page's **execution fabric** is the opt-in impure counterpart (`src/core/localCiRunner.ts`). The
-webview posts only `inspectLocalCiRunner`, `startLocalCiRunner`, or `showLocalCiOutput` with no payload; all
+webview posts `inspectLocalCiRunner`, `startLocalCiRunner`, or `showLocalCiOutput` with no payload; all
 workflow, branch, label, image, capacity and shutdown values are re-read from machine-scoped configuration
 by the host. Rendering never probes Docker or GitHub. Inspection is read-only and derives a deterministic
 resource plan from host plus Docker-engine capacity. Start performs the live queue/workflow/actor/runner
@@ -532,6 +571,15 @@ output channel or snapshot receives it. Closing the dashboard does not kill a ru
 manager completes its ephemeral cleanup in the extension host. Add provider adapters behind this boundary
 rather than adding provider-specific process calls to the panel, and never convert Linux-container evidence
 into a native host result.
+
+Queue guidance follows the dashboard command-control contract: never style a branch argument by itself as
+runnable code. Render the complete `gh` command and its standard Copy/Send controls together. Queue
+Copy/Send messages carry no command payload; the host rebuilds a validated argv value with
+`buildLocalCiQueueInvocation` and formats it only at the terminal/clipboard presentation boundary. Cancel
+messages carry only a positive run id and the host resolves it against
+the current waiting-run issue. The shared command uses no shell-specific wrapper, and `sendText(..., false)`
+types it into the workspace-rooted **AtlasMind CI** terminal without pressing Enter, so the configured
+PowerShell, Command Prompt, bash, or zsh remains the operator's choice and execution boundary.
 
 The Workflow page's **Your workflow file** card treats enablement as a segment state, not a checkbox decoration. `media/projectDashboard.js` emits `is-enabled` / `is-disabled` on each stage row, while the panel stylesheet colours only the outline and the standard **Enabled** status tag; row content and the 24-pixel marker stay neutral. The explicit **Enabled** / **Disabled** text and `aria-pressed` mean colour speeds up scanning but never carries the state alone.
 

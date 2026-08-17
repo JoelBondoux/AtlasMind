@@ -699,6 +699,17 @@ describe('isProjectDashboardMessage — risk oversight', () => {
 });
 
 describe('isProjectDashboardMessage', () => {
+  it('keeps local CI terminal command text host-owned', () => {
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiQueueCommand' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiQueueCommandToTerminal' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiQueueCommand', payload: 'gh run evil' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiQueueCommandToTerminal', payload: 'gh run evil' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiCancelCommand', payload: 31979448869 })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: 31979448869 })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiCancelCommand', payload: '31979448869' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: -1 })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);

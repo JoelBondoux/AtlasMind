@@ -42,6 +42,27 @@ export interface LocalCiRunnerConfiguration {
   maxMemoryGb: number;
 }
 
+export interface LocalCiQueueInvocation {
+  command: 'gh';
+  args: readonly string[];
+}
+
+/** Build the one validated GitHub CLI invocation the Runner page may offer. */
+export function buildLocalCiQueueInvocation(
+  configuration: Pick<LocalCiRunnerConfiguration, 'workflowFile' | 'trustedBranch'>,
+): LocalCiQueueInvocation | undefined {
+  if (!/^[A-Za-z0-9._-]+\.ya?ml$/i.test(configuration.workflowFile)) {
+    return undefined;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(configuration.trustedBranch)) {
+    return undefined;
+  }
+  return {
+    command: 'gh',
+    args: ['workflow', 'run', configuration.workflowFile, '--ref', configuration.trustedBranch],
+  };
+}
+
 export interface LocalCiCapacity {
   cpuCount: number;
   memoryGb: number;
@@ -96,6 +117,13 @@ export interface LocalCiGpuSnapshot {
   accessPolicy: 'disabled';
 }
 
+export interface LocalCiPrerequisitesSnapshot {
+  /** False values are meaningful only after this probe has completed. */
+  inspection: 'not-inspected' | 'inspected';
+  githubCliInstalled: boolean;
+  githubAuthenticated: boolean;
+}
+
 export interface LocalCiQueuedRun {
   databaseId: number;
   workflowName: string;
@@ -106,6 +134,19 @@ export interface LocalCiQueuedRun {
   createdAt: string;
 }
 
+export type LocalCiQueueIssueKind = 'not-ready' | 'commit-mismatch' | 'duplicates';
+
+export interface LocalCiQueuePreflightIssue {
+  kind: LocalCiQueueIssueKind;
+  message: string;
+  currentSha: string;
+  queuedRuns: LocalCiQueuedRun[];
+}
+
+export type LocalCiQueueAssessment =
+  | { ok: true; run: LocalCiQueuedRun }
+  | { ok: false; issue: LocalCiQueuePreflightIssue };
+
 export interface LocalCiRunnerSnapshot {
   provider: 'github-actions';
   executor: 'docker';
@@ -114,6 +155,7 @@ export interface LocalCiRunnerSnapshot {
   host: LocalCiCapacity;
   engine: LocalCiEngineSnapshot;
   gpu: LocalCiGpuSnapshot;
+  prerequisites: LocalCiPrerequisitesSnapshot;
   resources: LocalCiResourcePlan;
   workflowFile: string;
   trustedBranch: string;
@@ -124,6 +166,8 @@ export interface LocalCiRunnerSnapshot {
   blockers: string[];
   warnings: string[];
   message: string;
+  /** A recoverable GitHub queue state. It never weakens or replaces a trust-policy blocker. */
+  preflightIssue?: LocalCiQueuePreflightIssue;
   queuedRun?: LocalCiQueuedRun;
   containerName?: string;
   lastOutput?: string;
@@ -169,6 +213,13 @@ interface QueuedRunShape {
   headSha?: unknown;
   status?: unknown;
   createdAt?: unknown;
+}
+
+class LocalCiQueuePreflightError extends Error {
+  constructor(readonly issue: LocalCiQueuePreflightIssue) {
+    super(issue.message);
+    this.name = 'LocalCiQueuePreflightError';
+  }
 }
 
 function finitePositive(value: unknown): number | undefined {
@@ -426,6 +477,25 @@ function defaultGpu(): LocalCiGpuSnapshot {
   };
 }
 
+function defaultPrerequisites(): LocalCiPrerequisitesSnapshot {
+  return {
+    inspection: 'not-inspected',
+    githubCliInstalled: false,
+    githubAuthenticated: false,
+  };
+}
+
+function sameConfiguration(left: LocalCiRunnerConfiguration, right: LocalCiRunnerConfiguration): boolean {
+  return left.enabled === right.enabled
+    && left.workflowFile === right.workflowFile
+    && left.trustedBranch === right.trustedBranch
+    && left.runnerLabel === right.runnerLabel
+    && left.image === right.image
+    && left.shutdownPolicy === right.shutdownPolicy
+    && left.maxCpus === right.maxCpus
+    && left.maxMemoryGb === right.maxMemoryGb;
+}
+
 export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfiguration): LocalCiRunnerSnapshot {
   const host = detectLocalCiHostCapacity();
   const runnerLabel = resolveLocalCiRunnerLabel(configuration.runnerLabel, host.arch);
@@ -437,6 +507,7 @@ export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfigu
     host,
     engine: defaultEngine(),
     gpu: defaultGpu(),
+    prerequisites: defaultPrerequisites(),
     resources: planLocalCiResources(host, undefined, configuration),
     workflowFile: configuration.workflowFile,
     trustedBranch: configuration.trustedBranch,
@@ -454,6 +525,7 @@ export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfigu
 /** One-job, ephemeral GitHub runner lifecycle. Never dispatches or reruns CI. */
 export class LocalCiRunnerManager {
   private snapshot: LocalCiRunnerSnapshot;
+  private configuration: LocalCiRunnerConfiguration;
   private operationRunning = false;
   private startedDesktop = false;
   private runnerProcess: ChildProcessWithoutNullStreams | undefined;
@@ -464,6 +536,7 @@ export class LocalCiRunnerManager {
     private readonly log: (line: string) => void = () => undefined,
     private readonly changed: () => void = () => undefined,
   ) {
+    this.configuration = { ...configuration };
     this.snapshot = initialLocalCiRunnerSnapshot(configuration);
   }
 
@@ -473,17 +546,28 @@ export class LocalCiRunnerManager {
       host: { ...this.snapshot.host },
       engine: { ...this.snapshot.engine },
       gpu: { ...this.snapshot.gpu, devices: this.snapshot.gpu.devices.map(device => ({ ...device })), dockerRuntimes: [...this.snapshot.gpu.dockerRuntimes] },
+      prerequisites: { ...this.snapshot.prerequisites },
       resources: { ...this.snapshot.resources, blockers: [...this.snapshot.resources.blockers] },
       blockers: [...this.snapshot.blockers],
       warnings: [...this.snapshot.warnings],
+      ...(this.snapshot.preflightIssue ? {
+        preflightIssue: {
+          ...this.snapshot.preflightIssue,
+          queuedRuns: this.snapshot.preflightIssue.queuedRuns.map(run => ({ ...run })),
+        },
+      } : {}),
       ...(this.snapshot.queuedRun ? { queuedRun: { ...this.snapshot.queuedRun } } : {}),
     };
   }
 
-  applyConfiguration(configuration: LocalCiRunnerConfiguration): void {
+  applyConfiguration(configuration: LocalCiRunnerConfiguration, notify = true): void {
     if (['starting', 'waiting', 'running'].includes(this.snapshot.lifecycle)) {
       return;
     }
+    if (sameConfiguration(this.configuration, configuration)) {
+      return;
+    }
+    this.configuration = { ...configuration };
     const host = detectLocalCiHostCapacity();
     const engineCapacity = this.snapshot.engine.available
       && this.snapshot.engine.cpuCount && this.snapshot.engine.memoryGb
@@ -508,19 +592,24 @@ export class LocalCiRunnerManager {
       shutdownPolicy: configuration.shutdownPolicy,
       blockers: configuration.enabled ? [] : ['Local CI is disabled in machine settings.'],
       warnings: ['Settings changed; inspect the executor again before starting.'],
+      prerequisites: defaultPrerequisites(),
       message: configuration.enabled ? 'Settings changed; inspect this machine again.' : 'Local CI is disabled in machine settings.',
+      preflightIssue: undefined,
       queuedRun: undefined,
       containerName: undefined,
       lastOutput: undefined,
-    });
+    }, notify);
   }
 
-  private update(patch: Partial<LocalCiRunnerSnapshot>): void {
+  private update(patch: Partial<LocalCiRunnerSnapshot>, notify = true): void {
     this.snapshot = { ...this.snapshot, ...patch, updatedAt: new Date().toISOString() };
-    this.changed();
+    if (notify) {
+      this.changed();
+    }
   }
 
   async inspect(configuration: LocalCiRunnerConfiguration): Promise<LocalCiRunnerSnapshot> {
+    this.configuration = { ...configuration };
     const retainedLifecycle = ['starting', 'waiting', 'running'].includes(this.snapshot.lifecycle)
       ? this.snapshot.lifecycle
       : undefined;
@@ -536,8 +625,26 @@ export class LocalCiRunnerManager {
       dockerRuntimes: [],
       accessPolicy: 'disabled',
     };
+    const prerequisites: LocalCiPrerequisitesSnapshot = {
+      inspection: 'inspected',
+      githubCliInstalled: false,
+      githubAuthenticated: false,
+    };
     const blockers: string[] = [];
     const warnings: string[] = [];
+
+    try {
+      await execCommand('gh', ['--version'], this.workspaceRoot);
+      prerequisites.githubCliInstalled = true;
+      try {
+        await execCommand('gh', ['auth', 'status', '--hostname', 'github.com'], this.workspaceRoot);
+        prerequisites.githubAuthenticated = true;
+      } catch {
+        blockers.push('GitHub CLI is installed but is not signed in to github.com.');
+      }
+    } catch {
+      blockers.push('GitHub CLI is not installed or is not on PATH.');
+    }
 
     try {
       engine.cliInstalled = Boolean(await execCommand('docker', ['--version'], this.workspaceRoot));
@@ -630,6 +737,7 @@ export class LocalCiRunnerManager {
       host,
       engine: { ...engine, startedByAtlasMind: this.startedDesktop },
       gpu,
+      prerequisites,
       resources,
       workflowFile: configuration.workflowFile,
       trustedBranch: configuration.trustedBranch,
@@ -644,7 +752,7 @@ export class LocalCiRunnerManager {
         : lifecycle === 'blocked' ? 'Resolve the safety blockers before starting a runner.'
           : lifecycle === 'disabled' ? 'Enable local CI in machine settings to use this executor.'
             : this.snapshot.message,
-      ...(retainedLifecycle ? {} : { queuedRun: undefined, containerName: undefined }),
+      ...(retainedLifecycle ? {} : { preflightIssue: undefined, queuedRun: undefined, containerName: undefined }),
     });
     return this.getSnapshot();
   }
@@ -706,22 +814,29 @@ export class LocalCiRunnerManager {
       }
     }
 
-    const rawRuns = await runGhOrThrow(this.workspaceRoot, [
+    const pendingRunsRaw = await runGhOrThrow(this.workspaceRoot, [
+      'run', 'list', '--workflow', configuration.workflowFile,
+      '--branch', configuration.trustedBranch, '--status', 'pending', '--limit', '100',
+      '--json', 'databaseId,workflowName,displayTitle,event,headBranch,headSha,status,createdAt',
+    ]);
+    const queuedRunsRaw = await runGhOrThrow(this.workspaceRoot, [
       'run', 'list', '--workflow', configuration.workflowFile,
       '--branch', configuration.trustedBranch, '--status', 'queued', '--limit', '100',
       '--json', 'databaseId,workflowName,displayTitle,event,headBranch,headSha,status,createdAt',
     ]);
-    const parsedQueuedRuns = parseQueuedRuns(rawRuns);
-    if (parsedQueuedRuns.length >= 100) {
+    const pendingRuns = parseQueuedRuns(pendingRunsRaw);
+    const queuedRuns = parseQueuedRuns(queuedRunsRaw);
+    if (pendingRuns.length >= 100 || queuedRuns.length >= 100) {
       throw new Error('The trusted workflow queue is too large to prove that only one matching job exists. Cancel stale runs first.');
     }
-    const queuedRuns = parsedQueuedRuns.filter(run => run.headSha.toLowerCase() === currentSha);
-    if (queuedRuns.length !== 1) {
-      throw new Error(queuedRuns.length === 0
-        ? 'No matching queued run exists for the current commit. Push or manually queue the trusted workflow first.'
-        : 'More than one matching run is queued for this commit. Cancel duplicates before starting the runner.');
+    const waitingRuns = [...new Map(
+      [...pendingRuns, ...queuedRuns].map(run => [run.databaseId, run] as const),
+    ).values()];
+    const queueAssessment = assessLocalCiQueue(waitingRuns, currentSha, configuration.trustedBranch);
+    if (!queueAssessment.ok) {
+      throw new LocalCiQueuePreflightError(queueAssessment.issue);
     }
-    const queuedRun = queuedRuns[0]!;
+    const queuedRun = queueAssessment.run;
     if (queuedRun.event !== 'push' && queuedRun.event !== 'workflow_dispatch') {
       throw new Error(`Queued event ${queuedRun.event || 'unknown'} is not trusted by the local executor.`);
     }
@@ -738,7 +853,7 @@ export class LocalCiRunnerManager {
     if (registeredRunnerNames(runnersRaw, runnerLabel).length > 0) {
       throw new Error(`A runner with label ${runnerLabel} is already registered. Remove the stale or competing runner first.`);
     }
-    this.update({ queuedRun, warnings: workflowAssessment.warnings, message: 'One trusted queued run passed the preflight checks.' });
+    this.update({ preflightIssue: undefined, queuedRun, warnings: workflowAssessment.warnings, message: 'One trusted queued run passed the preflight checks.' });
     return {
       repoSlug,
       runnerLabel,
@@ -830,8 +945,19 @@ export class LocalCiRunnerManager {
       this.update({ lifecycle: 'waiting', message: 'The ephemeral runner is online and waiting to claim the queued job.' });
     } catch (error) {
       const detail = safeFailure(error);
+      if (error instanceof LocalCiQueuePreflightError) {
+        this.log(`[queue] ${detail}`);
+        this.update({
+          lifecycle: 'ready',
+          message: 'The machine is ready; the GitHub queue needs attention.',
+          blockers: [],
+          preflightIssue: error.issue,
+          queuedRun: undefined,
+        });
+        throw error;
+      }
       this.log(`[failed] ${detail}`);
-      this.update({ lifecycle: 'failed', message: detail, blockers: [detail] });
+      this.update({ lifecycle: 'failed', message: detail, blockers: [detail], preflightIssue: undefined });
       if (this.startedDesktop && !this.runnerProcess) {
         await this.applyShutdownPolicy(configuration.shutdownPolicy);
       }
@@ -989,7 +1115,10 @@ export function parseQueuedRuns(raw: string): LocalCiQueuedRun[] {
       const databaseId = finitePositive(row.databaseId);
       const headSha = bounded(row.headSha, 40).toLowerCase();
       const status = bounded(row.status, 30).toLowerCase();
-      if (!databaseId || !/^[a-f0-9]{40}$/.test(headSha) || status !== 'queued') {
+      // GitHub reports a workflow run as `pending` while its self-hosted job is
+      // shown as `queued`. Both mean the run is waiting for this runner; an
+      // in-progress run is deliberately excluded.
+      if (!databaseId || !/^[a-f0-9]{40}$/.test(headSha) || (status !== 'queued' && status !== 'pending')) {
         return [];
       }
       return [{
@@ -1005,6 +1134,55 @@ export function parseQueuedRuns(raw: string): LocalCiQueuedRun[] {
   } catch {
     return [];
   }
+}
+
+export function assessLocalCiQueue(
+  runs: readonly LocalCiQueuedRun[],
+  currentSha: string,
+  trustedBranch: string,
+): LocalCiQueueAssessment {
+  const normalizedSha = currentSha.toLowerCase();
+  const matching = runs.filter(run => run.headSha.toLowerCase() === normalizedSha);
+  // The runner label is shared by every waiting run of this workflow. A runner
+  // cannot promise which one GitHub will assign first, so "one exact match plus
+  // one stale run" is unsafe too. Only one waiting run in total is admissible.
+  if (runs.length === 1 && matching.length === 1) {
+    return { ok: true, run: matching[0]! };
+  }
+  const nonMatching = runs.filter(run => run.headSha.toLowerCase() !== normalizedSha);
+  if (matching.length > 1 && nonMatching.length === 0) {
+    return {
+      ok: false,
+      issue: {
+        kind: 'duplicates',
+        currentSha: normalizedSha,
+        queuedRuns: matching.map(run => ({ ...run })),
+        message: `GitHub has ${matching.length} waiting runs for local commit ${normalizedSha.slice(0, 12)}. Cancel the duplicates, leave exactly one, then check the queue again.`,
+      },
+    };
+  }
+  if (nonMatching.length > 0) {
+    const queued = nonMatching[0]!;
+    const staleCount = nonMatching.length;
+    return {
+      ok: false,
+      issue: {
+        kind: 'commit-mismatch',
+        currentSha: normalizedSha,
+        queuedRuns: runs.slice(0, 8).map(run => ({ ...run })),
+        message: `GitHub has ${staleCount === 1 ? `run #${queued.databaseId}` : `${staleCount} runs`} waiting for a different pushed commit (including ${queued.headSha.slice(0, 12)}), while this checkout is ${normalizedSha.slice(0, 12)}. Cancel every stale waiting run before lending the machine; GitHub could assign any run that shares the label. A --ref ${trustedBranch} dispatch uses the commit currently pushed to GitHub, not uncommitted or unpushed local code. Then commit and push this checkout and queue exactly one run, or check out the queued commit.`,
+      },
+    };
+  }
+  return {
+    ok: false,
+    issue: {
+      kind: 'not-ready',
+      currentSha: normalizedSha,
+      queuedRuns: [],
+      message: `GitHub has no waiting run for local commit ${normalizedSha.slice(0, 12)}. If you just dispatched it, wait a few seconds and check again. A --ref ${trustedBranch} dispatch uses the commit currently pushed to GitHub, not uncommitted or unpushed local code.`,
+    },
+  };
 }
 
 export function registeredRunnerNames(raw: string, runnerLabel: string): string[] {

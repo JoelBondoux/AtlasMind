@@ -166,12 +166,28 @@ hosted release matrix retains different check names, so a single local Linux job
 Windows and macOS release evidence.
 
 **The Pipeline runner controls are host-owned and payload-free.** The browser can ask to inspect, start,
-or show output; it cannot supply a repository, workflow, ref, SHA, actor, label, image, resource limit,
+show output, copy the queue command, or send it to a terminal; it cannot supply a repository, workflow,
+ref, SHA, actor, label, image, resource limit,
 container argument or shutdown policy. The host reads machine-scoped settings and performs the complete
-preflight again. Start requires exactly one queued owner-authored run for current HEAD, a committed trusted
+preflight again. Start requires exactly one waiting owner-authored run in total for current HEAD, a committed trusted
 workflow with only push/manual reachability, exact repository/ref/owner conditions, `contents: read`, no
 secret or OIDC/write grant, full-SHA action pins, `persist-credentials: false`, a label unique across local
 workflows, and no competing runner registration. It does not expose a dispatch or rerun operation.
+
+The queue line is reconstructed in the host from constrained workflow/ref settings. Stale-run recovery is
+the narrow exception to payload-free control: the browser supplies one positive run id, and the host
+constructs the fixed cancel line only if that id remains in the current waiting-run preflight issue. Both
+Copy and Send expose the complete command. Send uses VS Code's configured shell and `addNewLine: false`, so
+it types for human review but does not execute on Windows, macOS, or Linux.
+
+The Runner installation guide is not a fourth execution control. Inspection adds bounded direct
+`docker --version`, `gh --version` and `gh auth status --hostname github.com` probes with no shell and does
+not return their output to the webview. “Not inspected” is a separate state from “missing”; help appears
+only for a proven missing item. A button carries an opaque id, and the host opens one fixed official URL—no
+installer command or browser-authored URL crosses the boundary. GitHub browser login is static guidance.
+The effective permission value and source are re-read in the extension host; the browser cannot supply them. Start itself
+discovers both pending and queued workflow runs during preflight, so no webview-authored run id or premature
+queue claim is needed. Exactly one waiting run in total must match current HEAD; a stale second run refuses.
 
 The registration token is the exception that proves the GitHub CLI boundary: `pipeGhStdoutOrThrow` starts
 `gh` with argv and no shell, connects stdout directly to Docker stdin, bounds/redacts failure text, and
@@ -184,6 +200,19 @@ The container gets no host mount, Docker socket, inbound port, GPU, persistent v
 It runs a resolved image id with CPU, memory, no-swap and process limits, all capabilities dropped and
 privilege escalation disabled. Docker Desktop starts only after confirmation. Cleanup refuses to stop it
 when another container runs or inventory cannot be read, and never manages an ordinary Linux daemon.
+
+**Pipeline visuals are not an execution bridge.** Selecting a Studio subview or moving a workflow node
+changes only VS Code webview state. The graph cannot supply YAML, a command or a host path. Monorepo and
+package cards come from bounded extension-host reads; registry configuration is checked for presence but
+its values are never opened. Test and analytics cards render observed report/run data and leave absent
+history unknown rather than inviting an agent to manufacture it.
+The compact setup renderer changes visibility, not authority. It derives one next action from the same host
+snapshot, keeps critical blockers visible, and places completed diagnostics and technical evidence behind
+disclosures. Opening or closing a disclosure sends no host message and cannot enable or start a runner.
+
+**GPU discovery does not grant GPU access.** Inspecting the machine can report device identity,
+trustworthy VRAM readings and Docker-advertised runtimes. Those fields are evidence only. The local runner's
+fixed access policy remains disabled, and the Docker argv never includes `--gpus`.
 
 **Checkpoints.** A snapshot is taken before each write, so a failed step can be rolled back to exactly
 how things were.

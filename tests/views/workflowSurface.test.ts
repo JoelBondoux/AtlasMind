@@ -76,7 +76,7 @@ describe('help disclosures survive a re-render', () => {
   it('does not use a native <details> element for workflow help', () => {
     const source = workflowRenderSource() + WEBVIEW_SCRIPT.slice(
       WEBVIEW_SCRIPT.indexOf('function renderWorkflowHelp'),
-      WEBVIEW_SCRIPT.indexOf('function renderWorkflow(snapshot)'),
+      WEBVIEW_SCRIPT.indexOf('function renderInfoHelp'),
     );
     expect(source).not.toContain('<details');
   });
@@ -132,7 +132,7 @@ describe('empty states teach rather than report emptiness', () => {
     // as a side effect of that refresh. A page whose whole subject is "did the
     // build pass" could not go and find out.
     expect(pipelineSource).toContain('pipeline-refresh');
-    expect(pipelineSource).toContain('Read CI for this branch');
+    expect(pipelineSource).toContain('Read CI result');
     expect(pipelineSource).not.toContain('Open the Issues tab and refresh');
   });
 
@@ -156,15 +156,15 @@ describe('empty states teach rather than report emptiness', () => {
   it('never renders an unmeasured CI state as a passing or zero-failure result', () => {
     // "No report ⇒ no verdict, never 0 failing" — inherited from the testing
     // policy coverage contract, and the most important honesty rule here.
-    expect(pipelineSource).toContain('CI has not been read');
-    expect(pipelineSource).toContain('reports no verdict rather than implying a green build');
+    expect(pipelineSource).toContain('No CI result has been read yet');
+    expect(pipelineSource).toContain('This does not mean the build passed');
     expect(workflowRenderedStrings()).not.toMatch(/0%\s*passing/i);
   });
 
   it('keeps "not read", "no failures", and "failed but unreadable" as three distinct states', () => {
     // Collapsing any pair lets one read as another. The worst collapse is
     // "we could not read the log" showing as "nothing failed".
-    expect(pipelineSource).toContain('CI has not been read');
+    expect(pipelineSource).toContain('No CI result has been read yet');
     expect(pipelineSource).toContain('No failing runs');
     expect(pipelineSource).toContain('its log could not be read');
   });
@@ -317,7 +317,7 @@ describe('the Pipeline CI management surface', () => {
 
   it('renders a provider-aware local runner command centre before any job starts', () => {
     const body = source();
-    expect(body).toContain('Execution fabric · local ephemeral runner');
+    expect(body).toContain('Trusted local CI · temporary runner');
     expect(body).toContain('GitHub Actions → Docker');
     expect(body).toContain('Buildkite');
     expect(body).toContain('Semaphore');
@@ -369,6 +369,152 @@ describe('the Pipeline CI management surface', () => {
     expect(host).toContain('UNREADABLE_CI_WORKFLOW_CAUTION');
     expect(host).toContain('could not inspect every existing workflow');
     expect(host).toContain('Existing files are never overwritten.');
+  });
+});
+
+describe('Pipeline Studio progressive workflow', () => {
+  const css = readFileSync(
+    path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+    'utf8',
+  );
+  const localCiSource = readFileSync(
+    path.join(process.cwd(), 'src', 'core', 'localCiRunner.ts'),
+    'utf8',
+  );
+
+  it('starts with a beginner route and keeps specialist tools in named views', () => {
+    expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['overview', 'workflow', 'runner', 'tests', 'analytics', 'packages']");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Start here'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Workflow map'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Packages & repo'");
+    expect(WEBVIEW_SCRIPT).toContain('Setup · ${completedSteps} of 4 complete');
+    expect(WEBVIEW_SCRIPT).toContain('Next: ${escapeHtml(focus.title)}');
+    expect(WEBVIEW_SCRIPT).toContain('role="tablist" aria-label="Pipeline Studio views"');
+  });
+
+  it('uses reusable accessible information controls instead of decorative icons', () => {
+    expect(WEBVIEW_SCRIPT).toContain("return renderWorkflowHelp(id, payload, { symbol: 'i' });");
+    expect(WEBVIEW_SCRIPT).toContain("const symbol = options.symbol === 'i' ? 'i' : '?';");
+    expect(WEBVIEW_SCRIPT).toContain('aria-expanded=');
+    expect(WEBVIEW_SCRIPT).toContain('aria-controls=');
+    expect(css).toContain('.info-help-toggle');
+  });
+
+  it('animates measured dials into a resolved tick and respects reduced motion', () => {
+    const dial = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderPipelineDial'),
+      WEBVIEW_SCRIPT.indexOf('function renderPipelineTabs'),
+    );
+    expect(dial).toContain('data-anim-key="ci-dial:');
+    expect(dial).toContain('ci-dial-check');
+    expect(dial).toContain("options.resolved === true");
+    expect(css).toContain('.ci-status-dial.is-resolved .ci-dial-check');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain('.ci-dial-value');
+  });
+
+  it('provides a persistent read-only graph for pointer and keyboard users', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Read-only map. Dragging changes presentation only.');
+    expect(WEBVIEW_SCRIPT).toContain("node.addEventListener('pointerdown'");
+    expect(WEBVIEW_SCRIPT).toContain('node.setPointerCapture(event.pointerId)');
+    expect(WEBVIEW_SCRIPT).toContain('ArrowLeft: [-1, 0], ArrowRight: [1, 0]');
+    expect(WEBVIEW_SCRIPT).toContain('pipelineNodePositions: state.pipelineNodePositions');
+    expect(WEBVIEW_SCRIPT).toContain("data-action=\"pipeline-graph-reset\"");
+  });
+
+  it('shows current test evidence without inventing flake or timing history', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Latest test report');
+    expect(WEBVIEW_SCRIPT).toContain('History required');
+    expect(WEBVIEW_SCRIPT).toContain('reports no flake count');
+    expect(WEBVIEW_SCRIPT).toContain('Timing not recorded');
+    expect(WEBVIEW_SCRIPT).toContain('never turns “no report” into zero failures');
+  });
+
+  it('charts bounded answer time and reliability using observed GitHub timestamps', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Feedback speed and reliability');
+    expect(WEBVIEW_SCRIPT).toContain('Answer-time waterfall');
+    expect(WEBVIEW_SCRIPT).toContain('Workflow reliability');
+    expect(WEBVIEW_SCRIPT).toContain('includes queue time as well as execution');
+    expect(WEBVIEW_SCRIPT).toContain('Needs 3 completed samples');
+  });
+
+  it('maps monorepo impact and supply-chain controls without claiming a registry exists', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Build only what changed');
+    expect(WEBVIEW_SCRIPT).toContain('it is not a dependency-graph claim');
+    expect(WEBVIEW_SCRIPT).toContain('Supply-chain inventory');
+    expect(WEBVIEW_SCRIPT).toContain('(values unread)');
+    expect(WEBVIEW_SCRIPT).toContain('Registry adapter not configured');
+    expect(WEBVIEW_SCRIPT).toContain('does not host packages or claim cache hits');
+  });
+
+  it('reports GPU capability separately from container privilege', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Graphics capability');
+    expect(WEBVIEW_SCRIPT).toContain('Docker GPU runtime');
+    expect(WEBVIEW_SCRIPT).toContain('CI container access');
+    expect(WEBVIEW_SCRIPT).toContain('Off by policy');
+    expect(WEBVIEW_SCRIPT).toContain('The runner command never adds --gpus.');
+  });
+
+  it('guides a novice through installation without pretending a permanent daemon is needed', () => {
+    expect(WEBVIEW_SCRIPT).toContain('No permanent runner daemon:');
+    expect(WEBVIEW_SCRIPT).toContain('Inspect before installing anything');
+    expect(WEBVIEW_SCRIPT).toContain('operating-system applications installed outside this workspace');
+    expect(WEBVIEW_SCRIPT).toContain('do not write application files into this repository');
+    expect(WEBVIEW_SCRIPT).toContain('Open Docker’s official installation guide');
+    expect(WEBVIEW_SCRIPT).toContain('Open GitHub CLI’s official installation page');
+    expect(WEBVIEW_SCRIPT).toContain('gh auth login --hostname github.com --web');
+    expect(WEBVIEW_SCRIPT).toContain('This may be run in the VS Code terminal');
+    expect(WEBVIEW_SCRIPT).toContain('AtlasMind never runs an installer for you.');
+    expect(WEBVIEW_SCRIPT).not.toContain('winget install --exact --id Docker.DockerDesktop');
+    expect(WEBVIEW_SCRIPT).not.toContain('brew install --cask docker');
+    expect(css).toContain('LOCAL_CI_SETUP_HELP_URLS');
+    expect(css).toContain("Object.hasOwn(LOCAL_CI_SETUP_HELP_URLS, candidate['payload'])");
+  });
+
+  it('separates effective permission, prerequisite inspection, queueing, and runner start', () => {
+    expect(WEBVIEW_SCRIPT).toContain('permission ${runnerEnablement.effective ? \'On\' : \'Off\'}');
+    expect(WEBVIEW_SCRIPT).toContain('Inspect this computer');
+    expect(WEBVIEW_SCRIPT).toContain('gh workflow run ${escapeHtml(runner.workflowFile');
+    expect(WEBVIEW_SCRIPT).toContain('Copy the complete GitHub queue command');
+    expect(WEBVIEW_SCRIPT).toContain('Send complete command to terminal — typed, not run');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'copyLocalCiQueueCommand' });");
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'sendLocalCiQueueCommandToTerminal' });");
+    expect(WEBVIEW_SCRIPT).toContain('PowerShell, Command Prompt, bash, and zsh');
+    expect(WEBVIEW_SCRIPT).not.toContain('<code>--ref ${escapeHtml(runner.trustedBranch');
+    expect(WEBVIEW_SCRIPT).toContain('Cancel the stale run before queueing this checkout');
+    expect(WEBVIEW_SCRIPT).toContain('Check GitHub queue → review start plan');
+    expect(WEBVIEW_SCRIPT).toContain('queues the commit already pushed to the');
+    expect(WEBVIEW_SCRIPT).toContain('checks both pending and queued runs');
+    expect(WEBVIEW_SCRIPT).not.toContain("actionLabel: runner.enabled ? 'Inspect machine' : 'Enable runner'");
+    expect(css).toContain('.ci-machine-setup');
+    expect(localCiSource).toContain("'--status', 'pending'");
+    expect(localCiSource).toContain('preflightIssue: error.issue');
+    expect(css).toContain("configuration.inspect<boolean>('ci.localRunner.enabled')");
+    expect(css).toContain('this.localCiRunnerInstance?.applyConfiguration(configuration, false);');
+    expect(css).toContain('enablement: readLocalCiRunnerEnablement()');
+  });
+
+  it('keeps setup focused on one next action and progressively discloses depth', () => {
+    expect(WEBVIEW_SCRIPT).toContain('class="panel-card ci-journey-card ci-next-action-card"');
+    expect(WEBVIEW_SCRIPT).toContain('class="ci-journey-progress"');
+    expect(WEBVIEW_SCRIPT).toContain('<summary>Show all four setup steps</summary>');
+    expect(WEBVIEW_SCRIPT).toContain('<summary>Explore specialist dashboards</summary>');
+    expect(WEBVIEW_SCRIPT).toContain('<summary>Show recent CI results</summary>');
+    expect(WEBVIEW_SCRIPT).not.toContain('Live command deck');
+    expect(WEBVIEW_SCRIPT).not.toContain('What is ready right now?');
+  });
+
+  it('puts runner action first and collapses diagnostics that are not needed yet', () => {
+    const body = renderSource('renderPipeline', 'renderWorkflow');
+    const card = body.slice(body.indexOf('const runnerCard'), body.indexOf('const counts'));
+    expect(body).toContain('aria-label="Next local runner action"');
+    expect(body).toContain('class="ci-runner-progress"');
+    expect(body).toContain('Computer setup details');
+    expect(body).toContain('Hardware, limits, providers, and security details');
+    expect(card.indexOf('aria-label="Next local runner action"')).toBeLessThan(card.indexOf('${setupCard}'));
+    expect(card.indexOf('${setupCard}')).toBeLessThan(card.indexOf('Hardware, limits, providers, and security details'));
+    expect(css).toContain('.ci-progressive-details');
+    expect(css).toContain('.ci-runner-focus');
   });
 });
 

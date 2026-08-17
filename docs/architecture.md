@@ -536,15 +536,23 @@ workflow inventory is a pure, always-safe local read; lending a machine to GitHu
 machine-scoped lifecycle with network, process and resource authority.
 
 The lifecycle is `disabled → not-inspected → ready → starting → waiting → running → finished/failed`.
-Opening or rendering the page performs no Docker or GitHub probe. **Inspect machine** reads `os.cpus()` /
-`os.totalmem()` and Docker's actual `NCPU`, `MemTotal`, `OSType` and `Architecture`; resource planning uses
-the lower execution capacity, reserves at least 25% (and 2 GB), applies operator maximums, and refuses
-below 2 CPUs or 4 GB. The container receives matching `--cpus`, `--memory`, `--memory-swap` and
-`--pids-limit 1024` limits. OS/architecture are carried in the snapshot as evidence, so a Linux Docker
-result can never be presented as native Windows or macOS coverage.
+Opening or rendering the page performs no Docker or GitHub probe. **Inspect prerequisites** reads
+`os.cpus()` / `os.totalmem()`, the existing bounded cross-platform GPU probes, `gh --version`, bounded
+`gh auth status`, and Docker's actual `NCPU`, `MemTotal`, `OSType`, `Architecture` and advertised runtimes.
+`LocalCiPrerequisitesSnapshot.inspection` keeps an unchecked false value from being rendered as “missing”.
+Resource planning uses the lower execution capacity,
+reserves at least 25% (and 2 GB), applies operator maximums, and refuses below 2 CPUs or 4 GB. The container
+receives matching `--cpus`, `--memory`, `--memory-swap` and `--pids-limit 1024` limits. GPU identity/live
+VRAM and Docker runtime capability are evidence only; `LocalCiGpuSnapshot.accessPolicy` remains `disabled`
+and no `--gpus` argument is produced. OS/architecture are carried in the snapshot as evidence, so a Linux
+Docker result can never be presented as native Windows or macOS coverage.
 
-`prepare()` is the authorization gate and **never queues work**. It requires exactly one queued
-`push`/`workflow_dispatch` run for the current HEAD and trusted branch, with the repository owner as actor.
+`prepare()` is the authorization gate and **never queues work**. GitHub reports a waiting self-hosted
+workflow as `pending` while its job is `queued`, so the manager reads both lists and deduplicates by run id.
+It requires exactly one waiting `push`/`workflow_dispatch` run in total for current HEAD and the trusted
+branch, with the repository owner as actor. One current run plus a stale run refuses too: a shared label
+cannot guarantee which job GitHub assigns. Queue absence/mismatch is a typed, retryable preflight issue—not
+a failed machine—and carries bounded local/waiting SHA evidence for the webview.
 The target workflow must be committed and is re-read immediately: exact repository/ref/owner conditions,
 read-only contents permission, no secret reference/write/OIDC permission, full-SHA action pins,
 `persist-credentials: false`, and one architecture-specific label that occurs in no sibling workflow. Any
@@ -561,7 +569,50 @@ Docker Desktop ownership is explicit. `ifStartedByAtlasMind` (default) stops it 
 started it; `never` leaves it open; `always` asks to stop it even if already running. Every mode leaves it
 open when container inventory fails or any unrelated container is running. An unmanaged Linux Docker
 system service is never started or stopped. Pure policy coverage lives in `tests/core/localCiRunner.test.ts`;
-the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`.
+the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`. `LocalCiRunnerManager` retains a
+copy of the last applied machine configuration; identical reads are no-ops, while the dashboard reconciles
+the current VS Code value before every snapshot. This closes the gap where a long-lived panel could render
+an old enabled state after the active profile or extension host changed.
+
+### Pipeline Studio (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`)
+
+The Pipeline webview is a progressive evidence surface over `CiManager`, `LocalCiRunnerManager`, testing,
+delivery and bounded GitHub-run data. Its initial next-action card and four-decision journey—checks, computer,
+queue, one-job runner—lead to six locally selected subviews; result reading follows execution instead of
+being presented as an installation step. The Start view derives the first incomplete decision and renders
+one primary action plus a compact four-step strip. Complete setup steps, specialist shortcuts and recent
+history use native disclosure elements because their open state is optional context, unlike the persisted
+help controls. The Runner subview uses the same hierarchy: one current action and critical blockers remain
+visible; the readiness disclosure separates effective permission, Docker CLI/engine, GitHub CLI/
+authentication and runner image state and opens automatically only when machine action is required. Setup
+help appears only for a missing item: the browser sends an opaque id and the host resolves one of four fixed
+official URLs, so it cannot supply a URL or installer command. The copy distinguishes machine applications
+from repository dependencies. The host adds the effective setting source; the browser cannot set it.
+Runnable queue and stale-run recovery guidance is rendered only as complete command blocks with Copy and
+Send-to-Terminal controls. Queue Copy/Send messages have no payload: the host reconstructs the command from
+validated machine-scoped workflow/ref settings. A cancel message carries only a positive run id, which the
+host must find again in the current waiting-run preflight issue. Send targets a workspace-rooted terminal
+using VS Code's configured shell and passes `addNewLine: false`, so PowerShell, Command Prompt, bash and zsh
+all receive the same `gh` syntax for review without executing it.
+Hardware, GPU, provider adapters, capacity arithmetic, runner lifecycle, immutable configuration and the
+platform evidence boundary are grouped in one closed technical disclosure. This changes presentation only;
+no evidence is discarded and no blocker is moved behind disclosure.
+Information controls reuse the persisted Workflow disclosure state and restore focus;
+measured dials use the dashboard value-animation mechanism and end in a tick only when the underlying
+state is resolved. `prefers-reduced-motion` removes dial, test-cell, graph-edge and chart movement without
+hiding the final value.
+
+The workflow canvas is read-only. Pointer or arrow-key movement updates cubic edges and saves only bounded
+node coordinates in VS Code webview state; resetting clears those coordinates. It cannot supply YAML,
+commands or a path to the host. Test intelligence renders an observed JUnit aggregate but labels flake
+history and testcase timing unavailable until those data exist. Analytics is bounded to already-loaded
+GitHub runs and treats creation-to-update duration as answer time, including queueing.
+
+`collectCiWorkspaceSnapshot` reads declared Node workspaces or at most one level of supported manifests,
+constrains every candidate beneath the workspace, and marks only current worktree-path impact; it does not
+claim a dependency graph. `collectSupplyChainSnapshot` records manifest, lockfile, update-monitor and
+registry-configuration presence, never registry values. Package-host cache, approval, vulnerability and
+publication states remain explicitly unconfigured until an external provider adapter supplies evidence.
 
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 

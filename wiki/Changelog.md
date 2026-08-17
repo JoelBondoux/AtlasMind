@@ -19,11 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.345.1 — Delivery dashboard and local CI blocker visibility
+## v0.347.0 — A local runner setup path that says what is actually installed
 
-The project dashboard now presents live local CI state and delivery check blockers in a more direct form,
-including working-tree cleanliness and runbook gate signals, so shipping checks better match what the local
-runner and workflow state show at the moment.
+Pipeline's beginner route now follows the real sequence: choose a reviewed workflow, prepare the computer,
+queue one trusted GitHub job, and only then lend that job a temporary runner. Reading the result is shown as
+the follow-up, rather than being mixed into setup. The Start action now performs queue discovery during its
+host-owned preflight instead of waiting for an impossible browser-side “queued run already known” state.
+
+That route now presents one next action and a compact four-step progress strip. The complete step list,
+specialist dashboards, and recent CI results start collapsed. Runner setup uses the same hierarchy: current
+action and critical blockers first; missing computer setup expands automatically; completed diagnostics and
+hardware, GPU, provider, capacity, lifecycle, and evidence detail remain available under disclosures.
+
+The Runner view explains that AtlasMind does not need a permanent local daemon. It provides platform-aware
+Docker and GitHub CLI help only after inspection finds a missing prerequisite. Fixed official pages replace
+raw machine installer commands, and the page says these are operating-system applications outside the
+repository. GitHub browser sign-in is the one terminal command shown. Runner permission, Docker CLI/engine,
+GitHub CLI/authentication and pinned-image readiness remain separate; unknown stays “Not checked”.
+
+Queue checking now recognises GitHub workflow runs reported as `pending`, shows the local and waiting SHAs,
+and explains in plain language that the trusted branch queues code already pushed to GitHub—not uncommitted
+local work. Only complete commands look runnable. Queue and stale-run cancellation commands have Copy and
+Send-to-Terminal controls; Send types into the configured VS Code shell on Windows, macOS, or Linux and
+waits for the operator to review and press Enter. A mismatch returns to a retryable ready state. AtlasMind
+also refuses one correct run when any stale run is still waiting, because GitHub may assign either job
+sharing the label.
+The permission badge also names the effective VS Code setting source AtlasMind read, and the dashboard
+re-synchronises that value before rendering so a stale manager cannot present an Enable action for an
+already-enabled active profile. Installer commands remain guidance only; AtlasMind runs none of them.
+
+---
+
+## v0.346.1 — Keep Pipeline Studio's evidence boundaries explicit
+
+Pipeline's not-read, read-failed, no-failure, and failed-log-unreadable states remain visibly separate after
+the Studio redesign. Workspace discovery also rejects drive-qualified, absolute, traversal and NUL-bearing
+paths, while package counts say when they describe only the root manifest. Architecture, development,
+runner, agent-tool and security guides now pin the read-only graph, reduced-motion, bounded scan and GPU
+detection-versus-access contracts.
 
 ---
 
@@ -45,6 +78,14 @@ explicitly unconfigured.
 Machine inspection now includes GPU identity and trustworthy VRAM readings, and separately reports whether
 Docker advertises a GPU-capable runtime. That is capability evidence only. The trusted runner remains
 CPU-only, receives no GPU device and never adds `--gpus`.
+
+---
+
+## v0.345.1 — Delivery dashboard and local CI blocker visibility
+
+The project dashboard now presents live local CI state and delivery check blockers in a more direct form,
+including working-tree cleanliness and runbook gate signals, so shipping checks better match what the local
+runner and workflow state show at the moment.
 
 ---
 

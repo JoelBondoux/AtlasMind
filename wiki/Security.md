@@ -469,7 +469,7 @@ approval for every external contributor, not only their first contribution.
 
 The Pipeline dashboard can now operate that one-job lifecycle, but it does not turn the label into an
 authorization rule. The webview sends no configuration or command payload. The extension host re-reads
-machine-scoped settings, requires one queued owner-authored run for current HEAD, rejects a dirty workflow,
+machine-scoped settings, requires exactly one waiting owner-authored run in total for current HEAD, rejects a dirty workflow,
 and checks the exact repository/ref/actor conditions, trigger set, read-only permission, secret/OIDC/write
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
 It cannot dispatch or rerun a workflow.
@@ -484,10 +484,43 @@ shown in the confirmation and dashboard.
 
 Hardware detection is an evidence boundary as well as a convenience. AtlasMind reads Docker's actual
 OS/architecture and capacity after startup, reserves at least 25% for the desktop, and refuses if the safe
-remainder is below 2 CPUs/4 GB or if the workflow label does not match the engine. A Windows or macOS host
+remainder is below 2 CPUs/4 GB or if the workflow label does not match the engine. The same explicit scan
+can report host GPU identity, trustworthy driver VRAM and Docker-advertised GPU runtimes, but those values
+grant nothing: `accessPolicy` stays disabled and the runner never adds `--gpus`. A Windows or macOS host
 therefore produces an explicitly labelled Linux-container result; it can never satisfy a native platform
 check. Docker Desktop stops only under the machine's cleanup policy and only when unrelated containers are
 absent and inventory succeeded. AtlasMind never starts or stops a Linux system Docker daemon.
+
+Prerequisite setup follows the same boundary. Inspection must first prove a tool is missing. The Runner page
+then sends an opaque help id that the host resolves to a fixed official Docker/GitHub CLI page; it accepts no
+URL or installer command, and explains that these are machine applications outside the workspace. GitHub
+authentication uses `gh auth login --web`; AtlasMind accepts no token field. Inspection invokes only
+bounded argv-only version/status probes and returns readiness booleans, not credential output. The digest-
+pinned runner image remains a planned download until the existing run confirmation.
+
+Queue state is also deny-by-default. `pending` and `queued` lists are deduplicated, exactly one waiting run
+must exist in total, and its SHA must equal local HEAD. A correct run does not excuse a stale one because
+GitHub can assign either job sharing the label. Absence/mismatch remains retryable and never weakens this rule.
+Queue command Copy/Send messages contain no browser-authored command text: the extension host rebuilds the
+line from constrained workflow/ref settings. Stale-run recovery supplies only a positive numeric run id,
+and the host refuses it unless that id still appears in the current waiting-run preflight issue. Sending
+types into the configured VS Code shell without a newline, so it never silently executes on any host OS.
+
+The permission badge is derived again in the extension host for every dashboard snapshot and names the
+effective VS Code setting scope. Browser state cannot claim the switch is On. A changed active profile or
+remote extension host invalidates the manager's readiness, while an identical setting read is a no-op so
+ordinary refreshes do not erase a completed inspection.
+
+Pipeline Studio keeps presentation and authority separate. Its selected subview and draggable node
+coordinates remain local webview state; the graph cannot edit or submit workflow YAML. Workspace topology
+is path-constrained and bounded to declared workspaces or one manifest level. Package registry
+configuration is checked only for file presence—credential-bearing values are never read—and provider
+cache, approval, vulnerability and publication states stay explicitly unconfigured without adapter
+evidence. Missing test history and timing remain unknown rather than being rendered as healthy.
+Progressive disclosure does not hide an execution refusal: the Runner's current action and `runnerBlockers`
+remain outside every disclosure. Only completed/missing-prerequisite diagnostics, counted operator notes,
+hardware/capacity evidence and provider detail collapse; the start preflight and modal still re-read and
+name the full live plan.
 - **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
   confirmation protects the moment the file is written; the environment protects every run after that.
 - **Secrets are named, never written.** You are told which to add and where; no value goes near the

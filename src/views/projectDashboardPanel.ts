@@ -215,6 +215,7 @@ import {
 import {
   DEFAULT_LOCAL_CI_IMAGE,
   LocalCiRunnerManager,
+  buildLocalCiQueueInvocation,
   initialLocalCiRunnerSnapshot,
   type LocalCiRunnerConfiguration,
   type LocalCiRunnerSnapshot,
@@ -583,6 +584,17 @@ interface TestingFixResult {
   agentId?: string;
 }
 
+type LocalCiSetupHelpId = 'docker-windows' | 'docker-macos' | 'docker-linux' | 'github-cli';
+
+const LOCAL_CI_SETUP_HELP_URLS: Readonly<Record<LocalCiSetupHelpId, string>> = {
+  'docker-windows': 'https://docs.docker.com/desktop/setup/install/windows-install/',
+  'docker-macos': 'https://docs.docker.com/desktop/setup/install/mac-install/',
+  'docker-linux': 'https://docs.docker.com/engine/install/',
+  'github-cli': 'https://cli.github.com/',
+};
+
+const LOCAL_CI_TERMINAL_NAME = 'AtlasMind CI';
+
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -622,6 +634,12 @@ type ProjectDashboardMessage =
   | { type: 'inspectLocalCiRunner' }
   | { type: 'startLocalCiRunner' }
   | { type: 'showLocalCiOutput' }
+  | { type: 'copyLocalCiQueueCommand' }
+  | { type: 'sendLocalCiQueueCommandToTerminal' }
+  | { type: 'copyLocalCiCancelCommand'; payload: number }
+  | { type: 'sendLocalCiCancelCommandToTerminal'; payload: number }
+  /** Opaque id resolved to a fixed official installation guide in the host. */
+  | { type: 'openLocalCiSetupHelp'; payload: LocalCiSetupHelpId }
   | { type: 'createCiStarter' }
   /** Opaque workflow filename; the host re-reads the directory before use. */
   | { type: 'reviewCiWorkflow'; payload: string }
@@ -1310,6 +1328,17 @@ interface DashboardCiManagement {
   starterReason: string;
 }
 
+interface DashboardLocalCiEnablementSnapshot {
+  effective: boolean;
+  source: 'workspace-folder' | 'workspace' | 'user-machine' | 'default';
+  sourceLabel: string;
+}
+
+interface DashboardLocalCiRunnerSnapshot extends LocalCiRunnerSnapshot {
+  /** The effective VS Code value, not a browser-owned toggle. */
+  enablement: DashboardLocalCiEnablementSnapshot;
+}
+
 function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const shutdown = configuration.get<string>('ci.localRunner.shutdownPolicy', 'ifStartedByAtlasMind');
@@ -1326,6 +1355,22 @@ function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
     maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
   };
+}
+
+function readLocalCiRunnerEnablement(): DashboardLocalCiEnablementSnapshot {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');
+  const effective = configuration.get<boolean>('ci.localRunner.enabled', false);
+  if (inspection?.workspaceFolderValue !== undefined) {
+    return { effective, source: 'workspace-folder', sourceLabel: 'workspace-folder setting' };
+  }
+  if (inspection?.workspaceValue !== undefined) {
+    return { effective, source: 'workspace', sourceLabel: 'workspace setting' };
+  }
+  if (inspection?.globalValue !== undefined) {
+    return { effective, source: 'user-machine', sourceLabel: 'current VS Code user/machine setting' };
+  }
+  return { effective, source: 'default', sourceLabel: 'default for this VS Code profile and extension host' };
 }
 
 const UNREADABLE_CI_WORKFLOW_CAUTION = 'Workflow metadata could not be read safely.';
@@ -2184,7 +2229,7 @@ interface DashboardSnapshot {
     workflows: DashboardWorkflow[];
     ciManagement: DashboardCiManagement;
     /** Machine-owned execution fabric. Never populated from webview input. */
-    localRunner: LocalCiRunnerSnapshot;
+    localRunner: DashboardLocalCiRunnerSnapshot;
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
@@ -3610,8 +3655,10 @@ export class ProjectDashboardPanel {
   }
 
   private localCiRunnerSnapshot(): LocalCiRunnerSnapshot {
+    const configuration = readLocalCiRunnerConfiguration();
+    this.localCiRunnerInstance?.applyConfiguration(configuration, false);
     return this.localCiRunnerInstance?.getSnapshot()
-      ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration());
+      ?? initialLocalCiRunnerSnapshot(configuration);
   }
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: unknown): void {
@@ -3870,6 +3917,21 @@ export class ProjectDashboardPanel {
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
         this.localCiOutput?.show(true);
+        return;
+      case 'copyLocalCiQueueCommand':
+        await this.handleCopyLocalCiQueueCommand();
+        return;
+      case 'sendLocalCiQueueCommandToTerminal':
+        await this.handleSendLocalCiQueueCommandToTerminal();
+        return;
+      case 'copyLocalCiCancelCommand':
+        await this.handleCopyLocalCiCancelCommand(message.payload);
+        return;
+      case 'sendLocalCiCancelCommandToTerminal':
+        await this.handleSendLocalCiCancelCommandToTerminal(message.payload);
+        return;
+      case 'openLocalCiSetupHelp':
+        await vscode.env.openExternal(vscode.Uri.parse(LOCAL_CI_SETUP_HELP_URLS[message.payload]));
         return;
       case 'createCiStarter':
         await this.handleCreateCiStarter();
@@ -5550,10 +5612,87 @@ export class ProjectDashboardPanel {
       await this.syncState();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      this.localCiOutput?.show(true);
-      void vscode.window.showErrorMessage(`AtlasMind did not start the local runner: ${detail.slice(0, 300)}`);
+      const queueIssue = runner.getSnapshot().preflightIssue;
+      if (queueIssue) {
+        void vscode.window.showWarningMessage(`AtlasMind checked the GitHub queue: ${queueIssue.message.slice(0, 500)}`);
+      } else {
+        this.localCiOutput?.show(true);
+        void vscode.window.showErrorMessage(`AtlasMind did not start the local runner: ${detail.slice(0, 300)}`);
+      }
       await this.syncState();
     }
+  }
+
+  private localCiCommandContext(): { command: string; workspaceRoot: string } | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const invocation = buildLocalCiQueueInvocation(readLocalCiRunnerConfiguration());
+    const command = invocation ? [invocation.command, ...invocation.args].join(' ') : undefined;
+    return workspaceRoot && command ? { command, workspaceRoot } : undefined;
+  }
+
+  private localCiCancelCommandContext(runId: number): { command: string; workspaceRoot: string } | undefined {
+    if (!Number.isSafeInteger(runId) || runId <= 0) {
+      return undefined;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const issue = this.localCiRunnerInstance?.getSnapshot().preflightIssue;
+    const isDisplayedWaitingRun = issue?.queuedRuns.some(run => run.databaseId === runId) === true;
+    return workspaceRoot && isDisplayedWaitingRun
+      ? { command: ['gh', 'run', 'cancel', String(runId)].join(' '), workspaceRoot }
+      : undefined;
+  }
+
+  private async handleCopyLocalCiQueueCommand(): Promise<void> {
+    const resolved = this.localCiCommandContext();
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: the queue command settings are invalid or no workspace is open.', 5000);
+      return;
+    }
+    await vscode.env.clipboard.writeText(resolved.command);
+    vscode.window.setStatusBarMessage('AtlasMind: copied the complete GitHub queue command.', 4000);
+  }
+
+  private async handleSendLocalCiQueueCommandToTerminal(): Promise<void> {
+    const resolved = this.localCiCommandContext();
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: the queue command settings are invalid or no workspace is open.', 5000);
+      return;
+    }
+    this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  private async handleCopyLocalCiCancelCommand(runId: number): Promise<void> {
+    const resolved = this.localCiCancelCommandContext(runId);
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that waiting run changed — check the GitHub queue again.', 5000);
+      return;
+    }
+    await vscode.env.clipboard.writeText(resolved.command);
+    vscode.window.setStatusBarMessage(`AtlasMind: copied the cancel command for run #${runId}.`, 4000);
+  }
+
+  private async handleSendLocalCiCancelCommandToTerminal(runId: number): Promise<void> {
+    const resolved = this.localCiCancelCommandContext(runId);
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that waiting run changed — check the GitHub queue again.', 5000);
+      return;
+    }
+    this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  /** Type into the user's configured VS Code shell, but leave Enter to them. */
+  private sendLocalCiCommandToTerminal(resolved: { command: string; workspaceRoot: string }): void {
+    let terminal = vscode.window.terminals.find(candidate => candidate.name === LOCAL_CI_TERMINAL_NAME);
+    if (!terminal) {
+      terminal = vscode.window.createTerminal({
+        name: LOCAL_CI_TERMINAL_NAME,
+        cwd: vscode.Uri.file(resolved.workspaceRoot),
+        isTransient: false,
+      });
+    }
+    terminal.show(true);
+    terminal.sendText(resolved.command, false);
+    vscode.window.setStatusBarMessage('AtlasMind: sent the complete command to your terminal — press Enter to run it.', 5000);
   }
 
   /**
@@ -9004,8 +9143,22 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'refreshCi'
     || candidate['type'] === 'inspectLocalCiRunner'
     || candidate['type'] === 'startLocalCiRunner'
-    || candidate['type'] === 'showLocalCiOutput') {
+    || candidate['type'] === 'showLocalCiOutput'
+    || candidate['type'] === 'copyLocalCiQueueCommand'
+    || candidate['type'] === 'sendLocalCiQueueCommandToTerminal') {
     return candidate['payload'] === undefined;
+  }
+
+  if (candidate['type'] === 'copyLocalCiCancelCommand'
+    || candidate['type'] === 'sendLocalCiCancelCommandToTerminal') {
+    return typeof candidate['payload'] === 'number'
+      && Number.isSafeInteger(candidate['payload'])
+      && candidate['payload'] > 0;
+  }
+
+  if (candidate['type'] === 'openLocalCiSetupHelp') {
+    return typeof candidate['payload'] === 'string'
+      && Object.hasOwn(LOCAL_CI_SETUP_HELP_URLS, candidate['payload']);
   }
 
   if (candidate['type'] === 'createCiStarter') {
@@ -10659,7 +10812,10 @@ async function collectDashboardSnapshot(
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
       ciManagement,
-      localRunner: localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration()),
+      localRunner: {
+        ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
+        enablement: readLocalCiRunnerEnablement(),
+      },
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
@@ -12034,7 +12190,8 @@ const CI_WORKSPACE_IGNORED_DIRECTORIES = new Set([
 
 function normalizeWorkspaceCandidate(value: string): string | undefined {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
-  if (!normalized || normalized === '.' || path.posix.isAbsolute(normalized)
+  if (!normalized || normalized === '.' || path.isAbsolute(normalized) || path.posix.isAbsolute(normalized)
+    || normalized.includes(':') || normalized.includes('\0')
     || normalized.split('/').some(part => !part || part === '.' || part === '..')) {
     return undefined;
   }
@@ -18353,6 +18510,152 @@ const DASHBOARD_CSS = `
       var(--dash-panel);
   }
 
+  .ci-runner-focus {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--dash-accent-strong);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 8%, var(--dash-panel));
+  }
+  .ci-runner-focus h3 { margin: 2px 0 0; }
+  .ci-runner-focus .section-copy { margin: 5px 0 0; }
+
+  .ci-runner-progress,
+  .ci-journey-progress {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .ci-runner-progress > div,
+  .ci-progress-step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 7px 8px;
+    color: var(--dash-muted);
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-runner-progress span,
+  .ci-progress-step > span {
+    display: grid;
+    place-items: center;
+    flex: 0 0 23px;
+    width: 23px;
+    height: 23px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .ci-runner-progress small,
+  .ci-progress-step small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ci-runner-progress > .current,
+  .ci-progress-step.current { color: var(--vscode-foreground); border-color: var(--dash-accent-strong); }
+  .ci-runner-progress > .done,
+  .ci-progress-step.done { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 42%, var(--dash-border)); }
+
+  .ci-progressive-details {
+    border: 1px solid var(--dash-border);
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--dash-border) 10%, transparent);
+    overflow: hidden;
+  }
+  .ci-progressive-details > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 13px;
+    cursor: pointer;
+    font-weight: 650;
+    list-style: none;
+  }
+  .ci-progressive-details > summary::-webkit-details-marker { display: none; }
+  .ci-progressive-details > summary::before {
+    content: '›';
+    flex: 0 0 auto;
+    color: var(--dash-muted);
+    transform: rotate(0deg);
+    transition: transform 150ms ease;
+  }
+  .ci-progressive-details[open] > summary::before { transform: rotate(90deg); }
+  .ci-progressive-details > summary > span:first-of-type { margin-right: auto; }
+  .ci-progressive-details > summary small { color: var(--dash-muted); font-weight: 500; text-align: right; }
+  .ci-progressive-details-body {
+    display: grid;
+    gap: 12px;
+    padding: 0 13px 13px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 65%, transparent);
+  }
+  .ci-progressive-details-body > :first-child { margin-top: 12px; }
+
+  .ci-machine-setup {
+    display: grid;
+    gap: 0;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 38%, var(--dash-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, var(--dash-panel));
+  }
+
+  .ci-machine-setup h3,
+  .ci-install-steps p { margin: 0; }
+
+  .ci-setup-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 8px;
+  }
+
+  .ci-setup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+  }
+
+  .ci-setup-row > div { display: grid; gap: 3px; min-width: 0; }
+  .ci-setup-row small { color: var(--dash-muted); line-height: 1.4; }
+  .ci-setup-row .tag { flex: 0 0 auto; }
+
+  .ci-install-guide {
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 14%, transparent);
+  }
+
+  .ci-install-steps { display: grid; gap: 8px; margin-top: 12px; }
+  .ci-install-steps code,
+  .ci-runner-queue > code,
+  .ci-queue-guide > code {
+    display: block;
+    padding: 9px 10px;
+    overflow-x: auto;
+    white-space: nowrap;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dash-border) 34%, transparent);
+  }
+
+  .ci-install-step {
+    display: grid;
+    gap: 7px;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-install-step p { margin: 0; color: var(--dash-muted); line-height: 1.45; }
+  .ci-install-step .action-link { justify-self: start; }
+
   .ci-runner-provider-grid,
   .ci-runner-lifecycle,
   .ci-runner-spec {
@@ -18419,6 +18722,7 @@ const DASHBOARD_CSS = `
   .ci-runner-spec > div,
   .ci-resource-rationale,
   .ci-runner-queue,
+  .ci-queue-guide,
   .ci-runner-last {
     padding: 10px 12px;
     border: 1px solid var(--dash-border);
@@ -18442,6 +18746,32 @@ const DASHBOARD_CSS = `
   }
 
   .ci-runner-queue p { grid-column: 1 / -1; margin: 0; }
+  .ci-runner-queue > code { grid-column: 1 / -1; }
+  .ci-queue-guide { display: grid; gap: 10px; }
+  .ci-queue-guide > div:first-child { display: grid; gap: 3px; }
+  .ci-queue-guide > p { margin: 0; }
+  .ci-queue-steps { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+  .ci-queue-steps li { padding-left: 3px; }
+  .ci-queue-steps li > strong,
+  .ci-queue-steps li > span { display: block; }
+  .ci-queue-steps li > span { margin-top: 2px; color: var(--dash-muted); line-height: 1.45; }
+  .local-ci-command-block { position: relative; margin-top: 7px; min-width: 0; }
+  .local-ci-command {
+    margin: 0;
+    padding: 9px 58px 9px 10px;
+    overflow-x: auto;
+    white-space: pre;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dash-border) 34%, transparent);
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-size: 0.78em;
+  }
+  .local-ci-command-actions { position: absolute; top: 5px; right: 5px; display: flex; gap: 4px; }
+  .ci-queue-recovery { display: grid; gap: 7px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--dash-border); }
+  .ci-queue-recovery > p { margin: 0; }
+  .ci-queue-shas { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 7px; }
+  .ci-queue-shas > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px; border: 1px solid var(--dash-border); border-radius: 8px; }
+  .ci-queue-shas span { color: var(--dash-muted); }
   .ci-runner-last { display: grid; gap: 5px; }
   .ci-runner-honesty { margin: 0; }
   .ci-runner-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
@@ -18575,6 +18905,31 @@ const DASHBOARD_CSS = `
   .ci-dial-copy small { color: var(--dash-muted); line-height: 1.35; }
 
   .ci-journey-card { display: grid; gap: 14px; }
+  .ci-next-action-card {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border));
+    background:
+      radial-gradient(circle at 96% 4%, color-mix(in srgb, var(--dash-accent-strong) 10%, transparent), transparent 34%),
+      var(--dash-panel);
+  }
+  .ci-next-action-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ci-next-action-row > span { color: var(--dash-muted); font-size: 12px; }
+  .ci-journey-list { display: grid; gap: 7px; padding: 0 13px 13px; }
+  .ci-journey-list-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 9px;
+    align-items: start;
+    padding: 9px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-journey-list-row.current { border-color: var(--dash-accent-strong); }
+  .ci-journey-list-row.done { border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border)); }
+  .ci-journey-list-row .ci-step-marker { width: 32px; height: 32px; }
+  .ci-journey-list-row p { margin: 3px 0 0; color: var(--dash-muted); font-size: 12px; line-height: 1.4; }
+  .ci-explore-details > .stat-detail { margin: 0; padding: 0 13px 11px; }
+  .ci-explore-details .ci-capability-grid { padding: 0 13px 13px; }
   .ci-journey {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -18613,6 +18968,16 @@ const DASHBOARD_CSS = `
   }
   .ci-journey-step.done .ci-step-marker { color: var(--dash-panel-strong); background: var(--dash-good); border-color: var(--dash-good); }
   .ci-journey-step p { min-height: 48px; margin: 4px 0 10px; color: var(--dash-muted); font-size: 12px; line-height: 1.45; }
+  .ci-journey-after {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 14%, transparent);
+  }
+  .ci-journey-after span { flex: 1 1 auto; color: var(--dash-muted); font-size: 12px; }
 
   .ci-capability-grid {
     display: grid;
@@ -18761,10 +19126,18 @@ const DASHBOARD_CSS = `
   @media (max-width: 900px) {
     .ci-journey { grid-template-columns: 1fr 1fr; }
     .ci-journey::before { display: none; }
+    .ci-runner-progress,
+    .ci-journey-progress { grid-template-columns: 1fr 1fr; }
   }
 
   @media (max-width: 620px) {
     .ci-journey { grid-template-columns: 1fr; }
+    .ci-runner-progress,
+    .ci-journey-progress { grid-template-columns: 1fr; }
+    .ci-progressive-details > summary { align-items: flex-start; flex-wrap: wrap; }
+    .ci-progressive-details > summary small { width: 100%; text-align: left; padding-left: 18px; }
+    .ci-journey-list-row { grid-template-columns: 34px minmax(0, 1fr); }
+    .ci-journey-list-row > .tag { grid-column: 2; justify-self: start; }
     .ci-status-dial { grid-template-columns: 72px minmax(0, 1fr); }
     .ci-status-dial svg { width: 72px; height: 72px; }
     .ci-run-lane { grid-template-columns: minmax(80px, 120px) minmax(80px, 1fr) 58px; }

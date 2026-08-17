@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   LOCAL_CI_MIN_CPUS,
   LOCAL_CI_MIN_MEMORY_GB,
+  assessLocalCiQueue,
   assessTrustedLocalCiWorkflow,
+  buildLocalCiQueueInvocation,
+  initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
   parseDockerGpuRuntimes,
   parseDockerInfo,
@@ -59,6 +62,25 @@ describe('local CI resource planning', () => {
 });
 
 describe('local CI platform evidence', () => {
+  it('keeps unchecked prerequisites unknown instead of reporting them missing', () => {
+    const snapshot = initialLocalCiRunnerSnapshot({
+      enabled: true,
+      workflowFile: 'trusted-local-ci.yml',
+      trustedBranch: 'develop',
+      runnerLabel: 'atlasmind-trusted-linux-{arch}',
+      image: 'ghcr.io/actions/actions-runner@sha256:' + 'a'.repeat(64),
+      shutdownPolicy: 'ifStartedByAtlasMind',
+      maxCpus: 8,
+      maxMemoryGb: 16,
+    });
+    expect(snapshot.prerequisites).toEqual({
+      inspection: 'not-inspected',
+      githubCliInstalled: false,
+      githubAuthenticated: false,
+    });
+    expect(snapshot.lifecycle).toBe('not-inspected');
+  });
+
   it('normalizes the names used by Node, Docker and GitHub runner labels', () => {
     expect(normalizeLocalCiArch('amd64')).toBe('x64');
     expect(normalizeLocalCiArch('x86_64')).toBe('x64');
@@ -163,23 +185,72 @@ jobs:\n
 });
 
 describe('queued-run and registration parsing', () => {
-  it('keeps only well-formed queued runs', () => {
+  const queuedRun = (databaseId: number, headSha: string, status: 'queued' | 'pending' = 'queued') => ({
+    databaseId,
+    workflowName: 'Trusted local CI',
+    displayTitle: 'test',
+    event: 'workflow_dispatch',
+    headBranch: 'develop',
+    headSha,
+    status,
+    createdAt: '2026-08-16T20:00:00Z',
+  });
+
+  it('keeps well-formed queued and pending workflow runs', () => {
     const rows = parseQueuedRuns(JSON.stringify([
-      {
-        databaseId: 42,
-        workflowName: 'Trusted local CI',
-        displayTitle: 'test',
-        event: 'push',
-        headBranch: 'develop',
-        headSha: 'a'.repeat(40),
-        status: 'queued',
-        createdAt: '2026-08-16T20:00:00Z',
-      },
+      queuedRun(42, 'a'.repeat(40)),
+      queuedRun(44, 'd'.repeat(40), 'pending'),
       { databaseId: 43, headSha: 'b'.repeat(40), status: 'completed' },
       { databaseId: 'not-a-number', headSha: 'c'.repeat(40), status: 'queued' },
     ]));
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
     expect(rows[0]?.databaseId).toBe(42);
+    expect(rows[1]?.databaseId).toBe(44);
+  });
+
+  it('accepts exactly one waiting run for the local commit', () => {
+    const sha = 'a'.repeat(40);
+    const run = parseQueuedRuns(JSON.stringify([queuedRun(42, sha, 'pending')]))[0]!;
+    expect(assessLocalCiQueue([run], sha.toUpperCase(), 'develop')).toEqual({ ok: true, run });
+  });
+
+  it('explains when the waiting run is for the pushed branch rather than local work', () => {
+    const localSha = 'a'.repeat(40);
+    const remoteSha = 'b'.repeat(40);
+    const run = parseQueuedRuns(JSON.stringify([queuedRun(42, remoteSha, 'pending')]))[0]!;
+    const assessment = assessLocalCiQueue([run], localSha, 'develop');
+    expect(assessment.ok).toBe(false);
+    if (!assessment.ok) {
+      expect(assessment.issue.kind).toBe('commit-mismatch');
+      expect(assessment.issue.message).toContain(localSha.slice(0, 12));
+      expect(assessment.issue.message).toContain(remoteSha.slice(0, 12));
+      expect(assessment.issue.message).toContain('not uncommitted or unpushed local code');
+    }
+  });
+
+  it('refuses a stale waiting run even when one exact run also exists', () => {
+    const localSha = 'a'.repeat(40);
+    const rows = parseQueuedRuns(JSON.stringify([
+      queuedRun(42, localSha, 'pending'),
+      queuedRun(43, 'b'.repeat(40)),
+    ]));
+    const assessment = assessLocalCiQueue(rows, localSha, 'develop');
+    expect(assessment.ok).toBe(false);
+    if (!assessment.ok) {
+      expect(assessment.issue.kind).toBe('commit-mismatch');
+      expect(assessment.issue.message).toContain('GitHub could assign any run that shares the label');
+    }
+  });
+
+  it('requires one run when the same commit was dispatched twice', () => {
+    const sha = 'a'.repeat(40);
+    const rows = parseQueuedRuns(JSON.stringify([queuedRun(42, sha), queuedRun(43, sha, 'pending')]));
+    const assessment = assessLocalCiQueue(rows, sha, 'develop');
+    expect(assessment.ok).toBe(false);
+    if (!assessment.ok) {
+      expect(assessment.issue.kind).toBe('duplicates');
+      expect(assessment.issue.message).toContain('leave exactly one');
+    }
   });
 
   it('finds only registrations carrying the dedicated label', () => {
@@ -193,5 +264,22 @@ describe('queued-run and registration parsing', () => {
     expect(registeredRunnerNames(JSON.stringify([JSON.parse(raw)]), 'atlasmind-trusted-linux-x64'))
       .toEqual(['trusted']);
     expect(registeredRunnerNames('not json', 'atlasmind-trusted-linux-x64')).toEqual([]);
+  });
+});
+
+describe('local CI queue command', () => {
+  it('builds one shell-neutral command from validated settings', () => {
+    expect(buildLocalCiQueueInvocation({ workflowFile: 'trusted-local-ci.yml', trustedBranch: 'develop' }))
+      .toEqual({
+        command: 'gh',
+        args: ['workflow', 'run', 'trusted-local-ci.yml', '--ref', 'develop'],
+      });
+  });
+
+  it('refuses settings that could compose another shell command', () => {
+    expect(buildLocalCiQueueInvocation({ workflowFile: 'trusted-local-ci.yml;whoami', trustedBranch: 'develop' }))
+      .toBeUndefined();
+    expect(buildLocalCiQueueInvocation({ workflowFile: 'trusted-local-ci.yml', trustedBranch: 'develop && whoami' }))
+      .toBeUndefined();
   });
 });

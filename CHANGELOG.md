@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.347.0] - 2026-08-17
+
+### Added
+
+- **Pipeline Runner now includes a novice-safe machine setup guide.** It explains that AtlasMind uses a
+  one-job Docker container rather than a permanent runner daemon, displays help only after inspection finds
+  a missing prerequisite, and opens fixed official Docker/GitHub CLI pages instead of presenting machine
+  installer commands as if they were project commands. It states that those applications install outside
+  the workspace; browser sign-in is the only command shown and is labelled safe for the VS Code terminal.
+
+### Changed
+
+- **Pipeline setup now leads with one next action instead of a wall of status.** Start here replaces the
+  duplicated dial deck and four full-size setup cards with a compact four-step progress strip, one contextual
+  action, and an optional complete-step disclosure. Specialist dashboards and recent CI history remain
+  available but start collapsed. The Runner view follows the same order: next action and blockers first;
+  computer setup opens automatically only when action is required; hardware, GPU, provider, capacity,
+  lifecycle and evidence detail live in one technical disclosure. Operator notes remain counted and
+  discoverable, while critical blockers are never hidden.
+- **The beginner route now follows the real order of operations.** Choosing checks, preparing the computer,
+  queueing the trusted GitHub workflow and confirming one temporary runner are distinct decisions; reading
+  the resulting CI evidence happens afterwards. Start can run the host-owned queue preflight directly,
+  removing the circular requirement for the UI to know a queued run before queue discovery occurred.
+- **Queue review now describes GitHub's actual state and the pushed-code boundary.** AtlasMind checks both
+  `pending` and `queued` workflow runs, shows the local and waiting commit SHAs, presents the branch as a
+  label rather than a misleading command fragment, and returns to a retryable ready state when the queue
+  needs attention. The complete shell-neutral `gh` queue command now has the dashboard's standard Copy and
+  Send-to-Terminal controls; stale and duplicate runs receive the same controls for their complete cancel
+  commands. Send types into the configured VS Code shell on Windows, macOS, or Linux without pressing Enter.
+
+### Fixed
+
+- **Runner permission reflects the active extension host instead of stale manager state.** The dashboard
+  re-reads machine-scoped configuration before each snapshot, identifies the effective VS Code setting
+  source, and labels the setting as On or Off rather than showing an ambiguous illuminated Enable button.
+  Local inspection now checks GitHub CLI availability and `gh auth status` alongside Docker and hardware.
+- **A stale waiting job can no longer race the intended job.** The runner starts only when exactly one run
+  is waiting in total and it matches local HEAD. One matching run plus any older run is refused because
+  GitHub could assign either job sharing the dedicated label.
+
+### Security
+
+- **Setup guidance remains non-installing and secret-free.** The webview sends only opaque help ids that the
+  extension host resolves through a fixed official-URL allowlist. AtlasMind accepts no installer command,
+  arbitrary URL or token, uses GitHub CLI's browser authentication, and still pulls the digest-pinned
+  runner image only after the existing host confirmation.
+- **Queue command controls do not create a browser-authored shell bridge.** Copy and Send carry no command
+  text: the extension host rebuilds the validated workflow/ref command from machine-scoped configuration.
+  Cancel carries only a positive run id, which the host resolves against the current waiting-run preflight
+  issue before constructing a fixed `gh run cancel` command. Send never executes the resulting line.
+
+## [0.346.1] - 2026-08-16
+
+### Fixed
+
+- **Pipeline empty/error states retain their distinct meanings after the Studio redesign.** “Not read”,
+  “run list unreadable”, “no failures”, and “failed run log unreadable” remain separate outcomes, with a
+  direct branch-scoped CI read action rather than a reassuring zero.
+
+- **Workspace-unit discovery rejects drive-qualified, absolute, traversal and NUL-bearing paths.** The
+  package view also labels the dependency count as root-manifest evidence instead of implying that a
+  monorepo-wide dependency graph was counted.
+
+### Documentation
+
+- **Pipeline Studio's progressive layout, reduced-motion contract, read-only graph, bounded workspace/
+  package scans and GPU detection-versus-access boundary are documented across architecture, development,
+  runner, agent-tool and security guides.**
+
 ## [0.346.0] - 2026-08-16
 
 ### Added

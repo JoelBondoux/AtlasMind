@@ -273,29 +273,84 @@ either, compare the digest with GitHub's package page and inspect the selected p
 
 #### Use the Pipeline dashboard
 
-The supported day-to-day path is **Project Dashboard → Pipeline → Execution fabric**:
+The supported day-to-day path is **Project Dashboard → Pipeline → Start here**. The first view is a
+four-decision route: choose the checks, prepare the computer, queue one trusted GitHub job, then lend that
+job one temporary runner. Reading the result is the follow-up. **Workflow map**, **Runner**, **Tests**,
+**Analytics**, and **Packages & repo** keep specialist evidence available without requiring a newcomer to
+decode it all at once. Start here shows only the next incomplete decision and a compact progress strip;
+expand **Show all four setup steps** only when the wider sequence is useful. Specialist dashboards and
+recent CI results start collapsed so setup does not require scrolling through analytics.
 
-1. Open VS Code settings filtered to `atlasmind.ci.localRunner` (the card's **Runner settings** button does
-   this). Enable the runner for this machine. Confirm the workflow file, trusted branch and dedicated label.
-2. Leave the resource caps at 8 CPUs / 16 GB initially. **Inspect machine** reads both the host and Docker
-   engine; AtlasMind preserves at least 25% of CPU/RAM for the desktop and shows the exact calculation. It
-   refuses if fewer than 2 CPUs or 4 GB remain for the job.
-3. Choose the Docker cleanup setting:
+AtlasMind does **not** install or run a permanent runner daemon. It needs Docker plus the GitHub CLI on the
+extension host; after confirmation it starts GitHub's official runner inside a one-job container and removes
+the registration afterwards. Inspect first: setup help appears only for a missing prerequisite. Docker and
+GitHub CLI are operating-system applications installed outside the workspace; installing either from a VS
+Code terminal does not make it a repository dependency or place its application files in the repository.
+The Runner view opens a fixed official installation page and never executes an installer or accepts a URL
+from the webview.
+
+1. Select **Inspect prerequisites** before installing anything. If Docker or GitHub CLI is missing, use the
+   official guide button AtlasMind shows for that item. Installation is machine-level and may require
+   administrator approval or a restart. Restart VS Code after a first-time install so the active extension
+   host receives the updated `PATH`.
+2. Authenticate through GitHub CLI's browser flow; do not paste a token into AtlasMind:
+
+   ```text
+   gh auth login --hostname github.com --web
+   ```
+
+3. Open **Project Dashboard → Pipeline → Runner**. The permission badge shows the effective value AtlasMind
+   read and whether it came from the current VS Code user/machine setting or the profile/extension-host
+   default. Select **Open runner permission** and turn it On for this machine. If Settings and the badge
+   disagree, check the active VS Code profile or remote extension host and reload the window.
+4. Select **Inspect prerequisites**. AtlasMind distinguishes “not checked” from “missing” while checking
+   Docker CLI/engine, GitHub CLI/authentication, the pinned runner image, host CPU/RAM/GPU, and Docker's
+   execution capacity. Leave the resource caps at 8 CPUs / 16 GB initially. AtlasMind preserves at least
+   25% of CPU/RAM for the desktop and refuses if fewer than 2 CPUs or 4 GB remain for the job.
+   The Runner view keeps the current action and any critical blocker visible. **Computer setup details**
+   opens automatically only when something is missing; completed diagnostics collapse. Hardware, GPU,
+   provider, resource-limit, lifecycle and evidence details remain under the separate technical disclosure.
+5. Choose the Docker cleanup setting:
    - `ifStartedByAtlasMind` (default) closes Desktop only when this run opened it;
    - `never` keeps Desktop open for other work;
    - `always` closes it after the job even if it was already open.
    All three leave Docker open when another container is running or inventory cannot be read.
-4. Push the reviewed commit to the trusted branch, or manually dispatch the trusted workflow, so GitHub
-   shows one queued run for that exact SHA. AtlasMind deliberately has no Queue or Rerun button.
-5. Select **Start one-job runner**. Read the modal: repository, branch, SHA, run id, evidence platform,
+6. Commit and push the reviewed checkout to the trusted branch, then manually dispatch the trusted workflow
+   if the push did not already queue it. The dashboard names `develop` as a branch label, not as a command:
+   GitHub can queue only the commit already pushed to that branch, not uncommitted or unpushed files from
+   the local checkout. AtlasMind deliberately has no Queue or Rerun button.
+
+   ```text
+   gh workflow run trusted-local-ci.yml --ref develop
+   ```
+
+   Use **Copy** to place the whole command on the clipboard, or **Send to Terminal** to type the whole line
+   into an **AtlasMind CI** terminal rooted at the workspace. Send uses the user's configured VS Code shell
+   on Windows, macOS, or Linux and does not press Enter; review the line before running it. The command uses
+   only GitHub CLI syntax and is the same in PowerShell, Command Prompt, bash, and zsh.
+
+7. When the terminal reports that it created the dispatch, select **Check GitHub queue → review start
+   plan**. A waiting self-hosted workflow may be `pending` while its job is `queued`; AtlasMind checks both.
+   Queue discovery happens in this host-owned preflight and a not-yet-visible or mismatched run returns to
+   the ready state so it can be checked again. If AtlasMind finds an older or duplicate waiting run, cancel
+   each run using the complete command shown with Copy and Send controls, then queue exactly one run for the
+   checked-out commit and inspect again. Read the modal: repository, branch, SHA, run id, evidence platform,
    immutable image, container limits/reserve, whether Docker will start or an image will download, and the
    cleanup effect must all be right before confirming.
-6. Follow Trust gate → Isolate → Execute → Clean up on the card or open **Live output**. When the runner
+8. Follow Trust gate → Isolate → Execute → Clean up on the card or open **Live output**. When the runner
    exits, select **Refresh CI** to read GitHub's job verdict; a clean listener exit is not itself a passing
    test result.
 
-The start preflight re-reads the committed workflow and live GitHub state. It requires one owner-triggered
-queued `push`/`workflow_dispatch` run at current HEAD, exact repository/ref/owner job conditions,
+GPU detection is informational. The Runner view separately says whether Docker advertises a GPU runtime
+and whether the CI container receives the device. The latter remains **Off by policy**: the runner command
+does not add `--gpus`, so seeing a card and its VRAM cannot silently turn general CI into a GPU workload.
+A future GPU-specific executor needs its own reviewed image, trusted label, resource rules and explicit
+operator confirmation.
+
+The start preflight re-reads the committed workflow and live GitHub state. It requires exactly one waiting
+owner-triggered `push`/`workflow_dispatch` run in total and that run must be at current HEAD. A matching run
+does not make a stale second run safe: both share the label and GitHub could assign either one. Pending and
+queued workflow states are deduplicated by run id. It also requires exact repository/ref/owner job conditions,
 `contents: read`, no GitHub secret reference or write/OIDC grant, full-SHA actions,
 `persist-credentials: false`, a label unused by every other local workflow, and no existing registration
 with that label. The one-hour registration token streams directly from `gh` stdout to Docker stdin and is
