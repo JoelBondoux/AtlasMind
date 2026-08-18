@@ -613,10 +613,24 @@ export function buildDirectLocalRunPlan(
   checks: DirectLocalChecks,
   packageManager: 'npm' | 'pnpm' | 'yarn',
   shellPath: string | undefined,
+  /**
+   * Worker-cap flags for one script, from the machine's testing resource
+   * budget (`planTestCommandThrottle`). Optional and per-script, so the
+   * caller — which has the manifest's script bodies — decides where a flag is
+   * understood, and this builder stays a composer rather than a guesser. The
+   * flags are part of the typed command, deliberately: the person about to
+   * press Enter sees the throttle rather than wondering why their run used
+   * half the machine.
+   */
+  throttleArgsFor?: (script: string) => string[],
 ): DirectLocalRunOutcome {
-  const run = (script: string): string => packageManager === 'npm'
-    ? `npm run ${script}`
-    : `${packageManager} ${script}`;
+  const run = (script: string): string => {
+    const base = packageManager === 'npm'
+      ? `npm run ${script}`
+      : `${packageManager} ${script}`;
+    const extra = throttleArgsFor?.(script) ?? [];
+    return extra.length > 0 ? `${base} -- ${extra.join(' ')}` : base;
+  };
   const commands = checks.scripts.map(run);
   const outward = commands.filter(command => classifyDeliveryCommandReach(command) === 'outward');
   if (outward.length > 0) {

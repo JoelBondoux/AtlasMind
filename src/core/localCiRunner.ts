@@ -9,6 +9,11 @@ import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
 import { probeGpuDevices } from '../providers/gpuProbe.js';
 import type { GpuDevice } from '../providers/gpuProbeParse.js';
+import {
+  clampTestResourceShare,
+  TEST_RESOURCE_RESERVE_MIN_CPUS,
+  TEST_RESOURCE_RESERVE_MIN_MEMORY_GB,
+} from './testResourceBudget.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +62,13 @@ export interface LocalCiRunnerConfiguration {
   shutdownPolicy: LocalCiShutdownPolicy;
   maxCpus: number;
   maxMemoryGb: number;
+  /**
+   * `atlasmind.testing.resourceShare` — the one slider that bounds every
+   * testing path, this container included. Optional so a caller that predates
+   * the slider still plans; absent means "no share stated", and only the OS
+   * reserve applies.
+   */
+  resourceSharePercent?: number;
 }
 
 export interface LocalCiQueueInvocation {
@@ -379,16 +391,36 @@ export function resolveLocalCiRunnerLabel(pattern: string, arch: string): string
 export function planLocalCiResources(
   host: LocalCiCapacity,
   engine: LocalCiCapacity | undefined,
-  limits: Pick<LocalCiRunnerConfiguration, 'maxCpus' | 'maxMemoryGb'>,
+  limits: Pick<LocalCiRunnerConfiguration, 'maxCpus' | 'maxMemoryGb' | 'resourceSharePercent'>,
 ): LocalCiResourcePlan {
-  const capacity = engine ?? host;
   const basedOn = engine ? 'docker-engine' as const : 'host' as const;
-  const reserveCpus = Math.max(1, Math.ceil(capacity.cpuCount * 0.25));
-  const reserveMemoryGb = Math.max(2, Math.ceil(capacity.memoryGb * 0.25));
+  // The reserve is measured on the HOST, never on Docker's view of itself.
+  // On Windows/macOS the engine reports the WSL/VM allocation, which is
+  // already a slice of the machine — "25% reserved for the desktop" computed
+  // on the VM reserved 25% of the slice and nothing of the computer, which is
+  // how a correctly-configured runner could still starve the desktop.
+  const reserveCpus = Math.max(TEST_RESOURCE_RESERVE_MIN_CPUS, Math.ceil(host.cpuCount * 0.25));
+  const reserveMemoryGb = Math.max(TEST_RESOURCE_RESERVE_MIN_MEMORY_GB, Math.ceil(host.memoryGb * 0.25));
+  // Absent means "no share stated": only the reserve applies. The clamp runs
+  // on a stated value so a hand-edited settings file cannot ask for 100%.
+  const share = limits.resourceSharePercent === undefined ? 100 : clampTestResourceShare(limits.resourceSharePercent);
+  const shareCpus = share === 100 ? host.cpuCount : Math.floor((host.cpuCount * share) / 100);
+  const shareMemoryGb = share === 100 ? Math.floor(host.memoryGb) : Math.floor((host.memoryGb * share) / 100);
+  const capacity = engine ?? host;
   const configuredCpuCap = Math.max(0, Math.floor(limits.maxCpus));
   const configuredMemoryCap = Math.max(0, Math.floor(limits.maxMemoryGb));
-  const cpus = Math.max(0, Math.min(configuredCpuCap, Math.floor(capacity.cpuCount - reserveCpus)));
-  const memoryGb = Math.max(0, Math.min(configuredMemoryCap, Math.floor(capacity.memoryGb - reserveMemoryGb)));
+  const cpus = Math.max(0, Math.min(
+    configuredCpuCap,
+    capacity.cpuCount,
+    shareCpus,
+    Math.floor(host.cpuCount - reserveCpus),
+  ));
+  const memoryGb = Math.max(0, Math.min(
+    configuredMemoryCap,
+    Math.floor(capacity.memoryGb),
+    shareMemoryGb,
+    Math.floor(host.memoryGb - reserveMemoryGb),
+  ));
   const blockers: string[] = [];
   if (cpus < LOCAL_CI_MIN_CPUS) {
     blockers.push(`The calculated ${cpus}-CPU limit is below the safe ${LOCAL_CI_MIN_CPUS}-CPU minimum.`);
@@ -405,8 +437,11 @@ export function planLocalCiResources(
     basedOn,
     provisional: engine === undefined,
     blockers,
-    explanation: `${capacity.cpuCount} CPUs / ${capacity.memoryGb} GB ${basedOn === 'docker-engine' ? 'visible to Docker' : 'on the host'}; `
-      + `reserve ${reserveCpus} CPUs / ${reserveMemoryGb} GB, then apply caps of ${configuredCpuCap} CPUs / ${configuredMemoryCap} GB.`,
+    explanation: `${host.cpuCount} CPUs / ${host.memoryGb} GB on the host; `
+      + `reserve ${reserveCpus} CPUs / ${reserveMemoryGb} GB for the operating system`
+      + (share < 100 ? `; testing share ${share}%` : '')
+      + (engine ? `; Docker sees ${engine.cpuCount} CPUs / ${engine.memoryGb} GB` : '')
+      + `; caps ${configuredCpuCap} CPUs / ${configuredMemoryCap} GB.`,
   };
 }
 
@@ -564,7 +599,8 @@ function sameConfiguration(left: LocalCiRunnerConfiguration, right: LocalCiRunne
     && left.image === right.image
     && left.shutdownPolicy === right.shutdownPolicy
     && left.maxCpus === right.maxCpus
-    && left.maxMemoryGb === right.maxMemoryGb;
+    && left.maxMemoryGb === right.maxMemoryGb
+    && left.resourceSharePercent === right.resourceSharePercent;
 }
 
 export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfiguration): LocalCiRunnerSnapshot {
@@ -703,6 +739,7 @@ export class LocalCiRunnerManager {
   private configuration: LocalCiRunnerConfiguration;
   private operationRunning = false;
   private startedDesktop = false;
+  private stopRequested = false;
   private runnerProcess: ChildProcessWithoutNullStreams | undefined;
 
   constructor(
@@ -1321,15 +1358,49 @@ export class LocalCiRunnerManager {
     });
   }
 
+  /**
+   * Stop the live runner container on request.
+   *
+   * This was the missing half of the lifecycle: a run could be started from
+   * the panel but only ever ended by the job finishing, so a wedged or
+   * runaway job held its full CPU/memory budget with nothing on this side
+   * able to take it back. Removal goes through `removeOwnedContainer`, whose
+   * name guard means this can never reach a container AtlasMind did not
+   * start; the child's `close` handler then runs the normal finish path.
+   */
+  async stop(): Promise<void> {
+    const containerName = this.snapshot.containerName;
+    const child = this.runnerProcess;
+    if (!child && !containerName) {
+      return;
+    }
+    this.stopRequested = true;
+    this.log('[runner] Stop requested; removing the ephemeral runner container.');
+    if (containerName) {
+      await this.removeOwnedContainer(containerName);
+    }
+    if (child && !child.killed) {
+      try {
+        child.kill();
+      } catch {
+        // The docker client may already have exited with its container.
+      }
+    }
+  }
+
   private async finishRun(containerName: string, configuration: LocalCiRunnerConfiguration, code: number | null): Promise<void> {
     this.log(`[runner] Container ${containerName} exited with code ${String(code)}.`);
+    const stopped = this.stopRequested;
+    this.stopRequested = false;
     const cleanExit = code === 0;
     this.update({
-      lifecycle: cleanExit ? 'finished' : 'failed',
-      message: cleanExit
-        ? 'The ephemeral runner finished and removed its registration. Refresh CI to read the job verdict.'
-        : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
-      ...(cleanExit ? { blockers: [] } : { blockers: [`Runner process exited with code ${String(code)}.`] }),
+      lifecycle: stopped ? 'ready' : cleanExit ? 'finished' : 'failed',
+      message: stopped
+        ? 'The local runner was stopped on your request. Check GitHub for the state of the job it was serving.'
+        : cleanExit
+          ? 'The ephemeral runner finished and removed its registration. Refresh CI to read the job verdict.'
+          : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
+      ...(stopped || cleanExit ? { blockers: [] } : { blockers: [`Runner process exited with code ${String(code)}.`] }),
     });
     await this.applyShutdownPolicy(configuration.shutdownPolicy);
   }

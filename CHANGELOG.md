@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.365.0] - 2026-08-19
+
+### Added
+
+- **`TestResourceBudget` (`src/core/testResourceBudget.ts`) — the sliding scale for local test
+  execution, and the OS reserve under it.** The Docker-based local CI runner was the only governed
+  execution path; everything that runs tests on the host itself — the after-write auto-verification,
+  the test-run skill, the Pipeline "Run here" route — had no CPU, memory or worker governance at all,
+  and those are the paths that can take a desktop down: Jest defaults to (cores − 1) workers and
+  Stryker to (cores − 1) concurrent whole test runtimes, which on a 24-thread / 64 GB machine is
+  40–60 GB of commit on top of the desktop's baseline. Windows expresses that as a black screen with
+  corrupted graphics, not as a readable failure. Five rules: the reserve is for the operating system
+  and is measured **on the host**, never on the Docker/WSL VM (25%, never fewer than 2 CPUs / 8 GB);
+  one slider (`atlasmind.testing.resourceShare`, machine-scoped, default 50%) governs every path, so
+  two surfaces cannot answer the question differently; a budget can shrink a host run but never
+  refuse one; a worker flag is appended only where the runner is recognised (`--maxWorkers` for
+  Jest/Vitest, `--concurrency` at a harder cap for Stryker — each mutation runner is a whole test
+  runtime) and never to a compound script or one that states its own limit; and the `NODE_OPTIONS`
+  heap cap is a merge, never a replacement, so a machine that needs `--use-system-ca` keeps it.
+  Pure + unit-tested.
+- **A Stop button for the live one-job runner.** Once started, a run could only end by finishing: no
+  kill path existed anywhere in the manager, so a wedged job held its full CPU/memory budget until
+  Docker was killed by hand. `LocalCiRunnerManager.stop()` removes the container through the same
+  name-guarded remover the start path uses — it can only ever reach a container AtlasMind started —
+  and the confirmation says plainly that a claimed job will be reported to GitHub as failed.
+- **The first sight of the Pipeline page inspects the machine by itself** when local CI is enabled,
+  nothing has ever been probed, and no remembered inspection exists — so "Docker Desktop is not
+  installed" is surfaced without anyone having to find the Inspect button. Once per webview session,
+  and never when a dated observation already answers.
+
+### Changed
+
+- **The Project Dashboard opens on the dashboard.** The header was four stacked blocks — a 44px
+  generic title, a three-line description of the tabs sitting directly beneath it, a pill row, and
+  then two full-width cards, one repeating the project name at h2 with three provenance pills and one
+  carrying a 150px score ring. That is roughly 600px of chrome above the first real signal on a wide
+  editor and past 900px on a narrow one, on a page whose entire purpose is the signals. The same
+  facts are stated in one band now: **the project's own name is the largest text on the page**
+  instead of the third heading down, the sentence under it is the project's health summary rather
+  than a list of the tabs below it, "Generated / Branch / SSOT" is one muted line rather than three
+  pills, and the score is a chip beside **Refresh** that opens the Score page. The full animated ring
+  moves to that page, which is the one about the number. The header sits outside the re-rendered
+  subtree, so it is filled before the body is replaced — a page renderer that throws can no longer
+  leave the title reading "Loading project…" — cleared when a refresh fails rather than left showing
+  the previous collection's score as current, and the chip is hidden rather than reading zero when
+  nothing has been measured.
+- **The local CI container's reserve is computed on the host, not on Docker's view of itself.** On
+  Windows/macOS the engine reports the WSL/VM allocation, which is already a slice of the machine —
+  "25% reserved for the desktop" computed on the VM reserved a quarter of the slice and nothing of
+  the computer. The plan now takes the lowest of the operator caps, the engine's capacity, the
+  testing share, and what the host reserve leaves, and its explanation names each. The memory floor
+  rises from 2 GB to 8 GB.
+- **Agent-issued commands run at below-normal priority**, and their captured output is clipped to a
+  64 KB tail instead of failing at a 1 MiB buffer — the tail because test runners print failures
+  last, and the old `ENOBUFS` read as a test failure no test produced.
+- **The auto-verification run and the test-run skill carry the budget**: worker flags where the
+  script's runner is recognised, `testResources` environment caps always, and the "Run here" route
+  types the throttle into the terminal as part of the command, where the person about to press Enter
+  can read it or delete it.
+
 ## [0.364.1] - 2026-08-19
 
 ### Changed

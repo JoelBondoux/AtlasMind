@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.365.0 — A sliding scale for testing, and a desktop that survives it
+
+Local test execution gets one machine-scoped slider — `atlasmind.testing.resourceShare` — and an
+operating-system reserve that is measured on the real host (25%, never fewer than 2 CPUs / 8 GB), not on
+the Docker/WSL VM's view of itself. Every path that runs tests on this computer reads the same value: the
+after-write auto-verification, the test-run skill, the Pipeline's "Run here" commands, and the trusted
+local CI container. Jest and Vitest runs are capped with `--maxWorkers`, Stryker with `--concurrency` at a
+deliberately harder cap (each mutation runner is a whole test runtime), every governed Node process gets a
+heap ceiling merged into `NODE_OPTIONS`, and agent-issued commands run at below-normal priority. The live
+one-job runner gains a **Stop** button, and an enabled Pipeline page whose machine was never probed now
+inspects it automatically — so "Docker Desktop is not installed" is the first thing on the page, not a
+discovery behind a button. The motivating failure was real: an ungoverned Jest + Stryker default fans out
+to (cores - 1) whole test runtimes, which is how a mutation run can black-screen a 64 GB machine.
+
+The Project Dashboard also opens on the dashboard now: the header is one band carrying the project's own
+name, its health summary, provenance and a score chip, instead of roughly 600px of chrome above the first
+real signal.
+
+---
 ## v0.364.1 — The line that names the last publication
 
 Housekeeping. The README's published baseline moves to v0.364.0, the release just published — the step

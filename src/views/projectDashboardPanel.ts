@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -12,6 +13,7 @@ import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstatio
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
+import { clampTestResourceShare, planTestCommandThrottle, planTestResourceBudget } from '../core/testResourceBudget.js';
 import { collectTestingDashboardSnapshot, persistTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import {
   buildTestingPolicyLaymanGuide,
@@ -729,6 +731,11 @@ type ProjectDashboardMessage =
   | { type: 'refreshCi' }
   | { type: 'inspectLocalCiRunner' }
   | { type: 'startLocalCiRunner' }
+  /**
+   * Stop the live one-job runner. Carries no data: the manager stops only the
+   * container it started, resolved from its own snapshot.
+   */
+  | { type: 'stopLocalCiRunner' }
   /**
    * Review the committed trusted workflow now, from disk, before any of the
    * machine setup. Carries no data: the host re-derives every input.
@@ -1520,6 +1527,9 @@ function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
     shutdownPolicy,
     maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+    // Clamped inside the planner, so a hand-edited settings file cannot state
+    // a share the policy would refuse.
+    resourceSharePercent: configuration.get<number>('testing.resourceShare', 50),
   };
 }
 
@@ -4147,7 +4157,7 @@ export class ProjectDashboardPanel {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('atlasmind')) {
-          if (event.affectsConfiguration('atlasmind.ci.localRunner')) {
+          if (event.affectsConfiguration('atlasmind.ci.localRunner') || event.affectsConfiguration('atlasmind.testing.resourceShare')) {
             this.localCiRunnerInstance?.applyConfiguration(readLocalCiRunnerConfiguration());
           }
           void this.syncState();
@@ -4322,6 +4332,9 @@ export class ProjectDashboardPanel {
         return;
       case 'startLocalCiRunner':
         await this.handleStartLocalCiRunner();
+        return;
+      case 'stopLocalCiRunner':
+        await this.handleStopLocalCiRunner();
         return;
       case 'assessTrustedCiWorkflow':
         await this.handleAssessTrustedCiWorkflow();
@@ -6230,6 +6243,39 @@ export class ProjectDashboardPanel {
   }
 
   /**
+   * Stop the live one-job runner on request.
+   *
+   * Confirmed first, because stopping abandons a claimed GitHub job mid-run —
+   * but the alternative used to be nothing at all: once started, a run could
+   * only end by finishing, and a wedged job held its whole CPU/memory budget
+   * with no way to take it back short of killing Docker by hand.
+   */
+  private async handleStopLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      'Stop the local CI runner?',
+      {
+        modal: true,
+        detail: 'The ephemeral runner container is removed immediately. A job it had already claimed will be reported to GitHub as failed rather than finishing.',
+      },
+      'Stop the runner',
+    );
+    if (confirmation !== 'Stop the runner') {
+      return;
+    }
+    try {
+      await runner.stop();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not stop the local runner: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
    * The repository this workspace is, without needing `gh`.
    *
    * The trusted workflow names its own repository in an authorization
@@ -6558,10 +6604,19 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // The typed commands carry the machine's testing budget where the
+    // script's runner understands a worker flag — visible in the terminal, so
+    // the throttle is something the person can read and delete, not a hidden
+    // difference between this button and typing the command themselves.
+    const budget = planTestResourceBudget(
+      { cpuCount: Math.max(1, os.cpus().length), memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)) },
+      clampTestResourceShare(vscode.workspace.getConfiguration('atlasmind').get<number>('testing.resourceShare', 50)),
+    );
     const outcome = buildDirectLocalRunPlan(
       checks,
       packageFacts.packageManager,
       vscode.env.shell,
+      script => planTestCommandThrottle(packageFacts.scriptBodies[script], budget).extraArgs,
     );
     if (!outcome.ok) {
       void vscode.window.showWarningMessage(outcome.reason);
@@ -10636,14 +10691,21 @@ ${buildCardEvidenceSection(source, derivation)}`;
               </div>
             </div>
           </div>
+          <!-- The header names the project, states where it stands, and scores
+               it. Everything in it is filled from the snapshot except the
+               fallbacks, which are what the panel shows for the second before
+               the first collection returns. -->
           <div class="dashboard-topbar">
-            <div>
-              <p class="dashboard-kicker">Command center</p>
-              <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, Testing intelligence, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
+            <div class="dashboard-heading">
+              <p class="dashboard-kicker">Project dashboard &middot; command center</p>
+              <h1 id="dashboard-project-name" class="dashboard-project-name">Project Dashboard</h1>
+              <p id="dashboard-project-summary" class="dashboard-copy">Workspace health, the work in flight, code and safety signals, and delivery readiness — in one view.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
+              <p id="dashboard-provenance" class="dashboard-provenance"></p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
+              <button id="dashboard-score-chip" class="dashboard-score-chip" type="button" hidden
+                title="Composite score across operational discipline and outcome completeness. Opens the breakdown."></button>
               <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
                 aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
                 title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
@@ -10726,6 +10788,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'refreshCi'
     || candidate['type'] === 'inspectLocalCiRunner'
     || candidate['type'] === 'startLocalCiRunner'
+    || candidate['type'] === 'stopLocalCiRunner'
     || candidate['type'] === 'showLocalCiOutput'
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
@@ -15790,6 +15853,12 @@ function buildPromotionPathView(
 async function readNodePackageFacts(workspaceRoot: string): Promise<{
   packageManager: 'npm' | 'pnpm' | 'yarn';
   scripts: string[];
+  /**
+   * The script bodies, so a caller composing a run can ask what a script
+   * actually executes — the throttle planner appends worker flags only where
+   * the runner is recognised, and names alone cannot answer that.
+   */
+  scriptBodies: Record<string, string>;
   /** The Node major a generated workflow should pin, and why. */
   node: NodeVersionResolution;
 } | undefined> {
@@ -15803,6 +15872,14 @@ async function readNodePackageFacts(workspaceRoot: string): Promise<{
   const scripts = scriptsRecord && typeof scriptsRecord === 'object' && !Array.isArray(scriptsRecord)
     ? Object.keys(scriptsRecord as Record<string, unknown>)
     : [];
+  const scriptBodies: Record<string, string> = {};
+  if (scriptsRecord && typeof scriptsRecord === 'object' && !Array.isArray(scriptsRecord)) {
+    for (const [name, body] of Object.entries(scriptsRecord as Record<string, unknown>)) {
+      if (typeof body === 'string') {
+        scriptBodies[name] = body.slice(0, 500);
+      }
+    }
+  }
   const packageManager: 'npm' | 'pnpm' | 'yarn' | undefined = await fileExists(path.join(workspaceRoot, 'pnpm-lock.yaml'))
     ? 'pnpm'
     : await fileExists(path.join(workspaceRoot, 'yarn.lock'))
@@ -15825,7 +15902,7 @@ async function readNodePackageFacts(workspaceRoot: string): Promise<{
     ...(nodeVersionFile ? { nodeVersionFile } : {}),
     runtimeVersion: process.versions.node,
   });
-  return packageManager ? { packageManager, scripts, node } : undefined;
+  return packageManager ? { packageManager, scripts, scriptBodies, node } : undefined;
 }
 
 /** A small text file, or nothing. A missing dotfile is not an error here. */
@@ -18848,13 +18925,21 @@ const DASHBOARD_CSS = `
      column takes the slack (min-width:0 lets it shrink, which is what stops
      the buttons being squeezed), and past that the group drops to its own row
      at full size. */
+  /* Chrome, not content.
+     This header opened with a 44px title, a three-line description of the tabs
+     directly beneath it, a pill row, and then two full-width cards carrying the
+     project name again and a 150px score ring — a little over 600px on a wide
+     editor and past 900px on a narrow one, before a single real signal. It says
+     three things: which project, where it stands, and what it scores. All three
+     fit in one band, and the name is now the largest text on the page rather
+     than the third heading down. */
   .dashboard-topbar {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-    gap: 24px;
+    gap: 12px 24px;
     align-items: flex-start;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
   }
 
   .dashboard-topbar > :first-child {
@@ -18896,6 +18981,20 @@ const DASHBOARD_CSS = `
     font-size: clamp(30px, 4vw, 44px);
   }
 
+  /* The project's own name, and the one place on the page it is stated. Smaller
+     than the generic "Project Dashboard" title it replaced and considerably
+     louder than the h2 it used to be given inside the hero card. */
+  .dashboard-project-name {
+    margin: 0;
+    font-size: clamp(26px, 3vw, 36px);
+    line-height: 1.1;
+    font-weight: 700;
+  }
+
+  .dashboard-topbar .dashboard-kicker {
+    margin: 0 0 4px;
+  }
+
   .dashboard-copy {
     margin: 10px 0 0;
     max-width: 780px;
@@ -18903,19 +19002,44 @@ const DASHBOARD_CSS = `
     font-size: 14px;
   }
 
+  .dashboard-topbar .dashboard-copy {
+    margin: 6px 0 0;
+    font-size: 13px;
+  }
+
+  /* Generated / branch / SSOT: provenance, which is worth stating and is not
+     worth three pills. One muted line, wrapping. */
+  .dashboard-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    margin: 8px 0 0;
+    color: var(--dash-muted);
+    font-size: 12px;
+  }
+
+  .dashboard-provenance:empty {
+    display: none;
+  }
+
   .dashboard-version-strip {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 14px;
+    gap: 8px;
+    margin-top: 10px;
     min-height: 18px;
+  }
+
+  .dashboard-version-strip:empty {
+    display: none;
+    margin-top: 0;
   }
 
   .dashboard-version-pill {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 5px 11px;
     border-radius: 999px;
     border: 1px solid var(--dash-border);
     background: color-mix(in srgb, var(--dash-panel-strong) 80%, transparent);
@@ -18960,6 +19084,56 @@ const DASHBOARD_CSS = `
   .dashboard-version-pill-more:hover {
     border-color: var(--dash-accent-strong);
     color: var(--vscode-foreground);
+  }
+
+  /* The score, where it costs no vertical space: beside Refresh rather than in
+     a card of its own. The full ring, and the breakdown it introduces, live on
+     the Score page this opens — which is where somebody who wants either is
+     going anyway. */
+  .dashboard-score-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px 5px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel-strong) 80%, transparent);
+    color: var(--vscode-foreground);
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* [hidden] is a display:none the flex above would otherwise win against, so
+     the chip would show its empty self for the second before the first
+     snapshot lands. */
+  .dashboard-score-chip[hidden] {
+    display: none;
+  }
+
+  .dashboard-score-chip:hover {
+    border-color: var(--dash-accent-strong);
+  }
+
+  .score-chip-figure {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+  }
+
+  .score-chip-value {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .score-chip-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--dash-muted);
   }
 
   .dashboard-button {
@@ -19043,14 +19217,6 @@ const DASHBOARD_CSS = `
     color: var(--dash-muted);
   }
 
-  .hero-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
-    gap: 18px;
-  }
-
-  .hero-card,
-  .score-card,
   .stat-card,
   .chart-card,
   .panel-card,
@@ -19071,12 +19237,6 @@ const DASHBOARD_CSS = `
     box-shadow: var(--dash-shadow);
   }
 
-  .hero-card {
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-  }
-
   /* Cross-surface deep links land on a page and identify the exact record.
      The outline is temporary visual orientation; keyboard focus remains on the
      record so screen-reader and keyboard users receive the same destination. */
@@ -19092,23 +19252,6 @@ const DASHBOARD_CSS = `
     100% { box-shadow: var(--dash-shadow); }
   }
 
-  .hero-card::after {
-    content: '';
-    position: absolute;
-    inset: auto -40px -60px auto;
-    width: 220px;
-    height: 220px;
-    background: radial-gradient(circle, color-mix(in srgb, var(--dash-accent) 22%, transparent), transparent 68%);
-    pointer-events: none;
-  }
-
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 18px;
-  }
-
   .meta-pill,
   .governance-pill {
     display: inline-flex;
@@ -19121,18 +19264,44 @@ const DASHBOARD_CSS = `
     font-size: 12px;
   }
 
-  .score-card {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-    align-content: start;
-  }
-
   .score-ring {
     width: 150px;
     height: 150px;
     margin: 0 auto;
     display: block;
+  }
+
+  /* Two sizes, one ring. The header wants a glyph; the Score page, which is
+     about the number, keeps a ring big enough to read the arc off. */
+  .score-ring.score-chip-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+
+  .score-overview-card .score-ring {
+    width: 116px;
+    height: 116px;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+
+  .score-overview-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .score-overview-head > :last-child {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  .score-overview-head h3 {
+    margin: 0 0 4px;
   }
 
   .score-ring-track {
@@ -19151,24 +19320,11 @@ const DASHBOARD_CSS = `
     transition: stroke-dashoffset var(--dash-dur-entry) var(--dash-ease), stroke var(--dash-dur-value) ease;
   }
 
-  /* Score is the one number the hero exists to convey — carry it in the ring
-     colour too, not only in the digits underneath. */
+  /* The score is one number — carry it in the ring colour too, not only in the
+     digits, so the header chip reads at a glance without being read. */
   .score-ring.ring-good .score-ring-progress { stroke: var(--dash-good); }
   .score-ring.ring-warn .score-ring-progress { stroke: var(--dash-warn); }
   .score-ring.ring-critical .score-ring-progress { stroke: var(--dash-critical); }
-
-  .score-value {
-    text-align: center;
-    font-size: 42px;
-    font-weight: 700;
-    line-height: 1;
-  }
-
-  .score-caption {
-    text-align: center;
-    color: var(--dash-muted);
-    font-size: 13px;
-  }
 
   /* Sticky so switching tabs on the long pages (Delivery, Director, Testing)
      does not mean scrolling back to the top first. */
@@ -22507,7 +22663,6 @@ const DASHBOARD_CSS = `
     letter-spacing: inherit;
   }
 
-  .hero-grid > *,
   .panel-grid > *,
   .repo-grid > *,
   .runtime-grid > *,
@@ -23748,11 +23903,10 @@ const DASHBOARD_CSS = `
      editor — an entirely ordinary width — leaves half the window empty. That
      was a large part of why these pages read as badly proportioned.
 
-     .hero-grid and .ideation-shell are asymmetric two-column layouts rather
-     than repeating tracks, so they cannot express "reflow when you no longer
-     fit" and still need to be told. */
+     .ideation-shell is an asymmetric two-column layout rather than repeating
+     tracks, so it cannot express "reflow when you no longer fit" and still
+     needs to be told. */
   @media (max-width: 1280px) {
-    .hero-grid,
     .ideation-shell { grid-template-columns: 1fr; }
   }
 

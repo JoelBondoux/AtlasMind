@@ -493,9 +493,15 @@ probe in `globalState` as a **dated observation**: the page shows when it was ta
 different computer or one older than fourteen days is refused, and nothing restored from it can authorise
 a run, because the runner inspects again immediately before it lends the machine. The trusted workflow
 verdict is derived from disk on every refresh in the same pass, so neither half of the setup ladder asks
-for work that was already done. Capacity planning preserves at least 25% for the
-desktop, applies machine-scoped ceilings, and publishes
-the exact calculation and Linux-container evidence boundary on the card. GPU identity and trustworthy
+for work that was already done — and since v0.365.0, an enabled Pipeline page whose machine was never
+probed and has nothing remembered runs that first inspection by itself, so a missing Docker Desktop is the
+first thing on the page rather than a discovery behind a button. Capacity planning measures the
+operating-system reserve on the **real host**, never on the Docker/WSL VM's view of itself (25%, never
+fewer than 2 CPUs / 8 GB), applies the machine-scoped ceilings and the testing resource share
+(`atlasmind.testing.resourceShare` — see below), and publishes
+the exact calculation and Linux-container evidence boundary on the card. A live run finally has a **Stop**
+control: removal goes through the same name-guarded remover the start path uses, so it can only ever reach
+a container AtlasMind started, and a stopped run is reported honestly rather than as finished. GPU identity and trustworthy
 VRAM are capability evidence only: the access policy remains disabled and Docker receives no `--gpus`.
 
 Starting is a one-job transaction. AtlasMind reads and deduplicates GitHub's `pending` and `queued` workflow
@@ -508,6 +514,15 @@ then does a modal name the run, image, resource limits and cleanup effect. The r
 from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
 container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
 by CPU, memory, swap, process, capability and privilege-escalation controls.
+
+Behind all of that sits `testResourceBudget.ts` — the sliding scale for local test execution. The container
+was the only governed path; the paths that run tests **on the host** (the after-write auto-verification,
+the test-run skill, "Run here") had no CPU, memory or worker governance, and Jest's and Stryker's
+cores − 1 defaults are how a mutation run can black-screen a large machine. One machine-scoped slider
+(`atlasmind.testing.resourceShare`) now bounds every path; the budget is the lower of the share and what
+the host reserve leaves; Jest/Vitest runs get `--maxWorkers` and Stryker `--concurrency` (only where the
+script's runner is recognised and it does not state its own limit); every governed Node process gets a
+merged `NODE_OPTIONS` heap cap; and agent-issued commands run at below-normal priority.
 
 Docker Desktop cleanup records who opened it. The default stops it only when AtlasMind did; the operator
 may keep it open or request an always-close policy, but an unreadable inventory or unrelated running
@@ -611,6 +626,16 @@ On the Workflow page, the **Your workflow file** card makes each stage's enablem
 tinting its contents: the segment outline and standard **Enabled** status tag carry the colour, while
 the larger marker stays neutral. The words **Enabled** / **Disabled** and `aria-pressed` preserve the
 same distinction without colour.
+
+**The Project Dashboard header names the project rather than itself.** It used to open with a generic
+44px title, a three-line description of the tabs directly beneath it, a version strip, and then two
+full-width cards — one repeating the project name, one holding a 150px score ring — which is most of a
+screen before the first real signal. It is one band now: your project's name is the largest text on the
+page, the line under it is the project's health summary, provenance is one muted line, and the score is a
+chip beside **Refresh** that opens the Score page, where the full ring lives. The band sits outside the
+subtree the dashboard re-renders, so it is filled before the body is replaced — a page that fails to
+render cannot leave the title blank — and everything it took from a collection is cleared when a refresh
+fails, rather than being left on screen as though it were current.
 
 **They share one design language.** Each webview is an isolated document, so a panel cannot inherit
 another's stylesheet — which is how nineteen panels ended up with nineteen palettes, four of them drifted

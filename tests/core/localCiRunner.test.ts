@@ -23,21 +23,39 @@ import {
 } from '../../src/core/localCiRunner.ts';
 
 describe('local CI resource planning', () => {
-  it('uses Docker capacity when it is lower than host capacity and preserves 25%', () => {
+  it('measures the reserve on the host, never on the Docker VM, and never exceeds engine capacity', () => {
+    // The engine's 8 CPUs / 12 GB is a WSL/VM slice of a 32-CPU / 64 GB host.
+    // The reserve must come off the host (8 CPUs / 16 GB here), and the plan
+    // may still use the whole slice because the host keeps far more than the
+    // reserve outside it. The old behaviour reserved 25% of the *slice*, which
+    // protected the VM from itself and the desktop from nothing.
     const plan = planLocalCiResources(
       { cpuCount: 32, memoryGb: 64, os: 'win32', arch: 'x64' },
       { cpuCount: 8, memoryGb: 12, os: 'linux', arch: 'x64' },
       { maxCpus: 16, maxMemoryGb: 32 },
     );
     expect(plan).toMatchObject({
-      cpus: 6,
-      memoryGb: 9,
-      reserveCpus: 2,
-      reserveMemoryGb: 3,
+      cpus: 8,
+      memoryGb: 12,
+      reserveCpus: 8,
+      reserveMemoryGb: 16,
       basedOn: 'docker-engine',
       provisional: false,
       blockers: [],
     });
+  });
+
+  it('applies the testing share as a further ceiling when one is stated', () => {
+    const plan = planLocalCiResources(
+      { cpuCount: 24, memoryGb: 64, os: 'win32', arch: 'x64' },
+      { cpuCount: 20, memoryGb: 48, os: 'linux', arch: 'x64' },
+      { maxCpus: 128, maxMemoryGb: 512, resourceSharePercent: 25 },
+    );
+    // 25% of the host is 6 CPUs / 16 GB — lower than both the engine slice
+    // and what the reserve (6 CPUs / 16 GB) leaves, so the share decides.
+    expect(plan.cpus).toBe(6);
+    expect(plan.memoryGb).toBe(16);
+    expect(plan.explanation).toContain('share 25%');
   });
 
   it('applies the operator caps after reserving capacity', () => {

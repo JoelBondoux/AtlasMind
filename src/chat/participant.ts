@@ -2389,6 +2389,7 @@ async function collectLocalCiSetupSteps(
       'never' | 'always' | 'ifStartedByAtlasMind',
     maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+    resourceSharePercent: configuration.get<number>('testing.resourceShare', 50),
   };
 
   const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');

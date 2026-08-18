@@ -1,6 +1,12 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById('dashboard-root');
+  // One automatic machine inspection per webview session, and only when the
+  // feature is enabled, nothing was ever inspected, and no remembered
+  // inspection exists — so "Docker is missing" is surfaced on first sight of
+  // the Pipeline page rather than waiting behind an Inspect button nobody
+  // knew they needed to press.
+  let localCiAutoInspectRequested = false;
   let hostBranchPreferences = {};
   try {
     hostBranchPreferences = root?.dataset.branchPreferences
@@ -47,6 +53,18 @@
   const GATE_HELP_TEXT = 'Release gates are the milestones your backlog is working towards — MVP is the built-in first one, and you can add your own (a public beta, v1.0, v2). Tagging an item puts it on that release\'s path. An item can belong to more than one, and removing a gate never deletes any work.';
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
+  // The header identity — project name, state, provenance and score. It lives
+  // in the host markup rather than inside #dashboard-root because render()
+  // replaces that subtree wholesale on every keystroke, and the header does not
+  // change between renders.
+  const projectNameEl = document.getElementById('dashboard-project-name');
+  const projectSummaryEl = document.getElementById('dashboard-project-summary');
+  const provenanceEl = document.getElementById('dashboard-provenance');
+  const scoreChip = document.getElementById('dashboard-score-chip');
+  // What the header says with nothing collected yet, taken from the host markup
+  // so the sentence is written in one place. Captured before the first render,
+  // which is also the first thing to clear it.
+  const HEADER_SUMMARY_FALLBACK = projectSummaryEl ? projectSummaryEl.textContent : '';
   const noProjectBanner = document.getElementById('no-project-banner');
   const statusRegion = document.getElementById('dashboard-status');
   const atlasDiscussIconUri = root?.dataset.atlasDiscussIcon || '';
@@ -840,6 +858,17 @@
     }
   });
 
+  // The header sits outside #dashboard-root, so it is not reached by the
+  // delegated handler below and binds its own.
+  scoreChip?.addEventListener('click', () => {
+    if (!state.snapshot || state.activePage === 'score') {
+      return;
+    }
+    state.activePage = 'score';
+    resetScrollAfterRender = true;
+    render();
+  });
+
   root?.addEventListener('click', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
     if (!(target instanceof HTMLElement)) {
@@ -1261,6 +1290,10 @@
     }
     if (action === 'pipeline-runner-start') {
       vscode.postMessage({ type: 'startLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-stop') {
+      vscode.postMessage({ type: 'stopLocalCiRunner' });
       return;
     }
     if (action === 'pipeline-runner-output') {
@@ -2556,9 +2589,7 @@
     try {
       const snapshot = state.snapshot;
       if (!snapshot) {
-        if (versionStrip) {
-          versionStrip.innerHTML = '';
-        }
+        clearHeaderIdentity();
         root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
         return;
       }
@@ -2566,27 +2597,12 @@
       if (versionStrip) {
         versionStrip.innerHTML = renderVersionStrip(snapshot);
       }
+      applyHeaderIdentity(snapshot);
 
+      // The page opens on the nav. The hero that used to sit above it said the
+      // project name, the health summary, three provenance pills and the score
+      // — all of which the header now says, in a band that was already there.
       root.innerHTML = `
-        <section class="hero-grid">
-          <article class="hero-card">
-            <p class="dashboard-kicker">${escapeHtml(snapshot.workspaceName)}</p>
-            <h2>${escapeHtml(snapshot.repositoryLabel)}</h2>
-            <p class="section-copy">${escapeHtml(snapshot.healthSummary)}</p>
-            <div class="hero-meta">
-              <span class="meta-pill">Generated ${escapeHtml(relativeLabel(snapshot.generatedAt))}</span>
-              <span class="meta-pill">Branch ${escapeHtml(snapshot.currentBranch)}</span>
-              <span class="meta-pill">SSOT ${escapeHtml(snapshot.ssot.path)}</span>
-            </div>
-          </article>
-          <button type="button" class="score-card" data-action="page" data-payload="score">
-            <p class="dashboard-kicker">Operational score</p>
-            ${renderScoreRing(snapshot.healthScore)}
-            <div class="score-value">${escapeHtml(String(snapshot.healthScore))}</div>
-            <div class="score-caption">Composite score across operational discipline and outcome completeness. Click for the breakdown.</div>
-          </button>
-        </section>
-
         <section class="toolbar-row">
           ${renderNav(snapshot)}
         </section>
@@ -2825,9 +2841,9 @@
     if (!root) {
       return;
     }
-    if (versionStrip) {
-      versionStrip.innerHTML = '';
-    }
+    // A refresh that failed leaves the header carrying the last collection's
+    // score and provenance, which would read as current.
+    clearHeaderIdentity();
     root.innerHTML = `
       <div class="dashboard-empty">
         <div>
@@ -2843,6 +2859,96 @@
           </div>
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * The header's identity: which project, where it stands, and what it scores.
+   *
+   * This used to be two full-width cards below the title — one repeating the
+   * project name at h2 with three pills under it, one carrying a 150px ring —
+   * which put roughly 600px of chrome above the first real signal on a wide
+   * editor and considerably more on a narrow one. The same four facts are
+   * stated here, in the band that was already on screen.
+   *
+   * Written into the host markup rather than returned as HTML because the
+   * header sits outside #dashboard-root, which render() replaces wholesale.
+   * textContent throughout: none of these values is trusted markup.
+   */
+  function applyHeaderIdentity(snapshot) {
+    if (projectNameEl) {
+      projectNameEl.textContent = snapshot.workspaceName || 'This project';
+    }
+    if (projectSummaryEl) {
+      // The project's own state, not the description of the tabs beneath it
+      // that used to stand here. The neutral sentence in the host markup is
+      // what shows when there is no collection to describe.
+      projectSummaryEl.textContent = snapshot.healthSummary || HEADER_SUMMARY_FALLBACK;
+    }
+    if (provenanceEl) {
+      provenanceEl.textContent = '';
+      [
+        `Generated ${relativeLabel(snapshot.generatedAt)}`,
+        `Branch ${snapshot.currentBranch}`,
+        `SSOT ${snapshot.ssot.path}`,
+      ].forEach(fact => {
+        const span = document.createElement('span');
+        span.textContent = fact;
+        provenanceEl.appendChild(span);
+      });
+    }
+    if (scoreChip) {
+      scoreChip.innerHTML = renderScoreChip(snapshot.healthScore);
+      scoreChip.hidden = false;
+    }
+  }
+
+  /**
+   * Header state before the first snapshot, and after a failed refresh.
+   *
+   * Everything derived from a collection goes, because a header still carrying
+   * the previous one reads as current — the summary as much as the score, since
+   * both are readings and neither is any fresher than the other. The summary
+   * falls back to the neutral sentence rather than to nothing, so the header
+   * does not collapse while the first collection runs. The project's name stays:
+   * it identifies the workspace rather than measuring it.
+   */
+  function clearHeaderIdentity() {
+    if (versionStrip) { versionStrip.innerHTML = ''; }
+    if (provenanceEl) { provenanceEl.textContent = ''; }
+    if (projectSummaryEl) { projectSummaryEl.textContent = HEADER_SUMMARY_FALLBACK; }
+    if (scoreChip) {
+      scoreChip.innerHTML = '';
+      // Hidden rather than zeroed: a score of 0 is a reading, and this is the
+      // absence of one.
+      scoreChip.hidden = true;
+    }
+  }
+
+  /**
+   * The header's compact score.
+   *
+   * Deliberately not `renderScoreRing`: that one is animated by
+   * applyValueAnimations(), which only scans inside #dashboard-root, so a ring
+   * placed in the header would sit forever at its "from" value — an empty ring
+   * reading zero. This one paints its final offset in the markup.
+   */
+  function renderScoreChip(score) {
+    const safe = Math.max(0, Math.min(100, Number(score) || 0));
+    const radius = 56;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference - (safe / 100) * circumference;
+    const toneClass = safe >= 75 ? ' ring-good' : safe >= 50 ? ' ring-warn' : ' ring-critical';
+    return `
+      <span class="score-chip-figure">
+        <svg class="score-ring score-chip-ring${toneClass}" viewBox="0 0 140 140" aria-hidden="true" focusable="false">
+          <circle class="score-ring-track" cx="70" cy="70" r="${radius}"></circle>
+          <circle class="score-ring-progress" cx="70" cy="70" r="${radius}"
+            stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"></circle>
+        </svg>
+        <span class="score-chip-value">${escapeHtml(String(score))}</span>
+      </span>
+      <span class="score-chip-label">Operational score</span>
     `;
   }
 
@@ -3328,8 +3434,16 @@
         <div class="panel-grid score-summary-grid">
           <article class="panel-card score-overview-card">
             <p class="section-kicker">Operational score</p>
-            <h3>${escapeHtml(String(snapshot.healthScore))}/100</h3>
-            <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
+            <!-- The full ring. It used to sit in the dashboard header on every
+                 page, where it cost 150px of height to say what the header chip
+                 now says in 38px; here it is on the page about the number. -->
+            <div class="score-overview-head">
+              ${renderScoreRing(snapshot.healthScore)}
+              <div>
+                <h3>${escapeHtml(String(snapshot.healthScore))}/100</h3>
+                <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
+              </div>
+            </div>
             <div class="tag-row">
               <span class="tag ${snapshot.healthScore >= 85 ? 'tag-good' : snapshot.healthScore >= 65 ? '' : 'tag-warn'}">Operational ${escapeHtml(String(snapshot.healthScore))}</span>
               <span class="tag ${outcome.score >= 75 ? 'tag-good' : outcome.score >= 55 ? '' : 'tag-warn'}">Outcome completeness ${escapeHtml(String(outcome.score))}%</span>
@@ -8202,6 +8316,14 @@
     const runnerWarnings = runner.warnings || [];
     const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
     const runnerReady = ['ready', 'finished'].includes(runner.lifecycle);
+    if (!localCiAutoInspectRequested
+      && runner.enabled
+      && runner.lifecycle === 'not-inspected'
+      && !prerequisitesInspected
+      && !rememberedInspection) {
+      localCiAutoInspectRequested = true;
+      vscode.postMessage({ type: 'inspectLocalCiRunner' });
+    }
     const runnerTone = runner.lifecycle === 'running' || runner.lifecycle === 'finished' || runner.lifecycle === 'ready'
       ? 'tag-good'
       : runner.lifecycle === 'blocked' || runner.lifecycle === 'failed' ? 'tag-critical' : 'tag-warn';
@@ -8403,7 +8525,8 @@
       runnerFocusTitle = runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
       runnerFocusDetail = 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
       runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
-      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>'
+        + '<button type="button" class="action-link" data-action="pipeline-runner-stop">Stop the runner…</button>';
     } else if (runner.lifecycle === 'finished') {
       runnerFocusTitle = 'Review the GitHub result';
       runnerFocusDetail = 'A clean runner exit is not a test verdict. Read GitHub before treating the job as passing.';

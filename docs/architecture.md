@@ -846,8 +846,13 @@ restart. `reviewTrustedLocalCiWorkflow` is exported as a free function so the da
 trusted workflow verdict before anything has built a manager — constructing one opens an output channel,
 so a refresh must not — while the manager delegates to it, keeping one implementation behind the answer on
 the page and the answer that gates a run.
-Resource planning uses the lower execution capacity,
-reserves at least 25% (and 2 GB), applies operator maximums, and refuses below 2 CPUs or 4 GB. The container
+Resource planning measures the operating-system reserve **on the host, never on Docker's view of itself** —
+on Windows/macOS the engine reports the WSL/VM allocation, which is already a slice of the machine, so a
+reserve computed there protected the VM from itself and the desktop from nothing. The plan takes the lowest
+of the operator maximums, the engine's capacity, the testing resource share
+(`atlasmind.testing.resourceShare`, shared with every host-side test path via
+`src/core/testResourceBudget.ts`), and what the host reserve (25%, never fewer than 2 CPUs / 8 GB) leaves;
+it refuses below 2 CPUs or 4 GB. The container
 receives matching `--cpus`, `--memory`, `--memory-swap` and `--pids-limit 1024` limits. GPU identity/live
 VRAM and Docker runtime capability are evidence only; `LocalCiGpuSnapshot.accessPolicy` remains `disabled`
 and no `--gpus` argument is produced. OS/architecture are carried in the snapshot as evidence, so a Linux
@@ -892,6 +897,28 @@ the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`. `Loca
 copy of the last applied machine configuration; identical reads are no-ops, while the dashboard reconciles
 the current VS Code value before every snapshot. This closes the gap where a long-lived panel could render
 an old enabled state after the active profile or extension host changed.
+
+The lifecycle also has a deliberate exit: `stop()` removes the live container through the same name-guarded
+remover the start path uses — it can only ever reach a container AtlasMind started — and the finish path
+reports a stopped run as `ready` with an honest message rather than as `finished`, because a job abandoned
+mid-run is not a job that completed. Before this existed, a started run could only end by finishing, and a
+wedged job held its whole CPU/memory budget with nothing on this side able to take it back.
+
+### TestResourceBudget (`src/core/testResourceBudget.ts`)
+
+The sliding scale for local test execution, and the OS reserve under it. The container runner above was the
+only governed execution path; every path that runs tests **on the host** — the after-write
+auto-verification in `extension.ts`, the `test-run` skill, the Pipeline "Run here" route — had no CPU,
+memory or worker governance, and those are the paths that can take a desktop down (Jest defaults to
+cores − 1 workers; Stryker to cores − 1 concurrent whole test runtimes). Pure and unit-tested
+(`tests/core/testResourceBudget.test.ts`). Five rules: the reserve is measured on the host and floored
+aggressively (25%, ≥2 CPUs / 8 GB); one slider (`atlasmind.testing.resourceShare`, machine-scoped) governs
+every path so two surfaces cannot answer differently; a budget can shrink a host run but never refuse one;
+worker flags are appended only where the runner is recognised and the script does not state its own limit
+(`planTestCommandThrottle` — `--maxWorkers` for Jest/Vitest, `--concurrency` at a harder cap for Stryker,
+nothing for compound scripts); and the `NODE_OPTIONS` heap cap is a merge, never a replacement
+(`withTestResourceEnv`). The host `runCommand` additionally runs every agent-issued command at below-normal
+priority and clips captured output to a bounded tail, because a runner prints its failures last.
 
 ### Pipeline Studio (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`)
 

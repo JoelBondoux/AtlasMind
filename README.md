@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.364.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.365.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,32 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.364.1
+## What's new in 0.365.0
 
 The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Project Dashboard opens on the dashboard.** Its header was a generic 44px title, a three-line
+  description of the tabs directly beneath it, a pill row, and then two full-width cards — one
+  repeating the project name, one holding a 150px score ring — which is most of a screen before the
+  first real signal. It is one band now: your project's name is the largest text on the page, the line
+  under it is the project's health summary rather than a list of the tabs below it, provenance is one
+  muted line, and the score is a chip beside **Refresh** that opens the Score page, where the full ring
+  now lives.
+- **Local testing gets a sliding scale, and the operating system gets a guaranteed floor.** One
+  machine-scoped setting, `atlasmind.testing.resourceShare`, now bounds every path that runs tests on
+  this computer — the after-write auto-verification, the test-run skill, the Pipeline's "Run here"
+  commands, and the trusted local CI container. The budget is the lower of the share and what the OS
+  reserve leaves, and the reserve is aggressive on purpose: at least 25% of the machine, never fewer
+  than 2 CPUs or 8 GB, measured on the **real host** rather than the Docker/WSL VM. Jest and Vitest
+  runs get `--maxWorkers`, Stryker gets `--concurrency` at a harder cap, every governed Node process
+  gets a heap ceiling, agent-issued commands run at below-normal priority — and the live one-job
+  runner finally has a **Stop** button. An ungoverned Jest-plus-Stryker default was fanning out to
+  (cores − 1) whole test runtimes, which is how a mutation run can black-screen a 64 GB machine.
+- **A missing prerequisite announces itself.** With local CI enabled, the Pipeline page now runs the
+  machine inspection automatically the first time nothing has ever been probed and nothing is
+  remembered — so "Docker Desktop is not installed" is the first thing on the page, not a discovery
+  behind a button.
 
 - **The Pipeline stops asking you to set up what you already set up.** Reopening VS Code used to send the
   Runner view back to "Inspect this computer" and "Check the trusted workflow", because neither answer
@@ -1183,6 +1205,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
+| `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 
 All 142 settings are documented in the [Configuration reference](wiki/Configuration.md).
 

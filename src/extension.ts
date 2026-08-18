@@ -19,6 +19,13 @@ import {
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
+import {
+  clampTestResourceShare,
+  planTestCommandThrottle,
+  planTestResourceBudget,
+  withTestResourceEnv,
+  type TestResourceBudget,
+} from './core/testResourceBudget.js';
 
 /** The walkthrough lives in its own thread rather than interrupting another. */
 const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
@@ -4868,25 +4875,54 @@ function buildSkillExecutionContext(
       const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
       const mappedExecutable = mapExecutableForWindows(executable.trim());
 
+      // A test command inherits the machine's testing resource budget: every
+      // Node child (Jest/Vitest workers included) gets a heap cap through
+      // NODE_OPTIONS. Opt-in via options.testResources — the same cap on a
+      // production build would be a limit nobody asked for.
+      const env = options?.testResources
+        ? withTestResourceEnv(process.env, readTestResourceBudget())
+        : undefined;
+
       try {
-        const { stdout, stderr } = await execFileAsync(mappedExecutable, args ?? [], {
+        const pending = execFileAsync(mappedExecutable, args ?? [], {
           cwd,
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           windowsHide: true,
-          maxBuffer: 1024 * 1024,
+          // 4 MiB then a tail clip below: a full test run on a large suite
+          // overflowed the old 1 MiB cap, and ENOBUFS read as a test failure
+          // that no test produced. The tail is kept rather than the head
+          // because runners print their failures last.
+          maxBuffer: 4 * 1024 * 1024,
+          ...(env ? { env: env as NodeJS.ProcessEnv } : {}),
           // .cmd files on Windows cannot be spawned directly — they require cmd.exe
           shell: process.platform === 'win32',
         });
-        return { ok: true, exitCode: 0, stdout: stdout.trim(), stderr: stderr.trim() };
+        // Below-normal priority for every agent-issued command: this path is
+        // never the user's interactive terminal, and the desktop staying
+        // responsive outranks a background check finishing sooner. Children
+        // inherit the class at creation, so this is set immediately.
+        if (pending.child?.pid !== undefined) {
+          try {
+            os.setPriority(pending.child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+          } catch {
+            // The process may already have exited; priority is best-effort.
+          }
+        }
+        const { stdout, stderr } = await pending;
+        return { ok: true, exitCode: 0, stdout: clipCommandOutput(stdout), stderr: clipCommandOutput(stderr) };
       } catch (error) {
         const maybe = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
         return {
           ok: false,
           exitCode: typeof maybe.code === 'number' ? maybe.code : 1,
-          stdout: String(maybe.stdout ?? '').trim(),
-          stderr: String(maybe.stderr ?? maybe.message ?? '').trim(),
+          stdout: clipCommandOutput(String(maybe.stdout ?? '')),
+          stderr: clipCommandOutput(String(maybe.stderr ?? maybe.message ?? '')),
         };
       }
+    },
+
+    testResourceBudget() {
+      return readTestResourceBudget();
     },
 
     async getGitStatus() {
@@ -5531,6 +5567,35 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
+/**
+ * The testing resource budget for this machine, from the one slider that
+ * governs every locally-run test path (`atlasmind.testing.resourceShare`).
+ * Recomputed per call: it is cheap, and a cached copy would hold yesterday's
+ * answer after the user moved the slider mid-session.
+ */
+function readTestResourceBudget(): TestResourceBudget {
+  const share = vscode.workspace.getConfiguration('atlasmind').get<number>('testing.resourceShare', 50);
+  return planTestResourceBudget({
+    cpuCount: Math.max(1, os.cpus().length),
+    memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)),
+  }, clampTestResourceShare(share));
+}
+
+const COMMAND_OUTPUT_CLIP_BYTES = 64 * 1024;
+
+/**
+ * Keep the tail of oversized command output. Test runners print their
+ * failures last, so the tail is the half worth keeping — and an unclipped
+ * multi-megabyte transcript would land verbatim in a model prompt.
+ */
+function clipCommandOutput(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= COMMAND_OUTPUT_CLIP_BYTES) {
+    return trimmed;
+  }
+  return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_BYTES)}`;
+}
+
 function mapExecutableForWindows(executable: string): string {
   if (process.platform !== 'win32') {
     return executable;
@@ -5593,10 +5658,19 @@ async function runPostToolVerification(
     `Package manager: ${packageManager}`,
   ];
 
+  // The machine's testing budget: worker flags where the script's runner is
+  // recognised, and a heap cap through the environment either way. Without
+  // this, a bare `jest` script fans out to (cores − 1) ts-jest workers on
+  // every agent write — the ungoverned path that can take the desktop down.
+  const budget = readTestResourceBudget();
   for (const script of availableScripts) {
-    const result = await skillContext.runCommand(packageManager, buildPackageManagerArgs(packageManager, script), {
+    const throttle = planTestCommandThrottle(manifest.scripts?.[script], budget);
+    const baseArgs = buildPackageManagerArgs(packageManager, script);
+    const args = throttle.extraArgs.length > 0 ? [...baseArgs, '--', ...throttle.extraArgs] : baseArgs;
+    const result = await skillContext.runCommand(packageManager, args, {
       cwd: workspaceRoot,
       timeoutMs,
+      testResources: true,
     });
     summaries.push(formatVerificationOutcome(packageManager, script, result));
     if (!result.ok) {
