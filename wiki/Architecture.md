@@ -487,7 +487,13 @@ is the connected provider and Docker is the current executor; Buildkite, Semapho
 shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
 inspection checks GitHub CLI availability/authentication and reads host CPU/RAM/GPU capability plus
 Docker-engine CPU, memory, OS, architecture and advertised runtimes. Unchecked prerequisites stay “Not
-checked” rather than becoming false missing-tool claims. Capacity planning preserves at least 25% for the
+checked” rather than becoming false missing-tool claims — and, since v0.364.0, an inspection that already
+ran is remembered rather than asked for again. `localCiInspectionMemory.ts` stores the durable half of a
+probe in `globalState` as a **dated observation**: the page shows when it was taken, a record describing a
+different computer or one older than fourteen days is refused, and nothing restored from it can authorise
+a run, because the runner inspects again immediately before it lends the machine. The trusted workflow
+verdict is derived from disk on every refresh in the same pass, so neither half of the setup ladder asks
+for work that was already done. Capacity planning preserves at least 25% for the
 desktop, applies machine-scoped ceilings, and publishes
 the exact calculation and Linux-container evidence boundary on the card. GPU identity and trustworthy
 VRAM are capability evidence only: the access policy remains disabled and Docker receives no `--gpus`.
@@ -654,7 +660,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

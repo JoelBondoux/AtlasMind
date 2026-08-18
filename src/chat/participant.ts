@@ -865,7 +865,7 @@ export async function runDeterministicSlashCommand(
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'lens': await handleLensCommand(stream); return true;
-    case 'localci': await handleLocalCiCommand(stream); return true;
+    case 'localci': await handleLocalCiCommand(stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
@@ -2367,12 +2367,14 @@ async function handleLensCommand(stream: vscode.ChatResponseStream): Promise<voi
  */
 async function collectLocalCiSetupSteps(
   options: { probe: boolean },
+  atlas?: AtlasMindContext,
 ): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
-  const [{ buildLocalCiSetupPlan }, { LocalCiRunnerManager, initialLocalCiRunnerSnapshot, buildLocalCiQueueInvocation }, { parseRepoSlug }] =
+  const [{ buildLocalCiSetupPlan }, { LocalCiRunnerManager, initialLocalCiRunnerSnapshot, buildLocalCiQueueInvocation }, { parseRepoSlug }, memory] =
     await Promise.all([
       import('../core/localCiSetupPlan.js'),
       import('../core/localCiRunner.js'),
       import('../core/githubDeepLinks.js'),
+      import('../core/localCiInspectionMemory.js'),
     ]);
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -2426,6 +2428,22 @@ async function collectLocalCiSetupSteps(
   if (options.probe) {
     snapshot = await manager.inspect(runnerConfiguration).catch(() => snapshot);
   }
+  // The `/setup` index deliberately does not probe, and `/localci` probes only
+  // when it can. Either way the last inspection the Pipeline page ran is worth
+  // reading: without it this guide reports "not checked yet" on a machine that
+  // was checked yesterday, which is the same "do the setup again" complaint the
+  // dashboard had. A live probe always wins — `applyRememberedInspection`
+  // refuses to overwrite one — and the note says where the reading came from.
+  const remembered = atlas?.extensionContext
+    ? memory.restoreLocalCiInspection(
+      atlas.extensionContext.globalState.get<unknown>(memory.LOCAL_CI_INSPECTION_MEMORY_KEY),
+      snapshot.host,
+      runnerConfiguration.image,
+    )
+    : { restored: false as const, reason: 'absent' as const };
+  const probedLive = snapshot.prerequisites.inspection === 'inspected';
+  snapshot = memory.applyRememberedInspection(snapshot, remembered);
+  const usedMemory = !probedLive && snapshot.prerequisites.inspection === 'inspected';
 
   // The remote answers "which repository is this" without needing `gh`, which
   // matters because the workflow review has to work before `gh` is installed.
@@ -2445,7 +2463,8 @@ async function collectLocalCiSetupSteps(
   return buildLocalCiSetupPlan({
     ...base,
     ...(workflowReview ? { workflowReview } : {}),
-    prerequisitesInspected: options.probe && snapshot.prerequisites.inspection === 'inspected',
+    prerequisitesInspected: snapshot.prerequisites.inspection === 'inspected',
+    ...(usedMemory ? { inspectionObservedNote: memory.describeRememberedInspection(remembered) } : {}),
     githubCliInstalled: snapshot.prerequisites.githubCliInstalled,
     githubAuthenticated: snapshot.prerequisites.githubAuthenticated,
     dockerCliInstalled: snapshot.engine.cliInstalled,
@@ -2463,13 +2482,16 @@ async function collectLocalCiSetupSteps(
  * them through five screens to reach the one they came for is how a guide
  * stops being opened.
  */
-async function handleLocalCiCommand(stream: vscode.ChatResponseStream): Promise<void> {
+async function handleLocalCiCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
   const [{ LOCAL_CI_SETUP_GUIDE }, walkthrough] = await Promise.all([
     import('../core/localCiSetupPlan.js'),
     import('../core/setupWalkthrough.js'),
   ]);
   stream.progress('Checking the trusted workflow, GitHub CLI and Docker on this machine…');
-  const steps = await collectLocalCiSetupSteps({ probe: true });
+  const steps = await collectLocalCiSetupSteps({ probe: true }, atlas);
   const progress = walkthrough.summarizeSetupProgress(steps, LOCAL_CI_SETUP_GUIDE.stepIds);
 
   stream.markdown(walkthrough.renderSetupGuideMarkdown(LOCAL_CI_SETUP_GUIDE, steps, progress));
@@ -2524,7 +2546,7 @@ async function handleSetupCommand(
     return;
   }
   if (requested?.id === 'localci') {
-    await handleLocalCiCommand(stream);
+    await handleLocalCiCommand(stream, atlas);
     return;
   }
 
@@ -2534,9 +2556,11 @@ async function handleSetupCommand(
   plans.push({ guideId: 'lens', steps: await collectLensSetupSteps().catch(() => []) });
   // Probe-free on the index: `/setup` lists four guides, and paying for a
   // Docker and `gh` probe to render one row would make opening the index
-  // noticeably slow on a machine that has neither. The row then reads
-  // "not checked yet", which is true, and `/localci` does the real probe.
-  plans.push({ guideId: 'localci', steps: await collectLocalCiSetupSteps({ probe: false }).catch(() => []) });
+  // noticeably slow on a machine that has neither. Where the Pipeline page has
+  // inspected before, the row reports that dated observation and says so;
+  // where it has not, the row reads "not checked yet", which is true. Either
+  // way `/localci` does the real probe.
+  plans.push({ guideId: 'localci', steps: await collectLocalCiSetupSteps({ probe: false }, atlas).catch(() => []) });
 
   stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
   if (trimmed && !requested) {

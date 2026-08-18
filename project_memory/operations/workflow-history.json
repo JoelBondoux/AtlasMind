@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "records": [
+    {
+      "id": "planning-2026-08-18T21:04:40.023Z-b1423aff19c2e177",
+      "stageId": "planning",
+      "action": "closeIssue",
+      "at": "2026-08-18T21:04:40.023Z",
+      "actor": "user",
+      "requestedLevel": "propose",
+      "effectiveLevel": "propose",
+      "limitedBy": "ceiling",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": false,
+          "detail": "Your personal ceiling is `propose`. The project allows `auto`; raise `atlasmind.workflow.maxAutomationLevel` to reach it."
+        }
+      ],
+      "inputsFingerprint": "b1423aff19c2e177",
+      "outcome": "complete",
+      "outputsFingerprint": "4062edaf750fb807"
+    }
+  ]
+}

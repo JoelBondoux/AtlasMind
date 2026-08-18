@@ -38,6 +38,12 @@ import {
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
+import {
+  applyConfirmedIssueWrite,
+  applyConfirmedPullRequestWrite,
+  type ConfirmedIssueWrite,
+  type ConfirmedPullRequestWrite,
+} from '../core/trackerWriteOutcome.js';
 import { ghFailureOf, runGhOrThrow } from '../core/ghClient.js';
 import {
   buildWorkflowCurriculum,
@@ -219,11 +225,21 @@ import {
   buildLocalCiQueueInvocation,
   initialLocalCiRunnerSnapshot,
   resolveLocalCiRunnerLabel,
+  reviewTrustedLocalCiWorkflow,
   type LocalCiRunnerConfiguration,
   type LocalCiRunnerSnapshot,
   type LocalCiShutdownPolicy,
   type LocalCiStartPlan,
+  type LocalCiWorkflowReview,
 } from '../core/localCiRunner.js';
+import {
+  LOCAL_CI_INSPECTION_MEMORY_KEY,
+  applyRememberedInspection,
+  describeRememberedInspection,
+  rememberLocalCiInspection,
+  restoreLocalCiInspection,
+  type LocalCiInspectionMemoryOutcome,
+} from '../core/localCiInspectionMemory.js';
 import { resolveWorkflowNodeVersion, type NodeVersionResolution } from '../core/nodeVersionDetection.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
@@ -1471,6 +1487,22 @@ interface DashboardLocalCiEnablementSnapshot {
 interface DashboardLocalCiRunnerSnapshot extends LocalCiRunnerSnapshot {
   /** The effective VS Code value, not a browser-owned toggle. */
   enablement: DashboardLocalCiEnablementSnapshot;
+  /**
+   * Set when the machine readings on this snapshot came from a remembered
+   * inspection rather than one run in this session.
+   *
+   * Carried as its own field rather than folded into the readings, because the
+   * page must be able to say *when* they were taken. A restored reading shown
+   * as though it were live is a claim about right now that nobody checked —
+   * which is the failure this whole mechanism exists to avoid while still not
+   * asking somebody to re-run a probe they ran yesterday.
+   */
+  rememberedInspection?: {
+    observedAt: string;
+    ageDays: number;
+    /** The shared sentence from `describeRememberedInspection`. */
+    detail: string;
+  };
 }
 
 function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
@@ -3662,6 +3694,20 @@ export class ProjectDashboardPanel {
   /** Start time of the last attempt, successful or not, for bounded retries. */
   private repositoryActivityLastAttemptAt = 0;
 
+  /**
+   * A repository re-read that was asked for while one was already running.
+   *
+   * The in-flight guard exists so a second click cannot double the API burst,
+   * and for a *click* dropping the duplicate is right. For the re-read that
+   * follows a **write** it is not: that one is the only thing that will show
+   * the change, and dropping it left the page reporting the tracker as it was
+   * before the write — the failure being fixed here, one layer down. So a
+   * dropped request is remembered and run once when the current pass finishes,
+   * never accumulated: three writes during one refresh want one more read, not
+   * three.
+   */
+  private repositoryActivityRefreshQueued = false;
+
   /** Current host-issued assignment tokens; replaced atomically on every render. */
   private dashboardWorkTargets = new Map<string, DashboardWorkTarget>();
 
@@ -3732,6 +3778,29 @@ export class ProjectDashboardPanel {
    * finishes; closing a dashboard is not permission to kill a build.
    */
   private localCiRunnerInstance: LocalCiRunnerManager | undefined;
+
+  /**
+   * The trusted workflow verdict for this refresh, derived from disk.
+   *
+   * Held on the panel rather than only inside the manager because the manager
+   * may not exist: it is built on the first inspect or start, so on a fresh
+   * extension host there is nobody to ask, and the page opened claiming the
+   * workflow had never been checked. It is re-derived every refresh, so it
+   * cannot go stale — the same reasoning that put the check here instead of in
+   * a cache.
+   */
+  private localCiWorkflowReview: LocalCiWorkflowReview | undefined;
+
+  /**
+   * The last inspection of this computer, restored from `globalState`.
+   *
+   * Read once per panel and refreshed whenever an inspection runs. See
+   * `localCiInspectionMemory` for why this is remembered while the workflow
+   * verdict is derived: probing the machine starts processes, so deriving it on
+   * every render is not available, and the honest alternative is a dated
+   * observation the page labels as one.
+   */
+  private localCiInspectionMemory: LocalCiInspectionMemoryOutcome | undefined;
   /** The stages behind the page currently on screen. See `syncState`. */
   private lastWorkflowStages: readonly WorkflowStageDefinition[] = [];
   private localCiOutput: vscode.OutputChannel | undefined;
@@ -3963,11 +4032,36 @@ export class ProjectDashboardPanel {
     return this.localCiRunnerInstance;
   }
 
-  private localCiRunnerSnapshot(): LocalCiRunnerSnapshot {
+  /**
+   * The runner state the page is drawn from: what this session knows, plus what
+   * the last session found out, each labelled as what it is.
+   *
+   * The overlay order is the whole point. A live reading always wins — a memory
+   * is by definition the older of the two — and the remembered half is only
+   * folded in where nothing has been probed yet. The workflow verdict is
+   * overlaid unconditionally, because it was derived from the file moments ago
+   * and the manager's copy can only be older.
+   */
+  private localCiRunnerSnapshot(): Omit<DashboardLocalCiRunnerSnapshot, 'enablement'> {
     const configuration = readLocalCiRunnerConfiguration();
     this.localCiRunnerInstance?.applyConfiguration(configuration, false);
-    return this.localCiRunnerInstance?.getSnapshot()
+    const live = this.localCiRunnerInstance?.getSnapshot()
       ?? initialLocalCiRunnerSnapshot(configuration);
+    const review = this.localCiWorkflowReview;
+    const withReview = review ? { ...live, workflowReview: review } : live;
+    const remembered = this.rememberedLocalCiInspection(configuration);
+    const restored = applyRememberedInspection(withReview, remembered);
+    const usedMemory = remembered.restored && restored !== withReview;
+    return usedMemory && remembered.restored
+      ? {
+        ...restored,
+        rememberedInspection: {
+          observedAt: remembered.memory.observedAt,
+          ageDays: remembered.ageDays,
+          detail: describeRememberedInspection(remembered),
+        },
+      }
+      : restored;
   }
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: unknown): void {
@@ -4747,11 +4841,8 @@ export class ProjectDashboardPanel {
    * two were only ever conflated because they arrive in the same snapshot.
    */
   private async refreshTrustedWorkflowReview(): Promise<void> {
-    const runner = this.localCiRunnerInstance;
-    if (!runner) {
-      // No instance yet means nothing has touched local CI in this session.
-      // Creating one here would open an output channel as a side effect of a
-      // dashboard refresh, which is not this method's business.
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
       return;
     }
     const repoSlug = this.repositorySlugForWorkflow();
@@ -4761,12 +4852,66 @@ export class ProjectDashboardPanel {
       // verdict in place would be worse than leaving it absent.
       return;
     }
+    const configuration = readLocalCiRunnerConfiguration();
     try {
-      await runner.assessCommittedWorkflow(readLocalCiRunnerConfiguration(), repoSlug, { quiet: true });
+      const runner = this.localCiRunnerInstance;
+      // Where a manager exists it reviews, so its own snapshot and the page
+      // agree; where none does — a fresh extension host, the common case for
+      // this complaint — the same code runs as a free function. Deliberately
+      // not "build a manager here": constructing one opens an output channel,
+      // and a dashboard refresh has no business doing that.
+      this.localCiWorkflowReview = runner
+        ? await runner.assessCommittedWorkflow(configuration, repoSlug, { quiet: true })
+        : await reviewTrustedLocalCiWorkflow(
+          workspaceRoot,
+          configuration,
+          repoSlug,
+          initialLocalCiRunnerSnapshot(configuration).runnerLabel,
+        );
     } catch {
       // A refresh must never fail because of a check that is an enhancement to
       // it. The explicit action still reports its own errors.
     }
+  }
+
+  /**
+   * Restore the last inspection of this computer, once per panel.
+   *
+   * `globalState` rather than `workspaceState`: Docker, the GitHub CLI and its
+   * sign-in are facts about the machine, so a second workspace on the same
+   * computer should not have to ask again. The record carries the machine it
+   * describes and is refused if that does not match, so the storage choice
+   * cannot become a wrong answer if VS Code ever syncs the key.
+   */
+  private rememberedLocalCiInspection(configuration: LocalCiRunnerConfiguration): LocalCiInspectionMemoryOutcome {
+    if (!this.localCiInspectionMemory) {
+      // Optional chaining because a panel can be driven with a partial context
+      // — the flow tests do exactly that — and a refresh must not fail over a
+      // memory whose whole purpose is to be an improvement on asking again.
+      this.localCiInspectionMemory = restoreLocalCiInspection(
+        this.context?.globalState?.get<unknown>(LOCAL_CI_INSPECTION_MEMORY_KEY),
+        initialLocalCiRunnerSnapshot(configuration).host,
+        configuration.image,
+      );
+    }
+    return this.localCiInspectionMemory;
+  }
+
+  /**
+   * Record an inspection that actually ran, so the next extension host does not
+   * ask for it again.
+   *
+   * Only ever called after a real probe. Nothing else writes this key: a
+   * remembered inspection that was never an inspection would be a set of
+   * `false` readings indistinguishable from a machine with nothing installed.
+   */
+  private async persistLocalCiInspection(snapshot: LocalCiRunnerSnapshot): Promise<void> {
+    const memory = rememberLocalCiInspection(snapshot);
+    if (!memory) {
+      return;
+    }
+    await this.context?.globalState?.update(LOCAL_CI_INSPECTION_MEMORY_KEY, memory);
+    this.localCiInspectionMemory = { restored: true, memory, ageDays: 0, imageMatches: true };
   }
 
   private async syncState(): Promise<void> {
@@ -5748,6 +5893,7 @@ export class ProjectDashboardPanel {
    */
   private async handleRefreshIssues(): Promise<void> {
     if (this.repositoryActivityRefreshRunning) {
+      this.repositoryActivityRefreshQueued = true;
       return;
     }
 
@@ -5802,6 +5948,18 @@ export class ProjectDashboardPanel {
         loadedAt: new Date().toISOString(),
         busy: false,
       };
+      // Published now rather than at the end of the method.
+      //
+      // Everything below is a *different* repository reading — pull requests,
+      // workflow runs, labels, milestones, releases — and each is slower than
+      // this one; the run listing can pull a failure log with a 45-second
+      // timeout. Holding the issue list back until all of that finished meant
+      // an issue closed a moment ago stayed on screen looking untouched for the
+      // whole chain, which is indistinguishable from a write that failed
+      // silently. Each section is complete when it is published and carries its
+      // own `loadedAt`, and the busy indicator stays up until the last one, so
+      // publishing early states less than the old behaviour, never more.
+      await this.syncState();
 
       // Pull requests, best-effort and deliberately not fatal: a repository can
       // have issues readable and pull requests not (a permissions split, or an
@@ -5846,6 +6004,10 @@ export class ProjectDashboardPanel {
           this.pullRequestsNotice = `GitHub could not be read: ${ProjectDashboardPanel.describeGhFailure(leanError ?? richError)}`;
         }
       }
+
+      // Published for the same reason, and here specifically because the run
+      // listing below is the slowest leg of the refresh.
+      await this.syncState();
 
       // CI intelligence, also best-effort. A repository can have readable
       // issues and unreadable runs, and failing the whole refresh over the
@@ -5895,7 +6057,25 @@ export class ProjectDashboardPanel {
       this.repositoryActivityRefreshRunning = false;
       await this.syncState();
       await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
+      await this.drainQueuedRepositoryActivityRefresh();
     }
+  }
+
+  /**
+   * Run one deferred re-read, if anything asked for it while we were busy.
+   *
+   * The flag is cleared *before* the call, so the pass this starts can queue
+   * itself again for a write that lands during it — and a run that queues
+   * nothing ends the chain. Failures are swallowed here for the same reason the
+   * tertiary reads above swallow theirs: this is a follow-up to work that has
+   * already reported its own outcome.
+   */
+  private async drainQueuedRepositoryActivityRefresh(): Promise<void> {
+    if (!this.repositoryActivityRefreshQueued || this.disposed) {
+      return;
+    }
+    this.repositoryActivityRefreshQueued = false;
+    await this.handleRefreshIssues().catch(() => undefined);
   }
 
   /**
@@ -5967,6 +6147,10 @@ export class ProjectDashboardPanel {
       this.repositoryActivityRefreshRunning = false;
       await this.syncState();
       await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
+      // Shares the guard with the issues refresh, so it must share the drain
+      // too: a write whose re-read was dropped because *this* was running would
+      // otherwise wait for the next thing somebody clicked.
+      await this.drainQueuedRepositoryActivityRefresh();
     }
   }
 
@@ -5977,11 +6161,15 @@ export class ProjectDashboardPanel {
       return;
     }
     try {
-      await vscode.window.withProgress({
+      const inspected = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         title: 'AtlasMind: inspecting local CI capacity',
         cancellable: false,
       }, () => runner.inspect(readLocalCiRunnerConfiguration()));
+      // Written here rather than inside the manager: the manager is `vscode`-free
+      // and owns no storage, and a probe run by the walkthrough or a future
+      // caller should record the same way rather than each growing its own key.
+      await this.persistLocalCiInspection(inspected);
       await this.syncState();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -7182,6 +7370,10 @@ export class ProjectDashboardPanel {
     let args: string[];
     let description: string;
     let successNote: string;
+    // What this write will already have established once `gh` returns, applied
+    // to the list on screen before the re-read starts. Left `undefined` for a
+    // creation, whose number is not known here — see `trackerWriteOutcome`.
+    let echo: ConfirmedIssueWrite | undefined;
 
     if (message.type === 'createIssue') {
       const draft = sanitizeIssueDraft(message.payload);
@@ -7228,14 +7420,17 @@ export class ProjectDashboardPanel {
         args = ['issue', 'comment', String(number), '--body', body];
         description = describeIssueAction('comment', slug, { number });
         successNote = `Commented on #${number}.`;
+        echo = { action: 'comment', number };
       } else if (message.type === 'closeIssue') {
         args = ['issue', 'close', String(number)];
         description = describeIssueAction('close', slug, { number });
         successNote = `Closed #${number}.`;
+        echo = { action: 'close', number };
       } else {
         args = ['issue', 'reopen', String(number)];
         description = describeIssueAction('reopen', slug, { number });
         successNote = `Reopened #${number}.`;
+        echo = { action: 'reopen', number };
       }
     }
 
@@ -7268,6 +7463,13 @@ export class ProjectDashboardPanel {
       );
       if (wrote) {
         void vscode.window.showInformationMessage(successNote);
+        // Show what just happened, now. `gh` exits non-zero when GitHub
+        // refuses, so a returned success is a fact about the tracker rather
+        // than a prediction about it — and the re-read below, which takes ten
+        // seconds or more on a repository this size, replaces it either way.
+        // Without this the row you just closed sits there looking untouched
+        // for the whole of that, which reads as a button that did nothing.
+        await this.applyConfirmedIssueOutcome(echo);
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -7276,6 +7478,47 @@ export class ProjectDashboardPanel {
     // Re-read either way: a failed write may still have partially applied, and
     // the list is the only honest report of what the tracker now holds.
     await this.handleRefreshIssues();
+  }
+
+  /**
+   * Show a confirmed issue write on the page before the re-read catches up.
+   *
+   * Deliberately a no-op when nothing changed — `applyConfirmedIssueWrite`
+   * returns the same array reference for a number the list does not hold, so a
+   * write against an issue outside the loaded window publishes nothing rather
+   * than a render that looks like an update and is not one.
+   */
+  private async applyConfirmedIssueOutcome(write: ConfirmedIssueWrite | undefined): Promise<void> {
+    if (!write || this.issuesState.status !== 'ready') {
+      return;
+    }
+    const issues = applyConfirmedIssueWrite(this.issuesState.issues, write);
+    if (issues === this.issuesState.issues) {
+      return;
+    }
+    const next = [...issues];
+    this.issuesState = {
+      ...this.issuesState,
+      issues: next,
+      // Recomputed rather than patched: every count on the Issues page and in
+      // the attention feed comes from this summary, and leaving it behind
+      // would show a closed issue in a list whose header still counted it.
+      summary: summarizeIssues(next, Date.now()),
+    };
+    await this.syncState();
+  }
+
+  /** The pull-request half of {@link applyConfirmedIssueOutcome}. */
+  private async applyConfirmedPullRequestOutcome(write: ConfirmedPullRequestWrite | undefined): Promise<void> {
+    if (!write || !this.pullRequestsState) {
+      return;
+    }
+    const pulls = applyConfirmedPullRequestWrite(this.pullRequestsState, write);
+    if (pulls === this.pullRequestsState) {
+      return;
+    }
+    this.pullRequestsState = [...pulls];
+    await this.syncState();
   }
 
   /**
@@ -7467,6 +7710,9 @@ export class ProjectDashboardPanel {
     let args: string[];
     let description: string;
     let successNote: string;
+    // As on the issue path: `undefined` for a creation and for a review, whose
+    // outcomes are not a state change this list already holds.
+    let echo: ConfirmedPullRequestWrite | undefined;
 
     if (message.type === 'createPullRequest') {
       const title = typeof payload['title'] === 'string' ? payload['title'].trim() : '';
@@ -7534,10 +7780,12 @@ export class ProjectDashboardPanel {
       args = ['pr', 'merge', String(number), '--squash'];
       description = describePullRequestAction('merge', slug, { number, base });
       successNote = `Merged #${number}.`;
+      echo = { action: 'merge', number };
     } else {
       args = ['pr', 'close', String(number)];
       description = describePullRequestAction('close', slug, { number });
       successNote = `Closed #${number} without merging.`;
+      echo = { action: 'close', number };
     }
 
     const confirmation = await vscode.window.showWarningMessage(
@@ -7568,6 +7816,11 @@ export class ProjectDashboardPanel {
       );
       if (wrote) {
         void vscode.window.showInformationMessage(successNote);
+        // Same reasoning as the issue path: what `gh` confirmed is shown at
+        // once, and the authoritative re-read replaces it moments later. A
+        // merge's *consequences* — the issues a `Closes #12` line closes — are
+        // GitHub's inference and are deliberately left to that read.
+        await this.applyConfirmedPullRequestOutcome(echo);
       }
     } catch (error) {
       void vscode.window.showWarningMessage(`The pull request action failed: ${ghFailureOf(error).detail}`);
@@ -11659,7 +11912,7 @@ async function collectDashboardSnapshot(
   pullRequestsNotice?: string,
   // Machine-owned and collected only after an explicit inspect/start. Keeping
   // it trailing preserves cheap local snapshots used by unrelated actions.
-  localRunner?: LocalCiRunnerSnapshot,
+  localRunner?: Omit<DashboardLocalCiRunnerSnapshot, 'enablement'>,
   // Held by the panel for the same reason as the workflow config: a
   // synchronous file read that should not repeat on every render.
   ciRoutingManager?: CiRoutingConfigManager,

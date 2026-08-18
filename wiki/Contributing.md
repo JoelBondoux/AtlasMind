@@ -51,6 +51,12 @@ npm run package:vsix         # Build a .vsix
 npm run resolve:release-conflicts   # Settle a merge's version-marker conflicts
 ```
 
+The suite runs on **half this machine's threads** locally (`maxWorkers: '50%'` in `vitest.config.ts`) and on
+the Vitest default in CI. Many of these tests write real project trees into real temporary directories, so
+the default 23 workers on a 24-thread machine saturated CPU and disk together and left the editor
+unresponsive for the duration — which is how a pre-commit hook gets skipped. Set `VITEST_MAX_WORKERS=<n>`
+when you want the whole machine.
+
 Run `npm ci` and then `npm run ci:local` before pushing an integration-ready change. For the full-history
 secret scan and GitHub-connected path, follow
 [Local CI and safe self-hosted runners](../docs/local-ci-and-safe-runners.md). The short version is

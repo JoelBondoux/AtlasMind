@@ -36,6 +36,30 @@ export default defineConfig({
     // last commit. `test:providers:local-recommendations` overrides `--reporter`
     // and therefore writes nothing, which is correct — a single-file run must not
     // overwrite the whole-suite verdict.
+    // Leave the machine usable while its own checks run.
+    //
+    // Vitest's default is `availableParallelism() - 1`, which on a 24-thread
+    // developer machine is 23 worker processes — and this suite is not a cheap
+    // one: a large share of its tests `mkdtemp` a real directory and write a
+    // project tree into it, so those workers saturate the CPU *and* the disk at
+    // once. `npm run ci:local` then runs the whole thing twice, once more under
+    // coverage. The measured effect is an editor that stops responding for the
+    // duration, which is how somebody learns to skip the pre-commit hook.
+    //
+    // CI keeps the default, deliberately. A hosted runner has nothing else to
+    // be responsive for, and halving its parallelism would buy nobody anything
+    // while making every pull request slower.
+    //
+    // A percentage rather than a fixed number so it scales with the machine —
+    // 50% of 4 is 2, 50% of 24 is 12 — and `VITEST_MAX_WORKERS` still overrides
+    // it, since Vitest applies that env var after the config is resolved. Set
+    // it when you want the whole machine and are not using it for anything else.
+    //
+    // Not a limit on memory: a worker's footprint is a property of the test, not
+    // of the pool, and capping the pool is the lever that exists. Stryker is
+    // unaffected — its runner pins `maxWorkers: 1` per instance and bounds the
+    // instances with its own `concurrency`.
+    maxWorkers: process.env.CI ? undefined : '50%',
     reporters: ['default', 'junit'],
     outputFile: {
       junit: 'test-results/junit.xml',

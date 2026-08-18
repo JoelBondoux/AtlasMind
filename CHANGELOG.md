@@ -6,6 +6,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.364.0] - 2026-08-19
+
+### Added
+
+- **The Pipeline remembers what it found on this computer, and says when it found it.** Reopening VS Code
+  sent the Runner view back to "Inspect this computer": the prerequisite probe lived only in the runner's
+  in-memory snapshot, so every extension-host restart lost it and the setup ladder asked for a step that
+  had already been done. `localCiInspectionMemory.ts` stores the durable half of an inspection in
+  `globalState` under five rules. **A memory is a dated observation, never a current reading** — the page
+  labels it and states its age, because "Docker: Ready" from a three-week-old probe is a claim about right
+  now that nobody checked. **A memory guides, it never authorises**: the runner inspects again immediately
+  before it lends the machine and refuses if anything changed, which is what makes remembering safe at
+  all. **A memory of a different machine is refused, not adapted**, matched on a host fingerprint. **A
+  memory expires** after fourteen days. And **only the durable half is remembered** — a count of running
+  containers is a fact about a moment, and `imagePresent` is dropped when the configured image changes,
+  because the old answer is about a different image. `/localci` and `/setup` read the same record, so no
+  surface can report a different answer from the page.
+
+### Fixed
+
+- **Closing an issue or merging a pull request shows on the page at once.** The write was fast; what
+  followed was not. Every issue and pull-request write triggered a re-read of the *whole* repository —
+  slug, viewer, a hundred issues, thirty pull requests with reviews and checks, two workflow-run
+  listings, labels, milestones, releases, and, when the latest run had failed, a log download with a
+  45-second timeout — and published nothing until the last of those returned. Measured here, the
+  pull-request leg alone is four seconds and the chain is comfortably ten. The row you had just closed
+  sat there looking untouched for all of it, which is indistinguishable from a button that did nothing.
+
+  Three changes. `trackerWriteOutcome.ts` applies **what the write itself established** before the
+  re-read starts: `gh` exits non-zero when GitHub refuses, so a returned success is a fact about the
+  tracker rather than a prediction about it. It is deliberately narrow — it never invents a record for a
+  number the list does not hold, touches only the fields the action names, and claims nothing about the
+  issues a merge would close, because that is GitHub's inference and not ours. The refresh now
+  **publishes each reading as it lands** rather than only at the end, so the issue list no longer waits
+  behind the run listing; each section is complete when published and the busy indicator stays up until
+  the last one. And a re-read requested **while one is already running is now run afterwards** instead of
+  silently dropped — dropping a duplicate *click* is right, but the re-read after a write is the only
+  thing that will show the change.
+
+- **The trusted workflow verdict now actually survives a restart.** v0.363.0 stopped caching it and
+  derived it on every refresh instead — but only through the runner manager, which the dashboard builds
+  on the first inspect or start and deliberately not on a render, because constructing one opens an output
+  channel. On a fresh extension host there was therefore nobody to ask, and the page opened claiming the
+  file had never been checked. `reviewTrustedLocalCiWorkflow` is now a free function the panel can call
+  directly, with the manager delegating to it, so the answer on the page and the answer that gates a run
+  stay one implementation.
+
+### Changed
+
+- **The test suite no longer takes the whole machine.** Vitest defaults to `availableParallelism() - 1`
+  workers — 23 processes on a 24-thread machine — and a large share of this suite writes real project
+  trees into real temporary directories, so those workers saturated CPU and disk together; `npm run
+  ci:local` then ran it twice, the second time under coverage. The measured effect was an editor that
+  stopped responding for the duration, which is how somebody learns to skip the pre-commit hook.
+  `vitest.config.ts` now sets `maxWorkers: '50%'` locally and leaves CI on the default, where nothing else
+  needs to stay responsive and halving parallelism would only make every pull request slower. A
+  percentage so it scales with the machine; `VITEST_MAX_WORKERS` still overrides it. Mutation runs are
+  unaffected — the Stryker runner already pins one worker per instance and bounds the instances itself.
+
+## [0.363.1] - 2026-08-19
+
+### Changed
+
+- **README published baseline refreshed to v0.363.0**, the release just published — step 8 of the
+  publishing routine, which exists because `docsIntegrity` asserts the README names the newest tag and the
+  tag only exists once tagging has run.
+- **Step 8 now says to wait for the publish to succeed before writing that line.** The tag exists a minute
+  or two before the publish finishes, and the line claims a *Marketplace publication* rather than a tag —
+  so writing it early would assert something that had not happened. The test being red in that window is
+  the correct signal, not a nuisance to pre-empt: if a publish fails, a failing test is a more honest state
+  than a README naming a version that never shipped.
+
 ## [0.363.0] - 2026-08-19
 
 ### Added

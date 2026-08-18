@@ -71,6 +71,17 @@ export interface LocalCiSetupState {
    * somebody off to install software they may already have.
    */
   prerequisitesInspected: boolean;
+  /**
+   * Set when the prerequisite readings came from a stored inspection rather
+   * than one run for this walkthrough.
+   *
+   * Present as a sentence rather than a boolean so every surface says the same
+   * thing about the same record — the walkthrough, the `/setup` index and the
+   * Pipeline page each describe it with `describeRememberedInspection`. A
+   * remembered probe that is not labelled as one turns "you already did this"
+   * into "this is true now", which is a different and unchecked claim.
+   */
+  inspectionObservedNote?: string;
   githubCliInstalled: boolean;
   githubAuthenticated: boolean;
   dockerCliInstalled: boolean;
@@ -113,6 +124,13 @@ export function buildLocalCiSetupPlan(state: LocalCiSetupState): SetupStep[] {
   const workflowOk = review?.state === 'ok';
   const workflowPath = review?.path ?? `.github/workflows/${state.workflowFile}`;
   const cliKnown = state.prerequisitesInspected;
+  // Appends the provenance sentence to a reading that came from a memory, and
+  // nothing to one probed just now. Applied only to details that assert a
+  // positive machine fact: "not checked yet" needs no provenance, and a
+  // negative reading sends somebody to look at their own machine anyway.
+  const observed = (text: string): string => state.inspectionObservedNote
+    ? `${text} ${state.inspectionObservedNote}`
+    : text;
   const dockerReady = state.dockerCliInstalled && state.dockerEngineAvailable;
 
   // Readiness is computed from the same booleans the steps render, not by
@@ -195,7 +213,7 @@ export function buildLocalCiSetupPlan(state: LocalCiSetupState): SetupStep[] {
       : !cliKnown
         ? 'Not checked yet. Run Inspect on the Runner view and AtlasMind will report what is actually installed rather than guessing.'
         : state.githubCliInstalled
-          ? '`gh` is installed and on the PATH this extension host can see.'
+          ? observed('`gh` is installed and on the PATH this extension host can see.')
           : '`gh` was not found on PATH. AtlasMind uses it to read the queue and fetch a one-hour registration token; it never asks you for a token.',
     guidance: state.githubCliInstalled || !state.permissionEnabled ? undefined : [
       {
@@ -222,7 +240,7 @@ export function buildLocalCiSetupPlan(state: LocalCiSetupState): SetupStep[] {
     detail: !state.githubCliInstalled
       ? 'Install the GitHub CLI first — until then there is nothing to sign in with.'
       : state.githubAuthenticated
-        ? '`gh` is signed in to github.com.'
+        ? observed('`gh` is signed in to github.com.')
         : '`gh` is installed but not signed in to github.com.',
     guidance: !state.githubCliInstalled || state.githubAuthenticated ? undefined : [
       {
@@ -251,7 +269,7 @@ export function buildLocalCiSetupPlan(state: LocalCiSetupState): SetupStep[] {
             ? state.dockerDesktopAvailable
               ? 'Docker is installed but its engine is not running. AtlasMind can start Docker Desktop after you confirm a run, and closes it again according to your cleanup setting.'
               : 'Docker is installed but its engine is not running, and no Docker Desktop CLI was found. Start the engine yourself — AtlasMind never starts or stops an unmanaged system service.'
-            : 'The Docker engine is running and reporting its capacity.',
+            : observed('The Docker engine is running and reporting its capacity.'),
     guidance: dockerReady || !state.githubAuthenticated ? undefined : [
       {
         text: 'Docker is an operating-system application installed outside the workspace. AtlasMind runs GitHub’s official runner image in a single container and removes the registration when the job ends.',

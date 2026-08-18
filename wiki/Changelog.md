@@ -19,6 +19,49 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.364.0 — Setup you already did, and a machine you can still use
+
+Two things that made the same complaint from opposite directions.
+
+Reopening VS Code sent the Pipeline's Runner view back to the start: "Inspect this computer", "Check the
+trusted workflow". Neither answer survived the extension host. The workflow verdict is now derived from
+the file on every refresh through a function the dashboard can call without building a runner — the
+previous fix only worked once something else had built one, which on a fresh window was nothing. The
+machine inspection is remembered instead, as a **dated observation**: the page says when it was taken, a
+record older than a fortnight or describing a different computer is refused outright, and nothing
+remembered can authorise a run, because the runner re-inspects immediately before it lends the machine. A
+memory guides; it does not authorise.
+
+A third thing, same shape: closing an issue or merging a pull request appeared to do nothing. The write
+itself takes under a second; the dashboard then re-read the entire repository — issues, pull requests,
+workflow runs, labels, milestones, releases, and, when the last build had failed, a log download — and
+published nothing until all of it returned. What `gh` has confirmed is now shown at once (never more than
+that: a merge's effect on the issues it closes is GitHub's inference, and still waits for the read), each
+part of the refresh publishes as it arrives, and a refresh asked for while one is running now happens
+afterwards rather than being dropped.
+
+And the suite stopped taking the whole computer. Vitest's default is one worker per thread, which on a
+24-thread machine is 23 processes writing real project trees to real disk — with `npm run ci:local`
+running the lot twice. The editor simply stopped responding, which is how a pre-commit hook gets skipped.
+Local runs now use half the machine; CI keeps the default, because a hosted runner has nothing else to be
+responsive for.
+
+---
+
+## v0.363.1 — The line that names the last publication
+
+Housekeeping with one lesson in it. The README's published baseline moves to v0.363.0, which is step 8 of
+the publishing routine — the step that exists because `docsIntegrity` asserts the README names the newest
+tag, and the tag only exists once tagging has run.
+
+Step 8 now also says to wait for the publish to *succeed* before writing that line. The tag lands a minute
+or two before the publish finishes, and the line claims a Marketplace **publication** rather than a tag, so
+writing it early would assert something that had not happened yet. The test going red in that window is
+the correct signal rather than a nuisance to pre-empt: if a publish fails, a failing test is a more honest
+state than a README naming a version that never shipped.
+
+---
+
 ## v0.363.0 — A route from the report card to the classroom
 
 The Workflow page could tell you a stage was amber and then leave you to find the evidence by memory.
