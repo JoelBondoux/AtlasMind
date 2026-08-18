@@ -7,6 +7,7 @@ import {
   findCiRoute,
   resolveDirectLocalChecks,
   routeSatisfiesEvidence,
+  routeSatisfiesRequirement,
   type CiRouteMachineFacts,
 } from '../../src/core/ciRoutes.ts';
 
@@ -140,6 +141,56 @@ describe('evidence satisfaction', () => {
     const direct = findCiRoute('direct-local')!;
     expect(routeSatisfiesEvidence(direct, 'linux-container').satisfied).toBe(false);
     expect(routeSatisfiesEvidence(direct, 'this-machine').satisfied).toBe(true);
+  });
+
+  /**
+   * The gap this closed. `act` and the borrowed machine both produce
+   * `linux-container` evidence, yet one runs GitHub's own runner image and the
+   * other emulates half of what the workflow declares — and the evidence class
+   * alone could not tell them apart, so a rule could substitute one for the
+   * other unopposed.
+   */
+  it('distinguishes two routes that share an evidence class but not fidelity', () => {
+    const borrowed = findCiRoute('local-runner')!;
+    const approximate = findCiRoute('act')!;
+    expect(borrowed.evidence).toBe(approximate.evidence);
+
+    const requirement = { evidence: 'linux-container' as const, fidelity: 'faithful' as const };
+    expect(routeSatisfiesRequirement(borrowed, requirement).satisfied).toBe(true);
+
+    const refusal = routeSatisfiesRequirement(approximate, requirement);
+    expect(refusal.satisfied).toBe(false);
+    expect(refusal.reason).toContain('approximates');
+  });
+
+  /**
+   * The permissive default is deliberate: under `act` the project's tests
+   * really do run in a Linux container, and it is the orchestration around them
+   * that is emulated. Demanding fidelity everywhere would refuse a route that
+   * settles most questions perfectly well.
+   */
+  it('accepts an approximate route where fidelity was not demanded, and says so', () => {
+    const verdict = routeSatisfiesRequirement(findCiRoute('act')!, { evidence: 'linux-container' });
+    expect(verdict.satisfied).toBe(true);
+    expect(verdict.reason).toContain('tolerates');
+  });
+
+  it('still refuses on evidence before it ever considers fidelity', () => {
+    const verdict = routeSatisfiesRequirement(findCiRoute('act')!, {
+      evidence: 'declared-matrix',
+      fidelity: 'faithful',
+    });
+    expect(verdict.satisfied).toBe(false);
+    expect(verdict.reason).toContain('cannot stand in');
+  });
+
+  it('declares a fidelity for every route, and a note wherever it is approximate', () => {
+    for (const route of CI_ROUTES) {
+      expect(['faithful', 'approximate']).toContain(route.fidelity);
+      if (route.fidelity === 'approximate') {
+        expect(route.fidelityNote?.length ?? 0).toBeGreaterThan(40);
+      }
+    }
   });
 
   it('always explains itself, satisfied or not', () => {

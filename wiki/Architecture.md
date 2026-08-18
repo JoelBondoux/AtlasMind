@@ -362,6 +362,15 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+Routes carry a second dimension beside what they prove: **how faithfully they reproduce it**. `act` and the
+borrowed machine both produce Linux-container evidence, yet one runs GitHub's own runner image and the
+other emulates artifacts, caches, services and secrets — and nothing in the model could tell them apart, so
+a routing rule could swap one for the other unopposed. Now a workload can demand the real thing, and
+packaging and security scanning do: the first exists to produce the artifact that ships, which is exactly
+what an approximation emulates, and the second would otherwise return a clean result nobody should act on.
+Everything else accepts an approximation and says when it used one, because under `act` your tests really
+do run — it is the orchestration around them that is emulated.
+
 `act` is the first alternative executor with a real adapter: any workflow on the map can be run locally
 with it. What AtlasMind adds is the part that decides whether the result means anything — it reads the
 workflow first and says which parts `act` will not reproduce, and refuses outright where a faithful run is

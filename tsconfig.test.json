@@ -1,0 +1,28 @@
+{
+  // Type-checking only, for the test suite.
+  //
+  // The build config has `rootDir: "src"` and emits to `out/`, so tests cannot
+  // simply be added to its `include` without emitting them too. This config
+  // exists purely to answer "do the tests still type-check", which the build
+  // never asked: a fixture could drift from the type it claims to satisfy and
+  // nothing would notice, because vitest transpiles without checking. That is
+  // how `CiRouteMachineFacts` gained a required field while a fixture kept
+  // omitting it, running with `undefined` and passing.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    // Match how vitest actually resolves these files rather than how the
+    // extension bundle is emitted. Checking tests under the build's CommonJS
+    // settings reports `import.meta` as an error in files that legitimately use
+    // it, which is a disagreement about configuration rather than a defect.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // Tests import `.ts` paths directly, which vitest resolves and the build
+    // config does not permit.
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "out", ".vscode-test", "src/web"]
+}

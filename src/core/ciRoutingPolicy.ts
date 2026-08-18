@@ -46,9 +46,10 @@ import * as path from 'node:path';
 import {
   CI_ROUTES,
   findCiRoute,
-  routeSatisfiesEvidence,
+  routeSatisfiesRequirement,
   type CiRouteAvailability,
   type CiRouteEvidence,
+  type CiRouteFidelity,
   type CiRouteId,
 } from './ciRoutes.js';
 import { describeCreditReading, type CiCreditReading } from './ciCreditMeter.js';
@@ -72,6 +73,15 @@ export interface CiWorkloadClass {
   description: string;
   /** The weakest evidence that would actually settle this workload. */
   requiredEvidence: CiRouteEvidence;
+  /**
+   * Set only where an approximation genuinely will not do.
+   *
+   * Absent means approximate is acceptable, which is the honest default: under
+   * `act` the project's tests really do run in a Linux container, and it is the
+   * orchestration around them that is emulated. Demanding fidelity everywhere
+   * would refuse a route that settles most questions perfectly well.
+   */
+  requiredFidelity?: CiRouteFidelity;
   /**
    * Whether the code being executed has been reviewed by somebody trusted.
    *
@@ -117,6 +127,10 @@ export const CI_WORKLOAD_CLASSES: readonly CiWorkloadClass[] = [
     label: 'Packaging and release artifacts',
     description: 'Building the artifact that would actually ship, from a clean tree.',
     requiredEvidence: 'linux-container',
+    // The artifact is the point, and artifact handling is exactly what an
+    // approximate route emulates. A build that "passed" without producing the
+    // thing it exists to produce is the wrong answer in the expensive direction.
+    requiredFidelity: 'faithful',
     input: 'trusted',
   },
   {
@@ -124,6 +138,9 @@ export const CI_WORKLOAD_CLASSES: readonly CiWorkloadClass[] = [
     label: 'Security and dependency scanning',
     description: 'Secret scanning over full history, SAST and dependency audits.',
     requiredEvidence: 'linux-container',
+    // A scan that ran without the credentials, services or history the real one
+    // has is a clean result nobody should act on.
+    requiredFidelity: 'faithful',
     input: 'trusted',
   },
   {
@@ -371,12 +388,15 @@ export function validateCiRoutingConfig(config: CiRoutingConfig): CiRoutingProbl
             + 'AtlasMind refuses this at routing time whatever the file says — remove it so the file matches what happens.',
         });
       }
-      const evidence = routeSatisfiesEvidence(route, workload.requiredEvidence);
-      if (!evidence.satisfied) {
+      const suitability = routeSatisfiesRequirement(route, {
+        evidence: workload.requiredEvidence,
+        ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+      });
+      if (!suitability.satisfied) {
         problems.push({
           ruleId: rule.id,
           severity: 'error',
-          message: `Rule ${rule.id}: ${evidence.reason}`,
+          message: `Rule ${rule.id}: ${suitability.reason}`,
         });
       }
     }
@@ -472,10 +492,14 @@ export function decideCiRoute(input: CiRouteDecisionInput): CiRouteDecision {
       continue;
     }
 
-    // 2 — evidence. A route that cannot settle the question is not a fallback.
-    const evidence = routeSatisfiesEvidence(route, workload.requiredEvidence);
-    if (!evidence.satisfied) {
-      rejected.push({ routeId, reason: evidence.reason });
+    // 2 — can it settle the question at all? Both axes: the evidence class, and
+    // whether an approximation of the declared thing is acceptable here.
+    const suitability = routeSatisfiesRequirement(route, {
+      evidence: workload.requiredEvidence,
+      ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+    });
+    if (!suitability.satisfied) {
+      rejected.push({ routeId, reason: suitability.reason });
       continue;
     }
 
@@ -580,10 +604,11 @@ export function renderCiRoutingMarkdown(config: CiRoutingConfig): string {
     '',
     '## Kinds of check',
     '',
-    '| Workload | Needs evidence from | Input |',
-    '|---|---|---|',
+    '| Workload | Needs evidence from | Approximation | Input |',
+    '|---|---|---|---|',
     ...CI_WORKLOAD_CLASSES.map(workload =>
-      `| **${workload.label}** — ${workload.description} | ${workload.requiredEvidence} | ${workload.input} |`),
+      `| **${workload.label}** — ${workload.description} | ${workload.requiredEvidence} | `
+      + `${workload.requiredFidelity === 'faithful' ? 'not acceptable' : 'acceptable'} | ${workload.input} |`),
     '',
     '## Rules',
     '',

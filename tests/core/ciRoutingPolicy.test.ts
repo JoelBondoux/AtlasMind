@@ -263,6 +263,52 @@ describe('CI routing policy — the file', () => {
     expect(problems.filter(problem => /No rule covers/.test(problem.message))).toHaveLength(CI_WORKLOAD_CLASSES.length - 1);
   });
 
+  /**
+   * Packaging must produce the artifact that would ship, and artifact handling
+   * is precisely what an approximate route emulates. A build that "passed"
+   * without producing the thing it exists to produce is the wrong answer in the
+   * expensive direction.
+   */
+  it('refuses an approximate route for work that cannot tolerate one', () => {
+    const config: CiRoutingConfig = {
+      ...seedCiRoutingConfig(CLOCK),
+      rules: [{ id: 'pack-via-act', workload: 'packaging', prefer: 'act', fallback: [], onCreditExhausted: 'fallback' }],
+    };
+    const decision = decideCiRoute({
+      workload: 'packaging',
+      config,
+      availability: EVERYTHING_AVAILABLE,
+      credit: notMeteredReading(),
+    });
+    expect(decision.outcome).toBe('blocked');
+    expect(decision.rejected[0]?.reason).toContain('needs the real thing');
+
+    expect(validateCiRoutingConfig(config)
+      .some(problem => problem.severity === 'error' && /real thing/.test(problem.message))).toBe(true);
+  });
+
+  it('allows an approximate route where the workload tolerates one', () => {
+    const config: CiRoutingConfig = {
+      ...seedCiRoutingConfig(CLOCK),
+      rules: [{ id: 'suite-via-act', workload: 'full-suite', prefer: 'act', fallback: [], onCreditExhausted: 'fallback' }],
+    };
+    const decision = decideCiRoute({
+      workload: 'full-suite',
+      config,
+      availability: EVERYTHING_AVAILABLE,
+      credit: notMeteredReading(),
+    });
+    expect(decision).toMatchObject({ outcome: 'routed', routeId: 'act' });
+    expect(validateCiRoutingConfig(config).filter(problem => problem.ruleId === 'suite-via-act'
+      && problem.severity === 'error')).toEqual([]);
+  });
+
+  it('publishes whether each workload tolerates an approximation', () => {
+    const markdown = renderCiRoutingMarkdown(seedCiRoutingConfig(CLOCK));
+    expect(markdown).toContain('Approximation');
+    expect(markdown).toContain('not acceptable');
+  });
+
   it('warns rather than errors when a rule names a route with no adapter', () => {
     const config: CiRoutingConfig = {
       ...seedCiRoutingConfig(CLOCK),

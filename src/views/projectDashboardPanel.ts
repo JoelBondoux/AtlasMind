@@ -19457,6 +19457,19 @@ const DASHBOARD_CSS = `
     font-size: 12.5px;
     line-height: 1.5;
   }
+  /* Distinct from the evidence band: "what this proves" and "how closely it
+     reproduces the declared thing" are separate claims, and a reader comparing
+     two routes in the same evidence class needs to see the second one. */
+  .ci-route-fidelity {
+    margin: 0;
+    padding: 9px 12px;
+    border-left: 3px solid var(--dash-warn);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-warn) 8%, transparent);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
   .ci-route-caps {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

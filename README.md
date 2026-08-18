@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.353.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.354.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,22 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.353.0
+## What's new in 0.354.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Routes now say how faithfully they reproduce what they claim to prove.** `act` and the borrowed machine
+  both produce Linux-container evidence, but one runs GitHub's own runner image and the other emulates
+  artifacts, caches, services and secrets. Nothing in the model could tell them apart, so a routing rule
+  could substitute one for the other unopposed. Now packaging and security scanning demand the real thing
+  and refuse an approximation — while the full suite accepts one, because under `act` your tests genuinely
+  run and it is the orchestration around them that is emulated.
+
+- **The test suite is type-checked at last.** Tests were never covered by the build config, so a fixture
+  could claim a type it no longer satisfied and nothing noticed. `npm run typecheck:tests` checks them, and
+  a baseline holds the existing count so it can only go down — a new test that does not type-check now fails
+  the suite and is named in the failure.
 
 - **Run your existing GitHub workflow locally with `act` — after being told what it cannot reproduce.**
   Any workflow on the map now offers **Run locally with act**. AtlasMind reads the file first and says which

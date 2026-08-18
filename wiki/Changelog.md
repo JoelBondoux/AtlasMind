@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.354.0 — Two things that were quietly missing
+
+**Routes now say how faithfully they run what they claim to prove.** `act` and the borrowed-machine route
+both produce Linux-container evidence, but one runs GitHub's own runner image and the other emulates
+artifacts, caches, service containers and secrets. Nothing in the model separated them, so a routing rule
+could substitute one for the other and nothing objected. Packaging and security scanning now demand the
+real thing — a build that passed without producing the artifact it exists to produce, or a scan that came
+back clean because it ran without credentials, are both wrong in the expensive direction. Everything else
+accepts an approximation and says when it used one, because under `act` your tests genuinely run; it is
+the workflow orchestration around them that is emulated.
+
+**And the tests are type-checked.** They never were: the build config covers `src/` and emits to `out/`,
+Vitest transpiles without checking, and the linter here is not type-aware. So a fixture could claim a type
+it no longer satisfied and nothing noticed — which is exactly what happened while this work was going on.
+
+Switching it on wholesale was not an option; a few hundred pre-existing mismatches exist, mostly partial
+mocks that are perfectly reasonable in tests. Instead the count is held at a baseline that can only go
+down, the same way this project already ratchets dead exports. A new test that does not type-check fails
+the suite and is named in the failure; the existing backlog blocks nobody.
+
 ## v0.353.0 — act, with the caveats up front
 
 `act` runs your existing GitHub workflows locally, in containers, without pushing and without spending

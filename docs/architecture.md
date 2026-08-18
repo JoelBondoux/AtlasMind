@@ -548,6 +548,18 @@ seeing, but `implementation: 'declared'` makes them permanently `unimplemented` 
 caller to remember. **Availability is derived from the machine**, with every unmet prerequisite named, so
 "why can I not run this here" is answerable on the page.
 
+Evidence has a second axis. `CiRouteFidelity` says whether a route runs the declared thing or an
+approximation of it, and it exists because the evidence class alone could not separate `act` from the
+borrowed machine: both produce `linux-container`, yet one runs GitHub's own runner image and runner binary
+while the other runs deliberately incomplete images with artifacts, caches, services, secrets and the event
+payload emulated or absent. A rule could substitute one for the other and the model raised no objection.
+Two values rather than a score, because a number invites arithmetic nobody can defend — is 0.7 enough for
+packaging? — where the real question is binary. Every approximate route must carry a `fidelityNote` saying
+what is approximated, asserted by test. `routeSatisfiesRequirement` checks both axes, evidence first, and
+`requiredFidelity` on a workload class is what demands the real thing; absent, an approximation is
+acceptable, which is the honest default since under `act` the project's tests genuinely run and it is the
+orchestration around them that is emulated.
+
 `resolveDirectLocalChecks` publishes the rule that chose the commands: a declared aggregate (`ci`,
 `ci:local`, `verify`, `check`) wins over guessing at its parts, because a project declaring one has already
 said what its checks are — this repository's own `ci:local` chains six steps in an order

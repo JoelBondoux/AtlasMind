@@ -70,6 +70,28 @@ export type CiRouteEvidence =
   /** Whatever operating systems the workflow's own matrix declares. */
   | 'declared-matrix';
 
+/**
+ * How closely a route reproduces the thing it claims to be evidence *of*.
+ *
+ * Separate from `CiRouteEvidence` because the two are genuinely different
+ * questions, and collapsing them was a real gap: `act` and the borrowed machine
+ * both produce `linux-container` evidence, yet one runs GitHub's own runner
+ * image and runner binary while the other runs deliberately incomplete images
+ * with several GitHub services emulated. The evidence *class* could not tell
+ * them apart, so a routing rule could substitute one for the other and the
+ * model would raise no objection.
+ *
+ * Deliberately two values, not a score. A number would invite arithmetic
+ * nobody can defend — is 0.7 fidelity enough for packaging? — where the real
+ * question is binary: does this route run the declared thing, or something
+ * close to it?
+ */
+export type CiRouteFidelity =
+  /** Runs the declared thing in the declared environment. */
+  | 'faithful'
+  /** Runs something close. Some declared behaviour is emulated or absent. */
+  | 'approximate';
+
 export type CiCapability = 'yes' | 'no' | 'unknown';
 
 export interface CiRouteCapabilities {
@@ -105,6 +127,10 @@ export interface CiRouteDefinition {
   evidence: CiRouteEvidence;
   /** Stated in full on the card, because this is the sentence people skip. */
   evidenceCaveat: string;
+  /** Whether this route runs the declared thing, or an approximation of it. */
+  fidelity: CiRouteFidelity;
+  /** Required for an approximate route: what is approximated, and how. */
+  fidelityNote?: string;
   capabilities: CiRouteCapabilities;
   cost: CiRouteCost;
   /**
@@ -141,6 +167,9 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'no',
     },
     cost: 'local-only',
+    // Faithful to what it claims: this *is* your machine, so nothing about it
+    // is approximated. The narrow evidence class is what limits it, not fidelity.
+    fidelity: 'faithful',
     implementation: 'implemented',
   },
   {
@@ -161,6 +190,9 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'no',
     },
     cost: 'local-only',
+    // GitHub's own official runner image and runner binary, executing the real
+    // workflow. The container is local; what runs inside it is not an emulation.
+    fidelity: 'faithful',
     implementation: 'implemented',
   },
   {
@@ -178,6 +210,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'yes',
     },
     cost: 'hosted-allowance',
+    fidelity: 'faithful',
     implementation: 'implemented',
   },
   {
@@ -195,6 +228,8 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'no',
     },
     cost: 'local-only',
+    fidelity: 'approximate',
+    fidelityNote: 'Runs the real workflow file, but its images are deliberately incomplete and artifacts, caches, service containers, secrets and the event payload are emulated or absent. AtlasMind reads each workflow before offering a run and reports exactly which of those apply.',
     implementation: 'implemented',
   },
   {
@@ -212,6 +247,10 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'unknown',
     },
     cost: 'external-account',
+    // Not the same definition at all: these use their own pipeline format, so
+    // what runs is a translation of the workflow rather than the workflow.
+    fidelity: 'approximate',
+    fidelityNote: 'Uses its own pipeline format, so what runs is a second definition of the checks rather than the one GitHub would run.',
     implementation: 'declared',
     adapterNote: 'Adapter not built. Uses its own pipeline format, so adopting it means maintaining a second definition of the checks.',
   },
@@ -230,6 +269,10 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'unknown',
     },
     cost: 'external-account',
+    // Not the same definition at all: these use their own pipeline format, so
+    // what runs is a translation of the workflow rather than the workflow.
+    fidelity: 'approximate',
+    fidelityNote: 'Uses its own pipeline format, so what runs is a second definition of the checks rather than the one GitHub would run.',
     implementation: 'declared',
     adapterNote: 'Adapter not built. Uses its own pipeline format and expects an always-on server.',
   },
@@ -384,6 +427,55 @@ export function routeSatisfiesEvidence(
   return {
     satisfied: false,
     reason: `${route.label} produces ${route.evidence} evidence, not ${required}.`,
+  };
+}
+
+/** What a workload needs from a route. */
+export interface CiRouteRequirement {
+  evidence: CiRouteEvidence;
+  /**
+   * Whether an approximation will do.
+   *
+   * Optional, and absent means *approximate is acceptable* — the permissive
+   * default is deliberate. Requiring fidelity is a statement about a specific
+   * workload (packaging must build the artifact that ships), and making it the
+   * default would silently refuse `act` for everything, which is not what the
+   * evidence supports: under `act` your tests genuinely run in a Linux
+   * container, and it is the workflow *orchestration* around them that is
+   * emulated.
+   */
+  fidelity?: CiRouteFidelity;
+}
+
+/**
+ * Whether a route satisfies a workload's requirement, on both axes.
+ *
+ * Supersedes checking evidence alone, which could not distinguish two routes in
+ * the same evidence class — `act` and the borrowed machine both produce
+ * `linux-container`, and one of them emulates half of what the workflow
+ * declares. The reason is always returned, satisfied or not, because a
+ * refusal nobody can read is indistinguishable from a bug.
+ */
+export function routeSatisfiesRequirement(
+  route: CiRouteDefinition,
+  requirement: CiRouteRequirement,
+): { satisfied: boolean; reason: string } {
+  const evidence = routeSatisfiesEvidence(route, requirement.evidence);
+  if (!evidence.satisfied) {
+    return evidence;
+  }
+  if (requirement.fidelity === 'faithful' && route.fidelity !== 'faithful') {
+    return {
+      satisfied: false,
+      reason: `${route.label} approximates what it runs, and this needs the real thing. `
+        + (route.fidelityNote ?? 'Some declared behaviour is emulated or absent.'),
+    };
+  }
+  return {
+    satisfied: true,
+    reason: route.fidelity === 'faithful'
+      ? evidence.reason
+      : `${evidence.reason} It approximates some of what the workflow declares, which this workload tolerates.`,
   };
 }
 

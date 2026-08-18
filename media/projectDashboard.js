@@ -6527,6 +6527,7 @@
           <span class="tag ${entry.status === 'available' ? 'tag-good' : entry.status === 'unimplemented' ? '' : 'tag-warn'}">${escapeHtml(entry.status === 'available' ? 'usable here' : entry.status === 'unimplemented' ? 'not built' : 'needs setup')}</span>
         </div>
         <p class="ci-route-evidence"><strong>Proves ${escapeHtml(CI_ROUTE_EVIDENCE_LABELS[route.evidence] || 'something unstated')}.</strong> ${escapeHtml(route.evidenceCaveat || '')}</p>
+        ${route.fidelity === 'approximate' ? `<p class="ci-route-fidelity"><strong>Approximate.</strong> ${escapeHtml(route.fidelityNote || 'Some of what the workflow declares is emulated or absent.')}</p>` : ''}
         <ul class="ci-route-caps">
           ${Object.keys(CI_ROUTE_CAPABILITY_LABELS).map(key => `<li>${mark(caps[key])}<span>${escapeHtml(CI_ROUTE_CAPABILITY_LABELS[key])}</span></li>`).join('')}
         </ul>

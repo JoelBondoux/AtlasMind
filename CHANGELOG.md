@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.354.0] - 2026-08-18
+
+### Added
+
+- **The test suite is type-checked, and its errors ratchet down.** `tsconfig.json` builds `src/**` and emits
+  to `out/`, so tests were never checked at all — vitest transpiles without checking and ESLint is not
+  type-aware. That gap was not theoretical: `CiRouteMachineFacts` gained a required field while a fixture
+  declaring that return type kept omitting it, and the tests passed with `undefined`. A new
+  `tsconfig.test.json` checks both trees, `npm run typecheck:tests` runs it, and a baseline test holds the
+  count at its current 244 — failing when it rises *and* when it falls without the ceiling being lowered, so
+  the number can only move one way and cannot quietly become a fiction after a cleanup. A new test file that
+  does not type-check now fails the suite and is named in the failure.
+- **Routes declare how faithfully they reproduce what they claim to prove.** `act` and the borrowed machine
+  both produce `linux-container` evidence, yet one runs GitHub's own runner image and runner binary while
+  the other runs deliberately incomplete images with artifacts, caches, services, secrets and the event
+  payload emulated or absent. The evidence class alone could not tell them apart, so a routing rule could
+  substitute one for the other and the model raised no objection. `CiRouteFidelity` closes that, and every
+  approximate route must carry a note saying what is approximated.
+
+### Changed
+
+- **Routing checks both axes.** A workload may declare `requiredFidelity`, and `routeSatisfiesRequirement`
+  refuses an approximate route where one is demanded — in the decision *and* in the file's validation, since
+  the routing file is hand-editable. Packaging and security scanning demand fidelity: the first exists to
+  produce the artifact that ships, which is exactly what an approximate route emulates, and the second
+  produces a clean result nobody should act on if it ran without the credentials, services and history the
+  real one has.
+- **`.vscodeignore` excludes `tsconfig*.json` rather than one exact filename**, so the new type-check config
+  does not ship inside the extension. The pattern was already the intent; only the literal name was matched.
+- **Approximation is acceptable unless a workload says otherwise.** The permissive default is deliberate and
+  is what the evidence supports: under `act` the project's tests genuinely run in a Linux container, and it
+  is the orchestration around them that is emulated. Demanding fidelity everywhere would refuse a route that
+  settles most questions perfectly well. Where an approximate route is used, the decision says so.
+
 ## [0.353.0] - 2026-08-18
 
 ### Added
