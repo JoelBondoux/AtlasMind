@@ -87,7 +87,13 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
    newest tag, and the newest tag only exists once step 7 has run. So every release passes its own CI,
    then fails locally on the next `npm run test`, and the failure looks like a docs nit rather than the
    direct consequence of tagging. It cannot be folded into the release commit either, because the tag it
-   must name does not exist yet. One line, straight after tagging, in a `docs:` commit of its own.
+   must name does not exist yet. One line, in a `docs:` commit of its own.
+
+   **Wait for the publish to succeed before writing it.** The line says *last Marketplace
+   publication*, and the tag exists a minute or two before the publish finishes; `docsIntegrity`
+   compares against the newest tag, so it goes red in that window. That red is correct — if the
+   publish fails, the honest state is a failing test rather than a README claiming a version that
+   never shipped. Do not pre-empt it.
 
 **`npm run publish:release` publishes only; it no longer pushes a tag.** The two were chained until v0.184.0, and the chain was a hazard: the tag push triggered `publish.yml`, which ran `publish:release` again and failed on "version already exists". One release now has exactly one publish path (CI, from the tag) and one tag path (`npm run tag:release`, run deliberately). For an emergency local publish when Actions is unavailable, run both in that order.
 

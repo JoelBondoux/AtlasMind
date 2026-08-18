@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.363.1] - 2026-08-19
+
+### Changed
+
+- **README published baseline refreshed to v0.363.0**, the release just published — step 8 of the
+  publishing routine, which exists because `docsIntegrity` asserts the README names the newest tag and the
+  tag only exists once tagging has run.
+- **Step 8 now says to wait for the publish to succeed before writing that line.** The tag exists a minute
+  or two before the publish finishes, and the line claims a *Marketplace publication* rather than a tag —
+  so writing it early would assert something that had not happened. The test being red in that window is
+  the correct signal, not a nuisance to pre-empt: if a publish fails, a failing test is a more honest state
+  than a README naming a version that never shipped.
+
 ## [0.363.0] - 2026-08-19
 
 ### Added

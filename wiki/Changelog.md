@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.363.1 — The line that names the last publication
+
+Housekeeping with one lesson in it. The README's published baseline moves to v0.363.0, which is step 8 of
+the publishing routine — the step that exists because `docsIntegrity` asserts the README names the newest
+tag, and the tag only exists once tagging has run.
+
+Step 8 now also says to wait for the publish to *succeed* before writing that line. The tag lands a minute
+or two before the publish finishes, and the line claims a Marketplace **publication** rather than a tag, so
+writing it early would assert something that had not happened yet. The test going red in that window is
+the correct signal rather than a nuisance to pre-empt: if a publish fails, a failing test is a more honest
+state than a README naming a version that never shipped.
+
+---
+
 ## v0.363.0 — A route from the report card to the classroom
 
 The Workflow page could tell you a stage was amber and then leave you to find the evidence by memory.
