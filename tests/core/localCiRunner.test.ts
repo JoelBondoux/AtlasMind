@@ -424,3 +424,72 @@ describe('this repository’s own trusted workflow', () => {
     expect(assessment.blockers).toEqual([]);
   });
 });
+
+/**
+ * The trusted workflow verdict is a fact about a file, and facts about files
+ * are re-read rather than remembered.
+ *
+ * It lived only in the runner's in-memory snapshot, so every extension-host
+ * restart lost it and the setup journey asked you to check the workflow again —
+ * a step already completed, reporting as outstanding because the answer had not
+ * survived the night. The dashboard now derives it on each refresh, which needs
+ * a quiet mode: notifying from inside a refresh re-enters it forever, and a
+ * background check must not overwrite the status line describing what the
+ * runner is actually doing.
+ */
+describe('re-deriving the trusted workflow verdict', () => {
+  const configuration = {
+    enabled: true,
+    workflowFile: 'trusted-local-ci.yml',
+    trustedBranch: 'develop',
+    runnerLabel: 'atlasmind-trusted-linux-{arch}',
+    image: 'ghcr.io/actions/actions-runner@sha256:' + 'a'.repeat(64),
+    shutdownPolicy: 'ifStartedByAtlasMind' as const,
+    maxCpus: 8,
+    maxMemoryGb: 16,
+  };
+
+  async function runnerWithWorkflow(): Promise<{ runner: LocalCiRunnerManager; notifications: () => number }> {
+    const root = await mkdtemp(path.join(tmpdir(), 'atlasmind-quiet-'));
+    await mkdir(path.join(root, '.github', 'workflows'), { recursive: true });
+    await writeFile(
+      path.join(root, '.github', 'workflows', 'trusted-local-ci.yml'),
+      'name: nope\non:\n  push:\n    branches: [develop]\n',
+      'utf8',
+    );
+    let count = 0;
+    const runner = new LocalCiRunnerManager(root, configuration, () => {}, () => { count += 1; });
+    return { runner, notifications: () => count };
+  }
+
+  /**
+   * The verdict lived only in the runner's in-memory snapshot, so every
+   * extension-host restart lost it and the setup journey asked you to check the
+   * workflow again — a step already done, reporting as outstanding because the
+   * answer had not survived the night. Deriving it on each refresh needs a
+   * quiet mode: notifying from inside a refresh re-enters it forever, and a
+   * background check must not overwrite the line describing what the runner is
+   * actually doing.
+   */
+  it('records the verdict without notifying or rewriting the status message', async () => {
+    const { runner, notifications } = await runnerWithWorkflow();
+    const before = runner.getSnapshot().message;
+
+    const review = await runner.assessCommittedWorkflow(configuration, 'JoelBondoux/AtlasMind', { quiet: true });
+
+    expect(review.state).toBe('blocked');
+    expect(runner.getSnapshot().workflowReview?.state).toBe('blocked');
+    expect(notifications()).toBe(0);
+    expect(runner.getSnapshot().message).toBe(before);
+  });
+
+  /** The explicit action still speaks, because a person asked it a question. */
+  it('still notifies and reports when asked directly', async () => {
+    const { runner, notifications } = await runnerWithWorkflow();
+
+    await runner.assessCommittedWorkflow(configuration, 'JoelBondoux/AtlasMind');
+
+    expect(notifications()).toBeGreaterThan(0);
+    expect(runner.getSnapshot().message).toContain('trusted workflow');
+  });
+});

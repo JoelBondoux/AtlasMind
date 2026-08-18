@@ -19,6 +19,37 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.363.0 — A route from the report card to the classroom
+
+The Workflow page could tell you a stage was amber and then leave you to find the evidence by memory.
+Each unfinished stage now carries an **Ask Atlas** pill that opens a chat scoped to that stage, and a
+button to the dashboard page that owns its evidence. The mapping is declared rather than derived from the
+stage name, because two of them would be wrong if it were: *development* is about the working tree so it
+goes to Repo, and *automation* points back at Workflow, since the automation policy is the workflow file.
+A stage with no obvious owner gets no link at all — a wrong link is worse than a missing one, because it
+gets followed. A finished stage gets neither affordance, for the same reason the attention feed is empty
+when nothing is wrong.
+
+The page posts a stage id and nothing else; the prompt is rebuilt from the curriculum on the host side,
+carries only the steps that are actually outstanding, and states the automation ceiling only when the
+workflow file declares one — defaulting would assert a ceiling nobody chose, in a prompt that then tells a
+model to respect it.
+
+**The trusted workflow no longer needs re-checking every time VS Code reopens.** The verdict lived only in
+the runner's in-memory snapshot, so every restart lost it and the setup journey asked for a step you had
+already completed. It is derived on each refresh now rather than remembered harder — a cached safety
+verdict has to be invalidated whenever the thing it judged changes, and getting that wrong in the
+reassuring direction would tell you a workflow is safe to lend a machine to after somebody edited it.
+Reading one small YAML file is cheaper than the invalidation would be, and cannot go stale. The Docker and
+`gh` inspection stays behind an explicit action; the two were only ever conflated because they arrive in
+the same snapshot.
+
+And the run strips said **today** at both ends of their time axis. Day granularity meant a strip whose
+runs all happened today labelled both ends identically — which says nothing, and implies a span the strip
+does not cover. When both ends fall in the same bucket the axis states the elapsed span instead.
+
+---
+
 ## v0.362.1 — Two things that had quietly stopped working
 
 `npm run test:mutation` runs end to end again. Stryker copies the project into a sandbox, which is right
