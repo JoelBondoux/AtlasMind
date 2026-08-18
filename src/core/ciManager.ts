@@ -290,7 +290,17 @@ export interface NodeCiStarterInput {
   branches: readonly string[];
   packageManager: 'npm' | 'pnpm' | 'yarn';
   scripts: readonly string[];
-  nodeVersion?: string;
+  /**
+   * The Node major to pin, resolved by `nodeVersionDetection`.
+   *
+   * Required, and that is the fix rather than a style preference. It was
+   * optional and **no caller ever passed it**, so the `'20'` behind the old
+   * default was not a fallback but the only value this generator ever emitted —
+   * every workflow AtlasMind wrote into somebody's repository pinned a runtime
+   * that reached end of life in April 2026. Optional made that possible;
+   * required makes it unrepresentable.
+   */
+  nodeVersion: string;
 }
 
 export interface CiStarterPlan {
@@ -331,13 +341,30 @@ function safeScript(value: string): string | undefined {
   return /^[A-Za-z0-9][A-Za-z0-9:_-]{0,100}$/.test(trimmed) ? trimmed : undefined;
 }
 
-function safeNodeVersion(value: string | undefined): string {
-  const trimmed = value?.trim() ?? '';
-  return /^(?:\d{1,3})(?:\.\d{1,3}){0,2}(?:\.x)?$/.test(trimmed) ? trimmed : '20';
+/**
+ * A version number, or nothing.
+ *
+ * This value is interpolated into YAML, so the shape check is a boundary guard
+ * before it is anything else — the test feeding it a newline and a `run:` step
+ * is guarding a real injection path. It returns `undefined` rather than
+ * coercing to a default: substituting a version the caller did not ask for
+ * would write a runtime into somebody's CI that nothing in their project
+ * declared, which is precisely how this generator came to emit Node 20 forever.
+ */
+function safeNodeVersion(value: string): string | undefined {
+  const trimmed = value.trim();
+  return /^(?:\d{1,3})(?:\.\d{1,3}){0,2}(?:\.x)?$/.test(trimmed) ? trimmed : undefined;
 }
 
 /** Build a create-only Node starter from repository-derived facts. */
 export function buildNodeCiStarter(input: NodeCiStarterInput): CiStarterPlan | undefined {
+  // Refuse rather than substitute. A workflow is written into the user's
+  // repository and run on their account; emitting a Node version nothing asked
+  // for is worse than emitting no workflow at all.
+  const nodeVersion = safeNodeVersion(input.nodeVersion);
+  if (!nodeVersion) {
+    return undefined;
+  }
   const branches = [...new Set(input.branches.map(safeWorkflowBranchRef).filter((value): value is string => Boolean(value)))].slice(0, 10);
   if (branches.length === 0) { branches.push('main'); }
   const available = new Set(input.scripts.map(safeScript).filter((value): value is string => Boolean(value)));
@@ -384,7 +411,7 @@ jobs:
 ${packageManagerSetup}      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '${safeNodeVersion(input.nodeVersion)}'
+          node-version: '${nodeVersion}'
           cache: ${cache}
 
       - name: Install dependencies

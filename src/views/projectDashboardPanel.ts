@@ -224,6 +224,7 @@ import {
   type LocalCiShutdownPolicy,
   type LocalCiStartPlan,
 } from '../core/localCiRunner.js';
+import { resolveWorkflowNodeVersion, type NodeVersionResolution } from '../core/nodeVersionDetection.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
   ACT_COMMAND,
@@ -6083,6 +6084,7 @@ export class ProjectDashboardPanel {
       workflowFile: configuration.workflowFile,
       packageManager: packageFacts.packageManager,
       scripts: packageFacts.scripts,
+      nodeVersion: packageFacts.node.version,
     });
     if (!outcome.ok) {
       void vscode.window.showWarningMessage(`AtlasMind did not write a trusted workflow. ${outcome.reason}`);
@@ -6104,6 +6106,7 @@ export class ProjectDashboardPanel {
           ...plan.refuses.map(line => `  • ${line}`),
           '',
           `Runner label: ${plan.runnerLabel} — this machine's architecture. A different architecture needs a different label.`,
+          `Node ${packageFacts.node.version}. ${packageFacts.node.rule}`,
           `Pinned actions: ${plan.pinnedActions.map(action => `${action.name}@${action.release}`).join(', ')}`,
           '',
           'Create only — an existing file is never overwritten. Review and commit it before use; AtlasMind refuses to lend the machine while it has uncommitted changes.',
@@ -15407,6 +15410,8 @@ function buildPromotionPathView(
 async function readNodePackageFacts(workspaceRoot: string): Promise<{
   packageManager: 'npm' | 'pnpm' | 'yarn';
   scripts: string[];
+  /** The Node major a generated workflow should pin, and why. */
+  node: NodeVersionResolution;
 } | undefined> {
   let parsed: Record<string, unknown>;
   try {
@@ -15424,7 +15429,33 @@ async function readNodePackageFacts(workspaceRoot: string): Promise<{
       ? 'yarn'
       : await fileExists(path.join(workspaceRoot, 'package-lock.json'))
         || await fileExists(path.join(workspaceRoot, 'npm-shrinkwrap.json')) ? 'npm' : undefined;
-  return packageManager ? { packageManager, scripts } : undefined;
+  // Resolved here rather than inside each generator: three of them write a
+  // Node version into somebody else's repository, and three answers to one
+  // question would eventually disagree. Every rung is optional — an unreadable
+  // dotfile is simply absent — and the runtime rung always answers.
+  const enginesRecord = parsed['engines'];
+  const enginesNode = enginesRecord && typeof enginesRecord === 'object' && !Array.isArray(enginesRecord)
+    ? (enginesRecord as Record<string, unknown>)['node']
+    : undefined;
+  const nvmrc = await readOptionalText(path.join(workspaceRoot, '.nvmrc'));
+  const nodeVersionFile = await readOptionalText(path.join(workspaceRoot, '.node-version'));
+  const node = resolveWorkflowNodeVersion({
+    ...(typeof enginesNode === 'string' ? { enginesNode } : {}),
+    ...(nvmrc ? { nvmrc } : {}),
+    ...(nodeVersionFile ? { nodeVersionFile } : {}),
+    runtimeVersion: process.versions.node,
+  });
+  return packageManager ? { packageManager, scripts, node } : undefined;
+}
+
+/** A small text file, or nothing. A missing dotfile is not an error here. */
+async function readOptionalText(filePath: string): Promise<string | undefined> {
+  try {
+    const contents = await fs.readFile(filePath, 'utf8');
+    return contents.length > 200 ? undefined : contents;
+  } catch {
+    return undefined;
+  }
 }
 
 async function buildCiStarterPlanForWorkspace(
@@ -15451,7 +15482,7 @@ async function buildCiStarterPlanForWorkspace(
       return undefined;
     }
   }
-  return buildNodeCiStarter({ branches, packageManager, scripts });
+  return buildNodeCiStarter({ branches, packageManager, scripts, nodeVersion: packageFacts.node.version });
 }
 
 async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promise<DashboardWorkflow[]> {

@@ -17,6 +17,7 @@ function input(overrides: Partial<CiTemplateInput> = {}): CiTemplateInput {
     developBranch: 'develop',
     stagingBranch: 'staging',
     productionBranch: 'main',
+    nodeVersion: '22',
     ...overrides,
   };
 }

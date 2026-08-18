@@ -46,6 +46,7 @@ function plan(
     probe: EMPTY_PROBE,
     generateCi: true,
     allowRemoteProjectCreation: false,
+    nodeVersion: '22',
     ...overrides,
   });
 }
@@ -67,6 +68,7 @@ function everyProducibleStep(): StackSetupStep[] {
               probe: EMPTY_PROBE,
               generateCi,
               allowRemoteProjectCreation: allowRemote,
+              nodeVersion: '22',
             });
             if (result.ok) {
               steps.push(...result.plan.steps);

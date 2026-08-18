@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.361.0 — A default that was never a default
+
+Every GitHub Actions workflow AtlasMind generates pinned Node 20, a runtime that reached end of life in
+April 2026. It looked like a stale default and was not one: all three generators — the hosted CI starter,
+the trusted local-runner workflow, the website CI template — took an *optional* `nodeVersion`, and no
+caller ever passed it. The value behind each `??` was not a fallback for when detection failed. It was
+the only version any of them had ever written into anybody's repository.
+
+Which is why the fix is not a newer number. `20` was right when it was written and went wrong in silence;
+`24` would go wrong the same way on the same schedule. The version is derived now, on a ladder that says
+which rung answered: `engines.node`, then `.nvmrc`, then `.node-version`, then the major of the Node
+actually running. A range resolves to its **lowest** major, because the floor is what the project promised
+and using an API that only exists in the newer major is the ordinary mistake. A declared version is
+honoured **even when it is end-of-life** — overriding it would put a runtime in somebody's CI that nothing
+in their project claims to support, and their CI is where they would find out. The last rung is measured
+rather than written down, so it cannot go stale.
+
+`nodeVersion` is required now, and that is the half that stops this happening again: optional is what made
+"nobody passes it" possible. The trusted workflow's confirmation states the version and the rule that
+chose it before anything is written.
+
+The generators also refuse an unusable version rather than substituting one. That value is interpolated
+into YAML, so its shape check was always an injection guard; coercing to a default was safe, but coercion
+is the mechanism that emitted one version forever. A workflow AtlasMind cannot build correctly is one it
+does not write.
+
+---
+
 ## v0.360.4 — The dependency updates, and what verifying them turned up
 
 Stryker moved to 10 and jsdom to 30 now that CI runs a Node that can execute them. Verified rather than

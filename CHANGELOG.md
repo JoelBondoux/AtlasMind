@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.361.0] - 2026-08-19
+
+### Fixed
+
+- **Every GitHub Actions workflow AtlasMind generates pinned Node 20**, a runtime that reached end of life
+  in April 2026. Not a stale default — the three generators (the hosted CI starter, the trusted
+  local-runner workflow, the website CI template) each took an *optional* `nodeVersion`, and **no caller
+  ever passed one**, so the value behind each `??` was not a fallback but the only version any of them
+  had ever written into anybody's repository.
+
+  The fix is not a newer number. `20` was correct when it was written and became wrong in silence, and
+  `24` would fail identically on the same schedule. `nodeVersionDetection` derives it instead, on a
+  four-rung ladder that publishes which rung answered: `engines.node` → `.nvmrc` → `.node-version` → the
+  major of the Node actually running. A declared range resolves to its **lowest** major, because the floor
+  is what the project promised and reaching for an API that only exists in the newer major is the ordinary
+  mistake. A declared version is honoured **even when it is end-of-life**: overriding it would put a
+  runtime in somebody's CI that nothing in their project claims to support. The last rung is measured
+  rather than written down, so it cannot go stale.
+
+  `nodeVersion` is now **required** on all three generators, which is the half that prevents recurrence:
+  optional is what made "nobody passes it" possible, and required makes it unrepresentable. The trusted
+  workflow's confirmation dialog states the version and the rule that chose it before the file is written.
+
+### Changed
+
+- **The generators refuse an unusable Node version rather than substituting one.** The value is
+  interpolated into YAML, so the shape check was already a real injection guard — the test feeding it a
+  newline and a `run:` step is guarding a live path. It coerced to a hardcoded default, which was safe but
+  is exactly the mechanism by which one version got emitted forever. Refusing is the same guarantee
+  without the substitution: a workflow AtlasMind cannot build correctly is one it does not write.
+
 ## [0.360.4] - 2026-08-19
 
 ### Changed
