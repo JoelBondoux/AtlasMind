@@ -574,6 +574,16 @@ re-reviews what landed on disk rather than trusting the builder's own check. Rev
 read and is deliberately callable before Docker, `gh` or a queued job exists — the policy used to be
 evaluated only at start time, which put the cheapest check at the end of the longest path.
 
+The Pipeline page's **default view is state-aware**: with no explicitly chosen tab, a project with any
+build or run history opens on Builds and only a fresh project opens on the setup journey, whose card
+collapses to one line once the durable steps are done and anything has ever built. Routing rules are
+editable from the page through `editCiRoutingRule` — a message carrying only a workload id from the closed
+vocabulary; the QuickPick candidates are filtered by the same `routeSatisfiesRequirement` the decision
+engine uses (trust rule included) and the result passes `validateCiRoutingConfig` before
+`CiRoutingConfigManager.save`. `workOnCiFailure` carries no payload and hands the already-fetched
+`CiFailureReport` to a chat session through `buildCiFailurePrompt`, which fences the log as reported
+content — the builder existed unused since the failure analysis landed.
+
 The Pipeline page's **execution fabric** is the opt-in impure counterpart (`src/core/localCiRunner.ts`). The
 webview posts `inspectLocalCiRunner`, `startLocalCiRunner`, or `showLocalCiOutput` with no payload; all
 workflow, branch, label, image, capacity and shutdown values are re-read from machine-scoped configuration

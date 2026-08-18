@@ -19,6 +19,35 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.355.0 — The Pipeline page, made legible
+
+Honest feedback landed: even with everything built, the page was confusing. Five complaints, five fixes.
+
+**Why is onboarding still the front page?** It is not, any more. Once anything has run, the page opens on
+Builds, and the four-step setup journey collapses to a single “Setup complete” line with the steps behind
+a click. Completeness is judged on the durable steps plus build history — queueing and lending reset with
+every commit, and treating those as “setup regressed” was what kept re-inflating the card.
+
+**How do I read the routes, and how do I change them?** The routing card now says what its rows are:
+decisions already made, applying themselves wherever the page picks a route, executing nothing. And each
+row has a Change… button — pick the preferred route, the fallbacks, and what happens when the hosted
+allowance runs out, and the committed file updates after a confirmation that names it. The picker only
+offers routes the decision engine itself would accept, so the guided edit and the hand edit obey the same
+rules.
+
+**What do I do when a build fails?** The classified failure now sits at the top of Builds — it used to
+live inside a collapsed disclosure on the setup tab, the last place anybody looks after a failure — with
+one new button: Ask Atlas to work on this failure. The prompt it opens has existed, fully fenced, since
+failure analysis landed; nothing ever called it.
+
+**What is analytics for?** It now leads with its reading, in sentences: how many recent runs failed, which
+workflow is least reliable (only claimed with at least three completed runs), and how long a run typically
+takes to answer, queue included. The charts are still there, underneath the point.
+
+**And one plain bug:** the Builds and Where-it-runs tabs shipped without being added to the page’s section
+allowlist, so clicking them silently bounced back to setup. They open now, and a test walks every tab
+against the allowlist so that cannot ship again.
+
 ## v0.354.0 — Two things that were quietly missing
 
 **Routes now say how faithfully they run what they claim to prove.** `act` and the borrowed-machine route
@@ -356,7 +385,7 @@ file paths were landing there.
 
 Underneath that, two things were wrong at once. A path AtlasMind *accepted* did nothing when clicked, so the
 links that looked like they worked were the broken ones; and the same file passed or failed depending on how
-it was written, with `src/a.ts` accepted while `C:epo\src.ts` was not.
+it was written, with `src/a.ts` accepted while `C:epo\src\a.ts` was not.
 
 Now any of those spellings opens the file in the editor, at the line if the link named one. A path outside
 your workspace is not opened, and says so rather than doing nothing.

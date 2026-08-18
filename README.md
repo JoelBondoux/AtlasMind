@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.354.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.355.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,19 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.354.0
+## What's new in 0.355.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Pipeline page answers its own five hardest questions.** Onboarding stops being the landing page
+  once anything has run — the page opens on Builds, and the setup journey collapses to one line with the
+  steps behind a disclosure. The routing card says plainly what the rules are and every rule has a
+  **Change…** flow, so picking where checks run no longer means editing JSON. The latest classified failure
+  now renders on Builds with **Ask Atlas to work on this failure** — the log fenced as untrusted content.
+  Analytics leads with sentences ("2 of the last 30 completed runs failed; the least reliable workflow is
+  CI") computed from the same numbers as the charts. And the Builds and Where-it-runs tabs, which shipped
+  unreachable behind a stale allowlist, actually open.
 
 - **Routes now say how faithfully they reproduce what they claim to prove.** `act` and the borrowed machine
   both produce Linux-container evidence, but one runs GitHub's own runner image and the other emulates

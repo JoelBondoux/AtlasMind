@@ -201,6 +201,7 @@ import { classifyLensChangePath } from '../core/lensChangeStory.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
+  buildCiFailurePrompt,
   buildCiFailureReport,
   type CiFailureReport,
 } from '../core/ciFailureAnalysis.js';
@@ -232,19 +233,25 @@ import {
   planActRun,
 } from '../core/ciActRoute.js';
 import {
+  CI_ROUTES,
   buildDirectLocalRunConfirmation,
   buildDirectLocalRunPlan,
   describeCiRouteAvailability,
   resolveDirectLocalChecks,
+  routeSatisfiesRequirement,
   type CiRouteAvailability,
+  type CiRouteId,
 } from '../core/ciRoutes.js';
 import {
   CI_ROUTING_SSOT_PATH,
   CiRoutingConfigManager,
   decideAllCiRoutes,
+  findCiWorkloadClass,
   validateCiRoutingConfig,
+  type CiRoutingConfig,
   type CiRouteDecision,
   type CiRoutingProblem,
+  type CiRoutingRule,
 } from '../core/ciRoutingPolicy.js';
 import {
   CI_BUILD_LEDGER_NOTE,
@@ -704,6 +711,18 @@ type ProjectDashboardMessage =
    * `reviewCiWorkflow` follows, so the page can name a file and never a command.
    */
   | { type: 'runWorkflowWithAct'; payload: string }
+  /**
+   * Edit one routing rule. Carries only a workload id from the closed
+   * vocabulary; every route candidate, the QuickPick options and the saved rule
+   * are derived host-side, so the page can name the row and nothing else.
+   */
+  | { type: 'editCiRoutingRule'; payload: string }
+  /**
+   * Hand the latest classified CI failure to a chat session. No payload at all:
+   * the host uses the report it already fetched, and the log inside the prompt
+   * travels fenced as untrusted content.
+   */
+  | { type: 'workOnCiFailure' }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -4174,6 +4193,12 @@ export class ProjectDashboardPanel {
       case 'runWorkflowWithAct':
         await this.handleRunWorkflowWithAct(message.payload);
         return;
+      case 'editCiRoutingRule':
+        await this.handleEditCiRoutingRule(message.payload);
+        return;
+      case 'workOnCiFailure':
+        await this.handleWorkOnCiFailure();
+        return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
         this.localCiOutput?.show(true);
@@ -6278,6 +6303,10 @@ export class ProjectDashboardPanel {
       return;
     }
     const manager = this.ciRouting;
+    // Re-read before seeding: the manager's view dates from panel open, and a
+    // routing file that appeared since — a teammate's pulled commit — must be
+    // found now rather than overwritten by a seed.
+    manager.reload();
     if (manager.getConfig()) {
       void vscode.window.showInformationMessage(`${CI_ROUTING_SSOT_PATH} already exists. Edit it directly.`);
       return;
@@ -6451,6 +6480,212 @@ export class ProjectDashboardPanel {
       pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
     });
     await this.syncState();
+  }
+
+  /**
+   * Edit one routing rule through a guided flow, instead of hand-editing JSON.
+   *
+   * The webview names a workload from the closed vocabulary and nothing else;
+   * every candidate below is derived host-side. Candidates are filtered by the
+   * same `routeSatisfiesRequirement` the decision engine uses — including the
+   * trust rule — so the picker cannot offer what the engine would refuse, and
+   * the two can never disagree about what is eligible. Routes with no adapter
+   * are excluded outright: a rule naming one is a warning waiting to be read.
+   *
+   * The result still passes `validateCiRoutingConfig` before the save, because
+   * the invariants belong to the file, not to this picker; and the confirmation
+   * names the committed path, because that is where this change actually lands.
+   */
+  private async handleEditCiRoutingRule(workloadId: string): Promise<void> {
+    const workload = findCiWorkloadClass(workloadId);
+    if (!workload) {
+      return;
+    }
+    const manager = this.ciRouting;
+    // Re-read from disk first. The manager reads the file once at construction
+    // and this panel memoizes it, so without this a hand edit made after the
+    // dashboard opened — or a teammate's pulled commit — would be silently
+    // rewritten from the stale in-memory copy when the whole file is saved.
+    const config = manager.reload();
+    if (!config) {
+      void vscode.window.showWarningMessage(
+        manager.getNotice() ?? 'There is no routing file yet. Create it from the Where it runs view first.',
+      );
+      return;
+    }
+
+    const candidates = CI_ROUTES.filter(route => {
+      if (route.implementation !== 'implemented') {
+        return false;
+      }
+      if (workload.input === 'untrusted' && route.capabilities.safeForUntrustedCode !== 'yes') {
+        return false;
+      }
+      return routeSatisfiesRequirement(route, {
+        evidence: workload.requiredEvidence,
+        ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+      }).satisfied;
+    });
+    if (candidates.length === 0) {
+      void vscode.window.showWarningMessage(
+        `No implemented route can satisfy ${workload.label} — nothing to choose between.`,
+      );
+      return;
+    }
+
+    const existing = config.rules.find(rule => rule.workload === workload.id);
+    const preferPick = await vscode.window.showQuickPick(
+      candidates.map(route => ({
+        label: route.label,
+        description: route.id === existing?.prefer ? 'current preference' : route.fidelity === 'approximate' ? 'approximate' : '',
+        detail: route.blurb,
+        routeId: route.id,
+      })),
+      {
+        title: `${workload.label} — preferred route`,
+        placeHolder: 'Where should this kind of check run first?',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!preferPick) {
+      vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+      return;
+    }
+
+    const fallbackCandidates = candidates.filter(route => route.id !== preferPick.routeId);
+    let fallback: CiRouteId[] = [];
+    if (fallbackCandidates.length > 0) {
+      const fallbackPick = await vscode.window.showQuickPick(
+        fallbackCandidates.map(route => ({
+          label: route.label,
+          detail: route.blurb,
+          picked: existing?.fallback.includes(route.id) ?? false,
+          routeId: route.id,
+        })),
+        {
+          title: `${workload.label} — fallbacks, in case the preferred route cannot run`,
+          placeHolder: 'Pick none to have no fallback. Order follows the route list.',
+          canPickMany: true,
+          ignoreFocusOut: true,
+        },
+      );
+      if (fallbackPick === undefined) {
+        vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+        return;
+      }
+      fallback = fallbackPick.map(item => item.routeId);
+    }
+
+    const exhaustedPick = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'Use the fallback',
+          description: fallback.length === 0 ? 'No fallback is set, so this behaves like stop' : '',
+          detail: 'When the hosted allowance runs out, try the fallback routes in order.',
+          value: 'fallback' as const,
+        },
+        {
+          label: 'Stop',
+          description: '',
+          detail: 'Refuse rather than substitute. Right where no other route can produce the evidence this needs.',
+          value: 'block' as const,
+        },
+      ],
+      {
+        title: `${workload.label} — when the hosted allowance runs out`,
+        placeHolder: 'This only matters for routes that spend the GitHub Actions allowance.',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!exhaustedPick) {
+      vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+      return;
+    }
+
+    const usedIds = new Set(config.rules.map(rule => rule.id));
+    let appendedId = `${workload.id}-rule`;
+    for (let suffix = 2; usedIds.has(appendedId); suffix += 1) {
+      appendedId = `${workload.id}-rule-${suffix}`;
+    }
+    const nextRule: CiRoutingRule = {
+      id: existing?.id ?? appendedId,
+      workload: workload.id,
+      prefer: preferPick.routeId,
+      fallback,
+      onCreditExhausted: exhaustedPick.value,
+      ...(existing?.note ? { note: existing.note } : {}),
+    };
+    const nextConfig: CiRoutingConfig = {
+      ...config,
+      rules: existing
+        ? config.rules.map(rule => (rule.id === existing.id ? nextRule : rule))
+        : [...config.rules, nextRule],
+    };
+
+    const problems = validateCiRoutingConfig(nextConfig)
+      .filter(problem => problem.severity === 'error' && problem.ruleId === nextRule.id);
+    if (problems.length > 0) {
+      void vscode.window.showWarningMessage(
+        `That rule cannot be saved: ${problems.map(problem => problem.message).join(' ')}`,
+      );
+      return;
+    }
+
+    const routeLabel = (id: string): string => CI_ROUTES.find(route => route.id === id)?.label ?? id;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          `${workload.label} will prefer ${routeLabel(nextRule.prefer)}.`,
+          nextRule.fallback.length > 0
+            ? `Fallback: ${nextRule.fallback.map(routeLabel).join(', then ')}.`
+            : 'No fallback: when the preferred route cannot run, this workload waits.',
+          nextRule.onCreditExhausted === 'block'
+            ? 'When the hosted allowance runs out: stop rather than substitute.'
+            : 'When the hosted allowance runs out: use the fallback.',
+          '',
+          'This file is committed, so the change arrives as a diff your team reviews.',
+        ].join('\n'),
+      },
+      'Save routing rule',
+    );
+    if (confirmation !== 'Save routing rule') {
+      return;
+    }
+    try {
+      await manager.save(nextConfig);
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: routing for ${workload.label} updated.`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The routing file was not saved: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Hand the latest classified CI failure to a chat session.
+   *
+   * The prompt builder has existed since the failure analysis landed — fencing
+   * the log as reported content, forbidding re-classification and re-runs — and
+   * was never wired to anything, so the page could diagnose a failure and then
+   * leave the person to retype it. Same shape as workOnIssue and workOnDebt:
+   * the report the host already fetched, and nothing from the webview.
+   */
+  private async handleWorkOnCiFailure(): Promise<void> {
+    const report = this.ciState?.report;
+    if (!report) {
+      void vscode.window.showWarningMessage(
+        this.ciState?.logFailure
+          ? `The failing run's log could not be read, so there is no report to work from: ${this.ciState.logFailure.slice(0, 200)}`
+          : 'There is no classified failure loaded. Refresh CI first.',
+      );
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildCiFailurePrompt(report),
+      sendMode: 'new-session',
+    });
   }
 
   /** Type into the user's configured VS Code shell, but leave Enter to them. */
@@ -9948,6 +10183,18 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string'
       && candidate['payload'].length > 0
       && candidate['payload'].length <= 120;
+  }
+
+  // Editing a rule in a committed file: the payload may only be a workload id
+  // from the closed vocabulary — anything else is a malformed message, not a
+  // request with an unusual argument.
+  if (candidate['type'] === 'editCiRoutingRule') {
+    return typeof candidate['payload'] === 'string'
+      && findCiWorkloadClass(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'workOnCiFailure') {
+    return candidate['payload'] === undefined;
   }
 
   if (candidate['type'] === 'reviewCiWorkflow') {
@@ -19415,6 +19662,21 @@ const DASHBOARD_CSS = `
   .ci-build-main p { margin: 3px 0 4px; }
   .ci-build-side { display: grid; gap: 4px; justify-items: end; flex: 0 0 auto; }
   .ci-build-side small { color: var(--dash-muted); font-size: 11px; }
+
+  /* One line, not a hero card: the whole point of the complete state. */
+  .ci-journey-complete > details > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .ci-journey-complete .ci-journey-list { margin-top: 10px; }
+
+  .ci-analytics-summary {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0 0 0 18px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .ci-build-failure { display: grid; gap: 10px; border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
 
   .ci-routing-credit {
     display: flex;

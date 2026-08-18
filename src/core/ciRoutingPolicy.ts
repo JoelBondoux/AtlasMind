@@ -271,7 +271,7 @@ function sanitizeRouteId(value: unknown): CiRouteId | undefined {
 }
 
 function sanitizeNote(value: unknown): string | undefined {
-  const trimmed = typeof value === 'string' ? value.replace(/[ -]/g, ' ').trim() : '';
+  const trimmed = typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() : '';
   return trimmed ? trimmed.slice(0, 300) : undefined;
 }
 
@@ -351,8 +351,20 @@ export interface CiRoutingProblem {
 export function validateCiRoutingConfig(config: CiRoutingConfig): CiRoutingProblem[] {
   const problems: CiRoutingProblem[] = [];
   const covered = new Set<CiWorkloadId>();
+  const seenIds = new Set<string>();
 
   for (const rule of config.rules) {
+    // A duplicated id is an error, not a curiosity: the sanitizer keeps only
+    // the first rule carrying an id, so the second silently vanishes on the
+    // next read — after its author was told it saved.
+    if (seenIds.has(rule.id)) {
+      problems.push({
+        ruleId: rule.id,
+        severity: 'error',
+        message: `More than one rule carries the id ${rule.id}; only the first survives a reload.`,
+      });
+    }
+    seenIds.add(rule.id);
     const workload = findCiWorkloadClass(rule.workload);
     if (!workload) {
       problems.push({ ruleId: rule.id, severity: 'error', message: `Rule ${rule.id} names an unknown workload.` });

@@ -6,6 +6,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.355.0] - 2026-08-18
+
+### Fixed
+
+- **The Builds and Where-it-runs tabs actually open now.** Both shipped without being added to the
+  Pipeline page's section allowlist, so clicking either coerced straight back to the setup view — the tab
+  was drawn, and did not work. A test now walks every rendered tab id against the allowlist so a tab can
+  never ship unreachable again.
+- **`ci-routing.json`'s sanitizer no longer contains raw control bytes.** A shell escaping accident wrote a
+  literal NUL and 0x1F into a character class instead of unicode escapes — functionally identical, but a
+  NUL in a source file makes ripgrep treat it as binary and hides it from every text search.
+
+### Changed
+
+- **Onboarding stops being the landing page once there is anything else to show.** With no explicitly
+  chosen tab, a project with any build or run history opens on **Builds**; only a project with nothing run
+  yet opens on the setup journey. An explicit tab choice always wins over both.
+- **The setup journey collapses to one line once it is genuinely done.** Completeness is judged on the
+  durable steps — the trusted workflow and this machine — plus evidence that anything has ever built,
+  because queueing and lending are per-run steps that reset with every commit; gating on all four
+  re-inflated the onboarding card between runs. The four steps stay one disclosure away, with the per-run
+  pair labelled as per-run rather than as regressions.
+- **The routing card explains itself and every rule is editable from the page.** The card now states what
+  the rules are — decisions already made, applying themselves wherever the page picks a route, never
+  executing anything — and each decision row has **Change…**: a guided flow (preferred route → fallbacks →
+  what happens when the allowance runs out) that writes the committed file after a confirmation naming it.
+  Candidates are filtered by the same requirement check the decision engine uses, including the trust rule,
+  so the picker cannot offer what the engine would refuse; the result is validated before saving, so a
+  hand-editable file and a guided edit land under the same rules.
+- **The latest classified failure moved to where somebody watching builds is looking.** It rendered only
+  inside a collapsed disclosure on the setup tab. The Builds view now leads with it when one exists —
+  classification, deciding evidence, and **Ask Atlas to work on this failure…**, which wires up the
+  fenced prompt builder that has existed unused since the failure analysis landed: the log travels as
+  REPORTED CONTENT, and re-classification and re-runs are forbidden in the prompt itself.
+- **Analytics leads with a reading instead of charts.** Three sentences computed from the same numbers the
+  charts use — how many of the completed runs failed, the least reliable workflow (only with at least three
+  completed runs, because a claim from two is noise wearing a conclusion's clothes), and the typical time
+  to a verdict including queueing, because that is what a person actually waits. The window is stated as a
+  bounded sample rather than implied to be all of history.
+
+### Fixed (from adversarial review before shipping)
+
+- **The landing-tab default is latched for the session rather than re-resolved per render** — otherwise a
+  background CI refresh could switch the visible tab under the user, including flipping them off the setup
+  journey mid-step because the "Read CI result" button they pressed found hosted history.
+- **"Least reliable workflow" counts only genuine failures.** The reliability table's bucket includes
+  cancellations, because it shows a pass rate; a sentence drawing on that bucket called three cancelled
+  runs three failures, directly under a sentence computed the strict way. The summary now reads the
+  `conclusion === 'failure'` tally the pass-rate pill and donut already use.
+- **A guided routing edit re-reads the file before writing**, so a hand edit or a pulled commit made while
+  the dashboard was open is not silently rewritten from a stale in-memory copy — the whole file is saved,
+  and the modal only names one rule. The create path re-reads too, so a routing file that appeared since
+  panel-open is found rather than overwritten by a seed.
+- **An appended rule id can no longer collide with an existing one.** The sanitizer keeps only the first
+  rule per id, so a duplicate silently vanished on the next reload — after its author was told it saved.
+  Appended ids are uniquified, and the validator now reports a duplicated id as an error.
+- **Three historical control bytes were flushed out of the changelogs** (backspace and bell characters
+  where prose about `\b` and `\a` escapes became the characters themselves), which had been making
+  text tools treat those regions oddly for months.
+
+### Security
+
+- **The routing-rule edit message carries only a workload id from the closed vocabulary**; every candidate,
+  QuickPick option and saved value is derived host-side. The work-on-failure message carries nothing at
+  all — the prompt is built from the report the host already fetched.
+
 ## [0.354.0] - 2026-08-18
 
 ### Added
@@ -1569,8 +1635,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   lane had already closed. The action extractor now falls back to the declarative offer, stripping the
   condition and the undertaking so the goal is the work rather than the offer of it.
 
-- **A word boundary that could not fire.** `OFFER_CONDITION_PATTERN` ended `(?:want|like|prefer|wish)`,
-  and `` cannot match between the "t" of "want" and the "s" of "wants" — both are word characters. Every
+- **A word boundary that could not fire.** `OFFER_CONDITION_PATTERN` ended `(?:want|like|prefer|wish)\b`,
+  and `\b` cannot match between the "t" of "want" and the "s" of "wants" — both are word characters. Every
   hand-written probe used *"if you want,"*, where the comma supplied the boundary, so the shape passed
   while the inflected form in the real transcript did not. The verb now takes an optional `s`/`ed`, and
   the plural form is a test case.

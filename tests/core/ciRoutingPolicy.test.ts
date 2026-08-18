@@ -250,6 +250,24 @@ describe('CI routing policy — the file', () => {
     expect(sanitized?.rules[0]?.fallback).toEqual(['local-runner']);
   });
 
+  /**
+   * The sanitizer keeps only the first rule carrying an id, so a duplicate
+   * silently vanishes on the next read — after its author was told it saved.
+   * The validator therefore reports it as an error, not a curiosity.
+   */
+  it('reports a duplicated rule id as an error', () => {
+    const config: CiRoutingConfig = {
+      ...seedCiRoutingConfig(CLOCK),
+      rules: [
+        { id: 'same', workload: 'fast-feedback', prefer: 'direct-local', fallback: [], onCreditExhausted: 'fallback' },
+        { id: 'same', workload: 'full-suite', prefer: 'github-hosted', fallback: [], onCreditExhausted: 'fallback' },
+      ],
+    };
+    const problems = validateCiRoutingConfig(config);
+    expect(problems.some(problem => problem.severity === 'error'
+      && /only the first survives a reload/.test(problem.message))).toBe(true);
+  });
+
   it('warns about an uncovered workload and a duplicated one', () => {
     const config: CiRoutingConfig = {
       ...seedCiRoutingConfig(CLOCK),

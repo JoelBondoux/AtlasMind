@@ -308,7 +308,7 @@ describe('the Pipeline CI management surface', () => {
 
   it('stays useful before CI run history has been fetched', () => {
     const body = source();
-    expect(body).toContain('${renderPipelineTabs(snapshot, runs)}');
+    expect(body).toContain('${renderPipelineTabs(snapshot, runs, pipelineSection)}');
     expect(body).toContain('overview: overviewContent');
     expect(body).toContain('workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`');
     expect(body).toContain('runner: runnerCard');
@@ -383,7 +383,7 @@ describe('Pipeline Studio progressive workflow', () => {
   );
 
   it('starts with a beginner route and keeps specialist tools in named views', () => {
-    expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['overview', 'workflow', 'runner', 'tests', 'analytics', 'packages']");
+    expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['overview', 'builds', 'routes', 'workflow', 'runner', 'tests', 'analytics', 'packages']");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Start here'");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Workflow map'");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Packages & repo'");
@@ -431,7 +431,7 @@ describe('Pipeline Studio progressive workflow', () => {
   });
 
   it('charts bounded answer time and reliability using observed GitHub timestamps', () => {
-    expect(WEBVIEW_SCRIPT).toContain('Feedback speed and reliability');
+    expect(WEBVIEW_SCRIPT).toContain('What this history says');
     expect(WEBVIEW_SCRIPT).toContain('Answer-time waterfall');
     expect(WEBVIEW_SCRIPT).toContain('Workflow reliability');
     expect(WEBVIEW_SCRIPT).toContain('includes queue time as well as execution');
@@ -1041,6 +1041,159 @@ describe('Pipeline route surface', () => {
     expect(WEBVIEW_SCRIPT).toContain('No routing file yet');
     expect(WEBVIEW_SCRIPT).toContain('declares no rules');
     expect(WEBVIEW_SCRIPT).toContain('pipeline-create-routing');
+  });
+});
+
+describe('Pipeline section reachability and defaults', () => {
+  /**
+   * The regression this pins: the Builds and Where-it-runs tabs shipped
+   * without being added to the section allowlist, so clicking either coerced
+   * back to 'overview' — the tab was drawn, and did not open. Every tab id
+   * rendered must be a member of PIPELINE_SECTIONS.
+   */
+  it('lists every rendered tab in the section allowlist', () => {
+    const literal = WEBVIEW_SCRIPT.match(/const PIPELINE_SECTIONS = \[([^\]]+)\]/)?.[1] ?? '';
+    // The ids come from the tab renderer itself, not from a hand-maintained
+    // list: a list here would go stale exactly the way the allowlist did, and
+    // the next unreachable tab would pass this test too.
+    const tabsStart = WEBVIEW_SCRIPT.indexOf('function renderPipelineTabs');
+    const tabsEnd = WEBVIEW_SCRIPT.indexOf('function renderPipelineJourney');
+    expect(tabsStart).toBeGreaterThan(-1);
+    expect(tabsEnd).toBeGreaterThan(tabsStart);
+    const tabsBody = WEBVIEW_SCRIPT.slice(tabsStart, tabsEnd);
+    const renderedIds = [...tabsBody.matchAll(/id: '([a-z-]+)'/g)].map(match => match[1]);
+    // A silent slice or regex miss must not pass vacuously.
+    expect(renderedIds.length).toBeGreaterThanOrEqual(8);
+    for (const id of renderedIds) {
+      expect(literal, `tab '${id}' must be reachable`).toContain(`'${id}'`);
+    }
+  });
+
+  /**
+   * Onboarding is the default only while there is nothing else to show. A
+   * project with build or run history opens on Builds; an explicit tab choice
+   * always wins over both.
+   */
+  it('defaults to Builds once anything has run, and respects an explicit choice', () => {
+    expect(WEBVIEW_SCRIPT).toContain("? persistedWebviewState.pipelineSection : null");
+    // The whole resolution, head included, so the explicit choice provably
+    // wins before the history default is even consulted — and the default is
+    // latched once rather than recomputed, so a background CI refresh cannot
+    // switch the visible tab under the user.
+    expect(WEBVIEW_SCRIPT).toMatch(
+      /PIPELINE_SECTIONS\.includes\(state\.pipelineSection\)\s*\?\s*state\.pipelineSection\s*:\s*state\.pipelineSectionDefault/,
+    );
+    expect(WEBVIEW_SCRIPT).toContain("state.pipelineSectionDefault = (buildRecords.length > 0 || runs.length > 0) ? 'builds' : 'overview'");
+    expect(WEBVIEW_SCRIPT).toContain('!PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)');
+  });
+
+  /**
+   * The full-size journey card was the page's landing experience forever,
+   * including for people who finished it. Complete setup earns one line with
+   * the steps behind a disclosure — and completeness is judged on the durable
+   * steps plus build history, because queueing and lending reset per run.
+   */
+  it('collapses the journey once setup is durable and anything has built', () => {
+    expect(WEBVIEW_SCRIPT).toContain('ci-journey-complete');
+    // The <strong> form is unique to the collapsed card; the bare words also
+    // appear in the full card's heading and would keep passing without it.
+    expect(WEBVIEW_SCRIPT).toContain('<strong>Setup complete</strong>');
+    expect(WEBVIEW_SCRIPT).toContain('setupDone && hasEverBuilt');
+    expect(WEBVIEW_SCRIPT).toContain('do not mean setup regressed');
+    // The fifth argument is what feeds hasEverBuilt; dropping it would make
+    // the gate permanently false and the collapse unreachable.
+    expect(WEBVIEW_SCRIPT).toContain('renderPipelineJourney(assessment, intel, runner, workflows, buildRecords)');
+  });
+});
+
+/**
+ * The body of a pipeline sub-renderer, up to the next named function.
+ *
+ * `renderSource` cannot be reused here: these functions do not take `snapshot`,
+ * so its signature match never finds them. Scoping matters because several
+ * assertions below pin copy that could drift into an unrelated renderer and
+ * keep passing there — a scoped miss fails, an unscoped one lies.
+ */
+function pipelineSource(name: string, until: string): string {
+  const start = WEBVIEW_SCRIPT.indexOf(`function ${name}(`);
+  expect(start, `${name} is missing from the webview script`).toBeGreaterThan(-1);
+  const end = WEBVIEW_SCRIPT.indexOf(`function ${until}(`, start + 1);
+  return WEBVIEW_SCRIPT.slice(start, end === -1 ? undefined : end);
+}
+
+describe('Pipeline routing edits and failure actions', () => {
+  it('offers a Change control on every routing decision, carrying only the workload id', () => {
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-edit-route');
+    expect(WEBVIEW_SCRIPT).toContain(`data-payload="\${escapeAttr(decision.workload || '')}"`);
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'editCiRoutingRule', payload: payload })");
+  });
+
+  it('says on the card that rules apply themselves and edits become a reviewed diff', () => {
+    const src = pipelineSource('renderPipelineRoutingRules', 'renderPipelineRoutes');
+    expect(src).toContain('Rules apply themselves');
+    expect(src).toContain('reviews it as a diff');
+  });
+
+  /**
+   * The classified failure used to live only inside a collapsed disclosure on
+   * the setup tab — the last place anybody goes once a build fails. It now
+   * renders on Builds with the one action that was always missing: handing the
+   * fenced report to a chat session.
+   */
+  it('shows the latest failure on Builds with an ask-Atlas action', () => {
+    expect(WEBVIEW_SCRIPT).toContain('renderBuildFailureCard');
+    // The card is only real if the Builds view interpolates it and the call
+    // site passes intel; either wire dropping would leave every copy assertion
+    // below green while the card never renders.
+    expect(WEBVIEW_SCRIPT).toContain('${renderBuildFailureCard(intel)}');
+    expect(WEBVIEW_SCRIPT).toContain('builds: renderPipelineBuilds(delivery.builds || {}, intel)');
+    expect(WEBVIEW_SCRIPT).toContain('Latest failure · what to do about it');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-ci-failure-work');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'workOnCiFailure' })");
+  });
+});
+
+describe('Pipeline analytics summary', () => {
+  it('leads with sentences computed from the same numbers as the charts', () => {
+    const src = pipelineSource('renderPipelineAnalytics', 'renderPipelinePackages');
+    expect(src).toContain('ci-analytics-summary');
+    expect(src).toContain('The least reliable workflow is');
+    expect(src).toContain('counting queue time, because that is what a person actually waits');
+    // "Same numbers" is a claim, so pin it: the pass-rate sentence and the
+    // donut must both read the `passing` tally, or a second divergent count
+    // could appear and this test's title would be a lie.
+    expect(src).toContain('(passing / completed.length)');
+    expect(src).toContain("label: 'Passing', value: passing");
+  });
+
+  /**
+   * A reliability claim from two runs is noise wearing a conclusion's clothes;
+   * the sample-size guard is stated in the copy, not just applied.
+   */
+  it('refuses to call a workflow unreliable without enough samples', () => {
+    expect(WEBVIEW_SCRIPT).toContain('(row.pass + row.fail) >= 3');
+    expect(WEBVIEW_SCRIPT).toContain('too few to call any of them reliable or unreliable');
+    // The pick must come from the filtered set — deriving it from the raw
+    // workflow list would reconnect the claim to unguarded samples.
+    expect(WEBVIEW_SCRIPT).toContain('const leastReliable = measured');
+  });
+
+  /**
+   * "Failed" in the sentence means conclusion === 'failure', the same
+   * definition the pass-rate pill and the donut use. The reliability table's
+   * broader bucket includes cancellations, and a sentence drawing on that
+   * bucket called three cancelled runs three failures — directly under a
+   * sentence computed the strict way.
+   */
+  it('counts only genuine failures in the least-reliable sentence', () => {
+    expect(WEBVIEW_SCRIPT).toContain("if (run.conclusion === 'failure') { row.strictFail += 1; }");
+    expect(WEBVIEW_SCRIPT).toContain('leastReliable.strictFail > 0');
+    expect(WEBVIEW_SCRIPT).toContain('${leastReliable.strictFail} of its');
+  });
+
+  it('states the window rather than implying all of history', () => {
+    expect(pipelineSource('renderPipelineAnalytics', 'renderPipelinePackages'))
+      .toContain('a bounded sample, not all of history');
   });
 });
 

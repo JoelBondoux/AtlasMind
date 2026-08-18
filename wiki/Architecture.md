@@ -362,6 +362,12 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+The Pipeline page is arranged for the person who finished setting it up, not the person starting: it opens
+on Builds once anything has run, the setup journey folds to one line when its durable steps are done,
+routing rules are editable from the page through a guided flow that obeys the same rules as the decision
+engine, the latest classified failure renders on Builds with a one-click handoff to a chat session (log
+fenced as untrusted content), and analytics leads with its reading in sentences before any chart.
+
 Routes carry a second dimension beside what they prove: **how faithfully they reproduce it**. `act` and the
 borrowed machine both produce Linux-container evidence, yet one runs GitHub's own runner image and the
 other emulates artifacts, caches, services and secrets — and nothing in the model could tell them apart, so
