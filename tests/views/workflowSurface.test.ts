@@ -1017,4 +1017,29 @@ describe('Pipeline route surface', () => {
     expect(WEBVIEW_SCRIPT).toContain('ci-route-evidence');
     expect(WEBVIEW_SCRIPT).toContain('evidenceCaveat');
   });
+
+  /**
+   * A decision that cites the allowance without saying whether the allowance
+   * was actually read is the failure the meter exists to prevent, one layer up.
+   */
+  it('always shows the allowance reading beside the routing decisions', () => {
+    expect(WEBVIEW_SCRIPT).toContain('ci-routing-credit');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-refresh-credit');
+    expect(WEBVIEW_SCRIPT).toContain('has not been checked');
+  });
+
+  it('names the rule behind every routing decision, and why the others lost', () => {
+    expect(WEBVIEW_SCRIPT).toContain('decision.ruleId');
+    expect(WEBVIEW_SCRIPT).toContain('Why not the others');
+  });
+
+  /**
+   * "Nobody has decided" and "somebody decided nothing" are different states
+   * with different fixes; only the first is worth offering to create a file for.
+   */
+  it('separates an absent routing file from one that decides nothing', () => {
+    expect(WEBVIEW_SCRIPT).toContain('No routing file yet');
+    expect(WEBVIEW_SCRIPT).toContain('declares no rules');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-create-routing');
+  });
 });

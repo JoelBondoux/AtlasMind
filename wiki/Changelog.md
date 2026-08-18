@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.351.0 — Routing rules, and the one rule the file cannot change
+
+Knowing your options is not the same as having decided. This release adds the decision: a committed
+`ci-routing.json` recording which route serves fast feedback, the full suite, packaging, security scans,
+the platform matrix, and contributions nobody has reviewed — and what each should do when your hosted
+allowance runs out. It is a file rather than a setting because that is a statement about how your team
+works, and those deserve a reviewer. AtlasMind never writes it just because you opened the page.
+
+Every decision tells you the rule that made it and, in a sentence, why the other routes lost.
+
+**One rule is not the file's to change.** Code nobody has reviewed never falls back to a local route,
+whatever the budget says. That check runs before the allowance is even looked at and applies to every
+fallback, so running out of hosted minutes produces a refusal — not somebody else's pull request running
+on your computer. Write a rule demanding otherwise and AtlasMind reports it as an error and refuses it
+anyway. Otherwise “fall back to local when the credit runs out” would be a way for running out of money
+to route hostile code onto a developer's machine.
+
+AtlasMind can also read your Actions allowance, so budget-aware rules act on a real number. When it
+cannot — usually a token without the billing scope — it says so and keeps using the preferred route. An
+unreadable meter is not an empty one: a 403 looks exactly like zero minutes to careless code, and treating
+it that way would move your work onto your own machine because of a permissions error. A public repository
+is settled without a request at all, since it cannot spend an allowance.
+
 ## v0.350.0 — Where a check runs is now a choice, not an assumption
 
 Pipeline described one way of running checks: lend your computer to a GitHub job. Four guided steps, a

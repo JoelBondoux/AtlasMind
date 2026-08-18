@@ -1206,6 +1206,14 @@
       vscode.postMessage({ type: 'runDirectLocalChecks' });
       return;
     }
+    if (action === 'pipeline-create-routing') {
+      vscode.postMessage({ type: 'createCiRoutingConfig' });
+      return;
+    }
+    if (action === 'pipeline-refresh-credit') {
+      vscode.postMessage({ type: 'refreshCiCredit' });
+      return;
+    }
     if (action === 'pipeline-queue-command-copy') {
       vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
       return;
@@ -6302,7 +6310,81 @@
    * offered at all. Capability is shown as a three-state mark rather than a
    * tick or nothing, because an unknown must never read as a yes.
    */
-  function renderPipelineRoutes(routes) {
+  /**
+   * What the committed routing file decides, and why.
+   *
+   * Two distinct absences, kept apart: no file at all is an offer to create
+   * one, while a file that decides nothing is a different problem with a
+   * different fix. The credit reading is always shown beside the decisions,
+   * because a decision citing the allowance without saying whether the
+   * allowance was actually read is the failure the meter exists to prevent.
+   */
+  function renderPipelineRoutingRules(routing) {
+    const help = renderInfoHelp('pipeline.routing', {
+      label: 'the routing rules',
+      why: 'Where each kind of check runs is a team decision, so it lives in a committed file that arrives as a reviewed diff rather than a habit nobody wrote down. One rule is not the file’s to change: unreviewed code never falls back to a local route, whatever the budget says.',
+      how: [
+        { text: 'Each decision names the rule that made it, so a surprising answer is traceable.' },
+        { text: 'Edit the JSON, or the markdown mirror beside it, and reload the page.' },
+        { text: 'Read the allowance to let budget-aware rules act on a real number rather than an assumption.' },
+      ],
+    });
+    const creditTone = routing.creditState === 'exhausted' ? 'tag-warn'
+      : routing.creditState === 'remaining' ? 'tag-good' : '';
+    const creditRow = `<div class="ci-routing-credit">
+      <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
+      <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
+      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
+    </div>`;
+
+    if (!routing.configPresent) {
+      return `<article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">Routing rules</p>
+            <h3>No routing file yet</h3>
+            <p class="section-copy">${escapeHtml(routing.notice || 'AtlasMind has no recorded decision about where each kind of check should run. It can write a starting set for you to review and commit — nothing runs as a result.')}</p>
+          </div>${help.button}
+        </div>
+        ${help.panel}
+        ${creditRow}
+        <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
+      </article>`;
+    }
+
+    const problems = routing.problems || [];
+    const errors = problems.filter(problem => problem.severity === 'error');
+    const warnings = problems.filter(problem => problem.severity !== 'error');
+    const decisions = (routing.decisions || []).map(decision => `<div class="ci-routing-row ${decision.outcome === 'routed' ? '' : 'blocked'}">
+      <div>
+        <strong>${escapeHtml(decision.workloadLabel || decision.workload || '')}</strong>
+        <p class="stat-detail">${escapeHtml(decision.sentence || '')}</p>
+        ${(decision.rejected || []).length ? `<details class="ci-progressive-details"><summary>Why not the others (${decision.rejected.length})</summary><ul class="ci-caution-list">${decision.rejected.map(item => `<li><strong>${escapeHtml(item.routeId)}</strong> — ${escapeHtml(item.reason)}</li>`).join('')}</ul></details>` : ''}
+      </div>
+      <div class="ci-routing-verdict">
+        <span class="tag ${decision.outcome === 'routed' ? (decision.usedFallback ? 'tag-warn' : 'tag-good') : 'tag-warn'}">${escapeHtml(decision.outcome === 'routed' ? (decision.usedFallback ? 'fallback' : 'preferred') : 'blocked')}</span>
+        ${decision.ruleId ? `<code>${escapeHtml(decision.ruleId)}</code>` : ''}
+      </div>
+    </div>`).join('');
+
+    return `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Routing rules</p>
+          <h3>Where each kind of check goes</h3>
+          <p class="section-copy">From <code>${escapeHtml(routing.configPath || '')}</code>. Every decision names the rule behind it.</p>
+        </div>${help.button}
+      </div>
+      ${help.panel}
+      ${creditRow}
+      ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
+      <div class="ci-routing-table">${decisions || '<p class="section-copy">The routing file declares no rules.</p>'}</div>
+      ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
+      <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the routing file</button></div>
+    </article>`;
+  }
+
+  function renderPipelineRoutes(routes, routing) {
     const help = renderInfoHelp('pipeline.routes', {
       label: 'choosing where checks run',
       why: 'These are different answers to one question, and they prove different things. A pass in a Linux container is not evidence about Windows however green it is, so each route states what it establishes rather than leaving you to infer it from a tick.',
@@ -6358,6 +6440,7 @@
         </div>
         ${help.panel}
       </article>
+      ${renderPipelineRoutingRules(routing || {})}
       ${cards}
     </div>`;
   }
@@ -7081,7 +7164,7 @@
 
     const sectionContent = {
       overview: overviewContent,
-      routes: renderPipelineRoutes(delivery.routes || []),
+      routes: renderPipelineRoutes(delivery.routes || [], delivery.routing || {}),
       workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`,
       runner: runnerCard,
       tests: renderPipelineTestEngine(snapshot.testing || {}),

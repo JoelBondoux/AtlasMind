@@ -232,6 +232,21 @@ import {
   type CiRouteAvailability,
 } from '../core/ciRoutes.js';
 import {
+  CI_ROUTING_SSOT_PATH,
+  CiRoutingConfigManager,
+  decideAllCiRoutes,
+  validateCiRoutingConfig,
+  type CiRouteDecision,
+  type CiRoutingProblem,
+} from '../core/ciRoutingPolicy.js';
+import {
+  GITHUB_BILLING_ENDPOINTS,
+  describeCreditReading,
+  notMeteredReading,
+  parseGithubBillingUsage,
+  type CiCreditReading,
+} from '../core/ciCreditMeter.js';
+import {
   planGitHubCliInstall,
   runGitHubCliInstallPlan,
   GITHUB_CLI_INSTALL_URL,
@@ -662,6 +677,10 @@ type ProjectDashboardMessage =
    * the scripts from package.json, so the page can ask but never supply.
    */
   | { type: 'runDirectLocalChecks' }
+  /** Create the committed routing file. Explicit — never seeded on render. */
+  | { type: 'createCiRoutingConfig' }
+  /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
+  | { type: 'refreshCiCredit' }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -2268,6 +2287,23 @@ interface DashboardSnapshot {
      * would make the page claim these three are all there is.
      */
     routes: CiRouteAvailability[];
+    /**
+     * Where each kind of check should run, and why.
+     *
+     * `config: false` means no routing file exists — reported as its own state
+     * rather than as an empty rule list, because "nobody has decided" and
+     * "somebody decided nothing" are different and only one is worth offering
+     * to fix.
+     */
+    routing: {
+      configPresent: boolean;
+      configPath: string;
+      notice?: string;
+      problems: CiRoutingProblem[];
+      decisions: CiRouteDecision[];
+      creditSentence: string;
+      creditState: 'remaining' | 'exhausted' | 'unknown';
+    };
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
@@ -3586,6 +3622,19 @@ export class ProjectDashboardPanel {
    */
   private localCiRunnerInstance: LocalCiRunnerManager | undefined;
   private localCiOutput: vscode.OutputChannel | undefined;
+  private ciRoutingManager: CiRoutingConfigManager | undefined;
+  /**
+   * The hosted allowance, as last read.
+   *
+   * Starts `unknown` with a reason rather than assuming either direction:
+   * routing treats an unread meter as "use the preferred route and say so", so
+   * an unchecked meter never quietly relocates work. Reading it costs a `gh`
+   * request, so it happens on an explicit refresh, never on render.
+   */
+  private ciCreditState: CiCreditReading = {
+    state: 'unknown',
+    reason: 'the hosted allowance has not been checked on this machine yet.',
+  };
   private disposed = false;
 
   /**
@@ -3668,6 +3717,13 @@ export class ProjectDashboardPanel {
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     );
     return this.workflowConfigManager;
+  }
+
+  private get ciRouting(): CiRoutingConfigManager {
+    this.ciRoutingManager ??= new CiRoutingConfigManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.ciRoutingManager;
   }
 
   private getLocalCiRunner(): LocalCiRunnerManager | undefined {
@@ -3963,6 +4019,12 @@ export class ProjectDashboardPanel {
         return;
       case 'runDirectLocalChecks':
         await this.handleRunDirectLocalChecks();
+        return;
+      case 'createCiRoutingConfig':
+        await this.handleCreateCiRoutingConfig();
+        return;
+      case 'refreshCiCredit':
+        await this.handleRefreshCiCredit();
         return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
@@ -4273,7 +4335,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -4300,7 +4362,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -4326,7 +4388,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -4352,7 +4414,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -4411,7 +4473,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot());
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
@@ -6033,6 +6095,111 @@ export class ProjectDashboardPanel {
         : 'AtlasMind: each check was typed separately — run them one at a time; this shell will not stop on failure.',
       6000,
     );
+  }
+
+  /**
+   * Create the committed routing file, once, deliberately.
+   *
+   * Never seeded on render, for the reason `workflowConfig` is not: this file
+   * gets committed, and writing a statement about how the team routes its CI
+   * into somebody's repository because they opened a tab would be putting words
+   * in their mouth. The modal names the path and what the seed says.
+   */
+  private async handleCreateCiRoutingConfig(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before creating a routing file.');
+      return;
+    }
+    const manager = this.ciRouting;
+    if (manager.getConfig()) {
+      void vscode.window.showInformationMessage(`${CI_ROUTING_SSOT_PATH} already exists. Edit it directly.`);
+      return;
+    }
+    const notice = manager.getNotice();
+    if (notice) {
+      void vscode.window.showWarningMessage(notice);
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          'This records where each kind of check should run. It is committed, so it arrives as a reviewed diff rather than a habit nobody wrote down.',
+          '',
+          'The starting rules:',
+          '  • Fast feedback runs here, spending no hosted allowance.',
+          '  • The full suite, packaging and security scans prefer GitHub, and may fall back to this machine.',
+          '  • The platform matrix stops if the allowance runs out — nothing else produces that evidence.',
+          '  • Unreviewed contributions never fall back to a local route, whatever the budget says.',
+          '',
+          'A markdown mirror is written beside it. Nothing runs as a result of creating this file.',
+        ].join('\n'),
+      },
+      'Create routing file',
+    );
+    if (confirmation !== 'Create routing file') {
+      return;
+    }
+    const created = await manager.create();
+    if (!created) {
+      void vscode.window.showWarningMessage('AtlasMind did not create the routing file.');
+      return;
+    }
+    await this.openWorkspaceRelativeFile(CI_ROUTING_SSOT_PATH);
+    await this.syncState();
+    void vscode.window.showInformationMessage(`Created ${CI_ROUTING_SSOT_PATH}. Review and commit it.`);
+  }
+
+  /**
+   * Read the hosted allowance, on request.
+   *
+   * On a public repository the answer is free and needs no billing scope, so
+   * that case is settled first — asking a billing endpoint about a repository
+   * that cannot consume an allowance would be a request that can only fail.
+   *
+   * Every failure lands as `unknown` **with its reason**, never as exhausted. A
+   * 403 from a missing scope looks exactly like zero minutes to careless code,
+   * and routing on that would move work onto this machine because of a
+   * permissions error.
+   */
+  private async handleRefreshCiCredit(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    try {
+      const identity = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'repo', 'view', '--json', 'isPrivate,owner',
+      ])) as { isPrivate?: unknown; owner?: { login?: unknown; type?: unknown } };
+
+      if (identity.isPrivate === false) {
+        this.ciCreditState = notMeteredReading();
+        await this.syncState();
+        return;
+      }
+      const login = typeof identity.owner?.login === 'string' ? identity.owner.login.trim() : '';
+      if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) {
+        this.ciCreditState = { state: 'unknown', reason: 'GitHub did not return a usable account name.' };
+        await this.syncState();
+        return;
+      }
+      const isOrganization = String(identity.owner?.type ?? '').toLowerCase() === 'organization';
+      const endpoint = (isOrganization ? GITHUB_BILLING_ENDPOINTS.organization : GITHUB_BILLING_ENDPOINTS.user)
+        .replace('{owner}', login);
+      this.ciCreditState = parseGithubBillingUsage(await runGhOrThrow(workspaceRoot, ['api', endpoint]));
+    } catch (error) {
+      const failure = ghFailureOf(error);
+      // Deliberately not `readBillingRefusal` here: this is a failure to *read*
+      // the meter, not GitHub refusing a run. Only an actual refused run may
+      // empty the meter, and that arrives through a different path.
+      this.ciCreditState = {
+        state: 'unknown',
+        reason: `${failure.detail} Reading the allowance needs a token with the billing scope; AtlasMind will use the preferred route until it can read one.`,
+      };
+    }
+    await this.syncState();
   }
 
   /** Type into the user's configured VS Code shell, but leave Enter to them. */
@@ -9504,7 +9671,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'assessTrustedCiWorkflow'
     || candidate['type'] === 'createTrustedCiStarter'
     || candidate['type'] === 'installGitHubCli'
-    || candidate['type'] === 'runDirectLocalChecks') {
+    || candidate['type'] === 'runDirectLocalChecks'
+    || candidate['type'] === 'createCiRoutingConfig'
+    || candidate['type'] === 'refreshCiCredit') {
     return candidate['payload'] === undefined;
   }
 
@@ -10627,6 +10796,12 @@ async function collectDashboardSnapshot(
   // Machine-owned and collected only after an explicit inspect/start. Keeping
   // it trailing preserves cheap local snapshots used by unrelated actions.
   localRunner?: LocalCiRunnerSnapshot,
+  // Held by the panel for the same reason as the workflow config: a
+  // synchronous file read that should not repeat on every render.
+  ciRoutingManager?: CiRoutingConfigManager,
+  // Defaults to `unknown` rather than to headroom. An unread meter must never
+  // route as though it had been read.
+  credit: CiCreditReading = { state: 'unknown', reason: 'the hosted allowance has not been checked yet.' },
 ): Promise<DashboardSnapshot> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const workspaceRoot = workspaceFolder?.uri.fsPath;
@@ -10739,6 +10914,29 @@ async function collectDashboardSnapshot(
   const prTemplatePresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'pull_request_template.md') : undefined);
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
   const autopilot = atlas.toolApprovalManager.isAutopilot();
+  // Availability is computed once and shared: the Routes view and the routing
+  // decisions must not disagree about whether a route is usable, and two calls
+  // would eventually differ on a machine whose state changed between them.
+  const routeAvailability = describeCiRouteAvailability({
+    hasLocalChecks: directLocalChecksAvailable,
+    dockerEngineAvailable: localRunner?.engine.available ?? false,
+    githubCliAuthenticated: localRunner?.prerequisites.githubAuthenticated ?? false,
+    localRunnerPermitted: readLocalCiRunnerEnablement().effective,
+    trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
+    hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
+  });
+  const routingConfig = ciRoutingManager?.getConfig();
+  const routingNotice = ciRoutingManager?.getNotice();
+  const routingSnapshot = {
+    configPresent: routingConfig !== undefined,
+    configPath: CI_ROUTING_SSOT_PATH,
+    ...(routingNotice ? { notice: routingNotice } : {}),
+    problems: routingConfig ? validateCiRoutingConfig(routingConfig) : [],
+    decisions: routingConfig ? decideAllCiRoutes(routingConfig, routeAvailability, credit) : [],
+    creditSentence: describeCreditReading(credit),
+    creditState: credit.state,
+  };
+
   const ciSignals = [
     { label: 'Compile script', ok: packageSnapshot.keyScripts.includes('compile') },
     { label: 'Lint script', ok: packageSnapshot.keyScripts.includes('lint') },
@@ -11181,14 +11379,8 @@ async function collectDashboardSnapshot(
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
         enablement: readLocalCiRunnerEnablement(),
       },
-      routes: describeCiRouteAvailability({
-        hasLocalChecks: directLocalChecksAvailable,
-        dockerEngineAvailable: localRunner?.engine.available ?? false,
-        githubCliAuthenticated: localRunner?.prerequisites.githubAuthenticated ?? false,
-        localRunnerPermitted: readLocalCiRunnerEnablement().effective,
-        trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
-        hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
-      }),
+      routing: routingSnapshot,
+      routes: routeAvailability,
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
@@ -18910,6 +19102,35 @@ const DASHBOARD_CSS = `
   }
   .ci-runner-focus h3 { margin: 2px 0 0; }
   .ci-runner-focus .section-copy { margin: 5px 0 0; }
+
+  .ci-routing-credit {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+    font-size: 12.5px;
+    color: var(--dash-muted);
+  }
+  .ci-routing-credit > span:nth-child(2) { flex: 1 1 240px; min-width: 0; }
+  .ci-routing-table { display: grid; gap: 8px; }
+  .ci-routing-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-routing-row.blocked { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-routing-row > div:first-child { min-width: 0; }
+  .ci-routing-row p { margin: 3px 0 0; }
+  .ci-routing-verdict { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .ci-routing-verdict code { font-size: 11px; color: var(--dash-muted); }
 
   .ci-route-card { display: grid; gap: 10px; }
   .ci-route-card.blocked { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }

@@ -362,6 +362,23 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+Which route each kind of check *should* use is recorded in a committed file, `ci-routing.json`, with a
+markdown mirror beside it — a team decision arrives as a reviewed diff rather than a habit nobody wrote
+down. Every decision names the rule that made it and explains why the other candidates lost.
+
+One rule in that file is not the file's to change. **Code nobody has reviewed never falls back to a local
+route, whatever the budget says.** That filter runs before the hosted allowance is even consulted and
+applies to every fallback, so running out of minutes produces a refusal rather than moving somebody else's
+pull request onto your computer — otherwise "fall back to local when credit runs out" would be a mechanism
+by which running out of money routes hostile code onto a developer's machine. A file demanding otherwise is
+reported as an error and refused at routing time, and a property test walks the guarantee over hundreds of
+generated combinations.
+
+AtlasMind can read the Actions allowance so budget-aware rules act on a real number. When it cannot — an
+endpoint that needs a scope nobody granted, most often — it says *unknown* and keeps using the preferred
+route. An unreadable meter is not an empty one, and treating it as one would relocate work whenever
+GitHub's billing API had a bad afternoon.
+
 The Pipeline page also models **where** a check runs, rather than assuming. Three routes are implemented —
 run the project's checks here, lend this computer to one queued GitHub job, or let GitHub's own runners do
 it — and each states what a pass on it actually proves. That last part is the point: a Linux container is
@@ -556,7 +573,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

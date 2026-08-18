@@ -748,6 +748,19 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: ['test'] })).toBe(false);
   });
 
+  /**
+   * The routing file is committed and decides where work runs; the credit read
+   * spends a GitHub request. Neither accepts anything from the page — a payload
+   * on the first could name rules nobody reviewed, and on the second an
+   * arbitrary API path.
+   */
+  it('accepts no payload on the routing-file and allowance requests', () => {
+    expect(isProjectDashboardMessage({ type: 'createCiRoutingConfig' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'refreshCiCredit' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'createCiRoutingConfig', payload: { rules: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'refreshCiCredit', payload: 'orgs/evil/settings/billing/actions' })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);

@@ -45,6 +45,7 @@ export type SchemaDocumentKind =
   | 'personality-profile'
   | 'mcp-environment'
   | 'workflow'
+  | 'ci-routing'
   | 'research'
   | 'website';
 
@@ -67,6 +68,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'personality-profile': 1,
   'mcp-environment': 1,
   workflow: 1,
+  'ci-routing': 1,
   research: 1,
   website: 13,
 };

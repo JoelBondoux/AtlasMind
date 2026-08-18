@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.351.0] - 2026-08-18
+
+### Added
+
+- **Routing rules: where each kind of check runs, as a committed file.** `project_memory/operations/ci-routing.json`
+  records which route serves fast feedback, the full suite, packaging, security scans, the platform matrix and
+  unreviewed contributions — and what happens to each when the hosted allowance runs out. It is a file rather
+  than a setting so a change to how a team works arrives as a reviewed diff, and a markdown mirror publishes
+  the rule table beside it. It is **never seeded on render**: writing a statement about how somebody's team
+  works into their repository because they opened a tab would be putting words in their mouth.
+- **Every routing decision names the rule that made it, and says it twice** — once as a rule id for somebody
+  debugging, once as a plain sentence for somebody who only wants to know why their tests went where they
+  went. Rejected candidates are listed with the reason each lost, rather than silently dropped.
+- **A hosted-allowance meter with three honest states.** Read from GitHub's Actions billing endpoint on
+  request, never on render. A public repository is settled without a request at all, since it cannot consume
+  an allowance.
+
+### Security
+
+- **Budget pressure can never weaken the trust boundary.** A workload whose input has not been reviewed may
+  only reach a route that declares itself safe for untrusted code — and that filter runs *before* the credit
+  meter is consulted and applies to every fallback, so an exhausted allowance produces a refusal rather than
+  moving unreviewed code onto somebody's workstation. Without it, "fall back to local when credit runs out"
+  is a mechanism by which running out of money routes hostile code onto a developer's machine. The rule
+  holds against a hand-edited file: a rule demanding otherwise is reported as an error *and* refused at
+  routing time. A property test asserts it over 400 generated combinations of rule file, credit state and
+  machine configuration.
+- **An unreadable meter is never an empty one.** A billing endpoint returning 403 because a scope was never
+  granted looks, to careless code, exactly like zero minutes remaining. Every failure to read lands as
+  `unknown` with its reason, and an unknown meter uses the preferred route while saying so — falling back
+  would relocate work whenever GitHub's API had a bad afternoon. Only GitHub refusing a run, with a message
+  naming a billing reason from a declared phrase list, may report the allowance as spent. A paid overage
+  counts as headroom, because somebody has already decided to keep spending.
+- **The two new webview messages carry no payload.** A payload on the routing request could name rules
+  nobody reviewed; on the allowance request it could name an arbitrary API path.
+
+### Changed
+
+- **A route that cannot produce the required evidence is refused rather than preferred**, including as a
+  fallback. The platform matrix therefore stops when the allowance is gone instead of quietly substituting a
+  Linux container — the substitution the local-CI documentation already warns against.
+
 ## [0.350.0] - 2026-08-18
 
 ### Added

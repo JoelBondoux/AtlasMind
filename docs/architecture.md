@@ -559,6 +559,48 @@ rather than a plan, so a caller cannot reach runnable commands without that chec
 labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
 runbook, where the confirmation is built for them. Pure + unit-tested.
 
+### CiRoutingPolicy (`src/core/ciRoutingPolicy.ts`)
+
+Which route runs which kind of check — a committed file rather than a setting, so a change to how a team
+works arrives as a reviewed diff. Same shape as `workflowConfig`: JSON is the source of truth, a markdown
+mirror publishes the rule table beside it, unknown top-level fields survive a round trip, and it is
+**never seeded on render**, because writing a statement about somebody's team into their repository because
+they opened a tab would put words in their mouth.
+
+**Budget pressure never weakens the trust boundary**, and this is enforced structurally rather than by rule
+authoring. A workload whose `input` is `untrusted` may only reach a route declaring
+`safeForUntrustedCode: 'yes'`; the filter runs *before* the credit meter is consulted and applies to every
+fallback, so an exhausted allowance produces a refusal rather than a demotion onto a workstation. Without
+it, "fall back to local when credit runs out" is a mechanism by which running out of money routes hostile
+code onto a developer's machine. Because the file is hand-editable the invariant cannot live in the seed:
+`validateCiRoutingConfig` reports such a rule as an error *and* `decideCiRoute` refuses it, and a
+`fast-check` property asserts the guarantee over 400 generated combinations of rule file, credit state and
+machine configuration.
+
+Decision order is load-bearing — trust, then evidence via `routeSatisfiesEvidence`, then availability, then
+budget — so every later step can only narrow further. A rule may declare `onCreditExhausted: 'block'`,
+which is correct where nothing else produces the evidence: the platform matrix stops rather than
+substituting a container. Every decision names its rule twice, as an id and as a sentence, and lists each
+rejected candidate with the reason it lost. `CI_WORKLOAD_CLASSES` is deliberately six entries rather than
+one per testing methodology: the 32 methodologies answer "what should be tested", this answers "what kind
+of machine settles it", and most share an answer. `fs`-only + unit-tested.
+
+### CiCreditMeter (`src/core/ciCreditMeter.ts`)
+
+How much hosted allowance is left, and the honest answer when nobody knows. Three states, and the third is
+the point: a billing endpoint returning 403 because a scope was never granted looks, to naive code, exactly
+like zero minutes remaining — and the routing engine would then move every job onto a workstation on the
+strength of a permissions error. Every unreadable response, missing field or failed request becomes
+`unknown` **with its reason**, never `exhausted`.
+
+Only two things may report the allowance spent: a billing reading where used ≥ included with no paid
+overage, and GitHub refusing a run with a message matching a short declared phrase list — the local-CI
+documentation already warns against assuming budget is the cause of a refused run, so a generic failure is
+declined. A paid overage counts as headroom, since somebody has already decided to keep spending. A public
+repository is `remaining` with basis `not-metered`, settled without a request, because it cannot consume an
+allowance at all. Endpoints are constants with a single `{owner}` placeholder the caller fills from an
+already-validated slug. Pure + unit-tested; the caller performs the `gh` request.
+
 ### TrustedLocalCiStarter (`src/core/trustedLocalCiStarter.ts`)
 
 The write side of the trusted-runner contract, and the answer to a structural gap: every rule in

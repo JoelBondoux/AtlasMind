@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.350.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.351.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,20 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.350.0
+## What's new in 0.351.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Routing rules decide where each kind of check goes, and one rule is not yours to change.** A committed
+  `ci-routing.json` records which route serves fast feedback, the full suite, packaging, security scans, the
+  platform matrix and unreviewed contributions — and what each does when the hosted allowance runs out.
+  Every decision names the rule behind it and explains, in a sentence, why the others lost. **Unreviewed
+  code never falls back to a local route, whatever the budget says**: that filter runs before the meter is
+  consulted and applies to every fallback, so running out of hosted minutes produces a refusal rather than
+  moving somebody else's pull request onto your computer. AtlasMind can read your Actions allowance to make
+  budget-aware rules act on a real number — and when it cannot read it, it says so and keeps using the
+  preferred route, because a billing endpoint having a bad afternoon must not relocate your work.
 
 - **Pipeline now shows where a check can run, and lets you just run it here.** A **Where it runs** view
   lists every route — run here, lend this computer to GitHub, GitHub-hosted — with what each can do, what
@@ -1082,7 +1092,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model (`ciRoutes.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model and routing policy (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
