@@ -422,7 +422,9 @@ describe('Pipeline Studio progressive workflow', () => {
   });
 
   it('provides a persistent read-only graph for pointer and keyboard users', () => {
-    expect(WEBVIEW_SCRIPT).toContain('Read-only map. Dragging changes presentation only.');
+    // The canvas gained overlays but never gained the ability to edit a
+    // workflow — that promise is the reason dragging is safe.
+    expect(WEBVIEW_SCRIPT).toContain('Dragging changes presentation only. Nothing here edits a workflow.');
     expect(WEBVIEW_SCRIPT).toContain("node.addEventListener('pointerdown'");
     expect(WEBVIEW_SCRIPT).toContain('node.setPointerCapture(event.pointerId)');
     expect(WEBVIEW_SCRIPT).toContain('ArrowLeft: [-1, 0], ArrowRight: [1, 0]');
@@ -1336,5 +1338,63 @@ describe('Tests — three bands in triage order', () => {
   it('offers to work through the failures without running anything', () => {
     expect(tests).toContain('pipeline-tests-fix');
     expect(WEBVIEW_SCRIPT).toContain("type: 'workOnFailingTests'");
+  });
+});
+
+describe('Canvas — overlays on one graph', () => {
+  const canvas = pipelineSource('renderPipelineGraph', 'renderCanvasNodePanel');
+
+  /**
+   * GitLab deprecated its separate dependency-graph tab and Buildkite merged
+   * three sibling views into one Steps surface: a second picture of the same
+   * facts always loses to a toggle on the first.
+   */
+  it('adds overlays to the existing graph rather than new views', () => {
+    expect(canvas).toContain('ci-overlay-toggles');
+    for (const overlay of ["id: 'status'", "id: 'routing'", "id: 'delivery'"]) {
+      expect(canvas).toContain(overlay);
+    }
+    expect(WEBVIEW_SCRIPT).toContain("action === 'pipeline-overlay'");
+    // Independently switchable: somebody debugging a red build should not have
+    // routing badges in the way.
+    expect(WEBVIEW_SCRIPT).toContain('state.pipelineOverlays[payload] = !state.pipelineOverlays[payload]');
+  });
+
+  /**
+   * The canvas and Activity read the same runs. A second derivation would let
+   * one surface call a workflow red while the other calls it green.
+   */
+  it('paints status from the same runs Activity uses', () => {
+    expect(canvas).toContain('pipelineRunOutcome(run)');
+    expect(canvas).toContain('const latest = new Map()');
+  });
+
+  /** No runs read is not evidence that anything passed. */
+  it('says nothing is painted when no runs have been read', () => {
+    expect(canvas).toContain('not evidence that anything passed');
+  });
+
+  /**
+   * Routes are chosen per kind of check, not per workflow file. Badging each
+   * file with a route would invent a mapping the engine does not have.
+   */
+  it('refuses to invent a per-workflow routing mapping', () => {
+    expect(canvas).toContain('Routes are chosen per kind of check, not per workflow file');
+  });
+
+  /**
+   * Promotion has its own guarded surface. Showing the stages is a reading;
+   * moving the gate onto a canvas is a separate decision with its own review.
+   */
+  it('shows delivery stages read-only', () => {
+    expect(canvas).toContain('readOnly: true');
+    expect(canvas).toContain('promotion has its own guarded surface');
+  });
+
+  it('opens a workflow panel on click but never on a drag', () => {
+    expect(canvas).toContain('data-node-select');
+    expect(WEBVIEW_SCRIPT).toContain('drag.moved = true');
+    expect(WEBVIEW_SCRIPT).toContain('if (!wasDrag && node.dataset.nodeSelect !== undefined)');
+    expect(WEBVIEW_SCRIPT).toContain('keep opening panels nobody asked for');
   });
 });

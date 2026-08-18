@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.359.0] - 2026-08-19
+
+Phase D, completing the Pipeline redesign: the canvas becomes the CI/CD hub.
+
+### Added
+
+- **Three overlays on the one graph**, independently switchable rather than three sibling views — the
+  lesson GitLab learned deprecating its separate dependency-graph tab, and Buildkite learned merging three
+  build views into one.
+  - **Status** paints the latest outcome on each workflow node, read from the same runs Activity uses, so
+    the two surfaces can never disagree about whether a workflow is red. On by default.
+  - **Routing** states where each kind of check runs, as one summary rather than a per-file badge —
+    routes are chosen per workload, and badging each workflow file would invent a mapping the engine does
+    not have.
+  - **Delivery** appends the stages a commit travels through after the gate, so CI and CD are one picture
+    for the first time.
+- **A workflow panel on the canvas.** Click a workflow node for its last result, its file, and the
+  actions that applied to it — previously scattered across three tabs. Click distinguishes itself from
+  drag by movement, so tidying the graph never opens panels nobody asked for.
+
+### Changed
+
+- **The canvas still edits nothing.** Overlays add what is true on top of what is declared; dragging
+  remains presentation-only and no gesture here writes a workflow file.
+- **Delivery stages are read-only on the canvas.** Promotion already has a guarded surface, and moving
+  that gate onto a canvas is a separate decision that deserves its own safety review.
+
 ## [0.358.0] - 2026-08-19
 
 Phase C of the Pipeline redesign: the Tests view.

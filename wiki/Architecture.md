@@ -362,6 +362,12 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+The Pipeline page presents four views — Activity, Canvas, Tests, Rules — named for what a person is doing.
+The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
+same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels
+through after the gate. It edits nothing; the delivery stages are read-only because promotion has its own
+guarded surface.
+
 The Pipeline page is arranged for the person who finished setting it up, not the person starting: it opens
 on Builds once anything has run, the setup journey folds to one line when its durable steps are done,
 routing rules are editable from the page through a guided flow that obeys the same rules as the decision

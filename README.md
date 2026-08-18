@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.358.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.359.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.358.0
+## What's new in 0.359.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The canvas is now the CI/CD hub.** Three overlays on the one graph rather than three separate views:
+  **Status** paints the latest outcome on each workflow from the same runs Activity reads, **Routing** says
+  where each kind of check runs, and **Delivery** appends the stages a commit travels through after the
+  gate — so CI and CD are finally one picture. Click a workflow for its panel: last result, its file, and
+  every action that applies to it. Dragging still changes nothing but the layout.
 
 - **Tests answers three questions instead of one.** What is failing right now — with the file, the policy
   it belongs to, and a button to open it — then whether your declared testing policies are actually

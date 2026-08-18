@@ -19976,6 +19976,54 @@ const DASHBOARD_CSS = `
   .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
   .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
 
+  /* ── Canvas overlays ────────────────────────────────────────── */
+  .ci-overlay-toggles { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .ci-overlay-toggle {
+    font-family: inherit;
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 99px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+    color: var(--dash-muted);
+    cursor: pointer;
+  }
+  .ci-overlay-toggle:hover { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  .ci-overlay-toggle.on {
+    border-color: var(--dash-accent-strong);
+    color: var(--dash-heading);
+    background: color-mix(in srgb, var(--dash-accent-strong) 14%, var(--dash-panel));
+  }
+  .ci-overlay-note {
+    font-size: 12px;
+    color: var(--dash-muted);
+    padding: 8px 12px;
+    border-left: 2px solid var(--dash-accent-strong);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-accent-strong) 7%, transparent);
+    margin-bottom: 8px;
+  }
+
+  /* Status painted on the declared structure — a left edge rather than a fill,
+     so the node's own kind stays readable underneath. */
+  .ci-graph-node.outcome-pass { border-left: 3px solid var(--dash-good); }
+  .ci-graph-node.outcome-fail { border-left: 3px solid var(--dash-critical); }
+  .ci-graph-node.outcome-running { border-left: 3px solid var(--dash-accent-strong); }
+  .ci-graph-node.outcome-other { border-left: 3px solid var(--dash-warn); }
+  .ci-graph-node.selected { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+  .ci-graph-node[data-node-select] { cursor: pointer; }
+  .ci-graph-legend i.stage { background: var(--dash-accent); }
+
+  .ci-node-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid var(--dash-accent-strong);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, var(--dash-panel));
+  }
+
   /* ── Tests: three bands ─────────────────────────────────────── */
   .ci-tests-failing { border-left: 3px solid var(--dash-warn); }
   .ci-tests-list { display: grid; gap: 6px; }

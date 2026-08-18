@@ -322,6 +322,18 @@
      * persisting it would record a default as if it were a choice.
      */
     pipelineSectionDefault: null,
+    /**
+     * Canvas overlays. Status is on by default because "what happened" is the
+     * question people bring to a pipeline map; the other two are opt-in so a
+     * busy graph is not badged with things nobody asked about.
+     */
+    pipelineOverlays: {
+      status: persistedWebviewState.pipelineOverlays ? persistedWebviewState.pipelineOverlays.status !== false : true,
+      routing: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.routing),
+      delivery: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.delivery),
+    },
+    /** The workflow node whose panel is open, if any. Never persisted. */
+    pipelineNode: null,
     /** Visual layout only. Moving a node never edits a workflow file. */
     pipelineNodePositions: normalizedPipelineNodePositions(persistedWebviewState.pipelineNodePositions),
     /** '' = everyone; otherwise a git author name from the contributor chart. */
@@ -1227,6 +1239,20 @@
     }
     if (action === 'pipeline-create-routing') {
       vscode.postMessage({ type: 'createCiRoutingConfig' });
+      return;
+    }
+    if (action === 'pipeline-overlay') {
+      if (Object.prototype.hasOwnProperty.call(state.pipelineOverlays, payload)) {
+        state.pipelineOverlays[payload] = !state.pipelineOverlays[payload];
+        vscode.setState({ ...(vscode.getState() || {}), pipelineOverlays: state.pipelineOverlays });
+        refocusAfterRender = 'button[data-action="pipeline-overlay"][data-payload="' + cssEscape(payload) + '"]';
+        render();
+      }
+      return;
+    }
+    if (action === 'pipeline-node-clear') {
+      state.pipelineNode = null;
+      render();
       return;
     }
     if (action === 'pipeline-tests-fix') {
@@ -6781,27 +6807,84 @@
     </article>`;
   }
 
-  function renderPipelineGraph(workflows, requiredChecks) {
+  /**
+   * The canvas, with overlays instead of sibling views.
+   *
+   * The map was read-only and showed one thing: declared structure. Three
+   * overlays now paint what is *true* onto that structure — the latest outcome
+   * per workflow, where each one is routed, and the delivery stages the same
+   * commit travels through afterwards. GitLab deprecated its separate
+   * dependency-graph tab for this reason and Buildkite merged three sibling
+   * views into one: a second picture of the same facts always loses to a toggle
+   * on the first.
+   *
+   * Overlays are additive and independently switchable, because they answer
+   * different questions and somebody debugging a red build does not want the
+   * routing badges in the way.
+   */
+  function renderPipelineGraph(workflows, requiredChecks, context) {
+    const overlays = state.pipelineOverlays || {};
+    const runs = (context && context.runs) || [];
+    const routing = (context && context.routing) || {};
+    const stages = (context && context.stages) || [];
+
     const help = renderInfoHelp('pipeline.graph', {
-      label: 'the workflow map',
-      why: 'A dependency map makes fan-out, gates and duplicate work visible faster than reading YAML. This canvas is a view, not an editor: dragging changes the layout on this computer and nothing else.',
+      label: 'the canvas and its overlays',
+      why: 'A dependency map makes fan-out, gates and duplicate work visible faster than reading YAML. The overlays add what is true right now on top of what is declared: the last outcome per workflow, where each is routed, and the stages a commit travels through after the checks pass. Dragging changes the layout on this computer and nothing else — this canvas never edits a workflow.',
       how: [
         { text: 'Follow arrows from triggers, through the workflow and its jobs, to the declared merge gate.' },
-        { text: 'Drag nodes to untangle a busy graph, or focus one and use the arrow keys. Hold Shift for larger keyboard steps.' },
-        { text: 'Open the workflow file when you actually want to change execution.' },
+        { text: 'Turn on Status to paint the last result on each workflow, Routing to see where each one runs, Delivery to see what happens after the gate.' },
+        { text: 'Click a workflow to open its panel: recent runs, its file, and the actions that apply to it.' },
+        { text: 'Drag nodes to untangle a busy graph, or focus one and use the arrow keys. Hold Shift for larger steps.' },
       ],
     });
+
+    const toggles = `<div class="ci-overlay-toggles" role="group" aria-label="Canvas overlays">
+      ${[
+        { id: 'status', label: 'Status', hint: 'Paint the latest outcome on each workflow' },
+        { id: 'routing', label: 'Routing', hint: 'Badge each workflow with where it runs' },
+        { id: 'delivery', label: 'Delivery', hint: 'Show the stages a commit travels through after the gate' },
+      ].map(overlay => `<button type="button" class="ci-overlay-toggle ${overlays[overlay.id] ? 'on' : ''}"
+        data-action="pipeline-overlay" data-payload="${escapeAttr(overlay.id)}"
+        aria-pressed="${overlays[overlay.id] ? 'true' : 'false'}" title="${escapeAttr(overlay.hint)}">${escapeHtml(overlay.label)}</button>`).join('')}
+    </div>`;
+
     if (!workflows.length) {
-      return `<article class="panel-card ci-graph-card"><div class="ci-section-heading"><div><p class="card-kicker">Workflow canvas</p><h3>No workflow to map yet</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Create or review a CI workflow first; AtlasMind will draw its observed triggers and jobs here.</p></article>`;
+      return `<article class="panel-card ci-graph-card"><div class="ci-section-heading"><div><p class="card-kicker">Canvas</p><h3>No workflow to map yet</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Create or review a CI workflow first; AtlasMind will draw its observed triggers and jobs here.</p></article>`;
     }
+
+    // The latest outcome per workflow name, from the runs already fetched. Not
+    // recomputed from a second source: the canvas and Activity must never
+    // disagree about whether a workflow is red.
+    const latest = new Map();
+    for (const run of runs) {
+      const name = run.workflowName || run.displayTitle || '';
+      if (!name) { continue; }
+      const seen = latest.get(name);
+      if (!seen || String(run.createdAt || '') > String(seen.createdAt || '')) {
+        latest.set(name, run);
+      }
+    }
+    const routeFor = new Map();
+    for (const decision of routing.decisions || []) {
+      if (decision.outcome === 'routed' && decision.routeLabel) {
+        routeFor.set(decision.workload, decision.routeLabel);
+      }
+    }
+    // One routing badge for the whole canvas: routes are chosen per kind of
+    // check, not per workflow file, and pretending otherwise would invent a
+    // mapping the engine does not have.
+    const routingSummary = [...routeFor.entries()].map(([workload, label]) => `${workload} → ${label}`);
+
     const nodes = [];
     const edges = [];
     let cursorY = 24;
     const saved = state.pipelineNodePositions || {};
-    const addNode = (key, kind, title, detail, x, y) => {
+    const addNode = (key, kind, title, detail, x, y, extra) => {
       const position = saved[key] || { x, y };
-      nodes.push({ key, kind, title, detail, x: position.x, y: position.y });
+      nodes.push({ key, kind, title, detail, x: position.x, y: position.y, ...(extra || {}) });
     };
+
     workflows.slice(0, 12).forEach((workflow, workflowIndex) => {
       const jobs = (workflow.jobs || []).slice(0, 20);
       const rowHeight = Math.max(132, jobs.length * 82);
@@ -6809,8 +6892,14 @@
       const workflowKey = `workflow-${workflowIndex}`;
       const gateKey = `gate-${workflowIndex}`;
       const triggerLabel = (workflow.triggers || []).map(trigger => trigger.event).join(' · ') || 'No trigger read';
+      const run = latest.get(workflow.name);
+      const outcome = overlays.status && run ? pipelineRunOutcome(run) : undefined;
       addNode(triggerKey, 'trigger', 'Trigger', triggerLabel, 22, cursorY + Math.max(0, rowHeight / 2 - 38));
-      addNode(workflowKey, 'workflow', workflow.name || workflow.path, workflow.role || 'automation', 224, cursorY + Math.max(0, rowHeight / 2 - 38));
+      addNode(workflowKey, 'workflow', workflow.name || workflow.path, workflow.role || 'automation', 224, cursorY + Math.max(0, rowHeight / 2 - 38), {
+        outcome,
+        workflowId: workflow.id,
+        selectable: true,
+      });
       addNode(gateKey, 'gate', 'Merge gate', requiredChecks.length ? requiredChecks.join(', ') : 'Not bound in AtlasMind', 690, cursorY + Math.max(0, rowHeight / 2 - 38));
       edges.push([triggerKey, workflowKey]);
       if (jobs.length === 0) {
@@ -6826,18 +6915,85 @@
       }
       cursorY += rowHeight + 34;
     });
+
+    // Delivery: what the same commit travels through once the gate is green.
+    // Read-only here — promotion has its own guarded surface, and moving that
+    // gate onto a canvas is a separate decision with its own safety review.
+    let deliveryWidth = 0;
+    if (overlays.delivery && stages.length) {
+      const ordered = [...stages].sort((left, right) => (left.rank || 0) - (right.rank || 0));
+      ordered.slice(0, 6).forEach((stage, index) => {
+        const key = `stage-${stage.id || index}`;
+        addNode(key, 'stage', stage.name || `Stage ${index + 1}`, stage.branchRef || 'no branch declared', 920 + index * 190, 40, { readOnly: true });
+        if (index > 0) {
+          edges.push([`stage-${ordered[index - 1].id || index - 1}`, key]);
+        }
+      });
+      if (ordered.length) {
+        edges.push(['gate-0', `stage-${ordered[0].id || 0}`]);
+      }
+      deliveryWidth = 190 * Math.min(ordered.length, 6) + 60;
+    }
+
     const height = Math.max(250, cursorY + 20);
+    const width = 900 + deliveryWidth;
+    const selected = nodes.find(node => node.key === state.pipelineNode);
+
     return `<article class="panel-card ci-graph-card">
-      <div class="ci-section-heading"><div><p class="card-kicker">Workflow canvas</p><h3>Triggers → jobs → enforcement</h3><p class="stat-detail">Read-only map. Dragging changes presentation only.</p></div><div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-graph-reset">Reset layout</button></div></div>
+      <div class="ci-section-heading">
+        <div><p class="card-kicker">Canvas</p><h3>Triggers → jobs → enforcement${overlays.delivery ? ' → delivery' : ''}</h3><p class="stat-detail">Dragging changes presentation only. Nothing here edits a workflow.</p></div>
+        <div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-graph-reset">Reset layout</button></div>
+      </div>
       ${help.panel}
+      ${toggles}
+      ${overlays.routing ? `<div class="ci-overlay-note"><strong>Routing</strong> — ${routingSummary.length
+        ? escapeHtml(routingSummary.join(' · '))
+        : 'no routing rules are declared yet, so AtlasMind has no recommendation to show.'} <span class="stat-detail">Routes are chosen per kind of check, not per workflow file.</span></div>` : ''}
+      ${overlays.status && !runs.length ? '<div class="ci-overlay-note"><strong>Status</strong> — no runs have been read, so nothing is painted. That is not evidence that anything passed.</div>' : ''}
       <div class="ci-graph-scroll" data-scroll-key="pipeline-graph">
-        <div class="ci-graph-canvas" style="height:${height}px; min-width:900px" aria-label="Interactive read-only CI workflow graph">
+        <div class="ci-graph-canvas" style="height:${height}px; min-width:${width}px" aria-label="Interactive CI workflow graph">
           <svg class="ci-graph-edges" width="100%" height="100%" aria-hidden="true">${edges.map(edge => `<path data-edge-from="${edge[0]}" data-edge-to="${edge[1]}"></path>`).join('')}</svg>
-          ${nodes.map(node => `<button type="button" class="ci-graph-node node-${node.kind}" data-node-key="${node.key}" style="left:${node.x}px;top:${node.y}px" aria-label="${escapeAttr(`${node.title}. ${node.detail}. Drag to rearrange; arrow keys also move this node.`)}"><span>${escapeHtml(node.title)}</span><small>${escapeHtml(node.detail)}</small></button>`).join('')}
+          ${nodes.map(node => `<button type="button" class="ci-graph-node node-${node.kind}${node.outcome ? ` outcome-${node.outcome}` : ''}${state.pipelineNode === node.key ? ' selected' : ''}"
+            data-node-key="${node.key}"${node.selectable ? ` data-node-select="${escapeAttr(node.workflowId || '')}"` : ''}
+            style="left:${node.x}px;top:${node.y}px"
+            aria-label="${escapeAttr(`${node.title}. ${node.detail}.${node.outcome ? ` Last run ${node.outcome}.` : ''} Drag to rearrange; arrow keys also move this node.`)}"><span>${escapeHtml(node.title)}</span><small>${escapeHtml(node.detail)}</small></button>`).join('')}
         </div>
       </div>
-      <div class="ci-graph-legend"><span><i class="trigger"></i>Event</span><span><i class="workflow"></i>Workflow</span><span><i class="job"></i>Job</span><span><i class="gate"></i>Enforcement</span></div>
+      <div class="ci-graph-legend"><span><i class="trigger"></i>Event</span><span><i class="workflow"></i>Workflow</span><span><i class="job"></i>Job</span><span><i class="gate"></i>Enforcement</span>${overlays.delivery ? '<span><i class="stage"></i>Delivery stage</span>' : ''}</div>
+      ${selected ? renderCanvasNodePanel(selected, latest.get(selected.title), context) : ''}
     </article>`;
+  }
+
+  /**
+   * The panel for a selected workflow node.
+   *
+   * Everything that applies to one workflow, in one place: its last result, its
+   * file, and the actions that were previously scattered across three tabs.
+   */
+  function renderCanvasNodePanel(node, run, context) {
+    const workflows = (context && context.workflows) || [];
+    const workflow = workflows.find(entry => entry.id === node.workflowId);
+    if (!workflow) {
+      return '';
+    }
+    const outcome = run ? pipelineRunOutcome(run) : undefined;
+    return `<section class="ci-node-panel" aria-label="${escapeAttr(`${workflow.name} detail`)}">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Selected workflow</p>
+          <h3>${escapeHtml(workflow.name)}</h3>
+          <p class="stat-detail"><code>${escapeHtml(workflow.path)}</code> · ${escapeHtml(workflow.role || 'automation')} · ${escapeHtml(String((workflow.jobs || []).length))} job${(workflow.jobs || []).length === 1 ? '' : 's'}</p>
+        </div>
+        ${outcome ? `<span class="tag ${outcome === 'pass' ? 'tag-good' : outcome === 'fail' ? 'tag-warn' : ''}">last run ${escapeHtml(outcome)}</span>` : '<span class="tag">no run read</span>'}
+      </div>
+      ${(workflow.cautions || []).length ? `<ul class="ci-caution-list">${workflow.cautions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      <div class="tag-row">
+        <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open file</button>
+        <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}">Run locally with act…</button>
+        ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
+        <button type="button" class="action-link" data-action="pipeline-node-clear">Close</button>
+      </div>
+    </section>`;
   }
 
   function renderPipelineTestEngine(testing) {
@@ -7751,7 +7907,12 @@
     const sectionContent = {
       setup: overviewContent,
       activity: renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp }),
-      canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}${renderPipelinePackages(delivery)}</div>`,
+      canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks, {
+        runs,
+        workflows,
+        routing: delivery.routing || {},
+        stages: (delivery.stages && delivery.stages.stages) || [],
+      })}${managerCard}${renderPipelinePackages(delivery)}</div>`,
       tests: renderPipelineTests(snapshot.testing || {}),
       rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard),
     }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
@@ -11878,21 +12039,31 @@
       let drag = null;
       node.addEventListener('pointerdown', event => {
         if (event.button !== 0) { return; }
-        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: node.offsetLeft, top: node.offsetTop };
+        // `moved` distinguishes a click from a drag. Without it, selecting a
+        // node would fire at the end of every rearrangement, so tidying the
+        // graph would keep opening panels nobody asked for.
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: node.offsetLeft, top: node.offsetTop, moved: false };
         node.setPointerCapture(event.pointerId);
         node.classList.add('is-dragging');
         event.preventDefault();
       });
       node.addEventListener('pointermove', event => {
         if (!drag || drag.id !== event.pointerId) { return; }
+        if (Math.abs(event.clientX - drag.x) > 3 || Math.abs(event.clientY - drag.y) > 3) { drag.moved = true; }
         moveNode(node, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
       });
       const finish = event => {
         if (!drag || drag.id !== event.pointerId) { return; }
+        const wasDrag = drag.moved;
         drag = null;
         node.classList.remove('is-dragging');
         if (node.hasPointerCapture(event.pointerId)) { node.releasePointerCapture(event.pointerId); }
         persistPipelineGraphPositions();
+        if (!wasDrag && node.dataset.nodeSelect !== undefined) {
+          const key = node.dataset.nodeKey || '';
+          state.pipelineNode = state.pipelineNode === key ? null : key;
+          render();
+        }
       };
       node.addEventListener('pointerup', finish);
       node.addEventListener('pointercancel', finish);

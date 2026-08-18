@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.359.0 — The canvas does more
+
+The last phase of the Pipeline rebuild, and the one aimed squarely at “I like the workflow canvas, I wish
+we could do more with it.”
+
+It now carries three overlays, switchable independently, all on the same graph rather than as separate
+views. **Status** paints the last result onto each workflow — read from the same runs Activity shows, so
+the two can never disagree about whether something is red. **Routing** says where each kind of check runs.
+**Delivery** adds the stages a commit travels through after the gate, which means CI and CD are one
+picture for the first time instead of two pages.
+
+Click a workflow and you get its panel: the last result, the file, and the actions that apply to it —
+things that used to be spread across three tabs. Clicking is told apart from dragging by whether the
+pointer moved, so tidying the graph never pops open a panel you did not ask for.
+
+Two things deliberately unchanged. The canvas still edits nothing — overlays add what is *true* on top of
+what is *declared*, and no gesture here writes a workflow file. And the delivery stages are read-only:
+promotion already has a guarded surface, and moving that gate onto a canvas is a separate decision that
+deserves its own review rather than arriving as a side effect of a redesign.
+
+That completes the four views — Activity, Canvas, Tests, Rules — replacing the eight tabs.
+
 ## v0.358.0 — Tests, and the ones you have not written
 
 Phase C. The Tests view now answers three separate questions in the order you would actually ask them.
