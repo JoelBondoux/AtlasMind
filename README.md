@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.355.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.356.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.355.0
+## What's new in 0.356.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Pipeline page is being rebuilt around four views.** Phase A lands the shell and the landing view:
+  **Activity** (watch), **Canvas** (understand), **Tests** (verify), **Rules** (decide) — named by what you
+  are doing, not by which subsystem produced the data. Activity opens the page and leads with what needs
+  you: the classified failure with its evidence and a one-click handoff to Atlas, then a run ribbon per
+  pipeline where bar height is elapsed time and colour is the outcome, then everything that ran. Setup is
+  no longer a tab; it takes over only while genuinely unfinished, then retreats to a chip. The Analytics
+  and Builds tabs are gone — the ribbon replaced the donut, the waterfall and the pills.
 
 - **The Pipeline page answers its own five hardest questions.** Onboarding stops being the landing page
   once anything has run — the page opens on Builds, and the setup journey collapses to one line with the

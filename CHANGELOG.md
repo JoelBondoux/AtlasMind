@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.356.0] - 2026-08-19
+
+Phase A of the Pipeline redesign. The page was an org chart of when features shipped — eight tabs, four
+of them setup surfaces, two of them unreachable until v0.355. This replaces the shell and the landing
+view; Rules, Tests and Canvas are rebuilt in the phases that follow.
+
+### Added
+
+- **Four views, named by what a person is doing:** **Activity** (watch), **Canvas** (understand),
+  **Tests** (verify), **Rules** (decide). A header strip carries a setup chip and the hosted-allowance
+  chip, so state that used to occupy whole tabs now occupies two words each.
+- **Activity is the new default view**, and leads with what needs a person: the classified failure with
+  its evidence and an ask-Atlas action, then recent history, then everything that ran, then trends.
+- **A run ribbon per pipeline** — bar height is elapsed time including queue wait, colour is the
+  outcome, so "healthy but getting slower" reads without a click. Beside it, three figures that each
+  name their window on hover: reliability, typical time, runs per week.
+- **Flakiness with a rule you can check:** a workflow that passed and failed on the same commit, listed
+  with the commit count, and the rule printed beside the list.
+
+### Changed
+
+- **Setup is no longer a tab.** It takes the page over while genuinely unfinished and hands it straight
+  back once done, reachable afterwards only from the header chip. Completeness is judged once, by one
+  function shared with the chip, on durable facts — the trusted workflow, this machine, and evidence
+  that anything has run.
+- **A tab id persisted by the old layout is remapped, not dropped**, so nobody lands on a view that no
+  longer exists.
+
+### Removed
+
+- **The Analytics tab.** Its donut, waterfall and metric pills are replaced by the ribbon; its one
+  durable contract — never show a measurement without its window and caveat — moved into Activity.
+- **The Builds tab**, folded into Activity along with the failure card added in v0.355.
+- **The capability grid and the collapsed results block** on the setup view: a second navigation system
+  competing with the tabs, fronting run history that now leads Activity.
+- **`renderPipelineBuilds`, `renderPipelineAnalytics`, `renderBuildFailureCard` and `describeCiBuildLine`**
+  are deleted rather than left dead — keeping them would be the accretion this redesign removes.
+
 ## [0.355.0] - 2026-08-18
 
 ### Fixed

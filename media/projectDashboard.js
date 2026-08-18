@@ -16,7 +16,14 @@
     ...(vscode.getState() || {}),
     ...hostBranchPreferences,
   };
-  const PIPELINE_SECTIONS = ['overview', 'builds', 'routes', 'workflow', 'runner', 'tests', 'analytics', 'packages'];
+  // Four views, plus `setup` — addressable so the header chip can reach the
+  // onboarding journey, but never a tab competing with the operational views.
+  const PIPELINE_SECTIONS = ['activity', 'canvas', 'tests', 'rules', 'setup'];
+  /** Sections the old eight-tab layout used, remapped so a persisted choice still lands somewhere real. */
+  const PIPELINE_SECTION_ALIASES = {
+    overview: 'setup', builds: 'activity', analytics: 'activity',
+    routes: 'rules', runner: 'rules', workflow: 'canvas', packages: 'canvas',
+  };
 
   function normalizedPipelineNodePositions(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return {}; }
@@ -1169,7 +1176,8 @@
       return;
     }
     if (action === 'pipeline-section') {
-      state.pipelineSection = PIPELINE_SECTIONS.includes(payload) ? payload : 'overview';
+      const requested = PIPELINE_SECTION_ALIASES[payload] || payload;
+      state.pipelineSection = PIPELINE_SECTIONS.includes(requested) ? requested : 'activity';
       vscode.setState({
         ...(vscode.getState() || {}),
         pipelineSection: state.pipelineSection,
@@ -6159,36 +6167,93 @@
       </div>`;
   }
 
-  function renderPipelineTabs(snapshot, runs, activeSection) {
+  /**
+   * Four views and a header strip.
+   *
+   * Named by what a person is doing — watch, understand, verify, decide —
+   * rather than by which subsystem produced the data. The eight tabs this
+   * replaces were an org chart of when features shipped, and four of them were
+   * setup surfaces competing with the operational ones for the same row.
+   *
+   * Setup is not a tab. It takes the page over on a fresh project and then
+   * retreats to the chip on the right of this strip, which is the only thing
+   * that brings it back.
+   */
+  function renderPipelineTabs(snapshot, runs, activeSection, setup) {
     const delivery = snapshot.delivery || {};
+    const builds = delivery.builds || {};
+    const records = builds.records || [];
+    const routing = delivery.routing || {};
     const testing = snapshot.testing || {};
-    const runner = delivery.localRunner || {};
-    const supply = delivery.supplyChain || {};
+    const failing = (testing.policyCoverage && testing.policyCoverage.report && testing.policyCoverage.report.failures) || 0;
+    const running = records.filter(build => build.status === 'running').length;
+
     const tabs = [
-      { id: 'overview', label: 'Start here', meta: 'guided' },
-      { id: 'builds', label: 'Builds', meta: (() => {
-        const builds = (delivery.builds && delivery.builds.records) || [];
-        if (!builds.length) { return delivery.builds && delivery.builds.githubLoaded ? 'none yet' : 'not loaded'; }
-        const running = builds.filter(build => build.status === 'running').length;
-        return running ? `${running} running` : `${builds.length} recent`;
-      })() },
-      { id: 'routes', label: 'Where it runs', meta: (() => {
-        const routes = delivery.routes || [];
-        const usable = routes.filter(entry => entry.status === 'available').length;
-        return routes.length ? `${usable} of ${routes.length} usable` : 'not assessed';
-      })() },
-      { id: 'workflow', label: 'Workflow map', meta: `${(delivery.workflows || []).length} file${(delivery.workflows || []).length === 1 ? '' : 's'}` },
-      { id: 'runner', label: 'Runner', meta: runner.lifecycle || 'not inspected' },
-      { id: 'tests', label: 'Tests', meta: testing.policyCoverage && testing.policyCoverage.report ? `${testing.policyCoverage.report.tests} results` : `${testing.totalCases || 0} found` },
-      { id: 'analytics', label: 'Analytics', meta: `${runs.length} run${runs.length === 1 ? '' : 's'}` },
-      { id: 'packages', label: 'Packages & repo', meta: `${(supply.formats || []).length} ecosystem${(supply.formats || []).length === 1 ? '' : 's'}` },
+      {
+        id: 'activity',
+        label: 'Activity',
+        meta: running ? `${running} running` : records.length ? `${records.length} recent` : runs.length ? `${runs.length} runs` : 'nothing yet',
+        tone: running ? 'warn' : '',
+      },
+      { id: 'canvas', label: 'Canvas', meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}` },
+      {
+        id: 'tests',
+        label: 'Tests',
+        meta: failing ? `${failing} failing` : testing.policyCoverage && testing.policyCoverage.report ? 'passing' : 'no report',
+        tone: failing ? 'bad' : '',
+      },
+      {
+        id: 'rules',
+        label: 'Rules',
+        meta: routing.configPresent ? `${(routing.decisions || []).length} decided` : 'not set',
+      },
     ];
-    return `<div class="ci-studio-tabs" role="tablist" aria-label="Pipeline Studio views">
-      ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${tab.id}"
-        aria-selected="${activeSection === tab.id ? 'true' : 'false'}" class="${activeSection === tab.id ? 'active' : ''}">
-        <span>${escapeHtml(tab.label)}</span><small>${escapeHtml(tab.meta)}</small>
-      </button>`).join('')}
+
+    const creditTone = routing.creditState === 'exhausted' ? 'bad' : routing.creditState === 'remaining' ? 'good' : '';
+    const creditLabel = routing.creditState === 'exhausted' ? 'allowance spent'
+      : routing.creditState === 'remaining' ? 'allowance ok'
+        : 'allowance not read';
+
+    return `<div class="ci-studio-bar">
+      <div class="ci-studio-tabs" role="tablist" aria-label="Pipeline views">
+        ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${escapeAttr(tab.id)}"
+          aria-selected="${activeSection === tab.id ? 'true' : 'false'}" class="${activeSection === tab.id ? 'active' : ''}">
+          <span>${escapeHtml(tab.label)}</span><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
+        </button>`).join('')}
+      </div>
+      <div class="ci-studio-status">
+        <button type="button" class="ci-status-chip ${setup.complete ? 'good' : 'warn'}" data-action="pipeline-section" data-payload="setup"
+          title="${escapeAttr(setup.complete ? 'Local CI setup is complete. Open the checklist.' : `${setup.done} of ${setup.total} setup steps done`)}">
+          ${escapeHtml(setup.complete ? 'setup ✓' : `setup ${setup.done}/${setup.total}`)}
+        </button>
+        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || 'The hosted allowance has not been checked.')}">${escapeHtml(creditLabel)}</span>
+      </div>
     </div>`;
+  }
+
+  /**
+   * Whether local CI setup is done, answered once for the whole page.
+   *
+   * The journey card and the header chip must never disagree about this, and
+   * the only way to guarantee that is one function. Judged on the durable
+   * steps — the trusted workflow and this machine — plus evidence that
+   * something has run, because queueing and lending are per-run steps that
+   * reset with every commit.
+   */
+  function pipelineSetupState(runner, buildRecords, runs) {
+    const workflowReady = Boolean(runner && runner.workflowReview && runner.workflowReview.state === 'ok');
+    const machineReady = Boolean(runner && runner.enabled)
+      && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner && runner.lifecycle);
+    const hasRun = (buildRecords || []).length > 0 || (runs || []).length > 0;
+    const done = [workflowReady, machineReady, hasRun].filter(Boolean).length;
+    return {
+      workflowReady,
+      machineReady,
+      hasRun,
+      done,
+      total: 3,
+      complete: workflowReady && machineReady && hasRun,
+    };
   }
 
   function renderPipelineJourney(assessment, intel, runner, workflows, buildRecords) {
@@ -6226,7 +6291,7 @@
               // view. Re-running the check from here would return the same
               // answer with nowhere to read it.
               : 'pipeline-section',
-        payload: runner.workflowReview && runner.workflowReview.state === 'blocked' ? 'runner' : '',
+        payload: runner.workflowReview && runner.workflowReview.state === 'blocked' ? 'rules' : '',
         actionLabel: runner.workflowReview
           ? (runner.workflowReview.state === 'missing' ? 'Write the trusted workflow…'
             : runner.workflowReview.state === 'ok' ? 'Check it again' : 'See what must change')
@@ -6240,7 +6305,7 @@
             : 'Permission is On. Check Docker, GitHub sign-in, CPU, memory and GPU.',
         done: permissionOn && runnable,
         action: 'pipeline-section',
-        payload: 'runner',
+        payload: 'rules',
         actionLabel: permissionOn && inspected ? 'Review machine setup' : 'Set up this computer',
       },
       {
@@ -6249,7 +6314,7 @@
           : 'Push the trusted branch or manually queue the trusted workflow. This step does not lend GitHub your computer yet.',
         done: Boolean(runner.queuedRun),
         action: 'pipeline-section',
-        payload: 'runner',
+        payload: 'rules',
         actionLabel: runner.queuedRun ? 'Review queued job' : 'See the queue command',
       },
       {
@@ -6261,7 +6326,7 @@
               : 'Finish the machine setup before starting.',
         done: runner.lifecycle === 'finished',
         action: runnable ? 'pipeline-runner-start' : 'pipeline-section',
-        payload: runnable ? '' : 'runner',
+        payload: runnable ? '' : 'rules',
         actionLabel: runner.lifecycle === 'finished' ? 'Run another trusted job…'
           : runnable ? 'Check queue → review plan' : 'Resolve setup steps',
         disabled: runnable ? (runner.blockers || []).length > 0 || ['starting', 'waiting', 'running'].includes(runner.lifecycle) : false,
@@ -6300,7 +6365,7 @@
             ${steps.map(step => `<div class="ci-journey-list-row${step.done ? ' done' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : '·'}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : ''}">${step.done ? 'Done' : 'Per-run'}</span></div>`).join('')}
           </div>
           <p class="stat-detail">Queueing and lending are per-run steps — they reset with every commit and do not mean setup regressed.</p>
-          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="builds">Open Builds</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="routes">Where it runs</button></div>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Rules</button></div>
         </details>
       </article>`;
     }
@@ -6372,14 +6437,6 @@
    * because a decision citing the allowance without saying whether the
    * allowance was actually read is the failure the meter exists to prevent.
    */
-  const CI_BUILD_STATUS_MARK = {
-    running: '●',
-    passed: '✓',
-    failed: '✕',
-    cancelled: '–',
-    unknown: '?',
-  };
-
   /**
    * Every build, whatever ran it, newest first.
    *
@@ -6392,117 +6449,6 @@
    * does not read it, so a verdict there would be invented — on the surface
    * people check before shipping.
    */
-  function renderPipelineBuilds(builds, intel) {
-    const records = builds.records || [];
-    const help = renderInfoHelp('pipeline.builds', {
-      label: 'the build list',
-      why: 'One list across every route, so "what has this project run lately" has an answer. How closely each build was watched is part of the record: a run AtlasMind only started, and one whose output it read, are different kinds of evidence.',
-      how: [
-        { text: 'A tick or a cross means AtlasMind actually saw the result.' },
-        { text: 'A question mark means it started the run and cannot see how it ended — check the terminal.' },
-        { text: 'Hosted builds are checked at intervals, so a running one may be a few seconds behind.' },
-      ],
-    });
-    const notices = [];
-    if (!builds.githubLoaded) {
-      notices.push('<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. Refresh CI to include GitHub’s runs — an empty list here is not evidence that nothing ran there.</p><div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Load hosted history</button></div></div>');
-    }
-    if (builds.unobservedCount) {
-      notices.push(`<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} build${builds.unobservedCount === 1 ? '' : 's'} here ${builds.unobservedCount === 1 ? 'was' : 'were'} started in your terminal, which AtlasMind does not read. ${builds.unobservedCount === 1 ? 'It has' : 'They have'} no verdict by design.</p>`);
-    }
-    if (builds.hasRunning) {
-      notices.push(`<p class="stat-detail">${escapeHtml(builds.pollNote || '')}</p>`);
-    }
-
-    const rows = records.map(build => {
-      const mark = CI_BUILD_STATUS_MARK[build.status] || '?';
-      const started = build.startedAt ? new Date(build.startedAt) : undefined;
-      const when = started && !Number.isNaN(started.getTime()) ? started.toLocaleString() : 'time unknown';
-      const duration = build.endedAt && build.startedAt
-        ? Math.max(0, Math.round((new Date(build.endedAt).getTime() - new Date(build.startedAt).getTime()) / 1000))
-        : undefined;
-      return `<div class="ci-build-row status-${escapeAttr(build.status)}">
-        <span class="ci-build-mark" aria-hidden="true">${escapeHtml(mark)}</span>
-        <div class="ci-build-main">
-          <strong>${escapeHtml(build.title || 'Build')}</strong>
-          <p class="stat-detail">${escapeHtml(describeCiBuildLine(build))}</p>
-          <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')} · ${escapeHtml(when)}${duration === undefined ? '' : ` · ${duration}s`}${build.commitSha ? ` · ${escapeHtml(String(build.commitSha).slice(0, 12))}` : ''}</div>
-        </div>
-        <div class="ci-build-side">
-          <span class="tag ${build.status === 'passed' ? 'tag-good' : build.status === 'failed' ? 'tag-warn' : ''}">${escapeHtml(build.status)}</span>
-          <small>${escapeHtml(build.observation)}</small>
-          ${build.pointer && build.pointer.kind === 'output-channel' ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Open output</button>' : ''}
-        </div>
-      </div>`;
-    }).join('');
-
-    return `<div class="ci-studio-stack">
-      <article class="panel-card">
-        <div class="ci-section-heading">
-          <div>
-            <p class="card-kicker">Builds</p>
-            <h3>${records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'No builds recorded yet'}</h3>
-            <p class="section-copy">Every route in one list, newest first. How closely each was watched is part of the record.</p>
-          </div>${help.button}
-        </div>
-        ${help.panel}
-        ${notices.join('')}
-        ${records.length ? `<div class="ci-build-list">${rows}</div>` : '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. Start with <strong>Where it runs</strong>.</p>'}
-      </article>
-      ${renderBuildFailureCard(intel)}
-    </div>`;
-  }
-
-  /**
-   * The latest classified failure, rendered where somebody watching builds is
-   * actually looking. It existed only inside a collapsed disclosure on the
-   * setup tab, which is the last place anybody goes once a build has failed.
-   *
-   * "What to do about it" is the point: the classification names the kind of
-   * failure, the evidence lines show the deciding output, and the button hands
-   * the whole report to a chat session with the log fenced as untrusted
-   * content — the host builds that prompt; this button carries nothing.
-   */
-  function renderBuildFailureCard(intel) {
-    if (!intel) {
-      return '';
-    }
-    const report = intel.report;
-    if (!report && !intel.logFailure) {
-      return '';
-    }
-    return `<article class="panel-card ci-build-failure">
-      <div class="ci-section-heading">
-        <div>
-          <p class="card-kicker">Latest failure · what to do about it</p>
-          <h3>${escapeHtml(report ? report.classification : 'A run failed')}</h3>
-        </div>
-        ${report ? `<span class="tag tag-warn">run ${escapeHtml(String(report.runId || ''))}</span>` : ''}
-      </div>
-      ${report ? renderCiFailure(report) : `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure || '')}</p>`}
-      <div class="tag-row">
-        ${report ? '<button type="button" class="action-link primary" data-action="pipeline-ci-failure-work" title="Open a chat with the classified report; the log travels as untrusted content">Ask Atlas to work on this failure…</button>' : ''}
-        ${renderRefreshAction('pipeline-refresh', 'Re-read CI', false, { busyLabel: 'Reading CI…' })}
-      </div>
-    </article>`;
-  }
-
-  /** Mirrors `describeCiBuild` in the host, kept short for the row. */
-  function describeCiBuildLine(build) {
-    if (build.observation === 'unobserved') {
-      return 'AtlasMind typed these commands into your terminal and does not read it, so it cannot report how they ended.';
-    }
-    if (build.status === 'running') {
-      return build.observation === 'polled'
-        ? 'Running. Progress is checked at intervals, not streamed.'
-        : 'Running. AtlasMind is reading the output live.';
-    }
-    if (build.status === 'unknown') {
-      return 'Finished, but AtlasMind could not read a verdict for it.';
-    }
-    return `${build.status === 'passed' ? 'Passed' : build.status === 'failed' ? 'Failed' : 'Cancelled'} — proving ${String(build.evidence || '').replace(/-/g, ' ')}.`;
-  }
-
   function renderPipelineRoutingRules(routing) {
     const help = renderInfoHelp('pipeline.routing', {
       label: 'the routing rules',
@@ -6592,9 +6538,9 @@
       const actions = runnable
         ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run these checks now…</button>'
         : route.id === 'local-runner' && entry.status !== 'unimplemented'
-          ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="runner">Open the Runner view</button>'
+          ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Open the borrowed-machine setup</button>'
           : route.id === 'github-hosted' && entry.status !== 'unimplemented'
-            ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="workflow">See the workflow map</button>'
+            ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="canvas">See the canvas</button>'
             : '';
       return `<article class="panel-card ci-route-card ${escapeAttr(entry.status || 'blocked')}">
         <div class="ci-section-heading">
@@ -6741,123 +6687,8 @@
       </article>
       <div class="panel-grid">
         <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Flaky tests</p><h3>History required</h3></div>${flakeHelp.button}</div>${flakeHelp.panel}<p class="section-copy">AtlasMind has no per-test run history yet, so it reports no flake count. It will not infer “stable” from one report.</p><button type="button" class="action-link" data-action="page" data-payload="testing">Open detailed Testing</button></article>
-        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Slowest tests</p><h3>Timing not recorded</h3></div>${slowHelp.button}</div>${slowHelp.panel}<p class="section-copy">No synthetic ranking is shown. Current CI answer-time analytics are available under Analytics.</p><button type="button" class="action-link" data-action="pipeline-section" data-payload="analytics">Open run analytics</button></article>
+        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Slowest tests</p><h3>Timing not recorded</h3></div>${slowHelp.button}</div>${slowHelp.panel}<p class="section-copy">No synthetic ranking is shown. Run timing lives with the runs themselves.</p><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button></article>
       </div>
-    </div>`;
-  }
-
-  function renderPipelineAnalytics(runs, fetchFailure) {
-    const help = renderInfoHelp('pipeline.analytics', {
-      label: 'pipeline analytics',
-      why: 'Recent-run shape exposes recurring failures, long feedback cycles and workflows that are disproportionately noisy. AtlasMind uses the run timestamps GitHub reports, so “answer time” includes queue time as well as execution.',
-      how: [
-        { text: 'Compare pass rate by workflow before optimizing the global average.' },
-        { text: 'Treat a duration spike as a lead, not a diagnosis; open the run log for the cause.' },
-        { text: 'Refresh when the branch or queued run changes.' },
-      ],
-    });
-    if (fetchFailure) {
-      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Analytics</p><h3>Run history could not be read</h3></div>${help.button}</div>${help.panel}<p class="section-copy">${escapeHtml(fetchFailure)}</p><button type="button" class="action-link primary" data-action="pipeline-refresh">Try again</button></article>`;
-    }
-    if (!runs.length) {
-      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Analytics</p><h3>No run history loaded</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Read CI to populate outcome, duration and per-workflow reliability charts.</p><button type="button" class="action-link primary" data-action="pipeline-refresh">Read CI</button></article>`;
-    }
-    const completed = runs.filter(run => run.status === 'completed');
-    const passing = completed.filter(run => run.conclusion === 'success').length;
-    const failing = completed.filter(run => run.conclusion === 'failure').length;
-    const other = Math.max(0, completed.length - passing - failing);
-    const durations = completed.flatMap(run => {
-      const start = Date.parse(run.createdAt || '');
-      const end = Date.parse(run.updatedAt || '');
-      return Number.isFinite(start) && Number.isFinite(end) && end >= start
-        ? [{ ...run, durationMs: end - start }]
-        : [];
-    });
-    const sortedDuration = durations.map(run => run.durationMs).sort((a, b) => a - b);
-    const medianMs = sortedDuration.length >= 3 ? sortedDuration[Math.floor(sortedDuration.length / 2)] : undefined;
-    const workflowMap = new Map();
-    runs.forEach(run => {
-      const name = run.workflowName || run.displayTitle || 'Unnamed workflow';
-      const row = workflowMap.get(name) || { name, pass: 0, fail: 0, strictFail: 0, pending: 0, total: 0 };
-      row.total += 1;
-      if (run.status !== 'completed') { row.pending += 1; }
-      else if (run.conclusion === 'success') { row.pass += 1; }
-      // `fail` is the reliability table's bucket: everything completed that did
-      // not succeed, cancellations included, because the table shows a pass
-      // *rate*. `strictFail` is conclusion === 'failure' only — the definition
-      // the pass-rate pill, the donut and the summary sentences already use.
-      // The summary must draw on the strict one, or a concurrency group that
-      // cancels superseded runs reads as a workflow that "failed" three times
-      // in the sentence directly under one saying nothing failed.
-      else { row.fail += 1; if (run.conclusion === 'failure') { row.strictFail += 1; } }
-      workflowMap.set(name, row);
-    });
-    const workflows = [...workflowMap.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
-    const maxDuration = Math.max(1, ...durations.map(run => run.durationMs));
-    const waterfallHelp = renderInfoHelp('pipeline.waterfall', {
-      label: 'the answer-time waterfall',
-      why: 'This is elapsed time from GitHub’s creation timestamp to its last completed update. It includes queueing, which is part of how long a developer waited for feedback.',
-      how: [{ text: 'Compare bars inside the same workflow before comparing unlike jobs.' }],
-    });
-    const reliabilityHelp = renderInfoHelp('pipeline.reliability', {
-      label: 'workflow reliability',
-      why: 'A project-wide percentage can hide one consistently noisy workflow. This table keeps each workflow’s sample size beside its rate.',
-      how: [{ text: 'Investigate workflows with repeated failures and enough samples before tuning healthy ones.' }],
-    });
-    // The reading, before the charts. A chart answers a question somebody
-    // already had; these are the three questions this history can answer at
-    // all, in sentences, computed from the same numbers the charts use so the
-    // two can never disagree. Thresholds are stated inline rather than hidden:
-    // a "least reliable" claim needs enough samples to mean anything.
-    const summarySentences = [];
-    summarySentences.push(completed.length === 0
-      ? `None of the ${runs.length} loaded runs has completed yet, so there is no verdict to summarise.`
-      : `${failing === 0 ? 'None' : String(failing)} of the last ${completed.length} completed runs failed${completed.length ? ` (${Math.round((passing / completed.length) * 100)}% passing)` : ''}.`);
-    const measured = workflows.filter(row => (row.pass + row.fail) >= 3);
-    const leastReliable = measured
-      .map(row => ({ ...row, rate: row.strictFail / (row.pass + row.fail) }))
-      .sort((left, right) => right.rate - left.rate || left.name.localeCompare(right.name))[0];
-    if (leastReliable && leastReliable.strictFail > 0) {
-      summarySentences.push(`The least reliable workflow is ${leastReliable.name}: ${leastReliable.strictFail} of its ${leastReliable.pass + leastReliable.fail} completed runs failed.`);
-    } else if (measured.length > 0) {
-      summarySentences.push('No workflow with at least 3 completed runs has failed in this sample.');
-    } else {
-      summarySentences.push('No workflow has 3 completed runs yet, which is too few to call any of them reliable or unreliable.');
-    }
-    summarySentences.push(medianMs === undefined
-      ? 'Answer time cannot be summarised yet — it needs at least 3 completed runs.'
-      : `A typical run answers in ${formatDurationCompact(medianMs)}, counting queue time, because that is what a person actually waits.`);
-
-    return `<div class="ci-studio-stack">
-      <article class="panel-card">
-        <div class="ci-section-heading"><div><p class="card-kicker">Delivery analytics</p><h3>What this history says</h3><p class="stat-detail">Read from the ${runs.length} most recent runs GitHub returned for this branch — a bounded sample, not all of history.</p></div><div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-refresh">Refresh</button></div></div>
-        ${help.panel}
-        <ul class="ci-analytics-summary">${summarySentences.map(sentence => `<li>${escapeHtml(sentence)}</li>`).join('')}</ul>
-        <div class="mini-grid">
-          ${renderMetricPill('Pass rate', completed.length ? `${Math.round((passing / completed.length) * 100)}%` : '—', { tone: failing ? 'warn' : 'good', detail: `${passing}/${completed.length} completed runs` })}
-          ${renderMetricPill('Median answer time', medianMs === undefined ? '—' : formatDurationCompact(medianMs), { detail: medianMs === undefined ? 'Needs 3 completed samples' : 'Queue + execution time' })}
-          ${renderMetricPill('Active now', String(runs.filter(run => run.status !== 'completed').length), { tone: runs.some(run => run.status !== 'completed') ? 'accent' : 'good', detail: 'Queued or in progress' })}
-          ${renderMetricPill('Workflow variants', String(workflows.length), { detail: 'Named workflows in this sample' })}
-        </div>
-        ${renderDonutChart('pipeline-run-outcomes', [
-          { label: 'Passing', value: passing, tone: 'good' },
-          { label: 'Failing', value: failing, tone: 'critical' },
-          { label: 'Other', value: other, tone: 'warn' },
-          { label: 'Running', value: runs.length - completed.length, tone: 'accent' },
-        ], { centerValue: completed.length ? `${Math.round((passing / completed.length) * 100)}%` : '—', centerLabel: 'pass rate', emptyLabel: 'No completed runs.' })}
-      </article>
-      <article class="panel-card">
-        <div class="ci-section-heading"><div><p class="card-kicker">Answer-time waterfall</p><h3>Recent completed runs</h3></div>${waterfallHelp.button}</div>${waterfallHelp.panel}
-        <div class="ci-run-waterfall">${durations.slice(0, 20).map((run, index) => `<div class="ci-run-lane"><span class="ci-run-label" title="${escapeAttr(run.workflowName || run.displayTitle)}">${escapeHtml(shortenMiddle(run.workflowName || run.displayTitle || 'Run', 32))}</span><span class="ci-run-track"><span class="ci-run-bar ${run.conclusion === 'success' ? 'good' : 'critical'}" data-anim-key="run-duration:${run.databaseId}" data-anim-to="${Math.max(3, Math.round((run.durationMs / maxDuration) * 100))}%" style="width:0%;--run-index:${index}"></span></span><strong>${escapeHtml(formatDurationCompact(run.durationMs))}</strong></div>`).join('') || '<p class="stat-detail">No completed run carries a usable time window.</p>'}</div>
-      </article>
-      <article class="panel-card">
-        <div class="ci-section-heading"><div><p class="card-kicker">Workflow reliability</p><h3>Where failures concentrate</h3></div>${reliabilityHelp.button}</div>${reliabilityHelp.panel}
-        <div class="ci-reliability-table">${workflows.map(workflow => {
-          const resolved = workflow.pass + workflow.fail;
-          const rate = resolved ? Math.round((workflow.pass / resolved) * 100) : undefined;
-          return `<div class="ci-reliability-row"><div><strong>${escapeHtml(workflow.name)}</strong><small>${workflow.total} sampled · ${workflow.pending} active</small></div><div class="ci-reliability-meter"><span data-anim-key="workflow-reliability:${escapeAttr(workflow.name)}" data-anim-to="${rate ?? 0}%" style="width:0%"></span></div><strong>${rate === undefined ? '—' : `${rate}%`}</strong></div>`;
-        }).join('')}</div>
-      </article>
     </div>`;
   }
 
@@ -6916,6 +6747,335 @@
     const remainder = seconds % 60;
     if (minutes < 60) { return `${minutes}m ${remainder}s`; }
     return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  }
+
+  /**
+   * Elapsed time for a GitHub run, or undefined when its timestamps do not
+   * bracket a real interval.
+   *
+   * Queue time is deliberately included: it is part of how long a person waited
+   * for an answer, which is the thing the ribbon and the "typical" figure are
+   * about.
+   */
+  function pipelineRunDurationMs(run) {
+    const start = Date.parse((run && (run.createdAt || run.startedAt)) || '');
+    const end = Date.parse((run && (run.updatedAt || run.endedAt)) || '');
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : undefined;
+  }
+
+  /** Where a run sits in the three-outcome vocabulary the ribbon paints. */
+  function pipelineRunOutcome(run) {
+    if (!run) {
+      return 'unknown';
+    }
+    const status = String(run.status || '').toLowerCase();
+    if (status && status !== 'completed') {
+      return 'running';
+    }
+    const conclusion = String(run.conclusion || '').toLowerCase();
+    if (conclusion === 'success') { return 'pass'; }
+    if (conclusion === 'failure' || conclusion === 'timed_out' || conclusion === 'startup_failure') { return 'fail'; }
+    return 'other';
+  }
+
+  /**
+   * One ribbon: recent runs as bars whose height is duration and whose colour
+   * is outcome.
+   *
+   * Two dimensions in one glyph — "healthy, and getting slower" is readable
+   * without a click, which no single percentage can express. Heights are scaled
+   * against the row's own longest run, so a fast workflow does not render as a
+   * flat line beside a slow one; the tooltip carries the real number.
+   */
+  function renderRunRibbon(entries) {
+    if (!entries.length) {
+      return '<span class="ci-ribbon empty" aria-hidden="true"></span>';
+    }
+    const longest = Math.max(1, ...entries.map(entry => entry.durationMs || 0));
+    const bars = entries.map(entry => {
+      const ratio = entry.durationMs ? entry.durationMs / longest : 0.18;
+      const height = Math.max(4, Math.round(ratio * 26));
+      const when = entry.startedAt ? relativeLabel(entry.startedAt) : 'time unknown';
+      const took = entry.durationMs === undefined ? 'duration unknown' : formatDurationCompact(entry.durationMs);
+      return `<i class="${escapeAttr(entry.outcome)}" style="height:${height}px" title="${escapeAttr(`${entry.label} — ${entry.outcome === 'pass' ? 'passed' : entry.outcome === 'fail' ? 'failed' : entry.outcome} · ${took} · ${when}`)}"></i>`;
+    }).join('');
+    return `<span class="ci-ribbon" role="img" aria-label="${escapeAttr(`${entries.length} recent runs, oldest first`)}">${bars}</span>`;
+  }
+
+  /** The ribbon cap. Stated wherever the ribbon is, because a window nobody names is a number nobody can check. */
+  const PIPELINE_RIBBON_WINDOW = 30;
+
+  /**
+   * Group GitHub runs into one series per workflow, newest last.
+   *
+   * Grouped by workflow rather than shown as one undifferentiated stream,
+   * because a project-wide pass rate hides the single workflow that is always
+   * red — the reason a per-pipeline row beats a global percentage.
+   */
+  function pipelineWorkflowSeries(runs) {
+    const groups = new Map();
+    for (const run of runs) {
+      const name = run.workflowName || run.displayTitle || 'Unnamed workflow';
+      const list = groups.get(name) || [];
+      list.push(run);
+      groups.set(name, list);
+    }
+    return [...groups.entries()].map(([name, list]) => {
+      const ordered = [...list].sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')));
+      const recent = ordered.slice(-PIPELINE_RIBBON_WINDOW);
+      const entries = recent.map(run => ({
+        label: run.displayTitle || name,
+        outcome: pipelineRunOutcome(run),
+        durationMs: pipelineRunDurationMs(run),
+        startedAt: run.createdAt,
+      }));
+      const completed = recent.filter(run => String(run.status || '').toLowerCase() === 'completed');
+      const passed = completed.filter(run => String(run.conclusion || '').toLowerCase() === 'success').length;
+      // Strictly `failure`-shaped conclusions. Cancellations are completed runs
+      // that nobody should read as failures, and the reliability figure has to
+      // mean the same thing here as it does everywhere else on the page.
+      const failed = completed.filter(run => ['failure', 'timed_out', 'startup_failure'].includes(String(run.conclusion || '').toLowerCase())).length;
+      const durations = entries.map(entry => entry.durationMs).filter(value => typeof value === 'number').sort((a, b) => a - b);
+      const median = durations.length >= 3 ? durations[Math.floor(durations.length / 2)] : undefined;
+      const stamps = recent.map(run => Date.parse(run.createdAt || '')).filter(Number.isFinite);
+      const spanMs = stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : 0;
+      const weeks = spanMs > 0 ? Math.max(spanMs / (7 * 24 * 3600 * 1000), 1 / 7) : 0;
+      return {
+        name,
+        entries,
+        sampleSize: recent.length,
+        completed: completed.length,
+        reliability: passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : undefined,
+        medianMs: median,
+        perWeek: weeks > 0 ? Math.round(recent.length / weeks) : undefined,
+        running: recent.filter(run => pipelineRunOutcome(run) === 'running').length,
+      };
+    }).sort((left, right) => right.sampleSize - left.sampleSize || left.name.localeCompare(right.name));
+  }
+
+  /**
+   * Runs that both passed and failed on the same commit.
+   *
+   * The rule is published beside the result because it is checkable: a reader
+   * can look at the two runs and agree or disagree. A flakiness score nobody
+   * can reproduce is a number people learn to ignore.
+   */
+  function pipelineFlakyWorkflows(runs) {
+    const byCommit = new Map();
+    for (const run of runs) {
+      const sha = String(run.headSha || '');
+      const name = run.workflowName || 'Unnamed workflow';
+      if (!sha || String(run.status || '').toLowerCase() !== 'completed') {
+        continue;
+      }
+      const key = `${name}@${sha}`;
+      const seen = byCommit.get(key) || { name, sha, pass: false, fail: false };
+      const conclusion = String(run.conclusion || '').toLowerCase();
+      if (conclusion === 'success') { seen.pass = true; }
+      if (['failure', 'timed_out', 'startup_failure'].includes(conclusion)) { seen.fail = true; }
+      byCommit.set(key, seen);
+    }
+    const names = new Map();
+    for (const entry of byCommit.values()) {
+      if (entry.pass && entry.fail) {
+        names.set(entry.name, (names.get(entry.name) || 0) + 1);
+      }
+    }
+    return [...names.entries()]
+      .map(([name, commits]) => ({ name, commits }))
+      .sort((left, right) => right.commits - left.commits || left.name.localeCompare(right.name));
+  }
+
+  /** Status mark for a build row. Unknown is marked, never blank — a blank reads as "no". */
+  const PIPELINE_BUILD_MARK = { running: '●', passed: '✓', failed: '✕', cancelled: '–', unknown: '?' };
+
+  /**
+   * Activity — what ran, what is running, what failed, and what to do about it.
+   *
+   * The page's default view once anything has run. Ordered by urgency rather
+   * than by data source: the failure that needs a person leads, the shape of
+   * recent history follows, the raw stream sits under both, and trend detail
+   * waits behind a disclosure. Setup lives elsewhere entirely.
+   */
+  function renderPipelineActivity(snapshot, context) {
+    const { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp } = context;
+    const builds = delivery.builds || {};
+    const records = builds.records || [];
+    const routing = delivery.routing || {};
+
+    const help = renderInfoHelp('pipeline.activity', {
+      label: 'what this view shows',
+      why: 'One list of everything that has run, whoever ran it, newest first — with the failure that needs a person lifted to the top. Every number here states the window it was measured over, so a figure can be checked rather than trusted.',
+      how: [
+        { text: 'The bars are recent runs: height is how long each took, colour is how it ended.' },
+        { text: 'A run AtlasMind only started — commands typed into your terminal — carries a question mark, because it cannot see how that ended.' },
+        { text: 'Hosted runs are checked at intervals rather than streamed, so a running one may be a few seconds behind.' },
+      ],
+    });
+
+    if (fetchFailure) {
+      return `<div class="ci-studio-stack"><article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Activity</p><h3>The run list could not be read</h3></div>${help.button}</div>
+        ${help.panel}
+        <p class="section-copy">${escapeHtml(fetchFailure)}</p>
+        ${intel && intel.fetchFixCommand ? `<pre class="local-ci-command"><code>${escapeHtml(intel.fetchFixCommand)}</code></pre>` : ''}
+        <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+      </article></div>`;
+    }
+
+    // The lead card. A classified failure outranks everything because it is the
+    // only thing here that is asking for a decision.
+    const leadCard = report
+      ? `<article class="panel-card ci-activity-lead">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Needs you · latest failure</p>
+              <h3>${escapeHtml(report.classification || 'failure')}</h3>
+              <p class="stat-detail">${escapeHtml(`${report.jobName || 'job'} · ${report.stepName || 'step'} · run ${report.runId || ''}`)}</p>
+            </div>
+            ${taxonomyHelp.button}
+          </div>
+          ${taxonomyHelp.panel}
+          ${renderCiFailure(report)}
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="pipeline-ci-failure-work" title="Open a chat with the classified report; the log travels as untrusted content">Ask Atlas to work on this…</button>
+            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…' })}
+          </div>
+        </article>`
+      : intel && intel.logFailure
+        ? `<article class="panel-card ci-activity-lead">
+            <div class="ci-section-heading"><div><p class="card-kicker">Needs you · latest failure</p><h3>A run failed, and its log could not be read</h3></div></div>
+            <p class="stat-detail wf-unknown">${escapeHtml(intel.logFailure)}</p>
+            <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+          </article>`
+        : '';
+
+    // Per-workflow ribbons from GitHub's own runs, plus one row per local route
+    // so a borrowed-machine run is visible in the same shape.
+    const series = pipelineWorkflowSeries(runs);
+    const localRows = new Map();
+    for (const record of records.filter(entry => entry.source === 'local')) {
+      const key = record.routeLabel || record.routeId || 'Local';
+      const list = localRows.get(key) || [];
+      list.push(record);
+      localRows.set(key, list);
+    }
+    const localSeries = [...localRows.entries()].map(([name, list]) => {
+      const ordered = [...list].sort((left, right) => String(left.startedAt || '').localeCompare(String(right.startedAt || '')));
+      const recent = ordered.slice(-PIPELINE_RIBBON_WINDOW);
+      return {
+        name,
+        entries: recent.map(record => ({
+          label: record.title || name,
+          outcome: record.status === 'passed' ? 'pass' : record.status === 'failed' ? 'fail' : record.status === 'running' ? 'running' : 'other',
+          durationMs: pipelineRunDurationMs(record),
+          startedAt: record.startedAt,
+        })),
+        unobserved: recent.filter(record => record.observation === 'unobserved').length,
+        sampleSize: recent.length,
+      };
+    });
+
+    const ribbonRows = series.map(row => `
+      <div class="ci-activity-row">
+        <span class="ci-activity-name">${escapeHtml(row.name)}</span>
+        ${renderRunRibbon(row.entries)}
+        <span class="ci-activity-trio">
+          <span title="${escapeAttr(`Passed as a share of runs that reached a pass-or-fail verdict, over the last ${row.sampleSize} run${row.sampleSize === 1 ? '' : 's'} GitHub returned`)}">reliability <b>${row.reliability === undefined ? '—' : `${row.reliability}%`}</b></span>
+          <span title="${escapeAttr('Median elapsed time including queue wait, which needs at least 3 completed runs')}">typical <b>${row.medianMs === undefined ? '—' : formatDurationCompact(row.medianMs)}</b></span>
+          <span title="${escapeAttr('Runs per week across the span of this sample')}">runs/wk <b>${row.perWeek === undefined ? '—' : String(row.perWeek)}</b></span>
+        </span>
+        ${row.running ? `<span class="tag tag-warn">${escapeHtml(String(row.running))} running</span>` : ''}
+      </div>`).join('');
+
+    const localRibbonRows = localSeries.map(row => `
+      <div class="ci-activity-row">
+        <span class="ci-activity-name">${escapeHtml(row.name)}</span>
+        ${renderRunRibbon(row.entries)}
+        <span class="ci-activity-trio"><span>${escapeHtml(String(row.sampleSize))} run${row.sampleSize === 1 ? '' : 's'} on this machine</span></span>
+        ${row.unobserved ? `<span class="tag" title="${escapeAttr('AtlasMind started these in your terminal and does not read it, so it cannot report how they ended')}">${escapeHtml(String(row.unobserved))} unobserved</span>` : ''}
+      </div>`).join('');
+
+    const shapeCard = (series.length || localSeries.length)
+      ? `<article class="panel-card">
+          <div class="ci-section-heading">
+            <div><p class="card-kicker">Recent history</p><h3>${escapeHtml(`${series.length + localSeries.length} pipeline${series.length + localSeries.length === 1 ? '' : 's'} with runs`)}</h3></div>
+            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+          </div>
+          ${help.panel}
+          ${ribbonRows}${localRibbonRows}
+          <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most — height is elapsed time including queue wait, colour is the outcome. Hover any bar for its exact time.</p>
+        </article>`
+      : `<article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Recent history</p><h3>${intel ? 'No runs in this sample' : 'CI has not been read yet'}</h3></div>${help.button}</div>
+          ${help.panel}
+          <p class="section-copy">${intel
+            ? 'GitHub returned no runs for this branch. That is not evidence that the build passed.'
+            : 'Nothing has been read from GitHub and nothing has run here. This does not mean the build passed.'}</p>
+          <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Read CI result', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+        </article>`;
+
+    const streamRows = records.slice(0, 20).map(build => {
+      const mark = PIPELINE_BUILD_MARK[build.status] || '?';
+      const when = build.startedAt ? relativeLabel(build.startedAt) : 'time unknown';
+      const duration = pipelineRunDurationMs(build);
+      return `<div class="ci-activity-build status-${escapeAttr(build.status || 'unknown')}">
+        <span class="ci-activity-mark" aria-hidden="true">${escapeHtml(mark)}</span>
+        <div class="ci-activity-build-main">
+          <strong>${escapeHtml(build.title || 'Build')}</strong>
+          <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')}${build.branch ? ` · ${escapeHtml(build.branch)}` : ''}${duration === undefined ? '' : ` · ${escapeHtml(formatDurationCompact(duration))}`} · ${escapeHtml(when)}</div>
+        </div>
+        <span class="ci-activity-obs" title="${escapeAttr(describeBuildObservation(build))}">${escapeHtml(build.observation || '')}</span>
+        ${build.pointer && build.pointer.kind === 'output-channel' ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>' : ''}
+      </div>`;
+    }).join('');
+
+    const streamCard = `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div><p class="card-kicker">Everything that ran</p><h3>${escapeHtml(records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'Nothing recorded yet')}</h3></div>
+      </div>
+      ${builds.githubLoaded === false ? '<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. An empty list here is not evidence that nothing ran on GitHub.</p></div>' : ''}
+      ${records.length ? `<div class="ci-activity-stream">${streamRows}</div>` : '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>'}
+      ${builds.unobservedCount ? `<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} of these were started in your terminal, which AtlasMind does not read — they have no verdict by design.</p>` : ''}
+    </article>`;
+
+    // Trend detail, one level down. The sentences above answer the question;
+    // this is for somebody who wants the distribution behind them.
+    const allDurations = runs.map(pipelineRunDurationMs).filter(value => typeof value === 'number').sort((a, b) => a - b);
+    const p50 = allDurations.length >= 3 ? allDurations[Math.floor(allDurations.length * 0.5)] : undefined;
+    const p95 = allDurations.length >= 3 ? allDurations[Math.min(allDurations.length - 1, Math.floor(allDurations.length * 0.95))] : undefined;
+    const flaky = pipelineFlakyWorkflows(runs);
+    const trendsCard = `<details class="ci-progressive-details">
+      <summary>Trends and flakiness${flaky.length ? ` · ${flaky.length} flaky` : ''}</summary>
+      <div class="ci-progressive-details-body">
+        <div class="mini-grid">
+          ${renderMetricPill('Typical run', p50 === undefined ? '—' : formatDurationCompact(p50), { detail: p50 === undefined ? 'Needs 3 completed runs' : 'Median, queue time included' })}
+          ${renderMetricPill('Slow run', p95 === undefined ? '—' : formatDurationCompact(p95), { detail: p95 === undefined ? 'Needs 3 completed runs' : '95th percentile — the bad afternoon' })}
+          ${renderMetricPill('Sample', String(runs.length), { detail: 'Runs GitHub returned for this branch' })}
+        </div>
+        ${flaky.length
+          ? `<div class="ci-activity-flaky"><strong>Flaky</strong><p class="stat-detail">Passed and failed on the same commit — you can check the rule against the two runs.</p>${flaky.map(entry => `<div class="ci-activity-row"><span class="ci-activity-name">${escapeHtml(entry.name)}</span><span class="tag tag-warn">${escapeHtml(String(entry.commits))} commit${entry.commits === 1 ? '' : 's'}</span></div>`).join('')}</div>`
+          : '<p class="stat-detail">No workflow passed and failed on the same commit in this sample.</p>'}
+      </div>
+    </details>`;
+
+    return `<div class="ci-studio-stack">
+      ${leadCard}
+      ${shapeCard}
+      ${streamCard}
+      ${trendsCard}
+    </div>`;
+  }
+
+  /** Mirrors the host's describeCiBuild, kept short for a row tooltip. */
+  function describeBuildObservation(build) {
+    if (build.observation === 'unobserved') {
+      return 'AtlasMind typed these commands into your terminal and does not read it, so it cannot report how they ended.';
+    }
+    if (build.observation === 'polled') {
+      return 'Checked at intervals rather than streamed — GitHub offers no push channel through its CLI.';
+    }
+    return 'AtlasMind read this run’s output as it happened.';
   }
 
   function renderPipeline(snapshot) {
@@ -7341,11 +7501,14 @@
     const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
     const intro = renderPageIntro({
       kicker: 'Stage 5',
-      title: 'Pipeline Studio',
+      title: 'Pipeline',
+      // Four verbs, in the order somebody uses them. The old summary described
+      // the setup sequence, which is the one thing on this page most people
+      // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}`
-        : 'Follow the four decisions to choose checks, prepare this computer, queue GitHub and run one trusted job. Deeper views stay one click away.',
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
+        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
     const runRows = runs.slice(0, 15).map(run => `
@@ -7358,56 +7521,40 @@
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
     const buildRecords = (delivery.builds && delivery.builds.records) || [];
+    // The setup view. Only the journey and what blocks it — the capability grid
+    // and the duplicated results block that used to sit here were a second,
+    // worse navigation system competing with the tabs, and the run history they
+    // showed now leads Activity.
     const overviewContent = `<div class="ci-studio-stack ci-start-view">
       ${renderPipelineJourney(assessment, intel, runner, workflows, buildRecords)}
-      ${!intel ? '<div class="inline-notice"><strong>No CI result has been read yet</strong><p class="stat-detail">This does not mean the build passed. Read GitHub only when you need the result.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI result</button></div>' : ''}
+      ${!intel && !buildRecords.length ? '<div class="inline-notice"><strong>No CI result has been read yet</strong><p class="stat-detail">This does not mean the build passed. Read GitHub only when you need the result.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI result</button></div>' : ''}
       ${fetchFailure ? `<div class="inline-notice critical"><strong>The run list could not be read</strong><p class="stat-detail">${escapeHtml(fetchFailure)}</p>${intel && intel.fetchFixCommand ? `<code>${escapeHtml(intel.fetchFixCommand)}</code>` : ''}<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Try again</button></div></div>` : ''}
-      <details class="ci-progressive-details ci-explore-details">
-        <summary>Explore specialist dashboards</summary>
-        <p class="stat-detail">Setup stays focused above. Open these views when you need deeper evidence or configuration.</p>
-        <div class="ci-capability-grid" aria-label="Pipeline Studio capabilities">
-        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="workflow"><span aria-hidden="true">⌘</span><div><strong>Visual workflow</strong><small>Triggers, fan-out, jobs and gates</small></div></button>
-        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="tests"><span aria-hidden="true">✓</span><div><strong>Test intelligence</strong><small>Resolved, failing, skipped and coverage</small></div></button>
-        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="analytics"><span aria-hidden="true">↗</span><div><strong>Delivery analytics</strong><small>Reliability and answer-time trends</small></div></button>
-        <button type="button" class="ci-capability-card" data-action="pipeline-section" data-payload="packages"><span aria-hidden="true">◇</span><div><strong>Monorepo & supply chain</strong><small>Affected units, packages and artifacts</small></div></button>
-        <button type="button" class="ci-capability-card" data-action="page" data-payload="delivery"><span aria-hidden="true">⇢</span><div><strong>Promotions</strong><small>Environments, approvals and gates</small></div></button>
-        <button type="button" class="ci-capability-card" data-action="page" data-payload="security"><span aria-hidden="true">⌾</span><div><strong>Security & audit</strong><small>Permissions, policy and evidence</small></div></button>
-        </div>
-      </details>
-      ${intel && !fetchFailure ? `<details class="ci-progressive-details"><summary>Show recent CI results</summary><div class="ci-progressive-details-body"><div class="panel-grid"><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Recent outcome</p><h3>${completed ? `${passRate}% passing` : 'Runs are still active'}</h3></div>${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, { busyLabel: 'Reading CI…' })}</div>${renderDistributionBar('pipeline-outcome', [
-        { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
-        { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
-        { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
-        { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
-      ], { title: 'Recent runs on this branch', caption: 'Latest bounded GitHub sample', emptyLabel: 'No runs recorded for this branch.' })}</article><article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Latest failure</p><h3>${report ? escapeHtml(report.classification) : 'No failing runs'}</h3></div>${taxonomyHelp.button}</div>${taxonomyHelp.panel}${report ? renderCiFailure(report) : intel.logFailure ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>` : '<p class="section-copy">No failing runs in the loaded sample currently need failure analysis.</p>'}</article></div><article class="panel-card"><p class="card-kicker">Recent runs</p><div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div></article></div></details>` : ''}
     </div>`;
 
-    // The section the page opens on. An explicit choice (persisted on click)
-    // always wins; with none, a project that has build history opens on Builds
-    // — the operational view — and only a project with nothing run yet opens on
-    // the setup journey. Showing onboarding by default to somebody who finished
-    // onboarding taught them the page had nothing else.
-    if (!PIPELINE_SECTIONS.includes(state.pipelineSection) && !PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)) {
-      state.pipelineSectionDefault = (buildRecords.length > 0 || runs.length > 0) ? 'builds' : 'overview';
+    // Setup takes the page over while it is genuinely unfinished, and hands it
+    // straight back once it is not. An explicit tab choice always wins — a
+    // persisted id from the old eight-tab layout is remapped rather than
+    // dropped, so nobody lands on a view that no longer exists.
+    const setup = pipelineSetupState(runner, buildRecords, runs);
+    const chosen = PIPELINE_SECTION_ALIASES[state.pipelineSection] || state.pipelineSection;
+    if (!PIPELINE_SECTIONS.includes(chosen) && !PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)) {
+      state.pipelineSectionDefault = setup.complete ? 'activity' : 'setup';
     }
-    const pipelineSection = PIPELINE_SECTIONS.includes(state.pipelineSection)
-      ? state.pipelineSection
+    const pipelineSection = PIPELINE_SECTIONS.includes(chosen)
+      ? chosen
       : state.pipelineSectionDefault;
 
     const sectionContent = {
-      overview: overviewContent,
-      builds: renderPipelineBuilds(delivery.builds || {}, intel),
-      routes: renderPipelineRoutes(delivery.routes || [], delivery.routing || {}),
-      workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`,
-      runner: runnerCard,
+      setup: overviewContent,
+      activity: renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp }),
+      canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}${renderPipelinePackages(delivery)}</div>`,
       tests: renderPipelineTestEngine(snapshot.testing || {}),
-      analytics: renderPipelineAnalytics(runs, fetchFailure),
-      packages: renderPipelinePackages(delivery),
-    }[pipelineSection] || overviewContent;
+      rules: `<div class="ci-studio-stack">${renderPipelineRoutes(delivery.routes || [], delivery.routing || {})}${runnerCard}</div>`,
+    }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
-      ${renderPipelineTabs(snapshot, runs, pipelineSection)}
+      ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;
   }

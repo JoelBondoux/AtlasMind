@@ -574,6 +574,14 @@ re-reviews what landed on disk rather than trusting the builder's own check. Rev
 read and is deliberately callable before Docker, `gh` or a queued job exists — the policy used to be
 evaluated only at start time, which put the cheapest check at the end of the longest path.
 
+The Pipeline page presents **four views** — Activity, Canvas, Tests, Rules — named for what a person is
+doing rather than for the subsystem behind each. `PIPELINE_SECTIONS` is the allowlist and
+`PIPELINE_SECTION_ALIASES` remaps ids persisted by the previous eight-tab layout, so a stale
+`vscode.getState()` never resolves to a view that no longer exists. Setup is addressable (`setup`) but is
+deliberately not a tab: it takes the page over while `pipelineSetupState` reports it unfinished and hands
+it back once done. That predicate is computed **once** and shared by the journey card and the header chip,
+because two computations of "is setup done" on one screen will eventually disagree.
+
 The Pipeline page's **default view is state-aware**: with no explicitly chosen tab, a project with any
 build or run history opens on Builds and only a fresh project opens on the setup journey, whose card
 collapses to one line once the durable steps are done and anything has ever built. Routing rules are

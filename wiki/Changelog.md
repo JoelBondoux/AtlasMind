@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.356.0 — Four views instead of eight tabs
+
+The Pipeline page had grown one tab per feature until it was an org chart of shipping order rather than
+a design — eight tabs, half of them setup surfaces. This is the first phase of a rebuild around four
+views named for what you are actually doing: **Activity** (watch), **Canvas** (understand), **Tests**
+(verify), **Rules** (decide).
+
+**Activity opens the page**, and leads with whatever needs a person: the classified failure, its
+evidence, and a button that hands the whole thing to Atlas with the log fenced. Under that, one row per
+pipeline with a ribbon of recent runs — bar height is how long each took, colour is how it ended — so
+“still passing but getting slower” is something you can see rather than something you have to work out.
+Beside each ribbon, three numbers that tell you their own window when you hover: reliability, typical
+time, runs per week. Flaky workflows are listed with the rule printed next to them: passed and failed on
+the same commit, which you can check by opening the two runs.
+
+**Setup is no longer a tab.** It takes the page over while it is genuinely unfinished and gets out of the
+way the moment it is not, living afterwards behind a small chip in the header. Whether it is done is
+decided once, by one function the chip and the checklist share, on facts that do not reset every commit.
+
+**Analytics and Builds are gone as tabs.** The donut, the waterfall and the metric pills were replaced by
+the ribbon, which says more in less space; the run list moved into Activity. The old renderers were
+deleted rather than left behind — keeping them is how a page becomes eight tabs in the first place.
+
+Canvas, Tests and Rules keep their current contents for now and are rebuilt in the next phases.
+
 ## v0.355.0 — The Pipeline page, made legible
 
 Honest feedback landed: even with everything built, the page was confusing. Five complaints, five fixes.

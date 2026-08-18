@@ -164,9 +164,12 @@ describe('empty states teach rather than report emptiness', () => {
   it('keeps "not read", "no failures", and "failed but unreadable" as three distinct states', () => {
     // Collapsing any pair lets one read as another. The worst collapse is
     // "we could not read the log" showing as "nothing failed".
-    expect(pipelineSource).toContain('No CI result has been read yet');
-    expect(pipelineSource).toContain('No failing runs');
-    expect(pipelineSource).toContain('its log could not be read');
+    // These live in Activity now; the states are the contract, not the tab.
+    expect(WEBVIEW_SCRIPT).toContain('No CI result has been read yet');
+    expect(WEBVIEW_SCRIPT).toContain('This does not mean the build passed');
+    expect(WEBVIEW_SCRIPT).toContain('The run list could not be read');
+    expect(WEBVIEW_SCRIPT).toContain('its log could not be read');
+    expect(WEBVIEW_SCRIPT).toContain('That is not evidence that the build passed');
   });
 
   it('shows an unknown CI classification as itself rather than dressing it up', () => {
@@ -308,10 +311,11 @@ describe('the Pipeline CI management surface', () => {
 
   it('stays useful before CI run history has been fetched', () => {
     const body = source();
-    expect(body).toContain('${renderPipelineTabs(snapshot, runs, pipelineSection)}');
-    expect(body).toContain('overview: overviewContent');
-    expect(body).toContain('workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`');
-    expect(body).toContain('runner: runnerCard');
+    expect(body).toContain('${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}');
+    expect(body).toContain('setup: overviewContent');
+    expect(body).toContain('activity: renderPipelineActivity(');
+    expect(body).toContain('tests: renderPipelineTestEngine(');
+    expect(body).toContain('rules: `<div class="ci-studio-stack">');
     expect(body).not.toMatch(/if \(!intel\)\s*\{\s*return/);
   });
 
@@ -382,14 +386,18 @@ describe('Pipeline Studio progressive workflow', () => {
     'utf8',
   );
 
-  it('starts with a beginner route and keeps specialist tools in named views', () => {
-    expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['overview', 'builds', 'routes', 'workflow', 'runner', 'tests', 'analytics', 'packages']");
-    expect(WEBVIEW_SCRIPT).toContain("label: 'Start here'");
-    expect(WEBVIEW_SCRIPT).toContain("label: 'Workflow map'");
-    expect(WEBVIEW_SCRIPT).toContain("label: 'Packages & repo'");
-    expect(WEBVIEW_SCRIPT).toContain('Setup · ${completedSteps} of 4 complete');
+  it('offers four views named by what a person is doing, and remaps the old eight', () => {
+    // Four views named by what a person is doing, not by which subsystem
+    // produced the data. Setup is addressable but is deliberately not a tab.
+    expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['activity', 'canvas', 'tests', 'rules', 'setup']");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Activity'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Canvas'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Rules'");
     expect(WEBVIEW_SCRIPT).toContain('Next: ${escapeHtml(focus.title)}');
-    expect(WEBVIEW_SCRIPT).toContain('role="tablist" aria-label="Pipeline Studio views"');
+    expect(WEBVIEW_SCRIPT).toContain('role="tablist" aria-label="Pipeline views"');
+    // A tab id persisted by the eight-tab layout must still land somewhere real.
+    expect(WEBVIEW_SCRIPT).toContain('PIPELINE_SECTION_ALIASES');
+    expect(WEBVIEW_SCRIPT).toContain("overview: 'setup', builds: 'activity', analytics: 'activity'");
   });
 
   it('uses reusable accessible information controls instead of decorative icons', () => {
@@ -430,12 +438,14 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain('never turns “no report” into zero failures');
   });
 
-  it('charts bounded answer time and reliability using observed GitHub timestamps', () => {
-    expect(WEBVIEW_SCRIPT).toContain('What this history says');
-    expect(WEBVIEW_SCRIPT).toContain('Answer-time waterfall');
-    expect(WEBVIEW_SCRIPT).toContain('Workflow reliability');
-    expect(WEBVIEW_SCRIPT).toContain('includes queue time as well as execution');
-    expect(WEBVIEW_SCRIPT).toContain('Needs 3 completed samples');
+  it('measures answer time and reliability from observed timestamps, and says over what', () => {
+    // The Analytics tab is gone. Its one durable contract — never present a
+    // measurement without the window and the caveat — moved into Activity.
+    expect(WEBVIEW_SCRIPT).toContain('Recent history');
+    expect(WEBVIEW_SCRIPT).toContain('height is elapsed time including queue wait');
+    expect(WEBVIEW_SCRIPT).toContain('Median elapsed time including queue wait, which needs at least 3 completed runs');
+    expect(WEBVIEW_SCRIPT).toContain('Needs 3 completed runs');
+    expect(WEBVIEW_SCRIPT).toContain('Runs GitHub returned for this branch');
   });
 
   it('maps monorepo impact and supply-chain controls without claiming a registry exists', () => {
@@ -504,10 +514,13 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain('class="panel-card ci-journey-card ci-next-action-card"');
     expect(WEBVIEW_SCRIPT).toContain('class="ci-journey-progress"');
     expect(WEBVIEW_SCRIPT).toContain('<summary>Show all four setup steps</summary>');
-    expect(WEBVIEW_SCRIPT).toContain('<summary>Explore specialist dashboards</summary>');
-    expect(WEBVIEW_SCRIPT).toContain('<summary>Show recent CI results</summary>');
     expect(WEBVIEW_SCRIPT).not.toContain('Live command deck');
     expect(WEBVIEW_SCRIPT).not.toContain('What is ready right now?');
+    // Deleted, not collapsed: a capability grid is a second navigation system
+    // competing with the tabs, and the run history it fronted now leads Activity.
+    expect(WEBVIEW_SCRIPT).not.toContain('Explore specialist dashboards');
+    expect(WEBVIEW_SCRIPT).not.toContain('ci-capability-card');
+    expect(WEBVIEW_SCRIPT).not.toContain('Show recent CI results');
   });
 
   it('puts runner action first and collapses diagnostics that are not needed yet', () => {
@@ -1000,7 +1013,7 @@ describe('Pipeline route surface', () => {
    */
   it('offers running the checks here as a route of its own', () => {
     expect(WEBVIEW_SCRIPT).toContain('pipeline-run-here');
-    expect(WEBVIEW_SCRIPT).toContain("id: 'routes'");
+    expect(WEBVIEW_SCRIPT).toContain("id: 'rules'");
     expect(WEBVIEW_SCRIPT).toContain('Where it runs');
   });
 
@@ -1057,13 +1070,13 @@ describe('Pipeline section reachability and defaults', () => {
     // list: a list here would go stale exactly the way the allowlist did, and
     // the next unreachable tab would pass this test too.
     const tabsStart = WEBVIEW_SCRIPT.indexOf('function renderPipelineTabs');
-    const tabsEnd = WEBVIEW_SCRIPT.indexOf('function renderPipelineJourney');
+    const tabsEnd = WEBVIEW_SCRIPT.indexOf('function pipelineSetupState');
     expect(tabsStart).toBeGreaterThan(-1);
     expect(tabsEnd).toBeGreaterThan(tabsStart);
     const tabsBody = WEBVIEW_SCRIPT.slice(tabsStart, tabsEnd);
     const renderedIds = [...tabsBody.matchAll(/id: '([a-z-]+)'/g)].map(match => match[1]);
     // A silent slice or regex miss must not pass vacuously.
-    expect(renderedIds.length).toBeGreaterThanOrEqual(8);
+    expect(renderedIds.length).toBeGreaterThanOrEqual(4);
     for (const id of renderedIds) {
       expect(literal, `tab '${id}' must be reachable`).toContain(`'${id}'`);
     }
@@ -1074,17 +1087,27 @@ describe('Pipeline section reachability and defaults', () => {
    * project with build or run history opens on Builds; an explicit tab choice
    * always wins over both.
    */
-  it('defaults to Builds once anything has run, and respects an explicit choice', () => {
+  it('gives the page to setup only while setup is unfinished, and respects an explicit choice', () => {
     expect(WEBVIEW_SCRIPT).toContain("? persistedWebviewState.pipelineSection : null");
-    // The whole resolution, head included, so the explicit choice provably
-    // wins before the history default is even consulted — and the default is
-    // latched once rather than recomputed, so a background CI refresh cannot
-    // switch the visible tab under the user.
+    // The whole resolution, head included, so an explicit choice provably wins
+    // before the default is consulted — and the default is latched once rather
+    // than recomputed, so a background refresh cannot move the view.
     expect(WEBVIEW_SCRIPT).toMatch(
-      /PIPELINE_SECTIONS\.includes\(state\.pipelineSection\)\s*\?\s*state\.pipelineSection\s*:\s*state\.pipelineSectionDefault/,
+      /PIPELINE_SECTIONS\.includes\(chosen\)\s*\?\s*chosen\s*:\s*state\.pipelineSectionDefault/,
     );
-    expect(WEBVIEW_SCRIPT).toContain("state.pipelineSectionDefault = (buildRecords.length > 0 || runs.length > 0) ? 'builds' : 'overview'");
+    expect(WEBVIEW_SCRIPT).toContain("state.pipelineSectionDefault = setup.complete ? 'activity' : 'setup'");
     expect(WEBVIEW_SCRIPT).toContain('!PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)');
+  });
+
+  /**
+   * One answer to "is setup done", shared by the journey card and the header
+   * chip. Two computations would eventually disagree on the same screen.
+   */
+  it('judges setup completeness once, on durable facts', () => {
+    expect(WEBVIEW_SCRIPT).toContain('function pipelineSetupState(');
+    expect(WEBVIEW_SCRIPT).toContain('complete: workflowReady && machineReady && hasRun');
+    expect(WEBVIEW_SCRIPT).toContain('const setup = pipelineSetupState(runner, buildRecords, runs);');
+    expect(WEBVIEW_SCRIPT).toContain('data-payload="setup"');
   });
 
   /**
@@ -1140,67 +1163,81 @@ describe('Pipeline routing edits and failure actions', () => {
    * renders on Builds with the one action that was always missing: handing the
    * fenced report to a chat session.
    */
-  it('shows the latest failure on Builds with an ask-Atlas action', () => {
-    expect(WEBVIEW_SCRIPT).toContain('renderBuildFailureCard');
-    // The card is only real if the Builds view interpolates it and the call
-    // site passes intel; either wire dropping would leave every copy assertion
-    // below green while the card never renders.
-    expect(WEBVIEW_SCRIPT).toContain('${renderBuildFailureCard(intel)}');
-    expect(WEBVIEW_SCRIPT).toContain('builds: renderPipelineBuilds(delivery.builds || {}, intel)');
-    expect(WEBVIEW_SCRIPT).toContain('Latest failure · what to do about it');
+  it('leads Activity with the classified failure and an ask-Atlas action', () => {
+    // The failure is the only thing on this page asking for a decision, so it
+    // outranks history and the run stream rather than sitting inside them.
+    expect(WEBVIEW_SCRIPT).toContain('ci-activity-lead');
+    expect(WEBVIEW_SCRIPT).toContain('Needs you · latest failure');
+    expect(WEBVIEW_SCRIPT).toContain('${renderCiFailure(report)}');
     expect(WEBVIEW_SCRIPT).toContain('pipeline-ci-failure-work');
     expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'workOnCiFailure' })");
+    // The lead is built inside Activity, not passed in from a dead renderer.
+    expect(WEBVIEW_SCRIPT).toContain('activity: renderPipelineActivity(');
   });
 });
 
-describe('Pipeline analytics summary', () => {
-  it('leads with sentences computed from the same numbers as the charts', () => {
-    const src = pipelineSource('renderPipelineAnalytics', 'renderPipelinePackages');
-    expect(src).toContain('ci-analytics-summary');
-    expect(src).toContain('The least reliable workflow is');
-    expect(src).toContain('counting queue time, because that is what a person actually waits');
-    // "Same numbers" is a claim, so pin it: the pass-rate sentence and the
-    // donut must both read the `passing` tally, or a second divergent count
-    // could appear and this test's title would be a lie.
-    expect(src).toContain('(passing / completed.length)');
-    expect(src).toContain("label: 'Passing', value: passing");
+describe('Activity — measurement honesty', () => {
+  const activity = pipelineSource('renderPipelineActivity', 'describeBuildObservation');
+
+  /**
+   * The ribbon is the measurement. Height is elapsed time and colour is
+   * outcome, so both dimensions have to come from the same runs the metrics
+   * beside them are computed from — a second tally would let the picture and
+   * the numbers disagree on one row.
+   */
+  it('draws duration and outcome from the same run series as the metrics', () => {
+    expect(activity).toContain('renderRunRibbon(row.entries)');
+    expect(activity).toContain('pipelineWorkflowSeries(runs)');
+    const series = pipelineSource('pipelineWorkflowSeries', 'pipelineFlakyWorkflows');
+    expect(series).toContain('durationMs: pipelineRunDurationMs(run)');
+    expect(series).toContain('outcome: pipelineRunOutcome(run)');
   });
 
   /**
-   * A reliability claim from two runs is noise wearing a conclusion's clothes;
-   * the sample-size guard is stated in the copy, not just applied.
+   * Reliability means the same thing here as everywhere else: a cancelled run
+   * is a completed run nobody should read as a failure. Widening the bucket
+   * once produced a workflow reported as failing three times on a page that
+   * also said nothing had failed.
    */
-  it('refuses to call a workflow unreliable without enough samples', () => {
-    expect(WEBVIEW_SCRIPT).toContain('(row.pass + row.fail) >= 3');
-    expect(WEBVIEW_SCRIPT).toContain('too few to call any of them reliable or unreliable');
-    // The pick must come from the filtered set — deriving it from the raw
-    // workflow list would reconnect the claim to unguarded samples.
-    expect(WEBVIEW_SCRIPT).toContain('const leastReliable = measured');
+  it('counts only genuine failures toward reliability', () => {
+    const series = pipelineSource('pipelineWorkflowSeries', 'pipelineFlakyWorkflows');
+    expect(series).toContain("['failure', 'timed_out', 'startup_failure']");
+    expect(series).toContain('passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : undefined');
+  });
+
+  /** A median from two samples is noise; the guard is applied and stated. */
+  it('refuses a typical-duration claim without enough samples', () => {
+    const series = pipelineSource('pipelineWorkflowSeries', 'pipelineFlakyWorkflows');
+    expect(series).toContain('durations.length >= 3 ? durations[Math.floor(durations.length / 2)] : undefined');
+    expect(activity).toContain('Needs 3 completed runs');
+  });
+
+  /** Every figure names the window it was measured over, on the element itself. */
+  it('states the window beside each number rather than in prose somewhere else', () => {
+    expect(activity).toContain('over the last ${row.sampleSize} run');
+    expect(activity).toContain('Median elapsed time including queue wait');
+    expect(activity).toContain('Runs per week across the span of this sample');
+    expect(activity).toContain('Runs GitHub returned for this branch');
   });
 
   /**
-   * "Failed" in the sentence means conclusion === 'failure', the same
-   * definition the pass-rate pill and the donut use. The reliability table's
-   * broader bucket includes cancellations, and a sentence drawing on that
-   * bucket called three cancelled runs three failures — directly under a
-   * sentence computed the strict way.
+   * Published rule, checkable by hand: the reader can open the two runs and
+   * agree or disagree. A flakiness score nobody can reproduce gets ignored.
    */
-  it('counts only genuine failures in the least-reliable sentence', () => {
-    expect(WEBVIEW_SCRIPT).toContain("if (run.conclusion === 'failure') { row.strictFail += 1; }");
-    expect(WEBVIEW_SCRIPT).toContain('leastReliable.strictFail > 0');
-    expect(WEBVIEW_SCRIPT).toContain('${leastReliable.strictFail} of its');
-  });
-
-  it('states the window rather than implying all of history', () => {
-    expect(pipelineSource('renderPipelineAnalytics', 'renderPipelinePackages'))
-      .toContain('a bounded sample, not all of history');
+  it('publishes the flakiness rule beside the flakiness list', () => {
+    expect(activity).toContain('Passed and failed on the same commit');
+    const flaky = pipelineSource('pipelineFlakyWorkflows', 'renderPipelineActivity');
+    expect(flaky).toContain('entry.pass && entry.fail');
   });
 });
 
-describe('Pipeline build list', () => {
+describe('Activity — one stream, honest about what it saw', () => {
+  const activity = pipelineSource('renderPipelineActivity', 'describeBuildObservation');
+
   it('shows every route in one list', () => {
-    expect(WEBVIEW_SCRIPT).toContain('renderPipelineBuilds');
-    expect(WEBVIEW_SCRIPT).toContain("id: 'builds'");
+    expect(WEBVIEW_SCRIPT).toContain('renderPipelineActivity');
+    expect(WEBVIEW_SCRIPT).toContain("id: 'activity'");
+    expect(activity).toContain('ci-activity-stream');
   });
 
   /**
@@ -1209,11 +1246,13 @@ describe('Pipeline build list', () => {
    */
   it('says plainly when it cannot report how a build ended', () => {
     expect(WEBVIEW_SCRIPT).toContain('does not read it, so it cannot report how they ended');
-    expect(WEBVIEW_SCRIPT).toContain('no verdict by design');
+    expect(activity).toContain('no verdict by design');
+    // Marked, never blank — a blank mark reads as "no", which is a claim.
+    expect(WEBVIEW_SCRIPT).toContain("unknown: '?'");
   });
 
   it('marks hosted progress as polled rather than streamed', () => {
-    expect(WEBVIEW_SCRIPT).toContain('checked at intervals, not streamed');
+    expect(WEBVIEW_SCRIPT).toContain('Checked at intervals rather than streamed');
   });
 
   /**
@@ -1221,7 +1260,8 @@ describe('Pipeline build list', () => {
    * rendering them alike would let the first read as a quiet week.
    */
   it('keeps unfetched hosted history distinct from empty history', () => {
-    expect(WEBVIEW_SCRIPT).toContain('Hosted history has not been loaded');
-    expect(WEBVIEW_SCRIPT).toContain('not evidence that nothing ran there');
+    expect(activity).toContain('Hosted history has not been loaded');
+    expect(activity).toContain('not evidence that nothing ran on GitHub');
+    expect(activity).toContain('That is not evidence that the build passed');
   });
 });

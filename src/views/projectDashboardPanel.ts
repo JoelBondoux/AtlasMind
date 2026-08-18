@@ -19678,6 +19678,114 @@ const DASHBOARD_CSS = `
 
   .ci-build-failure { display: grid; gap: 10px; border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
 
+  /* ── Pipeline: four-view shell ──────────────────────────────── */
+  .ci-studio-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .ci-studio-bar .ci-studio-tabs { flex: 1 1 auto; }
+  .ci-studio-tabs button small {
+    display: block;
+    font-size: 10.5px;
+    color: var(--dash-muted);
+    letter-spacing: 0.02em;
+    margin-top: 1px;
+  }
+  .ci-studio-tabs button small.warn { color: var(--dash-warn); }
+  .ci-studio-tabs button small.bad { color: var(--dash-critical); }
+  .ci-studio-status { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+  .ci-status-chip {
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+    color: var(--dash-muted);
+    white-space: nowrap;
+  }
+  button.ci-status-chip { cursor: pointer; font-family: inherit; }
+  button.ci-status-chip:hover { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  .ci-status-chip.good { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
+  .ci-status-chip.warn { color: var(--dash-warn); border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-status-chip.bad { color: var(--dash-critical); border-color: var(--dash-critical); }
+
+  /* ── Activity ───────────────────────────────────────────────── */
+  .ci-activity-lead { border-left: 3px solid var(--dash-warn); display: grid; gap: 10px; }
+
+  .ci-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 2px;
+    border-bottom: 1px dashed var(--dash-border);
+    flex-wrap: wrap;
+  }
+  .ci-activity-row:last-child { border-bottom: none; }
+  .ci-activity-name { font-weight: 600; min-width: 150px; flex: 0 1 auto; }
+  .ci-activity-trio {
+    display: inline-flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ci-activity-trio b { color: var(--dash-heading); font-weight: 600; }
+
+  /* Two dimensions in one glyph: height is elapsed time, colour is outcome. */
+  .ci-ribbon {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 26px;
+    flex: 0 0 auto;
+  }
+  .ci-ribbon i {
+    display: inline-block;
+    width: 5px;
+    border-radius: 1px;
+    background: var(--dash-good);
+  }
+  .ci-ribbon i.fail { background: var(--dash-warn); }
+  .ci-ribbon i.running { background: var(--dash-accent-strong); }
+  .ci-ribbon i.other,
+  .ci-ribbon i.unknown { background: var(--dash-border); }
+  .ci-ribbon.empty { width: 40px; border-bottom: 1px dashed var(--dash-border); height: 1px; align-self: center; }
+
+  .ci-activity-stream { display: grid; gap: 6px; margin-top: 4px; }
+  .ci-activity-build {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 8px 11px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-activity-build.status-failed { border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border)); }
+  .ci-activity-build.status-running { border-color: color-mix(in srgb, var(--dash-accent-strong) 50%, var(--dash-border)); }
+  .ci-activity-mark {
+    display: grid;
+    place-items: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    background: color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+  .ci-activity-build.status-passed .ci-activity-mark { color: var(--dash-good); }
+  .ci-activity-build.status-failed .ci-activity-mark { color: var(--dash-warn); }
+  /* Marked, never blank: a blank mark reads as "no", which is a claim. */
+  .ci-activity-build.status-unknown .ci-activity-mark { color: var(--dash-muted); font-weight: 700; }
+  .ci-activity-build-main { flex: 1 1 auto; min-width: 0; }
+  .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
+  .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
+
   .ci-routing-credit {
     display: flex;
     align-items: center;
