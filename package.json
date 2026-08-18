@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.348.0",
+  "version": "0.349.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -139,6 +139,10 @@
           {
             "name": "lens",
             "description": "Atlas Lenses: what to put in the repository declaration files, with a worked example for each"
+          },
+          {
+            "name": "localci",
+            "description": "Local CI: a checklist for running this repository's GitHub job on your own computer"
           },
           {
             "name": "setup",

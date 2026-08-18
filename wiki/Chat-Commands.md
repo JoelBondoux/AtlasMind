@@ -36,12 +36,18 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
 | `/buzz` | Guided setup for the Buzz messaging integration |
 | `/lens` | What to put in the Lens declaration files, with a worked example for each |
+| `/localci` | Guided setup for running this repository's GitHub CI job on your own computer |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
-All three setup guides work the same way: each step is reported as done, to do, blocked or optional based
+All four setup guides work the same way: each step is reported as done, to do, blocked or optional based
 on what's actually configured, and **none of them will switch anything on for you**. `/acp` finishes by
-proving a real answer comes back; `/buzz` finishes by proving a real message arrives. Subscribed isn't the
-same as receiving, and installed isn't the same as working.
+proving a real answer comes back; `/buzz` finishes by proving a real message arrives; `/localci` finishes
+by proving one CI job has actually run. Subscribed isn't the same as receiving, and installed isn't the
+same as working.
+
+`/localci` is the one that probes your machine — it checks the trusted workflow, `gh` and Docker — so it
+takes a moment longer than the others. `/setup` deliberately skips that probe when listing all four, and
+shows local CI as not yet checked rather than making the index slow on a machine that has neither.
 
 `/lens` differs in one respect: it lists all five declaration files rather than walking you through them in
 order, because the files are independent and you may only ever want one of them. Only the two that

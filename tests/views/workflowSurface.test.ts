@@ -461,7 +461,13 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain('operating-system applications installed outside this workspace');
     expect(WEBVIEW_SCRIPT).toContain('do not write application files into this repository');
     expect(WEBVIEW_SCRIPT).toContain('Open Docker’s official installation guide');
-    expect(WEBVIEW_SCRIPT).toContain('Open GitHub CLI’s official installation page');
+    // The GitHub CLI card now leads with an install AtlasMind can run after
+    // showing the exact command, with the official page kept beside it — the
+    // link is the fallback for platforms with no reviewed command, not the
+    // only route.
+    expect(WEBVIEW_SCRIPT).toContain('Install it for me');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-install-gh');
+    expect(WEBVIEW_SCRIPT).toContain('Official installation page');
     expect(WEBVIEW_SCRIPT).toContain('gh auth login --hostname github.com --web');
     expect(WEBVIEW_SCRIPT).toContain('This may be run in the VS Code terminal');
     expect(WEBVIEW_SCRIPT).toContain('AtlasMind never runs an installer for you.');

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.348.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.349.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,19 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.348.0
+## What's new in 0.349.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **`/localci` walks you through local CI, and AtlasMind can install the GitHub CLI for you.** Local CI has
+  more prerequisites than anything else in AtlasMind, and now has a guide that derives each one from your
+  machine rather than asking. It installs and enables nothing — every step opens the screen where you
+  decide — and its last step is proving one job has actually run, because configured is not the same as
+  working. A missing `gh` can now be installed from the Runner view, with the exact command shown first and
+  success confirmed by re-checking PATH rather than by an exit code. An arm64 machine is told plainly that
+  the shipped runner image is the reviewed x64 digest, which setting to change, and how to get the right
+  one, instead of meeting a confusing pull failure.
 
 - **AtlasMind writes the trusted local-CI workflow, and checks it before anything else.** The file that
   authorises a GitHub job to run on your machine has the strictest contract in the product, and used to be
@@ -1029,7 +1038,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/cost` | Running spend for this workspace across all sessions (each reply's own cost is in its footer) |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
-| `/setup` · `/acp` · `/buzz` · `/lens` | Guided setup walkthroughs |
+| `/setup` · `/acp` · `/buzz` · `/lens` · `/localci` | Guided setup walkthroughs |
 | `/ship [routine]` | Run a saved project routine |
 | `/sync-instructions` | Keep every AI tool's instruction file in agreement |
 | `/voice` · `/vision` | Speech and image analysis panels |
@@ -1064,7 +1073,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

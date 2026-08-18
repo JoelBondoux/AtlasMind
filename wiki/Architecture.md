@@ -362,6 +362,17 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+Local CI also has a guide of its own, `/localci`, listed beside Buzz, ACP and Lens in `/setup`. It has more
+external prerequisites than anything else in AtlasMind, and was the only feature of that shape without one —
+so the way you found a missing prerequisite was by hitting the failure it caused. Every step is derived from
+your machine rather than asked for, and nothing in it installs or enables anything: each action opens the
+screen where you decide, and a test asserts that. Its last step is proving a job has actually run, which is
+kept out of the readiness check on purpose — a runner set up correctly and never used is ready, not faulty.
+A missing GitHub CLI can be installed from the Runner view, from commands held as constants in the extension
+host, shown in full before anything runs and confirmed afterwards by re-checking PATH rather than by an exit
+code. Docker is deliberately not installed that way, and neither is `gh` on Debian and Ubuntu, where the
+reliable route means adding a repository and keyring that AtlasMind will not script.
+
 The same Pipeline page now has a separate **execution fabric** backed by `localCiRunner.ts`. GitHub Actions
 is the connected provider and Docker is the current executor; Buildkite, Semaphore and other systems are
 shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
@@ -530,7 +541,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection and trusted-workflow generation (`ciManager.ts`, `trustedLocalCiStarter.ts`), the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

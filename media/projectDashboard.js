@@ -1198,6 +1198,10 @@
       vscode.postMessage({ type: 'createTrustedCiStarter' });
       return;
     }
+    if (action === 'pipeline-install-gh') {
+      vscode.postMessage({ type: 'installGitHubCli' });
+      return;
+    }
     if (action === 'pipeline-queue-command-copy') {
       vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
       return;
@@ -6701,7 +6705,7 @@
             <p class="stat-detail"><strong>Where software goes:</strong> Docker and GitHub CLI are operating-system applications installed outside this workspace. They do not become project dependencies and do not write application files into this repository.</p>
             <div class="ci-install-steps">
               ${!runnerEngine.cliInstalled ? `<div class="ci-install-step"><strong>Install Docker for ${escapeHtml(platformName)}</strong><p>Machine-level change · may request administrator approval or a restart.</p><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="${dockerHelpId}">Open Docker’s official installation guide ↗</button></div>` : ''}
-              ${!runnerPrerequisites.githubCliInstalled ? '<div class="ci-install-step"><strong>Install GitHub CLI</strong><p>Operating-system command-line tool · installed outside the repository.</p><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="github-cli">Open GitHub CLI’s official installation page ↗</button></div>' : ''}
+              ${!runnerPrerequisites.githubCliInstalled ? '<div class="ci-install-step"><strong>Install GitHub CLI</strong><p>Operating-system command-line tool · installed outside the repository. AtlasMind shows the exact command before running anything, and installs nothing else.</p><div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-install-gh">Install it for me…</button><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="github-cli">Official installation page ↗</button></div></div>' : ''}
               ${runnerPrerequisites.githubCliInstalled && !runnerPrerequisites.githubAuthenticated ? '<div class="ci-install-step"><strong>Sign GitHub CLI in for this computer user</strong><p>This may be run in the VS Code terminal. It opens a browser and stores authentication in the operating system’s credential store; it does not change repository files.</p><code>gh auth login --hostname github.com --web</code></div>' : ''}
             </div>
             <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>

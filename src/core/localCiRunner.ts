@@ -13,6 +13,23 @@ import type { GpuDevice } from '../providers/gpuProbeParse.js';
 const execFileAsync = promisify(execFile);
 
 export const DEFAULT_LOCAL_CI_IMAGE = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda';
+/**
+ * The architecture the shipped default digest resolves to.
+ *
+ * A digest names one immutable thing. This one was reviewed against the Linux
+ * **x64** manifest of runner 2.336.0, so on an arm64 engine it is simply the
+ * wrong image — and no arm64 digest ships beside it because nobody has reviewed
+ * one, and inventing a plausible digest would be exactly the fabricated pin
+ * `trustedLocalCiStarter` refuses to emit.
+ *
+ * Naming the architecture lets the mismatch be *reported* instead of being
+ * discovered as a confusing pull failure: an Apple-silicon or arm64-Linux
+ * operator gets a blocker that names the setting to change and the command that
+ * produces the right digest.
+ */
+export const DEFAULT_LOCAL_CI_IMAGE_ARCH = 'x64';
+/** The tag the shipped digest was reviewed against, for the mismatch remedy. */
+export const DEFAULT_LOCAL_CI_IMAGE_TAG = 'ghcr.io/actions/actions-runner:2.336.0';
 export const LOCAL_CI_MIN_CPUS = 2;
 export const LOCAL_CI_MIN_MEMORY_GB = 4;
 export const LOCAL_CI_PIDS_LIMIT = 1024;
@@ -764,6 +781,22 @@ export class LocalCiRunnerManager {
     }
     if (!/^[A-Za-z0-9._/@:-]{1,300}$/.test(configuration.image)) {
       blockers.push('The configured runner image is not a valid immutable image reference.');
+    }
+
+    // An arch mismatch is reported as itself rather than left to surface as a
+    // pull failure. The shipped digest is the x64 manifest, so on an arm64
+    // engine it is the wrong image — and "image could not be pulled" sends
+    // somebody looking at their network instead of at one setting.
+    if (engine.available
+      && configuration.image === DEFAULT_LOCAL_CI_IMAGE
+      && (engine.arch ?? host.arch) !== DEFAULT_LOCAL_CI_IMAGE_ARCH) {
+      blockers.push(
+        `Docker reports ${engine.arch ?? host.arch}, but the runner image AtlasMind ships is the reviewed `
+        + `${DEFAULT_LOCAL_CI_IMAGE_ARCH} digest. Pin the matching manifest digest for your architecture in `
+        + 'atlasmind.ci.localRunner.image — read it from '
+        + `\`docker buildx imagetools inspect ${DEFAULT_LOCAL_CI_IMAGE_TAG}\` and compare it against GitHub's `
+        + 'package page before trusting it. AtlasMind ships no arm64 digest because none has been reviewed here.',
+      );
     }
 
     if (engine.available && blockers.length === 0) {

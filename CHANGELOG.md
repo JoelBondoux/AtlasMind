@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.349.0] - 2026-08-18
+
+### Added
+
+- **`/localci` — a setup guide for the feature with the most prerequisites in AtlasMind.** Local CI needs a
+  committed workflow that satisfies a dozen rules, a machine-scoped permission, the GitHub CLI, an
+  authenticated GitHub session, a Docker engine and a queued job. Every other feature of that shape already
+  had a guide; this one did not, so a missing prerequisite was discovered by hitting the failure it caused.
+  The guide derives every step from the machine rather than asking, and — like the Buzz and ACP guides —
+  **installs and enables nothing**: every action opens a surface, and a test asserts it. It also appears in
+  `/setup`, where it is rendered without probing Docker or `gh`, so opening the index stays fast on a
+  machine that has neither.
+- **The guide refuses to stop at "configured".** Its last step is proving one job has actually run, which is
+  deliberately excluded from the readiness predicate: a correctly configured runner that has never executed
+  anything is *ready*, and reporting that as a fault would be wrong while reporting it as finished would be
+  worse.
+- **AtlasMind can install the GitHub CLI, after showing the exact command.** The previous help for a missing
+  `gh` was a link and "restart VS Code". The Runner view now offers an install built from constants in the
+  extension host — no shell, nothing parsed from a documentation page — with every command and its purpose
+  listed in a confirmation first. Success is decided by re-probing PATH rather than by an exit code, because
+  a package manager can report success while putting the binary somewhere this window will not see.
+
+### Changed
+
+- **An architecture mismatch on the runner image is now reported as itself.** The digest AtlasMind ships is
+  the reviewed Linux **x64** manifest, so on an arm64 engine it is simply the wrong image — and it used to
+  surface as a generic pull failure, which sends somebody to look at their network instead of at one
+  setting. The blocker now names the architecture Docker reported, the setting to change, and the command
+  that produces the right digest. No arm64 digest ships beside it because none has been reviewed here, and
+  inventing a plausible one is exactly the fabricated pin the trusted-workflow generator refuses to emit.
+
+### Fixed
+
+- **The GitHub CLI install path is not exempted from the `gh` command-line rule.** The setup guide receives
+  the queue command already built and validated by `buildLocalCiQueueInvocation` rather than composing
+  `gh workflow run` from settings itself — a rule worth keeping even for a string that is only displayed,
+  because the distance between displayed and executed is one refactor. Where those settings fail validation
+  the guide says so instead of printing something unusable.
+
 ## [0.348.0] - 2026-08-18
 
 ### Added

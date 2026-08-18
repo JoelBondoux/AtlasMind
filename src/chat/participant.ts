@@ -1,4 +1,5 @@
 ﻿import * as fs from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
@@ -864,6 +865,7 @@ export async function runDeterministicSlashCommand(
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'lens': await handleLensCommand(stream); return true;
+    case 'localci': await handleLocalCiCommand(stream); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
@@ -2347,6 +2349,149 @@ async function handleLensCommand(stream: vscode.ChatResponseStream): Promise<voi
 }
 
 /**
+ * Gather the local CI guide's state from the machine, not from the user.
+ *
+ * Two costs, deliberately separated by `probe`. The workflow review and the
+ * permission are **free** — a file read and a settings read — so they are
+ * always done, which is what lets the guide give a useful answer on a machine
+ * with nothing installed. Probing `gh` and Docker means up to four process
+ * launches that are slowest exactly when they fail, so `/setup` skips them and
+ * `/localci` pays for them.
+ *
+ * The probe reuses `LocalCiRunnerManager.inspect` rather than reimplementing
+ * it. A second prerequisite probe would be a second answer to "is Docker
+ * available", and the two would eventually disagree — with the guide and the
+ * dashboard telling the same person different things about the same machine.
+ * The manager instantiated here is a throwaway reader: inspection starts no
+ * container and registers nothing.
+ */
+async function collectLocalCiSetupSteps(
+  options: { probe: boolean },
+): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildLocalCiSetupPlan }, { LocalCiRunnerManager, initialLocalCiRunnerSnapshot, buildLocalCiQueueInvocation }, { parseRepoSlug }] =
+    await Promise.all([
+      import('../core/localCiSetupPlan.js'),
+      import('../core/localCiRunner.js'),
+      import('../core/githubDeepLinks.js'),
+    ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const shutdown = configuration.get<string>('ci.localRunner.shutdownPolicy', 'ifStartedByAtlasMind');
+  const runnerConfiguration = {
+    enabled: configuration.get<boolean>('ci.localRunner.enabled', false),
+    workflowFile: configuration.get<string>('ci.localRunner.workflowFile', 'trusted-local-ci.yml').trim(),
+    trustedBranch: configuration.get<string>('ci.localRunner.trustedBranch', 'develop').trim(),
+    runnerLabel: configuration.get<string>('ci.localRunner.runnerLabel', 'atlasmind-trusted-linux-{arch}').trim(),
+    image: configuration.get<string>('ci.localRunner.image', '').trim(),
+    shutdownPolicy: (shutdown === 'never' || shutdown === 'always' ? shutdown : 'ifStartedByAtlasMind') as
+      'never' | 'always' | 'ifStartedByAtlasMind',
+    maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
+    maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+  };
+
+  const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');
+  const permissionSourceLabel = inspection?.workspaceFolderValue !== undefined ? 'workspace-folder setting'
+    : inspection?.workspaceValue !== undefined ? 'workspace setting'
+      : inspection?.globalValue !== undefined ? 'current VS Code user/machine setting'
+        : 'default for this VS Code profile and extension host';
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceRoot = folder?.uri.scheme === 'file' ? folder.uri.fsPath : undefined;
+
+  const queueInvocation = buildLocalCiQueueInvocation(runnerConfiguration);
+  const base = {
+    ...(queueInvocation ? { queueCommand: [queueInvocation.command, ...queueInvocation.args].join(' ') } : {}),
+    permissionEnabled: runnerConfiguration.enabled,
+    permissionSourceLabel,
+    workflowFile: runnerConfiguration.workflowFile || 'trusted-local-ci.yml',
+    trustedBranch: runnerConfiguration.trustedBranch || 'develop',
+    prerequisitesInspected: false,
+    githubCliInstalled: false,
+    githubAuthenticated: false,
+    dockerCliInstalled: false,
+    dockerEngineAvailable: false,
+    dockerDesktopAvailable: false,
+    // A completed run is a fact about a live manager the chat surface does not
+    // own. Reported as "not yet" rather than guessed: the dashboard knows, and
+    // claiming a run happened because the configuration looks right is exactly
+    // the "configured means working" conflation this step exists to refuse.
+    hasCompletedARun: false,
+  };
+  if (!workspaceRoot) {
+    return buildLocalCiSetupPlan(base);
+  }
+
+  const manager = new LocalCiRunnerManager(workspaceRoot, runnerConfiguration);
+  let snapshot = initialLocalCiRunnerSnapshot(runnerConfiguration);
+  if (options.probe) {
+    snapshot = await manager.inspect(runnerConfiguration).catch(() => snapshot);
+  }
+
+  // The remote answers "which repository is this" without needing `gh`, which
+  // matters because the workflow review has to work before `gh` is installed.
+  const remote = await new Promise<string>(resolve => {
+    execFile('git', ['remote', 'get-url', 'origin'], { cwd: workspaceRoot, windowsHide: true, timeout: 5_000 },
+      (error, stdout) => resolve(error ? '' : String(stdout).trim()));
+  });
+  const slug = parseRepoSlug(remote);
+  const workflowReview = slug
+    ? await manager.reviewWorkflow(
+      runnerConfiguration,
+      `${slug.owner}/${slug.repo}`,
+      snapshot.runnerLabel,
+    ).catch(() => undefined)
+    : undefined;
+
+  return buildLocalCiSetupPlan({
+    ...base,
+    ...(workflowReview ? { workflowReview } : {}),
+    prerequisitesInspected: options.probe && snapshot.prerequisites.inspection === 'inspected',
+    githubCliInstalled: snapshot.prerequisites.githubCliInstalled,
+    githubAuthenticated: snapshot.prerequisites.githubAuthenticated,
+    dockerCliInstalled: snapshot.engine.cliInstalled,
+    dockerEngineAvailable: snapshot.engine.available,
+    dockerDesktopAvailable: snapshot.engine.desktopAvailable,
+  });
+}
+
+/**
+ * `/localci` — the local CI walkthrough.
+ *
+ * Renders the whole plan rather than one step at a time, like `/lens` and
+ * unlike `/acp`. The steps are ordered but not strictly sequential: somebody
+ * may already have Docker and `gh` and need only the workflow, and marching
+ * them through five screens to reach the one they came for is how a guide
+ * stops being opened.
+ */
+async function handleLocalCiCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  const [{ LOCAL_CI_SETUP_GUIDE }, walkthrough] = await Promise.all([
+    import('../core/localCiSetupPlan.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+  stream.progress('Checking the trusted workflow, GitHub CLI and Docker on this machine…');
+  const steps = await collectLocalCiSetupSteps({ probe: true });
+  const progress = walkthrough.summarizeSetupProgress(steps, LOCAL_CI_SETUP_GUIDE.stepIds);
+
+  stream.markdown(walkthrough.renderSetupGuideMarkdown(LOCAL_CI_SETUP_GUIDE, steps, progress));
+  stream.markdown([
+    '',
+    '---',
+    '',
+    'AtlasMind runs no permanent runner service. When you lend the machine, it starts one container for one job and removes the registration afterwards.',
+    'Nothing here is switched on for you: the permission is yours to grant, and every run asks separately, naming the exact queued job.',
+  ].join('\n'));
+
+  const next = walkthrough.nextSetupStep(steps, LOCAL_CI_SETUP_GUIDE.stepIds);
+  if (next?.action && walkthrough.isOpeningAction(next.action.command)) {
+    stream.button({
+      command: next.action.command,
+      title: next.action.title,
+      ...(next.action.args ? { arguments: next.action.args } : {}),
+    });
+  }
+}
+
+/**
  * `/setup` — the index of every setup guide, with how far along each one is.
  *
  * Exists because a feature that needs configuring should be discoverable before
@@ -2378,11 +2523,20 @@ async function handleSetupCommand(
     await handleLensCommand(stream);
     return;
   }
+  if (requested?.id === 'localci') {
+    await handleLocalCiCommand(stream);
+    return;
+  }
 
   const plans: Array<{ guideId: string; steps: import('../core/setupWalkthrough.js').SetupStep[] }> = [];
   plans.push({ guideId: 'acp', steps: await collectAcpSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'buzz', steps: await collectBuzzSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'lens', steps: await collectLensSetupSteps().catch(() => []) });
+  // Probe-free on the index: `/setup` lists four guides, and paying for a
+  // Docker and `gh` probe to render one row would make opening the index
+  // noticeably slow on a machine that has neither. The row then reads
+  // "not checked yet", which is true, and `/localci` does the real probe.
+  plans.push({ guideId: 'localci', steps: await collectLocalCiSetupSteps({ probe: false }).catch(() => []) });
 
   stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
   if (trimmed && !requested) {

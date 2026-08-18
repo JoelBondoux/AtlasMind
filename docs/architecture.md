@@ -557,6 +557,47 @@ is readable by somebody who has never pinned an action while the YAML stays insp
 has. Branch shape rules are shared with `ciManager.safeWorkflowBranchRef` rather than duplicated. Pure and
 `vscode`-free; unit and property coverage in `tests/core/trustedLocalCiStarter.test.ts`.
 
+### LocalCiSetupPlan (`src/core/localCiSetupPlan.ts`)
+
+The `/localci` walkthrough, and the fourth entry in `SETUP_GUIDES`. Local CI has more external
+prerequisites than anything else in AtlasMind — a committed workflow satisfying a dozen rules, a
+machine-scoped permission, `gh`, an authenticated GitHub session, a Docker engine and a queued job — and
+was the only feature of that shape without a guide, so a missing prerequisite was discovered by hitting
+the failure it caused.
+
+Delegates every mechanic to `setupWalkthrough`, so ordering, next-step selection, progress counting and
+rendering cannot drift from the Buzz, ACP and Lens guides. Two properties are enforced rather than
+described: **nothing here installs or enables anything** (every action is an opening action, asserted by
+`findNonOpeningActions` over several states — a guide that switched on the gate deciding whether GitHub
+may execute code on this machine would have removed the reason that gate exists), and **an unprobed
+`false` is reported as "not checked", never as "missing"**, since sending somebody to install software
+they already have is how a guide stops being trusted.
+
+Step order follows the order things fail in, with the workflow check deliberately first because it is a
+filesystem read and therefore free. `firstRun` — proving a job has actually completed — is in the
+walkthrough but excluded from `isLocalCiReady`, the same split `acpSetupPlan` makes: a correctly
+configured runner that has never executed anything is ready, and calling it unready would send somebody to
+fix what is not broken. The queue command is **passed in already validated** by
+`buildLocalCiQueueInvocation` rather than composed here; interpolating a filename and branch into a
+GitHub CLI command line is the shape `ghExecBoundary` forbids, and the runner already owns that answer.
+Pure + unit-tested.
+
+### LocalCiInstaller (`src/core/localCiInstaller.ts`)
+
+Planning the GitHub CLI install, in the shape `acpInstaller` and `mcp/mcpRuntime` already settled: every
+command is a constant in the file (never parsed from a page, never model-generated), `execFile` with no
+shell, and planning performs nothing — execution is a separate call after a modal lists each command with
+its purpose. Success is verified by re-resolving `gh` on PATH rather than by an exit code, because a
+package manager can report success while installing somewhere this window will not see until it reloads.
+
+Two omissions are deliberate and documented in the module. **Docker is not installed by AtlasMind** — a
+system service with a virtual machine behind it, frequently needing a reboot, whose installer is
+interactive on Windows and macOS; the official page remains the offer. **`apt-get` is not offered for
+`gh`**, because the reliable route on Debian and Ubuntu adds GitHub's apt repository and keyring, a
+network-fetched key feeding an install step, which is precisely the shape the constants rule exists to
+refuse. Both produce a `manual` plan naming the reason rather than a command that would fail. Pure apart
+from an injected probe + unit-tested.
+
 ### LocalCiRunnerManager (`src/core/localCiRunner.ts`)
 
 The execution half of Project Dashboard → Pipeline. It is intentionally separate from `CiManager`:

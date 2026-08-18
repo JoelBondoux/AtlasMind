@@ -225,6 +225,12 @@ import {
 } from '../core/localCiRunner.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
+  planGitHubCliInstall,
+  runGitHubCliInstallPlan,
+  GITHUB_CLI_INSTALL_URL,
+} from '../core/localCiInstaller.js';
+import { findCommandExecutable } from '../mcp/mcpClient.js';
+import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
   permits,
@@ -642,6 +648,8 @@ type ProjectDashboardMessage =
   | { type: 'assessTrustedCiWorkflow' }
   /** Create the trusted workflow. Create-only, previewed, and never overwrites. */
   | { type: 'createTrustedCiStarter' }
+  /** Install the GitHub CLI. Carries nothing: the host owns every command. */
+  | { type: 'installGitHubCli' }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -3929,6 +3937,9 @@ export class ProjectDashboardPanel {
       case 'createTrustedCiStarter':
         await this.handleCreateTrustedCiStarter();
         return;
+      case 'installGitHubCli':
+        await this.handleInstallGitHubCli();
+        return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
         this.localCiOutput?.show(true);
@@ -5791,6 +5802,87 @@ export class ProjectDashboardPanel {
     void vscode.window.showInformationMessage(
       `Created ${plan.path}. Review it, commit it, then push or dispatch ${plan.trustedBranch} to queue a job.`,
     );
+  }
+
+  /**
+   * Install the GitHub CLI, after showing exactly what will run.
+   *
+   * The previous help for a missing `gh` was a link and "restart VS Code",
+   * which is accurate and the longest detour in a flow that already has five
+   * prerequisites. This follows the settled shape from `acpInstaller`: the plan
+   * is built from constants in the host, the modal lists every command with its
+   * purpose, and nothing runs until that is accepted.
+   *
+   * Where no reviewed command applies — Debian and Ubuntu among them, on
+   * purpose — the official page is offered rather than a command that would
+   * fail. And success is decided by re-probing PATH, not by an exit code:
+   * telling somebody "installed" when nothing then works would move the problem
+   * rather than fix it.
+   */
+  private async handleInstallGitHubCli(): Promise<void> {
+    const probe = { platform: process.platform, findExecutable: findCommandExecutable };
+    const plan = planGitHubCliInstall(probe);
+
+    if (plan.status === 'ready') {
+      void vscode.window.showInformationMessage('The GitHub CLI is already on PATH. Inspect the runner again to pick it up.');
+      return;
+    }
+    if (plan.status === 'manual') {
+      const open = await vscode.window.showWarningMessage(
+        'AtlasMind has no reviewed install command for this machine.',
+        { modal: true, detail: `${plan.reason}\n\nThe official installation instructions cover every platform.` },
+        'Open official instructions',
+      );
+      if (open === 'Open official instructions') {
+        await vscode.env.openExternal(vscode.Uri.parse(GITHUB_CLI_INSTALL_URL));
+      }
+      return;
+    }
+
+    const elevation = plan.steps.some(step => step.requiresElevation)
+      ? ['', 'This needs administrator rights. AtlasMind cannot prompt for a password, so it will fail unless you have passwordless sudo — run the command in a terminal if it does.']
+      : [];
+    const confirmation = await vscode.window.showWarningMessage(
+      `Install ${plan.displayName} on this machine?`,
+      {
+        modal: true,
+        detail: [
+          'AtlasMind will run exactly this:',
+          ...plan.steps.map(step => `  ${step.humanCommand}`),
+          ...elevation,
+          '',
+          'This installs an operating-system application outside your workspace. It adds no dependency to this repository.',
+        ].join('\n'),
+      },
+      'Run install',
+    );
+    if (confirmation !== 'Run install') {
+      return;
+    }
+
+    const outcome = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `AtlasMind: installing ${plan.displayName}`,
+      cancellable: false,
+    }, async progress => runGitHubCliInstallPlan(plan, probe, message => {
+      this.localCiOutput?.appendLine(`[install] ${message}`);
+      progress.report({ message });
+    }));
+
+    this.localCiOutput?.appendLine(`[install] ${outcome.ok ? 'succeeded' : 'failed'}: ${outcome.message}`);
+    if (!outcome.ok) {
+      this.localCiOutput?.show(true);
+      void vscode.window.showWarningMessage(outcome.message.slice(0, 500));
+      return;
+    }
+    // Re-inspect rather than asserting: the page should now be showing what the
+    // machine actually reports, not what the install claimed.
+    const runner = this.getLocalCiRunner();
+    if (runner) {
+      await runner.inspect(readLocalCiRunnerConfiguration()).catch(() => undefined);
+    }
+    await this.syncState();
+    void vscode.window.showInformationMessage(outcome.message);
   }
 
   private localCiCommandContext(): { command: string; workspaceRoot: string } | undefined {
@@ -9317,7 +9409,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
     || candidate['type'] === 'assessTrustedCiWorkflow'
-    || candidate['type'] === 'createTrustedCiStarter') {
+    || candidate['type'] === 'createTrustedCiStarter'
+    || candidate['type'] === 'installGitHubCli') {
     return candidate['payload'] === undefined;
   }
 

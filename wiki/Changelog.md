@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.349.0 — A setup guide for local CI, and an installer for the CLI it needs
+
+Local CI asks more of you than anything else in AtlasMind: a workflow file that satisfies a dozen rules, a
+permission, the GitHub CLI, a GitHub sign-in, Docker, and a queued job. Buzz has a guide. ACP has a guide.
+Lens has a guide. This did not — so the way you found out something was missing was by hitting the failure
+it caused, several steps in.
+
+`/localci` is that guide. It works out each step from your actual machine rather than asking you, and it
+switches nothing on for you — every step opens the screen where you decide, which is the same promise the
+other three make and a test now enforces here too. It finishes by proving one job has actually run, because
+a runner that is perfectly configured and has never executed anything looks identical, from every settings
+screen, to one that works.
+
+Two smaller things came with it. A missing GitHub CLI can now be installed from the Runner view: AtlasMind
+shows the exact command first, runs it without a shell, and confirms afterwards by looking for `gh` on PATH
+rather than trusting the installer's exit code. Docker is deliberately not installed this way — it is a
+system service with a virtual machine behind it — and neither is `gh` on Debian or Ubuntu, where the real
+route means adding a repository and a signing key that AtlasMind will not script for you.
+
+And an arm64 machine is now told plainly that the runner image AtlasMind ships is the reviewed x64 one,
+which setting to change and how to find the right digest, instead of meeting a pull failure that looks like
+a network problem.
+
 ## v0.348.0 — AtlasMind writes the trusted workflow, and checks it first
 
 One file decides which GitHub jobs may run on your own computer. It carried the strictest set of rules in
