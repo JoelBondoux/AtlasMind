@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { buildTrustedLocalCiStarter } from '../../src/core/trustedLocalCiStarter.ts';
 import {
   LOCAL_CI_MIN_CPUS,
   LOCAL_CI_MIN_MEMORY_GB,
+  LocalCiRunnerManager,
   assessLocalCiQueue,
   assessTrustedLocalCiWorkflow,
   buildLocalCiQueueInvocation,
@@ -264,6 +268,116 @@ describe('queued-run and registration parsing', () => {
     expect(registeredRunnerNames(JSON.stringify([JSON.parse(raw)]), 'atlasmind-trusted-linux-x64'))
       .toEqual(['trusted']);
     expect(registeredRunnerNames('not json', 'atlasmind-trusted-linux-x64')).toEqual([]);
+  });
+});
+
+describe('trusted workflow review', () => {
+  const configuration = {
+    enabled: true,
+    workflowFile: 'trusted-local-ci.yml',
+    trustedBranch: 'develop',
+    runnerLabel: 'atlasmind-trusted-linux-{arch}',
+    image: 'ghcr.io/actions/actions-runner@sha256:' + 'a'.repeat(64),
+    shutdownPolicy: 'ifStartedByAtlasMind' as const,
+    maxCpus: 8,
+    maxMemoryGb: 16,
+  };
+
+  async function workspaceWith(files: Record<string, string>): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), 'atlasmind-ci-'));
+    await mkdir(path.join(root, '.github', 'workflows'), { recursive: true });
+    for (const [name, content] of Object.entries(files)) {
+      await writeFile(path.join(root, '.github', 'workflows', name), content, 'utf8');
+    }
+    return root;
+  }
+
+  function reviewerFor(root: string): LocalCiRunnerManager {
+    return new LocalCiRunnerManager(root, configuration);
+  }
+
+  const goodWorkflow = buildTrustedLocalCiStarter({
+    repoRemote: 'JoelBondoux/AtlasMind',
+    trustedBranch: 'develop',
+    runnerLabel: 'atlasmind-trusted-linux-x64',
+    workflowFile: 'trusted-local-ci.yml',
+    packageManager: 'npm',
+    scripts: ['compile', 'lint', 'test'],
+  });
+
+  it('accepts the workflow AtlasMind generates', async () => {
+    expect(goodWorkflow.ok).toBe(true);
+    if (!goodWorkflow.ok) { return; }
+    const root = await workspaceWith({ 'trusted-local-ci.yml': goodWorkflow.plan.content });
+    const review = await reviewerFor(root).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(review).toMatchObject({ state: 'ok', blockers: [], scaffoldable: false });
+  });
+
+  /**
+   * A missing file is an offer to create one; anything else is not. Collapsing
+   * the two would mean offering to "create" over a file that exists but could
+   * not be read, which is the one case where creating is destructive.
+   */
+  it('reports an absent workflow as scaffoldable and nothing else as scaffoldable', async () => {
+    const empty = await workspaceWith({});
+    const missing = await reviewerFor(empty).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(missing).toMatchObject({ state: 'missing', scaffoldable: true });
+
+    const bad = await workspaceWith({ 'trusted-local-ci.yml': 'name: not a trusted workflow\n' });
+    const blocked = await reviewerFor(bad).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(blocked.state).toBe('blocked');
+    expect(blocked.scaffoldable).toBe(false);
+    expect(blocked.blockers.length).toBeGreaterThan(1);
+  });
+
+  it('reports every failed rule separately rather than as one sentence', async () => {
+    const bad = await workspaceWith({ 'trusted-local-ci.yml': 'name: x\non:\n  push:\n    branches: [develop]\njobs:\n  a:\n    runs-on: [atlasmind-trusted-linux-x64]\n' });
+    const review = await reviewerFor(bad).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(review.blockers.length).toBeGreaterThanOrEqual(3);
+    for (const blocker of review.blockers) {
+      expect(blocker).not.toBe('');
+      expect(blocker.length).toBeLessThan(400);
+    }
+  });
+
+  /**
+   * The label is routing, not authorization: another workflow naming it could
+   * have a job claim this machine, however impeccable the reviewed file is.
+   */
+  it('refuses when another workflow file claims the same runner label', async () => {
+    if (!goodWorkflow.ok) { return; }
+    const root = await workspaceWith({
+      'trusted-local-ci.yml': goodWorkflow.plan.content,
+      'sneaky.yml': 'name: other\njobs:\n  x:\n    runs-on: [atlasmind-trusted-linux-x64]\n',
+    });
+    const review = await reviewerFor(root).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(review.state).toBe('blocked');
+    expect(review.blockers.join(' ')).toContain('sneaky.yml');
+  });
+
+  it('refuses a workflow filename that could leave the workflows directory', async () => {
+    const root = await workspaceWith({});
+    const review = await reviewerFor(root).reviewWorkflow(
+      { ...configuration, workflowFile: '../../../etc/passwd' },
+      'JoelBondoux/AtlasMind',
+      'atlasmind-trusted-linux-x64',
+    );
+    expect(review).toMatchObject({ state: 'unreadable', scaffoldable: false });
+  });
+
+  it('refuses to review against an unresolved runner label', async () => {
+    if (!goodWorkflow.ok) { return; }
+    const root = await workspaceWith({ 'trusted-local-ci.yml': goodWorkflow.plan.content });
+    const review = await reviewerFor(root).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', '');
+    expect(review).toMatchObject({ state: 'unreadable', scaffoldable: false });
+  });
+
+  it('refuses a workflow written for a different repository', async () => {
+    if (!goodWorkflow.ok) { return; }
+    const root = await workspaceWith({ 'trusted-local-ci.yml': goodWorkflow.plan.content });
+    const review = await reviewerFor(root).reviewWorkflow(configuration, 'SomebodyElse/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(review.state).toBe('blocked');
+    expect(review.blockers.join(' ')).toContain('SomebodyElse/AtlasMind');
   });
 });
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.347.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.348.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,20 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.347.0
+## What's new in 0.348.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **AtlasMind writes the trusted local-CI workflow, and checks it before anything else.** The file that
+  authorises a GitHub job to run on your machine has the strictest contract in the product, and used to be
+  the one artifact you had to hand-author from a template. The Runner view now offers **Check the trusted
+  workflow** — a file read, so it works before Docker, a GitHub sign-in, or a queued job exists — and
+  **Write it for me…** when none is present. The generated workflow is derived from the repository's own
+  remote, branch, runner label and package scripts, and the confirmation says in plain words what it will
+  permit and refuse. Creation never overwrites. When a workflow fails the policy, each failed rule is
+  listed separately with the change that satisfies it, instead of one sentence at the end of a four-step
+  setup.
 
 - **Follow CI as a workflow, then zoom into the evidence.** Pipeline Studio opens with four plain-language
   decisions—choose the checks, prepare the computer, queue GitHub, then lend one temporary runner—and
@@ -1054,7 +1064,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

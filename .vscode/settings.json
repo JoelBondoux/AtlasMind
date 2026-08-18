@@ -49,6 +49,5 @@
     "atlasmind.workflow.maxAutomationLevel": "propose",
     "atlasmind.workflow.allowIssueWrites": true,
     "atlasmind.workflow.allowPullRequestWrites": true,
-    "atlasmind.workflow.allowReleaseWrites": true,
-    "atlasmind.workflow.allowProtectedRefWrites": true
+    "atlasmind.workflow.allowReleaseWrites": true
 }

@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.348.0] - 2026-08-18
+
+### Added
+
+- **AtlasMind can now write the trusted local-CI workflow, instead of asking you to hand-author it.**
+  The file that authorises a GitHub job to run on your machine had the strictest machine-checked contract
+  in the product and was the one artifact you had to write yourself, from a documentation template. The
+  Runner view now offers **Write it for me…** when none exists: the workflow is derived from the
+  repository's own facts — its git remote, the configured trusted branch, the runner label expanded for
+  this machine's architecture, and the package scripts actually declared — and the confirmation states in
+  plain language what the file will permit and what it refuses before anything is written. Creation is
+  create-only through `wx`, opens the file for review, and never overwrites an existing workflow.
+- **A trusted workflow can be checked before any other setup exists.** **Check the trusted workflow** on
+  the Runner view reads the committed file from disk and reports it against the same policy that gates a
+  run. It needs no Docker, no GitHub sign-in and no queued job, so the cheapest question in the flow is no
+  longer the last one asked. An unreviewed file reports as *not checked* rather than as passing.
+
+### Changed
+
+- **A trusted-workflow refusal is a checklist, not a paragraph.** The policy blockers were previously
+  flattened into one sentence containing every failed rule at once, thrown at the final step of four —
+  after Docker, `gh` and a queued job. Each blocker already names one rule and the change that satisfies
+  it, so they are now carried and rendered as separate items, and a failure lands as a `blocked`
+  configuration state rather than a runtime failure. A missing file, an unreadable one, and one that fails
+  the policy stay three distinct outcomes: only a genuinely absent file is offered a scaffold, because
+  "creating" over an unreadable file is the one case where creating destroys something.
+- **Pipeline → Start here now measures the workflow that matters.** Its first step counted any quality CI
+  workflow as complete, so the trusted file the remaining three steps depend on could be missing or
+  unacceptable while the journey reported step one done — then refused at step four. It now reports the
+  trusted workflow's actual review state.
+
+### Fixed
+
+- **The documented trusted-workflow template no longer contradicts the validator.** The template in
+  `docs/local-ci-and-safe-runners.md` had drifted: it declared no `github.actor` condition, used a
+  `runs-on` shape the label check does not accept, and named a placeholder label matching no configured
+  value — three blockers for anyone who followed it faithfully. The generator is now the documented route,
+  and a property test asserts every workflow AtlasMind generates passes `assessTrustedLocalCiWorkflow`, so
+  prose and policy cannot separate again.
+- **`atlasmind.workflow.allowProtectedRefWrites` is no longer committed as `true` in this repository's
+  workspace settings.** It has one call site — the veto on merging a pull request whose base is protected —
+  and this project's release promotion is performed by the `release.yml` workflow rather than by AtlasMind,
+  so the flag granted a capability nothing here uses while contradicting its own documented default. The
+  three capability flags that are genuinely consulted by the Issues, pull-request and release surfaces are
+  unchanged.
+
+### Security
+
+- **The trusted-workflow review and creation messages carry no payload at all.** The webview asks; the host
+  re-derives the repository from the git remote, the branch, the label and the filename from machine-scoped
+  settings. A crafted message can request a review or a creation but can never name a different file, a
+  different repository condition, or a path outside `.github/workflows`.
+- **A workflow directory that cannot be listed is now a blocker rather than a pass.** The check exists to
+  prove no *other* workflow claims the runner label, and an unreadable directory is precisely the case
+  where that cannot be proven.
+
 ## [0.347.0] - 2026-08-17
 
 ### Added

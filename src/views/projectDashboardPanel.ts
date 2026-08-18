@@ -217,11 +217,13 @@ import {
   LocalCiRunnerManager,
   buildLocalCiQueueInvocation,
   initialLocalCiRunnerSnapshot,
+  resolveLocalCiRunnerLabel,
   type LocalCiRunnerConfiguration,
   type LocalCiRunnerSnapshot,
   type LocalCiShutdownPolicy,
   type LocalCiStartPlan,
 } from '../core/localCiRunner.js';
+import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
@@ -633,6 +635,13 @@ type ProjectDashboardMessage =
   | { type: 'refreshCi' }
   | { type: 'inspectLocalCiRunner' }
   | { type: 'startLocalCiRunner' }
+  /**
+   * Review the committed trusted workflow now, from disk, before any of the
+   * machine setup. Carries no data: the host re-derives every input.
+   */
+  | { type: 'assessTrustedCiWorkflow' }
+  /** Create the trusted workflow. Create-only, previewed, and never overwrites. */
+  | { type: 'createTrustedCiStarter' }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -3914,6 +3923,12 @@ export class ProjectDashboardPanel {
       case 'startLocalCiRunner':
         await this.handleStartLocalCiRunner();
         return;
+      case 'assessTrustedCiWorkflow':
+        await this.handleAssessTrustedCiWorkflow();
+        return;
+      case 'createTrustedCiStarter':
+        await this.handleCreateTrustedCiStarter();
+        return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
         this.localCiOutput?.show(true);
@@ -5621,6 +5636,161 @@ export class ProjectDashboardPanel {
       }
       await this.syncState();
     }
+  }
+
+  /**
+   * The repository this workspace is, without needing `gh`.
+   *
+   * The trusted workflow names its own repository in an authorization
+   * condition, so this has to be right — but requiring `gh` to be installed and
+   * authenticated before somebody can even *check their workflow file* would
+   * put the cheapest step in the flow behind the most expensive prerequisite.
+   * The git remote answers it offline; `gh` remains the authority at start time,
+   * where the answer gates an actual run.
+   */
+  private repositorySlugForWorkflow(): string | undefined {
+    const parsed = parseRepoSlug(this.lastGitRemoteUrl ?? this.issuesState.repoSlug);
+    return parsed ? `${parsed.owner}/${parsed.repo}` : undefined;
+  }
+
+  /**
+   * Review the committed trusted workflow, on request, before anything else.
+   *
+   * This is the step the flow was missing. The policy was only ever applied at
+   * the moment of lending the machine — four steps in, after Docker, after `gh`,
+   * after queueing a job — so the file with the strictest contract in the
+   * product got its first and only reading at the point where a failure is most
+   * expensive. It costs a file read.
+   */
+  private async handleAssessTrustedCiWorkflow(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before reviewing the trusted workflow.');
+      return;
+    }
+    const repoSlug = this.repositorySlugForWorkflow();
+    if (!repoSlug) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind could not identify this repository from its git remote. A trusted workflow names its own repository in an authorization condition, so AtlasMind will not guess it.',
+      );
+      return;
+    }
+    try {
+      const review = await runner.assessCommittedWorkflow(readLocalCiRunnerConfiguration(), repoSlug);
+      await this.syncState();
+      if (review.state === 'ok') {
+        vscode.window.setStatusBarMessage(
+          `AtlasMind: ${review.path} satisfies the trusted runner policy.`,
+          6000,
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not review the trusted workflow: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Write the trusted workflow, after showing exactly what it will permit.
+   *
+   * The modal leads with the plain-language permits and refuses, because the
+   * person most likely to need this file is the person least likely to be able
+   * to audit the YAML — and the YAML is opened in the editor immediately
+   * afterwards for the person who can. Create-only via `wx`: a trusted workflow
+   * already on disk is a reviewed artifact, and silently replacing one would
+   * discard a review nobody asked to discard.
+   */
+  private async handleCreateTrustedCiStarter(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const runner = this.getLocalCiRunner();
+    if (!workspaceRoot || !runner) {
+      void vscode.window.showWarningMessage('Open a workspace before creating the trusted workflow.');
+      return;
+    }
+    const repoSlug = this.repositorySlugForWorkflow();
+    if (!repoSlug) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind could not identify this repository from its git remote, so it will not write a repository condition it had to guess.',
+      );
+      return;
+    }
+    const configuration = readLocalCiRunnerConfiguration();
+    const snapshot = runner.getSnapshot();
+    const runnerLabel = resolveLocalCiRunnerLabel(
+      configuration.runnerLabel,
+      snapshot.engine.arch ?? snapshot.host.arch,
+    );
+
+    const packageFacts = await readNodePackageFacts(workspaceRoot);
+    if (!packageFacts) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind writes a trusted workflow only for a Node project with a lockfile it recognises. Create the workflow by hand from docs/local-ci-and-safe-runners.md for other stacks.',
+      );
+      return;
+    }
+
+    const outcome = buildTrustedLocalCiStarter({
+      repoRemote: repoSlug,
+      trustedBranch: configuration.trustedBranch,
+      runnerLabel,
+      workflowFile: configuration.workflowFile,
+      packageManager: packageFacts.packageManager,
+      scripts: packageFacts.scripts,
+    });
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(`AtlasMind did not write a trusted workflow. ${outcome.reason}`);
+      return;
+    }
+    const plan = outcome.plan;
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${plan.path}?`,
+      {
+        modal: true,
+        detail: [
+          'This file decides which GitHub jobs may run on a machine you lend. Nothing is lent by creating it.',
+          '',
+          'What it allows:',
+          ...plan.permits.map(line => `  • ${line}`),
+          '',
+          'What it refuses:',
+          ...plan.refuses.map(line => `  • ${line}`),
+          '',
+          `Runner label: ${plan.runnerLabel} — this machine's architecture. A different architecture needs a different label.`,
+          `Pinned actions: ${plan.pinnedActions.map(action => `${action.name}@${action.release}`).join(', ')}`,
+          '',
+          'Create only — an existing file is never overwritten. Review and commit it before use; AtlasMind refuses to lend the machine while it has uncommitted changes.',
+        ].join('\n'),
+      },
+      'Create workflow',
+    );
+    if (confirmation !== 'Create workflow') {
+      return;
+    }
+
+    const absolute = path.join(workspaceRoot, ...plan.path.split('/'));
+    try {
+      await fs.mkdir(path.dirname(absolute), { recursive: true });
+      await fs.writeFile(absolute, plan.content, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(
+        (error as NodeJS.ErrnoException | undefined)?.code === 'EEXIST'
+          ? `${plan.path} already exists, so AtlasMind left it alone. Review the existing file instead.`
+          : `The trusted workflow was not created: ${detail.slice(0, 300)}`,
+      );
+      return;
+    }
+
+    await this.openWorkspaceRelativeFile(plan.path);
+    // Review what was just written rather than asserting it is fine. The
+    // builder checks its own output, but the thing that gates a run is a review
+    // of what is *on disk*, and that is what the page should now be showing.
+    await runner.assessCommittedWorkflow(configuration, repoSlug);
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `Created ${plan.path}. Review it, commit it, then push or dispatch ${plan.trustedBranch} to queue a job.`,
+    );
   }
 
   private localCiCommandContext(): { command: string; workspaceRoot: string } | undefined {
@@ -9145,7 +9315,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'startLocalCiRunner'
     || candidate['type'] === 'showLocalCiOutput'
     || candidate['type'] === 'copyLocalCiQueueCommand'
-    || candidate['type'] === 'sendLocalCiQueueCommandToTerminal') {
+    || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
+    || candidate['type'] === 'assessTrustedCiWorkflow'
+    || candidate['type'] === 'createTrustedCiStarter') {
     return candidate['payload'] === undefined;
   }
 
@@ -14065,10 +14237,18 @@ function buildPromotionPathView(
   };
 }
 
-async function buildCiStarterPlanForWorkspace(
-  workspaceRoot: string,
-  workflowConfig: WorkflowConfig | undefined,
-): Promise<CiStarterPlan | undefined> {
+/**
+ * The package manager and script names both starters derive from.
+ *
+ * One reader, because the hosted starter and the trusted-runner starter must
+ * agree about what this project can be asked to verify. Two readers would
+ * eventually disagree about a lockfile, and the symptom would be one starter
+ * offering checks the other says do not exist.
+ */
+async function readNodePackageFacts(workspaceRoot: string): Promise<{
+  packageManager: 'npm' | 'pnpm' | 'yarn';
+  scripts: string[];
+} | undefined> {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf8')) as Record<string, unknown>;
@@ -14085,9 +14265,18 @@ async function buildCiStarterPlanForWorkspace(
       ? 'yarn'
       : await fileExists(path.join(workspaceRoot, 'package-lock.json'))
         || await fileExists(path.join(workspaceRoot, 'npm-shrinkwrap.json')) ? 'npm' : undefined;
-  if (!packageManager) {
+  return packageManager ? { packageManager, scripts } : undefined;
+}
+
+async function buildCiStarterPlanForWorkspace(
+  workspaceRoot: string,
+  workflowConfig: WorkflowConfig | undefined,
+): Promise<CiStarterPlan | undefined> {
+  const packageFacts = await readNodePackageFacts(workspaceRoot);
+  if (!packageFacts) {
     return undefined;
   }
+  const { packageManager, scripts } = packageFacts;
   let branches: string[];
   if (workflowConfig) {
     branches = [workflowConfig.branches.integration, workflowConfig.branches.release];
@@ -18521,10 +18710,29 @@ const DASHBOARD_CSS = `
   .ci-runner-focus h3 { margin: 2px 0 0; }
   .ci-runner-focus .section-copy { margin: 5px 0 0; }
 
-  .ci-runner-progress,
+  .ci-runner-workflow {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--dash-panel);
+  }
+  .ci-runner-workflow .ci-section-heading strong { display: block; margin-top: 3px; }
+  .ci-workflow-blockers { margin: 0; }
+  .ci-workflow-actions { margin: 0; }
+
   .ci-journey-progress {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+  /* Auto-fit rather than a fixed count: the runner strip gained a step when the
+     trusted-workflow check moved to the front, and a hard-coded column count
+     silently squashes the extra one instead of wrapping it. */
+  .ci-runner-progress {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
     gap: 7px;
   }
   .ci-runner-progress > div,

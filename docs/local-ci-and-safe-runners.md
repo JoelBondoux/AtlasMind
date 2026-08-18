@@ -187,19 +187,33 @@ single-machine procedure below.
 
 ### Define the trusted workflow first
 
-Create a dedicated workflow whose ref is part of its enforcement, not merely part of its name. Replace the
-repository, branch, labels and action SHAs below with reviewed values. A manual dispatch allows a caller to
-choose a branch, so the job-level exact-ref check remains necessary.
+**Let AtlasMind write this file.** Open **Project Dashboard → Pipeline → Runner** and select **Check the
+trusted workflow**. The check is a file read: it needs no Docker, no GitHub sign-in and no queued job, so it
+works as the first thing you do rather than the last. If no trusted workflow exists, the same card offers
+**Write it for me…**, which shows what the file will permit and refuse in plain language, creates it for
+your review, and never overwrites an existing file.
+
+The generated file is derived from the repository's own facts — its remote, the configured trusted branch,
+the runner label expanded for this machine's architecture, and the package scripts actually declared — and
+it is checked against the same validator that gates a run before it is offered. That is the point of
+generating it: this page previously carried a hand-maintained template that had drifted from the validator
+and would have failed three of its rules, and prose cannot be tested. A property test now asserts that every
+workflow AtlasMind generates passes the check, so the two cannot separate again.
+
+Write it by hand only for a stack AtlasMind cannot derive (anything without a Node package and a recognised
+lockfile). The shape it must satisfy is below; every rule in it is enforced, so treat the comments as
+requirements rather than advice. Replace the repository, branch, label and action SHAs with reviewed values,
+then use **Check the trusted workflow** to confirm it before installing anything else.
 
 ```yaml
-name: Trusted branch local CI
+name: Trusted local CI
 
 on:
   push:
-    branches: [TRUSTED_BRANCH]
-  workflow_dispatch:
+    branches: [TRUSTED_BRANCH]      # exactly this form, or a YAML list item
+  workflow_dispatch:                # no other trigger may appear anywhere in the file
 
-permissions:
+permissions:                        # required, and no write grant anywhere
   contents: read
 
 concurrency:
@@ -207,26 +221,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    if: github.repository == 'OWNER/REPOSITORY' && github.ref == 'refs/heads/TRUSTED_BRANCH'
-    runs-on: [self-hosted, ATLASMIND_TRUSTED]
-    timeout-minutes: 30
+  trusted-quality:
+    # All four conditions are required. A manual dispatch lets a caller choose a
+    # branch, so the exact-ref check is what makes the branch filter enforcement
+    # rather than decoration — and the actor check is what stops anyone else
+    # reaching your machine through a workflow they can trigger.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.repository == 'OWNER/REPOSITORY' &&
+      github.ref == 'refs/heads/TRUSTED_BRANCH' &&
+      github.actor == github.repository_owner
+    # The label alone, with no `self-hosted` beside it, and used by exactly one
+    # job in exactly one workflow file in the repository.
+    runs-on: [ATLASMIND_TRUSTED_LABEL]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@FULL_COMMIT_SHA
         with:
-          persist-credentials: false
+          persist-credentials: false     # required
       - uses: actions/setup-node@FULL_COMMIT_SHA
         with:
           node-version: 20
-          cache: npm
       - run: npm ci
       - run: npm run compile
       - run: npm run lint
       - run: npm run test
 ```
 
-Do not copy this placeholder workflow unchanged. Pinning the two actions to their own reviewed full commit
-SHAs is deliberate; a moving tag is not an immutable supply-chain boundary.
+Do not copy this shape unchanged. Pinning every action to its own reviewed full commit SHA is deliberate; a
+moving tag is not an immutable supply-chain boundary. The file must also reference no GitHub secret: a
+trusted-runner job that needs one is a job that should run on hosted infrastructure instead.
 
 ### Install one dedicated or disposable Windows runner
 

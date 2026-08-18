@@ -474,6 +474,24 @@ and checks the exact repository/ref/actor conditions, trigger set, read-only per
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
 It cannot dispatch or rerun a workflow.
 
+Two properties of that policy changed in v0.348.0, in the safe direction. It can now be evaluated **before**
+a run rather than only at the moment of one — a filesystem read needing no Docker, no `gh` and no queued
+job — so a workflow that will be refused is found before anything is installed, and each failed rule is
+reported as its own item rather than flattened into a single sentence. An unreviewed file reports as *not
+checked*, never as acceptable, and a workflow directory that cannot be listed is a blocker rather than a
+pass, because the check exists precisely to prove that no *other* workflow claims the runner label.
+
+AtlasMind can also now generate that file. Generation does not relax the boundary: the two messages carry
+no payload at all, so the host derives the repository from the git remote and the branch, label and
+filename from machine-scoped settings — a crafted webview message can request a creation but can never name
+a different file, a different repository condition, or a path outside `.github/workflows`. Action pins are
+module constants that were reviewed in this repository, never parsed from documentation and never
+model-generated, because a SHA taken from fetched text is a boundary-shaped string rather than a boundary.
+Writing uses `wx`, so an existing reviewed workflow is never replaced, and the file that lands on disk is
+re-reviewed rather than assumed good. A property test asserts every generated workflow passes the same
+validator that gates a run: the previous documented template had drifted out of compliance with three of
+its rules, and a test is the only form of that guarantee which cannot drift.
+
 The one-hour registration token is streamed directly from `gh` stdout into Docker stdin, so it is never a
 JavaScript string, setting, log line, webview field or model input. The runner itself is still trusted
 infrastructure and receives GitHub's job-scoped token; the workflow limits that token to `contents: read`

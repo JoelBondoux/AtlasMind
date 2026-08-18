@@ -529,6 +529,34 @@ release-only automation is not treated as quality coverage. Unit coverage lives 
 `tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
 `webviewMessages.test.ts`.
 
+### TrustedLocalCiStarter (`src/core/trustedLocalCiStarter.ts`)
+
+The write side of the trusted-runner contract, and the answer to a structural gap: every rule in
+`assessTrustedLocalCiWorkflow` was enforced against a file AtlasMind could only *judge*, never produce, so
+the artifact with the strictest machine-checked contract in the product was the one a person had to
+hand-author — from a documentation template that had itself drifted out of compliance with three of those
+rules.
+
+`buildTrustedLocalCiStarter` composes the workflow from repository-derived facts only: a slug parsed by
+`parseRepoSlug` (URL or `owner/repo`, never guessed), the configured trusted branch, the runner label
+already expanded for the engine's reported architecture, and package-script names filtered to
+`compile`/`build`/`lint`/`test`. Action pins are module constants in
+`TRUSTED_LOCAL_CI_ACTIONS_REVIEWED`, never parsed from documentation and never model-generated — the same
+rule `acpInstaller` applies to install commands, because a SHA lifted from fetched text is a
+boundary-shaped string rather than a boundary. Corepack covers pnpm and yarn deliberately, so no third
+action needs a pin nobody reviewed.
+
+Three properties carry the design. **The generator is held to the validator, not to a template**: a
+`fast-check` property over arbitrary valid inputs asserts every generated workflow passes
+`assessTrustedLocalCiWorkflow`, and the builder additionally re-checks the exact bytes it is about to
+return — a scaffolder whose output its own runtime path then refuses is worse than none, because the
+failure arrives with AtlasMind's authorship attached. **An invalid input is refused, never coerced**, and
+the refusal names what was wrong; a repaired branch name would route real jobs at a ref nobody chose, in a
+committed file. **The plan states what the file permits and refuses in plain words**, so the confirmation
+is readable by somebody who has never pinned an action while the YAML stays inspectable by somebody who
+has. Branch shape rules are shared with `ciManager.safeWorkflowBranchRef` rather than duplicated. Pure and
+`vscode`-free; unit and property coverage in `tests/core/trustedLocalCiStarter.test.ts`.
+
 ### LocalCiRunnerManager (`src/core/localCiRunner.ts`)
 
 The execution half of Project Dashboard → Pipeline. It is intentionally separate from `CiManager`:
@@ -557,6 +585,19 @@ The target workflow must be committed and is re-read immediately: exact reposito
 read-only contents permission, no secret reference/write/OIDC permission, full-SHA action pins,
 `persist-credentials: false`, and one architecture-specific label that occurs in no sibling workflow. Any
 registered runner carrying that label refuses, preventing a stale/competing worker from sharing the route.
+
+That file review is owned by `reviewWorkflow`, which `prepare()` calls rather than reimplements, and which
+is separately reachable through `assessCommittedWorkflow` **before any other setup exists** — it is a
+filesystem read, so it needs no Docker, no `gh` and no queued job. Previously the policy was applied only
+at the moment of lending the machine, four steps in, as one concatenated sentence. `LocalCiWorkflowReview`
+keeps `missing`, `unreadable`, `blocked` and `ok` distinct: only a genuinely absent file is `scaffoldable`,
+because offering to "create" over an unreadable one is the single case where creating destroys something.
+A directory that cannot be listed is a blocker rather than a pass, since the check exists to prove no other
+workflow claims the label. `LocalCiWorkflowError` carries the whole review instead of a joined string, so a
+surface can render one item per failed rule; a policy failure lands as the `blocked` configuration state
+rather than as a runtime failure, because nothing was started and the fix is a file edit. The review is
+recorded on the snapshot on success as well as failure — an absent `workflowReview` means *not reviewed*,
+never *acceptable*.
 
 After a host modal names the repository, SHA, run, image, evidence platform, limits, reserve and shutdown
 effect, the runner starts as a non-root ephemeral container with no mounts, socket, ports, GPU, persistent

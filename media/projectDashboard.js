@@ -1190,6 +1190,14 @@
       vscode.postMessage({ type: 'showLocalCiOutput' });
       return;
     }
+    if (action === 'pipeline-workflow-assess') {
+      vscode.postMessage({ type: 'assessTrustedCiWorkflow' });
+      return;
+    }
+    if (action === 'pipeline-workflow-create') {
+      vscode.postMessage({ type: 'createTrustedCiStarter' });
+      return;
+    }
     if (action === 'pipeline-queue-command-copy') {
       vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
       return;
@@ -6139,14 +6147,40 @@
     const permissionOn = Boolean(runner && runner.enabled);
     const steps = [
       {
-        title: 'Choose what GitHub should test',
-        detail: assessment.qualityWorkflowCount > 0
-          ? `${assessment.qualityWorkflowCount} reviewed quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found.`
-          : 'Add one reviewed workflow that builds, lints and tests the project.',
-        done: assessment.qualityWorkflowCount > 0,
-        action: assessment.qualityWorkflowCount > 0 ? 'pipeline-section' : 'pipeline-create-starter',
-        payload: assessment.qualityWorkflowCount > 0 ? 'workflow' : '',
-        actionLabel: assessment.qualityWorkflowCount > 0 ? 'See workflow map' : 'Preview starter CI',
+        // This step is about the *trusted* workflow, not any workflow. It
+        // previously counted any quality CI file as done, so the one file the
+        // later steps actually depend on could be missing or unacceptable and
+        // the journey would still report its first step complete — then refuse
+        // at step four. The check is a file read, so it can be honest here.
+        title: 'Choose what may run on your computer',
+        detail: (() => {
+          const review = runner.workflowReview;
+          if (review && review.state === 'ok') {
+            return `${review.path} passes every rule AtlasMind checks before lending this machine.`;
+          }
+          if (review && review.state === 'missing') {
+            return 'No trusted workflow exists yet. AtlasMind can write one for you to review.';
+          }
+          if (review) {
+            return `${(review.blockers || []).length} thing${(review.blockers || []).length === 1 ? '' : 's'} must change in ${review.path} first.`;
+          }
+          return assessment.qualityWorkflowCount > 0
+            ? `${assessment.qualityWorkflowCount} quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found. Check whether the trusted one may run here — it is a file read.`
+            : 'One reviewed file decides which GitHub jobs may reach this computer. Nothing else needs to exist yet.';
+        })(),
+        done: Boolean(runner.workflowReview && runner.workflowReview.state === 'ok'),
+        action: !runner.workflowReview ? 'pipeline-workflow-assess'
+          : runner.workflowReview.state === 'missing' ? 'pipeline-workflow-create'
+            : runner.workflowReview.state === 'ok' ? 'pipeline-workflow-assess'
+              // A blocked file needs the list, and the list lives on the Runner
+              // view. Re-running the check from here would return the same
+              // answer with nowhere to read it.
+              : 'pipeline-section',
+        payload: runner.workflowReview && runner.workflowReview.state === 'blocked' ? 'runner' : '',
+        actionLabel: runner.workflowReview
+          ? (runner.workflowReview.state === 'missing' ? 'Write the trusted workflow…'
+            : runner.workflowReview.state === 'ok' ? 'Check it again' : 'See what must change')
+          : 'Check the trusted workflow',
       },
       {
         title: 'Prepare this computer',
@@ -6731,7 +6765,54 @@
         <p class="stat-detail">A waiting self-hosted job may be reported by GitHub as “pending”; AtlasMind checks both pending and queued runs.</p>
         ${queueIssue ? `<div class="inline-notice warning"><strong>${queueIssue.kind === 'commit-mismatch' ? 'A waiting job targets different code' : queueIssue.kind === 'duplicates' ? 'More than one job is waiting' : 'No matching job is visible yet'}</strong><p class="stat-detail">${escapeHtml(queueIssue.message || '')}</p>${queueIssueEvidence}${queueRecovery}</div>` : ''}
       </section>`;
+    // The trusted workflow, reviewed from disk. `undefined` means nobody has
+    // looked — deliberately not the same as "no blockers found", because a page
+    // that reads clean on an unexamined file is claiming an assurance nobody
+    // established. That distinction is the reason this card exists at all.
+    const workflowReview = runner.workflowReview;
+    const workflowReviewed = Boolean(workflowReview);
+    const workflowOk = workflowReview && workflowReview.state === 'ok';
+    const workflowMissing = workflowReview && workflowReview.state === 'missing';
+    const workflowBlockers = workflowReview ? (workflowReview.blockers || []) : [];
+    const workflowFileName = runner.workflowFile || 'trusted-local-ci.yml';
+    const workflowPath = (workflowReview && workflowReview.path) || `.github/workflows/${workflowFileName}`;
+    const workflowStatusLine = !workflowReviewed
+      ? 'Not checked yet. Reviewing costs nothing and needs no Docker, no GitHub sign-in, and no queued job.'
+      : workflowOk ? `${workflowPath} satisfies every rule AtlasMind checks before lending this machine.`
+        : workflowMissing ? `No trusted workflow exists at ${workflowPath} yet. AtlasMind can write one for you to review.`
+          : `${workflowBlockers.length} thing${workflowBlockers.length === 1 ? '' : 's'} must change in ${workflowPath} before this machine can be lent to it.`;
+    const workflowHelp = renderInfoHelp('pipeline.trusted-workflow', {
+      label: 'the trusted workflow file',
+      why: 'This file is what authorises a GitHub job to run on your computer. The runner label only routes work; the conditions in the file decide who may reach it. AtlasMind re-reads and re-checks it immediately before every run, so a weakened condition stops the run rather than widening it.',
+      how: [
+        { text: 'Check it now — it is a file read, so it works before any other setup exists.' },
+        { text: 'Every item AtlasMind reports names one rule and the change that satisfies it.' },
+        { text: 'Let AtlasMind write the file if you have none; it is created for review and never overwrites an existing one.' },
+      ],
+    });
+    const workflowCard = `
+      <section class="ci-runner-workflow" aria-label="Trusted workflow review">
+        <div class="ci-section-heading">
+          <div>
+            <span class="ci-workflow-label">Trusted workflow · what may run here</span>
+            <strong>${escapeHtml(workflowStatusLine)}</strong>
+          </div>
+          <div class="tag-row">
+            <span class="tag ${workflowOk ? 'tag-good' : !workflowReviewed ? '' : 'tag-warn'}">${escapeHtml(!workflowReviewed ? 'not checked' : workflowOk ? 'passes' : workflowMissing ? 'not created' : 'needs changes')}</span>
+            ${workflowHelp.button}
+          </div>
+        </div>
+        ${workflowHelp.panel}
+        ${workflowBlockers.length && !workflowMissing ? `<ul class="ci-caution-list ci-workflow-blockers">${workflowBlockers.slice(0, 12).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        ${workflowOk && (workflowReview.warnings || []).length ? `<ul class="ci-caution-list">${workflowReview.warnings.slice(0, 6).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        <div class="tag-row ci-workflow-actions">
+          <button type="button" class="action-link" data-action="pipeline-workflow-assess">${escapeHtml(workflowReviewed ? 'Check it again' : 'Check the trusted workflow')}</button>
+          ${workflowMissing ? '<button type="button" class="action-link primary" data-action="pipeline-workflow-create">Write it for me…</button>' : ''}
+          ${workflowReviewed && !workflowMissing ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflowPath)}">Open ${escapeHtml(workflowFileName)}</button>` : ''}
+        </div>
+      </section>`;
     const runnerProgressSteps = [
+      { label: 'Trusted workflow', done: Boolean(workflowOk) },
       { label: 'Permission', done: runnerEnablement.effective },
       { label: 'Computer', done: prerequisitesInspected && !machineSetupNeedsAction },
       { label: 'GitHub queue', done: Boolean(runner.queuedRun) },
@@ -6742,7 +6823,24 @@
     let runnerFocusDetail = 'Use the complete command below, then let AtlasMind verify the queue before it starts anything.';
     let runnerFocusContext = queuedRunCard;
     let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || !runnerReady || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Check GitHub queue → review start plan</button>`;
-    if (!runnerEnablement.effective) {
+    if (!workflowOk && !['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
+      // First, because it is the cheapest question in the flow and used to be
+      // asked last. Checking a file needs no Docker, no GitHub sign-in and no
+      // queued job, and a file that will be refused is worth finding out about
+      // before installing anything.
+      runnerFocusTitle = !workflowReviewed ? 'Check what this repository would let run here'
+        : workflowMissing ? 'Create the trusted workflow'
+          : 'Fix the trusted workflow';
+      runnerFocusDetail = !workflowReviewed
+        ? 'One file decides which GitHub jobs may reach this computer. Reading it costs nothing and needs no other setup.'
+        : workflowMissing
+          ? 'AtlasMind can write a workflow that satisfies every rule it checks, then open it for your review. Nothing is lent by creating it.'
+          : 'Each item below names one rule and the change that satisfies it. AtlasMind re-checks the file before every run.';
+      runnerFocusContext = '';
+      runnerFocusActions = workflowMissing
+        ? '<button type="button" class="action-link primary" data-action="pipeline-workflow-create">Write the trusted workflow…</button><button type="button" class="action-link" data-action="pipeline-workflow-assess">Check again</button>'
+        : `<button type="button" class="action-link primary" data-action="pipeline-workflow-assess">${escapeHtml(workflowReviewed ? 'Check again' : 'Check the trusted workflow')}</button>${workflowReviewed ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflowPath)}">Open the file</button>` : ''}`;
+    } else if (!runnerEnablement.effective) {
       runnerFocusTitle = 'Allow trusted local CI on this machine';
       runnerFocusDetail = 'Turn on the machine-scoped permission first. This does not install software or start a runner.';
       runnerFocusContext = '';
@@ -6795,6 +6893,7 @@
           ${runnerBlockers.length ? `<div class="inline-notice critical"><strong>Cannot continue yet</strong><ul class="ci-caution-list">${runnerBlockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
           <div class="tag-row ci-runner-actions">${runnerFocusActions}</div>
         </section>
+        ${workflowCard}
         ${setupCard}
         ${runnerWarningsPanel}
         <details class="ci-progressive-details ci-runner-technical">

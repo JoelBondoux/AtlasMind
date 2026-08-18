@@ -710,6 +710,21 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: -1 })).toBe(false);
   });
 
+  /**
+   * The trusted workflow decides which GitHub jobs may run on this machine, so
+   * neither its review nor its creation may accept anything from the webview.
+   * Both carry no payload at all: the host re-derives the repository, branch,
+   * label and filename, which is what stops a crafted message naming a
+   * different file or a different repository condition.
+   */
+  it('keeps trusted-workflow review and creation entirely host-derived', () => {
+    expect(isProjectDashboardMessage({ type: 'assessTrustedCiWorkflow' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assessTrustedCiWorkflow', payload: '../../etc/passwd' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter', payload: { repoSlug: 'attacker/repo' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter', payload: 'evil.yml' })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);

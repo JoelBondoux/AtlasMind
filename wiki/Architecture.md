@@ -350,6 +350,18 @@ is a closed create-only template derived host-side from declared branches and pa
 browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
 file appears between review and write.
 
+The **trusted workflow** — the file deciding which GitHub jobs may run on your own machine — is both
+generated and reviewed by AtlasMind (`trustedLocalCiStarter.ts` and `LocalCiRunnerManager.reviewWorkflow`).
+Every rule the runner enforces was previously applied to a file only a person could write, from a template
+that had drifted out of compliance with three of those rules, and only at the moment of lending the
+machine. Reviewing is now a filesystem read available before Docker, a GitHub sign-in or a queued job
+exists, and generation derives the file from the repository's own remote, branch, expanded runner label and
+declared package scripts, with action pins held as reviewed module constants rather than parsed from
+anywhere. A property test asserts every generated workflow passes the runner's own validator, so prose and
+policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay distinct outcomes — only an
+absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
+sentence. An unreviewed file reports as *not checked*, never as passing.
+
 The same Pipeline page now has a separate **execution fabric** backed by `localCiRunner.ts`. GitHub Actions
 is the connected provider and Docker is the current executor; Buildkite, Semaphore and other systems are
 shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
@@ -518,7 +530,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection and trusted-workflow generation (`ciManager.ts`, `trustedLocalCiStarter.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

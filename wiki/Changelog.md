@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.348.0 — AtlasMind writes the trusted workflow, and checks it first
+
+One file decides which GitHub jobs may run on your own computer. It carried the strictest set of rules in
+AtlasMind — an owner-only condition, an exact branch and repository, no secrets, no write permission, every
+action pinned to an exact commit — and it was the one thing you had to write by hand, copying a template
+from the documentation. That template had quietly drifted out of step with the rules it was supposed to
+satisfy, so following it faithfully produced a file that failed three of them. And you only found out at
+the very last step, after installing Docker, signing in to GitHub and queueing a job, as a single sentence
+containing every problem at once.
+
+All three of those things are fixed. **Check the trusted workflow** on the Runner view reads the file and
+reports it against the real policy — it is a file read, so it works before anything else is set up.
+**Write it for me…** appears when no such file exists: AtlasMind builds one from your repository’s own
+remote, branch, runner label and package scripts, tells you in plain language what it will allow and what
+it refuses, creates it for your review, and never overwrites anything. When a file does need changes, each
+one is listed separately with the rule it failed.
+
+The generated workflow is checked against the same validator that guards a real run, and a property test
+asserts that every workflow AtlasMind can produce passes it — prose can drift, a test cannot. An unchecked
+file is reported as *not checked* rather than as fine.
+
 ## v0.347.0 — A local runner setup path that says what is actually installed
 
 Pipeline's beginner route now follows the real sequence: choose a reviewed workflow, prepare the computer,

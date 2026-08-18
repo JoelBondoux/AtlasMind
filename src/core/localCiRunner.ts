@@ -168,6 +168,15 @@ export interface LocalCiRunnerSnapshot {
   message: string;
   /** A recoverable GitHub queue state. It never weakens or replaces a trust-policy blocker. */
   preflightIssue?: LocalCiQueuePreflightIssue;
+  /**
+   * The last on-disk review of the trusted workflow, if one has been run.
+   *
+   * Absent means *not reviewed*, never *acceptable* — the distinction every
+   * inspection field on this snapshot keeps, because a surface that reads
+   * "no blockers" from an unexamined file is claiming an assurance nobody
+   * established.
+   */
+  workflowReview?: LocalCiWorkflowReview;
   queuedRun?: LocalCiQueuedRun;
   containerName?: string;
   lastOutput?: string;
@@ -192,6 +201,36 @@ export interface LocalCiWorkflowAssessment {
   ok: boolean;
   blockers: string[];
   warnings: string[];
+}
+
+/**
+ * The committed trusted workflow, reviewed on its own.
+ *
+ * Separated from `prepare()` because the two questions have different costs and
+ * different audiences. "Is this file acceptable?" is answerable from disk, for
+ * free, before Docker is installed or a job is queued — and it used to be
+ * answered only at the last of four steps, as one concatenated sentence, after
+ * somebody had done all that work. "May this machine be lent right now?" needs
+ * the live queue and stays where it was.
+ *
+ * `state` distinguishes the three outcomes a caller must treat differently: a
+ * file that is **missing** is an offer to scaffold one, a file that is
+ * **unreadable** is a filesystem problem to report rather than a policy failure
+ * to fix, and a file that is **blocked** is a checklist. Collapsing the first
+ * two into "invalid" would offer to create a file that already exists.
+ */
+export interface LocalCiWorkflowReview {
+  state: 'missing' | 'unreadable' | 'blocked' | 'ok';
+  workflowFile: string;
+  /** Workspace-relative, POSIX separators, for opening in the editor. */
+  path: string;
+  repoSlug: string;
+  runnerLabel: string;
+  blockers: string[];
+  warnings: string[];
+  /** Only a genuinely absent file may be scaffolded; nothing here overwrites. */
+  scaffoldable: boolean;
+  reviewedAt: string;
 }
 
 interface DockerInfoShape {
@@ -219,6 +258,21 @@ class LocalCiQueuePreflightError extends Error {
   constructor(readonly issue: LocalCiQueuePreflightIssue) {
     super(issue.message);
     this.name = 'LocalCiQueuePreflightError';
+  }
+}
+
+/**
+ * A trusted-workflow refusal, carrying the review rather than a joined string.
+ *
+ * The blockers were previously flattened into one `Error` message, so a surface
+ * could only render a paragraph containing every rule at once. Each blocker
+ * already names the single rule it failed and the fix that follows from it;
+ * keeping them as a list is what lets the panel show a checklist instead.
+ */
+export class LocalCiWorkflowError extends Error {
+  constructor(readonly review: LocalCiWorkflowReview) {
+    super(review.blockers.join(' ') || 'The trusted workflow could not be used.');
+    this.name = 'LocalCiWorkflowError';
   }
 }
 
@@ -556,6 +610,13 @@ export class LocalCiRunnerManager {
           queuedRuns: this.snapshot.preflightIssue.queuedRuns.map(run => ({ ...run })),
         },
       } : {}),
+      ...(this.snapshot.workflowReview ? {
+        workflowReview: {
+          ...this.snapshot.workflowReview,
+          blockers: [...this.snapshot.workflowReview.blockers],
+          warnings: [...this.snapshot.workflowReview.warnings],
+        },
+      } : {}),
       ...(this.snapshot.queuedRun ? { queuedRun: { ...this.snapshot.queuedRun } } : {}),
     };
   }
@@ -757,6 +818,131 @@ export class LocalCiRunnerManager {
     return this.getSnapshot();
   }
 
+  /**
+   * Review the committed trusted workflow against the policy, from disk alone.
+   *
+   * Callable long before a run: no Docker, no queue, no `gh` beyond the slug the
+   * caller already resolved. `prepare()` calls exactly this, so the answer shown
+   * on the page and the answer that gates the run cannot differ — the failure
+   * mode being avoided is a page reporting a clean workflow while the start
+   * button refuses it, which reads as a bug in the button.
+   *
+   * The label-collision check belongs here rather than in the file's own
+   * assessment because it is a fact about the *directory*: another workflow
+   * naming this label could have a job claim this machine, and that is true no
+   * matter how impeccable the reviewed file is.
+   */
+  async reviewWorkflow(
+    configuration: LocalCiRunnerConfiguration,
+    repoSlug: string,
+    runnerLabel: string,
+  ): Promise<LocalCiWorkflowReview> {
+    const relativePath = `.github/workflows/${configuration.workflowFile}`;
+    const base = {
+      workflowFile: configuration.workflowFile,
+      path: relativePath,
+      repoSlug,
+      runnerLabel,
+      reviewedAt: new Date().toISOString(),
+    };
+    if (!/^[A-Za-z0-9._-]+\.ya?ml$/i.test(configuration.workflowFile)) {
+      return {
+        ...base,
+        state: 'unreadable',
+        blockers: ['The workflow setting must be one YAML filename inside .github/workflows.'],
+        warnings: [],
+        scaffoldable: false,
+      };
+    }
+    if (!runnerLabel) {
+      return {
+        ...base,
+        state: 'unreadable',
+        blockers: ['The runner label is invalid after architecture expansion, so AtlasMind cannot tell which job the workflow should route here.'],
+        warnings: [],
+        scaffoldable: false,
+      };
+    }
+
+    const workflowPath = path.join(this.workspaceRoot, '.github', 'workflows', configuration.workflowFile);
+    let workflowText: string;
+    try {
+      workflowText = await fs.readFile(workflowPath, 'utf8');
+    } catch (error) {
+      // A missing file is an offer to create one; any other read failure is a
+      // filesystem problem, and offering to "create" over it could destroy
+      // something unreadable rather than absent.
+      const missing = (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+      return {
+        ...base,
+        state: missing ? 'missing' : 'unreadable',
+        blockers: [missing
+          ? `No trusted workflow exists at ${relativePath} yet.`
+          : `${relativePath} could not be read: ${safeFailure(error)}`],
+        warnings: [],
+        scaffoldable: missing,
+      };
+    }
+
+    const assessment = assessTrustedLocalCiWorkflow(workflowText, {
+      repoSlug,
+      branch: configuration.trustedBranch,
+      runnerLabel,
+    });
+    const blockers = [...assessment.blockers];
+    const warnings = [...assessment.warnings];
+
+    try {
+      const workflowDir = path.dirname(workflowPath);
+      const otherFiles = (await fs.readdir(workflowDir, { withFileTypes: true }))
+        .filter(entry => entry.isFile() && /\.ya?ml$/i.test(entry.name) && entry.name !== configuration.workflowFile);
+      for (const entry of otherFiles) {
+        const other = await fs.readFile(path.join(workflowDir, entry.name), 'utf8').catch(() => '');
+        if (other.includes(runnerLabel)) {
+          blockers.push(`Runner label ${runnerLabel} also appears in ${entry.name}; a queued job there could claim this machine.`);
+        }
+      }
+    } catch (error) {
+      // Not provable either way, so it is a blocker rather than a pass: the
+      // whole point of the check is that an unseen workflow could claim the
+      // label, and an unreadable directory is exactly that case.
+      blockers.push(`The workflow directory could not be listed, so AtlasMind cannot prove no other workflow claims ${runnerLabel}: ${safeFailure(error)}`);
+    }
+
+    return {
+      ...base,
+      state: blockers.length === 0 ? 'ok' : 'blocked',
+      blockers: [...new Set(blockers)],
+      warnings: [...new Set(warnings)],
+      scaffoldable: false,
+    };
+  }
+
+  /**
+   * Review the workflow on request and remember the answer.
+   *
+   * The label comes from the last inspection where there was one, and from the
+   * host architecture otherwise, so this works on a machine where Docker is not
+   * installed yet — which is the whole point of being able to ask early.
+   */
+  async assessCommittedWorkflow(
+    configuration: LocalCiRunnerConfiguration,
+    repoSlug: string,
+  ): Promise<LocalCiWorkflowReview> {
+    const arch = this.snapshot.engine.arch ?? this.snapshot.host.arch;
+    const runnerLabel = resolveLocalCiRunnerLabel(configuration.runnerLabel, arch);
+    const review = await this.reviewWorkflow(configuration, repoSlug, runnerLabel);
+    this.update({
+      workflowReview: review,
+      message: review.state === 'ok'
+        ? 'The committed trusted workflow satisfies the local runner policy.'
+        : review.state === 'missing'
+          ? 'No trusted workflow exists yet. AtlasMind can write one for review.'
+          : 'The trusted workflow needs changes before this machine can be lent to it.',
+    });
+    return review;
+  }
+
   async prepare(configuration: LocalCiRunnerConfiguration): Promise<LocalCiStartPlan> {
     if (!configuration.enabled) {
       throw new Error('Local CI is disabled in machine settings.');
@@ -792,27 +978,20 @@ export class LocalCiRunnerManager {
     if (dirty) {
       throw new Error('The trusted workflow has uncommitted changes. Commit and review it before lending this machine to GitHub.');
     }
-    const workflowPath = path.join(this.workspaceRoot, '.github', 'workflows', configuration.workflowFile);
-    const workflowText = await fs.readFile(workflowPath, 'utf8');
     const runnerLabel = resolveLocalCiRunnerLabel(configuration.runnerLabel, inspected.engine.arch ?? inspected.host.arch);
-    const workflowAssessment = assessTrustedLocalCiWorkflow(workflowText, {
-      repoSlug,
-      branch: configuration.trustedBranch,
-      runnerLabel,
-    });
-    if (!workflowAssessment.ok) {
-      throw new Error(workflowAssessment.blockers.join(' '));
+    const workflowReview = await this.reviewWorkflow(configuration, repoSlug, runnerLabel);
+    // Recorded on success as well as failure. A page showing "not checked"
+    // beside a job this preflight just authorised would be describing a check
+    // that did happen as one that did not.
+    this.update({ workflowReview }, false);
+    if (workflowReview.state !== 'ok') {
+      throw new LocalCiWorkflowError(workflowReview);
     }
-
-    const workflowDir = path.dirname(workflowPath);
-    const otherFiles = (await fs.readdir(workflowDir, { withFileTypes: true }))
-      .filter(entry => entry.isFile() && /\.ya?ml$/i.test(entry.name) && entry.name !== configuration.workflowFile);
-    for (const entry of otherFiles) {
-      const other = await fs.readFile(path.join(workflowDir, entry.name), 'utf8').catch(() => '');
-      if (other.includes(runnerLabel)) {
-        throw new Error(`Runner label ${runnerLabel} also appears in ${entry.name}; a queued job there could claim this machine.`);
-      }
-    }
+    const workflowAssessment: LocalCiWorkflowAssessment = {
+      ok: true,
+      blockers: [],
+      warnings: workflowReview.warnings,
+    };
 
     const pendingRunsRaw = await runGhOrThrow(this.workspaceRoot, [
       'run', 'list', '--workflow', configuration.workflowFile,
@@ -945,6 +1124,24 @@ export class LocalCiRunnerManager {
       this.update({ lifecycle: 'waiting', message: 'The ephemeral runner is online and waiting to claim the queued job.' });
     } catch (error) {
       const detail = safeFailure(error);
+      // A workflow that fails the policy is a *configuration* state, not a
+      // runtime failure: nothing was started, and the fix is a file edit. It
+      // lands as `blocked` with the review attached so the page can show the
+      // checklist, rather than as `failed` with one flattened sentence.
+      if (error instanceof LocalCiWorkflowError) {
+        this.log(`[workflow] ${detail}`);
+        this.update({
+          lifecycle: 'blocked',
+          message: error.review.state === 'missing'
+            ? 'No trusted workflow exists yet. AtlasMind can write one for review.'
+            : 'The trusted workflow needs changes before this machine can be lent to it.',
+          blockers: [...error.review.blockers],
+          workflowReview: error.review,
+          preflightIssue: undefined,
+          queuedRun: undefined,
+        });
+        throw error;
+      }
       if (error instanceof LocalCiQueuePreflightError) {
         this.log(`[queue] ${detail}`);
         this.update({
