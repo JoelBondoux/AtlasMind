@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.361.1 — White text on a white button
+
+The Test Browser's unselected filter pills were unreadable. `.tag` sets a text colour and no background,
+and a `<button>` with no background takes the *browser's* default fill — a light grey that ignores the
+theme entirely. The selected pill was fine, and only because `.tag-good` sets a background of its own,
+which is also how this survived review: the card looks correct in the one state anybody screenshots.
+
+The same card was also reporting two different populations under one heading. *All* showed the length of
+the capped list while each category counted the entire discovery, so on this repository *All (600)* sat
+next to *Unit (5826)* — a part larger than its whole — and clicking Unit showed 600 of them anyway. Every
+count now describes the listed tests, which is the only population the filters can search, and the
+remainder gets its own sentence rather than being smuggled into a category.
+
+The computed-contrast guard could not have caught the first one, for a reason worth writing down: when a
+rule declares no background, it assumes the page backdrop. For a span that is correct. For a button it is
+not. The new check reads the static class *combination* on each button — combinations, because that is how
+CSS composes, and checking tokens in isolation flagged two classes that are perfectly legible since they
+are only ever worn beside one that sets a background. Verified the honest way: by taking the fix out and
+watching it fail.
+
+---
+
 ## v0.361.0 — A default that was never a default
 
 Every GitHub Actions workflow AtlasMind generates pinned Node 20, a runtime that reached end of life in

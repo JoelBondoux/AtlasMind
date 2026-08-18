@@ -4235,10 +4235,20 @@
             <p class="section-kicker">Test browser</p>
             <h3>Browse every detected test</h3>
             <div class="stat-detail">Use the category filters, searchable list, or dropdown jump menu when the suite gets large.</div>
+            ${/*
+               * Every count here describes the *listed* tests, which is the only
+               * population the filters can search. Counting the full discovery
+               * made All read 600 — the cap — while Unit read 5,826: a part
+               * larger than its whole, and clicking Unit showed 600 of them
+               * regardless. The remainder is stated below instead.
+               */''}
             <div class="tag-row">
-              <button type="button" class="tag ${state.activeTestCategory === 'all' ? 'tag-good' : ''}" data-action="test-category" data-payload="all">All (${escapeHtml(String(testing.tests.length || testing.totalCases))})</button>
+              <button type="button" class="tag ${state.activeTestCategory === 'all' ? 'tag-good' : ''}" data-action="test-category" data-payload="all">All (${escapeHtml(String(testing.tests.length))})</button>
               ${(testing.categoryCounts || []).map(group => `<button type="button" class="tag ${state.activeTestCategory === group.key ? 'tag-good' : ''}" data-action="test-category" data-payload="${escapeAttr(group.key)}">${escapeHtml(`${group.label} (${group.count})`)}</button>`).join('')}
             </div>
+            ${typeof testing.totalDiscoveredTests === 'number' && testing.totalDiscoveredTests > testing.tests.length
+              ? `<p class="stat-detail">Listing ${escapeHtml(String(testing.tests.length))} of ${escapeHtml(String(testing.totalDiscoveredTests))} discovered tests. The counts above and the search below cover the listed ones only.</p>`
+              : ''}
             <div class="panel-grid" style="grid-template-columns: 1fr 260px; margin-top: 12px;">
               <input id="test-search-input" class="ideation-input" type="search" placeholder="Search by title, suite, or file" value="${escapeAttr(state.testSearch || '')}" />
               <select id="test-select-jump" class="ideation-select">

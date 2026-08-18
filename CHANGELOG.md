@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.361.1] - 2026-08-19
+
+### Fixed
+
+- **Unselected filter pills in the Test Browser were unreadable** — light grey text on the browser's
+  default button fill. `.tag` declared a text colour and no background, and a `<button>` with no
+  background takes the *browser's* default, a light grey that ignores the theme entirely. Only the
+  selected pill was legible, and only because `.tag-good` sets a background of its own — which is also
+  why it survived review, since the card looks correct in the one state anybody screenshots.
+- **The Test Browser's counts described two different populations.** *All* showed the length of the
+  capped list while each category counted the whole discovery, so on this repository *All (600)* sat
+  beside *Unit (5826)*: a part larger than its whole, and clicking Unit showed 600 of them regardless.
+  Every count now describes the listed tests — the only population the filters can actually search — and
+  the remainder is stated in its own sentence instead of being smuggled into a category.
+
+### Added
+
+- **A contrast guard for classes worn by buttons.** The existing computed-contrast pass could not see
+  this defect, and the reason is a modelling limit worth recording: when a rule declares no background it
+  assumes the page backdrop, which is right for a `<span>` and wrong for a `<button>`. The new check reads
+  the static class *combination* on each button — combinations, because that is how CSS composes, and
+  checking tokens alone reported `danger-link` and `dashboard-version-pill-more`, both legible since they
+  are only ever worn beside a class that sets a background. Verified by removing the fix and watching it
+  fail.
+
 ## [0.361.0] - 2026-08-19
 
 ### Fixed

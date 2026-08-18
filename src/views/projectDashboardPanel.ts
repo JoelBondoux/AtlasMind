@@ -21940,7 +21940,27 @@ const DASHBOARD_CSS = `
     border: 1px solid var(--dash-border);
     font-size: 11px;
     color: var(--dash-muted);
+    /*
+     * Declared even though it is the page's own background, because this class
+     * is worn by a button as well as a span. A button with no background takes
+     * the browser's default — a light grey that ignores the theme entirely — and
+     * the colour above is a muted near-white, so the label became unreadable on
+     * every unselected filter pill in the Test Browser. Only the selected one
+     * was legible, and only because .tag-good sets a background of its own —
+     * which is also why this survived review: the card looks correct in the one
+     * state anybody screenshots.
+     */
+    background: transparent;
   }
+
+  /* A tag that is actually a control still has to look and behave like one. */
+  button.tag {
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  button.tag:hover { border-color: var(--dash-accent); color: var(--dash-heading); }
+  button.tag:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
   .tag-good {
     border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
