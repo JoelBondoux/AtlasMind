@@ -23,6 +23,7 @@ import {
   type SetupStep,
 } from './setupWalkthrough.js';
 import { ACP_SETUP_GUIDE } from './acpSetupPlan.js';
+import { LOCAL_CI_SETUP_GUIDE } from './localCiSetupPlan.js';
 import { LENS_SETUP_GUIDE } from './lensDeclarationPlan.js';
 
 /** The Buzz guide, described in the shared shape. */
@@ -38,12 +39,23 @@ export const BUZZ_SETUP_GUIDE: SetupGuideSummary = {
  * Every guide, in the order a new project would sensibly work through them.
  *
  * ACP first: it is the one that changes what AtlasMind can *do* for you rather
- * than what it can reach, and it is the cheapest to finish. Lens last of the
- * three: its own "Ask Atlas" step wants a model configured, which is what ACP
- * sets up, so putting it first would send people to a guide whose best feature
- * is not available yet.
+ * than what it can reach, and it is the cheapest to finish. Lens before local
+ * CI: its own "Ask Atlas" step wants a model configured, which is what ACP sets
+ * up, so putting it first would send people to a guide whose best feature is
+ * not available yet.
+ *
+ * Local CI last, because it is the only guide asking you to install operating
+ * system software and lend your machine to somebody else's scheduler. Ordering
+ * it earlier would put the heaviest commitment in front of somebody still
+ * deciding whether AtlasMind is worth configuring at all — and unlike the other
+ * three, nothing else in the product is waiting on it.
  */
-export const SETUP_GUIDES: readonly SetupGuideSummary[] = [ACP_SETUP_GUIDE, BUZZ_SETUP_GUIDE, LENS_SETUP_GUIDE];
+export const SETUP_GUIDES: readonly SetupGuideSummary[] = [
+  ACP_SETUP_GUIDE,
+  BUZZ_SETUP_GUIDE,
+  LENS_SETUP_GUIDE,
+  LOCAL_CI_SETUP_GUIDE,
+];
 
 export function findSetupGuide(id: string): SetupGuideSummary | undefined {
   const wanted = (id ?? '').trim().toLowerCase();

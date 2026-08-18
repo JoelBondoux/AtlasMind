@@ -520,7 +520,7 @@ export const LENS_PANEL_CSS = `${LENS_BASE_CSS}${LENS_FLOW_CSS}${LENS_INFO_CSS}$
 /** Every lens surface that draws links pulls both scripts, flow first. */
 export const LENS_PANEL_SCRIPT = `${LENS_FLOW_SCRIPT}${LENS_INFO_SCRIPT}
 
-  function makeAtlasDiscussButton(button, label, title) {
+  function makeAtlasDiscussButton(button, label, title, glyph) {
     button.className = 'atlas-discuss-action icon-only';
     button.textContent = '';
     button.title = title;
@@ -529,10 +529,17 @@ export const LENS_PANEL_SCRIPT = `${LENS_FLOW_SCRIPT}${LENS_INFO_SCRIPT}
     image.src = '${ATLAS_ICON_DATA_URI}';
     image.alt = '';
     image.setAttribute('aria-hidden', 'true');
+    // The action glyph. Defaulted rather than required: a caller that has not
+    // been revisited still renders a correct pill, and the tooltip and the
+    // accessible name carry the sentence either way.
+    const mark = document.createElement('span');
+    mark.className = 'atlas-discuss-glyph';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = glyph || '☷';
     const text = document.createElement('span');
     text.className = 'atlas-discuss-label';
     text.textContent = label;
-    button.append(image, text);
+    button.append(image, mark, text);
     return button;
   }
 `;

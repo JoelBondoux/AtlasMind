@@ -16,6 +16,29 @@
     ...(vscode.getState() || {}),
     ...hostBranchPreferences,
   };
+  // Four views, plus `setup` — addressable so the header chip can reach the
+  // onboarding journey, but never a tab competing with the operational views.
+  const PIPELINE_SECTIONS = ['activity', 'canvas', 'tests', 'rules', 'setup'];
+  /** Sections the old eight-tab layout used, remapped so a persisted choice still lands somewhere real. */
+  const PIPELINE_SECTION_ALIASES = {
+    overview: 'setup', builds: 'activity', analytics: 'activity',
+    routes: 'rules', runner: 'rules', workflow: 'canvas', packages: 'canvas',
+  };
+
+  function normalizedPipelineNodePositions(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return {}; }
+    return Object.entries(value).slice(0, 160).reduce((all, entry) => {
+      const key = String(entry[0] || '');
+      const point = entry[1];
+      if (!/^[a-z0-9._:-]{1,120}$/i.test(key) || !point || typeof point !== 'object') { return all; }
+      const x = Number(point.x);
+      const y = Number(point.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        all[key] = { x: Math.max(0, Math.min(2200, Math.round(x))), y: Math.max(0, Math.min(1800, Math.round(y))) };
+      }
+      return all;
+    }, {});
+  }
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
@@ -36,10 +59,36 @@
     }
   }
 
+  /**
+   * The glyph vocabulary, mirroring `ATLAS_ACTION_GLYPHS` in webviewUtils.
+   *
+   * Duplicated deliberately: this file is a script handed to a browser and
+   * cannot import from the host. Pinned against the host's copy by test, so one
+   * intent cannot come to mean two things on two surfaces.
+   */
+  const ATLAS_ACTION_GLYPHS = {
+    discuss: '☷',
+    improve: '✎',
+    fix: '⚒',
+    draft: '+',
+    summarise: '≡',
+  };
+
+  /**
+   * An Atlas action as a pill: who is being asked on the left, what they will
+   * do on the right.
+   *
+   * It was a bare circle, identical on every row whatever it did — "Ask Atlas"
+   * says who but never what, so telling two apart meant hovering each one. The
+   * glyph narrows the action at a glance; the tooltip and the accessible name
+   * still carry the whole sentence, because a symbol set nobody has learnt yet
+   * must never be the only thing carrying the meaning.
+   */
   function renderAtlasDiscussAction(action, payload, label, options = {}) {
     const title = options.title || label;
     const disabled = options.disabled ? ' disabled aria-disabled="true"' : '';
-    return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"${disabled}><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
+    const glyph = ATLAS_ACTION_GLYPHS[options.intent] || ATLAS_ACTION_GLYPHS.discuss;
+    return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"${disabled}><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">${glyph}</span><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
   /**
@@ -180,7 +229,7 @@
 
   const DASHBOARD_FOCUS_KINDS = [
     'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
-    'assignment', 'follow-up',
+    'assignment', 'follow-up', 'testing-policy',
   ];
 
   // The host validates this first; the webview validates it again because a
@@ -285,6 +334,34 @@
     },
     /** Which release gate the Road-to card is showing. '' = the first (MVP). */
     activeRoadmapGate: 'mvp',
+    /** Progressive-disclosure view inside Pipeline Studio. */
+    // null means the user has never picked a tab. The default is then decided
+    // at render time from the project's state — a project with build history
+    // opens on Builds, a fresh one on the setup journey — because a hardcoded
+    // 'overview' keeps showing onboarding to people who finished onboarding.
+    pipelineSection: PIPELINE_SECTIONS.includes(persistedWebviewState.pipelineSection)
+      ? persistedWebviewState.pipelineSection : null,
+    /**
+     * The default resolved on the first render, held for the session and never
+     * persisted. Deliberately a separate field: re-resolving per render lets a
+     * background CI refresh switch the visible tab under the user, and
+     * persisting it would record a default as if it were a choice.
+     */
+    pipelineSectionDefault: null,
+    /**
+     * Canvas overlays. Status is on by default because "what happened" is the
+     * question people bring to a pipeline map; the other two are opt-in so a
+     * busy graph is not badged with things nobody asked about.
+     */
+    pipelineOverlays: {
+      status: persistedWebviewState.pipelineOverlays ? persistedWebviewState.pipelineOverlays.status !== false : true,
+      routing: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.routing),
+      delivery: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.delivery),
+    },
+    /** The workflow node whose panel is open, if any. Never persisted. */
+    pipelineNode: null,
+    /** Visual layout only. Moving a node never edits a workflow file. */
+    pipelineNodePositions: normalizedPipelineNodePositions(persistedWebviewState.pipelineNodePositions),
     /** '' = everyone; otherwise a git author name from the contributor chart. */
     contributorFilter: '',
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
@@ -391,6 +468,11 @@
     } else if (target.focus.kind === 'debt') {
       state.debtSearch = '';
       state.debtRuleFilter = 'all';
+    } else if (target.focus.kind === 'testing-policy') {
+      // Policy cards are collapsed by default and open one at a time. Landing
+      // on a closed card would answer the click with a heading — the evidence,
+      // the failures and the actions are all inside it.
+      state.testingExpandedIds = [target.focus.id];
     }
   }
 
@@ -1136,8 +1218,136 @@
       requestRepositoryRefresh('refreshCi');
       return;
     }
+    if (action === 'pipeline-section') {
+      const requested = PIPELINE_SECTION_ALIASES[payload] || payload;
+      state.pipelineSection = PIPELINE_SECTIONS.includes(requested) ? requested : 'activity';
+      vscode.setState({
+        ...(vscode.getState() || {}),
+        pipelineSection: state.pipelineSection,
+        pipelineNodePositions: state.pipelineNodePositions,
+      });
+      refocusAfterRender = 'button[data-action="pipeline-section"][data-payload="' + cssEscape(state.pipelineSection) + '"]';
+      render();
+      return;
+    }
+    if (action === 'pipeline-graph-reset') {
+      state.pipelineNodePositions = {};
+      vscode.setState({
+        ...(vscode.getState() || {}),
+        pipelineSection: state.pipelineSection,
+        pipelineNodePositions: {},
+      });
+      render();
+      return;
+    }
+    if (action === 'pipeline-runner-inspect') {
+      vscode.postMessage({ type: 'inspectLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-start') {
+      vscode.postMessage({ type: 'startLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-output') {
+      vscode.postMessage({ type: 'showLocalCiOutput' });
+      return;
+    }
+    if (action === 'pipeline-workflow-assess') {
+      vscode.postMessage({ type: 'assessTrustedCiWorkflow' });
+      return;
+    }
+    if (action === 'pipeline-workflow-create') {
+      vscode.postMessage({ type: 'createTrustedCiStarter' });
+      return;
+    }
+    if (action === 'pipeline-install-gh') {
+      vscode.postMessage({ type: 'installGitHubCli' });
+      return;
+    }
+    if (action === 'pipeline-run-here') {
+      vscode.postMessage({ type: 'runDirectLocalChecks' });
+      return;
+    }
+    if (action === 'pipeline-create-routing') {
+      vscode.postMessage({ type: 'createCiRoutingConfig' });
+      return;
+    }
+    if (action === 'pipeline-overlay') {
+      if (Object.prototype.hasOwnProperty.call(state.pipelineOverlays, payload)) {
+        state.pipelineOverlays[payload] = !state.pipelineOverlays[payload];
+        vscode.setState({ ...(vscode.getState() || {}), pipelineOverlays: state.pipelineOverlays });
+        refocusAfterRender = 'button[data-action="pipeline-overlay"][data-payload="' + cssEscape(payload) + '"]';
+        render();
+      }
+      return;
+    }
+    if (action === 'pipeline-node-clear') {
+      state.pipelineNode = null;
+      render();
+      return;
+    }
+    if (action === 'pipeline-tests-fix') {
+      vscode.postMessage({ type: 'workOnFailingTests' });
+      return;
+    }
+    if (action === 'pipeline-test-draft') {
+      if (payload) { vscode.postMessage({ type: 'draftMissingTest', payload: payload }); }
+      return;
+    }
+    if (action === 'pipeline-route-cell') {
+      const sep = payload.indexOf('|');
+      if (sep > 0) {
+        vscode.postMessage({
+          type: 'cycleCiRoutingCell',
+          payload: { workload: payload.slice(0, sep), route: payload.slice(sep + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'pipeline-route-exhaust') {
+      if (payload) { vscode.postMessage({ type: 'toggleCiRoutingExhaustion', payload: payload }); }
+      return;
+    }
+    if (action === 'pipeline-edit-route') {
+      if (payload) { vscode.postMessage({ type: 'editCiRoutingRule', payload: payload }); }
+      return;
+    }
+    if (action === 'pipeline-ci-failure-work') {
+      vscode.postMessage({ type: 'workOnCiFailure' });
+      return;
+    }
+    if (action === 'pipeline-refresh-credit') {
+      vscode.postMessage({ type: 'refreshCiCredit' });
+      return;
+    }
+    if (action === 'pipeline-queue-command-copy') {
+      vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
+      return;
+    }
+    if (action === 'pipeline-queue-command-send') {
+      vscode.postMessage({ type: 'sendLocalCiQueueCommandToTerminal' });
+      return;
+    }
+    if (action === 'pipeline-cancel-command-copy') {
+      const runId = Number(payload);
+      if (Number.isSafeInteger(runId) && runId > 0) { vscode.postMessage({ type: 'copyLocalCiCancelCommand', payload: runId }); }
+      return;
+    }
+    if (action === 'pipeline-cancel-command-send') {
+      const runId = Number(payload);
+      if (Number.isSafeInteger(runId) && runId > 0) { vscode.postMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: runId }); }
+      return;
+    }
+    if (action === 'pipeline-setup-help') {
+      vscode.postMessage({ type: 'openLocalCiSetupHelp', payload: payload });
+      return;
+    }
     if (action === 'pipeline-create-starter') {
       vscode.postMessage({ type: 'createCiStarter' });
+      return;
+    }
+    if (action === 'pipeline-run-act') {
+      if (payload) { vscode.postMessage({ type: 'runWorkflowWithAct', payload: payload }); }
       return;
     }
     if (action === 'pipeline-review-workflow') {
@@ -2421,6 +2631,7 @@
       // see applyValueAnimations() for why a plain transition cannot work
       // against a wholesale innerHTML swap.
       applyValueAnimations();
+      bindPipelineGraph();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -2581,7 +2792,7 @@
               'discuss-dashboard-error',
               '',
               'Resolve with Atlas',
-              { title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
+              { intent: 'fix', title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
             )}
           </div>
         </div>
@@ -2882,7 +3093,7 @@
             })}
             ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
             <div class="tag-row">
-              ${grouped.length > 0 ? grouped.map(group => renderAtlasDiscussAction('gap-group', group.priority, `Ask AtlasMind to resolve the ${group.priority} gap group`, { title: `Ask AtlasMind to resolve ${group.items.length} ${group.priority} gap-analysis item${group.items.length === 1 ? '' : 's'}` })).join('') : ''}
+              ${grouped.length > 0 ? grouped.map(group => renderAtlasDiscussAction('gap-group', group.priority, `Ask AtlasMind to resolve the ${group.priority} gap group`, { intent: 'fix', title: `Ask AtlasMind to resolve ${group.items.length} ${group.priority} gap-analysis item${group.items.length === 1 ? '' : 's'}` })).join('') : ''}
               <button type="button" class="action-link" data-action="gap-run" data-payload="" ${state.gapBusy ? 'disabled' : ''}>${state.gapBusy ? 'Running…' : gap.completed ? 'Re-run Analysis' : 'Run Gap Analysis'}</button>
             </div>
           </article>
@@ -2900,7 +3111,7 @@
                     <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
                     <div class="tag-row">
                       ${renderDirectorOwnerControl('gap', item.id)}
-                      ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
+                      ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { intent: 'fix', title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
                       <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
                     </div>
@@ -3583,6 +3794,7 @@
                       'Ask Atlas',
                       {
                         iconOnly: true,
+                        intent: 'summarise',
                         title: `Ask Atlas for a deterministic summary of ${branch.name}`,
                       },
                     )}
@@ -3799,7 +4011,7 @@
             <div class="stat-detail">${escapeHtml(rt.tdd.detail)}</div>
             <div class="tag-row">
               ${rt.tdd.missing > 0 || rt.tdd.blocked > 0 ? `
-              ${renderAtlasDiscussAction('prompt', buildTddChatPrompt(rt.tdd), 'Ask AtlasMind to fix the TDD gaps', { title: 'Ask AtlasMind to inspect and fix the blocked or missing TDD evidence' })}
+              ${renderAtlasDiscussAction('prompt', buildTddChatPrompt(rt.tdd), 'Ask AtlasMind to fix the TDD gaps', { intent: 'fix', title: 'Ask AtlasMind to inspect and fix the blocked or missing TDD evidence' })}
               <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(rt.tdd))}">▶ Plan a TDD fix run</button>
               ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
@@ -4081,7 +4293,7 @@
             </div>
             <div class="tag-row">
               ${selectedTest ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(`${selectedTest.relativePath}#L${selectedTest.line}`)}">Open at source</button>` : ''}
-              ${selectedTest ? renderAtlasDiscussAction('prompt', `Review the test named '${selectedTest.title}' in ${selectedTest.relativePath} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.`, 'Ask AtlasMind to analyze this test', { title: 'Ask AtlasMind to analyze the selected test and identify coverage gaps' }) : ''}
+              ${selectedTest ? renderAtlasDiscussAction('prompt', `Review the test named '${selectedTest.title}' in ${selectedTest.relativePath} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.`, 'Ask AtlasMind to analyze this test', { intent: 'discuss', title: 'Ask AtlasMind to analyze the selected test and identify coverage gaps' }) : ''}
             </div>
           </article>
         </div>
@@ -4227,7 +4439,7 @@
             'testing-fix-chat',
             '',
             result.outcome === 'failed' ? 'Resolve with Atlas' : 'Discuss with Atlas',
-            { title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
+            { intent: 'fix', title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
           )}
           <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
         </div>`
@@ -4403,8 +4615,8 @@
           ${detail && detail.scaffoldable ? `<button type="button" class="action-link" data-action="testing-policy-scaffold" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Create the starter framework for ${row.label} only. The exact files are listed before anything is written.`)}">Scaffold framework</button>` : ''}
           ${detail && detail.followUp ? `<button type="button" class="action-link" data-action="testing-policy-followup" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Add ${row.label} to the owner’s follow-ups`)}">Add to follow-ups</button>` : ''}
           ${detail && detail.issue ? `<button type="button" class="action-link action-link-strong" data-action="testing-policy-issue" data-payload="${escapeAttr(row.id)}" title="${escapeAttr('Draft a GitHub issue for this finding. The draft is shown before anything is posted.')}">File as issue…</button>` : ''}
-          ${renderAtlasDiscussAction('discuss-testing-policy', row.id, 'Ask Atlas', { title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options` })}
-          ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
+          ${renderAtlasDiscussAction('discuss-testing-policy', row.id, 'Ask Atlas', { intent: 'discuss', title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options` })}
+          ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { intent: 'fix', title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
         </div>
       </div>`;
   }
@@ -4761,7 +4973,7 @@
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
-          ${renderAtlasDiscussAction('fix-activated-testing', '', fixRunning ? 'AtlasMind is repairing activated testing' : 'Ask AtlasMind to fix activated testing', { disabled: fixRunning, title: fixRunning ? 'AtlasMind is currently repairing the enabled testing surfaces' : 'Ask AtlasMind to inspect and repair all enabled testing surfaces through the normal approval flow' })}
+          ${renderAtlasDiscussAction('fix-activated-testing', '', fixRunning ? 'AtlasMind is repairing activated testing' : 'Ask AtlasMind to fix activated testing', { intent: 'fix', disabled: fixRunning, title: fixRunning ? 'AtlasMind is currently repairing the enabled testing surfaces' : 'Ask AtlasMind to inspect and repair all enabled testing surfaces through the normal approval flow' })}
           <button type="button" class="action-link" data-action="reconcile-testing"${fixRunning ? ' disabled' : ''}>Reconcile with the repository…</button>
           <span class="list-meta">Fix runs only after confirmation and normal tool approvals; routed activity and its final report appear below. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
         </div>
@@ -5256,7 +5468,7 @@
         ${issue.body ? `<div class="list-meta issue-body">${escapeHtml(issue.body.slice(0, 320))}${issue.bodyTruncated || issue.body.length > 320 ? '…' : ''}</div>` : ''}
         <div class="tag-row">
           ${isOpen ? renderDirectorOwnerControl('issue', String(issue.number)) : ''}
-          ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
+          ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { intent: 'fix', title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
           <button type="button" class="action-link" data-action="issues-comment" data-payload="${escapeAttr(String(issue.number))}">${composing ? 'Cancel comment' : 'Comment'}</button>
           ${isOpen
             ? `<button type="button" class="action-link" data-action="issues-close" data-payload="${escapeAttr(String(issue.number))}">Close</button>`
@@ -5323,11 +5535,13 @@
   const WF_STATUS_WORD = { done: 'done', todo: 'to do', blocked: 'blocked', optional: 'optional' };
 
   /** A "?" toggle plus, when open, the explanation panel it controls. */
-  function renderWorkflowHelp(id, payload) {
+  function renderWorkflowHelp(id, payload, options = {}) {
     const open = state.workflowHelpOpen[id] === true;
-    const button = `<button type="button" class="wf-help-toggle" data-action="workflow-help" data-payload="${escapeAttr(id)}"
+    const symbol = options.symbol === 'i' ? 'i' : '?';
+    const button = `<button type="button" class="wf-help-toggle${symbol === 'i' ? ' info-help-toggle' : ''}" data-action="workflow-help" data-payload="${escapeAttr(id)}"
       aria-expanded="${open ? 'true' : 'false'}" aria-controls="wf-help-${escapeAttr(id)}"
-      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">?</button>`;
+      title="${open ? 'Hide' : 'Explain'} ${escapeAttr(payload.label || 'this section')}"
+      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">${symbol}</button>`;
     if (!open) { return { button, panel: '' }; }
 
     const section = (heading, body) => body ? `<h5>${escapeHtml(heading)}</h5>${body}` : '';
@@ -5365,6 +5579,10 @@
       </div>
       ${mistakes}`;
     return { button, panel };
+  }
+
+  function renderInfoHelp(id, payload) {
+    return renderWorkflowHelp(id, payload, { symbol: 'i' });
   }
 
   /** Glossary lookup, keyed, from the current snapshot. */
@@ -5753,7 +5971,7 @@
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
-          ${renderAtlasDiscussAction('work-on-debt', entry.id, 'Ask AtlasMind to review this debt entry', { title: 'Ask AtlasMind to inspect this debt record and propose whether to fix, retain, or reclassify it' })}
+          ${renderAtlasDiscussAction('work-on-debt', entry.id, 'Ask AtlasMind to review this debt entry', { intent: 'discuss', title: 'Ask AtlasMind to inspect this debt record and propose whether to fix, retain, or reclassify it' })}
         </div>
       </div>`).join('');
 
@@ -6002,6 +6220,1359 @@
     </section>`;
   }
 
+  function renderPipelineDial(id, percent, options = {}) {
+    const known = typeof percent === 'number' && Number.isFinite(percent);
+    const boundedPercent = known ? Math.max(0, Math.min(100, Math.round(percent))) : 0;
+    const radius = 44;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (boundedPercent / 100) * circumference;
+    const tone = options.tone || (!known ? 'muted' : boundedPercent >= 90 ? 'good' : boundedPercent >= 70 ? 'warn' : 'critical');
+    const resolved = options.resolved === true;
+    const value = options.value || (known ? `${boundedPercent}%` : '—');
+    const aria = `${options.label || 'Status'}: ${value}. ${options.detail || ''}`.trim();
+    return `
+      <div class="ci-status-dial dial-${escapeAttr(tone)}${resolved ? ' is-resolved' : ''}" role="img" aria-label="${escapeAttr(aria)}">
+        <svg viewBox="0 0 112 112" aria-hidden="true">
+          <circle class="ci-dial-track" cx="56" cy="56" r="${radius}"></circle>
+          <circle class="ci-dial-value" cx="56" cy="56" r="${radius}"
+            stroke-dasharray="${circumference}" data-anim-key="ci-dial:${escapeAttr(id)}"
+            data-anim-prop="dashoffset" data-anim-from="${circumference}" data-anim-to="${offset}"></circle>
+          <path class="ci-dial-check" d="M38 57l11 11 25-27"></path>
+        </svg>
+        <div class="ci-dial-copy">
+          <strong>${escapeHtml(value)}</strong>
+          <span>${escapeHtml(options.label || 'Status')}</span>
+          ${options.detail ? `<small>${escapeHtml(options.detail)}</small>` : ''}
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Four views and a header strip.
+   *
+   * Named by what a person is doing — watch, understand, verify, decide —
+   * rather than by which subsystem produced the data. The eight tabs this
+   * replaces were an org chart of when features shipped, and four of them were
+   * setup surfaces competing with the operational ones for the same row.
+   *
+   * Setup is not a tab. It takes the page over on a fresh project and then
+   * retreats to the chip on the right of this strip, which is the only thing
+   * that brings it back.
+   */
+  function renderPipelineTabs(snapshot, runs, activeSection, setup) {
+    const delivery = snapshot.delivery || {};
+    const builds = delivery.builds || {};
+    const records = builds.records || [];
+    const routing = delivery.routing || {};
+    const testing = snapshot.testing || {};
+    const failing = (testing.policyCoverage && testing.policyCoverage.report && testing.policyCoverage.report.failures) || 0;
+    const running = records.filter(build => build.status === 'running').length;
+
+    const tabs = [
+      {
+        id: 'activity',
+        label: 'Activity',
+        meta: running ? `${running} running` : records.length ? `${records.length} recent` : runs.length ? `${runs.length} runs` : 'nothing yet',
+        tone: running ? 'warn' : '',
+      },
+      { id: 'canvas', label: 'Canvas', meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}` },
+      {
+        id: 'tests',
+        label: 'Tests',
+        meta: failing ? `${failing} failing` : testing.policyCoverage && testing.policyCoverage.report ? 'passing' : 'no report',
+        tone: failing ? 'bad' : '',
+      },
+      {
+        id: 'rules',
+        label: 'Rules',
+        meta: routing.configPresent ? `${(routing.decisions || []).length} decided` : 'not set',
+      },
+    ];
+
+    const creditTone = routing.creditState === 'exhausted' ? 'bad' : routing.creditState === 'remaining' ? 'good' : '';
+    const creditLabel = routing.creditState === 'exhausted' ? 'allowance spent'
+      : routing.creditState === 'remaining' ? 'allowance ok'
+        : 'allowance not read';
+
+    return `<div class="ci-studio-bar">
+      <div class="ci-studio-tabs" role="tablist" aria-label="Pipeline views">
+        ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${escapeAttr(tab.id)}"
+          aria-selected="${activeSection === tab.id ? 'true' : 'false'}" class="${activeSection === tab.id ? 'active' : ''}">
+          <span>${escapeHtml(tab.label)}</span><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
+        </button>`).join('')}
+      </div>
+      <div class="ci-studio-status">
+        <button type="button" class="ci-status-chip ${setup.complete ? 'good' : 'warn'}" data-action="pipeline-section" data-payload="setup"
+          title="${escapeAttr(setup.complete ? 'Local CI setup is complete. Open the checklist.' : `${setup.done} of ${setup.total} setup steps done`)}">
+          ${escapeHtml(setup.complete ? 'setup ✓' : `setup ${setup.done}/${setup.total}`)}
+        </button>
+        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || 'The hosted allowance has not been checked.')}">${escapeHtml(creditLabel)}</span>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * Whether local CI setup is done, answered once for the whole page.
+   *
+   * The journey card and the header chip must never disagree about this, and
+   * the only way to guarantee that is one function. Judged on the durable
+   * steps — the trusted workflow and this machine — plus evidence that
+   * something has run, because queueing and lending are per-run steps that
+   * reset with every commit.
+   */
+  function pipelineSetupState(runner, buildRecords, runs) {
+    const workflowReady = Boolean(runner && runner.workflowReview && runner.workflowReview.state === 'ok');
+    const machineReady = Boolean(runner && runner.enabled)
+      && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner && runner.lifecycle);
+    const hasRun = (buildRecords || []).length > 0 || (runs || []).length > 0;
+    const done = [workflowReady, machineReady, hasRun].filter(Boolean).length;
+    return {
+      workflowReady,
+      machineReady,
+      hasRun,
+      done,
+      total: 3,
+      complete: workflowReady && machineReady && hasRun,
+    };
+  }
+
+  function renderPipelineJourney(assessment, intel, runner, workflows, buildRecords) {
+    const inspected = runner && runner.prerequisites && runner.prerequisites.inspection === 'inspected';
+    const runnable = runner && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle);
+    const permissionOn = Boolean(runner && runner.enabled);
+    const steps = [
+      {
+        // This step is about the *trusted* workflow, not any workflow. It
+        // previously counted any quality CI file as done, so the one file the
+        // later steps actually depend on could be missing or unacceptable and
+        // the journey would still report its first step complete — then refuse
+        // at step four. The check is a file read, so it can be honest here.
+        title: 'Choose what may run on your computer',
+        detail: (() => {
+          const review = runner.workflowReview;
+          if (review && review.state === 'ok') {
+            return `${review.path} passes every rule AtlasMind checks before lending this machine.`;
+          }
+          if (review && review.state === 'missing') {
+            return 'No trusted workflow exists yet. AtlasMind can write one for you to review.';
+          }
+          if (review) {
+            return `${(review.blockers || []).length} thing${(review.blockers || []).length === 1 ? '' : 's'} must change in ${review.path} first.`;
+          }
+          return assessment.qualityWorkflowCount > 0
+            ? `${assessment.qualityWorkflowCount} quality workflow${assessment.qualityWorkflowCount === 1 ? '' : 's'} found. Check whether the trusted one may run here — it is a file read.`
+            : 'One reviewed file decides which GitHub jobs may reach this computer. Nothing else needs to exist yet.';
+        })(),
+        done: Boolean(runner.workflowReview && runner.workflowReview.state === 'ok'),
+        action: !runner.workflowReview ? 'pipeline-workflow-assess'
+          : runner.workflowReview.state === 'missing' ? 'pipeline-workflow-create'
+            : runner.workflowReview.state === 'ok' ? 'pipeline-workflow-assess'
+              // A blocked file needs the list, and the list lives on the Runner
+              // view. Re-running the check from here would return the same
+              // answer with nowhere to read it.
+              : 'pipeline-section',
+        payload: runner.workflowReview && runner.workflowReview.state === 'blocked' ? 'rules' : '',
+        actionLabel: runner.workflowReview
+          ? (runner.workflowReview.state === 'missing' ? 'Write the trusted workflow…'
+            : runner.workflowReview.state === 'ok' ? 'Check it again' : 'See what must change')
+          : 'Check the trusted workflow',
+      },
+      {
+        title: 'Prepare this computer',
+        detail: !permissionOn
+          ? 'Runner permission is Off for the current VS Code extension host. You can still inspect prerequisites safely.'
+          : inspected ? (runner.message || 'Docker and GitHub prerequisites were inspected.')
+            : 'Permission is On. Check Docker, GitHub sign-in, CPU, memory and GPU.',
+        done: permissionOn && runnable,
+        action: 'pipeline-section',
+        payload: 'rules',
+        actionLabel: permissionOn && inspected ? 'Review machine setup' : 'Set up this computer',
+      },
+      {
+        title: 'Queue one trusted job',
+        detail: runner.queuedRun ? `Queued run #${runner.queuedRun.databaseId} matches this checked-out commit.`
+          : 'Push the trusted branch or manually queue the trusted workflow. This step does not lend GitHub your computer yet.',
+        done: Boolean(runner.queuedRun),
+        action: 'pipeline-section',
+        payload: 'rules',
+        actionLabel: runner.queuedRun ? 'Review queued job' : 'See the queue command',
+      },
+      {
+        title: 'Lend this computer to that job',
+        detail: runner.lifecycle === 'finished'
+          ? 'The one-job runner finished and removed its temporary registration.'
+          : runner.lifecycle === 'running' ? 'The isolated container is executing the authorised job.'
+            : runnable ? 'AtlasMind will re-check the queue, show the exact plan, and ask before starting.'
+              : 'Finish the machine setup before starting.',
+        done: runner.lifecycle === 'finished',
+        action: runnable ? 'pipeline-runner-start' : 'pipeline-section',
+        payload: runnable ? '' : 'rules',
+        actionLabel: runner.lifecycle === 'finished' ? 'Run another trusted job…'
+          : runnable ? 'Check queue → review plan' : 'Resolve setup steps',
+        disabled: runnable ? (runner.blockers || []).length > 0 || ['starting', 'waiting', 'running'].includes(runner.lifecycle) : false,
+      },
+    ];
+    const nextIndex = steps.findIndex(step => !step.done);
+    const completedSteps = steps.filter(step => step.done).length;
+    const nextStep = nextIndex >= 0 ? steps[nextIndex] : undefined;
+    const resultLoaded = Boolean(intel && !intel.fetchFailure);
+    const focus = nextStep || {
+      title: 'Review the result',
+      detail: resultLoaded
+        ? `${(intel.runs || []).length} recent run${(intel.runs || []).length === 1 ? '' : 's'} loaded. Open Analytics to review the evidence.`
+        : 'The runner finished. Read GitHub’s result before treating the job as passing.',
+      action: resultLoaded ? 'pipeline-section' : 'pipeline-refresh',
+      payload: resultLoaded ? 'analytics' : '',
+      actionLabel: resultLoaded ? 'Review CI evidence' : 'Read CI result',
+      disabled: false,
+    };
+    // Once every step is done, the journey earns one line, not a hero card. A
+    // full-size onboarding card on a configured project is the page telling
+    // returning users it has nothing else to say — the steps stay reachable
+    // behind the disclosure for the day something breaks.
+    // Steps three and four are per-run — a queued job and a finished job come
+    // and go with every commit — so "is this set up" is the durable pair (the
+    // trusted workflow and this machine) plus evidence that anything has ever
+    // run. Gating on all four would re-inflate the onboarding card between
+    // runs, which is exactly the complaint that created this branch.
+    const setupDone = steps.length >= 2 && steps[0].done && steps[1].done;
+    const hasEverBuilt = (buildRecords || []).length > 0;
+    if (nextIndex === -1 || (setupDone && hasEverBuilt)) {
+      return `<article class="panel-card ci-journey-card ci-journey-complete">
+        <details class="ci-progressive-details">
+          <summary><span class="tag tag-good">✓</span> <strong>Setup complete</strong> — this machine can serve trusted CI jobs. Show the four steps</summary>
+          <div class="ci-journey-list">
+            ${steps.map(step => `<div class="ci-journey-list-row${step.done ? ' done' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : '·'}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : ''}">${step.done ? 'Done' : 'Per-run'}</span></div>`).join('')}
+          </div>
+          <p class="stat-detail">Queueing and lending are per-run steps — they reset with every commit and do not mean setup regressed.</p>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Rules</button></div>
+        </details>
+      </article>`;
+    }
+
+    const help = renderInfoHelp('pipeline.journey', {
+      label: 'the safe CI workflow',
+      why: 'The sequence keeps “a workflow exists”, “GitHub queued it”, and “this computer may execute it” as separate decisions. That prevents a convenient runner button from becoming permission to execute arbitrary pull-request code.',
+      how: [
+        { text: 'Define checks once in a reviewed, secret-free workflow file.' },
+        { text: 'Install and inspect Docker and GitHub CLI; no permanent runner daemon is required.' },
+        { text: 'Queue the owner-triggered workflow without starting a runner.' },
+        { text: 'Confirm the plan, then serve exactly one trusted-branch job in a temporary container.' },
+      ],
+    });
+    return `<article class="panel-card ci-journey-card ci-next-action-card">
+      <div class="ci-section-heading"><div><p class="card-kicker">Setup · ${completedSteps} of 4 complete</p><h3>${nextStep ? `Next: ${escapeHtml(focus.title)}` : 'Setup complete'}</h3><p class="section-copy">${escapeHtml(focus.detail)}</p></div>${help.button}</div>
+      ${help.panel}
+      <div class="ci-journey-progress" role="list" aria-label="Safe local CI setup progress">
+        ${steps.map((step, index) => `<div role="listitem" class="ci-progress-step${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.title)}</small></div>`).join('')}
+      </div>
+      <div class="ci-next-action-row">
+        <button type="button" class="action-link primary" data-action="${focus.action}"${focus.payload ? ` data-payload="${escapeAttr(focus.payload)}"` : ''} ${focus.disabled ? 'disabled' : ''}>${escapeHtml(focus.actionLabel)}</button>
+        <span>${workflows.length > 0 ? 'Reviewed workflow files remain the source of truth.' : 'A starter is always previewed and never overwrites a workflow.'}</span>
+      </div>
+      <details class="ci-progressive-details">
+        <summary>Show all four setup steps</summary>
+        <div class="ci-journey-list">
+          ${steps.map((step, index) => `<div class="ci-journey-list-row${step.done ? ' done' : ''}${index === nextIndex ? ' current' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : index + 1}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : index === nextIndex ? '' : 'tag-warn'}">${step.done ? 'Done' : index === nextIndex ? 'Next' : 'Later'}</span></div>`).join('')}
+        </div>
+      </details>
+    </article>`;
+  }
+
+  const CI_ROUTE_CAPABILITY_LABELS = {
+    githubWorkflowSyntax: 'Runs GitHub workflow files',
+    crossPlatform: 'Other operating systems',
+    secrets: 'Can hold secrets',
+    artifacts: 'Keeps artifacts',
+    ephemeralWorkers: 'Fresh worker each job',
+    safeForUntrustedCode: 'Safe for untrusted code',
+  };
+
+  const CI_ROUTE_EVIDENCE_LABELS = {
+    'this-machine': 'this machine',
+    'linux-container': 'a Linux container',
+    'declared-matrix': 'whatever the workflow declares',
+  };
+
+  const CI_ROUTE_COST_LABELS = {
+    'local-only': 'Your machine only',
+    'hosted-allowance': 'Uses hosted allowance',
+    'external-account': 'Third-party account',
+  };
+
+  /**
+   * Where a check can run, and what each answer would actually prove.
+   *
+   * The page previously had one route with a dashboard and several with
+   * brochure cards, so the cheapest option — run the commands here — was not
+   * offered at all. Capability is shown as a three-state mark rather than a
+   * tick or nothing, because an unknown must never read as a yes.
+   */
+  /**
+   * What the committed routing file decides, and why.
+   *
+   * Two distinct absences, kept apart: no file at all is an offer to create
+   * one, while a file that decides nothing is a different problem with a
+   * different fix. The credit reading is always shown beside the decisions,
+   * because a decision citing the allowance without saying whether the
+   * allowance was actually read is the failure the meter exists to prevent.
+   */
+  /**
+   * Every build, whatever ran it, newest first.
+   *
+   * Two absences are kept apart at the top of this view: hosted history that
+   * was never fetched, and hosted history that is genuinely empty. Rendering
+   * them the same way would let an unfetched list read as a quiet week.
+   *
+   * A build AtlasMind did not watch shows a question mark and says why, never a
+   * tick. The direct-local route types commands into the user's terminal and
+   * does not read it, so a verdict there would be invented — on the surface
+   * people check before shipping.
+   */
+  const CI_CELL_MARK = { preferred: '●', fallback: '○', available: '+', blocked: '✕', unimplemented: '·' };
+
+  /**
+   * Rules — the whole routing policy as one grid, and what it would decide now.
+   *
+   * Prose cards could describe one rule at a time. A team deciding where work
+   * goes needs the whole policy visible at once, including the squares they
+   * cannot have: the locked cells are what make the trust invariant law you can
+   * see rather than a paragraph somebody has to find.
+   *
+   * Every cell is a button and every gesture is one click. What a click means
+   * is decided host-side by the same engine that routes for real, so this grid
+   * cannot author a rule the engine would then refuse.
+   */
+  const CI_SUBJECT_KIND_LABEL = {
+    'api-path': 'endpoint',
+    'graphql-operation': 'GraphQL operation',
+    'grpc-service': 'gRPC method',
+    migration: 'migration',
+    schema: 'schema',
+    route: 'route',
+    role: 'role',
+    prompt: 'prompt',
+  };
+
+  /**
+   * Tests — three bands, in the order somebody triages them.
+   *
+   * Failing now, because a red test is the only thing here asking for a
+   * decision. Then whether the policies this project declared are actually
+   * evidenced. Then the band nothing surfaced before: declared work — endpoints,
+   * roles, migrations — that no test so much as names.
+   *
+   * The absence rules are the same everywhere: no report is *no verdict*, never
+   * zero failures, and a policy with no extractor reports that rather than
+   * reporting zero uncovered subjects.
+   */
+  function renderPipelineTests(testing) {
+    const coverage = testing.policyCoverage;
+    const subjects = testing.policySubjects || { coverage: [], extractablePolicies: [] };
+    const report = coverage && coverage.report;
+
+    const help = renderInfoHelp('pipeline.tests', {
+      label: 'what these three bands mean',
+      why: 'A test suite answers three different questions and they are usually mixed together: what is broken right now, whether the policies this project declared are actually tested, and what the project declares but nothing tests at all. Separating them means each has its own answer and its own next step.',
+      how: [
+        { text: 'Failures come from the report your suite already writes — AtlasMind never runs your tests to find out.' },
+        { text: 'Coverage matches each declared policy against evidence on disk, and says tooling-only when a tool is installed but nothing uses it.' },
+        { text: 'Missing tests are declared subjects — an endpoint, a role, a migration — that no test file names. A test that never names what it tests is not evidence that it tests it.' },
+      ],
+    });
+
+    // ── Band 1: failing now ──────────────────────────────────────
+    const failures = coverage ? [
+      ...coverage.rows.flatMap(row => (row.failures || []).map(failure => ({ ...failure, policy: row.label }))),
+      ...(coverage.unattributedFailures || []).map(failure => ({ ...failure, policy: undefined })),
+    ] : [];
+    const failingBand = !coverage || !report
+      ? `<article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Failing now</p><h3>No test report to read</h3></div>${help.button}</div>
+          ${help.panel}
+          <p class="section-copy">AtlasMind reads pass and fail from a report your suite writes; it never runs your tests to find out. Without one there is <strong>no verdict</strong> — which is not the same as zero failures.</p>
+          ${coverage && coverage.reportHint ? `<pre class="local-ci-command"><code>${escapeHtml(coverage.reportHint)}</code></pre>` : ''}
+        </article>`
+      : failures.length === 0
+        ? `<article class="panel-card">
+            <div class="ci-section-heading"><div><p class="card-kicker">Failing now</p><h3>Nothing failing</h3><p class="stat-detail">${escapeHtml(`${report.tests} case${report.tests === 1 ? '' : 's'} in the report AtlasMind read.`)}</p></div>${help.button}</div>
+            ${help.panel}
+          </article>`
+        : `<article class="panel-card ci-tests-failing">
+            <div class="ci-section-heading">
+              <div><p class="card-kicker">Failing now</p><h3>${escapeHtml(`${failures.length} failing test${failures.length === 1 ? '' : 's'}`)}</h3>
+              <p class="stat-detail">From <code>${escapeHtml(report.relativePath || 'the report your suite wrote')}</code>${report.stale ? ' — <strong>which is older than your newest test file</strong>, so this verdict may be stale' : ''}.</p></div>
+              ${help.button}
+            </div>
+            ${help.panel}
+            <div class="ci-tests-list">${failures.slice(0, 25).map(failure => `
+              <div class="ci-test-row">
+                <span class="tag tag-warn">${escapeHtml(failure.kind)}</span>
+                <div>
+                  <strong>${escapeHtml(failure.name)}</strong>
+                  <div class="list-meta">${failure.suite ? `${escapeHtml(failure.suite)} · ` : ''}${failure.file ? escapeHtml(failure.file) : 'file not attributed by the report'}${failure.policy ? ` · ${escapeHtml(failure.policy)}` : ''}</div>
+                </div>
+                ${failure.file ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(failure.file)}">Open</button>` : ''}
+              </div>`).join('')}</div>
+            ${failures.length > 25 ? `<p class="stat-detail">${escapeHtml(`${failures.length - 25} more not shown.`)}</p>` : ''}
+            <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-tests-fix">Ask Atlas to work through these…</button></div>
+          </article>`;
+
+    // ── Band 2: policy coverage ──────────────────────────────────
+    const coverageBand = !coverage
+      ? ''
+      : `<article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Declared policies</p>
+              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.activeCount} evidenced`)}</h3>
+              <p class="stat-detail">${escapeHtml(coverage.summary || '')}</p>
+            </div>
+          </div>
+          <div class="mini-grid">
+            ${renderMetricPill('Covered', String(coverage.coveredCount), { tone: 'good', detail: 'A test names it' })}
+            ${renderMetricPill('Tooling only', String(coverage.toolingOnlyCount), { tone: coverage.toolingOnlyCount ? 'warn' : '', detail: 'Installed, nothing uses it' })}
+            ${renderMetricPill('Missing', String(coverage.missingCount), { tone: coverage.missingCount ? 'warn' : 'good', detail: 'Declared, no evidence' })}
+            ${renderMetricPill('Practices', String(coverage.practiceCount), { detail: 'Never file-evident — not gaps' })}
+          </div>
+          <details class="ci-progressive-details">
+            <summary>Every declared policy and its evidence</summary>
+            <div class="ci-progressive-details-body ci-tests-list">
+              ${/*
+                 * Each row opens the policy's own card on the Testing page.
+                 * This list can say a policy is `missing`; only that card can
+                 * say what it would take — the evidence, the owner, the
+                 * severity rule, the scaffold and the issue draft all live
+                 * there. Reading a verdict with no way to reach the thing it
+                 * judges is the dead end this page was rebuilt to remove.
+                 */''}
+              ${coverage.rows.map(row => `<button type="button" class="ci-test-row ci-test-row-link"
+                data-action="dashboard-focus" data-page="testing"
+                data-focus-kind="testing-policy" data-focus-id="${escapeAttr(row.id)}"
+                title="${escapeAttr(`Open ${row.label} on the Testing page — its evidence, owner and next actions`)}">
+                <span class="tag ${row.status === 'covered' ? 'tag-good' : row.status === 'missing' ? 'tag-warn' : ''}">${escapeHtml(row.status)}</span>
+                <div><strong>${escapeHtml(row.label)}</strong><div class="list-meta">${escapeHtml(row.detail || '')}</div></div>
+                <span class="ci-test-row-go" aria-hidden="true">→</span>
+              </button>`).join('')}
+            </div>
+          </details>
+        </article>`;
+
+    // ── Band 3: declared work nothing tests ──────────────────────
+    const uncovered = (subjects.coverage || []).filter(entry => !entry.covered);
+    const byPolicy = new Map();
+    for (const entry of uncovered) {
+      const key = entry.subject.policyId;
+      byPolicy.set(key, (byPolicy.get(key) || []).concat(entry));
+    }
+    const extractable = (subjects.extractablePolicies || []).length;
+    const missingBand = `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Suggested missing tests</p>
+          <h3>${escapeHtml(uncovered.length ? `${uncovered.length} declared thing${uncovered.length === 1 ? '' : 's'} no test names` : 'Nothing declared is untested')}</h3>
+          <p class="stat-detail">Endpoints, roles, migrations and schemas this project declares, matched against test files by reference. A test that never names what it tests is not evidence that it tests it.</p>
+        </div>
+      </div>
+      ${uncovered.length
+        ? `<div class="ci-tests-list">${[...byPolicy.entries()].slice(0, 8).map(([policyId, entries]) => `
+            <div class="ci-subject-group">
+              <div class="ci-subject-head"><strong>${escapeHtml(policyId)}</strong><span class="stat-detail">${escapeHtml(`${entries.length} uncovered`)}</span></div>
+              ${entries.slice(0, 6).map(entry => `<div class="ci-test-row">
+                <span class="tag">${escapeHtml(CI_SUBJECT_KIND_LABEL[entry.subject.kind] || entry.subject.kind)}</span>
+                <div><strong>${escapeHtml(entry.subject.label)}</strong><div class="list-meta">declared in ${escapeHtml(entry.subject.source)}</div></div>
+                <button type="button" class="action-link" data-action="pipeline-test-draft" data-payload="${escapeAttr(entry.subject.id)}" title="Open a chat with the subject, its policy and where it is declared">Draft with Atlas…</button>
+              </div>`).join('')}
+              ${entries.length > 6 ? `<p class="stat-detail">${escapeHtml(`${entries.length - 6} more in this policy.`)}</p>` : ''}
+            </div>`).join('')}</div>`
+        : `<p class="section-copy">${extractable
+          ? 'Every subject AtlasMind can extract has a test naming it.'
+          : 'No subjects were extracted, so this says nothing about coverage.'}</p>`}
+      <p class="stat-detail">AtlasMind extracts subjects for ${escapeHtml(String(extractable))} of the declared policies. The rest report <em>not extractable</em> rather than zero — zero uncovered would read as complete.</p>
+    </article>`;
+
+    return `<div class="ci-studio-stack">${failingBand}${coverageBand}${missingBand}</div>`;
+  }
+
+  function renderPipelineRules(routes, routing, runnerCard) {
+    const help = renderInfoHelp('pipeline.rules', {
+      label: 'the routing grid',
+      why: 'Each row is a kind of check; each column is somewhere it could run. The marks are your policy: one preferred route, fallbacks in order, and locked squares the policy refuses whatever anybody clicks. Nothing here executes — a rule decides where work is recommended to go, and running it is still a separate, confirmed act.',
+      how: [
+        { text: 'Click an empty square to add it as a last resort, again to make it preferred, again to remove it.' },
+        { text: 'A locked square names its reason when you hover it. Unreviewed code can never reach a route that is not safe for it.' },
+        { text: 'Each change is confirmed and lands in a committed file your team reviews as a diff.' },
+      ],
+    });
+
+    // Whether the borrowed machine still needs work. When it does, this view
+    // leads with it: somebody arriving from the journey's "prepare this
+    // computer" step is here to finish setup, not to read a policy grid.
+    const runnerEntry = (routes || []).find(entry => (entry.route || {}).id === 'local-runner');
+    const runnerReferenced = ((routing.matrix || []).some(row => (row.cells || []).some(cell =>
+      cell.routeId === 'local-runner' && (cell.state === 'preferred' || cell.state === 'fallback'))))
+      || !(routing.matrix || []).length;
+    const needsSetup = Boolean(runnerEntry
+      && runnerReferenced
+      && runnerEntry.status !== 'available'
+      && runnerEntry.status !== 'unimplemented');
+
+    const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
+    const creditRow = `<div class="ci-rules-credit">
+      <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
+      <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
+      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
+    </div>`;
+
+    if (!routing.configPresent) {
+      const intro = `<article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Rules</p>
+              <h3>No routing file yet</h3>
+              <p class="section-copy">${escapeHtml(routing.notice || 'Nothing records where each kind of check should run. AtlasMind can write a starting set for you to review and commit — creating it runs nothing.')}</p>
+            </div>${help.button}
+          </div>
+          ${help.panel}
+          ${creditRow}
+          <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
+        </article>`;
+      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix });
+      return `<div class="ci-studio-stack">${needsSetup ? executors + intro : intro + executors}</div>`;
+    }
+
+    const matrix = routing.matrix || [];
+    const columns = matrix.length ? matrix[0].cells : [];
+    const headers = columns.map(cell => `<th scope="col" title="${escapeAttr(cell.routeLabel)}">${escapeHtml(cell.routeLabel)}</th>`).join('');
+    const rows = matrix.map(row => {
+      const cells = row.cells.map(cell => {
+        const mark = CI_CELL_MARK[cell.state] || '·';
+        const label = cell.state === 'fallback' ? `${mark} ${cell.order}` : mark;
+        const clickable = cell.state === 'preferred' || cell.state === 'fallback' || cell.state === 'available';
+        const title = cell.state === 'blocked' ? cell.reason
+          : cell.state === 'unimplemented' ? `AtlasMind has no adapter for ${cell.routeLabel} yet.`
+            : cell.state === 'preferred' ? `${row.workloadLabel} prefers ${cell.routeLabel}. Click to remove it.`
+              : cell.state === 'fallback' ? `Fallback ${cell.order} for ${row.workloadLabel}. Click to make it preferred.`
+                : `Click to add ${cell.routeLabel} as a last resort for ${row.workloadLabel}.`;
+        const unusable = clickable && !cell.usableHere ? ' unusable' : '';
+        return `<td class="ci-cell ${escapeAttr(cell.state)}${unusable}">
+          ${clickable
+            ? `<button type="button" data-action="pipeline-route-cell" data-payload="${escapeAttr(`${row.workloadId}|${cell.routeId}`)}" title="${escapeAttr(title)}">${escapeHtml(label)}</button>`
+            : `<span title="${escapeAttr(title || '')}" aria-label="${escapeAttr(title || '')}">${escapeHtml(mark)}</span>`}
+        </td>`;
+      }).join('');
+      return `<tr>
+        <th scope="row" title="${escapeAttr(row.description)}">
+          ${escapeHtml(row.workloadLabel)}
+          ${row.input === 'untrusted' ? '<span class="ci-cell-flag" title="Code nobody has reviewed. Locked out of every route that is not safe for it.">unreviewed</span>' : ''}
+        </th>
+        ${cells}
+        <td class="ci-cell-exhaust">
+          <button type="button" class="action-link" data-action="pipeline-route-exhaust" data-payload="${escapeAttr(row.workloadId)}"
+            title="${escapeAttr(row.onCreditExhausted === 'block' ? 'Stops when the hosted allowance runs out. Click to use the fallback instead.' : 'Uses the fallback when the hosted allowance runs out. Click to stop instead.')}">
+            ${escapeHtml(row.onCreditExhausted === 'block' ? 'stop' : 'fall back')}
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const errors = (routing.problems || []).filter(problem => problem.severity === 'error');
+    const warnings = (routing.problems || []).filter(problem => problem.severity !== 'error');
+
+    // What the same engine would decide right now. The grid says what the
+    // policy is; this says what it means today, on this machine, with this
+    // allowance reading.
+    const decisions = (routing.decisions || []).map(decision => `<div class="ci-rules-decision">
+      <span class="tag ${decision.outcome === 'routed' ? (decision.usedFallback ? 'tag-warn' : 'tag-good') : 'tag-warn'}">${escapeHtml(decision.outcome === 'routed' ? (decision.usedFallback ? 'fallback' : 'preferred') : 'blocked')}</span>
+      <div>
+        <strong>${escapeHtml(decision.workloadLabel || decision.workload || '')}</strong>
+        <p class="stat-detail">${escapeHtml(decision.sentence || '')}</p>
+        ${(decision.rejected || []).length ? `<details class="ci-progressive-details"><summary>Why not the others (${decision.rejected.length})</summary><ul class="ci-caution-list">${decision.rejected.map(item => `<li><strong>${escapeHtml(item.routeId)}</strong> — ${escapeHtml(item.reason)}</li>`).join('')}</ul></details>` : ''}
+      </div>
+    </div>`).join('');
+
+    return `<div class="ci-studio-stack">
+      <article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">Rules · <code>${escapeHtml(routing.configPath || '')}</code></p>
+            <h3>Where each kind of check goes</h3>
+            <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
+          </div>${help.button}
+        </div>
+        ${help.panel}
+        ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
+        <div class="ci-matrix-wrap">
+          <table class="ci-matrix">
+            <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="ci-matrix-key">
+          <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
+          <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
+        </div>
+        ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
+        <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
+      </article>
+
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
+        ${creditRow}
+        <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
+      </article>
+
+      ${renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix })}
+    </div>`;
+  }
+
+  /**
+   * One line per executor, with the setup detail behind a drawer — unless
+   * something needs setting up, in which case the drawer is open and this card
+   * leads the view.
+   *
+   * The drawer was right for a configured machine, where the runner's capacity
+   * and safety detail is diagnostics nobody reads until something breaks. It
+   * was wrong during setup, which is exactly when somebody needs it: the
+   * journey's "prepare this computer" step lands here, and what it wanted was a
+   * closed disclosure below a grid. That is the state-first rule Activity
+   * already follows — what needs you floats — applied to this view too.
+   */
+  function renderRulesExecutors(routes, runnerCard, options) {
+    const needsSetup = Boolean(options && options.needsSetup);
+    // Which executors your rules actually depend on — derived, not declared. A
+    // route no rule prefers or falls back to is one you can ignore, and saying
+    // "needs setup" against it reads as a chore you have to finish. Deriving it
+    // means the answer changes when your policy does, rather than a hardcoded
+    // "optional" flag going stale the moment somebody routes work to `act`.
+    const referenced = new Set();
+    for (const row of (options && options.matrix) || []) {
+      for (const cell of row.cells || []) {
+        if (cell.state === 'preferred' || cell.state === 'fallback') {
+          referenced.add(cell.routeId);
+        }
+      }
+    }
+    const rows = (routes || []).map(entry => {
+      const route = entry.route || {};
+      const blocked = entry.status !== 'available' && entry.status !== 'unimplemented';
+      // Needed here means one of two things: a rule actually routes work to it,
+      // or it is one of the three routes setup is built around and no rules
+      // exist yet to say otherwise. Before any routing file is written — which
+      // is exactly when somebody is setting up — an empty rule set means
+      // undecided, not unwanted.
+      const core = route.necessity === 'core';
+      const used = referenced.has(route.id) || (core && referenced.size === 0);
+      const tone = entry.status === 'available' ? 'tag-good'
+        : entry.status === 'unimplemented' ? ''
+          : used ? 'tag-warn' : '';
+      const label = entry.status === 'available' ? 'ready'
+        : entry.status === 'unimplemented' ? 'no adapter yet'
+          : used ? 'needs setup' : 'optional';
+      // An unavailable executor states the step that would unblock it *and*
+      // offers it. Text alone left people reading an instruction with nothing
+      // to press.
+      const action = route.id === 'direct-local' && entry.status === 'available'
+        ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run checks now…</button>'
+        : route.id === 'local-runner' && blocked
+          ? `<button type="button" class="action-link ${used ? 'primary' : ''}" data-action="pipeline-runner-inspect">Set up this machine…</button>`
+          : '';
+      // An executor that lives outside AtlasMind gets a way to reach its own
+      // site. Naming a hostname in prose leaves somebody retyping it; the
+      // route id goes to the host, which owns the destination, so this row can
+      // offer the link without being able to choose where it goes.
+      const docs = route.docsUrl
+        ? `<button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="${escapeAttr(route.id)}">${escapeHtml(route.label || route.id)} docs ↗</button>`
+        : '';
+      // An optional executor explains that before it explains what is missing:
+      // reading a blocker for something you never needed is how a setup list
+      // feels endless.
+      const detail = entry.status === 'unimplemented'
+        ? `Alternative executor — AtlasMind has no adapter for it yet. ${route.blurb || ''}`.trim()
+        : blocked && !used
+          ? `${core ? 'Not used by any rule' : 'Optional alternative'} — nothing routes work here, so you can leave it. ${(entry.blockers || [])[0] || ''}`.trim()
+          : (entry.blockers || [])[0] || route.blurb || '';
+      return `<div class="ci-executor-row${blocked && used ? ' needs-setup' : ''}${!used && entry.status !== 'available' ? ' optional' : ''}">
+        <span class="tag ${tone}">${escapeHtml(label)}</span>
+        <div>
+          <strong>${escapeHtml(route.label || route.id || '')}</strong>
+          <p class="stat-detail">${escapeHtml(detail)}</p>
+        </div>
+        ${entry.nextStep && used ? `<span class="ci-executor-next">${escapeHtml(entry.nextStep)}</span>` : ''}
+        ${action}
+        ${docs}
+      </div>`;
+    }).join('');
+
+    return `<article class="panel-card${needsSetup ? ' ci-executors-setup' : ''}">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : ''}</p>
+          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine' : 'What can run a check on this machine')}</h3>
+          ${needsSetup ? '<p class="stat-detail">The next action and everything blocking it are below, open. Nothing here starts a runner — every step still asks first.</p>' : ''}
+        </div>
+      </div>
+      <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
+      <details class="ci-progressive-details ci-runner-drawer"${needsSetup ? ' open' : ''}>
+        <summary>${escapeHtml(needsSetup
+          ? 'Borrowed machine — the next step, and what is blocking it'
+          : 'Borrowed machine — setup, capacity and safety detail')}</summary>
+        <div class="ci-progressive-details-body">${runnerCard}</div>
+      </details>
+    </article>`;
+  }
+
+  /**
+   * The canvas, with overlays instead of sibling views.
+   *
+   * The map was read-only and showed one thing: declared structure. Three
+   * overlays now paint what is *true* onto that structure — the latest outcome
+   * per workflow, where each one is routed, and the delivery stages the same
+   * commit travels through afterwards. GitLab deprecated its separate
+   * dependency-graph tab for this reason and Buildkite merged three sibling
+   * views into one: a second picture of the same facts always loses to a toggle
+   * on the first.
+   *
+   * Overlays are additive and independently switchable, because they answer
+   * different questions and somebody debugging a red build does not want the
+   * routing badges in the way.
+   */
+  function renderPipelineGraph(workflows, requiredChecks, context) {
+    const overlays = state.pipelineOverlays || {};
+    const runs = (context && context.runs) || [];
+    const routing = (context && context.routing) || {};
+    const stages = (context && context.stages) || [];
+
+    const help = renderInfoHelp('pipeline.graph', {
+      label: 'the canvas and its overlays',
+      why: 'A dependency map makes fan-out, gates and duplicate work visible faster than reading YAML. The overlays add what is true right now on top of what is declared: the last outcome per workflow, where each is routed, and the stages a commit travels through after the checks pass. Dragging changes the layout on this computer and nothing else — this canvas never edits a workflow.',
+      how: [
+        { text: 'Follow arrows from triggers, through the workflow and its jobs, to the declared merge gate.' },
+        { text: 'Turn on Status to paint the last result on each workflow, Routing to see where each one runs, Delivery to see what happens after the gate.' },
+        { text: 'Click a workflow to open its panel: recent runs, its file, and the actions that apply to it.' },
+        { text: 'Drag nodes to untangle a busy graph, or focus one and use the arrow keys. Hold Shift for larger steps.' },
+      ],
+    });
+
+    const toggles = `<div class="ci-overlay-toggles" role="group" aria-label="Canvas overlays">
+      ${[
+        { id: 'status', label: 'Status', hint: 'Paint the latest outcome on each workflow' },
+        { id: 'routing', label: 'Routing', hint: 'Badge each workflow with where it runs' },
+        { id: 'delivery', label: 'Delivery', hint: 'Show the stages a commit travels through after the gate' },
+      ].map(overlay => `<button type="button" class="ci-overlay-toggle ${overlays[overlay.id] ? 'on' : ''}"
+        data-action="pipeline-overlay" data-payload="${escapeAttr(overlay.id)}"
+        aria-pressed="${overlays[overlay.id] ? 'true' : 'false'}" title="${escapeAttr(overlay.hint)}">${escapeHtml(overlay.label)}</button>`).join('')}
+    </div>`;
+
+    if (!workflows.length) {
+      return `<article class="panel-card ci-graph-card"><div class="ci-section-heading"><div><p class="card-kicker">Canvas</p><h3>No workflow to map yet</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Create or review a CI workflow first; AtlasMind will draw its observed triggers and jobs here.</p></article>`;
+    }
+
+    // The latest outcome per workflow name, from the runs already fetched. Not
+    // recomputed from a second source: the canvas and Activity must never
+    // disagree about whether a workflow is red.
+    const latest = new Map();
+    for (const run of runs) {
+      const name = run.workflowName || run.displayTitle || '';
+      if (!name) { continue; }
+      const seen = latest.get(name);
+      if (!seen || String(run.createdAt || '') > String(seen.createdAt || '')) {
+        latest.set(name, run);
+      }
+    }
+    const routeFor = new Map();
+    for (const decision of routing.decisions || []) {
+      if (decision.outcome === 'routed' && decision.routeLabel) {
+        routeFor.set(decision.workload, decision.routeLabel);
+      }
+    }
+    // One routing badge for the whole canvas: routes are chosen per kind of
+    // check, not per workflow file, and pretending otherwise would invent a
+    // mapping the engine does not have.
+    const routingSummary = [...routeFor.entries()].map(([workload, label]) => `${workload} → ${label}`);
+
+    const nodes = [];
+    const edges = [];
+    let cursorY = 24;
+    const saved = state.pipelineNodePositions || {};
+    const addNode = (key, kind, title, detail, x, y, extra) => {
+      const position = saved[key] || { x, y };
+      nodes.push({ key, kind, title, detail, x: position.x, y: position.y, ...(extra || {}) });
+    };
+
+    workflows.slice(0, 12).forEach((workflow, workflowIndex) => {
+      const jobs = (workflow.jobs || []).slice(0, 20);
+      const rowHeight = Math.max(132, jobs.length * 82);
+      const triggerKey = `trigger-${workflowIndex}`;
+      const workflowKey = `workflow-${workflowIndex}`;
+      const gateKey = `gate-${workflowIndex}`;
+      const triggerLabel = (workflow.triggers || []).map(trigger => trigger.event).join(' · ') || 'No trigger read';
+      const run = latest.get(workflow.name);
+      const outcome = overlays.status && run ? pipelineRunOutcome(run) : undefined;
+      addNode(triggerKey, 'trigger', 'Trigger', triggerLabel, 22, cursorY + Math.max(0, rowHeight / 2 - 38));
+      addNode(workflowKey, 'workflow', workflow.name || workflow.path, workflow.role || 'automation', 224, cursorY + Math.max(0, rowHeight / 2 - 38), {
+        outcome,
+        workflowId: workflow.id,
+        selectable: true,
+      });
+      addNode(gateKey, 'gate', 'Merge gate', requiredChecks.length ? requiredChecks.join(', ') : 'Not bound in AtlasMind', 690, cursorY + Math.max(0, rowHeight / 2 - 38));
+      edges.push([triggerKey, workflowKey]);
+      if (jobs.length === 0) {
+        const jobKey = `job-${workflowIndex}-empty`;
+        addNode(jobKey, 'job', 'Jobs unreadable', 'Open the workflow to inspect', 454, cursorY + Math.max(0, rowHeight / 2 - 38));
+        edges.push([workflowKey, jobKey], [jobKey, gateKey]);
+      } else {
+        jobs.forEach((job, jobIndex) => {
+          const jobKey = `job-${workflowIndex}-${jobIndex}`;
+          addNode(jobKey, 'job', job.name || `Job ${jobIndex + 1}`, `${job.runsOn || 'runner unknown'} · ${job.stepCount || 0} steps`, 454, cursorY + jobIndex * 82);
+          edges.push([workflowKey, jobKey], [jobKey, gateKey]);
+        });
+      }
+      cursorY += rowHeight + 34;
+    });
+
+    // Delivery: what the same commit travels through once the gate is green.
+    // Read-only here — promotion has its own guarded surface, and moving that
+    // gate onto a canvas is a separate decision with its own safety review.
+    let deliveryWidth = 0;
+    if (overlays.delivery && stages.length) {
+      const ordered = [...stages].sort((left, right) => (left.rank || 0) - (right.rank || 0));
+      ordered.slice(0, 6).forEach((stage, index) => {
+        const key = `stage-${stage.id || index}`;
+        addNode(key, 'stage', stage.name || `Stage ${index + 1}`, stage.branchRef || 'no branch declared', 920 + index * 190, 40, { readOnly: true });
+        if (index > 0) {
+          edges.push([`stage-${ordered[index - 1].id || index - 1}`, key]);
+        }
+      });
+      if (ordered.length) {
+        edges.push(['gate-0', `stage-${ordered[0].id || 0}`]);
+      }
+      deliveryWidth = 190 * Math.min(ordered.length, 6) + 60;
+    }
+
+    const height = Math.max(250, cursorY + 20);
+    const width = 900 + deliveryWidth;
+    const selected = nodes.find(node => node.key === state.pipelineNode);
+
+    return `<article class="panel-card ci-graph-card">
+      <div class="ci-section-heading">
+        <div><p class="card-kicker">Canvas</p><h3>Triggers → jobs → enforcement${overlays.delivery ? ' → delivery' : ''}</h3><p class="stat-detail">Dragging changes presentation only. Nothing here edits a workflow.</p></div>
+        <div class="tag-row">${help.button}<button type="button" class="action-link" data-action="pipeline-graph-reset">Reset layout</button></div>
+      </div>
+      ${help.panel}
+      ${toggles}
+      ${overlays.routing ? `<div class="ci-overlay-note"><strong>Routing</strong> — ${routingSummary.length
+        ? escapeHtml(routingSummary.join(' · '))
+        : 'no routing rules are declared yet, so AtlasMind has no recommendation to show.'} <span class="stat-detail">Routes are chosen per kind of check, not per workflow file.</span></div>` : ''}
+      ${overlays.status && !runs.length ? '<div class="ci-overlay-note"><strong>Status</strong> — no runs have been read, so nothing is painted. That is not evidence that anything passed.</div>' : ''}
+      ${/*
+         * The canvas and the selected node's panel are laid out side by side
+         * where there is room for both, and stacked where there is not.
+         *
+         * Below the graph, the panel was a scroll away from the node that
+         * opened it: selecting a workflow moved the answer off screen, so the
+         * one interaction the canvas exists for pushed its own result out of
+         * view. Beside it, the selection and what it says are readable at
+         * once. The column only appears when something is selected — an empty
+         * gutter would narrow the canvas permanently for a panel that is
+         * absent most of the time.
+         */''}
+      <div class="ci-graph-split${selected ? ' has-selection' : ''}">
+      <div class="ci-graph-main">
+      <div class="ci-graph-scroll" data-scroll-key="pipeline-graph">
+        <div class="ci-graph-canvas" style="height:${height}px; min-width:${width}px" aria-label="Interactive CI workflow graph">
+          <svg class="ci-graph-edges" width="100%" height="100%" aria-hidden="true">${edges.map(edge => `<path data-edge-from="${edge[0]}" data-edge-to="${edge[1]}"></path>`).join('')}</svg>
+          ${nodes.map(node => `<button type="button" class="ci-graph-node node-${node.kind}${node.outcome ? ` outcome-${node.outcome}` : ''}${state.pipelineNode === node.key ? ' selected' : ''}"
+            data-node-key="${node.key}"${node.selectable ? ` data-node-select="${escapeAttr(node.workflowId || '')}"` : ''}
+            style="left:${node.x}px;top:${node.y}px"
+            aria-label="${escapeAttr(`${node.title}. ${node.detail}.${node.outcome ? ` Last run ${node.outcome}.` : ''} Drag to rearrange; arrow keys also move this node.`)}"><span>${escapeHtml(node.title)}</span><small>${escapeHtml(node.detail)}</small></button>`).join('')}
+        </div>
+      </div>
+      <div class="ci-graph-legend"><span><i class="trigger"></i>Event</span><span><i class="workflow"></i>Workflow</span><span><i class="job"></i>Job</span><span><i class="gate"></i>Enforcement</span>${overlays.delivery ? '<span><i class="stage"></i>Delivery stage</span>' : ''}</div>
+      </div>
+      ${selected ? `<aside class="ci-graph-aside" aria-label="Selected node">${renderCanvasNodePanel(selected, latest.get(selected.title), context)}</aside>` : ''}
+      </div>
+    </article>`;
+  }
+
+  /**
+   * The panel for a selected workflow node.
+   *
+   * Everything that applies to one workflow, in one place: its last result, its
+   * file, and the actions that were previously scattered across three tabs.
+   */
+  function renderCanvasNodePanel(node, run, context) {
+    const workflows = (context && context.workflows) || [];
+    const workflow = workflows.find(entry => entry.id === node.workflowId);
+    if (!workflow) {
+      return '';
+    }
+    const outcome = run ? pipelineRunOutcome(run) : undefined;
+    return `<section class="ci-node-panel" aria-label="${escapeAttr(`${workflow.name} detail`)}">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Selected workflow</p>
+          <h3>${escapeHtml(workflow.name)}</h3>
+          <p class="stat-detail"><code>${escapeHtml(workflow.path)}</code> · ${escapeHtml(workflow.role || 'automation')} · ${escapeHtml(String((workflow.jobs || []).length))} job${(workflow.jobs || []).length === 1 ? '' : 's'}</p>
+        </div>
+        ${outcome ? `<span class="tag ${outcome === 'pass' ? 'tag-good' : outcome === 'fail' ? 'tag-warn' : ''}">last run ${escapeHtml(outcome)}</span>` : '<span class="tag">no run read</span>'}
+      </div>
+      ${(workflow.cautions || []).length ? `<ul class="ci-caution-list">${workflow.cautions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      <div class="tag-row">
+        <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open file</button>
+        <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}">Run locally with act…</button>
+        ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { intent: 'improve', title: 'Explain this workflow and propose a safe improvement plan' })}
+        <button type="button" class="action-link" data-action="pipeline-node-clear">Close</button>
+      </div>
+    </section>`;
+  }
+
+  function renderPipelineTestEngine(testing) {
+    const coverage = testing.policyCoverage || {};
+    const report = coverage.report;
+    const reportTests = report ? Math.max(0, Number(report.tests) || 0) : 0;
+    const failed = report ? Math.max(0, Number(report.failed) || 0) : 0;
+    const skipped = report ? Math.max(0, Number(report.skipped) || 0) : 0;
+    const passed = Math.max(0, reportTests - failed - skipped);
+    const completed = Math.max(0, reportTests - skipped);
+    const completionPercent = reportTests > 0 ? Math.round((completed / reportTests) * 100) : undefined;
+    const passPercent = completed > 0 ? Math.round((passed / completed) * 100) : undefined;
+    const help = renderInfoHelp('pipeline.tests', {
+      label: 'test intelligence',
+      why: 'A discovered test file says coverage exists; only a fresh report says what passed. AtlasMind keeps those claims separate and never turns “no report” into zero failures.',
+      how: [
+        { text: 'Generate the project’s JUnit report using the command shown on the Testing page.' },
+        { text: 'Use failed and skipped counts as the immediate queue signal.' },
+        { text: 'Use policy and subject coverage to find behaviour no test names.' },
+      ],
+    });
+    const flakeHelp = renderInfoHelp('pipeline.flakes', {
+      label: 'flaky-test detection',
+      why: 'A test is flaky only when the same code sometimes passes and sometimes fails. One result cannot establish that pattern.',
+      how: [{ text: 'Retain per-test results across several runs.' }, { text: 'Compare the same test identity against the same commit or equivalent inputs.' }],
+    });
+    const slowHelp = renderInfoHelp('pipeline.slowest', {
+      label: 'slow-test analysis',
+      why: 'Useful test splitting needs testcase durations, not file size or alphabetical order. The current safe JUnit reader deliberately retains status and identity but not timing.',
+      how: [{ text: 'Add bounded testcase duration ingestion before proposing timing-based shards.' }],
+    });
+    const cellCount = report ? Math.min(64, reportTests) : Math.min(32, Math.max(0, testing.totalCases || 0));
+    const cells = Array.from({ length: cellCount }, (_, index) => {
+      if (!report) { return 'unknown'; }
+      const ratio = (index + 0.5) / Math.max(1, cellCount);
+      if (ratio <= passed / Math.max(1, reportTests)) { return 'pass'; }
+      if (ratio <= (passed + failed) / Math.max(1, reportTests)) { return 'fail'; }
+      return 'skip';
+    });
+    return `<div class="ci-studio-stack">
+      <article class="panel-card ci-test-engine-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Test intelligence</p><h3>${report ? 'Latest test report' : 'Tests found, result not measured'}</h3><p class="stat-detail">${escapeHtml(report ? `${report.relativePath}${report.stale ? ' · stale' : ' · current relative to detected tests'}` : coverage.reportHint || 'Produce a JUnit report to resolve pass/fail state.')}</p></div>${help.button}</div>
+        ${help.panel}
+        <div class="ci-dial-grid">
+          ${renderPipelineDial('test-complete', completionPercent, { value: report ? `${completed}/${reportTests}` : '—', label: 'resolved', detail: report ? `${skipped} skipped` : 'No report', resolved: reportTests > 0 && completionPercent === 100 })}
+          ${renderPipelineDial('test-pass', passPercent, { value: report ? `${passed}/${completed}` : '—', label: 'passing', detail: report ? `${failed} failing` : `${testing.totalCases || 0} discovered`, resolved: reportTests > 0 && failed === 0 && !report.stale, tone: failed > 0 ? 'critical' : report ? 'good' : 'muted' })}
+          ${renderPipelineDial('policy-cover', coverage.activeCount > 0 ? (coverage.coveredCount / coverage.activeCount) * 100 : undefined, { value: coverage.activeCount > 0 ? `${coverage.coveredCount}/${coverage.activeCount}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: coverage.activeCount > 0 && coverage.coveredCount === coverage.activeCount, tone: coverage.missingCount > 0 ? 'warn' : 'good' })}
+        </div>
+        ${cells.length ? `<div class="ci-test-grid" role="img" aria-label="${escapeAttr(report ? `Aggregate display of ${passed} passing, ${failed} failing and ${skipped} skipped tests` : `${testing.totalCases || 0} tests discovered with no current result`)}">${cells.map((status, index) => `<span class="test-cell ${status}" style="--cell-index:${index}" title="${report ? 'Aggregate result display' : 'Discovered; not run'}">${status === 'pass' ? '✓' : status === 'fail' ? '×' : status === 'skip' ? '–' : '?'}</span>`).join('')}</div><p class="stat-detail">${report && reportTests > cellCount ? `${cellCount} proportional display cells summarise ${reportTests} aggregate results; they are not individual named tests.` : report ? 'One cell per reported result.' : 'Discovery cells are not pass results.'}</p>` : ''}
+        ${renderDistributionBar('pipeline-test-categories', (testing.categoryCounts || []).map(item => ({ key: item.key, label: item.label, value: item.count, tone: item.key === 'e2e' ? 'accent' : item.key === 'integration' ? 'warn' : 'good' })), { title: 'Test files by category', caption: `${testing.totalFiles || 0} files`, emptyLabel: 'No test files classified.' })}
+      </article>
+      <div class="panel-grid">
+        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Flaky tests</p><h3>History required</h3></div>${flakeHelp.button}</div>${flakeHelp.panel}<p class="section-copy">AtlasMind has no per-test run history yet, so it reports no flake count. It will not infer “stable” from one report.</p><button type="button" class="action-link" data-action="page" data-payload="testing">Open detailed Testing</button></article>
+        <article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Slowest tests</p><h3>Timing not recorded</h3></div>${slowHelp.button}</div>${slowHelp.panel}<p class="section-copy">No synthetic ranking is shown. Run timing lives with the runs themselves.</p><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button></article>
+      </div>
+    </div>`;
+  }
+
+  function renderPipelinePackages(delivery) {
+    const workspace = delivery.workspace || { units: [], summary: 'Workspace topology was not read.' };
+    const supply = delivery.supplyChain || { formats: [], dependencyMonitoring: [], summary: 'Supply-chain inventory was not read.' };
+    const artifacts = delivery.artifacts || [];
+    const help = renderInfoHelp('pipeline.packages', {
+      label: 'packages and artifacts',
+      why: 'AtlasMind inventories what the repository produces and which package controls exist. It is not itself a package registry, and seeing a registry configuration file never means AtlasMind read or received its credentials.',
+      how: [
+        { text: 'Use manifests and lockfiles to assess reproducibility.' },
+        { text: 'Use dependency monitoring and pinned runner images as supply-chain guardrails.' },
+        { text: 'Connect an external registry adapter before claiming publish, cache or vulnerability data.' },
+      ],
+    });
+    const monorepoHelp = renderInfoHelp('pipeline.monorepo', {
+      label: 'monorepo impact',
+      why: 'The map is derived from declared package workspaces or bounded first-level manifests. “Affected” means the current worktree has a path inside that unit; it is not a dependency-graph claim.',
+      how: [{ text: 'Use affected units to propose conditional jobs.' }, { text: 'Add an explicit dependency graph before skipping downstream dependants.' }],
+    });
+    const artifactHelp = renderInfoHelp('pipeline.artifacts', {
+      label: 'the artifact ledger',
+      why: 'Artifacts have different lifetimes. A changelog should persist; coverage and build output should be reproducible; a dependency cache should be replaceable.',
+      how: [{ text: 'Open persistent artifacts for review.' }, { text: 'Treat generated output as evidence only when the producing run is known.' }],
+    });
+    return `<div class="ci-studio-stack">
+      <article class="panel-card ci-monorepo-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Monorepo impact</p><h3>${workspace.detected ? 'Build only what changed' : 'Single-project topology'}</h3><p class="stat-detail">${escapeHtml(workspace.summary || '')}</p></div>${monorepoHelp.button}</div>${monorepoHelp.panel}
+        <div class="ci-unit-grid">${(workspace.units || []).map(unit => `<div class="ci-unit-card${unit.affected ? ' affected' : ''}"><div class="row-head"><strong>${escapeHtml(unit.name)}</strong><span class="tag ${unit.affected ? 'tag-warn' : 'tag-good'}">${unit.affected ? 'affected' : 'unchanged'}</span></div><code>${escapeHtml(unit.path)}</code><small>${escapeHtml(unit.kind)} · ${escapeHtml(unit.manifest)}</small><div class="tag-row">${unit.buildCommand ? `<span class="tag mono">${escapeHtml(unit.buildCommand)}</span>` : ''}${unit.testCommand ? `<span class="tag mono">${escapeHtml(unit.testCommand)}</span>` : ''}</div></div>`).join('') || '<p class="stat-detail">No buildable units mapped.</p>'}</div>
+        ${workspace.truncated ? '<p class="stat-detail wf-unknown">The bounded scan was truncated; no absent unit should be inferred from this list.</p>' : ''}
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Supply-chain inventory</p><h3>Package formats and controls</h3><p class="stat-detail">${escapeHtml(supply.summary || '')}</p></div>${help.button}</div>
+        ${help.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Root dependencies', String(supply.dependencyCount || 0), { detail: 'Root package manifest declarations' })}
+          ${renderMetricPill('Lockfiles', String(supply.lockfileCount || 0), { tone: supply.lockfileCount ? 'good' : 'warn', detail: 'Observed reproducibility controls' })}
+          ${renderMetricPill('Update monitors', String((supply.dependencyMonitoring || []).length), { tone: (supply.dependencyMonitoring || []).length ? 'good' : 'warn', detail: (supply.dependencyMonitoring || []).join(', ') || 'None observed' })}
+          ${renderMetricPill('Runner image', supply.runnerImagePinned ? 'Digest pinned' : 'Review', { tone: supply.runnerImagePinned ? 'good' : 'critical', detail: 'Execution supply chain' })}
+        </div>
+        <div class="ci-package-grid">${(supply.formats || []).map(format => `<div class="ci-package-card"><div class="row-head"><strong>${escapeHtml(format.label)}</strong><span class="tag ${format.lockfile ? 'tag-good' : 'tag-warn'}">${format.lockfile ? 'locked' : 'no lockfile read'}</span></div><code>${escapeHtml(format.manifest)}</code><small>${format.registryConfig ? `Registry config present: ${escapeHtml(format.registryConfig)} (values unread)` : 'No workspace registry configuration observed'}</small></div>`).join('') || '<p class="stat-detail">No supported package formats observed.</p>'}</div>
+        <div class="inline-notice"><strong>Registry adapter not configured</strong><p class="stat-detail">AtlasMind does not host packages or claim cache hits, approvals, vulnerability scans or publish state. Those become live metrics only when a provider adapter supplies them.</p></div>
+      </article>
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Artifact ledger</p><h3>Source → build → test → deploy</h3></div>${artifactHelp.button}</div>${artifactHelp.panel}
+        <div class="artifact-list">${artifacts.map(artifact => renderArtifactRow(artifact)).join('') || '<p class="stat-detail">No artifact signals available.</p>'}</div>
+      </article>
+    </div>`;
+  }
+
+  function formatDurationCompact(milliseconds) {
+    const seconds = Math.max(0, Math.round(Number(milliseconds) / 1000));
+    if (seconds < 60) { return `${seconds}s`; }
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    if (minutes < 60) { return `${minutes}m ${remainder}s`; }
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  }
+
+  /**
+   * Elapsed time for a GitHub run, or undefined when its timestamps do not
+   * bracket a real interval.
+   *
+   * Queue time is deliberately included: it is part of how long a person waited
+   * for an answer, which is the thing the ribbon and the "typical" figure are
+   * about.
+   */
+  function pipelineRunDurationMs(run) {
+    const start = Date.parse((run && (run.createdAt || run.startedAt)) || '');
+    const end = Date.parse((run && (run.updatedAt || run.endedAt)) || '');
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : undefined;
+  }
+
+  /** Where a run sits in the three-outcome vocabulary the ribbon paints. */
+  function pipelineRunOutcome(run) {
+    if (!run) {
+      return 'unknown';
+    }
+    const status = String(run.status || '').toLowerCase();
+    if (status && status !== 'completed') {
+      return 'running';
+    }
+    const conclusion = String(run.conclusion || '').toLowerCase();
+    if (conclusion === 'success') { return 'pass'; }
+    if (conclusion === 'failure' || conclusion === 'timed_out' || conclusion === 'startup_failure') { return 'fail'; }
+    return 'other';
+  }
+
+  /**
+   * One ribbon: recent runs as bars whose height is duration and whose colour
+   * is outcome.
+   *
+   * Two dimensions in one glyph — "healthy, and getting slower" is readable
+   * without a click, which no single percentage can express. Heights are scaled
+   * against the row's own longest run, so a fast workflow does not render as a
+   * flat line beside a slow one; the tooltip carries the real number.
+   */
+  function renderRunRibbon(entries) {
+    if (!entries.length) {
+      return '<span class="ci-ribbon empty" aria-hidden="true"></span>';
+    }
+    const longest = Math.max(1, ...entries.map(entry => entry.durationMs || 0));
+    const bars = entries.map(entry => {
+      const ratio = entry.durationMs ? entry.durationMs / longest : 0.18;
+      const height = Math.max(4, Math.round(ratio * 26));
+      const when = entry.startedAt ? relativeLabel(entry.startedAt) : 'time unknown';
+      const took = entry.durationMs === undefined ? 'duration unknown' : formatDurationCompact(entry.durationMs);
+      return `<i class="${escapeAttr(entry.outcome)}" style="height:${height}px" title="${escapeAttr(`${entry.label} — ${entry.outcome === 'pass' ? 'passed' : entry.outcome === 'fail' ? 'failed' : entry.outcome} · ${took} · ${when}`)}"></i>`;
+    }).join('');
+    return `<span class="ci-ribbon" role="img" aria-label="${escapeAttr(`${entries.length} recent runs, oldest first`)}">${bars}</span>`;
+  }
+
+  /** The ribbon cap. Stated wherever the ribbon is, because a window nobody names is a number nobody can check. */
+  const PIPELINE_RIBBON_WINDOW = 30;
+
+  /**
+   * Group GitHub runs into one series per workflow, newest last.
+   *
+   * Grouped by workflow rather than shown as one undifferentiated stream,
+   * because a project-wide pass rate hides the single workflow that is always
+   * red — the reason a per-pipeline row beats a global percentage.
+   */
+  function pipelineWorkflowSeries(runs) {
+    const groups = new Map();
+    for (const run of runs) {
+      const name = run.workflowName || run.displayTitle || 'Unnamed workflow';
+      const list = groups.get(name) || [];
+      list.push(run);
+      groups.set(name, list);
+    }
+    return [...groups.entries()].map(([name, list]) => {
+      const ordered = [...list].sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')));
+      const recent = ordered.slice(-PIPELINE_RIBBON_WINDOW);
+      const entries = recent.map(run => ({
+        label: run.displayTitle || name,
+        outcome: pipelineRunOutcome(run),
+        durationMs: pipelineRunDurationMs(run),
+        startedAt: run.createdAt,
+      }));
+      const completed = recent.filter(run => String(run.status || '').toLowerCase() === 'completed');
+      const passed = completed.filter(run => String(run.conclusion || '').toLowerCase() === 'success').length;
+      // Strictly `failure`-shaped conclusions. Cancellations are completed runs
+      // that nobody should read as failures, and the reliability figure has to
+      // mean the same thing here as it does everywhere else on the page.
+      const failed = completed.filter(run => ['failure', 'timed_out', 'startup_failure'].includes(String(run.conclusion || '').toLowerCase())).length;
+      const durations = entries.map(entry => entry.durationMs).filter(value => typeof value === 'number').sort((a, b) => a - b);
+      const median = durations.length >= 3 ? durations[Math.floor(durations.length / 2)] : undefined;
+      const stamps = recent.map(run => Date.parse(run.createdAt || '')).filter(Number.isFinite);
+      const spanMs = stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : 0;
+      const weeks = spanMs > 0 ? Math.max(spanMs / (7 * 24 * 3600 * 1000), 1 / 7) : 0;
+      return {
+        name,
+        entries,
+        sampleSize: recent.length,
+        completed: completed.length,
+        reliability: passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : undefined,
+        medianMs: median,
+        perWeek: weeks > 0 ? Math.round(recent.length / weeks) : undefined,
+        running: recent.filter(run => pipelineRunOutcome(run) === 'running').length,
+      };
+    }).sort((left, right) => right.sampleSize - left.sampleSize || left.name.localeCompare(right.name));
+  }
+
+  /**
+   * Runs that both passed and failed on the same commit.
+   *
+   * The rule is published beside the result because it is checkable: a reader
+   * can look at the two runs and agree or disagree. A flakiness score nobody
+   * can reproduce is a number people learn to ignore.
+   */
+  function pipelineFlakyWorkflows(runs) {
+    const byCommit = new Map();
+    for (const run of runs) {
+      const sha = String(run.headSha || '');
+      const name = run.workflowName || 'Unnamed workflow';
+      if (!sha || String(run.status || '').toLowerCase() !== 'completed') {
+        continue;
+      }
+      const key = `${name}@${sha}`;
+      const seen = byCommit.get(key) || { name, sha, pass: false, fail: false };
+      const conclusion = String(run.conclusion || '').toLowerCase();
+      if (conclusion === 'success') { seen.pass = true; }
+      if (['failure', 'timed_out', 'startup_failure'].includes(conclusion)) { seen.fail = true; }
+      byCommit.set(key, seen);
+    }
+    const names = new Map();
+    for (const entry of byCommit.values()) {
+      if (entry.pass && entry.fail) {
+        names.set(entry.name, (names.get(entry.name) || 0) + 1);
+      }
+    }
+    return [...names.entries()]
+      .map(([name, commits]) => ({ name, commits }))
+      .sort((left, right) => right.commits - left.commits || left.name.localeCompare(right.name));
+  }
+
+  /** Status mark for a build row. Unknown is marked, never blank — a blank reads as "no". */
+  const PIPELINE_BUILD_MARK = { running: '●', passed: '✓', failed: '✕', cancelled: '–', unknown: '?' };
+
+  /**
+   * Activity — what ran, what is running, what failed, and what to do about it.
+   *
+   * The page's default view once anything has run. Ordered by urgency rather
+   * than by data source: the failure that needs a person leads, the shape of
+   * recent history follows, the raw stream sits under both, and trend detail
+   * waits behind a disclosure. Setup lives elsewhere entirely.
+   */
+  function renderPipelineActivity(snapshot, context) {
+    const { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp } = context;
+    const builds = delivery.builds || {};
+    const records = builds.records || [];
+    const routing = delivery.routing || {};
+
+    const help = renderInfoHelp('pipeline.activity', {
+      label: 'what this view shows',
+      why: 'One list of everything that has run, whoever ran it, newest first — with the failure that needs a person lifted to the top. Every number here states the window it was measured over, so a figure can be checked rather than trusted.',
+      how: [
+        { text: 'The bars are recent runs: height is how long each took, colour is how it ended.' },
+        { text: 'A run AtlasMind only started — commands typed into your terminal — carries a question mark, because it cannot see how that ended.' },
+        { text: 'Hosted runs are checked at intervals rather than streamed, so a running one may be a few seconds behind.' },
+      ],
+    });
+
+    if (fetchFailure) {
+      return `<div class="ci-studio-stack"><article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Activity</p><h3>The run list could not be read</h3></div>${help.button}</div>
+        ${help.panel}
+        <p class="section-copy">${escapeHtml(fetchFailure)}</p>
+        ${intel && intel.fetchFixCommand ? `<pre class="local-ci-command"><code>${escapeHtml(intel.fetchFixCommand)}</code></pre>` : ''}
+        <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+      </article></div>`;
+    }
+
+    // The lead card. A classified failure outranks everything because it is the
+    // only thing here that is asking for a decision.
+    const leadCard = report
+      ? `<article class="panel-card ci-activity-lead">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Needs you · latest failure</p>
+              <h3>${escapeHtml(report.classification || 'failure')}</h3>
+              <p class="stat-detail">${escapeHtml(`${report.jobName || 'job'} · ${report.stepName || 'step'} · run ${report.runId || ''}`)}</p>
+            </div>
+            ${taxonomyHelp.button}
+          </div>
+          ${taxonomyHelp.panel}
+          ${renderCiFailure(report)}
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="pipeline-ci-failure-work" title="Open a chat with the classified report; the log travels as untrusted content">Ask Atlas to work on this…</button>
+            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…' })}
+          </div>
+        </article>`
+      : intel && intel.logFailure
+        ? `<article class="panel-card ci-activity-lead">
+            <div class="ci-section-heading"><div><p class="card-kicker">Needs you · latest failure</p><h3>A run failed, and its log could not be read</h3></div></div>
+            <p class="stat-detail wf-unknown">${escapeHtml(intel.logFailure)}</p>
+            <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+          </article>`
+        : '';
+
+    // Per-workflow ribbons from GitHub's own runs, plus one row per local route
+    // so a borrowed-machine run is visible in the same shape.
+    const series = pipelineWorkflowSeries(runs);
+    const localRows = new Map();
+    for (const record of records.filter(entry => entry.source === 'local')) {
+      const key = record.routeLabel || record.routeId || 'Local';
+      const list = localRows.get(key) || [];
+      list.push(record);
+      localRows.set(key, list);
+    }
+    const localSeries = [...localRows.entries()].map(([name, list]) => {
+      const ordered = [...list].sort((left, right) => String(left.startedAt || '').localeCompare(String(right.startedAt || '')));
+      const recent = ordered.slice(-PIPELINE_RIBBON_WINDOW);
+      return {
+        name,
+        entries: recent.map(record => ({
+          label: record.title || name,
+          outcome: record.status === 'passed' ? 'pass' : record.status === 'failed' ? 'fail' : record.status === 'running' ? 'running' : 'other',
+          durationMs: pipelineRunDurationMs(record),
+          startedAt: record.startedAt,
+        })),
+        unobserved: recent.filter(record => record.observation === 'unobserved').length,
+        sampleSize: recent.length,
+      };
+    });
+
+    const ribbonRows = series.map(row => `
+      <div class="ci-activity-row">
+        <span class="ci-activity-name">${escapeHtml(row.name)}</span>
+        ${renderRunRibbon(row.entries)}
+        <span class="ci-activity-trio">
+          <span title="${escapeAttr(`Passed as a share of runs that reached a pass-or-fail verdict, over the last ${row.sampleSize} run${row.sampleSize === 1 ? '' : 's'} GitHub returned`)}">reliability <b>${row.reliability === undefined ? '—' : `${row.reliability}%`}</b></span>
+          <span title="${escapeAttr('Median elapsed time including queue wait, which needs at least 3 completed runs')}">typical <b>${row.medianMs === undefined ? '—' : formatDurationCompact(row.medianMs)}</b></span>
+          <span title="${escapeAttr('Runs per week across the span of this sample')}">runs/wk <b>${row.perWeek === undefined ? '—' : String(row.perWeek)}</b></span>
+        </span>
+        ${row.running ? `<span class="tag tag-warn">${escapeHtml(String(row.running))} running</span>` : ''}
+      </div>`).join('');
+
+    const localRibbonRows = localSeries.map(row => `
+      <div class="ci-activity-row">
+        <span class="ci-activity-name">${escapeHtml(row.name)}</span>
+        ${renderRunRibbon(row.entries)}
+        <span class="ci-activity-trio"><span>${escapeHtml(String(row.sampleSize))} run${row.sampleSize === 1 ? '' : 's'} on this machine</span></span>
+        ${row.unobserved ? `<span class="tag" title="${escapeAttr('AtlasMind started these in your terminal and does not read it, so it cannot report how they ended')}">${escapeHtml(String(row.unobserved))} unobserved</span>` : ''}
+      </div>`).join('');
+
+    const shapeCard = (series.length || localSeries.length)
+      ? `<article class="panel-card">
+          <div class="ci-section-heading">
+            <div><p class="card-kicker">Recent history</p><h3>${escapeHtml(`${series.length + localSeries.length} pipeline${series.length + localSeries.length === 1 ? '' : 's'} with runs`)}</h3></div>
+            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+          </div>
+          ${help.panel}
+          ${ribbonRows}${localRibbonRows}
+          <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most — height is elapsed time including queue wait, colour is the outcome. Hover any bar for its exact time.</p>
+        </article>`
+      : `<article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Recent history</p><h3>${intel ? 'No runs in this sample' : 'CI has not been read yet'}</h3></div>${help.button}</div>
+          ${help.panel}
+          <p class="section-copy">${intel
+            ? 'GitHub returned no runs for this branch. That is not evidence that the build passed.'
+            : 'Nothing has been read from GitHub and nothing has run here. This does not mean the build passed.'}</p>
+          <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Read CI result', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+        </article>`;
+
+    const streamRows = records.slice(0, 20).map(build => {
+      const mark = PIPELINE_BUILD_MARK[build.status] || '?';
+      const when = build.startedAt ? relativeLabel(build.startedAt) : 'time unknown';
+      const duration = pipelineRunDurationMs(build);
+      return `<div class="ci-activity-build status-${escapeAttr(build.status || 'unknown')}">
+        <span class="ci-activity-mark" aria-hidden="true">${escapeHtml(mark)}</span>
+        <div class="ci-activity-build-main">
+          <strong>${escapeHtml(build.title || 'Build')}</strong>
+          <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')}${build.branch ? ` · ${escapeHtml(build.branch)}` : ''}${duration === undefined ? '' : ` · ${escapeHtml(formatDurationCompact(duration))}`} · ${escapeHtml(when)}</div>
+        </div>
+        <span class="ci-activity-obs" title="${escapeAttr(describeBuildObservation(build))}">${escapeHtml(build.observation || '')}</span>
+        ${build.pointer && build.pointer.kind === 'output-channel' && build.id === builds.liveOutputBuildId
+          ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>'
+          : build.pointer && build.pointer.kind === 'output-channel'
+            ? '<span class="ci-activity-obs" title="The output channel holds the run this window streamed. A build from an earlier session leaves no output behind.">output not retained</span>'
+            : ''}
+      </div>`;
+    }).join('');
+
+    const streamCard = `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div><p class="card-kicker">Everything that ran</p><h3>${escapeHtml(records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'Nothing recorded yet')}</h3></div>
+      </div>
+      ${builds.githubLoaded === false ? '<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. An empty list here is not evidence that nothing ran on GitHub.</p></div>' : ''}
+      ${records.length ? `<div class="ci-activity-stream">${streamRows}</div>` : '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>'}
+      ${builds.unobservedCount ? `<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} of these were started in your terminal, which AtlasMind does not read — they have no verdict by design.</p>` : ''}
+    </article>`;
+
+    // Trend detail, one level down. The sentences above answer the question;
+    // this is for somebody who wants the distribution behind them.
+    const allDurations = runs.map(pipelineRunDurationMs).filter(value => typeof value === 'number').sort((a, b) => a - b);
+    const p50 = allDurations.length >= 3 ? allDurations[Math.floor(allDurations.length * 0.5)] : undefined;
+    const p95 = allDurations.length >= 3 ? allDurations[Math.min(allDurations.length - 1, Math.floor(allDurations.length * 0.95))] : undefined;
+    const flaky = pipelineFlakyWorkflows(runs);
+    const trendsCard = `<details class="ci-progressive-details ci-activity-trends">
+      <summary>Trends and flakiness${flaky.length ? ` · ${flaky.length} flaky` : ''}</summary>
+      <div class="ci-progressive-details-body">
+        <div class="mini-grid">
+          ${renderMetricPill('Typical run', p50 === undefined ? '—' : formatDurationCompact(p50), { detail: p50 === undefined ? 'Needs 3 completed runs' : 'Median, queue time included' })}
+          ${renderMetricPill('Slow run', p95 === undefined ? '—' : formatDurationCompact(p95), { detail: p95 === undefined ? 'Needs 3 completed runs' : '95th percentile — the bad afternoon' })}
+          ${renderMetricPill('Sample', String(runs.length), { detail: 'Runs GitHub returned for this branch' })}
+        </div>
+        ${flaky.length
+          ? `<div class="ci-activity-flaky"><strong>Flaky</strong><p class="stat-detail">Passed and failed on the same commit — you can check the rule against the two runs.</p>${flaky.map(entry => `<div class="ci-activity-row"><span class="ci-activity-name">${escapeHtml(entry.name)}</span><span class="tag tag-warn">${escapeHtml(String(entry.commits))} commit${entry.commits === 1 ? '' : 's'}</span></div>`).join('')}</div>`
+          : '<p class="stat-detail">No workflow passed and failed on the same commit in this sample.</p>'}
+      </div>
+    </details>`;
+
+    return `<div class="ci-studio-stack">
+      ${leadCard}
+      ${shapeCard}
+      ${streamCard}
+      ${trendsCard}
+    </div>`;
+  }
+
+  /** Mirrors the host's describeCiBuild, kept short for a row tooltip. */
+  function describeBuildObservation(build) {
+    if (build.observation === 'unobserved') {
+      return 'AtlasMind typed these commands into your terminal and does not read it, so it cannot report how they ended.';
+    }
+    if (build.observation === 'polled') {
+      return 'Checked at intervals rather than streamed — GitHub offers no push channel through its CLI.';
+    }
+    return 'AtlasMind read this run’s output as it happened.';
+  }
+
   function renderPipeline(snapshot) {
     // Computed once: the button and the panel are two halves of one control,
     // and calling the builder twice would recompute the whole payload.
@@ -6090,7 +7661,8 @@
         ${(workflow.cautions || []).length ? `<ul class="ci-caution-list">${workflow.cautions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
         <div class="tag-row ci-workflow-actions">
           <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open workflow</button>
-          ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
+          <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}" title="Read this workflow, say what act cannot reproduce, then offer the command">Run locally with act…</button>
+          ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { intent: 'improve', title: 'Explain this workflow and propose a safe improvement plan' })}
         </div>
       </div>`).join('');
     const managerCard = `
@@ -6134,6 +7706,285 @@
             </div></div>`}
       </article>`;
 
+    const runner = delivery.localRunner || {};
+    const runnerEngine = runner.engine || {};
+    const runnerResources = runner.resources || {};
+    const runnerHost = runner.host || {};
+    const runnerGpu = runner.gpu || { detection: 'not-inspected', devices: [], dockerRuntimeKnown: false, dockerRuntimeAvailable: false, dockerRuntimes: [], accessPolicy: 'disabled' };
+    const runnerPrerequisites = runner.prerequisites || { inspection: 'not-inspected', githubCliInstalled: false, githubAuthenticated: false };
+    const runnerEnablement = runner.enablement || { effective: Boolean(runner.enabled), source: 'default', sourceLabel: 'current VS Code extension host' };
+    const prerequisitesInspected = runnerPrerequisites.inspection === 'inspected';
+    const runnerBlockers = runner.blockers || [];
+    const runnerWarnings = runner.warnings || [];
+    const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
+    const runnerReady = ['ready', 'finished'].includes(runner.lifecycle);
+    const runnerTone = runner.lifecycle === 'running' || runner.lifecycle === 'finished' || runner.lifecycle === 'ready'
+      ? 'tag-good'
+      : runner.lifecycle === 'blocked' || runner.lifecycle === 'failed' ? 'tag-critical' : 'tag-warn';
+    const runnerLifecycle = [
+      { id: 'gate', label: 'Trust gate', active: ['starting', 'waiting', 'running', 'finished'].includes(runner.lifecycle), detail: 'Owner · branch · SHA · workflow' },
+      { id: 'isolate', label: 'Isolate', active: ['waiting', 'running', 'finished'].includes(runner.lifecycle), detail: 'No mounts · no socket · hard limits' },
+      { id: 'execute', label: 'Execute', active: ['running', 'finished'].includes(runner.lifecycle), detail: 'Exactly one ephemeral job' },
+      { id: 'cleanup', label: 'Clean up', active: runner.lifecycle === 'finished', detail: 'Registration removed · policy applied' },
+    ];
+    const shutdownLabel = runner.shutdownPolicy === 'never' ? 'Keep Docker open'
+      : runner.shutdownPolicy === 'always' ? 'Close when safe'
+        : 'Close only if AtlasMind opened it';
+    const engineCapacity = !prerequisitesInspected ? 'Not checked' : runnerEngine.available
+      ? `${runnerEngine.cpuCount || '—'} CPU · ${runnerEngine.memoryGb || '—'} GB`
+      : runnerEngine.cliInstalled ? 'Engine stopped' : 'Not detected';
+    const setupStatus = (label, status, detail) => {
+      const word = status === 'ready' ? 'Ready' : status === 'action' ? 'Needs action' : status === 'planned' ? 'Handled at start' : 'Not checked';
+      const tone = status === 'ready' ? 'tag-good' : status === 'action' ? 'tag-critical' : status === 'planned' ? '' : 'tag-warn';
+      return `<div class="ci-setup-row"><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div><span class="tag ${tone}">${word}</span></div>`;
+    };
+    const dockerState = !prerequisitesInspected ? 'unknown' : runnerEngine.cliInstalled ? 'ready' : 'action';
+    const engineState = !prerequisitesInspected ? 'unknown' : runnerEngine.available ? 'ready' : runnerEngine.desktopAvailable ? 'planned' : 'action';
+    const ghState = !prerequisitesInspected ? 'unknown' : runnerPrerequisites.githubCliInstalled ? 'ready' : 'action';
+    const ghAuthState = !prerequisitesInspected ? 'unknown' : runnerPrerequisites.githubAuthenticated ? 'ready' : 'action';
+    const imageState = !prerequisitesInspected ? 'unknown' : !runnerEngine.cliInstalled ? 'action' : runnerEngine.imagePresent ? 'ready' : 'planned';
+    const machineSetupNeedsAction = prerequisitesInspected && (
+      !runnerEngine.cliInstalled
+      || (!runnerEngine.available && !runnerEngine.desktopAvailable)
+      || !runnerPrerequisites.githubCliInstalled
+      || !runnerPrerequisites.githubAuthenticated
+    );
+    const platformName = runnerHost.os === 'win32' ? 'Windows' : runnerHost.os === 'darwin' ? 'macOS' : runnerHost.os === 'linux' ? 'Linux' : 'this operating system';
+    const dockerHelpId = runnerHost.os === 'win32' ? 'docker-windows' : runnerHost.os === 'darwin' ? 'docker-macos' : 'docker-linux';
+    const installationHelp = !prerequisitesInspected
+      ? '<div class="inline-notice"><strong>Inspect before installing anything</strong><p class="stat-detail">AtlasMind will first check what this computer already has. Installation help appears only for a missing prerequisite.</p></div>'
+      : runnerEngine.cliInstalled && runnerPrerequisites.githubCliInstalled && runnerPrerequisites.githubAuthenticated
+        ? '<div class="inline-notice"><strong>No installation needed</strong><p class="stat-detail">Docker and GitHub CLI are already available, and GitHub CLI is signed in.</p></div>'
+        : `<section class="ci-install-guide" aria-label="Missing prerequisite guidance for ${escapeAttr(platformName)}">
+            <strong>Only change the computer items marked missing</strong>
+            <p class="stat-detail"><strong>Where software goes:</strong> Docker and GitHub CLI are operating-system applications installed outside this workspace. They do not become project dependencies and do not write application files into this repository.</p>
+            <div class="ci-install-steps">
+              ${!runnerEngine.cliInstalled ? `<div class="ci-install-step"><strong>Install Docker for ${escapeHtml(platformName)}</strong><p>Machine-level change · may request administrator approval or a restart.</p><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="${dockerHelpId}">Open Docker’s official installation guide ↗</button></div>` : ''}
+              ${!runnerPrerequisites.githubCliInstalled ? '<div class="ci-install-step"><strong>Install GitHub CLI</strong><p>Operating-system command-line tool · installed outside the repository. AtlasMind shows the exact command before running anything, and installs nothing else.</p><div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-install-gh">Install it for me…</button><button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="github-cli">Official installation page ↗</button></div></div>' : ''}
+              ${runnerPrerequisites.githubCliInstalled && !runnerPrerequisites.githubAuthenticated ? '<div class="ci-install-step"><strong>Sign GitHub CLI in for this computer user</strong><p>This may be run in the VS Code terminal. It opens a browser and stores authentication in the operating system’s credential store; it does not change repository files.</p><code>gh auth login --hostname github.com --web</code></div>' : ''}
+            </div>
+            <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>
+          </section>`;
+    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction ? ' open' : ''}>
+      <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
+      <div class="ci-progressive-details-body" aria-label="Local runner installation and readiness">
+        <p class="section-copy"><strong>No permanent runner daemon:</strong> AtlasMind uses a temporary Docker container for one authorised job, then removes it.</p>
+        <div class="ci-setup-grid">
+          ${setupStatus('Runner permission', runnerEnablement.effective ? 'ready' : 'action', `${runnerEnablement.effective ? 'On' : 'Off'} in the ${runnerEnablement.sourceLabel || 'current VS Code extension host'}.`)}
+          ${setupStatus('Docker command', dockerState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerEngine.cliInstalled ? 'The Docker CLI is available.' : 'Install Docker and restart VS Code so PATH is refreshed.')}
+          ${setupStatus('Docker engine', engineState, !prerequisitesInspected ? 'Inspect to check the engine.' : runnerEngine.available ? 'Running and its real capacity was read.' : runnerEngine.desktopAvailable ? 'Docker Desktop can be started after you confirm the run.' : 'Start the managed Docker engine yourself.')}
+          ${setupStatus('GitHub command', ghState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerPrerequisites.githubCliInstalled ? 'GitHub CLI is available.' : 'Install GitHub CLI and restart VS Code.')}
+          ${setupStatus('GitHub sign-in', ghAuthState, !prerequisitesInspected ? 'Inspect to check gh auth status.' : runnerPrerequisites.githubAuthenticated ? 'Signed in to github.com.' : 'Run the browser sign-in command below.')}
+          ${setupStatus('Runner software', imageState, !prerequisitesInspected ? 'Inspect to check the pinned image.' : !runnerEngine.cliInstalled ? 'Install Docker before the runner image can be checked.' : runnerEngine.imagePresent ? 'Digest-pinned runner image is already present.' : 'AtlasMind will download the digest-pinned image only after confirmation.')}
+        </div>
+        ${installationHelp}
+        <div class="tag-row ci-runner-actions">
+          <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>
+          <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Runner permission (${runnerEnablement.effective ? 'On' : 'Off'})</button>
+        </div>
+        <p class="stat-detail">The permission value comes from the ${escapeHtml(runnerEnablement.sourceLabel || 'current VS Code extension host')}. If Settings differs, check the active profile or remote extension host and reload VS Code.</p>
+      </div>
+    </details>`;
+    const gpuHelp = renderInfoHelp('pipeline.runner-gpu', {
+      label: 'GPU capability and access',
+      why: 'Detection answers what hardware exists. Container access is a separate privilege: the trusted local CI runner receives no GPU device by default, even when Docker advertises an NVIDIA runtime.',
+      how: [
+        { text: 'Inspect the machine to read GPU identity and, where available, live VRAM from the operating-system driver.' },
+        { text: 'Treat Docker runtime availability as capability only; it does not prove a container can or should use the device.' },
+        { text: 'Keep general CI CPU-only. A future GPU workload needs its own trusted label, image, resource policy and explicit confirmation.' },
+      ],
+    });
+    const gpuDevices = (runnerGpu.devices || []).map((device, index) => {
+      const memory = device.totalGb === undefined ? 'VRAM total unavailable'
+        : `${device.totalGb} GB total${device.freeGb === undefined ? '' : ` · ${device.freeGb} GB free`}${device.usedGb === undefined ? '' : ` · ${device.usedGb} GB used`}`;
+      return `<div class="ci-gpu-device"><span class="ci-gpu-icon" aria-hidden="true">GPU</span><div><strong>${escapeHtml(device.name || `GPU ${index + 1}`)}</strong><small>${escapeHtml(memory)} · ${escapeHtml((device.measurement || 'identity-only').replaceAll('-', ' '))}</small></div></div>`;
+    }).join('');
+    const queueIssue = runner.preflightIssue;
+    const queueIssueEvidence = queueIssue
+      ? `<div class="ci-queue-shas"><div><span>Local checkout</span><code>${escapeHtml((queueIssue.currentSha || '').slice(0, 12))}</code></div>${queueIssue.queuedRuns && queueIssue.queuedRuns.length ? queueIssue.queuedRuns.slice(0, 4).map(run => `<div><span>Waiting run #${escapeHtml(String(run.databaseId))}</span><code>${escapeHtml((run.headSha || '').slice(0, 12))}</code></div>`).join('') : '<div><span>GitHub queue</span><strong>None found</strong></div>'}</div>`
+      : '';
+    const recoveryRuns = !queueIssue ? []
+      : queueIssue.kind === 'duplicates' ? (queueIssue.queuedRuns || [])
+        : queueIssue.kind === 'commit-mismatch' ? (queueIssue.queuedRuns || []).filter(run => String(run.headSha || '').toLowerCase() !== String(queueIssue.currentSha || '').toLowerCase())
+          : [];
+    const queueRecovery = recoveryRuns.length ? `<div class="ci-queue-recovery"><strong>${queueIssue.kind === 'duplicates' ? 'Cancel the waiting duplicates, then queue once' : 'Cancel the stale run before queueing this checkout'}</strong><p class="stat-detail">Each control below uses the complete command. Send to terminal types it into your configured VS Code shell but does not press Enter.</p>${recoveryRuns.slice(0, 8).map(run => `<div class="local-ci-command-block"><pre class="local-ci-command"><code>gh run cancel ${escapeHtml(String(run.databaseId))}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-cancel-command-copy" data-payload="${escapeAttr(String(run.databaseId))}" title="Copy the complete cancel command" aria-label="Copy the complete cancel command for waiting run ${escapeAttr(String(run.databaseId))}">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-cancel-command-send" data-payload="${escapeAttr(String(run.databaseId))}" title="Send complete cancel command to terminal — typed, not run" aria-label="Send the complete cancel command for waiting run ${escapeAttr(String(run.databaseId))} to the terminal">&gt;_</button></div></div>`).join('')}</div>` : '';
+    const queuedRunCard = runner.queuedRun ? `
+      <div class="ci-runner-queue">
+        <div><span class="ci-workflow-label">Authorised queue item</span><strong>#${escapeHtml(String(runner.queuedRun.databaseId))} · ${escapeHtml(runner.queuedRun.workflowName || runner.workflowFile || 'Trusted workflow')}</strong></div>
+        <span class="tag tag-good">${escapeHtml((runner.queuedRun.headSha || '').slice(0, 12))}</span>
+        <p class="stat-detail">${escapeHtml(runner.queuedRun.displayTitle || 'Queued job')} · ${escapeHtml(runner.queuedRun.event || 'unknown event')}</p>
+      </div>` : `
+      <section class="ci-queue-guide" aria-label="Queue a trusted GitHub job">
+        <div><span class="ci-workflow-label">GitHub queue · repository action</span><strong>Queue the same commit that is open locally</strong></div>
+        <ol class="ci-queue-steps">
+          <li><strong>Commit and push first.</strong><span>AtlasMind queues the commit already pushed to the <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> branch. It cannot include uncommitted or unpushed files.</span></li>
+          <li><strong>Queue from this repository’s VS Code terminal.</strong><span>This complete GitHub CLI command works in PowerShell, Command Prompt, bash, and zsh. It installs no software and changes no local files.</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to terminal — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div></li>
+          <li><strong>Return here after GitHub confirms the dispatch.</strong><span>Select <em>Check GitHub queue → review start plan</em>. This checks the queue first; it does not lend the machine until you approve the separate plan.</span></li>
+        </ol>
+        <p class="stat-detail">A waiting self-hosted job may be reported by GitHub as “pending”; AtlasMind checks both pending and queued runs.</p>
+        ${queueIssue ? `<div class="inline-notice warning"><strong>${queueIssue.kind === 'commit-mismatch' ? 'A waiting job targets different code' : queueIssue.kind === 'duplicates' ? 'More than one job is waiting' : 'No matching job is visible yet'}</strong><p class="stat-detail">${escapeHtml(queueIssue.message || '')}</p>${queueIssueEvidence}${queueRecovery}</div>` : ''}
+      </section>`;
+    // The trusted workflow, reviewed from disk. `undefined` means nobody has
+    // looked — deliberately not the same as "no blockers found", because a page
+    // that reads clean on an unexamined file is claiming an assurance nobody
+    // established. That distinction is the reason this card exists at all.
+    const workflowReview = runner.workflowReview;
+    const workflowReviewed = Boolean(workflowReview);
+    const workflowOk = workflowReview && workflowReview.state === 'ok';
+    const workflowMissing = workflowReview && workflowReview.state === 'missing';
+    const workflowBlockers = workflowReview ? (workflowReview.blockers || []) : [];
+    const workflowFileName = runner.workflowFile || 'trusted-local-ci.yml';
+    const workflowPath = (workflowReview && workflowReview.path) || `.github/workflows/${workflowFileName}`;
+    const workflowStatusLine = !workflowReviewed
+      ? 'Not checked yet. Reviewing costs nothing and needs no Docker, no GitHub sign-in, and no queued job.'
+      : workflowOk ? `${workflowPath} satisfies every rule AtlasMind checks before lending this machine.`
+        : workflowMissing ? `No trusted workflow exists at ${workflowPath} yet. AtlasMind can write one for you to review.`
+          : `${workflowBlockers.length} thing${workflowBlockers.length === 1 ? '' : 's'} must change in ${workflowPath} before this machine can be lent to it.`;
+    const workflowHelp = renderInfoHelp('pipeline.trusted-workflow', {
+      label: 'the trusted workflow file',
+      why: 'This file is what authorises a GitHub job to run on your computer. The runner label only routes work; the conditions in the file decide who may reach it. AtlasMind re-reads and re-checks it immediately before every run, so a weakened condition stops the run rather than widening it.',
+      how: [
+        { text: 'Check it now — it is a file read, so it works before any other setup exists.' },
+        { text: 'Every item AtlasMind reports names one rule and the change that satisfies it.' },
+        { text: 'Let AtlasMind write the file if you have none; it is created for review and never overwrites an existing one.' },
+      ],
+    });
+    const workflowCard = `
+      <section class="ci-runner-workflow" aria-label="Trusted workflow review">
+        <div class="ci-section-heading">
+          <div>
+            <span class="ci-workflow-label">Trusted workflow · what may run here</span>
+            <strong>${escapeHtml(workflowStatusLine)}</strong>
+          </div>
+          <div class="tag-row">
+            <span class="tag ${workflowOk ? 'tag-good' : !workflowReviewed ? '' : 'tag-warn'}">${escapeHtml(!workflowReviewed ? 'not checked' : workflowOk ? 'passes' : workflowMissing ? 'not created' : 'needs changes')}</span>
+            ${workflowHelp.button}
+          </div>
+        </div>
+        ${workflowHelp.panel}
+        ${workflowBlockers.length && !workflowMissing ? `<ul class="ci-caution-list ci-workflow-blockers">${workflowBlockers.slice(0, 12).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        ${workflowOk && (workflowReview.warnings || []).length ? `<ul class="ci-caution-list">${workflowReview.warnings.slice(0, 6).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        <div class="tag-row ci-workflow-actions">
+          <button type="button" class="action-link" data-action="pipeline-workflow-assess">${escapeHtml(workflowReviewed ? 'Check it again' : 'Check the trusted workflow')}</button>
+          ${workflowMissing ? '<button type="button" class="action-link primary" data-action="pipeline-workflow-create">Write it for me…</button>' : ''}
+          ${workflowReviewed && !workflowMissing ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflowPath)}">Open ${escapeHtml(workflowFileName)}</button>` : ''}
+        </div>
+      </section>`;
+    const runnerProgressSteps = [
+      { label: 'Trusted workflow', done: Boolean(workflowOk) },
+      { label: 'Permission', done: runnerEnablement.effective },
+      { label: 'Computer', done: prerequisitesInspected && !machineSetupNeedsAction },
+      { label: 'GitHub queue', done: Boolean(runner.queuedRun) },
+      { label: 'One-job run', done: runner.lifecycle === 'finished' },
+    ];
+    const runnerProgressCurrent = runnerProgressSteps.findIndex(step => !step.done);
+    let runnerFocusTitle = 'Queue one trusted job';
+    let runnerFocusDetail = 'Use the complete command below, then let AtlasMind verify the queue before it starts anything.';
+    let runnerFocusContext = queuedRunCard;
+    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || !runnerReady || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Check GitHub queue → review start plan</button>`;
+    if (!workflowOk && !['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
+      // First, because it is the cheapest question in the flow and used to be
+      // asked last. Checking a file needs no Docker, no GitHub sign-in and no
+      // queued job, and a file that will be refused is worth finding out about
+      // before installing anything.
+      runnerFocusTitle = !workflowReviewed ? 'Check what this repository would let run here'
+        : workflowMissing ? 'Create the trusted workflow'
+          : 'Fix the trusted workflow';
+      runnerFocusDetail = !workflowReviewed
+        ? 'One file decides which GitHub jobs may reach this computer. Reading it costs nothing and needs no other setup.'
+        : workflowMissing
+          ? 'AtlasMind can write a workflow that satisfies every rule it checks, then open it for your review. Nothing is lent by creating it.'
+          : 'Each item below names one rule and the change that satisfies it. AtlasMind re-checks the file before every run.';
+      runnerFocusContext = '';
+      runnerFocusActions = workflowMissing
+        ? '<button type="button" class="action-link primary" data-action="pipeline-workflow-create">Write the trusted workflow…</button><button type="button" class="action-link" data-action="pipeline-workflow-assess">Check again</button>'
+        : `<button type="button" class="action-link primary" data-action="pipeline-workflow-assess">${escapeHtml(workflowReviewed ? 'Check again' : 'Check the trusted workflow')}</button>${workflowReviewed ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflowPath)}">Open the file</button>` : ''}`;
+    } else if (!runnerEnablement.effective) {
+      runnerFocusTitle = 'Allow trusted local CI on this machine';
+      runnerFocusDetail = 'Turn on the machine-scoped permission first. This does not install software or start a runner.';
+      runnerFocusContext = '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Open runner permission</button>';
+    } else if (!prerequisitesInspected || runner.lifecycle === 'inspecting') {
+      runnerFocusTitle = runner.lifecycle === 'inspecting' ? 'Inspecting this computer…' : 'Inspect this computer';
+      runnerFocusDetail = 'AtlasMind checks Docker, GitHub sign-in, CPU, memory, and GPU before suggesting any installation.';
+      runnerFocusContext = '';
+      runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>${runner.lifecycle === 'inspecting' ? 'Inspection in progress…' : 'Inspect this computer'}</button>`;
+    } else if (machineSetupNeedsAction) {
+      runnerFocusTitle = 'Finish the missing computer setup';
+      runnerFocusDetail = 'Only the missing items are expanded below. Install them outside the repository, restart VS Code if needed, then inspect again.';
+      runnerFocusContext = '';
+      runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>`;
+    } else if (['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
+      runnerFocusTitle = runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
+      runnerFocusDetail = 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
+      runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>';
+    } else if (runner.lifecycle === 'finished') {
+      runnerFocusTitle = 'Review the GitHub result';
+      runnerFocusDetail = 'A clean runner exit is not a test verdict. Read GitHub before treating the job as passing.';
+      runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-refresh">Read CI result</button><button type="button" class="action-link" data-action="pipeline-runner-output">Open runner output</button>';
+    } else if (runner.queuedRun) {
+      runnerFocusTitle = 'Review and start this queued job';
+      runnerFocusDetail = 'AtlasMind found one waiting run for the checked-out commit. It will re-check everything and show a confirmation before starting.';
+    } else if (queueIssue) {
+      runnerFocusTitle = 'Fix the GitHub queue';
+      runnerFocusDetail = queueIssue.kind === 'commit-mismatch'
+        ? 'Cancel the stale run, queue this checkout, then check again.'
+        : queueIssue.kind === 'duplicates' ? 'Cancel every duplicate, queue exactly once, then check again.'
+          : 'Queue the trusted workflow, wait for GitHub to accept it, then check again.';
+    }
+    const runnerWarningsPanel = runnerWarnings.length ? `<details class="ci-progressive-details ci-runner-notes"><summary>Show ${runnerWarnings.length} operator note${runnerWarnings.length === 1 ? '' : 's'}</summary><div class="ci-progressive-details-body"><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div></details>` : '';
+    const runnerCard = `
+      <article class="panel-card ci-runner-card">
+        <div class="row-head">
+          <div>
+            <p class="card-kicker">Trusted local CI · temporary runner</p>
+            <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
+            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')}</div>
+          </div>
+          <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
+        </div>
+        <section class="ci-runner-focus" aria-label="Next local runner action">
+          <div><p class="card-kicker">Next action</p><h3>${escapeHtml(runnerFocusTitle)}</h3><p class="section-copy">${escapeHtml(runnerFocusDetail)}</p></div>
+          <div class="ci-runner-progress" role="list" aria-label="Local runner setup progress">${runnerProgressSteps.map((step, index) => `<div role="listitem" class="${step.done ? 'done' : index === runnerProgressCurrent ? 'current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.label)}</small></div>`).join('')}</div>
+          ${runnerFocusContext}
+          ${runnerBlockers.length ? `<div class="inline-notice critical"><strong>Cannot continue yet</strong><ul class="ci-caution-list">${runnerBlockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+          <div class="tag-row ci-runner-actions">${runnerFocusActions}</div>
+        </section>
+        ${workflowCard}
+        ${setupCard}
+        ${runnerWarningsPanel}
+        <details class="ci-progressive-details ci-runner-technical">
+          <summary><span>Hardware, limits, providers, and security details</span><small>${escapeHtml(engineCapacity)} · ${escapeHtml(shutdownLabel)}</small></summary>
+          <div class="ci-progressive-details-body">
+            <div class="ci-runner-provider-grid" aria-label="CI provider adapters">
+              <div class="ci-runner-provider active"><strong>GitHub Actions</strong><small>Connected executor</small></div>
+              <div class="ci-runner-provider"><strong>Buildkite</strong><small>Adapter-ready · not configured</small></div>
+              <div class="ci-runner-provider"><strong>Semaphore</strong><small>Adapter-ready · not configured</small></div>
+              <div class="ci-runner-provider"><strong>Other runners</strong><small>Provider boundary reserved</small></div>
+            </div>
+            <div class="ci-runner-lifecycle" aria-label="Runner lifecycle">${runnerLifecycle.map(step => `<div class="ci-runner-stage ${step.active ? 'active' : ''}"><span></span><div><strong>${escapeHtml(step.label)}</strong><small>${escapeHtml(step.detail)}</small></div></div>`).join('')}</div>
+            <div class="mini-grid">
+              ${renderMetricPill('Host', `${String(runnerHost.cpuCount || '—')} CPU · ${String(runnerHost.memoryGb || '—')} GB`, { detail: `${runnerHost.os || 'unknown'} · ${runnerHost.arch || 'unknown'}` })}
+              ${renderMetricPill('Docker capacity', engineCapacity, { tone: runnerEngine.available ? 'good' : 'warn', detail: runnerEngine.available ? `${runnerEngine.os || 'unknown'} · ${runnerEngine.arch || 'unknown'}` : 'Read from the engine, never assumed' })}
+              ${renderMetricPill('Runner limit', `${String(runnerResources.cpus || '—')} CPU · ${String(runnerResources.memoryGb || '—')} GB`, { detail: `${String(runnerResources.pidsLimit || '—')} process ceiling` })}
+              ${renderMetricPill('Desktop reserve', `${String(runnerResources.reserveCpus || '—')} CPU · ${String(runnerResources.reserveMemoryGb || '—')} GB`, { tone: 'good', detail: runnerResources.provisional ? 'Provisional until Docker is read' : 'Based on Docker’s actual allocation' })}
+              ${renderMetricPill('Other containers', prerequisitesInspected ? String(runnerEngine.otherRunningContainers || 0) : '—', { tone: !prerequisitesInspected ? 'warn' : runnerEngine.otherRunningContainers ? 'warn' : 'good', detail: !prerequisitesInspected ? 'Inspect before making a shutdown decision' : runnerEngine.otherRunningContainers ? 'Docker shutdown is inhibited' : 'Shutdown guard is clear' })}
+              ${renderMetricPill('After the job', shutdownLabel, { detail: 'Machine-scoped policy' })}
+            </div>
+            <section class="ci-gpu-panel" aria-label="GPU capability">
+              <div class="ci-section-heading"><div><span class="ci-workflow-label">Graphics capability</span><strong>${runnerGpu.detection === 'detected' ? `${runnerGpu.devices.length} GPU${runnerGpu.devices.length === 1 ? '' : 's'} detected` : runnerGpu.detection === 'not-detected' ? 'No GPU reported by the host probes' : 'Inspect the machine to read GPU capability'}</strong></div>${gpuHelp.button}</div>
+              ${gpuHelp.panel}
+              <div class="ci-gpu-grid"><div class="ci-gpu-devices">${gpuDevices || '<p class="stat-detail">No device details available yet.</p>'}</div><div class="ci-gpu-policy"><div><span>Docker GPU runtime</span><strong>${runnerGpu.dockerRuntimeKnown ? (runnerGpu.dockerRuntimeAvailable ? 'Available' : 'Not advertised') : 'Not inspected'}</strong></div><div><span>CI container access</span><strong class="policy-off">Off by policy</strong></div><small>${runnerGpu.dockerRuntimes && runnerGpu.dockerRuntimes.length ? `Docker runtimes: ${escapeHtml(runnerGpu.dockerRuntimes.join(', '))}` : 'The runner command never adds --gpus.'}</small></div></div>
+            </section>
+            <div class="ci-runner-spec"><div><span class="ci-workflow-label">Workflow</span><code>${escapeHtml(runner.workflowFile || '—')}</code></div><div><span class="ci-workflow-label">Trusted branch</span><code>${escapeHtml(runner.trustedBranch || '—')}</code></div><div><span class="ci-workflow-label">Dedicated label</span><code>${escapeHtml(runner.runnerLabel || 'invalid')}</code></div><div><span class="ci-workflow-label">Image</span><code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code></div></div>
+            <div class="ci-resource-rationale"><strong>Capacity calculation</strong><p class="stat-detail">${escapeHtml(runnerResources.explanation || 'Inspect Docker to calculate an allocation.')}</p></div>
+            <p class="stat-detail ci-runner-honesty"><strong>Evidence boundary:</strong> this Docker executor proves Linux ${escapeHtml(runnerEngine.arch || runnerHost.arch || 'architecture')} behaviour. Native Windows and macOS checks need native executors and are never inferred from this result.</p>
+          </div>
+        </details>
+        ${runner.lastOutput ? `<div class="ci-runner-last"><span class="ci-workflow-label">Latest runner event</span><code>${escapeHtml(runner.lastOutput)}</code></div>` : ''}
+      </article>`;
     const counts = runs.reduce((acc, run) => {
       const key = run.status !== 'completed' ? 'running'
         : run.conclusion === 'success' ? 'passing'
@@ -6142,43 +7993,19 @@
       return acc;
     }, {});
     const completed = (counts.passing || 0) + (counts.failing || 0);
-
+    const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
     const intro = renderPageIntro({
       kicker: 'Stage 5',
-      title: 'Pipeline and failure analysis',
+      title: 'Pipeline',
+      // Four verbs, in the order somebody uses them. The old summary described
+      // the setup sequence, which is the one thing on this page most people
+      // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}`
-        : 'CI has not been read yet. Fetching runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.',
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
+        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
-
-    if (!intel) {
-      return `${pageSectionOpen('pipeline')}
-        ${intro}
-        ${managerCard}
-        <div class="dashboard-empty"><div>
-          <strong>CI has not been read</strong>
-          <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
-          ${renderRefreshAction('pipeline-refresh', 'Read CI for this branch', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
-        </div></div>
-      </section>`;
-    }
-
-    if (fetchFailure) {
-      return `${pageSectionOpen('pipeline')}
-        ${intro}
-        ${managerCard}
-        <div class="dashboard-empty"><div>
-          <strong>The run list could not be read</strong>
-          <div class="stat-detail">${escapeHtml(fetchFailure)}</div>
-          ${intel.fetchFixCommand ? `<div class="policy-report-line"><code>${escapeHtml(intel.fetchFixCommand)}</code></div>` : ''}
-          <p class="section-copy">No runs are shown because none were read — not because none exist. Nothing on this page should be taken as a verdict on the build until this succeeds.</p>
-          ${renderRefreshAction('pipeline-refresh', 'Try again', refreshBusy, { busyLabel: 'Reading CI…', primary: true })}
-        </div></div>
-      </section>`;
-    }
-
     const runRows = runs.slice(0, 15).map(run => `
       <div class="recent-item">
         <div class="row-head">
@@ -6188,52 +8015,47 @@
         </div>
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
+    const buildRecords = (delivery.builds && delivery.builds.records) || [];
+    // The setup view. Only the journey and what blocks it — the capability grid
+    // and the duplicated results block that used to sit here were a second,
+    // worse navigation system competing with the tabs, and the run history they
+    // showed now leads Activity.
+    const overviewContent = `<div class="ci-studio-stack ci-start-view">
+      ${renderPipelineJourney(assessment, intel, runner, workflows, buildRecords)}
+      ${!intel && !buildRecords.length ? '<div class="inline-notice"><strong>No CI result has been read yet</strong><p class="stat-detail">This does not mean the build passed. Read GitHub only when you need the result.</p><button type="button" class="action-link" data-action="pipeline-refresh">Read CI result</button></div>' : ''}
+      ${fetchFailure ? `<div class="inline-notice critical"><strong>The run list could not be read</strong><p class="stat-detail">${escapeHtml(fetchFailure)}</p>${intel && intel.fetchFixCommand ? `<code>${escapeHtml(intel.fetchFixCommand)}</code>` : ''}<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Try again</button></div></div>` : ''}
+    </div>`;
+
+    // Setup takes the page over while it is genuinely unfinished, and hands it
+    // straight back once it is not. An explicit tab choice always wins — a
+    // persisted id from the old eight-tab layout is remapped rather than
+    // dropped, so nobody lands on a view that no longer exists.
+    const setup = pipelineSetupState(runner, buildRecords, runs);
+    const chosen = PIPELINE_SECTION_ALIASES[state.pipelineSection] || state.pipelineSection;
+    if (!PIPELINE_SECTIONS.includes(chosen) && !PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)) {
+      state.pipelineSectionDefault = setup.complete ? 'activity' : 'setup';
+    }
+    const pipelineSection = PIPELINE_SECTIONS.includes(chosen)
+      ? chosen
+      : state.pipelineSectionDefault;
+
+    const sectionContent = {
+      setup: overviewContent,
+      activity: renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp }),
+      canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks, {
+        runs,
+        workflows,
+        routing: delivery.routing || {},
+        stages: (delivery.stages && delivery.stages.stages) || [],
+      })}${managerCard}${renderPipelinePackages(delivery)}</div>`,
+      tests: renderPipelineTests(snapshot.testing || {}),
+      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard),
+    }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
-      ${managerCard}
-      <div class="tag-row">
-        ${renderRefreshAction('pipeline-refresh', 'Refresh CI', refreshBusy, {
-          busyLabel: 'Reading CI…',
-          title: 'Re-read this branch’s runs, and the log of the latest failure',
-        })}
-      </div>
-      <div class="panel-grid">
-        <article class="panel-card">
-          <p class="card-kicker">Outcome</p>
-          <div class="mini-grid">
-            ${renderMetricPill('Passing', String(counts.passing || 0), { tone: 'good' })}
-            ${renderMetricPill('Failing', String(counts.failing || 0), { tone: (counts.failing || 0) > 0 ? 'critical' : 'good' })}
-            ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) + '%' : '—')}
-          </div>
-          ${renderDistributionBar('pipeline-outcome', [
-            { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
-            { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
-            { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
-            { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
-          ], {
-            title: 'Recent runs on this branch',
-            caption: 'The shape over time matters more than the latest result',
-            emptyLabel: 'No runs recorded for this branch.',
-          })}
-        </article>
-        <article class="panel-card">
-          <p class="card-kicker">Latest failure</p>
-          ${report ? renderCiFailure(report) : ''}
-          ${!report && intel.logFailure
-            ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
-            : ''}
-          ${!report && !intel.logFailure
-            ? '<div class="dashboard-empty"><div><strong>No failing runs</strong><p class="section-copy">Nothing on this branch has failed recently.</p></div></div>'
-            : ''}
-          ${taxonomyHelp.button}
-          ${taxonomyHelp.panel}
-        </article>
-      </div>
-      <article class="panel-card">
-        <p class="card-kicker">Recent runs</p>
-        <div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div>
-      </article>
+      ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
+      <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;
   }
 
@@ -6979,7 +8801,7 @@
               : `Nothing is tagged for ${gateLabel} yet. Use the ${gateLabel} chip on a backlog item below to put it on this release.`)}</div>
           `}
           <div class="tag-row">
-            ${renderAtlasDiscussAction('prompt', mvp.planPrompt || '', `Ask AtlasMind to plan the ${gateLabel} route`, { title: `Ask AtlasMind to plan the shortest defensible route to ${gateLabel}` })}
+            ${renderAtlasDiscussAction('prompt', mvp.planPrompt || '', `Ask AtlasMind to plan the ${gateLabel} route`, { intent: 'draft', title: `Ask AtlasMind to plan the shortest defensible route to ${gateLabel}` })}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
           </div>
         </article>
@@ -7248,7 +9070,7 @@
           ` : `
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|open')}" title="Reopen this finding">Reopen</button>
           `}
-          ${renderAtlasDiscussAction('prompt', 'Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.', 'Ask AtlasMind to investigate this finding', { title: 'Ask AtlasMind to verify this finding and propose the smallest concrete response' })}
+          ${renderAtlasDiscussAction('prompt', 'Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.', 'Ask AtlasMind to investigate this finding', { intent: 'discuss', title: 'Ask AtlasMind to verify this finding and propose the smallest concrete response' })}
         </div>
       </article>
     `;
@@ -7580,7 +9402,7 @@
         ${entry.sourceHint ? `<div class="list-meta">Tracks: ${escapeHtml(entry.sourceHint)}</div>` : ''}
         <div class="tag-row">
           ${entry.status === 'missing' || entry.status === 'review-due' ? renderDirectorOwnerControl('document', entry.id) : ''}
-          ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { title: 'Ask AtlasMind to inspect and update this document' })}
+          ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { intent: 'improve', title: 'Ask AtlasMind to inspect and update this document' })}
           <button type="button" class="action-link" data-action="documents-mark-reviewed" data-payload="${escapeAttr(entry.id)}" title="Record that this document is current as of now">Mark reviewed</button>
           ${entry.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.path)}">Open</button>` : ''}
           <button type="button" class="action-link" data-action="documents-edit-auto" data-payload="${escapeAttr(entry.id)}">Edit</button>
@@ -8747,7 +10569,7 @@
                           'delivery-discuss-step',
                           step.id,
                           `Ask AtlasMind to resolve ${step.label}`,
-                          { title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
+                          { intent: 'fix', title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
                         ) : ''}
                       </div>
                       <p>${escapeHtml(step.detail)}</p>
@@ -9771,7 +11593,7 @@
         <div class="stat-detail">${escapeHtml(item.detail)}</div>
         ${resolved ? `<span class="card-destination">${escapeHtml(resolved.destination)} ›</span>` : ''}`;
     if (resolved && resolved.action === 'prompt') {
-      return `<div class="action-card score-recommendation-item static has-atlas-action">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, `Ask AtlasMind to address ${item.title}`, { title: `Ask AtlasMind to address this recommendation: ${item.title}` })}</div>`;
+      return `<div class="action-card score-recommendation-item static has-atlas-action">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, `Ask AtlasMind to address ${item.title}`, { intent: 'fix', title: `Ask AtlasMind to address this recommendation: ${item.title}` })}</div>`;
     }
     return resolved
       ? `<button type="button" class="action-card score-recommendation-item is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.destination)}">${inner}</button>`
@@ -10006,11 +11828,12 @@
     const meter = typeof options.meter === 'number' && Number.isFinite(options.meter)
       ? `<span class="metric-meter"><span data-anim-key="${escapeAttr(options.meterKey || `metric:${label}`)}" data-anim-to="${Math.max(0, Math.min(100, options.meter))}%" style="width:0%"></span></span>`
       : '';
-    const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${meter}`;
+    const detail = options.detail ? `<span class="metric-detail">${escapeHtml(options.detail)}</span>` : '';
+    const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${detail}${meter}`;
     const resolved = resolveActionAttrs(options.action);
     if (resolved) {
       if (resolved.action === 'prompt') {
-        return `<div class="metric-pill has-atlas-action${toneClass}">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}</div>`;
+        return `<div class="metric-pill has-atlas-action${toneClass}">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { intent: 'fix', title: resolved.hint })}</div>`;
       }
       return `<button type="button" class="metric-pill is-actionable${toneClass}" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">${inner}</button>`;
     }
@@ -10028,7 +11851,7 @@
         return `
           <div class="signal-card ${ok ? 'good' : 'warn'} static has-atlas-action">
             ${body}
-            ${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}
+            ${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { intent: 'fix', title: resolved.hint })}
           </div>
         `;
       }
@@ -10060,7 +11883,7 @@
     const resolved = resolveActionAttrs(o.action);
     const actionBtn = resolved
       ? resolved.action === 'prompt'
-        ? renderAtlasDiscussAction('prompt', resolved.payload, o.actionLabel || resolved.hint, { title: o.actionLabel || resolved.hint })
+        ? renderAtlasDiscussAction('prompt', resolved.payload, o.actionLabel || resolved.hint, { intent: 'fix', title: o.actionLabel || resolved.hint })
         : `<button type="button" class="action-link primary" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}">${escapeHtml(o.actionLabel || resolved.hint)}</button>`
       : '';
     return `
@@ -10295,6 +12118,110 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function persistPipelineGraphPositions() {
+    vscode.setState({
+      ...(vscode.getState() || {}),
+      pipelineSection: state.pipelineSection,
+      pipelineNodePositions: state.pipelineNodePositions,
+    });
+  }
+
+  /**
+   * Add read-only canvas interaction after the dashboard's innerHTML swap.
+   * Dragging changes only this webview's saved presentation; workflow YAML is
+   * never written and every node also moves with the arrow keys.
+   */
+  function bindPipelineGraph() {
+    if (!root) { return; }
+    const canvas = root.querySelector('.ci-graph-canvas');
+    if (!(canvas instanceof HTMLElement)) { return; }
+    const svg = canvas.querySelector('.ci-graph-edges');
+    const nodes = [...canvas.querySelectorAll('.ci-graph-node')].filter(node => node instanceof HTMLElement);
+    const byKey = new Map(nodes.map(node => [node.dataset.nodeKey || '', node]));
+
+    const updateEdges = () => {
+      if (!svg) { return; }
+      svg.querySelectorAll('[data-edge-from][data-edge-to]').forEach(edge => {
+        const from = byKey.get(edge.getAttribute('data-edge-from') || '');
+        const to = byKey.get(edge.getAttribute('data-edge-to') || '');
+        if (!from || !to) { return; }
+        const x1 = from.offsetLeft + from.offsetWidth;
+        const y1 = from.offsetTop + from.offsetHeight / 2;
+        const x2 = to.offsetLeft;
+        const y2 = to.offsetTop + to.offsetHeight / 2;
+        const bend = Math.max(32, Math.abs(x2 - x1) * 0.45);
+        edge.setAttribute('d', `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
+      });
+    };
+
+    const moveNode = (node, x, y) => {
+      const maxX = Math.max(0, canvas.scrollWidth - node.offsetWidth - 12);
+      const maxY = Math.max(0, canvas.scrollHeight - node.offsetHeight - 12);
+      const next = {
+        x: Math.max(0, Math.min(maxX, Math.round(x))),
+        y: Math.max(0, Math.min(maxY, Math.round(y))),
+      };
+      node.style.left = `${next.x}px`;
+      node.style.top = `${next.y}px`;
+      const key = node.dataset.nodeKey || '';
+      if (key) { state.pipelineNodePositions[key] = next; }
+      updateEdges();
+    };
+
+    nodes.forEach(node => {
+      let drag = null;
+      node.addEventListener('pointerdown', event => {
+        if (event.button !== 0) { return; }
+        // `moved` distinguishes a click from a drag. Without it, selecting a
+        // node would fire at the end of every rearrangement, so tidying the
+        // graph would keep opening panels nobody asked for.
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: node.offsetLeft, top: node.offsetTop, moved: false };
+        node.setPointerCapture(event.pointerId);
+        node.classList.add('is-dragging');
+        event.preventDefault();
+      });
+      node.addEventListener('pointermove', event => {
+        if (!drag || drag.id !== event.pointerId) { return; }
+        if (Math.abs(event.clientX - drag.x) > 3 || Math.abs(event.clientY - drag.y) > 3) { drag.moved = true; }
+        moveNode(node, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+      });
+      const finish = event => {
+        if (!drag || drag.id !== event.pointerId) { return; }
+        const wasDrag = drag.moved;
+        drag = null;
+        node.classList.remove('is-dragging');
+        if (node.hasPointerCapture(event.pointerId)) { node.releasePointerCapture(event.pointerId); }
+        persistPipelineGraphPositions();
+        if (!wasDrag && node.dataset.nodeSelect !== undefined) {
+          const key = node.dataset.nodeKey || '';
+          state.pipelineNode = state.pipelineNode === key ? null : key;
+          render();
+        }
+      };
+      node.addEventListener('pointerup', finish);
+      node.addEventListener('pointercancel', finish);
+      node.addEventListener('keydown', event => {
+        const direction = {
+          ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+        }[event.key];
+        if (!direction) { return; }
+        const step = event.shiftKey ? 24 : 8;
+        moveNode(node, node.offsetLeft + direction[0] * step, node.offsetTop + direction[1] * step);
+        persistPipelineGraphPositions();
+        event.preventDefault();
+      });
+    });
+    requestAnimationFrame(updateEdges);
+  }
+
+  function shortenMiddle(value, maxLength) {
+    const text = String(value || '');
+    const limit = Math.max(12, Number(maxLength) || 48);
+    if (text.length <= limit) { return text; }
+    const left = Math.ceil((limit - 1) * 0.58);
+    return `${text.slice(0, left)}…${text.slice(-(limit - left - 1))}`;
   }
 
   /**

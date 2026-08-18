@@ -201,6 +201,7 @@ import { classifyLensChangePath } from '../core/lensChangeStory.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
+  buildCiFailurePrompt,
   buildCiFailureReport,
   type CiFailureReport,
 } from '../core/ciFailureAnalysis.js';
@@ -212,6 +213,74 @@ import {
   type CiStarterPlan,
   type CiWorkflowSummary,
 } from '../core/ciManager.js';
+import {
+  DEFAULT_LOCAL_CI_IMAGE,
+  LocalCiRunnerManager,
+  buildLocalCiQueueInvocation,
+  initialLocalCiRunnerSnapshot,
+  resolveLocalCiRunnerLabel,
+  type LocalCiRunnerConfiguration,
+  type LocalCiRunnerSnapshot,
+  type LocalCiShutdownPolicy,
+  type LocalCiStartPlan,
+} from '../core/localCiRunner.js';
+import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
+import {
+  ACT_COMMAND,
+  ACT_DOCS_URL,
+  assessActFidelity,
+  buildActRunConfirmation,
+  planActRun,
+} from '../core/ciActRoute.js';
+import {
+  CI_ROUTES,
+  buildDirectLocalRunConfirmation,
+  buildDirectLocalRunPlan,
+  describeCiRouteAvailability,
+  findCiRoute,
+  resolveDirectLocalChecks,
+  routeSatisfiesRequirement,
+  type CiRouteAvailability,
+  type CiRouteId,
+} from '../core/ciRoutes.js';
+import {
+  CI_ROUTING_SSOT_PATH,
+  CiRoutingConfigManager,
+  buildCiRoutingMatrix,
+  cycleCiRoutingCell,
+  decideAllCiRoutes,
+  findCiWorkloadClass,
+  toggleCiRoutingExhaustion,
+  validateCiRoutingConfig,
+  type CiRoutingConfig,
+  type CiRouteDecision,
+  type CiRoutingMatrixRow,
+  type CiRoutingProblem,
+  type CiRoutingRule,
+} from '../core/ciRoutingPolicy.js';
+import {
+  CI_BUILD_LEDGER_NOTE,
+  HOSTED_POLL_NOTE,
+  buildCiLedgerView,
+  nextCiPollDelayMs,
+  recordCiBuild,
+  sanitizeCiBuildLedger,
+  upsertCiBuild,
+  type CiBuildRecord,
+} from '../core/ciBuildLedger.js';
+import {
+  GITHUB_BILLING_ENDPOINTS,
+  describeCreditReading,
+  notMeteredReading,
+  parseGithubBillingUsage,
+  type CiCreditReading,
+} from '../core/ciCreditMeter.js';
+import {
+  planGitHubCliInstall,
+  runGitHubCliInstallPlan,
+  GITHUB_CLI_INSTALL_URL,
+} from '../core/localCiInstaller.js';
+import { findCommandExecutable } from '../mcp/mcpClient.js';
 import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
@@ -574,6 +643,37 @@ interface TestingFixResult {
   agentId?: string;
 }
 
+type LocalCiSetupHelpId =
+  | 'docker-windows'
+  | 'docker-macos'
+  | 'docker-linux'
+  | 'github-cli'
+  /* Each executor that lives outside AtlasMind, keyed by its own route id. */
+  | 'act'
+  | 'buildkite'
+  | 'woodpecker';
+
+/**
+ * Every page this panel can send somebody to, and the only ones.
+ *
+ * The webview names an id; this table decides the destination. A route's own
+ * entry is read from `CI_ROUTES` rather than copied, so the executor row and
+ * the link it draws can never disagree about where "Buildkite" goes — and a
+ * route whose `docsUrl` is removed loses the link rather than acquiring a
+ * stale one.
+ */
+const LOCAL_CI_SETUP_HELP_URLS: Readonly<Record<LocalCiSetupHelpId, string>> = {
+  'docker-windows': 'https://docs.docker.com/desktop/setup/install/windows-install/',
+  'docker-macos': 'https://docs.docker.com/desktop/setup/install/mac-install/',
+  'docker-linux': 'https://docs.docker.com/engine/install/',
+  'github-cli': 'https://cli.github.com/',
+  act: findCiRoute('act')?.docsUrl ?? 'https://nektosact.com/',
+  buildkite: findCiRoute('buildkite')?.docsUrl ?? 'https://buildkite.com/docs/pipelines',
+  woodpecker: findCiRoute('woodpecker')?.docsUrl ?? 'https://woodpecker-ci.org/docs/intro',
+};
+
+const LOCAL_CI_TERMINAL_NAME = 'AtlasMind CI';
+
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -610,6 +710,62 @@ type ProjectDashboardMessage =
    * whole subject is "did the build pass" could not go and find out.
    */
   | { type: 'refreshCi' }
+  | { type: 'inspectLocalCiRunner' }
+  | { type: 'startLocalCiRunner' }
+  /**
+   * Review the committed trusted workflow now, from disk, before any of the
+   * machine setup. Carries no data: the host re-derives every input.
+   */
+  | { type: 'assessTrustedCiWorkflow' }
+  /** Create the trusted workflow. Create-only, previewed, and never overwrites. */
+  | { type: 'createTrustedCiStarter' }
+  /** Install the GitHub CLI. Carries nothing: the host owns every command. */
+  | { type: 'installGitHubCli' }
+  /**
+   * Run the project's own checks here. Carries nothing — the host re-derives
+   * the scripts from package.json, so the page can ask but never supply.
+   */
+  | { type: 'runDirectLocalChecks' }
+  /** Create the committed routing file. Explicit — never seeded on render. */
+  | { type: 'createCiRoutingConfig' }
+  /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
+  | { type: 'refreshCiCredit' }
+  /**
+   * Run a workflow locally with `act`. Carries an opaque workflow filename the
+   * host re-resolves against the workflows directory — the same rule
+   * `reviewCiWorkflow` follows, so the page can name a file and never a command.
+   */
+  | { type: 'runWorkflowWithAct'; payload: string }
+  /**
+   * Edit one routing rule. Carries only a workload id from the closed
+   * vocabulary; every route candidate, the QuickPick options and the saved rule
+   * are derived host-side, so the page can name the row and nothing else.
+   */
+  | { type: 'editCiRoutingRule'; payload: string }
+  /**
+   * Advance one grid cell. Both ids come from closed vocabularies and the whole
+   * edit is recomputed host-side, so the page names a square and never a rule.
+   */
+  | { type: 'cycleCiRoutingCell'; payload: { workload: string; route: string } }
+  /** Flip a rule's allowance-exhausted behaviour. Workload id only. */
+  | { type: 'toggleCiRoutingExhaustion'; payload: string }
+  /** Hand the failing tests to a chat session. No payload: the report is the input. */
+  | { type: 'workOnFailingTests' }
+  /** Draft a test for one declared subject. Opaque id, re-resolved host-side. */
+  | { type: 'draftMissingTest'; payload: string }
+  /**
+   * Hand the latest classified CI failure to a chat session. No payload at all:
+   * the host uses the report it already fetched, and the log inside the prompt
+   * travels fenced as untrusted content.
+   */
+  | { type: 'workOnCiFailure' }
+  | { type: 'showLocalCiOutput' }
+  | { type: 'copyLocalCiQueueCommand' }
+  | { type: 'sendLocalCiQueueCommandToTerminal' }
+  | { type: 'copyLocalCiCancelCommand'; payload: number }
+  | { type: 'sendLocalCiCancelCommandToTerminal'; payload: number }
+  /** Opaque id resolved to a fixed official installation guide in the host. */
+  | { type: 'openLocalCiSetupHelp'; payload: LocalCiSetupHelpId }
   | { type: 'createCiStarter' }
   /** Opaque workflow filename; the host re-reads the directory before use. */
   | { type: 'reviewCiWorkflow'; payload: string }
@@ -787,6 +943,12 @@ type DashboardNavigationTarget = {
 const DASHBOARD_FOCUS_KINDS: readonly DashboardFocusKind[] = [
   'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
   'assignment', 'follow-up',
+  // The Testing page already marked its policy cards as focusable targets and
+  // nothing could name one: the kind was declared in `types.ts`, rendered as a
+  // focus attribute, and absent from both allowlists — so every link to a
+  // policy degraded silently to "the right page, no record". Listed here and in
+  // the webview's own copy, which validates the same message independently.
+  'testing-policy',
 ];
 
 /** Validate command-boundary navigation before it reaches the webview. */
@@ -1227,6 +1389,8 @@ interface GitSnapshot {
   commits: DashboardCommit[];
   commitDates: string[];
   commitLog: DashboardCommitLogEntry[];
+  /** Bounded worktree paths only; used to highlight affected workspace units. */
+  changedPaths: string[];
   /**
    * `origin`'s URL, for deriving the GitHub slug without a network call.
    *
@@ -1247,6 +1411,45 @@ interface PackageSnapshot {
   keyScripts: string[];
 }
 
+interface DashboardCiWorkspaceUnit {
+  id: string;
+  name: string;
+  path: string;
+  kind: 'node' | 'python' | 'rust' | 'go' | 'java' | 'dotnet' | 'other';
+  manifest: string;
+  buildCommand?: string;
+  testCommand?: string;
+  affected: boolean;
+}
+
+interface DashboardCiWorkspaceSnapshot {
+  detected: boolean;
+  basis: 'declared-workspaces' | 'manifest-discovery' | 'single-project';
+  units: DashboardCiWorkspaceUnit[];
+  changedPathCount: number;
+  affectedCount: number;
+  truncated: boolean;
+  summary: string;
+}
+
+interface DashboardPackageFormat {
+  id: string;
+  label: string;
+  manifest: string;
+  lockfile?: string;
+  registryConfig?: string;
+}
+
+interface DashboardSupplyChainSnapshot {
+  formats: DashboardPackageFormat[];
+  dependencyCount: number;
+  lockfileCount: number;
+  registryConfigCount: number;
+  dependencyMonitoring: string[];
+  runnerImagePinned: boolean;
+  summary: string;
+}
+
 interface DashboardWorkflow extends CiWorkflowSummary {
   lastModified: string;
 }
@@ -1255,6 +1458,51 @@ interface DashboardCiManagement {
   assessment: CiPortfolioAssessment;
   starterAvailable: boolean;
   starterReason: string;
+}
+
+interface DashboardLocalCiEnablementSnapshot {
+  effective: boolean;
+  source: 'workspace-folder' | 'workspace' | 'user-machine' | 'default';
+  sourceLabel: string;
+}
+
+interface DashboardLocalCiRunnerSnapshot extends LocalCiRunnerSnapshot {
+  /** The effective VS Code value, not a browser-owned toggle. */
+  enablement: DashboardLocalCiEnablementSnapshot;
+}
+
+function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const shutdown = configuration.get<string>('ci.localRunner.shutdownPolicy', 'ifStartedByAtlasMind');
+  const shutdownPolicy: LocalCiShutdownPolicy = shutdown === 'never' || shutdown === 'always'
+    ? shutdown
+    : 'ifStartedByAtlasMind';
+  return {
+    enabled: configuration.get<boolean>('ci.localRunner.enabled', false),
+    workflowFile: configuration.get<string>('ci.localRunner.workflowFile', 'trusted-local-ci.yml').trim(),
+    trustedBranch: configuration.get<string>('ci.localRunner.trustedBranch', 'develop').trim(),
+    runnerLabel: configuration.get<string>('ci.localRunner.runnerLabel', 'atlasmind-trusted-linux-{arch}').trim(),
+    image: configuration.get<string>('ci.localRunner.image', DEFAULT_LOCAL_CI_IMAGE).trim(),
+    shutdownPolicy,
+    maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
+    maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+  };
+}
+
+function readLocalCiRunnerEnablement(): DashboardLocalCiEnablementSnapshot {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');
+  const effective = configuration.get<boolean>('ci.localRunner.enabled', false);
+  if (inspection?.workspaceFolderValue !== undefined) {
+    return { effective, source: 'workspace-folder', sourceLabel: 'workspace-folder setting' };
+  }
+  if (inspection?.workspaceValue !== undefined) {
+    return { effective, source: 'workspace', sourceLabel: 'workspace setting' };
+  }
+  if (inspection?.globalValue !== undefined) {
+    return { effective, source: 'user-machine', sourceLabel: 'current VS Code user/machine setting' };
+  }
+  return { effective, source: 'default', sourceLabel: 'default for this VS Code profile and extension host' };
 }
 
 const UNREADABLE_CI_WORKFLOW_CAUTION = 'Workflow metadata could not be read safely.';
@@ -2112,9 +2360,66 @@ interface DashboardSnapshot {
     keyScripts: string[];
     workflows: DashboardWorkflow[];
     ciManagement: DashboardCiManagement;
+    /** Machine-owned execution fabric. Never populated from webview input. */
+    localRunner: DashboardLocalCiRunnerSnapshot;
+    /**
+     * Every route a check could run on, and whether it can here.
+     *
+     * Carried whole rather than reduced to the available ones: a route that is
+     * blocked, and a route AtlasMind has not built, are both things somebody
+     * choosing needs to see — the second is the adapter boundary, and hiding it
+     * would make the page claim these three are all there is.
+     */
+    routes: CiRouteAvailability[];
+    /**
+     * Where each kind of check should run, and why.
+     *
+     * `config: false` means no routing file exists — reported as its own state
+     * rather than as an empty rule list, because "nobody has decided" and
+     * "somebody decided nothing" are different and only one is worth offering
+     * to fix.
+     */
+    /**
+     * Every build, whatever ran it, newest first.
+     *
+     * `githubLoaded: false` means nobody fetched hosted history — never that
+     * nothing ran there. The two are different facts and must not render alike.
+     */
+    builds: {
+      records: import('../core/ciBuildLedger.js').CiBuildRecord[];
+      /**
+       * The one build whose output the live channel currently holds, if any.
+       *
+       * Build records persist per developer across sessions; the output channel
+       * does not. Offering "Output" on every row that ever streamed meant most
+       * of those buttons opened an empty channel — which reads as a button that
+       * does nothing. Only the run this session actually streamed can be shown.
+       */
+      liveOutputBuildId?: string;
+      hasRunning: boolean;
+      unobservedCount: number;
+      githubLoaded: boolean;
+      pollNote: string;
+      storageNote: string;
+    };
+    routing: {
+      /** Every workload against every route, with the policy already applied. */
+      matrix: CiRoutingMatrixRow[];
+      configPresent: boolean;
+      configPath: string;
+      notice?: string;
+      problems: CiRoutingProblem[];
+      decisions: CiRouteDecision[];
+      creditSentence: string;
+      creditState: 'remaining' | 'exhausted' | 'unknown';
+    };
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
+    /** Project/workspace units and current worktree impact; no build is run to derive this. */
+    workspace: DashboardCiWorkspaceSnapshot;
+    /** Package-format and registry-configuration presence only; credential values are never read. */
+    supplyChain: DashboardSupplyChainSnapshot;
     stages: DashboardStagePipeline;
     /** Detected commands and human gates, grouped in the order a newcomer ships. */
     guide: ProjectDeliveryGuide;
@@ -3419,6 +3724,36 @@ export class ProjectDashboardPanel {
   private ciState: DashboardCiIntelligence | undefined;
 
   /**
+   * The machine-owned local executor. It is created only after an explicit
+   * inspect/start action, so opening the dashboard never starts Docker or makes
+   * a GitHub request. The manager may outlive the panel while its one job
+   * finishes; closing a dashboard is not permission to kill a build.
+   */
+  private localCiRunnerInstance: LocalCiRunnerManager | undefined;
+  private localCiOutput: vscode.OutputChannel | undefined;
+  private ciRoutingManager: CiRoutingConfigManager | undefined;
+  /**
+   * The hosted-build poll, live only while the panel is open and something is
+   * running. Cleared on dispose: a timer outliving its page is a background
+   * process nobody asked for, against a rate-limited API.
+   */
+  private ciPollTimer: ReturnType<typeof setTimeout> | undefined;
+  private ciPollAttempt = 0;
+  /**
+   * The hosted allowance, as last read.
+   *
+   * Starts `unknown` with a reason rather than assuming either direction:
+   * routing treats an unread meter as "use the preferred route and say so", so
+   * an unchecked meter never quietly relocates work. Reading it costs a `gh`
+   * request, so it happens on an explicit refresh, never on render.
+   */
+  private ciCreditState: CiCreditReading = {
+    state: 'unknown',
+    reason: 'the hosted allowance has not been checked on this machine yet.',
+  };
+  private disposed = false;
+
+  /**
    * Published releases, from the same explicit refresh.
    *
    * Only the *fetched* half lives here. The release plan is rebuilt from local
@@ -3498,6 +3833,137 @@ export class ProjectDashboardPanel {
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     );
     return this.workflowConfigManager;
+  }
+
+  /** Local build history, read through the sanitizer so a stale shape cannot lie. */
+  private readCiBuildLedger(): CiBuildRecord[] {
+    // Optional, as every other workspaceState read in this file is: the
+    // extension context is stubbed in tests and absent in some hosts, and a
+    // build list is not worth throwing a whole dashboard render over.
+    return sanitizeCiBuildLedger(this.context.workspaceState?.get(CI_BUILD_LEDGER_STATE_KEY));
+  }
+
+  /**
+   * Record a local build, or update one already recorded.
+   *
+   * `recordCiBuild` forces an unobserved build's status to `unknown`, so a
+   * caller cannot record a pass for a run AtlasMind never watched — the rule
+   * lives in the ledger rather than here, where a refactor could lose it.
+   */
+  private async rememberCiBuild(input: Parameters<typeof recordCiBuild>[0]): Promise<void> {
+    const next = upsertCiBuild(this.readCiBuildLedger(), recordCiBuild(input));
+    await this.context.workspaceState?.update(CI_BUILD_LEDGER_STATE_KEY, next);
+  }
+
+  /**
+   * Mirror the one-job runner's lifecycle into the build ledger.
+   *
+   * Driven from the manager's own change callback rather than from the start
+   * handler, so a run that finishes after the dashboard was closed and reopened
+   * is still recorded — the manager deliberately outlives the panel, because
+   * closing a dashboard is not permission to kill a build.
+   *
+   * `live`, and genuinely so: this runner's output is streamed into the output
+   * channel as it happens, which is what separates it from the direct-local
+   * route in the same list.
+   */
+  private async recordLocalRunnerBuild(): Promise<void> {
+    const snapshot = this.localCiRunnerInstance?.getSnapshot();
+    const queued = snapshot?.queuedRun;
+    if (!snapshot || !queued) {
+      return;
+    }
+    const status = snapshot.lifecycle === 'finished' ? 'passed'
+      : snapshot.lifecycle === 'failed' ? 'failed'
+        : ['starting', 'waiting', 'running'].includes(snapshot.lifecycle) ? 'running'
+          : undefined;
+    if (!status) {
+      return;
+    }
+    await this.rememberCiBuild({
+      id: `local-runner-${queued.databaseId}`,
+      source: 'local',
+      routeId: 'local-runner',
+      routeLabel: 'Lend this computer to GitHub',
+      evidence: 'linux-container',
+      observation: 'live',
+      status,
+      title: queued.displayTitle || queued.workflowName || snapshot.workflowFile,
+      startedAt: queued.createdAt || snapshot.updatedAt,
+      ...(status === 'running' ? {} : { endedAt: new Date().toISOString() }),
+      ...(queued.headSha ? { commitSha: queued.headSha } : {}),
+      ...(queued.headBranch ? { branch: queued.headBranch } : {}),
+      pointer: { kind: 'output-channel', label: 'AtlasMind Local CI' },
+    });
+  }
+
+  /**
+   * Keep hosted build progress current while something is running.
+   *
+   * Polling, not streaming, and labelled as such throughout: the GitHub CLI has
+   * no push channel, so this is the honest mechanism rather than a stream
+   * dressed up. It backs off, stops the moment nothing is running, and never
+   * starts unless the Builds view is the one on screen — a background refresh
+   * for a tab nobody is looking at is cost without a reader.
+   */
+  private scheduleCiBuildPoll(hasRunning: boolean): void {
+    if (this.ciPollTimer) {
+      clearTimeout(this.ciPollTimer);
+      this.ciPollTimer = undefined;
+    }
+    if (this.disposed || !hasRunning) {
+      this.ciPollAttempt = 0;
+      return;
+    }
+    const delay = nextCiPollDelayMs(this.ciPollAttempt, true);
+    if (delay === undefined) {
+      return;
+    }
+    this.ciPollAttempt += 1;
+    this.ciPollTimer = setTimeout(() => {
+      this.ciPollTimer = undefined;
+      if (this.disposed) {
+        return;
+      }
+      void this.handleRefreshCi().catch(() => undefined);
+    }, delay);
+  }
+
+  private get ciRouting(): CiRoutingConfigManager {
+    this.ciRoutingManager ??= new CiRoutingConfigManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.ciRoutingManager;
+  }
+
+  private getLocalCiRunner(): LocalCiRunnerManager | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    if (!this.localCiRunnerInstance) {
+      this.localCiOutput = vscode.window.createOutputChannel('AtlasMind Local CI');
+      this.context.subscriptions.push(this.localCiOutput);
+      this.localCiRunnerInstance = new LocalCiRunnerManager(
+        workspaceRoot,
+        readLocalCiRunnerConfiguration(),
+        line => this.localCiOutput?.appendLine(line),
+        () => {
+          if (!this.disposed) {
+            void this.recordLocalRunnerBuild();
+            void this.syncState();
+          }
+        },
+      );
+    }
+    return this.localCiRunnerInstance;
+  }
+
+  private localCiRunnerSnapshot(): LocalCiRunnerSnapshot {
+    const configuration = readLocalCiRunnerConfiguration();
+    this.localCiRunnerInstance?.applyConfiguration(configuration, false);
+    return this.localCiRunnerInstance?.getSnapshot()
+      ?? initialLocalCiRunnerSnapshot(configuration);
   }
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: unknown): void {
@@ -3583,6 +4049,9 @@ export class ProjectDashboardPanel {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('atlasmind')) {
+          if (event.affectsConfiguration('atlasmind.ci.localRunner')) {
+            this.localCiRunnerInstance?.applyConfiguration(readLocalCiRunnerConfiguration());
+          }
           void this.syncState();
         }
       }),
@@ -3596,6 +4065,13 @@ export class ProjectDashboardPanel {
   }
 
   private dispose(): void {
+    this.disposed = true;
+    // The poll belongs to the page. A timer that survives it keeps spending a
+    // rate-limited API for a surface nobody is looking at.
+    if (this.ciPollTimer) {
+      clearTimeout(this.ciPollTimer);
+      this.ciPollTimer = undefined;
+    }
     ProjectDashboardPanel.currentPanel = undefined;
     this.panel.dispose();
     for (const disposable of this.disposables) {
@@ -3742,6 +4218,79 @@ export class ProjectDashboardPanel {
         return;
       case 'refreshCi':
         await this.handleRefreshCi();
+        return;
+      case 'inspectLocalCiRunner':
+        await this.handleInspectLocalCiRunner();
+        return;
+      case 'startLocalCiRunner':
+        await this.handleStartLocalCiRunner();
+        return;
+      case 'assessTrustedCiWorkflow':
+        await this.handleAssessTrustedCiWorkflow();
+        return;
+      case 'createTrustedCiStarter':
+        await this.handleCreateTrustedCiStarter();
+        return;
+      case 'installGitHubCli':
+        await this.handleInstallGitHubCli();
+        return;
+      case 'runDirectLocalChecks':
+        await this.handleRunDirectLocalChecks();
+        return;
+      case 'createCiRoutingConfig':
+        await this.handleCreateCiRoutingConfig();
+        return;
+      case 'refreshCiCredit':
+        await this.handleRefreshCiCredit();
+        return;
+      case 'runWorkflowWithAct':
+        await this.handleRunWorkflowWithAct(message.payload);
+        return;
+      case 'editCiRoutingRule':
+        await this.handleEditCiRoutingRule(message.payload);
+        return;
+      case 'cycleCiRoutingCell':
+        await this.handleCiRoutingEdit(
+          config => cycleCiRoutingCell(config, message.payload.workload, message.payload.route),
+        );
+        return;
+      case 'toggleCiRoutingExhaustion':
+        await this.handleCiRoutingEdit(config => toggleCiRoutingExhaustion(config, message.payload));
+        return;
+      case 'workOnFailingTests':
+        await this.handleWorkOnFailingTests();
+        return;
+      case 'draftMissingTest':
+        await this.handleDraftMissingTest(message.payload);
+        return;
+      case 'workOnCiFailure':
+        await this.handleWorkOnCiFailure();
+        return;
+      case 'showLocalCiOutput':
+        // Only reveal a channel that exists. Creating one here would open an
+        // empty panel and call that success — the failure this replaces.
+        if (this.localCiOutput) {
+          this.localCiOutput.show(true);
+        } else {
+          void vscode.window.showInformationMessage(
+            'There is no runner output to show. The output channel holds the run this window streamed; a build from an earlier session leaves no output behind.',
+          );
+        }
+        return;
+      case 'copyLocalCiQueueCommand':
+        await this.handleCopyLocalCiQueueCommand();
+        return;
+      case 'sendLocalCiQueueCommandToTerminal':
+        await this.handleSendLocalCiQueueCommandToTerminal();
+        return;
+      case 'copyLocalCiCancelCommand':
+        await this.handleCopyLocalCiCancelCommand(message.payload);
+        return;
+      case 'sendLocalCiCancelCommandToTerminal':
+        await this.handleSendLocalCiCancelCommandToTerminal(message.payload);
+        return;
+      case 'openLocalCiSetupHelp':
+        await vscode.env.openExternal(vscode.Uri.parse(LOCAL_CI_SETUP_HELP_URLS[message.payload]));
         return;
       case 'createCiStarter':
         await this.handleCreateCiStarter();
@@ -4033,7 +4582,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -4060,7 +4609,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -4086,7 +4635,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -4112,7 +4661,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -4171,7 +4720,10 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
+      // Only keep polling while something is actually running. The schedule
+      // itself decides when to stop, so this cannot become a permanent timer.
+      this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
@@ -5360,6 +5912,994 @@ export class ProjectDashboardPanel {
       await this.syncState();
       await this.postMessage({ type: 'repositoryRefreshBusy', payload: false });
     }
+  }
+
+  private async handleInspectLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before inspecting a local CI runner.');
+      return;
+    }
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'AtlasMind: inspecting local CI capacity',
+        cancellable: false,
+      }, () => runner.inspect(readLocalCiRunnerConfiguration()));
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not inspect the local executor: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  private async handleStartLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before starting a local CI runner.');
+      return;
+    }
+    try {
+      await runner.start(readLocalCiRunnerConfiguration(), async (plan: LocalCiStartPlan) => {
+        const shutdown = plan.shutdownPolicy === 'never'
+          ? 'Docker Desktop will be left open.'
+          : plan.shutdownPolicy === 'always'
+            ? 'Docker Desktop will be stopped afterwards unless another container is running.'
+            : plan.engineWillStart
+              ? 'Docker Desktop will be stopped afterwards because AtlasMind is starting it.'
+              : 'Docker Desktop was already open, so AtlasMind will leave it open.';
+        const confirmation = await vscode.window.showWarningMessage(
+          `Lend this machine to queued run #${plan.queuedRun.databaseId}?`,
+          {
+            modal: true,
+            detail: [
+              `${plan.repoSlug} · ${plan.trustedBranch} · ${plan.currentSha.slice(0, 12)}`,
+              `${plan.queuedRun.workflowName || plan.workflowFile}: ${plan.queuedRun.displayTitle || 'queued job'}`,
+              '',
+              `Evidence: Linux container (${plan.runnerLabel.endsWith('arm64') ? 'arm64' : 'x64'}), not native host evidence`,
+              `Image: ${plan.image}`,
+              `Limit: ${plan.resources.cpus} CPUs, ${plan.resources.memoryGb} GB RAM, ${plan.resources.pidsLimit} processes`,
+              `Host reserve: ${plan.resources.reserveCpus} CPUs and ${plan.resources.reserveMemoryGb} GB RAM`,
+              ...(plan.engineWillStart ? ['Docker Desktop is stopped and will be started.'] : []),
+              ...(plan.imageMayBePulled ? ['The digest-pinned image is absent and will be downloaded.'] : []),
+              shutdown,
+              '',
+              'The runner is ephemeral and has no host mounts, Docker socket, GPU, persistent volume, default labels, repository secrets, or OIDC permission. AtlasMind will not dispatch or rerun a workflow.',
+            ].join('\n'),
+          },
+          'Start one-job runner',
+        );
+        return confirmation === 'Start one-job runner';
+      });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const queueIssue = runner.getSnapshot().preflightIssue;
+      if (queueIssue) {
+        void vscode.window.showWarningMessage(`AtlasMind checked the GitHub queue: ${queueIssue.message.slice(0, 500)}`);
+      } else {
+        this.localCiOutput?.show(true);
+        void vscode.window.showErrorMessage(`AtlasMind did not start the local runner: ${detail.slice(0, 300)}`);
+      }
+      await this.syncState();
+    }
+  }
+
+  /**
+   * The repository this workspace is, without needing `gh`.
+   *
+   * The trusted workflow names its own repository in an authorization
+   * condition, so this has to be right — but requiring `gh` to be installed and
+   * authenticated before somebody can even *check their workflow file* would
+   * put the cheapest step in the flow behind the most expensive prerequisite.
+   * The git remote answers it offline; `gh` remains the authority at start time,
+   * where the answer gates an actual run.
+   */
+  private repositorySlugForWorkflow(): string | undefined {
+    const parsed = parseRepoSlug(this.lastGitRemoteUrl ?? this.issuesState.repoSlug);
+    return parsed ? `${parsed.owner}/${parsed.repo}` : undefined;
+  }
+
+  /**
+   * Review the committed trusted workflow, on request, before anything else.
+   *
+   * This is the step the flow was missing. The policy was only ever applied at
+   * the moment of lending the machine — four steps in, after Docker, after `gh`,
+   * after queueing a job — so the file with the strictest contract in the
+   * product got its first and only reading at the point where a failure is most
+   * expensive. It costs a file read.
+   */
+  private async handleAssessTrustedCiWorkflow(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      void vscode.window.showWarningMessage('Open a workspace before reviewing the trusted workflow.');
+      return;
+    }
+    const repoSlug = this.repositorySlugForWorkflow();
+    if (!repoSlug) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind could not identify this repository from its git remote. A trusted workflow names its own repository in an authorization condition, so AtlasMind will not guess it.',
+      );
+      return;
+    }
+    try {
+      const review = await runner.assessCommittedWorkflow(readLocalCiRunnerConfiguration(), repoSlug);
+      await this.syncState();
+      if (review.state === 'ok') {
+        vscode.window.setStatusBarMessage(
+          `AtlasMind: ${review.path} satisfies the trusted runner policy.`,
+          6000,
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not review the trusted workflow: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Write the trusted workflow, after showing exactly what it will permit.
+   *
+   * The modal leads with the plain-language permits and refuses, because the
+   * person most likely to need this file is the person least likely to be able
+   * to audit the YAML — and the YAML is opened in the editor immediately
+   * afterwards for the person who can. Create-only via `wx`: a trusted workflow
+   * already on disk is a reviewed artifact, and silently replacing one would
+   * discard a review nobody asked to discard.
+   */
+  private async handleCreateTrustedCiStarter(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const runner = this.getLocalCiRunner();
+    if (!workspaceRoot || !runner) {
+      void vscode.window.showWarningMessage('Open a workspace before creating the trusted workflow.');
+      return;
+    }
+    const repoSlug = this.repositorySlugForWorkflow();
+    if (!repoSlug) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind could not identify this repository from its git remote, so it will not write a repository condition it had to guess.',
+      );
+      return;
+    }
+    const configuration = readLocalCiRunnerConfiguration();
+    const snapshot = runner.getSnapshot();
+    const runnerLabel = resolveLocalCiRunnerLabel(
+      configuration.runnerLabel,
+      snapshot.engine.arch ?? snapshot.host.arch,
+    );
+
+    const packageFacts = await readNodePackageFacts(workspaceRoot);
+    if (!packageFacts) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind writes a trusted workflow only for a Node project with a lockfile it recognises. Create the workflow by hand from docs/local-ci-and-safe-runners.md for other stacks.',
+      );
+      return;
+    }
+
+    const outcome = buildTrustedLocalCiStarter({
+      repoRemote: repoSlug,
+      trustedBranch: configuration.trustedBranch,
+      runnerLabel,
+      workflowFile: configuration.workflowFile,
+      packageManager: packageFacts.packageManager,
+      scripts: packageFacts.scripts,
+    });
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(`AtlasMind did not write a trusted workflow. ${outcome.reason}`);
+      return;
+    }
+    const plan = outcome.plan;
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${plan.path}?`,
+      {
+        modal: true,
+        detail: [
+          'This file decides which GitHub jobs may run on a machine you lend. Nothing is lent by creating it.',
+          '',
+          'What it allows:',
+          ...plan.permits.map(line => `  • ${line}`),
+          '',
+          'What it refuses:',
+          ...plan.refuses.map(line => `  • ${line}`),
+          '',
+          `Runner label: ${plan.runnerLabel} — this machine's architecture. A different architecture needs a different label.`,
+          `Pinned actions: ${plan.pinnedActions.map(action => `${action.name}@${action.release}`).join(', ')}`,
+          '',
+          'Create only — an existing file is never overwritten. Review and commit it before use; AtlasMind refuses to lend the machine while it has uncommitted changes.',
+        ].join('\n'),
+      },
+      'Create workflow',
+    );
+    if (confirmation !== 'Create workflow') {
+      return;
+    }
+
+    const absolute = path.join(workspaceRoot, ...plan.path.split('/'));
+    try {
+      await fs.mkdir(path.dirname(absolute), { recursive: true });
+      await fs.writeFile(absolute, plan.content, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(
+        (error as NodeJS.ErrnoException | undefined)?.code === 'EEXIST'
+          ? `${plan.path} already exists, so AtlasMind left it alone. Review the existing file instead.`
+          : `The trusted workflow was not created: ${detail.slice(0, 300)}`,
+      );
+      return;
+    }
+
+    await this.openWorkspaceRelativeFile(plan.path);
+    // Review what was just written rather than asserting it is fine. The
+    // builder checks its own output, but the thing that gates a run is a review
+    // of what is *on disk*, and that is what the page should now be showing.
+    await runner.assessCommittedWorkflow(configuration, repoSlug);
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `Created ${plan.path}. Review it, commit it, then push or dispatch ${plan.trustedBranch} to queue a job.`,
+    );
+  }
+
+  /**
+   * Install the GitHub CLI, after showing exactly what will run.
+   *
+   * The previous help for a missing `gh` was a link and "restart VS Code",
+   * which is accurate and the longest detour in a flow that already has five
+   * prerequisites. This follows the settled shape from `acpInstaller`: the plan
+   * is built from constants in the host, the modal lists every command with its
+   * purpose, and nothing runs until that is accepted.
+   *
+   * Where no reviewed command applies — Debian and Ubuntu among them, on
+   * purpose — the official page is offered rather than a command that would
+   * fail. And success is decided by re-probing PATH, not by an exit code:
+   * telling somebody "installed" when nothing then works would move the problem
+   * rather than fix it.
+   */
+  private async handleInstallGitHubCli(): Promise<void> {
+    const probe = { platform: process.platform, findExecutable: findCommandExecutable };
+    const plan = planGitHubCliInstall(probe);
+
+    if (plan.status === 'ready') {
+      void vscode.window.showInformationMessage('The GitHub CLI is already on PATH. Inspect the runner again to pick it up.');
+      return;
+    }
+    if (plan.status === 'manual') {
+      const open = await vscode.window.showWarningMessage(
+        'AtlasMind has no reviewed install command for this machine.',
+        { modal: true, detail: `${plan.reason}\n\nThe official installation instructions cover every platform.` },
+        'Open official instructions',
+      );
+      if (open === 'Open official instructions') {
+        await vscode.env.openExternal(vscode.Uri.parse(GITHUB_CLI_INSTALL_URL));
+      }
+      return;
+    }
+
+    const elevation = plan.steps.some(step => step.requiresElevation)
+      ? ['', 'This needs administrator rights. AtlasMind cannot prompt for a password, so it will fail unless you have passwordless sudo — run the command in a terminal if it does.']
+      : [];
+    const confirmation = await vscode.window.showWarningMessage(
+      `Install ${plan.displayName} on this machine?`,
+      {
+        modal: true,
+        detail: [
+          'AtlasMind will run exactly this:',
+          ...plan.steps.map(step => `  ${step.humanCommand}`),
+          ...elevation,
+          '',
+          'This installs an operating-system application outside your workspace. It adds no dependency to this repository.',
+        ].join('\n'),
+      },
+      'Run install',
+    );
+    if (confirmation !== 'Run install') {
+      return;
+    }
+
+    const outcome = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `AtlasMind: installing ${plan.displayName}`,
+      cancellable: false,
+    }, async progress => runGitHubCliInstallPlan(plan, probe, message => {
+      this.localCiOutput?.appendLine(`[install] ${message}`);
+      progress.report({ message });
+    }));
+
+    this.localCiOutput?.appendLine(`[install] ${outcome.ok ? 'succeeded' : 'failed'}: ${outcome.message}`);
+    if (!outcome.ok) {
+      this.localCiOutput?.show(true);
+      void vscode.window.showWarningMessage(outcome.message.slice(0, 500));
+      return;
+    }
+    // Re-inspect rather than asserting: the page should now be showing what the
+    // machine actually reports, not what the install claimed.
+    const runner = this.getLocalCiRunner();
+    if (runner) {
+      await runner.inspect(readLocalCiRunnerConfiguration()).catch(() => undefined);
+    }
+    await this.syncState();
+    void vscode.window.showInformationMessage(outcome.message);
+  }
+
+  private localCiCommandContext(): { command: string; workspaceRoot: string } | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const invocation = buildLocalCiQueueInvocation(readLocalCiRunnerConfiguration());
+    const command = invocation ? [invocation.command, ...invocation.args].join(' ') : undefined;
+    return workspaceRoot && command ? { command, workspaceRoot } : undefined;
+  }
+
+  private localCiCancelCommandContext(runId: number): { command: string; workspaceRoot: string } | undefined {
+    if (!Number.isSafeInteger(runId) || runId <= 0) {
+      return undefined;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const issue = this.localCiRunnerInstance?.getSnapshot().preflightIssue;
+    const isDisplayedWaitingRun = issue?.queuedRuns.some(run => run.databaseId === runId) === true;
+    return workspaceRoot && isDisplayedWaitingRun
+      ? { command: ['gh', 'run', 'cancel', String(runId)].join(' '), workspaceRoot }
+      : undefined;
+  }
+
+  private async handleCopyLocalCiQueueCommand(): Promise<void> {
+    const resolved = this.localCiCommandContext();
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: the queue command settings are invalid or no workspace is open.', 5000);
+      return;
+    }
+    await vscode.env.clipboard.writeText(resolved.command);
+    vscode.window.setStatusBarMessage('AtlasMind: copied the complete GitHub queue command.', 4000);
+  }
+
+  private async handleSendLocalCiQueueCommandToTerminal(): Promise<void> {
+    const resolved = this.localCiCommandContext();
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: the queue command settings are invalid or no workspace is open.', 5000);
+      return;
+    }
+    this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  private async handleCopyLocalCiCancelCommand(runId: number): Promise<void> {
+    const resolved = this.localCiCancelCommandContext(runId);
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that waiting run changed — check the GitHub queue again.', 5000);
+      return;
+    }
+    await vscode.env.clipboard.writeText(resolved.command);
+    vscode.window.setStatusBarMessage(`AtlasMind: copied the cancel command for run #${runId}.`, 4000);
+  }
+
+  private async handleSendLocalCiCancelCommandToTerminal(runId: number): Promise<void> {
+    const resolved = this.localCiCancelCommandContext(runId);
+    if (!resolved) {
+      vscode.window.setStatusBarMessage('AtlasMind: that waiting run changed — check the GitHub queue again.', 5000);
+      return;
+    }
+    this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  /**
+   * Run the project's own checks on this machine — the simplest route, which
+   * the Pipeline page did not previously offer at all.
+   *
+   * Everything in the guided flow described the GitHub-connected runner, so
+   * "check this before I push" routed somebody through Docker, `gh`, a
+   * committed workflow and a queued job to run commands they could have typed.
+   * This is the same act, planned and confirmed.
+   *
+   * The webview supplies nothing. The host re-reads `package.json`, resolves
+   * which scripts constitute the checks by the published rule, and refuses
+   * outright if one of them would leave this machine — a button labelled "run
+   * here" must not publish, and that refusal lives in `ciRoutes` where a test
+   * walks it rather than in this handler where a refactor could lose it.
+   *
+   * The commands are *sent* to a terminal rather than executed by the host, and
+   * without a trailing newline, keeping the human keystroke as the last gate —
+   * the same shape the queue command already uses.
+   */
+  private async handleRunDirectLocalChecks(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before running its checks.');
+      return;
+    }
+    const packageFacts = await readNodePackageFacts(workspaceRoot);
+    const checks = packageFacts ? resolveDirectLocalChecks(packageFacts.scripts) : undefined;
+    if (!packageFacts || !checks) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind found no compile, build, lint or test script to run in this project.',
+      );
+      return;
+    }
+
+    const outcome = buildDirectLocalRunPlan(
+      checks,
+      packageFacts.packageManager,
+      vscode.env.shell,
+    );
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+
+    const confirmation = buildDirectLocalRunConfirmation(outcome.plan);
+    const answer = await vscode.window.showWarningMessage(
+      confirmation.title,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel,
+    );
+    if (answer !== confirmation.confirmLabel) {
+      return;
+    }
+
+    // One line per send, Enter withheld. A multi-line chain that the shell
+    // cannot fail-fast is deliberately sent as separate lines, so the person
+    // running it can stop after a failure instead of discovering that the rest
+    // ran anyway.
+    for (const line of outcome.plan.lines) {
+      this.sendLocalCiCommandToTerminal({ command: line, workspaceRoot });
+    }
+    // Recorded as `unobserved`, which is simply true: the commands go to the
+    // user's terminal and AtlasMind does not read it. The ledger forces the
+    // status to `unknown`, so this can never appear as a pass.
+    await this.rememberCiBuild({
+      id: `direct-local-${Date.now()}`,
+      source: 'local',
+      routeId: 'direct-local',
+      routeLabel: 'Run here',
+      evidence: 'this-machine',
+      observation: 'unobserved',
+      status: 'unknown',
+      title: outcome.plan.checks.scripts.join(', '),
+      startedAt: new Date().toISOString(),
+      pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
+    });
+    vscode.window.setStatusBarMessage(
+      outcome.plan.failFast
+        ? 'AtlasMind: the checks are in your terminal — press Enter to run them.'
+        : 'AtlasMind: each check was typed separately — run them one at a time; this shell will not stop on failure.',
+      6000,
+    );
+  }
+
+  /**
+   * Create the committed routing file, once, deliberately.
+   *
+   * Never seeded on render, for the reason `workflowConfig` is not: this file
+   * gets committed, and writing a statement about how the team routes its CI
+   * into somebody's repository because they opened a tab would be putting words
+   * in their mouth. The modal names the path and what the seed says.
+   */
+  private async handleCreateCiRoutingConfig(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before creating a routing file.');
+      return;
+    }
+    const manager = this.ciRouting;
+    // Re-read before seeding: the manager's view dates from panel open, and a
+    // routing file that appeared since — a teammate's pulled commit — must be
+    // found now rather than overwritten by a seed.
+    manager.reload();
+    if (manager.getConfig()) {
+      void vscode.window.showInformationMessage(`${CI_ROUTING_SSOT_PATH} already exists. Edit it directly.`);
+      return;
+    }
+    const notice = manager.getNotice();
+    if (notice) {
+      void vscode.window.showWarningMessage(notice);
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          'This records where each kind of check should run. It is committed, so it arrives as a reviewed diff rather than a habit nobody wrote down.',
+          '',
+          'The starting rules:',
+          '  • Fast feedback runs here, spending no hosted allowance.',
+          '  • The full suite, packaging and security scans prefer GitHub, and may fall back to this machine.',
+          '  • The platform matrix stops if the allowance runs out — nothing else produces that evidence.',
+          '  • Unreviewed contributions never fall back to a local route, whatever the budget says.',
+          '',
+          'A markdown mirror is written beside it. Nothing runs as a result of creating this file.',
+        ].join('\n'),
+      },
+      'Create routing file',
+    );
+    if (confirmation !== 'Create routing file') {
+      return;
+    }
+    const created = await manager.create();
+    if (!created) {
+      void vscode.window.showWarningMessage('AtlasMind did not create the routing file.');
+      return;
+    }
+    await this.openWorkspaceRelativeFile(CI_ROUTING_SSOT_PATH);
+    await this.syncState();
+    void vscode.window.showInformationMessage(`Created ${CI_ROUTING_SSOT_PATH}. Review and commit it.`);
+  }
+
+  /**
+   * Read the hosted allowance, on request.
+   *
+   * On a public repository the answer is free and needs no billing scope, so
+   * that case is settled first — asking a billing endpoint about a repository
+   * that cannot consume an allowance would be a request that can only fail.
+   *
+   * Every failure lands as `unknown` **with its reason**, never as exhausted. A
+   * 403 from a missing scope looks exactly like zero minutes to careless code,
+   * and routing on that would move work onto this machine because of a
+   * permissions error.
+   */
+  private async handleRefreshCiCredit(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    try {
+      const identity = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'repo', 'view', '--json', 'isPrivate,owner',
+      ])) as { isPrivate?: unknown; owner?: { login?: unknown; type?: unknown } };
+
+      if (identity.isPrivate === false) {
+        this.ciCreditState = notMeteredReading();
+        await this.syncState();
+        return;
+      }
+      const login = typeof identity.owner?.login === 'string' ? identity.owner.login.trim() : '';
+      if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) {
+        this.ciCreditState = { state: 'unknown', reason: 'GitHub did not return a usable account name.' };
+        await this.syncState();
+        return;
+      }
+      const isOrganization = String(identity.owner?.type ?? '').toLowerCase() === 'organization';
+      const endpoint = (isOrganization ? GITHUB_BILLING_ENDPOINTS.organization : GITHUB_BILLING_ENDPOINTS.user)
+        .replace('{owner}', login);
+      this.ciCreditState = parseGithubBillingUsage(await runGhOrThrow(workspaceRoot, ['api', endpoint]));
+    } catch (error) {
+      const failure = ghFailureOf(error);
+      // Deliberately not `readBillingRefusal` here: this is a failure to *read*
+      // the meter, not GitHub refusing a run. Only an actual refused run may
+      // empty the meter, and that arrives through a different path.
+      this.ciCreditState = {
+        state: 'unknown',
+        reason: `${failure.detail} Reading the allowance needs a token with the billing scope; AtlasMind will use the preferred route until it can read one.`,
+      };
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Offer to run one workflow locally with `act`, having read it first.
+   *
+   * The webview names a file, never a command: the host re-reads the workflows
+   * directory and resolves the name against what is actually there, so a
+   * crafted message can ask for a workflow that does not exist and can never
+   * supply argv.
+   *
+   * The fidelity assessment is the point of the feature, not a garnish. `act`
+   * runs the real workflow YAML, which is its appeal, but its images are
+   * incomplete and several GitHub services are only partially emulated — so a
+   * job targeting Windows is **refused** rather than run as something else with
+   * the same name, and every partial gap is stated before the command is sent.
+   *
+   * AtlasMind does not spawn `act`. It executes repository workflow content
+   * through the Docker API by design; the trusted local runner exists for the
+   * case where a *reviewed* workflow should be executed and applies a
+   * twelve-rule policy first. Helping somebody run this is the right level of
+   * involvement; running it for them is not.
+   */
+  private async handleRunWorkflowWithAct(workflowId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before running a workflow locally.');
+      return;
+    }
+    if (!findCommandExecutable(ACT_COMMAND)) {
+      const open = await vscode.window.showWarningMessage(
+        '`act` is not installed on this machine.',
+        { modal: true, detail: 'It runs your existing GitHub workflows locally in containers. AtlasMind does not install it.' },
+        'Open act documentation',
+      );
+      if (open === 'Open act documentation') {
+        await vscode.env.openExternal(vscode.Uri.parse(ACT_DOCS_URL));
+      }
+      return;
+    }
+
+    const workflow = (await collectWorkflowSnapshot(workspaceRoot))
+      .find(candidate => candidate.id === workflowId);
+    if (!workflow) {
+      void vscode.window.showWarningMessage('That workflow no longer exists. Refresh the Pipeline page and try again.');
+      return;
+    }
+    let text: string;
+    try {
+      text = await fs.readFile(path.join(workspaceRoot, ...workflow.path.split('/')), 'utf8');
+    } catch {
+      void vscode.window.showWarningMessage(`${workflow.path} could not be read, so AtlasMind cannot say what act would reproduce badly.`);
+      return;
+    }
+
+    const outcome = planActRun({ workflowFile: workflow.id, fidelity: assessActFidelity(text) });
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+    const confirmation = buildActRunConfirmation(outcome.plan);
+    const answer = await vscode.window.showWarningMessage(
+      confirmation.title,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel,
+    );
+    if (answer !== confirmation.confirmLabel) {
+      return;
+    }
+
+    this.sendLocalCiCommandToTerminal({ command: outcome.plan.line, workspaceRoot });
+    // `unobserved`, and truthfully so: this went to the user's terminal. The
+    // ledger forces the status to unknown, so it can never show a tick.
+    await this.rememberCiBuild({
+      id: `act-${Date.now()}`,
+      source: 'local',
+      routeId: 'act',
+      routeLabel: 'act',
+      evidence: 'linux-container',
+      observation: 'unobserved',
+      status: 'unknown',
+      title: `${workflow.name} via act`,
+      startedAt: new Date().toISOString(),
+      pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Hand the failing tests to a chat session.
+   *
+   * Reuses the prompt the Testing dashboard already builds from the same
+   * coverage snapshot, so the two surfaces cannot ask for different things
+   * about the same failures. No payload: the report AtlasMind already read is
+   * the input, and the page cannot contribute to it.
+   */
+  private async handleWorkOnFailingTests(): Promise<void> {
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const coverage = testing.policyCoverage;
+    if (!coverage?.report) {
+      void vscode.window.showWarningMessage(
+        'There is no test report to work from. AtlasMind reads pass and fail from a report your suite writes; it never runs your tests to find out.',
+      );
+      return;
+    }
+    const failing = coverage.rows.filter(row => row.failedCount > 0);
+    if (failing.length === 0 && coverage.unattributedFailures.length === 0) {
+      void vscode.window.showInformationMessage('Nothing is failing in the report AtlasMind read.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildFixActivatedTestingPrompt(testing),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Draft a test for one declared subject nothing names.
+   *
+   * The webview sends a subject id and the host re-resolves it against a fresh
+   * scan — the same opaque-id rule every other action here follows, so a
+   * crafted message can name a subject that does not exist and never supply
+   * one. The prompt states where the subject is declared and which policy
+   * wants it covered, and asks for a proposal rather than a write.
+   */
+  private async handleDraftMissingTest(subjectId: string): Promise<void> {
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const entry = (testing.policySubjects?.coverage ?? []).find(candidate => candidate.subject.id === subjectId);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That subject is no longer in the scan. Refresh the Pipeline page and try again.');
+      return;
+    }
+    if (entry.covered) {
+      void vscode.window.showInformationMessage(`${entry.subject.label} already has a test naming it.`);
+      return;
+    }
+    const subject = entry.subject;
+    const prompt = [
+      `Propose a test for ${subject.label}.`,
+      '',
+      `It is a ${subject.kind} declared in ${subject.source}, and the ${subject.policyId} testing policy expects it to be covered.`,
+      'No test file in this project currently names it, which is why AtlasMind raised it.',
+      '',
+      'Write the test the way this project already writes tests: match the framework, the file layout and the naming'
+        + ' of the nearest existing suite rather than introducing a new style.',
+      `The test must name ${subject.label} explicitly — a test that never names what it tests is not evidence that it tests it,`
+        + ' and AtlasMind will keep reporting this subject as uncovered until one does.',
+      '',
+      'Propose the file and its contents for review. Do not write it until asked.',
+    ].join('\n');
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: prompt,
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Apply one routing edit: re-read, recompute, validate, confirm, save.
+   *
+   * Every grid gesture goes through here rather than each having its own path,
+   * because the four steps around the edit are the same every time and are the
+   * ones that matter. The re-read is first for the reason the guided flow has
+   * one: this manager reads the file once at construction, and saving the whole
+   * file from a stale copy would silently revert a hand edit or a pulled commit.
+   *
+   * The edit function itself is pure and lives in `ciRoutingPolicy`, so the
+   * refusals it returns are the engine's own — a cell the decision engine would
+   * reject cannot be authored here.
+   */
+  private async handleCiRoutingEdit(
+    edit: (config: CiRoutingConfig) => ReturnType<typeof cycleCiRoutingCell>,
+  ): Promise<void> {
+    const manager = this.ciRouting;
+    const config = manager.reload();
+    if (!config) {
+      void vscode.window.showWarningMessage(
+        manager.getNotice() ?? 'There is no routing file yet. Create it from the Rules view first.',
+      );
+      return;
+    }
+    const outcome = edit(config);
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+    const problems = validateCiRoutingConfig(outcome.config).filter(problem => problem.severity === 'error');
+    if (problems.length > 0) {
+      void vscode.window.showWarningMessage(
+        `That change cannot be saved: ${problems.map(problem => problem.message).join(' ')}`,
+      );
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: `${outcome.change}\n\nThis file is committed, so the change arrives as a diff your team reviews. Nothing runs as a result.`,
+      },
+      'Save',
+    );
+    if (confirmation !== 'Save') {
+      return;
+    }
+    try {
+      await manager.save(outcome.config);
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: ${outcome.change}`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The routing file was not saved: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Edit one routing rule through a guided flow, instead of hand-editing JSON.
+   *
+   * The webview names a workload from the closed vocabulary and nothing else;
+   * every candidate below is derived host-side. Candidates are filtered by the
+   * same `routeSatisfiesRequirement` the decision engine uses — including the
+   * trust rule — so the picker cannot offer what the engine would refuse, and
+   * the two can never disagree about what is eligible. Routes with no adapter
+   * are excluded outright: a rule naming one is a warning waiting to be read.
+   *
+   * The result still passes `validateCiRoutingConfig` before the save, because
+   * the invariants belong to the file, not to this picker; and the confirmation
+   * names the committed path, because that is where this change actually lands.
+   */
+  private async handleEditCiRoutingRule(workloadId: string): Promise<void> {
+    const workload = findCiWorkloadClass(workloadId);
+    if (!workload) {
+      return;
+    }
+    const manager = this.ciRouting;
+    // Re-read from disk first. The manager reads the file once at construction
+    // and this panel memoizes it, so without this a hand edit made after the
+    // dashboard opened — or a teammate's pulled commit — would be silently
+    // rewritten from the stale in-memory copy when the whole file is saved.
+    const config = manager.reload();
+    if (!config) {
+      void vscode.window.showWarningMessage(
+        manager.getNotice() ?? 'There is no routing file yet. Create it from the Where it runs view first.',
+      );
+      return;
+    }
+
+    const candidates = CI_ROUTES.filter(route => {
+      if (route.implementation !== 'implemented') {
+        return false;
+      }
+      if (workload.input === 'untrusted' && route.capabilities.safeForUntrustedCode !== 'yes') {
+        return false;
+      }
+      return routeSatisfiesRequirement(route, {
+        evidence: workload.requiredEvidence,
+        ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+      }).satisfied;
+    });
+    if (candidates.length === 0) {
+      void vscode.window.showWarningMessage(
+        `No implemented route can satisfy ${workload.label} — nothing to choose between.`,
+      );
+      return;
+    }
+
+    const existing = config.rules.find(rule => rule.workload === workload.id);
+    const preferPick = await vscode.window.showQuickPick(
+      candidates.map(route => ({
+        label: route.label,
+        description: route.id === existing?.prefer ? 'current preference' : route.fidelity === 'approximate' ? 'approximate' : '',
+        detail: route.blurb,
+        routeId: route.id,
+      })),
+      {
+        title: `${workload.label} — preferred route`,
+        placeHolder: 'Where should this kind of check run first?',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!preferPick) {
+      vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+      return;
+    }
+
+    const fallbackCandidates = candidates.filter(route => route.id !== preferPick.routeId);
+    let fallback: CiRouteId[] = [];
+    if (fallbackCandidates.length > 0) {
+      const fallbackPick = await vscode.window.showQuickPick(
+        fallbackCandidates.map(route => ({
+          label: route.label,
+          detail: route.blurb,
+          picked: existing?.fallback.includes(route.id) ?? false,
+          routeId: route.id,
+        })),
+        {
+          title: `${workload.label} — fallbacks, in case the preferred route cannot run`,
+          placeHolder: 'Pick none to have no fallback. Order follows the route list.',
+          canPickMany: true,
+          ignoreFocusOut: true,
+        },
+      );
+      if (fallbackPick === undefined) {
+        vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+        return;
+      }
+      fallback = fallbackPick.map(item => item.routeId);
+    }
+
+    const exhaustedPick = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'Use the fallback',
+          description: fallback.length === 0 ? 'No fallback is set, so this behaves like stop' : '',
+          detail: 'When the hosted allowance runs out, try the fallback routes in order.',
+          value: 'fallback' as const,
+        },
+        {
+          label: 'Stop',
+          description: '',
+          detail: 'Refuse rather than substitute. Right where no other route can produce the evidence this needs.',
+          value: 'block' as const,
+        },
+      ],
+      {
+        title: `${workload.label} — when the hosted allowance runs out`,
+        placeHolder: 'This only matters for routes that spend the GitHub Actions allowance.',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!exhaustedPick) {
+      vscode.window.setStatusBarMessage('AtlasMind: routing change cancelled — nothing was saved.', 5000);
+      return;
+    }
+
+    const usedIds = new Set(config.rules.map(rule => rule.id));
+    let appendedId = `${workload.id}-rule`;
+    for (let suffix = 2; usedIds.has(appendedId); suffix += 1) {
+      appendedId = `${workload.id}-rule-${suffix}`;
+    }
+    const nextRule: CiRoutingRule = {
+      id: existing?.id ?? appendedId,
+      workload: workload.id,
+      prefer: preferPick.routeId,
+      fallback,
+      onCreditExhausted: exhaustedPick.value,
+      ...(existing?.note ? { note: existing.note } : {}),
+    };
+    const nextConfig: CiRoutingConfig = {
+      ...config,
+      rules: existing
+        ? config.rules.map(rule => (rule.id === existing.id ? nextRule : rule))
+        : [...config.rules, nextRule],
+    };
+
+    const problems = validateCiRoutingConfig(nextConfig)
+      .filter(problem => problem.severity === 'error' && problem.ruleId === nextRule.id);
+    if (problems.length > 0) {
+      void vscode.window.showWarningMessage(
+        `That rule cannot be saved: ${problems.map(problem => problem.message).join(' ')}`,
+      );
+      return;
+    }
+
+    const routeLabel = (id: string): string => CI_ROUTES.find(route => route.id === id)?.label ?? id;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          `${workload.label} will prefer ${routeLabel(nextRule.prefer)}.`,
+          nextRule.fallback.length > 0
+            ? `Fallback: ${nextRule.fallback.map(routeLabel).join(', then ')}.`
+            : 'No fallback: when the preferred route cannot run, this workload waits.',
+          nextRule.onCreditExhausted === 'block'
+            ? 'When the hosted allowance runs out: stop rather than substitute.'
+            : 'When the hosted allowance runs out: use the fallback.',
+          '',
+          'This file is committed, so the change arrives as a diff your team reviews.',
+        ].join('\n'),
+      },
+      'Save routing rule',
+    );
+    if (confirmation !== 'Save routing rule') {
+      return;
+    }
+    try {
+      await manager.save(nextConfig);
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: routing for ${workload.label} updated.`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The routing file was not saved: ${detail.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Hand the latest classified CI failure to a chat session.
+   *
+   * The prompt builder has existed since the failure analysis landed — fencing
+   * the log as reported content, forbidding re-classification and re-runs — and
+   * was never wired to anything, so the page could diagnose a failure and then
+   * leave the person to retype it. Same shape as workOnIssue and workOnDebt:
+   * the report the host already fetched, and nothing from the webview.
+   */
+  private async handleWorkOnCiFailure(): Promise<void> {
+    const report = this.ciState?.report;
+    if (!report) {
+      void vscode.window.showWarningMessage(
+        this.ciState?.logFailure
+          ? `The failing run's log could not be read, so there is no report to work from: ${this.ciState.logFailure.slice(0, 200)}`
+          : 'There is no classified failure loaded. Refresh CI first.',
+      );
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildCiFailurePrompt(report),
+      sendMode: 'new-session',
+    });
+  }
+
+  /** Type into the user's configured VS Code shell, but leave Enter to them. */
+  private sendLocalCiCommandToTerminal(resolved: { command: string; workspaceRoot: string }): void {
+    let terminal = vscode.window.terminals.find(candidate => candidate.name === LOCAL_CI_TERMINAL_NAME);
+    if (!terminal) {
+      terminal = vscode.window.createTerminal({
+        name: LOCAL_CI_TERMINAL_NAME,
+        cwd: vscode.Uri.file(resolved.workspaceRoot),
+        isTransient: false,
+      });
+    }
+    terminal.show(true);
+    terminal.sendText(resolved.command, false);
+    vscode.window.setStatusBarMessage('AtlasMind: sent the complete command to your terminal — press Enter to run it.', 5000);
   }
 
   /**
@@ -8807,12 +10347,84 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if (candidate['type'] === 'refreshCi') {
-    return true;
+  if (candidate['type'] === 'refreshCi'
+    || candidate['type'] === 'inspectLocalCiRunner'
+    || candidate['type'] === 'startLocalCiRunner'
+    || candidate['type'] === 'showLocalCiOutput'
+    || candidate['type'] === 'copyLocalCiQueueCommand'
+    || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
+    || candidate['type'] === 'assessTrustedCiWorkflow'
+    || candidate['type'] === 'createTrustedCiStarter'
+    || candidate['type'] === 'installGitHubCli'
+    || candidate['type'] === 'runDirectLocalChecks'
+    || candidate['type'] === 'createCiRoutingConfig'
+    || candidate['type'] === 'refreshCiCredit') {
+    return candidate['payload'] === undefined;
+  }
+
+  if (candidate['type'] === 'copyLocalCiCancelCommand'
+    || candidate['type'] === 'sendLocalCiCancelCommandToTerminal') {
+    return typeof candidate['payload'] === 'number'
+      && Number.isSafeInteger(candidate['payload'])
+      && candidate['payload'] > 0;
+  }
+
+  if (candidate['type'] === 'openLocalCiSetupHelp') {
+    return typeof candidate['payload'] === 'string'
+      && Object.hasOwn(LOCAL_CI_SETUP_HELP_URLS, candidate['payload']);
   }
 
   if (candidate['type'] === 'createCiStarter') {
     return candidate['payload'] === undefined;
+  }
+
+  if (candidate['type'] === 'runWorkflowWithAct') {
+    return typeof candidate['payload'] === 'string'
+      && candidate['payload'].length > 0
+      && candidate['payload'].length <= 120;
+  }
+
+  // Editing a rule in a committed file: the payload may only be a workload id
+  // from the closed vocabulary — anything else is a malformed message, not a
+  // request with an unusual argument.
+  if (candidate['type'] === 'editCiRoutingRule') {
+    return typeof candidate['payload'] === 'string'
+      && findCiWorkloadClass(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'workOnCiFailure') {
+    return candidate['payload'] === undefined;
+  }
+
+  // Both halves of a grid click are closed vocabularies. Anything else is a
+  // malformed message, not a request with an unusual argument.
+  if (candidate['type'] === 'cycleCiRoutingCell') {
+    const payload = candidate['payload'];
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return false;
+    }
+    const cell = payload as { workload?: unknown; route?: unknown };
+    return typeof cell.workload === 'string'
+      && findCiWorkloadClass(cell.workload) !== undefined
+      && typeof cell.route === 'string'
+      && CI_ROUTES.some(route => route.id === cell.route);
+  }
+
+  if (candidate['type'] === 'toggleCiRoutingExhaustion') {
+    return typeof candidate['payload'] === 'string'
+      && findCiWorkloadClass(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'workOnFailingTests') {
+    return candidate['payload'] === undefined;
+  }
+
+  // A subject id, bounded. The host re-resolves it against a fresh scan, so an
+  // id naming nothing is refused there rather than becoming prompt content.
+  if (candidate['type'] === 'draftMissingTest') {
+    return typeof candidate['payload'] === 'string'
+      && candidate['payload'].length > 0
+      && candidate['payload'].length <= 300;
   }
 
   if (candidate['type'] === 'reviewCiWorkflow') {
@@ -9915,6 +11527,17 @@ async function collectDashboardSnapshot(
   // Why the pull-request read is incomplete, when it is. Trailing and optional
   // so the seven existing call sites are unaffected.
   pullRequestsNotice?: string,
+  // Machine-owned and collected only after an explicit inspect/start. Keeping
+  // it trailing preserves cheap local snapshots used by unrelated actions.
+  localRunner?: LocalCiRunnerSnapshot,
+  // Held by the panel for the same reason as the workflow config: a
+  // synchronous file read that should not repeat on every render.
+  ciRoutingManager?: CiRoutingConfigManager,
+  // Defaults to `unknown` rather than to headroom. An unread meter must never
+  // route as though it had been read.
+  credit: CiCreditReading = { state: 'unknown', reason: 'the hosted allowance has not been checked yet.' },
+  // Per-developer build history, read from workspaceState by the panel.
+  localBuilds: readonly CiBuildRecord[] = [],
 ): Promise<DashboardSnapshot> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const workspaceRoot = workspaceFolder?.uri.fsPath;
@@ -9956,6 +11579,12 @@ async function collectDashboardSnapshot(
   const ciStarterPlan = workspaceRoot && !hasQualityCi && !hasUnreadableCi
     ? await buildCiStarterPlanForWorkspace(workspaceRoot, workflowConfigManager?.getConfig())
     : undefined;
+  // Whether the simplest route has anything to run, resolved by the same rule
+  // the route itself uses — a card saying "available" while the run refuses
+  // would be the two-answers problem the route model exists to remove.
+  const directLocalChecksAvailable = workspaceRoot
+    ? Boolean(resolveDirectLocalChecks((await readNodePackageFacts(workspaceRoot))?.scripts ?? []))
+    : false;
   const ciManagement: DashboardCiManagement = {
     assessment: assessCiPortfolio(workflowSnapshot),
     starterAvailable: ciStarterPlan !== undefined,
@@ -10021,6 +11650,49 @@ async function collectDashboardSnapshot(
   const prTemplatePresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'pull_request_template.md') : undefined);
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
   const autopilot = atlas.toolApprovalManager.isAutopilot();
+  // Availability is computed once and shared: the Routes view and the routing
+  // decisions must not disagree about whether a route is usable, and two calls
+  // would eventually differ on a machine whose state changed between them.
+  const routeAvailability = describeCiRouteAvailability({
+    hasLocalChecks: directLocalChecksAvailable,
+    dockerEngineAvailable: localRunner?.engine.available ?? false,
+    githubCliAuthenticated: localRunner?.prerequisites.githubAuthenticated ?? false,
+    localRunnerPermitted: readLocalCiRunnerEnablement().effective,
+    trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
+    hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
+    // Resolved on the render path because it is a PATH lookup, not a process
+    // launch — the same cost as the executable probes the runner already does.
+    actInstalled: Boolean(findCommandExecutable(ACT_COMMAND)),
+  });
+  const ledgerView = buildCiLedgerView(localBuilds, ci?.runs);
+  const liveOutputBuildId = localRunner?.queuedRun
+    && ['starting', 'waiting', 'running', 'finished', 'failed'].includes(localRunner.lifecycle)
+    ? `local-runner-${localRunner.queuedRun.databaseId}`
+    : undefined;
+  const buildsSnapshot = {
+    records: ledgerView.builds,
+    ...(liveOutputBuildId ? { liveOutputBuildId } : {}),
+    hasRunning: ledgerView.hasRunning,
+    unobservedCount: ledgerView.unobservedCount,
+    githubLoaded: ledgerView.githubLoaded,
+    pollNote: HOSTED_POLL_NOTE,
+    storageNote: CI_BUILD_LEDGER_NOTE,
+  };
+  const routingConfig = ciRoutingManager?.getConfig();
+  const routingNotice = ciRoutingManager?.getNotice();
+  const routingSnapshot = {
+    // Built host-side from the same policy the decision engine uses, so the
+    // grid can never offer a cell the engine would refuse.
+    matrix: routingConfig ? buildCiRoutingMatrix(routingConfig, routeAvailability) : [],
+    configPresent: routingConfig !== undefined,
+    configPath: CI_ROUTING_SSOT_PATH,
+    ...(routingNotice ? { notice: routingNotice } : {}),
+    problems: routingConfig ? validateCiRoutingConfig(routingConfig) : [],
+    decisions: routingConfig ? decideAllCiRoutes(routingConfig, routeAvailability, credit) : [],
+    creditSentence: describeCreditReading(credit),
+    creditState: credit.state,
+  };
+
   const ciSignals = [
     { label: 'Compile script', ok: packageSnapshot.keyScripts.includes('compile') },
     { label: 'Lint script', ok: packageSnapshot.keyScripts.includes('lint') },
@@ -10459,9 +12131,22 @@ async function collectDashboardSnapshot(
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
       ciManagement,
+      localRunner: {
+        ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
+        enablement: readLocalCiRunnerEnablement(),
+      },
+      builds: buildsSnapshot,
+      routing: routingSnapshot,
+      routes: routeAvailability,
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
+      workspace: await collectCiWorkspaceSnapshot(workspaceRoot, gitSnapshot.changedPaths),
+      supplyChain: await collectSupplyChainSnapshot(
+        workspaceRoot,
+        packageSnapshot.dependencyCount + packageSnapshot.devDependencyCount,
+        localRunner?.image ?? readLocalCiRunnerConfiguration().image,
+      ),
       stages: stagePipeline,
       guide: deliveryGuide,
     },
@@ -11681,6 +13366,14 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const modified = statusLines.slice(1).filter(line => line.length >= 2 && line[1] !== ' ' && line[0] !== '?').length;
   const untracked = statusLines.slice(1).filter(line => line.startsWith('??')).length;
   const dirty = staged + modified + untracked > 0;
+  const changedPaths = statusLines.slice(1).flatMap(line => {
+    const raw = line.length >= 4 ? line.slice(3).trim() : '';
+    const candidate = raw.includes(' -> ') ? raw.slice(raw.lastIndexOf(' -> ') + 4) : raw;
+    const normalized = candidate.replace(/\\/g, '/').replace(/^"|"$/g, '');
+    return normalized && !path.posix.isAbsolute(normalized) && !normalized.split('/').includes('..')
+      ? [normalized.slice(0, 500)]
+      : [];
+  }).slice(0, 200);
 
   const branches = branchOutput
     .split(/\r?\n/)
@@ -11742,6 +13435,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     commits,
     commitDates,
     commitLog,
+    changedPaths,
     ...(gitUserName ? { gitUserName } : {}),
     ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
@@ -11800,6 +13494,255 @@ async function collectPackageSnapshot(workspaceRoot: string | undefined): Promis
       keyScripts: [],
     };
   }
+}
+
+const CI_WORKSPACE_MANIFESTS = [
+  ['package.json', 'node'],
+  ['pyproject.toml', 'python'],
+  ['Cargo.toml', 'rust'],
+  ['go.mod', 'go'],
+  ['pom.xml', 'java'],
+  ['build.gradle', 'java'],
+] as const;
+
+const CI_WORKSPACE_IGNORED_DIRECTORIES = new Set([
+  '.git', '.github', '.vscode', 'node_modules', 'out', 'dist', 'coverage',
+  'project_memory', 'test-results',
+]);
+
+function normalizeWorkspaceCandidate(value: string): string | undefined {
+  const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
+  if (!normalized || normalized === '.' || path.isAbsolute(normalized) || path.posix.isAbsolute(normalized)
+    || normalized.includes(':') || normalized.includes('\0')
+    || normalized.split('/').some(part => !part || part === '.' || part === '..')) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function declaredNodeWorkspacePatterns(parsed: Record<string, unknown>): string[] {
+  const value = parsed['workspaces'];
+  const candidates = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>)['packages'])
+      ? (value as Record<string, unknown>)['packages'] as unknown[]
+      : [];
+  return candidates.flatMap(candidate => typeof candidate === 'string' && candidate.length <= 180
+    ? [candidate]
+    : []).slice(0, 80);
+}
+
+async function expandWorkspacePattern(workspaceRoot: string, rawPattern: string): Promise<string[]> {
+  const normalized = normalizeWorkspaceCandidate(rawPattern);
+  if (!normalized) {
+    return [];
+  }
+  if (!normalized.includes('*')) {
+    return await fileExists(path.join(workspaceRoot, normalized)) ? [normalized] : [];
+  }
+  // Deliberately support one directory wildcard only. Recursive or brace globs
+  // would turn opening a dashboard into an unbounded repository walk.
+  const parts = normalized.split('/');
+  const wildcardIndex = parts.indexOf('*');
+  if (wildcardIndex < 0 || wildcardIndex !== parts.length - 1 || parts.filter(part => part === '*').length !== 1) {
+    return [];
+  }
+  const parent = parts.slice(0, -1).join('/');
+  try {
+    const entries = await fs.readdir(path.join(workspaceRoot, parent), { withFileTypes: true });
+    return entries
+      .filter(entry => entry.isDirectory() && !CI_WORKSPACE_IGNORED_DIRECTORIES.has(entry.name))
+      .slice(0, 80)
+      .map(entry => `${parent}/${entry.name}`);
+  } catch {
+    return [];
+  }
+}
+
+async function describeCiWorkspaceUnit(
+  workspaceRoot: string,
+  relativeDirectory: string,
+): Promise<Omit<DashboardCiWorkspaceUnit, 'affected'> | undefined> {
+  const directory = relativeDirectory === '.' ? workspaceRoot : path.join(workspaceRoot, relativeDirectory);
+  for (const [manifest, kind] of CI_WORKSPACE_MANIFESTS) {
+    const manifestPath = path.join(directory, manifest);
+    if (!await fileExists(manifestPath)) {
+      continue;
+    }
+    let name = relativeDirectory === '.' ? path.basename(workspaceRoot) : path.posix.basename(relativeDirectory);
+    let buildCommand: string | undefined;
+    let testCommand: string | undefined;
+    if (manifest === 'package.json') {
+      try {
+        const parsed = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+        name = typeof parsed['name'] === 'string' && parsed['name'].trim()
+          ? parsed['name'].trim().slice(0, 120)
+          : name;
+        const scripts = asStringMap(parsed['scripts']);
+        const buildScript = ['build', 'compile', 'package'].find(key => typeof scripts[key] === 'string');
+        const testScript = ['test:ci', 'test', 'check'].find(key => typeof scripts[key] === 'string');
+        buildCommand = buildScript ? `npm run ${buildScript}` : undefined;
+        testCommand = testScript ? `npm run ${testScript}` : undefined;
+      } catch {
+        // A malformed manifest still identifies a unit; commands remain unknown.
+      }
+    }
+    const safePath = relativeDirectory === '.' ? '.' : relativeDirectory.replace(/\\/g, '/');
+    return {
+      id: `workspace-${safePath.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 100) || 'root'}`,
+      name,
+      path: safePath,
+      kind,
+      manifest: safePath === '.' ? manifest : `${safePath}/${manifest}`,
+      ...(buildCommand ? { buildCommand } : {}),
+      ...(testCommand ? { testCommand } : {}),
+    };
+  }
+  return undefined;
+}
+
+async function collectCiWorkspaceSnapshot(
+  workspaceRoot: string | undefined,
+  changedPaths: readonly string[],
+): Promise<DashboardCiWorkspaceSnapshot> {
+  if (!workspaceRoot) {
+    return {
+      detected: false,
+      basis: 'single-project',
+      units: [],
+      changedPathCount: 0,
+      affectedCount: 0,
+      truncated: false,
+      summary: 'Open a workspace to map buildable units.',
+    };
+  }
+
+  let declaredPatterns: string[] = [];
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf8')) as Record<string, unknown>;
+    declaredPatterns = declaredNodeWorkspacePatterns(parsed);
+  } catch {
+    declaredPatterns = [];
+  }
+
+  const candidateDirectories = new Set<string>(['.']);
+  if (declaredPatterns.length > 0) {
+    const expanded = await Promise.all(declaredPatterns.map(pattern => expandWorkspacePattern(workspaceRoot, pattern)));
+    expanded.flat().forEach(candidate => candidateDirectories.add(candidate));
+  } else {
+    try {
+      const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      entries
+        .filter(entry => entry.isDirectory() && !CI_WORKSPACE_IGNORED_DIRECTORIES.has(entry.name))
+        .slice(0, 120)
+        .forEach(entry => candidateDirectories.add(entry.name));
+    } catch {
+      // Root-only detection remains available.
+    }
+  }
+
+  const candidates = [...candidateDirectories].slice(0, 80);
+  const described = (await Promise.all(candidates.map(candidate => describeCiWorkspaceUnit(workspaceRoot, candidate))))
+    .filter((unit): unit is Omit<DashboardCiWorkspaceUnit, 'affected'> => unit !== undefined);
+  const normalizedChanges = changedPaths
+    .map(value => value.replace(/\\/g, '/').replace(/^\.\//, ''))
+    .filter(Boolean)
+    .slice(0, 200);
+  const childPaths = described.filter(unit => unit.path !== '.').map(unit => `${unit.path}/`);
+  const units = described.map(unit => ({
+    ...unit,
+    affected: unit.path === '.'
+      ? normalizedChanges.some(changed => !childPaths.some(child => changed.startsWith(child)))
+      : normalizedChanges.some(changed => changed === unit.path || changed.startsWith(`${unit.path}/`)),
+  }));
+  const detected = declaredPatterns.length > 0 || units.filter(unit => unit.path !== '.').length > 0;
+  const affectedCount = units.filter(unit => unit.affected).length;
+  const basis = declaredPatterns.length > 0
+    ? 'declared-workspaces' as const
+    : detected ? 'manifest-discovery' as const : 'single-project' as const;
+  return {
+    detected,
+    basis,
+    units,
+    changedPathCount: normalizedChanges.length,
+    affectedCount,
+    truncated: candidateDirectories.size > candidates.length || changedPaths.length > normalizedChanges.length,
+    summary: detected
+      ? `${units.length} buildable unit${units.length === 1 ? '' : 's'} mapped; ${affectedCount} affected by the current worktree.`
+      : units.length > 0 ? 'One buildable project detected; monorepo impact filtering is not needed.'
+        : 'No supported build manifest was detected.',
+  };
+}
+
+const PACKAGE_FORMAT_CATALOG: ReadonlyArray<{
+  id: string;
+  label: string;
+  manifests: string[];
+  lockfiles: string[];
+  registryConfigs: string[];
+}> = [
+  { id: 'npm', label: 'npm / Node', manifests: ['package.json'], lockfiles: ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock'], registryConfigs: ['.npmrc', '.yarnrc.yml'] },
+  { id: 'python', label: 'Python', manifests: ['pyproject.toml', 'requirements.txt'], lockfiles: ['poetry.lock', 'uv.lock', 'Pipfile.lock'], registryConfigs: ['pip.conf', '.pypirc'] },
+  { id: 'maven', label: 'Maven / Gradle', manifests: ['pom.xml', 'build.gradle', 'build.gradle.kts'], lockfiles: ['gradle.lockfile'], registryConfigs: ['settings.xml'] },
+  { id: 'nuget', label: 'NuGet', manifests: ['global.json', 'Directory.Build.props'], lockfiles: ['packages.lock.json'], registryConfigs: ['nuget.config', 'NuGet.Config'] },
+  { id: 'cargo', label: 'Cargo', manifests: ['Cargo.toml'], lockfiles: ['Cargo.lock'], registryConfigs: ['.cargo/config.toml'] },
+  { id: 'go', label: 'Go modules', manifests: ['go.mod'], lockfiles: ['go.sum'], registryConfigs: [] },
+  { id: 'docker', label: 'OCI / Docker', manifests: ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'], lockfiles: [], registryConfigs: [] },
+  { id: 'helm', label: 'Helm', manifests: ['Chart.yaml'], lockfiles: ['Chart.lock'], registryConfigs: [] },
+];
+
+async function firstExistingRelative(workspaceRoot: string, candidates: readonly string[]): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    if (await fileExists(path.join(workspaceRoot, candidate))) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+async function collectSupplyChainSnapshot(
+  workspaceRoot: string | undefined,
+  dependencyCount: number,
+  runnerImage: string,
+): Promise<DashboardSupplyChainSnapshot> {
+  if (!workspaceRoot) {
+    return {
+      formats: [], dependencyCount, lockfileCount: 0, registryConfigCount: 0,
+      dependencyMonitoring: [], runnerImagePinned: /@sha256:[a-f0-9]{64}$/i.test(runnerImage),
+      summary: 'Open a workspace to inventory package formats.',
+    };
+  }
+  const formats = (await Promise.all(PACKAGE_FORMAT_CATALOG.map(async format => {
+    const manifest = await firstExistingRelative(workspaceRoot, format.manifests);
+    if (!manifest) {
+      return undefined;
+    }
+    const lockfile = await firstExistingRelative(workspaceRoot, format.lockfiles);
+    const registryConfig = await firstExistingRelative(workspaceRoot, format.registryConfigs);
+    return {
+      id: format.id,
+      label: format.label,
+      manifest,
+      ...(lockfile ? { lockfile } : {}),
+      ...(registryConfig ? { registryConfig } : {}),
+    } satisfies DashboardPackageFormat;
+  }))).filter((format): format is DashboardPackageFormat => format !== undefined);
+  const monitors: string[] = [];
+  if (await fileExists(path.join(workspaceRoot, '.github', 'dependabot.yml'))) { monitors.push('Dependabot'); }
+  if (await firstExistingRelative(workspaceRoot, ['renovate.json', 'renovate.json5', '.github/renovate.json'])) { monitors.push('Renovate'); }
+  const lockfileCount = formats.filter(format => format.lockfile).length;
+  const registryConfigCount = formats.filter(format => format.registryConfig).length;
+  return {
+    formats,
+    dependencyCount,
+    lockfileCount,
+    registryConfigCount,
+    dependencyMonitoring: monitors,
+    runnerImagePinned: /@sha256:[a-f0-9]{64}$/i.test(runnerImage),
+    summary: formats.length > 0
+      ? `${formats.length} package ecosystem${formats.length === 1 ? '' : 's'} observed; ${lockfileCount} reproducible lockfile${lockfileCount === 1 ? '' : 's'} and ${monitors.length} update monitor${monitors.length === 1 ? '' : 's'}.`
+      : 'No supported package ecosystem was observed.',
+  };
 }
 
 /**
@@ -12841,6 +14784,15 @@ async function collectDeliveryStagePipeline(
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
+/**
+ * Local build history, per developer.
+ *
+ * `workspaceState` rather than the SSOT folder, for the reason
+ * `CI_BUILD_LEDGER_NOTE` gives: `project_memory/` is committed, so a shared
+ * ledger would report what *anybody* ran and conflict between two people on the
+ * same afternoon.
+ */
+const CI_BUILD_LEDGER_STATE_KEY = 'atlasmind.ciBuildLedger';
 
 /**
  * The last reading of the project's observed state, for "what moved since you
@@ -13444,10 +15396,18 @@ function buildPromotionPathView(
   };
 }
 
-async function buildCiStarterPlanForWorkspace(
-  workspaceRoot: string,
-  workflowConfig: WorkflowConfig | undefined,
-): Promise<CiStarterPlan | undefined> {
+/**
+ * The package manager and script names both starters derive from.
+ *
+ * One reader, because the hosted starter and the trusted-runner starter must
+ * agree about what this project can be asked to verify. Two readers would
+ * eventually disagree about a lockfile, and the symptom would be one starter
+ * offering checks the other says do not exist.
+ */
+async function readNodePackageFacts(workspaceRoot: string): Promise<{
+  packageManager: 'npm' | 'pnpm' | 'yarn';
+  scripts: string[];
+} | undefined> {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf8')) as Record<string, unknown>;
@@ -13464,9 +15424,18 @@ async function buildCiStarterPlanForWorkspace(
       ? 'yarn'
       : await fileExists(path.join(workspaceRoot, 'package-lock.json'))
         || await fileExists(path.join(workspaceRoot, 'npm-shrinkwrap.json')) ? 'npm' : undefined;
-  if (!packageManager) {
+  return packageManager ? { packageManager, scripts } : undefined;
+}
+
+async function buildCiStarterPlanForWorkspace(
+  workspaceRoot: string,
+  workflowConfig: WorkflowConfig | undefined,
+): Promise<CiStarterPlan | undefined> {
+  const packageFacts = await readNodePackageFacts(workspaceRoot);
+  if (!packageFacts) {
     return undefined;
   }
+  const { packageManager, scripts } = packageFacts;
   let branches: string[];
   if (workflowConfig) {
     branches = [workflowConfig.branches.integration, workflowConfig.branches.release];
@@ -16265,6 +18234,7 @@ function emptyGitSnapshot(): GitSnapshot {
     commits: [],
     commitDates: [],
     commitLog: [],
+    changedPaths: [],
   };
 }
 
@@ -17872,6 +19842,1161 @@ const DASHBOARD_CSS = `
   .ci-manager-card {
     display: grid;
     gap: 14px;
+  }
+
+  .ci-control-plane {
+    display: grid;
+    gap: 16px;
+  }
+
+  .ci-runner-card {
+    display: grid;
+    gap: 14px;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 30%, var(--dash-border));
+    background:
+      radial-gradient(circle at 94% 4%, color-mix(in srgb, var(--dash-accent) 10%, transparent), transparent 32%),
+      var(--dash-panel);
+  }
+
+  .ci-runner-focus {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--dash-accent-strong);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 8%, var(--dash-panel));
+  }
+  .ci-runner-focus h3 { margin: 2px 0 0; }
+  .ci-runner-focus .section-copy { margin: 5px 0 0; }
+
+  .ci-build-list { display: grid; gap: 7px; }
+  .ci-build-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+  }
+  .ci-build-row.status-failed { border-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); }
+  .ci-build-row.status-running { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .ci-build-mark {
+    display: grid;
+    place-items: center;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--dash-border) 60%, transparent);
+  }
+  .ci-build-row.status-passed .ci-build-mark { color: var(--dash-good); }
+  .ci-build-row.status-failed .ci-build-mark { color: var(--dash-warn); }
+  /* Unknown is deliberately marked, not blank: an unwatched build must read as
+     "no verdict", never as a quiet pass. */
+  .ci-build-row.status-unknown .ci-build-mark { color: var(--dash-muted); font-weight: 700; }
+  .ci-build-main { flex: 1 1 auto; min-width: 0; }
+  .ci-build-main p { margin: 3px 0 4px; }
+  .ci-build-side { display: grid; gap: 4px; justify-items: end; flex: 0 0 auto; }
+  .ci-build-side small { color: var(--dash-muted); font-size: 11px; }
+
+  /* One line, not a hero card: the whole point of the complete state. */
+  .ci-journey-complete > details > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .ci-journey-complete .ci-journey-list { margin-top: 10px; }
+
+  .ci-analytics-summary {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0 0 0 18px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .ci-build-failure { display: grid; gap: 10px; border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+
+  /* ── Pipeline: four-view shell ──────────────────────────────── */
+  .ci-studio-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .ci-studio-bar .ci-studio-tabs { flex: 1 1 auto; }
+  .ci-studio-tabs button small {
+    display: block;
+    font-size: 10.5px;
+    color: var(--dash-muted);
+    letter-spacing: 0.02em;
+    margin-top: 1px;
+  }
+  .ci-studio-tabs button small.warn { color: var(--dash-warn); }
+  .ci-studio-tabs button small.bad { color: var(--dash-critical); }
+  .ci-studio-status { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+  .ci-status-chip {
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+    color: var(--dash-muted);
+    white-space: nowrap;
+  }
+  button.ci-status-chip { cursor: pointer; font-family: inherit; }
+  button.ci-status-chip:hover { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  .ci-status-chip.good { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
+  .ci-status-chip.warn { color: var(--dash-warn); border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-status-chip.bad { color: var(--dash-critical); border-color: var(--dash-critical); }
+
+  /* ── Activity ───────────────────────────────────────────────── */
+  .ci-activity-lead { border-left: 3px solid var(--dash-warn); display: grid; gap: 10px; }
+
+  .ci-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 2px;
+    border-bottom: 1px dashed var(--dash-border);
+    flex-wrap: wrap;
+  }
+  .ci-activity-row:last-child { border-bottom: none; }
+  .ci-activity-name { font-weight: 600; min-width: 150px; flex: 0 1 auto; }
+  .ci-activity-trio {
+    display: inline-flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ci-activity-trio b { color: var(--dash-heading); font-weight: 600; }
+
+  /* Two dimensions in one glyph: height is elapsed time, colour is outcome. */
+  .ci-ribbon {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 26px;
+    flex: 0 0 auto;
+  }
+  .ci-ribbon i {
+    display: inline-block;
+    width: 5px;
+    border-radius: 1px;
+    background: var(--dash-good);
+  }
+  .ci-ribbon i.fail { background: var(--dash-warn); }
+  .ci-ribbon i.running { background: var(--dash-accent-strong); }
+  .ci-ribbon i.other,
+  .ci-ribbon i.unknown { background: var(--dash-border); }
+  .ci-ribbon.empty { width: 40px; border-bottom: 1px dashed var(--dash-border); height: 1px; align-self: center; }
+
+  .ci-activity-stream { display: grid; gap: 6px; margin-top: 4px; }
+  .ci-activity-build {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 8px 11px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-activity-build.status-failed { border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border)); }
+  .ci-activity-build.status-running { border-color: color-mix(in srgb, var(--dash-accent-strong) 50%, var(--dash-border)); }
+  .ci-activity-mark {
+    display: grid;
+    place-items: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    background: color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+  .ci-activity-build.status-passed .ci-activity-mark { color: var(--dash-good); }
+  .ci-activity-build.status-failed .ci-activity-mark { color: var(--dash-warn); }
+  /* Marked, never blank: a blank mark reads as "no", which is a claim. */
+  .ci-activity-build.status-unknown .ci-activity-mark { color: var(--dash-muted); font-weight: 700; }
+  .ci-activity-build-main { flex: 1 1 auto; min-width: 0; }
+  .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
+  /* Three short figures do not need a column each at full width — a stat that
+     spans the card reads as a headline, and these are footnotes to the ribbon. */
+  .ci-progressive-details-body > .mini-grid,
+  .ci-activity-trends .mini-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  }
+
+  .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
+
+  /* ── Canvas overlays ────────────────────────────────────────── */
+  .ci-overlay-toggles { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .ci-overlay-toggle {
+    font-family: inherit;
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 99px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+    color: var(--dash-muted);
+    cursor: pointer;
+  }
+  .ci-overlay-toggle:hover { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  .ci-overlay-toggle.on {
+    border-color: var(--dash-accent-strong);
+    color: var(--dash-heading);
+    background: color-mix(in srgb, var(--dash-accent-strong) 14%, var(--dash-panel));
+  }
+  .ci-overlay-note {
+    font-size: 12px;
+    color: var(--dash-muted);
+    padding: 8px 12px;
+    border-left: 2px solid var(--dash-accent-strong);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-accent-strong) 7%, transparent);
+    margin-bottom: 8px;
+  }
+
+  /* Status painted on the declared structure — a left edge rather than a fill,
+     so the node's own kind stays readable underneath. */
+  .ci-graph-node.outcome-pass { border-left: 3px solid var(--dash-good); }
+  .ci-graph-node.outcome-fail { border-left: 3px solid var(--dash-critical); }
+  .ci-graph-node.outcome-running { border-left: 3px solid var(--dash-accent-strong); }
+  .ci-graph-node.outcome-other { border-left: 3px solid var(--dash-warn); }
+  .ci-graph-node.selected { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+  .ci-graph-node[data-node-select] { cursor: pointer; }
+  .ci-graph-legend i.stage { background: var(--dash-accent); }
+
+  .ci-node-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid var(--dash-accent-strong);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, var(--dash-panel));
+  }
+
+  /* ── Tests: three bands ─────────────────────────────────────── */
+  .ci-tests-failing { border-left: 3px solid var(--dash-warn); }
+  .ci-tests-list { display: grid; gap: 6px; }
+  .ci-test-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    flex-wrap: wrap;
+    padding: 8px 11px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+  }
+  .ci-test-row > div { flex: 1 1 240px; min-width: 0; }
+  /* The same row, when it is a way through to the record it describes. */
+  .ci-test-row-link {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .ci-test-row-link:hover {
+    border-color: var(--dash-accent);
+    background: var(--dash-panel-strong);
+  }
+  .ci-test-row-link:focus-visible {
+    outline: 2px solid var(--dash-accent);
+    outline-offset: 2px;
+  }
+  .ci-test-row-go { color: var(--dash-muted); flex: 0 0 auto; }
+  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent); }
+  .ci-subject-group { display: grid; gap: 6px; margin-bottom: 10px; }
+  .ci-subject-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--dash-muted);
+    padding-top: 4px;
+  }
+
+  /* ── Rules: the routing grid ────────────────────────────────── */
+  .ci-matrix-wrap { overflow-x: auto; margin: 12px 0 8px; }
+  .ci-matrix { border-collapse: collapse; font-size: 12.5px; min-width: 520px; }
+  .ci-matrix th,
+  .ci-matrix td { border: 1px solid var(--dash-border); padding: 0; text-align: center; }
+  .ci-matrix thead th {
+    padding: 8px 12px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .ci-matrix tbody th {
+    text-align: left;
+    padding: 8px 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--dash-heading);
+  }
+  .ci-cell-flag {
+    display: inline-block;
+    margin-left: 7px;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    color: var(--dash-critical);
+    border: 1px solid color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border));
+    border-radius: 99px;
+    padding: 0 7px;
+    font-weight: 500;
+  }
+  .ci-cell { width: 74px; }
+  .ci-cell button,
+  .ci-cell span {
+    display: block;
+    width: 100%;
+    padding: 9px 4px;
+    font-family: inherit;
+    font-size: 13px;
+    background: none;
+    border: none;
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ci-cell button { cursor: pointer; }
+  .ci-cell button:hover { background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); }
+  .ci-cell.preferred button { color: var(--dash-good); font-weight: 700; }
+  .ci-cell.fallback button { color: var(--dash-heading); }
+  .ci-cell.available button { color: var(--dash-muted); opacity: 0.85; }
+  /* Locked by policy — never a blank square, which would read as merely unused. */
+  .ci-cell.blocked { background: color-mix(in srgb, var(--dash-critical) 8%, transparent); }
+  .ci-cell.blocked span { color: var(--dash-critical); cursor: help; }
+  /* Faint, but never below the legibility floor: "no adapter" is information,
+     and a mark too pale to read is the same as an empty square. */
+  .ci-cell.unimplemented span { color: var(--dash-muted); opacity: 0.7; }
+  /* Allowed by policy, unusable on this machine: a different fact, shown differently. */
+  .ci-cell.unusable button { outline: 1px dashed var(--dash-border); outline-offset: -4px; }
+  .ci-cell-exhaust { padding: 0 8px; white-space: nowrap; }
+
+  .ci-matrix-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    font-size: 11.5px;
+    color: var(--dash-muted);
+    padding-top: 4px;
+  }
+  .ci-matrix-key b { color: var(--dash-heading); font-weight: 600; margin-right: 3px; }
+  .ci-cell-unusable-key::before {
+    content: '';
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-right: 5px;
+    vertical-align: -1px;
+    outline: 1px dashed var(--dash-border);
+    outline-offset: -2px;
+  }
+
+  .ci-rules-credit {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+    font-size: 12.5px;
+    color: var(--dash-muted);
+    margin-bottom: 10px;
+  }
+  .ci-rules-credit > span:nth-child(2) { flex: 1 1 240px; min-width: 0; }
+
+  .ci-rules-decisions { display: grid; gap: 8px; }
+  .ci-rules-decision {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-rules-decision p { margin: 3px 0 0; }
+
+  .ci-executor-list { display: grid; gap: 7px; }
+  .ci-executor-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-executor-row > div { flex: 1 1 240px; min-width: 0; }
+  .ci-executor-row p { margin: 2px 0 0; }
+  .ci-executor-row.needs-setup {
+    border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn) 6%, transparent);
+  }
+  /* An executor nothing routes to recedes rather than nagging. */
+  .ci-executor-row.optional { opacity: 0.78; }
+  .ci-executors-setup { border-left: 3px solid var(--dash-warn); }
+  .ci-runner-drawer > summary { font-weight: 600; }
+
+  .ci-executor-next { font-size: 11.5px; color: var(--dash-accent-strong); }
+
+  .ci-routing-credit {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+    font-size: 12.5px;
+    color: var(--dash-muted);
+  }
+  .ci-routing-credit > span:nth-child(2) { flex: 1 1 240px; min-width: 0; }
+  .ci-routing-table { display: grid; gap: 8px; }
+  .ci-routing-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-routing-row.blocked { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-routing-row > div:first-child { min-width: 0; }
+  .ci-routing-row p { margin: 3px 0 0; }
+  .ci-routing-verdict { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .ci-routing-verdict code { font-size: 11px; color: var(--dash-muted); }
+
+  .ci-route-card { display: grid; gap: 10px; }
+  .ci-route-card.blocked { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-route-card.unimplemented { opacity: 0.82; }
+  .ci-route-evidence {
+    margin: 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--dash-accent-strong);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-accent-strong) 7%, transparent);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  /* Distinct from the evidence band: "what this proves" and "how closely it
+     reproduces the declared thing" are separate claims, and a reader comparing
+     two routes in the same evidence class needs to see the second one. */
+  .ci-route-fidelity {
+    margin: 0;
+    padding: 9px 12px;
+    border-left: 3px solid var(--dash-warn);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-warn) 8%, transparent);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .ci-route-caps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 5px 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 12px;
+  }
+  .ci-route-caps li { display: flex; align-items: center; gap: 7px; color: var(--dash-muted); }
+  /* Three marks, never two: an unknown capability that rendered as a blank
+     would be read as a no, and one that rendered as a tick would be worse. */
+  .ci-cap { flex: 0 0 auto; font-size: 13px; line-height: 1; }
+  .ci-cap.yes { color: var(--dash-good); }
+  .ci-cap.no { color: var(--dash-muted); }
+  .ci-cap.unknown { color: var(--dash-warn); font-weight: 700; }
+
+  .ci-runner-workflow {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--dash-panel);
+  }
+  .ci-runner-workflow .ci-section-heading strong { display: block; margin-top: 3px; }
+  .ci-workflow-blockers { margin: 0; }
+  .ci-workflow-actions { margin: 0; }
+
+  .ci-journey-progress {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+  /* Auto-fit rather than a fixed count: the runner strip gained a step when the
+     trusted-workflow check moved to the front, and a hard-coded column count
+     silently squashes the extra one instead of wrapping it. */
+  .ci-runner-progress {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 7px;
+  }
+  .ci-runner-progress > div,
+  .ci-progress-step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 7px 8px;
+    color: var(--dash-muted);
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-runner-progress span,
+  .ci-progress-step > span {
+    display: grid;
+    place-items: center;
+    flex: 0 0 23px;
+    width: 23px;
+    height: 23px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .ci-runner-progress small,
+  .ci-progress-step small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ci-runner-progress > .current,
+  .ci-progress-step.current { color: var(--vscode-foreground); border-color: var(--dash-accent-strong); }
+  .ci-runner-progress > .done,
+  .ci-progress-step.done { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 42%, var(--dash-border)); }
+
+  .ci-progressive-details {
+    border: 1px solid var(--dash-border);
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--dash-border) 10%, transparent);
+    overflow: hidden;
+  }
+  .ci-progressive-details > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 13px;
+    cursor: pointer;
+    font-weight: 650;
+    list-style: none;
+  }
+  .ci-progressive-details > summary::-webkit-details-marker { display: none; }
+  .ci-progressive-details > summary::before {
+    content: '›';
+    flex: 0 0 auto;
+    color: var(--dash-muted);
+    transform: rotate(0deg);
+    transition: transform 150ms ease;
+  }
+  .ci-progressive-details[open] > summary::before { transform: rotate(90deg); }
+  .ci-progressive-details > summary > span:first-of-type { margin-right: auto; }
+  .ci-progressive-details > summary small { color: var(--dash-muted); font-weight: 500; text-align: right; }
+  .ci-progressive-details-body {
+    display: grid;
+    gap: 12px;
+    padding: 0 13px 13px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 65%, transparent);
+  }
+  .ci-progressive-details-body > :first-child { margin-top: 12px; }
+
+  .ci-machine-setup {
+    display: grid;
+    gap: 0;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 38%, var(--dash-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, var(--dash-panel));
+  }
+
+  .ci-machine-setup h3,
+  .ci-install-steps p { margin: 0; }
+
+  .ci-setup-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 8px;
+  }
+
+  .ci-setup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+  }
+
+  .ci-setup-row > div { display: grid; gap: 3px; min-width: 0; }
+  .ci-setup-row small { color: var(--dash-muted); line-height: 1.4; }
+  .ci-setup-row .tag { flex: 0 0 auto; }
+
+  .ci-install-guide {
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 14%, transparent);
+  }
+
+  .ci-install-steps { display: grid; gap: 8px; margin-top: 12px; }
+  .ci-install-steps code,
+  .ci-runner-queue > code,
+  .ci-queue-guide > code {
+    display: block;
+    padding: 9px 10px;
+    overflow-x: auto;
+    white-space: nowrap;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dash-border) 34%, transparent);
+  }
+
+  .ci-install-step {
+    display: grid;
+    gap: 7px;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-install-step p { margin: 0; color: var(--dash-muted); line-height: 1.45; }
+  .ci-install-step .action-link { justify-self: start; }
+
+  .ci-runner-provider-grid,
+  .ci-runner-lifecycle,
+  .ci-runner-spec {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+
+  .ci-runner-provider {
+    display: grid;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px dashed var(--dash-border);
+    border-radius: 10px;
+    color: var(--dash-muted);
+  }
+
+  .ci-runner-provider.active {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--dash-good) 48%, var(--dash-border));
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-good) 6%, transparent);
+  }
+
+  .ci-runner-provider small,
+  .ci-runner-stage small {
+    color: var(--dash-muted);
+    line-height: 1.35;
+  }
+
+  .ci-runner-stage {
+    position: relative;
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    padding: 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 20%, transparent);
+  }
+
+  .ci-runner-stage > span {
+    flex: 0 0 10px;
+    width: 10px;
+    height: 10px;
+    margin-top: 3px;
+    border: 2px solid var(--dash-border);
+    border-radius: 999px;
+  }
+
+  .ci-runner-stage.active > span {
+    border-color: var(--dash-good);
+    background: var(--dash-good);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-good) 16%, transparent);
+  }
+
+  .ci-runner-stage div,
+  .ci-runner-spec > div,
+  .ci-runner-queue > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .ci-runner-spec > div,
+  .ci-resource-rationale,
+  .ci-runner-queue,
+  .ci-queue-guide,
+  .ci-runner-last {
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 16%, transparent);
+  }
+
+  .ci-runner-spec code,
+  .ci-runner-last code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ci-runner-queue {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    align-items: start;
+    border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border));
+  }
+
+  .ci-runner-queue p { grid-column: 1 / -1; margin: 0; }
+  .ci-runner-queue > code { grid-column: 1 / -1; }
+  .ci-queue-guide { display: grid; gap: 10px; }
+  .ci-queue-guide > div:first-child { display: grid; gap: 3px; }
+  .ci-queue-guide > p { margin: 0; }
+  .ci-queue-steps { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+  .ci-queue-steps li { padding-left: 3px; }
+  .ci-queue-steps li > strong,
+  .ci-queue-steps li > span { display: block; }
+  .ci-queue-steps li > span { margin-top: 2px; color: var(--dash-muted); line-height: 1.45; }
+  .local-ci-command-block { position: relative; margin-top: 7px; min-width: 0; }
+  .local-ci-command {
+    margin: 0;
+    padding: 9px 58px 9px 10px;
+    overflow-x: auto;
+    white-space: pre;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dash-border) 34%, transparent);
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-size: 0.78em;
+  }
+  .local-ci-command-actions { position: absolute; top: 5px; right: 5px; display: flex; gap: 4px; }
+  .ci-queue-recovery { display: grid; gap: 7px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--dash-border); }
+  .ci-queue-recovery > p { margin: 0; }
+  .ci-queue-shas { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 7px; }
+  .ci-queue-shas > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px; border: 1px solid var(--dash-border); border-radius: 8px; }
+  .ci-queue-shas span { color: var(--dash-muted); }
+  .ci-runner-last { display: grid; gap: 5px; }
+  .ci-runner-honesty { margin: 0; }
+  .ci-runner-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
+
+  /* ── Pipeline Studio ───────────────────────────────────────────────────
+     Progressive disclosure keeps the first screen instructional while the
+     specialist views retain the density experienced teams need. */
+  .info-help-toggle {
+    width: 20px;
+    height: 20px;
+    margin-left: 0;
+    font-family: Georgia, serif;
+    font-style: italic;
+    text-transform: none;
+  }
+
+  .ci-studio-tabs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(130px, 1fr));
+    gap: 6px;
+    margin: 0 0 16px;
+    overflow-x: auto;
+    padding: 2px 1px 7px;
+  }
+
+  .ci-studio-tabs button {
+    display: grid;
+    gap: 2px;
+    min-width: 130px;
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-panel) 88%, transparent);
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .ci-studio-tabs button span { color: var(--vscode-foreground); font-weight: 650; }
+  .ci-studio-tabs button small { color: var(--dash-muted); }
+  .ci-studio-tabs button:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border)); }
+  .ci-studio-tabs button.active {
+    border-color: var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 12%, var(--dash-panel));
+    box-shadow: inset 0 -2px 0 var(--dash-accent-strong);
+  }
+
+  .ci-studio-view,
+  .ci-studio-stack { display: grid; gap: 16px; }
+
+  .ci-section-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .ci-section-heading > div:first-child { min-width: 0; }
+  .ci-section-heading h3 { margin: 2px 0 0; }
+  .ci-section-heading p { margin: 4px 0 0; }
+
+  .ci-command-deck {
+    display: grid;
+    gap: 16px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--dash-accent-strong) 15%, transparent), transparent 33%),
+      radial-gradient(circle at 96% 12%, color-mix(in srgb, var(--dash-good) 9%, transparent), transparent 28%),
+      var(--dash-panel);
+  }
+
+  .ci-dial-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+    gap: 12px;
+  }
+
+  .ci-status-dial {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    min-height: 104px;
+    border: 1px solid var(--dash-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 82%, transparent);
+  }
+
+  .ci-status-dial svg { width: 88px; height: 88px; overflow: visible; }
+  .ci-dial-track,
+  .ci-dial-value {
+    fill: none;
+    stroke-width: 8;
+    transform: rotate(-90deg);
+    transform-origin: 56px 56px;
+  }
+  .ci-dial-track { stroke: color-mix(in srgb, var(--dash-muted) 20%, transparent); }
+  .ci-dial-value {
+    stroke: var(--dash-accent-strong);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 700ms var(--dash-ease);
+  }
+  .dial-good .ci-dial-value { stroke: var(--dash-good); }
+  .dial-warn .ci-dial-value { stroke: var(--dash-warn); }
+  .dial-critical .ci-dial-value { stroke: var(--dash-critical); }
+  .dial-muted .ci-dial-value { stroke: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+  .ci-dial-check {
+    fill: none;
+    stroke: var(--dash-good);
+    stroke-width: 7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 52;
+    stroke-dashoffset: 52;
+    opacity: 0;
+  }
+  .ci-status-dial.is-resolved .ci-dial-check {
+    animation: ciDialResolve 520ms var(--dash-ease) 520ms forwards;
+  }
+  @keyframes ciDialResolve {
+    0% { stroke-dashoffset: 52; opacity: 0; transform: scale(.82); transform-origin: center; }
+    40% { opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 1; transform: scale(1); transform-origin: center; }
+  }
+  .ci-dial-copy { display: grid; gap: 2px; min-width: 0; }
+  .ci-dial-copy strong { font-size: 21px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .ci-dial-copy span { font-weight: 650; }
+  .ci-dial-copy small { color: var(--dash-muted); line-height: 1.35; }
+
+  .ci-journey-card { display: grid; gap: 14px; }
+  .ci-next-action-card {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 48%, var(--dash-border));
+    background:
+      radial-gradient(circle at 96% 4%, color-mix(in srgb, var(--dash-accent-strong) 10%, transparent), transparent 34%),
+      var(--dash-panel);
+  }
+  .ci-next-action-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ci-next-action-row > span { color: var(--dash-muted); font-size: 12px; }
+  .ci-journey-list { display: grid; gap: 7px; padding: 0 13px 13px; }
+  .ci-journey-list-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 9px;
+    align-items: start;
+    padding: 9px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-journey-list-row.current { border-color: var(--dash-accent-strong); }
+  .ci-journey-list-row.done { border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border)); }
+  .ci-journey-list-row .ci-step-marker { width: 32px; height: 32px; }
+  .ci-journey-list-row p { margin: 3px 0 0; color: var(--dash-muted); font-size: 12px; line-height: 1.4; }
+  .ci-explore-details > .stat-detail { margin: 0; padding: 0 13px 11px; }
+  .ci-explore-details .ci-capability-grid { padding: 0 13px 13px; }
+  .ci-journey {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    position: relative;
+    gap: 10px;
+  }
+  .ci-journey::before {
+    content: '';
+    position: absolute;
+    left: 7%; right: 7%; top: 20px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-accent-strong) 42%, var(--dash-border));
+  }
+  .ci-journey-step {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--dash-panel);
+  }
+  .ci-journey-step.current { border-color: var(--dash-accent-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); }
+  .ci-journey-step.done { border-color: color-mix(in srgb, var(--dash-good) 38%, var(--dash-border)); }
+  .ci-step-marker {
+    display: grid;
+    place-items: center;
+    width: 38px; height: 38px;
+    border-radius: 999px;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, var(--dash-panel));
+    border: 1px solid var(--dash-accent-strong);
+    font-weight: 750;
+  }
+  .ci-journey-step.done .ci-step-marker { color: var(--dash-panel-strong); background: var(--dash-good); border-color: var(--dash-good); }
+  .ci-journey-step p { min-height: 48px; margin: 4px 0 10px; color: var(--dash-muted); font-size: 12px; line-height: 1.45; }
+  .ci-journey-after {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dash-border) 14%, transparent);
+  }
+  .ci-journey-after span { flex: 1 1 auto; color: var(--dash-muted); font-size: 12px; }
+
+  .ci-capability-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 10px;
+  }
+  .ci-capability-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px;
+    text-align: left;
+    color: var(--vscode-foreground);
+    background: var(--dash-panel);
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    cursor: pointer;
+    font: inherit;
+  }
+  .ci-capability-card:hover { border-color: var(--dash-accent-strong); transform: translateY(-1px); }
+  .ci-capability-card > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; color: var(--dash-accent-strong); background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); font-size: 18px; }
+  .ci-capability-card div { display: grid; gap: 2px; }
+  .ci-capability-card small { color: var(--dash-muted); }
+
+  .ci-graph-card { display: grid; gap: 12px; overflow: hidden; }
+  /*
+   * Canvas beside its selected node where there is room, stacked where there
+   * is not.
+   *
+   * The single column is the base case, so a narrow panel needs no query to
+   * behave: the side-by-side layout is the enhancement, and it only applies
+   * when something is actually selected. The minmax(0, 1fr) on the canvas
+   * column matters — a grid track defaults to auto, and the canvas carries a
+   * min-width in the hundreds of pixels, so without it the graph would refuse
+   * to shrink and would push the panel off the card rather than scrolling
+   * inside its own box.
+   */
+  .ci-graph-split { display: grid; gap: 12px; align-items: start; min-width: 0; }
+  .ci-graph-main { display: grid; gap: 12px; min-width: 0; }
+  .ci-graph-aside { min-width: 0; }
+  .ci-graph-aside .ci-node-panel { margin-top: 0; }
+  @media (min-width: 1020px) {
+    .ci-graph-split.has-selection {
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    }
+    .ci-graph-aside {
+      position: sticky;
+      top: 8px;
+      max-height: 610px;
+      overflow: auto;
+    }
+  }
+  .ci-graph-scroll {
+    overflow: auto;
+    border: 1px solid var(--dash-border);
+    border-radius: 14px;
+    background:
+      linear-gradient(color-mix(in srgb, var(--dash-border) 18%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--dash-border) 18%, transparent) 1px, transparent 1px),
+      color-mix(in srgb, var(--dash-panel-strong) 72%, transparent);
+    background-size: 24px 24px;
+    max-height: 610px;
+  }
+  .ci-graph-canvas { position: relative; width: 100%; }
+  .ci-graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  .ci-graph-edges path {
+    fill: none;
+    stroke: color-mix(in srgb, var(--dash-accent-strong) 65%, var(--dash-border));
+    stroke-width: 2;
+    stroke-dasharray: 7 5;
+    animation: ciEdgeFlow 1.8s linear infinite;
+  }
+  @keyframes ciEdgeFlow { to { stroke-dashoffset: -24; } }
+  .ci-graph-node {
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    gap: 4px;
+    width: 164px;
+    min-height: 66px;
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel-strong) 95%, transparent);
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid var(--dash-accent-strong);
+    border-radius: 10px;
+    box-shadow: var(--dash-shadow-soft);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    font: inherit;
+  }
+  .ci-graph-node small { color: var(--dash-muted); line-height: 1.3; overflow-wrap: anywhere; }
+  .ci-graph-node.node-trigger { border-left-color: var(--dash-warn); }
+  .ci-graph-node.node-job { border-left-color: var(--dash-good); }
+  .ci-graph-node.node-gate { border-left-color: var(--dash-critical); }
+  .ci-graph-node.is-dragging { cursor: grabbing; border-color: var(--dash-accent-strong); box-shadow: 0 10px 30px color-mix(in srgb, black 28%, transparent); }
+  .ci-graph-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--dash-muted); font-size: 11px; }
+  .ci-graph-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .ci-graph-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--dash-accent-strong); }
+  .ci-graph-legend i.trigger { background: var(--dash-warn); }
+  .ci-graph-legend i.job { background: var(--dash-good); }
+  .ci-graph-legend i.gate { background: var(--dash-critical); }
+
+  .ci-test-engine-card { display: grid; gap: 15px; }
+  .ci-test-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 72%, transparent);
+  }
+  .test-cell {
+    display: grid;
+    place-items: center;
+    min-height: 34px;
+    border-radius: 7px;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-muted) 16%, transparent);
+    border: 1px solid var(--dash-border);
+    font-weight: 750;
+    animation: ciCellResolve 360ms var(--dash-ease) backwards;
+    animation-delay: calc(var(--cell-index, 0) * 9ms);
+  }
+  .test-cell.pass { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); background: color-mix(in srgb, var(--dash-good) 9%, transparent); }
+  .test-cell.fail { color: var(--dash-critical); border-color: color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border)); background: color-mix(in srgb, var(--dash-critical) 9%, transparent); }
+  .test-cell.skip { color: var(--dash-warn); }
+  @keyframes ciCellResolve { from { opacity: 0; transform: scale(.72); } to { opacity: 1; transform: scale(1); } }
+
+  .ci-run-waterfall { display: grid; gap: 9px; margin-top: 12px; }
+  .ci-run-lane { display: grid; grid-template-columns: minmax(90px, 180px) minmax(120px, 1fr) 68px; align-items: center; gap: 10px; }
+  .ci-run-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .ci-run-track { height: 12px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--dash-border) 40%, transparent); }
+  .ci-run-bar { display: block; height: 100%; border-radius: inherit; background: var(--dash-accent-strong); transition: width var(--dash-dur-value) var(--dash-ease); }
+  .ci-run-bar.good { background: linear-gradient(90deg, color-mix(in srgb, var(--dash-good) 48%, transparent), var(--dash-good)); }
+  .ci-run-bar.critical { background: linear-gradient(90deg, color-mix(in srgb, var(--dash-critical) 48%, transparent), var(--dash-critical)); }
+  .ci-run-lane > strong { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ci-reliability-table { display: grid; gap: 10px; margin-top: 12px; }
+  .ci-reliability-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(100px, 2fr) 48px; align-items: center; gap: 12px; }
+  .ci-reliability-row > div:first-child { display: grid; gap: 2px; min-width: 0; }
+  .ci-reliability-row small { color: var(--dash-muted); }
+  .ci-reliability-meter { height: 9px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--dash-border) 42%, transparent); }
+  .ci-reliability-meter span { display: block; height: 100%; border-radius: inherit; background: var(--dash-good); transition: width var(--dash-dur-value) var(--dash-ease); }
+  .ci-reliability-row > strong { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .ci-unit-grid,
+  .ci-package-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 10px; margin-top: 12px; }
+  .ci-unit-card,
+  .ci-package-card { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--dash-border); border-radius: 11px; background: color-mix(in srgb, var(--dash-panel-strong) 76%, transparent); }
+  .ci-unit-card.affected { border-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); box-shadow: inset 3px 0 0 var(--dash-warn); }
+  .ci-unit-card code,
+  .ci-package-card code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ci-unit-card small,
+  .ci-package-card small { color: var(--dash-muted); line-height: 1.4; }
+
+  .ci-gpu-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 28%, var(--dash-border)); border-radius: 12px; background: color-mix(in srgb, var(--dash-accent-strong) 5%, transparent); }
+  .ci-gpu-panel .wf-help-panel { grid-column: 1 / -1; }
+  .ci-gpu-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); gap: 10px; }
+  .ci-gpu-devices { display: grid; gap: 8px; }
+  .ci-gpu-device { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 9px; border: 1px solid var(--dash-border); border-radius: 9px; background: var(--dash-panel); }
+  .ci-gpu-device > div { display: grid; gap: 2px; min-width: 0; }
+  .ci-gpu-device small { color: var(--dash-muted); }
+  .ci-gpu-icon { display: grid; place-items: center; width: 38px; height: 28px; border-radius: 6px; color: var(--dash-accent-strong); background: color-mix(in srgb, var(--dash-accent-strong) 13%, transparent); border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 36%, var(--dash-border)); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+  .ci-gpu-policy { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--dash-border); border-radius: 9px; background: var(--dash-panel); }
+  .ci-gpu-policy > div { display: flex; justify-content: space-between; gap: 10px; }
+  .ci-gpu-policy span,
+  .ci-gpu-policy small { color: var(--dash-muted); }
+  .ci-gpu-policy .policy-off { color: var(--dash-warn); }
+
+  @media (max-width: 900px) {
+    .ci-journey { grid-template-columns: 1fr 1fr; }
+    .ci-journey::before { display: none; }
+    .ci-runner-progress,
+    .ci-journey-progress { grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (max-width: 620px) {
+    .ci-journey { grid-template-columns: 1fr; }
+    .ci-runner-progress,
+    .ci-journey-progress { grid-template-columns: 1fr; }
+    .ci-progressive-details > summary { align-items: flex-start; flex-wrap: wrap; }
+    .ci-progressive-details > summary small { width: 100%; text-align: left; padding-left: 18px; }
+    .ci-journey-list-row { grid-template-columns: 34px minmax(0, 1fr); }
+    .ci-journey-list-row > .tag { grid-column: 2; justify-self: start; }
+    .ci-status-dial { grid-template-columns: 72px minmax(0, 1fr); }
+    .ci-status-dial svg { width: 72px; height: 72px; }
+    .ci-run-lane { grid-template-columns: minmax(80px, 120px) minmax(80px, 1fr) 58px; }
+    .ci-reliability-row { grid-template-columns: 1fr 44px; }
+    .ci-reliability-meter { grid-column: 1 / -1; grid-row: 2; }
+    .ci-gpu-grid { grid-template-columns: 1fr; }
+  }
+
+  .metric-detail {
+    color: var(--dash-muted);
+    font-size: 10px;
+    line-height: 1.35;
   }
 
   .ci-concept-grid {
@@ -20335,7 +23460,17 @@ const DASHBOARD_CSS = `
     .chart-bars.is-animating .chart-bar-column {
       animation: none;
     }
+    .ci-status-dial.is-resolved .ci-dial-check {
+      animation: none;
+      stroke-dashoffset: 0;
+      opacity: 1;
+    }
+    .ci-graph-edges path,
+    .test-cell { animation: none; }
     .score-ring-progress,
+    .ci-dial-value,
+    .ci-run-bar,
+    .ci-reliability-meter span,
     .metric-meter > span,
     .coverage-bar > span,
     .mvp-progress-fill,
@@ -20344,6 +23479,7 @@ const DASHBOARD_CSS = `
     .stat-card,
     .chart-bar,
     .action-card,
+    .ci-capability-card,
     .recent-item,
     .signal-card,
     .risk-cell,

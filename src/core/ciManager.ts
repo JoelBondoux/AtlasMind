@@ -301,12 +301,21 @@ export interface CiStarterPlan {
   content: string;
 }
 
-function safeBranch(value: string): string | undefined {
+/**
+ * A branch name AtlasMind is willing to write into a workflow file.
+ *
+ * Deliberately narrower than Git's complete ref grammar: these strings enter
+ * GitHub Actions YAML, where expression-shaped or punctuation-heavy values are
+ * not worth preserving automatically. A person can still edit the previewed
+ * file for an unusual but legitimate branch name.
+ *
+ * Exported because the trusted-runner starter writes a branch into an
+ * *authorization condition*, where the same question has the same answer. Two
+ * copies of this rule would be two answers to it, and the one that drifted
+ * would be the one guarding the more dangerous file.
+ */
+export function safeWorkflowBranchRef(value: string): string | undefined {
   const trimmed = value.trim();
-  // Deliberately narrower than Git's complete ref grammar: these strings enter
-  // GitHub Actions YAML, where expression-shaped or punctuation-heavy values
-  // are not worth preserving automatically. A person can still edit the
-  // previewed file for an unusual but legitimate branch name.
   return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(trimmed)
     && !trimmed.includes('..')
     && !trimmed.includes('//')
@@ -329,7 +338,7 @@ function safeNodeVersion(value: string | undefined): string {
 
 /** Build a create-only Node starter from repository-derived facts. */
 export function buildNodeCiStarter(input: NodeCiStarterInput): CiStarterPlan | undefined {
-  const branches = [...new Set(input.branches.map(safeBranch).filter((value): value is string => Boolean(value)))].slice(0, 10);
+  const branches = [...new Set(input.branches.map(safeWorkflowBranchRef).filter((value): value is string => Boolean(value)))].slice(0, 10);
   if (branches.length === 0) { branches.push('main'); }
   const available = new Set(input.scripts.map(safeScript).filter((value): value is string => Boolean(value)));
   const validationScripts = ['compile', 'build', 'lint', 'test'].filter(script => available.has(script));

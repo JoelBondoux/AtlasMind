@@ -38,7 +38,7 @@
  */
 export const ATLAS_SLASH_COMMANDS = [
   'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
-  'ideate', 'import', 'lens', 'loop', 'memory', 'project', 'research', 'runs', 'setup', 'ship', 'skills',
+  'ideate', 'import', 'lens', 'localci', 'loop', 'memory', 'project', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ] as const;
 
@@ -58,7 +58,7 @@ const KNOWN = new Set<string>(ATLAS_SLASH_COMMANDS);
  */
 const REPLAYED: ReadonlySet<string> = new Set([
   'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover',
-  'followups', 'ideate', 'import', 'lens', 'memory', 'research', 'runs', 'setup', 'ship', 'skills',
+  'followups', 'ideate', 'import', 'lens', 'localci', 'memory', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ]);
 

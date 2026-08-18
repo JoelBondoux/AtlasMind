@@ -19,6 +19,553 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.360.2 — A green suite that was lying about one platform
+
+With checkout fixed, the Windows leg of the matrix failed two workflow-policy tests while Linux and macOS
+passed. That is the worst shape a failure can take in that file, because a policy violation on one
+platform is precisely what it exists to detect — and this was not one.
+
+The assertion was `permissions:` followed by `contents: read` as a single multi-line string, which only
+matches an LF checkout. A Windows runner checks out CRLF, so both assertions missed. It stayed hidden
+because working copies here are mixed and the `permissions:` block happened to sit in an LF region, and
+because Windows CI had not got as far as running a test since 16 August.
+
+Line endings are normalised at the read rather than by folding the assertions onto one line, so the next
+multi-line assertion somebody writes cannot bring it back.
+
+---
+
+## v0.360.1 — CI had been red for a reason nobody had read
+
+Every CI job on this repository had been failing since 16 August, at checkout, before a single step ran:
+`fatal: No url found for submodule path 'website'`. A separate project living inside the working copy
+carries its own `.git`, so one `git add -A` staged it as a **gitlink with no `.gitmodules` entry** — a
+submodule reference pointing at nothing, which `actions/checkout` refuses outright. The quality matrix,
+the secret scan and the release promotion were all red for a reason that had nothing to do with the code
+they were checking, and the failure was fast enough to look like an infrastructure blip.
+
+Untracked and ignored rather than declared as a submodule: it is not part of this repository.
+
+---
+
+## v0.360.0 — Six pieces of feedback, and a button convention
+
+Everything here came from using the rebuilt Pipeline page rather than from a plan, with one change that
+reaches well beyond it.
+
+**Atlas action buttons are pills now, throughout AtlasMind.** The Atlas mark on the left says *who* is
+being asked; a glyph on the right says *what* they will do. "Ask Atlas" only ever named the who, so a row
+of these was a row of identical circles and telling two apart meant hovering each one. There are five
+intents — discuss, improve, fix, draft, summarise — declared once and mirrored into the dashboard's own
+script, with a test pinning the two copies together because a duplicated vocabulary is exactly the thing
+that drifts. The tooltip and the accessible name still carry the whole sentence: a symbol nobody has
+learnt yet narrows a meaning, it never carries one alone.
+
+**The selected node's panel sits beside the canvas** where the window is wide enough, stacking beneath it
+where it is not. Below the graph it was a scroll away from the node that opened it — the one interaction
+the canvas exists for was pushing its own answer out of view. The column appears only when something is
+selected, so an empty gutter never narrows the graph for a panel that is usually absent.
+
+**Declared policy rows lead somewhere.** The Tests view can say a policy is unevidenced; only its card on
+the Testing page can say what it would take — the evidence, the owner, the severity rule, the scaffold,
+the issue draft. Clicking a row now opens that card, expanded, because landing on a closed one answers the
+click with a heading. This also fixed something quieter: `testing-policy` was a declared focus kind,
+rendered as a focus attribute on every policy card, and missing from both validation allowlists — so
+every cross-page link to a policy had been silently degrading to "the right page, no record".
+
+**`act`, Buildkite and Woodpecker link to their own documentation.** The page used to tell you to install
+`act` "from nektosact.com" and leave you retyping it, and listed the other two with no way to read about
+either. The address is a constant on the route; the page sends a route *id* and the host decides where
+that goes, so a row can offer a link without being able to choose one. The three core routes stay
+unlinked — they are set up from inside AtlasMind, and sending somebody to github.com to learn what "run
+here" means would be worse than saying nothing.
+
+**And three smaller corrections.** The borrowed-machine setup panel now leads the Rules view with its
+drawer open while setup is unfinished, which is exactly where the guided journey sends you. An executor
+nothing routes to reads *optional* rather than *needs setup*, derived from your own rules so the answer
+changes when your policy does — though before any rules exist an empty set means undecided, not unwanted,
+so the borrowed machine is never called optional at the moment you are setting it up. And Output buttons
+no longer appear on runs that left no output: the channel holds the run *this window* streamed, and a
+build from an earlier session leaves nothing behind.
+
+---
+
+## v0.359.0 — The canvas does more
+
+The last phase of the Pipeline rebuild, and the one aimed squarely at “I like the workflow canvas, I wish
+we could do more with it.”
+
+It now carries three overlays, switchable independently, all on the same graph rather than as separate
+views. **Status** paints the last result onto each workflow — read from the same runs Activity shows, so
+the two can never disagree about whether something is red. **Routing** says where each kind of check runs.
+**Delivery** adds the stages a commit travels through after the gate, which means CI and CD are one
+picture for the first time instead of two pages.
+
+Click a workflow and you get its panel: the last result, the file, and the actions that apply to it —
+things that used to be spread across three tabs. Clicking is told apart from dragging by whether the
+pointer moved, so tidying the graph never pops open a panel you did not ask for.
+
+Two things deliberately unchanged. The canvas still edits nothing — overlays add what is *true* on top of
+what is *declared*, and no gesture here writes a workflow file. And the delivery stages are read-only:
+promotion already has a guarded surface, and moving that gate onto a canvas is a separate decision that
+deserves its own review rather than arriving as a side effect of a redesign.
+
+That completes the four views — Activity, Canvas, Tests, Rules — replacing the eight tabs.
+
+## v0.358.0 — Tests, and the ones you have not written
+
+Phase C. The Tests view now answers three separate questions in the order you would actually ask them.
+
+**What is broken right now**, read from the report your suite already writes — AtlasMind never runs your
+tests to find out. Each failure shows its suite, its file and which policy it belongs to, with a button
+to open it. If the report is older than your newest test file, it says so rather than presenting a stale
+verdict as current. If there is no report at all, that is *no verdict* — never zero failures.
+
+**Whether your declared policies are actually tested**, which was already computed and is now where you
+would look for it.
+
+**And what nothing tests at all.** This is the new one. AtlasMind has been extracting the things your
+project declares — endpoints, GraphQL operations, migrations, schemas, roles, prompt files — and checking
+whether any test so much as names them. That has worked for months and nothing on this page ever showed
+you the answer. Now the uncovered ones are grouped by policy, each with the file it was declared in and a
+*Draft with Atlas* button that asks for a proposal in your project's own testing style.
+
+Where AtlasMind cannot extract subjects for a policy, it says so rather than reporting zero uncovered —
+a clean zero would read as complete.
+
+## v0.357.0 — Routing you can see and change in one grid
+
+Phase B of the Pipeline rebuild. Deciding where your checks run used to mean reading prose cards and
+then walking a chain of dropdowns. It is now a grid: every kind of check down the side, every place it
+could run across the top.
+
+The marks are your policy — one preferred route per row, fallbacks numbered in the order they are tried.
+The locked squares matter as much as the chosen ones: hover one and it tells you why it is locked.
+Unreviewed code can never reach a route that is not safe for it, and packaging can never reach a route
+that only approximates what it runs. That rule was always enforced; now you can see it.
+
+Click a square and it cycles — unused, last resort, preferred, unused again. What the click means is
+worked out by the same engine that does the real routing, so the grid cannot write a rule the engine
+would then refuse, and it will not let you remove a workload's only route. Every change is confirmed
+with the sentence describing it and lands in the committed file as a diff.
+
+Underneath, a dry run: what would actually happen if checks ran right now, on this machine, with this
+allowance reading. And the executors — what can run a check here at all — are one line each now, with
+the borrowed machine's setup and safety detail behind a drawer instead of occupying a whole tab.
+
+One small thing the contrast guard caught: the “no adapter” mark was too faint to read. A mark you
+cannot see is an empty square, and an empty square means something else.
+
+## v0.356.0 — Four views instead of eight tabs
+
+The Pipeline page had grown one tab per feature until it was an org chart of shipping order rather than
+a design — eight tabs, half of them setup surfaces. This is the first phase of a rebuild around four
+views named for what you are actually doing: **Activity** (watch), **Canvas** (understand), **Tests**
+(verify), **Rules** (decide).
+
+**Activity opens the page**, and leads with whatever needs a person: the classified failure, its
+evidence, and a button that hands the whole thing to Atlas with the log fenced. Under that, one row per
+pipeline with a ribbon of recent runs — bar height is how long each took, colour is how it ended — so
+“still passing but getting slower” is something you can see rather than something you have to work out.
+Beside each ribbon, three numbers that tell you their own window when you hover: reliability, typical
+time, runs per week. Flaky workflows are listed with the rule printed next to them: passed and failed on
+the same commit, which you can check by opening the two runs.
+
+**Setup is no longer a tab.** It takes the page over while it is genuinely unfinished and gets out of the
+way the moment it is not, living afterwards behind a small chip in the header. Whether it is done is
+decided once, by one function the chip and the checklist share, on facts that do not reset every commit.
+
+**Analytics and Builds are gone as tabs.** The donut, the waterfall and the metric pills were replaced by
+the ribbon, which says more in less space; the run list moved into Activity. The old renderers were
+deleted rather than left behind — keeping them is how a page becomes eight tabs in the first place.
+
+Canvas, Tests and Rules keep their current contents for now and are rebuilt in the next phases.
+
+## v0.355.0 — The Pipeline page, made legible
+
+Honest feedback landed: even with everything built, the page was confusing. Five complaints, five fixes.
+
+**Why is onboarding still the front page?** It is not, any more. Once anything has run, the page opens on
+Builds, and the four-step setup journey collapses to a single “Setup complete” line with the steps behind
+a click. Completeness is judged on the durable steps plus build history — queueing and lending reset with
+every commit, and treating those as “setup regressed” was what kept re-inflating the card.
+
+**How do I read the routes, and how do I change them?** The routing card now says what its rows are:
+decisions already made, applying themselves wherever the page picks a route, executing nothing. And each
+row has a Change… button — pick the preferred route, the fallbacks, and what happens when the hosted
+allowance runs out, and the committed file updates after a confirmation that names it. The picker only
+offers routes the decision engine itself would accept, so the guided edit and the hand edit obey the same
+rules.
+
+**What do I do when a build fails?** The classified failure now sits at the top of Builds — it used to
+live inside a collapsed disclosure on the setup tab, the last place anybody looks after a failure — with
+one new button: Ask Atlas to work on this failure. The prompt it opens has existed, fully fenced, since
+failure analysis landed; nothing ever called it.
+
+**What is analytics for?** It now leads with its reading, in sentences: how many recent runs failed, which
+workflow is least reliable (only claimed with at least three completed runs), and how long a run typically
+takes to answer, queue included. The charts are still there, underneath the point.
+
+**And one plain bug:** the Builds and Where-it-runs tabs shipped without being added to the page’s section
+allowlist, so clicking them silently bounced back to setup. They open now, and a test walks every tab
+against the allowlist so that cannot ship again.
+
+## v0.354.0 — Two things that were quietly missing
+
+**Routes now say how faithfully they run what they claim to prove.** `act` and the borrowed-machine route
+both produce Linux-container evidence, but one runs GitHub's own runner image and the other emulates
+artifacts, caches, service containers and secrets. Nothing in the model separated them, so a routing rule
+could substitute one for the other and nothing objected. Packaging and security scanning now demand the
+real thing — a build that passed without producing the artifact it exists to produce, or a scan that came
+back clean because it ran without credentials, are both wrong in the expensive direction. Everything else
+accepts an approximation and says when it used one, because under `act` your tests genuinely run; it is
+the workflow orchestration around them that is emulated.
+
+**And the tests are type-checked.** They never were: the build config covers `src/` and emits to `out/`,
+Vitest transpiles without checking, and the linter here is not type-aware. So a fixture could claim a type
+it no longer satisfied and nothing noticed — which is exactly what happened while this work was going on.
+
+Switching it on wholesale was not an option; a few hundred pre-existing mismatches exist, mostly partial
+mocks that are perfectly reasonable in tests. Instead the count is held at a baseline that can only go
+down, the same way this project already ratchets dead exports. A new test that does not type-check fails
+the suite and is named in the failure; the existing backlog blocks nobody.
+
+## v0.353.0 — act, with the caveats up front
+
+`act` runs your existing GitHub workflows locally, in containers, without pushing and without spending
+hosted minutes. It is the first alternative executor worth having, and it has been listed on the Pipeline
+page as a card AtlasMind had not built. Now it is built.
+
+The useful part is not the command. It is that AtlasMind reads your workflow first and tells you what
+`act` will not reproduce: artifacts and caches have no local service, service containers are only partly
+emulated, secrets are absent so steps that need one often pass for the wrong reason, and the event payload
+is made up rather than delivered. Each of those is reported with what it means for the result, before you
+run anything.
+
+And where a faithful run is simply impossible, it refuses. A job targeting Windows or macOS under a Linux
+container is not a partial result — it is a different thing with the same job name — so AtlasMind will
+not offer to run it. Same for OIDC, where no local value can stand in for GitHub's issuer.
+
+AtlasMind hands the command to your terminal rather than running it. `act` executes whatever your workflow
+says, with container access; the borrowed-machine route is the one built for executing a reviewed workflow,
+and it checks twelve rules before it will. Helping you run this is the right amount of help.
+
+## v0.352.0 — One build list, and it will not invent a verdict
+
+Pipeline could show GitHub's runs, and separately whether a local container was alive. Nothing put those
+in one place, so the question a build page exists to answer — what has this project actually run lately —
+did not have one. **Builds** is that list: every route, newest first.
+
+The part worth knowing is that it records how closely each build was watched. The one-job runner streams
+its output, so AtlasMind can tell you it passed. GitHub is checked at intervals, because its CLI offers no
+push channel, and a running hosted build says so rather than pretending to stream. And the run-here route
+is honest about the thing it cannot do: those commands go to *your* terminal, AtlasMind does not read it,
+so the build shows a question mark and says why.
+
+That is enforced rather than intended. A build marked unobserved has its verdict forced to unknown when
+the record is created, and again when it is read back, so neither an optimistic caller nor an old stored
+record can put a tick beside a run nobody saw. This is the page people check before shipping; a green tick
+it made up would be the worst thing on it.
+
+The list keeps no logs — only a pointer to the output channel or terminal that already has them — and your
+local build history stays yours, in workspace state rather than the committed project memory.
+
+## v0.351.0 — Routing rules, and the one rule the file cannot change
+
+Knowing your options is not the same as having decided. This release adds the decision: a committed
+`ci-routing.json` recording which route serves fast feedback, the full suite, packaging, security scans,
+the platform matrix, and contributions nobody has reviewed — and what each should do when your hosted
+allowance runs out. It is a file rather than a setting because that is a statement about how your team
+works, and those deserve a reviewer. AtlasMind never writes it just because you opened the page.
+
+Every decision tells you the rule that made it and, in a sentence, why the other routes lost.
+
+**One rule is not the file's to change.** Code nobody has reviewed never falls back to a local route,
+whatever the budget says. That check runs before the allowance is even looked at and applies to every
+fallback, so running out of hosted minutes produces a refusal — not somebody else's pull request running
+on your computer. Write a rule demanding otherwise and AtlasMind reports it as an error and refuses it
+anyway. Otherwise “fall back to local when the credit runs out” would be a way for running out of money
+to route hostile code onto a developer's machine.
+
+AtlasMind can also read your Actions allowance, so budget-aware rules act on a real number. When it
+cannot — usually a token without the billing scope — it says so and keeps using the preferred route. An
+unreadable meter is not an empty one: a 403 looks exactly like zero minutes to careless code, and treating
+it that way would move your work onto your own machine because of a permissions error. A public repository
+is settled without a request at all, since it cannot spend an allowance.
+
+## v0.350.0 — Where a check runs is now a choice, not an assumption
+
+Pipeline described one way of running checks: lend your computer to a GitHub job. Four guided steps, a
+container, a queue. Everything else — including the simplest thing anybody actually wants, which is to run
+the tests right now on the code in front of them — was either a brochure card or absent entirely. The
+project's own documentation opens its list of options by saying direct local execution is the simplest
+posture, and there was no button for it.
+
+**Where it runs** is the new view. It lists every route with what it can do, what it costs, and whether
+this machine can use it today — and, most importantly, what a pass on it actually proves. That last part
+is not decoration. A green run in a Linux container is not evidence about Windows, however green, so each
+route's evidence is fixed when it is declared and nothing can promote it by succeeding. Ask AtlasMind
+whether a container will do instead of a real Windows machine and it says no, with the reason.
+
+The simplest route now has a button. It works out which of your scripts constitute “the checks” — if you
+declare a `ci`, `verify` or `check` script it runs that, because you have already said what your checks
+are, rather than guessing at the pieces — shows you the exact commands, and types them into a terminal for
+you to press Enter on. If one of those scripts would publish or deploy, it refuses: a button labelled
+“run here” should not reach the internet, and that work stays on the Delivery runbook where it is
+expected.
+
+`act`, Buildkite and Woodpecker are listed too, marked as adapters AtlasMind has not built. They are
+visible so the page does not pretend three routes are all there is, and unselectable so nothing offers you
+a button that cannot work.
+
+## v0.349.0 — A setup guide for local CI, and an installer for the CLI it needs
+
+Local CI asks more of you than anything else in AtlasMind: a workflow file that satisfies a dozen rules, a
+permission, the GitHub CLI, a GitHub sign-in, Docker, and a queued job. Buzz has a guide. ACP has a guide.
+Lens has a guide. This did not — so the way you found out something was missing was by hitting the failure
+it caused, several steps in.
+
+`/localci` is that guide. It works out each step from your actual machine rather than asking you, and it
+switches nothing on for you — every step opens the screen where you decide, which is the same promise the
+other three make and a test now enforces here too. It finishes by proving one job has actually run, because
+a runner that is perfectly configured and has never executed anything looks identical, from every settings
+screen, to one that works.
+
+Two smaller things came with it. A missing GitHub CLI can now be installed from the Runner view: AtlasMind
+shows the exact command first, runs it without a shell, and confirms afterwards by looking for `gh` on PATH
+rather than trusting the installer's exit code. Docker is deliberately not installed this way — it is a
+system service with a virtual machine behind it — and neither is `gh` on Debian or Ubuntu, where the real
+route means adding a repository and a signing key that AtlasMind will not script for you.
+
+And an arm64 machine is now told plainly that the runner image AtlasMind ships is the reviewed x64 one,
+which setting to change and how to find the right digest, instead of meeting a pull failure that looks like
+a network problem.
+
+## v0.348.0 — AtlasMind writes the trusted workflow, and checks it first
+
+One file decides which GitHub jobs may run on your own computer. It carried the strictest set of rules in
+AtlasMind — an owner-only condition, an exact branch and repository, no secrets, no write permission, every
+action pinned to an exact commit — and it was the one thing you had to write by hand, copying a template
+from the documentation. That template had quietly drifted out of step with the rules it was supposed to
+satisfy, so following it faithfully produced a file that failed three of them. And you only found out at
+the very last step, after installing Docker, signing in to GitHub and queueing a job, as a single sentence
+containing every problem at once.
+
+All three of those things are fixed. **Check the trusted workflow** on the Runner view reads the file and
+reports it against the real policy — it is a file read, so it works before anything else is set up.
+**Write it for me…** appears when no such file exists: AtlasMind builds one from your repository’s own
+remote, branch, runner label and package scripts, tells you in plain language what it will allow and what
+it refuses, creates it for your review, and never overwrites anything. When a file does need changes, each
+one is listed separately with the rule it failed.
+
+The generated workflow is checked against the same validator that guards a real run, and a property test
+asserts that every workflow AtlasMind can produce passes it — prose can drift, a test cannot. An unchecked
+file is reported as *not checked* rather than as fine.
+
+## v0.347.0 — A local runner setup path that says what is actually installed
+
+Pipeline's beginner route now follows the real sequence: choose a reviewed workflow, prepare the computer,
+queue one trusted GitHub job, and only then lend that job a temporary runner. Reading the result is shown as
+the follow-up, rather than being mixed into setup. The Start action now performs queue discovery during its
+host-owned preflight instead of waiting for an impossible browser-side “queued run already known” state.
+
+That route now presents one next action and a compact four-step progress strip. The complete step list,
+specialist dashboards, and recent CI results start collapsed. Runner setup uses the same hierarchy: current
+action and critical blockers first; missing computer setup expands automatically; completed diagnostics and
+hardware, GPU, provider, capacity, lifecycle, and evidence detail remain available under disclosures.
+
+The Runner view explains that AtlasMind does not need a permanent local daemon. It provides platform-aware
+Docker and GitHub CLI help only after inspection finds a missing prerequisite. Fixed official pages replace
+raw machine installer commands, and the page says these are operating-system applications outside the
+repository. GitHub browser sign-in is the one terminal command shown. Runner permission, Docker CLI/engine,
+GitHub CLI/authentication and pinned-image readiness remain separate; unknown stays “Not checked”.
+
+Queue checking now recognises GitHub workflow runs reported as `pending`, shows the local and waiting SHAs,
+and explains in plain language that the trusted branch queues code already pushed to GitHub—not uncommitted
+local work. Only complete commands look runnable. Queue and stale-run cancellation commands have Copy and
+Send-to-Terminal controls; Send types into the configured VS Code shell on Windows, macOS, or Linux and
+waits for the operator to review and press Enter. A mismatch returns to a retryable ready state. AtlasMind
+also refuses one correct run when any stale run is still waiting, because GitHub may assign either job
+sharing the label.
+The permission badge also names the effective VS Code setting source AtlasMind read, and the dashboard
+re-synchronises that value before rendering so a stale manager cannot present an Enable action for an
+already-enabled active profile. Installer commands remain guidance only; AtlasMind runs none of them.
+
+---
+
+## v0.346.1 — Keep Pipeline Studio's evidence boundaries explicit
+
+Pipeline's not-read, read-failed, no-failure, and failed-log-unreadable states remain visibly separate after
+the Studio redesign. Workspace discovery also rejects drive-qualified, absolute, traversal and NUL-bearing
+paths, while package counts say when they describe only the root manifest. Architecture, development,
+runner, agent-tool and security guides now pin the read-only graph, reduced-motion, bounded scan and GPU
+detection-versus-access contracts.
+
+---
+
+## v0.346.0 — Pipeline Studio, visual CI evidence, and GPU discovery
+
+Pipeline is now organised around a four-step beginner route, followed by six focused views for the
+workflow, runner, tests, analytics, packages and monorepo context. Accessible information controls explain
+the unfamiliar parts in place. Measured status dials resolve to ticks, the read-only dependency canvas can
+be rearranged by pointer or keyboard, aggregate test results animate into honest pass/fail/skip states,
+and bounded GitHub history drives outcome, feedback-time and per-workflow reliability charts. Every motion
+has a reduced-motion final state.
+
+The package view maps declared Node workspaces or bounded first-level manifests, highlights units touched
+by the current worktree, inventories package formats, lockfiles, dependency monitors and pinned runner
+images, and reuses the artifact ledger. It does not pretend AtlasMind is already a package registry:
+configuration-file values remain unread and external cache, approval, vulnerability and publish data stay
+explicitly unconfigured.
+
+Machine inspection now includes GPU identity and trustworthy VRAM readings, and separately reports whether
+Docker advertises a GPU-capable runtime. That is capability evidence only. The trusted runner remains
+CPU-only, receives no GPU device and never adds `--gpus`.
+
+---
+
+## v0.345.1 — Delivery dashboard and local CI blocker visibility
+
+The project dashboard now presents live local CI state and delivery check blockers in a more direct form,
+including working-tree cleanliness and runbook gate signals, so shipping checks better match what the local
+runner and workflow state show at the moment.
+
+---
+
+## v0.345.0 — Run trusted local CI from the Pipeline dashboard
+
+The Pipeline page now has a provider-aware execution command centre alongside its workflow inventory and
+failure analysis. It reads the host and Docker engine separately, shows exactly how many CPUs and how much
+memory remain for the desktop, caps the container and process count, tracks the trust → isolation → run →
+cleanup lifecycle, and keeps Linux container evidence visibly separate from native Windows or macOS
+evidence. GitHub Actions is connected today; Buildkite, Semaphore and other providers have explicit adapter
+positions rather than being presented as if they already ran.
+
+The start button does not queue or rerun work. It accepts exactly one already-queued run for the current
+commit after re-validating the committed workflow, owner, repository, trusted branch, unique runner label,
+read-only permission, secret-free job, immutable action references and clean checkout credentials. The
+registration token goes directly from GitHub CLI stdout to Docker stdin. The ephemeral container receives
+no host mounts, Docker socket, GPU, persistent volume or default labels, and runs under hard CPU, memory,
+swap, process, capability and privilege-escalation limits.
+
+Eight machine-scoped settings govern the workflow, branch, architecture label, image and resource caps.
+The Docker shutdown policy defaults to closing Desktop only when AtlasMind started it; operators may keep
+it open or request closing every time, but AtlasMind still leaves it open if another container is running
+or the inventory cannot be read. It never starts or stops a Linux system Docker service.
+
+---
+
+## v0.344.4 — Keep TLS verification on for locally inspected traffic
+
+The trusted Linux workflow now points JavaScript actions at the worker's verified system CA bundle. The
+runner guide covers a local antivirus or enterprise interception root without recommending any TLS bypass.
+
+---
+
+## v0.344.3 — Make the trusted runner workflow dispatchable
+
+The local-runner workflow now derives its per-job npm cache path only after a worker exists. This fixes the
+GitHub validation failure caused by trying to read runner context while the job was still being planned.
+
+---
+
+## v0.344.2 — Run CI locally without making the workstation a public runner
+
+A new runbook reproduces the repository's compile, lint, integration-audit, test, coverage, packaging and
+secret-scan gates locally, and says which GitHub-specific behaviour a local pass cannot prove.
+
+The connected-runner instructions start with the security boundary: public visibility does not by itself
+prohibit self-hosting, but untrusted pull-request code does not belong on a persistent machine. Operators
+can choose direct local, protected trusted-branch, ephemeral/JIT, or provider-hosted PR execution. A
+dedicated persistent host is supported for reviewed branch code when it has a low-privilege account, no
+personal credentials or long-lived secrets, least-privilege job tokens and a clean worker state; the
+stronger disposable path still deregisters and destroys the worker after one job.
+
+For AtlasMind's current development phase, local CI is the normal evidence path, trusted-branch hardware
+is the controlled bridge when GitHub dispatch adds value, and hosted operating-system matrices are
+reserved for release or genuinely platform-specific evidence. Safety gates remain; only their execution
+location changes. That split is now implemented: two npm commands cover quick and complete local checks,
+the hosted matrix starts automatically only for release PRs into `main`, and a separate workflow accepts
+only the owner's `develop` push or exact-ref manual dispatch on an ephemeral Linux container. The official
+runner image is digest-pinned, its token is read-only, action versions are immutable, and it receives no
+secrets or OIDC permission.
+
+The first complete run also caught a packaging boundary defect: an untracked local `website/` tree entered
+the VSIX and inflated it to 142 MB. That directory is now excluded from extension packages and a manifest
+test keeps it excluded, without deleting or changing the local website itself.
+
+The guide also compares `act`, Woodpecker, Semaphore Community Edition, Dagger and Buildkite. `act` is the
+first local adapter to prototype because it can consume existing GitHub workflow YAML; Woodpecker is the
+lightweight daemon candidate; Semaphore is the complete free self-hosted platform. None is described as a
+sandbox for untrusted code merely because it uses containers.
+
+## v0.344.1 — Clicking between files stops waking the chat panel
+
+The same rebuild that used to run per streamed word also ran every time you changed editor tab — re-reading
+your credential store and the run history from disk on each click, to update a list of open-file chips.
+Thirty tab switches did that thirty times; now they do it none.
+
+## v0.344.0 — Chat stops doing a day's work per word
+
+Every chunk of a streaming reply used to rebuild the whole panel: re-reading your credential store, the
+checkpoint store and the run history from disk, recomputing the context meter over the entire transcript,
+and re-sending that transcript to the view. Hundreds of times, for one answer.
+
+So the cost of a turn tracked how *long* the reply was and how much was already in the chat — not how hard
+the question was. That is why a simple ask could still take a while, and why a long-running chat got
+steadily slower.
+
+The view now updates about once a frame instead of once a word. The reply text itself is unchanged and
+still recorded on every chunk, so nothing is lost or truncated. On a 200-chunk reply the credential-store
+reads alone went from 203 to 3.
+
+## v0.343.1 — The model button joins the icon row
+
+The **Auto** button was rendering half again the size of the icons next to it — its own styling asked to be
+smaller and was being overridden by a more general rule further down the stylesheet. It now matches the row.
+
+Auto is also lit now, the way Autopilot is when it is on, because leaving the router to choose is automation
+being engaged. Pin a model and the light goes off: the model's name is already telling you somebody took the
+wheel. Hover it to read what it does — *AtlasMind picks the model for each message, on cost, speed and
+capability* — which is a sentence that never fitted on the button.
+
+## v0.343.0 — A project run checks it has somewhere to run
+
+Pointing `/project` at an empty folder used to produce a full plan and a full run. The planner never looks
+at your workspace — it works from your goal, your memory and the available skills — so it invented the work
+from the wording, and then the run went looking for files that were not there.
+
+With no folder open at all, it now stops before planning and says so. With a folder open but empty, it shows
+you the plan and asks first, because that is genuinely ambiguous: it is how a new project starts, and it is
+also what the wrong folder looks like. The question names both.
+
+## v0.342.0 — File paths in a reply are links you can click
+
+A reply that named four test files drew all four with a line through them, which reads as *these files were
+deleted*. Nothing in the chat writes strikethrough — the style belonged to links AtlasMind had rejected, and
+file paths were landing there.
+
+Underneath that, two things were wrong at once. A path AtlasMind *accepted* did nothing when clicked, so the
+links that looked like they worked were the broken ones; and the same file passed or failed depending on how
+it was written, with `src/a.ts` accepted while `C:epo\src\a.ts` was not.
+
+Now any of those spellings opens the file in the editor, at the line if the link named one. A path outside
+your workspace is not opened, and says so rather than doing nothing.
+
+## v0.341.2 — Short messages keep their place in the conversation
+
+Typing something brief like `git status` mid-conversation used to start AtlasMind from scratch — it lost the
+thread, and then described a session it could no longer see, once reporting that it had made no changes two
+turns after editing a file. Short messages are shorthand, and shorthand now keeps its context.
+
+Also: the "what Atlas did" summary no longer lists the model that answered among the ones that failed.
+
+## v0.341.1 — The activity strip moves inside the thread
+
+A placement fix: the line telling you what AtlasMind is doing sat just below the box holding your
+conversation, which made it read as a caption on the window. It now sits inside that box, directly under
+the last message, where the thing it is describing is happening.
+
 ## v0.341.0 — Dictate straight into the chat box
 
 There is a microphone beside the attachment buttons. Click it, speak, click again — the words appear in the

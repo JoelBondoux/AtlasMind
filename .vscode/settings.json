@@ -46,5 +46,8 @@
     "atlasmind.buzz.inboundChannels": ["443a7fd2-dc28-46a6-998e-8721589f2778"],
     "atlasmind.buzz.autoCreateFollowUps": false,
     "atlasmind.buzz.relayUrl": "ws://localhost:3000",
-    "atlasmind.workflow.maxAutomationLevel": "auto"
+    "atlasmind.workflow.maxAutomationLevel": "propose",
+    "atlasmind.workflow.allowIssueWrites": true,
+    "atlasmind.workflow.allowPullRequestWrites": true,
+    "atlasmind.workflow.allowReleaseWrites": true
 }

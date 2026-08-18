@@ -289,6 +289,28 @@ The autonomous goal-seeking loop (`/loop` chat command and the Mission Control p
 | `atlasmind.dailyCostLimitUsd` | `number` | `0` | Maximum daily spend in USD. `0` = unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
 | `atlasmind.displayCurrency` | `string` | `"USD"` | Currency used for every cost display. One of `auto` or an ISO code from `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. `auto` reads your OS locale. Costs are **stored in USD** and converted for display only, with rates fetched at startup and cached for 24 hours — so a rate change never rewrites a recorded spend. |
 
+## Local CI runner
+
+These settings are all **machine-scoped**: a repository cannot commit a configuration that lends your
+computer to a different workflow, raises its resource ceiling or changes when Docker stops. The Pipeline
+dashboard remains read-only until the master switch is enabled, and every run still requires one modal
+confirmation after the live queue and committed workflow have passed validation.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.ci.localRunner.enabled` | `boolean` | `false` | Permit one ephemeral Docker runner for one already-queued trusted GitHub Actions job. Does not dispatch or rerun workflows. |
+| `atlasmind.ci.localRunner.workflowFile` | `string` | `"trusted-local-ci.yml"` | Filename inside `.github/workflows`. The committed file is re-read and safety-validated before every start. |
+| `atlasmind.ci.localRunner.trustedBranch` | `string` | `"develop"` | Exact branch required in the workflow, queued run and current checkout. |
+| `atlasmind.ci.localRunner.runnerLabel` | `string` | `"atlasmind-trusted-linux-{arch}"` | Dedicated `--no-default-labels` routing label. `{arch}` comes from Docker (`x64` or `arm64`). A duplicate workflow or registered runner refuses. |
+| `atlasmind.ci.localRunner.image` | `string` | pinned GitHub runner digest | Container image. AtlasMind auto-pulls only digest-pinned references and always runs the resolved immutable image id. An installed local derivative may be selected by tag and is resolved before use. |
+| `atlasmind.ci.localRunner.maxCpus` | `number` | `8` | CPU ceiling after preserving at least 25% of Docker/host capacity; minimum viable allocation is 2. |
+| `atlasmind.ci.localRunner.maxMemoryGb` | `number` | `16` | Memory ceiling after preserving at least 25% and 2 GB; minimum viable allocation is 4 GB. Container swap is disabled. |
+| `atlasmind.ci.localRunner.shutdownPolicy` | `string` | `"ifStartedByAtlasMind"` | `ifStartedByAtlasMind`, `never`, or `always`. AtlasMind never stops Desktop when another container is running or inventory is unknown, and never manages a Linux system daemon. |
+
+The executor is host-portable across Windows, macOS and Linux where Docker is available, but its evidence
+is deliberately labelled **Linux container x64/arm64**. It is not native Windows/macOS evidence. See
+[Local CI and safe runners](local-ci-and-safe-runners.md) for the trust boundary and installation guide.
+
 ## Guided GitHub workflow
 
 The workflow is a **committed file** (`project_memory/operations/workflow-config.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed.

@@ -2354,10 +2354,14 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
     askIcon.src = ${atlasDiscussIcon};
     askIcon.alt = '';
     askIcon.setAttribute('aria-hidden', 'true');
+    const askGlyph = document.createElement('span');
+    askGlyph.className = 'atlas-discuss-glyph';
+    askGlyph.setAttribute('aria-hidden', 'true');
+    askGlyph.textContent = '+';
     const askLabel = document.createElement('span');
     askLabel.className = 'atlas-discuss-label';
     askLabel.textContent = 'Ask AtlasMind to help configure this MCP server';
-    askBtn.append(askIcon, askLabel);
+    askBtn.append(askIcon, askGlyph, askLabel);
     ask.appendChild(askBtn);
     host.appendChild(ask);
   }

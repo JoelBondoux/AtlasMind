@@ -57,6 +57,28 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## CI execution boundary
+
+Repository validation has three deliberately separate execution planes. `npm run ci:local:quick` is the
+inner-loop plane; `npm run ci:local` is the complete local pre-push gate. Both are static package scripts,
+so neither needs GitHub or a runner registration. `.github/workflows/trusted-local-ci.yml` is the optional
+development dispatch plane: only an owner `develop` push or exact-ref manual dispatch, read-only token, no
+secrets/OIDC, full-SHA actions, and one custom label registered without GitHub's generic self-hosted labels.
+The worker is an ephemeral non-root Linux container in Docker Desktop's WSL2 VM, with no host mounts or
+Docker socket, and is started only for the reviewed job.
+
+`.github/workflows/ci.yml` is a different plane: provider-hosted release evidence. It runs automatically
+only for pull requests into protected `main`, preserves the three check contexts branch protection already
+requires, and can be dispatched manually for an intentional platform investigation. Separating workflow
+files prevents adding a local runner from silently making it eligible for public PR jobs, and separating
+job names prevents one Linux machine from impersonating Windows/macOS release evidence.
+
+`tests/ciWorkflowPolicy.test.ts` reads both workflow files and the manifest as policy artifacts. It pins the
+hosted trigger boundary, local workflow event/ref/actor/repository checks, least-privilege permissions,
+absence of secrets and OIDC, immutable action references, non-persistent checkout credentials, runner
+label, and the distinction between quick and complete local scripts. This is intentionally a source-level
+contract: workflow security can regress while TypeScript compiles perfectly.
+
 ## Activation Flow
 
 1. VS Code triggers `onStartupFinished`.
@@ -507,6 +529,325 @@ release-only automation is not treated as quality coverage. Unit coverage lives 
 `tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
 `webviewMessages.test.ts`.
 
+### CiRoutes (`src/core/ciRoutes.ts`)
+
+Where a check can run, declared rather than assumed — the CI analogue of `modelRouter`. The Pipeline page
+had one route with a dashboard and several with brochure cards: everything in the guided flow described the
+GitHub-connected local runner, so "check this before I push" routed somebody through Docker, `gh`, a
+committed workflow and a queued job to run commands they could have typed, while the documentation's own
+mode table opened by calling direct local execution the simplest posture.
+
+Four rules carry the semantics. **A route declares what its evidence proves, and success never widens
+that** — `CiRouteEvidence` is fixed at declaration, so no amount of green promotes a Linux container into
+evidence about Windows; `routeSatisfiesEvidence` refuses that substitution and explains itself either way,
+while `declared-matrix` satisfies the narrower classes because a hosted matrix may legitimately contain
+them. **An unknown capability is never a yes** — three states, modelled explicitly, since a route silently
+treated as able to hold secrets is how a secret reaches somewhere nobody agreed to. **A route with no
+adapter is declared, not hidden** — `act`, Buildkite and Woodpecker mark a real boundary and are worth
+seeing, but `implementation: 'declared'` makes them permanently `unimplemented` rather than relying on a
+caller to remember. **Availability is derived from the machine**, with every unmet prerequisite named, so
+"why can I not run this here" is answerable on the page.
+
+Evidence has a second axis. `CiRouteFidelity` says whether a route runs the declared thing or an
+approximation of it, and it exists because the evidence class alone could not separate `act` from the
+borrowed machine: both produce `linux-container`, yet one runs GitHub's own runner image and runner binary
+while the other runs deliberately incomplete images with artifacts, caches, services, secrets and the event
+payload emulated or absent. A rule could substitute one for the other and the model raised no objection.
+Two values rather than a score, because a number invites arithmetic nobody can defend — is 0.7 enough for
+packaging? — where the real question is binary. Every approximate route must carry a `fidelityNote` saying
+what is approximated, asserted by test. `routeSatisfiesRequirement` checks both axes, evidence first, and
+`requiredFidelity` on a workload class is what demands the real thing; absent, an approximation is
+acceptable, which is the honest default since under `act` the project's tests genuinely run and it is the
+orchestration around them that is emulated.
+
+`resolveDirectLocalChecks` publishes the rule that chose the commands: a declared aggregate (`ci`,
+`ci:local`, `verify`, `check`) wins over guessing at its parts, because a project declaring one has already
+said what its checks are — this repository's own `ci:local` chains six steps in an order
+`compile, lint, test` does not reproduce. The fallback vocabulary is the same four verbs both workflow
+starters use, shared so three surfaces cannot disagree about what "the checks" means.
+`buildDirectLocalRunPlan` reuses `deliveryRunPlan`'s shell classification, chaining and reach classifier
+rather than repeating them, and **refuses outward-reaching commands structurally** — it returns a refusal
+rather than a plan, so a caller cannot reach runnable commands without that check having passed. A button
+labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
+runbook, where the confirmation is built for them.
+
+`docsUrl` carries where somebody would go to read about a route or install it, and it is a constant on the
+definition rather than a URL assembled at render time or nameable by a webview message: the page sends a
+route *id* and this table decides the destination, so an executor row can offer a link without being able
+to choose one. It is set only for the three routes AtlasMind cannot configure for you — `act`, Buildkite
+and Woodpecker — and deliberately absent on the core three, since sending somebody to github.com to learn
+what "run here" means would be worse than the silence. `https` only, and only a route's own project; a
+link AtlasMind draws is a claim about where it goes, and the answer reaches `openExternal` without a
+further question. Pure + unit-tested.
+
+### CiActRoute (`src/core/ciActRoute.ts`)
+
+The first alternative executor, and the one the local-CI documentation picks first. `act` runs the
+repository's real workflow YAML locally in containers — its appeal — while its default images are
+deliberately incomplete and several GitHub services are only partially emulated, which makes a pass weaker
+evidence than the same workflow hosted **and makes that invisible from the exit code**.
+
+So the substance is `assessActFidelity`, not the command. A declared rule table, matched with bounded
+regular expressions against the workflow text as `assessTrustedLocalCiWorkflow` does, reports each gap with
+its consequence. Two severities, and the split is the point: `partial` (artifacts, caches, service
+containers, secrets, event payload) is stated and allowed, while `cannot-run` — a Windows or macOS job, or
+OIDC — **refuses the run**, because a `windows-latest` job under a Linux container is not a partial result
+but a different thing wearing the same job name. This is the documentation's own requirement for an
+executor adapter, implemented: a missing capability is a refusal or an explicit partial run, never an
+inferred success. An empty gap list reports "these checks found nothing" rather than claiming parity.
+
+**AtlasMind plans the command and does not run it.** `act` executes arbitrary repository workflow content
+through the Docker API by design; `localCiRunner` exists for the case where a *reviewed* workflow should be
+executed and applies twelve rules first. Helping somebody run this is the right level of involvement. The
+line therefore goes to a terminal without a newline, and the build is recorded `unobserved`, so the ledger
+forces its verdict to unknown. Every argument is a constant here with the filename, job id and event
+validated against closed grammars; `--pull=false` keeps a route whose appeal is being local and cheap from
+starting a multi-gigabyte download unasked. Pure + unit-tested.
+
+### CiBuildLedger (`src/core/ciBuildLedger.ts`)
+
+One list of builds, whatever ran them. The page could show GitHub's runs and, separately, whether a local
+container was alive; nothing put those together, so "what has this project run lately" had no answer.
+
+**How closely a build was watched is recorded, and a build nobody watched never reports a verdict.**
+AtlasMind types the direct-local commands into a terminal and deliberately does not read it, so it knows a
+run *started* and cannot know how it ended. `recordCiBuild` forces an `unobserved` build's status to
+`unknown` whatever the caller passes, and `sanitizeCiBuildLedger` re-applies that on read so a stale or
+hand-edited record cannot reintroduce a pass. A property test walks it over every generated combination. A
+tick beside an unobserved run would be an invented pass on the surface people check before shipping.
+
+**Hosted progress is polled, and the record says so.** The GitHub CLI has no push channel, so liveness there
+is requests with backoff — `nextCiPollDelayMs` returns `undefined` once nothing is running, which is what
+stops the loop rather than a caller remembering to. `HOSTED_POLL_NOTE` is rendered beside running hosted
+builds; a stream would be an overstatement.
+
+**The ledger holds no log output** — `CiBuildRecord` has no field that could carry one, and a `pointer` says
+where the detail lives instead. **Storage is per-developer**, stated in `CI_BUILD_LEDGER_NOTE` for the same
+reason as `observedDelta`'s baseline: `project_memory/` is committed, so a shared ledger would mean "what has
+anybody run" and would conflict between two people on the same day. `githubRunToBuild` reads GitHub's
+`status` and `conclusion` as the separate fields they are — a run in progress has no conclusion, and reading
+an empty one either way is the classic misreading — and `buildCiLedgerView` carries `githubLoaded` so an
+unfetched history never renders as an empty one. Pure, clock-injected + unit-tested.
+
+### CiRoutingPolicy (`src/core/ciRoutingPolicy.ts`)
+
+Which route runs which kind of check — a committed file rather than a setting, so a change to how a team
+works arrives as a reviewed diff. Same shape as `workflowConfig`: JSON is the source of truth, a markdown
+mirror publishes the rule table beside it, unknown top-level fields survive a round trip, and it is
+**never seeded on render**, because writing a statement about somebody's team into their repository because
+they opened a tab would put words in their mouth.
+
+**Budget pressure never weakens the trust boundary**, and this is enforced structurally rather than by rule
+authoring. A workload whose `input` is `untrusted` may only reach a route declaring
+`safeForUntrustedCode: 'yes'`; the filter runs *before* the credit meter is consulted and applies to every
+fallback, so an exhausted allowance produces a refusal rather than a demotion onto a workstation. Without
+it, "fall back to local when credit runs out" is a mechanism by which running out of money routes hostile
+code onto a developer's machine. Because the file is hand-editable the invariant cannot live in the seed:
+`validateCiRoutingConfig` reports such a rule as an error *and* `decideCiRoute` refuses it, and a
+`fast-check` property asserts the guarantee over 400 generated combinations of rule file, credit state and
+machine configuration.
+
+Decision order is load-bearing — trust, then evidence via `routeSatisfiesEvidence`, then availability, then
+budget — so every later step can only narrow further. A rule may declare `onCreditExhausted: 'block'`,
+which is correct where nothing else produces the evidence: the platform matrix stops rather than
+substituting a container. Every decision names its rule twice, as an id and as a sentence, and lists each
+rejected candidate with the reason it lost. `CI_WORKLOAD_CLASSES` is deliberately six entries rather than
+one per testing methodology: the 32 methodologies answer "what should be tested", this answers "what kind
+of machine settles it", and most share an answer. `fs`-only + unit-tested.
+
+`buildCiRoutingMatrix` renders the same policy as a grid — every workload against every route, with
+`preferred` / `fallback` / `available` / `blocked` / `unimplemented` decided by the same trust and
+suitability checks `decideCiRoute` applies, so a surface cannot offer a pairing the engine would refuse.
+`usableHere` is carried separately from the policy state on purpose: a route the rules permit but this
+machine cannot run today is a different fact from one the rules refuse, and collapsing them would make a
+Docker outage read as a decision. `cycleCiRoutingCell` is the single edit gesture — unused → fallback →
+preferred → unused — returning a new config plus the sentence describing the change, refusing a blocked
+pairing outright and refusing to remove a workload's last preferred route, since a rule without one is a
+workload with no answer.
+
+### CiCreditMeter (`src/core/ciCreditMeter.ts`)
+
+How much hosted allowance is left, and the honest answer when nobody knows. Three states, and the third is
+the point: a billing endpoint returning 403 because a scope was never granted looks, to naive code, exactly
+like zero minutes remaining — and the routing engine would then move every job onto a workstation on the
+strength of a permissions error. Every unreadable response, missing field or failed request becomes
+`unknown` **with its reason**, never `exhausted`.
+
+Only two things may report the allowance spent: a billing reading where used ≥ included with no paid
+overage, and GitHub refusing a run with a message matching a short declared phrase list — the local-CI
+documentation already warns against assuming budget is the cause of a refused run, so a generic failure is
+declined. A paid overage counts as headroom, since somebody has already decided to keep spending. A public
+repository is `remaining` with basis `not-metered`, settled without a request, because it cannot consume an
+allowance at all. Endpoints are constants with a single `{owner}` placeholder the caller fills from an
+already-validated slug. Pure + unit-tested; the caller performs the `gh` request.
+
+### TrustedLocalCiStarter (`src/core/trustedLocalCiStarter.ts`)
+
+The write side of the trusted-runner contract, and the answer to a structural gap: every rule in
+`assessTrustedLocalCiWorkflow` was enforced against a file AtlasMind could only *judge*, never produce, so
+the artifact with the strictest machine-checked contract in the product was the one a person had to
+hand-author — from a documentation template that had itself drifted out of compliance with three of those
+rules.
+
+`buildTrustedLocalCiStarter` composes the workflow from repository-derived facts only: a slug parsed by
+`parseRepoSlug` (URL or `owner/repo`, never guessed), the configured trusted branch, the runner label
+already expanded for the engine's reported architecture, and package-script names filtered to
+`compile`/`build`/`lint`/`test`. Action pins are module constants in
+`TRUSTED_LOCAL_CI_ACTIONS_REVIEWED`, never parsed from documentation and never model-generated — the same
+rule `acpInstaller` applies to install commands, because a SHA lifted from fetched text is a
+boundary-shaped string rather than a boundary. Corepack covers pnpm and yarn deliberately, so no third
+action needs a pin nobody reviewed.
+
+Three properties carry the design. **The generator is held to the validator, not to a template**: a
+`fast-check` property over arbitrary valid inputs asserts every generated workflow passes
+`assessTrustedLocalCiWorkflow`, and the builder additionally re-checks the exact bytes it is about to
+return — a scaffolder whose output its own runtime path then refuses is worse than none, because the
+failure arrives with AtlasMind's authorship attached. **An invalid input is refused, never coerced**, and
+the refusal names what was wrong; a repaired branch name would route real jobs at a ref nobody chose, in a
+committed file. **The plan states what the file permits and refuses in plain words**, so the confirmation
+is readable by somebody who has never pinned an action while the YAML stays inspectable by somebody who
+has. Branch shape rules are shared with `ciManager.safeWorkflowBranchRef` rather than duplicated. Pure and
+`vscode`-free; unit and property coverage in `tests/core/trustedLocalCiStarter.test.ts`.
+
+### LocalCiSetupPlan (`src/core/localCiSetupPlan.ts`)
+
+The `/localci` walkthrough, and the fourth entry in `SETUP_GUIDES`. Local CI has more external
+prerequisites than anything else in AtlasMind — a committed workflow satisfying a dozen rules, a
+machine-scoped permission, `gh`, an authenticated GitHub session, a Docker engine and a queued job — and
+was the only feature of that shape without a guide, so a missing prerequisite was discovered by hitting
+the failure it caused.
+
+Delegates every mechanic to `setupWalkthrough`, so ordering, next-step selection, progress counting and
+rendering cannot drift from the Buzz, ACP and Lens guides. Two properties are enforced rather than
+described: **nothing here installs or enables anything** (every action is an opening action, asserted by
+`findNonOpeningActions` over several states — a guide that switched on the gate deciding whether GitHub
+may execute code on this machine would have removed the reason that gate exists), and **an unprobed
+`false` is reported as "not checked", never as "missing"**, since sending somebody to install software
+they already have is how a guide stops being trusted.
+
+Step order follows the order things fail in, with the workflow check deliberately first because it is a
+filesystem read and therefore free. `firstRun` — proving a job has actually completed — is in the
+walkthrough but excluded from `isLocalCiReady`, the same split `acpSetupPlan` makes: a correctly
+configured runner that has never executed anything is ready, and calling it unready would send somebody to
+fix what is not broken. The queue command is **passed in already validated** by
+`buildLocalCiQueueInvocation` rather than composed here; interpolating a filename and branch into a
+GitHub CLI command line is the shape `ghExecBoundary` forbids, and the runner already owns that answer.
+Pure + unit-tested.
+
+### LocalCiInstaller (`src/core/localCiInstaller.ts`)
+
+Planning the GitHub CLI install, in the shape `acpInstaller` and `mcp/mcpRuntime` already settled: every
+command is a constant in the file (never parsed from a page, never model-generated), `execFile` with no
+shell, and planning performs nothing — execution is a separate call after a modal lists each command with
+its purpose. Success is verified by re-resolving `gh` on PATH rather than by an exit code, because a
+package manager can report success while installing somewhere this window will not see until it reloads.
+
+Two omissions are deliberate and documented in the module. **Docker is not installed by AtlasMind** — a
+system service with a virtual machine behind it, frequently needing a reboot, whose installer is
+interactive on Windows and macOS; the official page remains the offer. **`apt-get` is not offered for
+`gh`**, because the reliable route on Debian and Ubuntu adds GitHub's apt repository and keyring, a
+network-fetched key feeding an install step, which is precisely the shape the constants rule exists to
+refuse. Both produce a `manual` plan naming the reason rather than a command that would fail. Pure apart
+from an injected probe + unit-tested.
+
+### LocalCiRunnerManager (`src/core/localCiRunner.ts`)
+
+The execution half of Project Dashboard → Pipeline. It is intentionally separate from `CiManager`:
+workflow inventory is a pure, always-safe local read; lending a machine to GitHub is an explicit,
+machine-scoped lifecycle with network, process and resource authority.
+
+The lifecycle is `disabled → not-inspected → ready → starting → waiting → running → finished/failed`.
+Opening or rendering the page performs no Docker or GitHub probe. **Inspect prerequisites** reads
+`os.cpus()` / `os.totalmem()`, the existing bounded cross-platform GPU probes, `gh --version`, bounded
+`gh auth status`, and Docker's actual `NCPU`, `MemTotal`, `OSType`, `Architecture` and advertised runtimes.
+`LocalCiPrerequisitesSnapshot.inspection` keeps an unchecked false value from being rendered as “missing”.
+Resource planning uses the lower execution capacity,
+reserves at least 25% (and 2 GB), applies operator maximums, and refuses below 2 CPUs or 4 GB. The container
+receives matching `--cpus`, `--memory`, `--memory-swap` and `--pids-limit 1024` limits. GPU identity/live
+VRAM and Docker runtime capability are evidence only; `LocalCiGpuSnapshot.accessPolicy` remains `disabled`
+and no `--gpus` argument is produced. OS/architecture are carried in the snapshot as evidence, so a Linux
+Docker result can never be presented as native Windows or macOS coverage.
+
+`prepare()` is the authorization gate and **never queues work**. GitHub reports a waiting self-hosted
+workflow as `pending` while its job is `queued`, so the manager reads both lists and deduplicates by run id.
+It requires exactly one waiting `push`/`workflow_dispatch` run in total for current HEAD and the trusted
+branch, with the repository owner as actor. One current run plus a stale run refuses too: a shared label
+cannot guarantee which job GitHub assigns. Queue absence/mismatch is a typed, retryable preflight issue—not
+a failed machine—and carries bounded local/waiting SHA evidence for the webview.
+The target workflow must be committed and is re-read immediately: exact repository/ref/owner conditions,
+read-only contents permission, no secret reference/write/OIDC permission, full-SHA action pins,
+`persist-credentials: false`, and one architecture-specific label that occurs in no sibling workflow. Any
+registered runner carrying that label refuses, preventing a stale/competing worker from sharing the route.
+
+That file review is owned by `reviewWorkflow`, which `prepare()` calls rather than reimplements, and which
+is separately reachable through `assessCommittedWorkflow` **before any other setup exists** — it is a
+filesystem read, so it needs no Docker, no `gh` and no queued job. Previously the policy was applied only
+at the moment of lending the machine, four steps in, as one concatenated sentence. `LocalCiWorkflowReview`
+keeps `missing`, `unreadable`, `blocked` and `ok` distinct: only a genuinely absent file is `scaffoldable`,
+because offering to "create" over an unreadable one is the single case where creating destroys something.
+A directory that cannot be listed is a blocker rather than a pass, since the check exists to prove no other
+workflow claims the label. `LocalCiWorkflowError` carries the whole review instead of a joined string, so a
+surface can render one item per failed rule; a policy failure lands as the `blocked` configuration state
+rather than as a runtime failure, because nothing was started and the fix is a file edit. The review is
+recorded on the snapshot on success as well as failure — an absent `workflowReview` means *not reviewed*,
+never *acceptable*.
+
+After a host modal names the repository, SHA, run, image, evidence platform, limits, reserve and shutdown
+effect, the runner starts as a non-root ephemeral container with no mounts, socket, ports, GPU, persistent
+volume or default labels; all Linux capabilities are dropped and privilege escalation is disabled. A
+digest-pinned image may be pulled; any installed local derivative is resolved to its immutable image id
+before `docker run`. `pipeGhStdoutOrThrow` in `GhClient` connects the one-hour registration token directly
+from `gh` stdout to Docker stdin, so AtlasMind never materializes it as a string or webview/log field.
+
+Docker Desktop ownership is explicit. `ifStartedByAtlasMind` (default) stops it only when this lifecycle
+started it; `never` leaves it open; `always` asks to stop it even if already running. Every mode leaves it
+open when container inventory fails or any unrelated container is running. An unmanaged Linux Docker
+system service is never started or stopped. Pure policy coverage lives in `tests/core/localCiRunner.test.ts`;
+the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`. `LocalCiRunnerManager` retains a
+copy of the last applied machine configuration; identical reads are no-ops, while the dashboard reconciles
+the current VS Code value before every snapshot. This closes the gap where a long-lived panel could render
+an old enabled state after the active profile or extension host changed.
+
+### Pipeline Studio (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`)
+
+The Pipeline webview is a progressive evidence surface over `CiManager`, `LocalCiRunnerManager`, testing,
+delivery and bounded GitHub-run data. Its initial next-action card and four-decision journey—checks, computer,
+queue, one-job runner—lead to six locally selected subviews; result reading follows execution instead of
+being presented as an installation step. The Start view derives the first incomplete decision and renders
+one primary action plus a compact four-step strip. Complete setup steps, specialist shortcuts and recent
+history use native disclosure elements because their open state is optional context, unlike the persisted
+help controls. The Runner subview uses the same hierarchy: one current action and critical blockers remain
+visible; the readiness disclosure separates effective permission, Docker CLI/engine, GitHub CLI/
+authentication and runner image state and opens automatically only when machine action is required. Setup
+help appears only for a missing item: the browser sends an opaque id and the host resolves one of four fixed
+official URLs, so it cannot supply a URL or installer command. The copy distinguishes machine applications
+from repository dependencies. The host adds the effective setting source; the browser cannot set it.
+Runnable queue and stale-run recovery guidance is rendered only as complete command blocks with Copy and
+Send-to-Terminal controls. Queue Copy/Send messages have no payload: the host reconstructs the command from
+validated machine-scoped workflow/ref settings. A cancel message carries only a positive run id, which the
+host must find again in the current waiting-run preflight issue. Send targets a workspace-rooted terminal
+using VS Code's configured shell and passes `addNewLine: false`, so PowerShell, Command Prompt, bash and zsh
+all receive the same `gh` syntax for review without executing it.
+Hardware, GPU, provider adapters, capacity arithmetic, runner lifecycle, immutable configuration and the
+platform evidence boundary are grouped in one closed technical disclosure. This changes presentation only;
+no evidence is discarded and no blocker is moved behind disclosure.
+Information controls reuse the persisted Workflow disclosure state and restore focus;
+measured dials use the dashboard value-animation mechanism and end in a tick only when the underlying
+state is resolved. `prefers-reduced-motion` removes dial, test-cell, graph-edge and chart movement without
+hiding the final value.
+
+The workflow canvas is read-only. Pointer or arrow-key movement updates cubic edges and saves only bounded
+node coordinates in VS Code webview state; resetting clears those coordinates. It cannot supply YAML,
+commands or a path to the host. Test intelligence renders an observed JUnit aggregate but labels flake
+history and testcase timing unavailable until those data exist. Analytics is bounded to already-loaded
+GitHub runs and treats creation-to-update duration as answer time, including queueing.
+
+`collectCiWorkspaceSnapshot` reads declared Node workspaces or at most one level of supported manifests,
+constrains every candidate beneath the workspace, and marks only current worktree-path impact; it does not
+claim a dependency graph. `collectSupplyChainSnapshot` records manifest, lockfile, update-monitor and
+registry-configuration presence, never registry values. Package-host cache, approval, vulnerability and
+publication states remain explicitly unconfigured until an external provider adapter supplies evidence.
+
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
@@ -682,7 +1023,7 @@ Five rules, each closing one way this misled:
 
 **Code decides, prose proposes.** Evidence is split by origin at the *input* boundary rather than sorted out afterwards — a merged corpus cannot recover the distinction, which is precisely how the old one lost it. A signal in `dependencies`/`scripts`/`paths` yields `basis: 'observed'` and arrives ticked; a signal only in `prose` yields `basis: 'stated'`, arrives unticked, and names the words that prompted it. The same rule `researchRegister` applies to an uncited claim, for the same reason: something that reads exactly like evidence but is not must not be stored as though it were. Nothing is suppressed — the goal is to stop the tool deciding on the user's behalf, not to stop it suggesting.
 
-**Boundaries are real.** `signalPattern` wraps each signal in `(?<![a-z0-9])`/`(?![a-z0-9])` rather than using ``, because the vocabulary is full of hyphens and slashes (`fast-check`, `ci/cd`, `do-178`, `mc/dc`, `800-53`) where `` is surprising. Result: `api` matches in `rest api` and `api-first`, and in neither `rapid` nor `openapi`.
+**Boundaries are real.** `signalPattern` wraps each signal in `(?<![a-z0-9])`/`(?![a-z0-9])` rather than using `\b`, because the vocabulary is full of hyphens and slashes (`fast-check`, `ci/cd`, `do-178`, `mc/dc`, `800-53`) where `\b` is surprising. Result: `api` matches in `rest api` and `api-first`, and in neither `rapid` nor `openapi`.
 
 **One ambiguous word is a hint; two are a pattern.** `AMBIGUOUS_SIGNALS` was derived empirically — by running the assessment over this repository and reading what it ticked. `npm audit` in a script switched on SOC 2, change-management and audit-trail testing; a `.github/workflows` directory switched on data-quality and SLSA provenance. None of those words is wrong in the catalogue; the word is simply not, alone, evidence of which meaning applies. `isDecisive` requires one unambiguous signal or two **literal** ones — literal only, because a derived rule expands one dependency into a whole vocabulary (`redis` emits `database postgres mysql mongodb`) and counting the expansion would let a single ambiguous fact manufacture its own corroboration and appear to rest on five.
 
@@ -1173,7 +1514,7 @@ The single boundary between AtlasMind and the GitHub CLI. Before it there were t
 
 **No shell, ever.** Every call is `execFile(cmd, args)` with an argv array, so a repository name, an issue title, or a branch name may contain a semicolon or a backtick without becoming a second command. `assertNoShellMetacharacters` sits on top of that and can never fire in correct code — which is the point: it converts a future refactor that reintroduces string composition from a silent vulnerability into a loud failure at the call site.
 
-**AtlasMind holds no credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong.
+**AtlasMind holds no long-lived credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong. The local runner's short-lived registration token follows a stricter variant: `pipeGhStdoutOrThrow` connects `gh` stdout directly to Docker stdin without collecting the value, while retaining the same argv-only, timeout, bounded-stderr and classified-failure contract.
 
 **A failure names its fix.** `classifyGhFailure` distinguishes not-installed, not-authenticated, rate-limited, forbidden, not-found and timeout, each with the command that resolves it — ordered most-specific first, because a rate-limit message mentions tokens and sending somebody to re-authenticate when they are merely throttled wastes their time. Every method returns a result rather than throwing: a dashboard that throws on a network failure disappears exactly when you wanted it to say what was wrong. The process runner is injected, so the module is unit-tested without a `gh` binary.
 

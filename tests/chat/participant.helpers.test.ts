@@ -57,6 +57,7 @@ import {
   buildProjectRunAutoFlowNotice,
   resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
+  assessProjectWorkspace,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
@@ -1916,5 +1917,87 @@ describe('an interrogative without a question mark', () => {
 
     const rule = 'What the router should do is prefer the cheapest healthy model';
     expect(resolveAutonomousContinuationGoal('carry on', transcriptEndingWith(rule))).toBe(rule);
+  });
+});
+
+describe('shorthand keeps the thread', () => {
+  const TRANSCRIPT: SessionTranscriptEntry[] = [
+    { id: '1', role: 'user', content: 'install the recommended plugins for me', timestamp: '2026-08-15T10:00:00.000Z' },
+    { id: '2', role: 'assistant', content: 'Which one would you like first?', timestamp: '2026-08-15T10:00:10.000Z' },
+    { id: '3', role: 'user', content: 'I asked you to fix it, not explain it', timestamp: '2026-08-15T10:01:00.000Z' },
+    { id: '4', role: 'assistant', content: 'Added a placeholder entry to extensions.json.', timestamp: '2026-08-15T10:01:10.000Z' },
+  ];
+
+  /**
+   * From a live Lane 5 run: `git status` dropped the session, and the model —
+   * with no session to look at — still narrated one, reporting that it had made
+   * no changes on a turn where it had edited a file two turns earlier.
+   */
+  it.each(['git status', 'project_memory/', 'the tests', 'try again'])(
+    'carries the conversation into %s',
+    prompt => {
+      expect(shouldCarryForwardConversationContext(prompt, TRANSCRIPT)).toBe(true);
+    },
+  );
+
+  it('still drops the thread on an explicit change of subject', () => {
+    // Brevity must not become a way round the subject-shift veto.
+    expect(shouldCarryForwardConversationContext(
+      'forget that, generate an image of a mountain at sunrise',
+      TRANSCRIPT,
+    )).toBe(false);
+  });
+});
+
+describe('model attempt reporting', () => {
+  function metadataFor(attempts: Array<{ model: string; status: string }>, modelUsed: string) {
+    return buildAssistantResponseMetadata('do the thing', {
+      agentId: 'a', modelUsed, costUsd: 0, inputTokens: 1, outputTokens: 1,
+      modelAttempts: attempts as never, artifacts: undefined as never,
+    } as never, { responseText: 'an answer' });
+  }
+
+  /**
+   * A model can be tried, refused, and tried again successfully. That produced
+   * "final model: X" directly above "Did not complete: …, X", under a headline
+   * of "Completed after 5 attempts; 5 did not complete" — which cannot be true
+   * of a turn that produced an answer.
+   */
+  it('never reports the model that answered as having failed', () => {
+    const meta = metadataFor([
+      { model: 'copilot/flash', status: 'capability-mismatch' },
+      { model: 'mistral/small', status: 'capability-mismatch' },
+      { model: 'mistral/small', status: 'ok' },
+    ], 'mistral/small');
+
+    const bullets = (meta.thoughtSummary?.bullets ?? []).join('\n');
+    expect(bullets).toContain('copilot/flash');
+    expect(bullets).not.toMatch(/Did not complete:[^\n]*mistral\/small/);
+    expect(meta.thoughtSummary?.summary).not.toContain('3 did not complete');
+  });
+
+  it('still names the models that genuinely did not complete', () => {
+    const meta = metadataFor([
+      { model: 'copilot/flash', status: 'error' },
+      { model: 'mistral/small', status: 'ok' },
+    ], 'mistral/small');
+
+    expect((meta.thoughtSummary?.bullets ?? []).join('\n')).toContain('copilot/flash (error)');
+  });
+});
+
+describe('whether a project run has anywhere to run', () => {
+  it('separates no folder open from an open folder with nothing in it', () => {
+    // Collapsing these would force one answer onto two different situations:
+    // one has nowhere to write at all, the other is how every new project
+    // starts.
+    expect(assessProjectWorkspace(0, 0)).toEqual({ kind: 'no-folder' });
+    expect(assessProjectWorkspace(0, 12)).toEqual({ kind: 'no-folder' });
+    expect(assessProjectWorkspace(1, 0)).toEqual({ kind: 'empty' });
+  });
+
+  it('reports a populated workspace with its file count', () => {
+    expect(assessProjectWorkspace(1, 12)).toEqual({ kind: 'populated', fileCount: 12 });
+    expect(assessProjectWorkspace(2, 1)).toEqual({ kind: 'populated', fileCount: 1 });
   });
 });

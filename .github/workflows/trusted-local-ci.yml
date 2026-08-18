@@ -1,0 +1,59 @@
+name: Trusted local CI
+
+# The repository-level runner label routes jobs but does not authorize them.
+# Only the repository owner's exact develop push or manual dispatch can reach
+# this job; pull-request events are deliberately absent.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-local-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-quality:
+    name: Trusted quality (Linux x64)
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.repository == 'JoelBondoux/AtlasMind' &&
+      github.ref == 'refs/heads/develop' &&
+      github.actor == github.repository_owner
+    # Register the dedicated runner with --no-default-labels and this one
+    # public routing label. Never place this label on a daily-use workstation.
+    runs-on: [atlasmind-trusted-linux-x64]
+    timeout-minutes: 45
+    env:
+      CI: true
+      # Keep TLS verification enabled while allowing a verified operator CA
+      # installed in the Linux system trust store (for example, AV inspection).
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
+
+    steps:
+      - name: Checkout reviewed develop commit
+        # v7; a full SHA is the immutable action boundary.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node
+        # v7; no shared Actions dependency cache is restored onto the runner.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 20
+
+      - name: Configure per-job npm cache
+        shell: bash
+        run: echo "NPM_CONFIG_CACHE=$RUNNER_TEMP/npm-cache" >> "$GITHUB_ENV"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run complete local quality gate
+        run: npm run ci:local

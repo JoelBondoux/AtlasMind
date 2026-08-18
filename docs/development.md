@@ -13,6 +13,14 @@ npm install     # required whenever the branch changed dependencies
 
 **To install a branch into your real editor** rather than a development host, download the `.vsix` artifact from that commit's CI run (Actions → the run → Artifacts → `atlasmind-vsix-<sha>`, retained 14 days). CI can also be started by hand from the Actions tab for a branch with no open pull request.
 
+**To validate without a hosted run**, use the complete command sequence and trust boundaries in
+[Local CI and safe self-hosted runners](local-ci-and-safe-runners.md). After `npm ci`, use
+`npm run ci:local:quick` while iterating and `npm run ci:local` before pushing. The
+`trusted-local-ci.yml` route runs that same complete gate only for the repository owner's `develop` push
+or exact-ref manual dispatch.
+A GitHub-connected runner belongs on a dedicated or disposable low-privilege host; it does not belong on a
+daily-use development machine and must not accept untrusted pull-request code.
+
 
 
 ## UI/UX (Composer Input)
@@ -92,6 +100,10 @@ npm run lint
 
 ## Test
 
+**The tests are type-checked separately, and their errors ratchet down.** `tsconfig.json` has `rootDir: "src"` and emits to `out/`, so tests could not simply be added to its `include` — and were therefore never type-checked at all. Vitest transpiles without checking and ESLint here is not type-aware, so a fixture could declare a return type it no longer satisfied and nothing would notice: `CiRouteMachineFacts` gained a required field while a fixture kept omitting it, ran with `undefined`, and passed. `tsconfig.test.json` checks both trees with `noEmit`, aligning `module`/`moduleResolution` with how Vitest actually resolves these files rather than how the extension bundle is emitted — otherwise `import.meta` is reported as an error in files that legitimately use it, which is a disagreement about configuration and not a defect. Run it with `npm run typecheck:tests`.
+
+Turning the check on as a gate was not available: a few hundred pre-existing mismatches exist, most of them partial mocks that are idiomatic in tests and would need casts that remove the value of checking them. So `tests/baselines/testTypecheck.test.ts` applies the same ratchet `unreadDeclarations` uses for dead exports — a ceiling that fails when the count rises **and** when it falls without being lowered, so the number moves one way only and cannot become a fiction after a cleanup. Only `tests/**` errors count toward it; a `src` regression must fail the compile where it belongs rather than being absorbed here. A new test file that does not type-check fails the suite, and the failure names the files.
+
 **Settings are guarded too.** A setting is a promise: it shows in the VS Code settings UI with a description saying what it does. `tests/settingsIntegrity.test.ts` fails the build if a declared setting is read by no code, if a configuration key is read with a redundant `atlasmind.` prefix (`getConfiguration('atlasmind').get('atlasmind.x')` silently resolves to `atlasmind.atlasmind.x`), or if a setting on the not-yet-wired allowlist has a description that reads like a working feature. Adding to that allowlist requires a written reason, so it cannot become the place dead settings go to be forgotten.
 
 **Webview scripts are guarded by a parser, not by the compiler.** `media/*.js` is a string handed to a browser: never type-checked, never imported by a test. A renamed function therefore leaves its old call site behind silently, and the failure arrives as a render-time `ReferenceError` that takes down the entire panel ("Dashboard refresh failed — …is not defined"). `tests/views/webviewIdentifierIntegrity.test.ts` parses each script with acorn and asserts every identifier it reads is bound — declared in the file, a parameter, or a real browser/host global. When it fails, the fix is either the rename you missed or, for a genuine new DOM global, an addition to its `HOST_GLOBALS` list.
@@ -114,6 +126,8 @@ npm run test
 npm run test:coverage
 npm run test:mutation
 npm run test:providers:local-recommendations
+npm run ci:local:quick   # compile + lint + integration audit + full suite
+npm run ci:local         # quick gate + focused regression + coverage + VSIX
 npx vitest run --config evals/vitest.stress.config.ts   # chat-window stress battery (findings, not gates)
 ```
 
@@ -130,7 +144,8 @@ AtlasMind/
 ├── .gitignore            Git ignore rules
 ├── .github/
 │   ├── copilot-instructions.md   Copilot documentation maintenance rules
-│   ├── workflows/ci.yml          CI quality gates
+│   ├── workflows/ci.yml          Hosted release-PR operating-system matrix
+│   ├── workflows/trusted-local-ci.yml  Owner-only develop route to isolated hardware
 │   ├── ISSUE_TEMPLATE/           GitHub issue templates
 │   ├── pull_request_template.md  GitHub PR checklist
 │   └── CODEOWNERS               Review ownership
@@ -155,7 +170,7 @@ AtlasMind/
 │   ├── acp/              Agent-side ACP sessions, permissions, Buzz setup/reply boundary
 │   ├── chat/             Chat participant
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + codebase-driven auto-assessment + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingAutoAssess.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + codebase-driven auto-assessment + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingAutoAssess.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, hosted-allowance meter, cross-route build ledger and act fidelity adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), local CI setup guidance and GitHub CLI install planning (`localCiSetupPlan.ts`, `localCiInstaller.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensDashboard.ts Pure Lens catalog, readiness rules, flow map, and ranked actions
 │   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the five declaration files
 │   │   ├── lensDeclarationDraft.ts Untrusted-model boundary for a proposed declaration: refuse, anchor-check, withhold, merge
@@ -320,7 +335,7 @@ Three rules when working on panel CSS:
 
 The Agent Manager's skill controls map directly onto `AgentDefinition.skillPolicy`: task-scoped, manual allowlist, and the separately labelled advanced all-enabled override. Keep the advanced choice explicit because it admits future custom/MCP skills as well as those visible today. Webview payload validation accepts the legacy shape, but the extension host—not the browser—derives and persists the policy. New and synthesized agents default to task-scoped selection.
 
-Actionable failures and explanatory cards use the shared `ATLAS_DISCUSS_ACTION_CSS` / `renderAtlasDiscussAction()` affordance rather than introducing panel-specific “Ask Atlas” chrome. The visible control is always the AtlasMind logo alone, from roomy error rows through dense tables. Its `title` must state exactly what pressing it will do, and its `aria-label` must carry the same topic and intent for assistive technology; the visually hidden label is not optional. `ATLAS_ICON_DATA_URI` supplies the same CSP-safe mark to panels without local resource roots, and the shared CSS inverts it in dark and high-contrast themes. Prefer an opaque record id in the webview message and re-read the current record in the extension host.
+Actionable failures and explanatory cards use the shared `ATLAS_DISCUSS_ACTION_CSS` / `renderAtlasDiscussAction()` affordance rather than introducing panel-specific “Ask Atlas” chrome. The compact control is a **pill carrying two symbols**: the AtlasMind mark on the left saying who is being asked, and an intent glyph on the right saying what pressing it will do. It was the mark alone until v0.360.0, which named the who and never the what — a row of these was a row of identical circles, and telling two apart meant hovering each one. Intents come from `ATLAS_ACTION_GLYPHS` (`discuss`, `improve`, `fix`, `draft`, `summarise`); pass one via `intent` and omit it only where `discuss` is genuinely right, since the default is a fallback rather than a choice. The vocabulary is deliberately short, because a symbol set nobody can learn is decoration. The dashboard's webview script keeps its own copy — it is a string handed to a browser and cannot import from the host — and a test in `tests/views/workflowSurface.test.ts` pins the two tables together. The glyph **narrows** the meaning and never carries it alone: it is `aria-hidden`, the `title` must still state exactly what pressing the button will do, and the `aria-label` must carry the same topic and intent for assistive technology; the visually hidden label is not optional. `ATLAS_ICON_DATA_URI` supplies the same CSP-safe mark to panels without local resource roots, and the shared CSS inverts it in dark and high-contrast themes. Prefer an opaque record id in the webview message and re-read the current record in the extension host.
 
 There are two distinct handoff shapes. Operational errors contain process-, tool-, or repository-derived text, so they are redacted, bounded, fenced as reported data, and placed in an unsent Chat draft. A fact AtlasMind itself owns should not be sent through the model router merely to restate it: Testing Policy Coverage rebuilds the live row, combines it with the declared 23-methodology layman guide, and uses a one-shot `ChatPanelDirectResponse` carrying the immediate answer plus bounded quick-reply prompts. Direct responses are normalized at the Chat target boundary, accept only `atlasmind/*` source ids, are secret-redacted and length-capped, and are consumed before any await. They carry no command id and must not be used as a shortcut around ordinary model/tool approval for investigative or mutating work.
 
@@ -480,7 +495,7 @@ integration coverage. Selection remains ephemeral and must never call the graph 
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 
-The dedicated chat panel now also carries lightweight runtime state for recovery-specific UI. When the extension host detects explicit operator frustration and biases the current turn toward direct corrective action, the panel receives a `recoveryNotice` payload and renders a banner near the transcript status area. Keep that state in the extension host and pass only already-sanitized strings into the webview so the browser script remains a pure renderer. Each chat surface keeps its own selected session pinned locally; session-change events should refresh state without forcing every open chat surface onto the globally active session. The composer mode is also status-driven: idle sessions default to `Send`, the active busy session flips to `Steer`, and one-shot `New Chat` or `New Session` choices immediately fall back to the live state after they are queued. During a busy turn, `media/chatPanel.js` appends the last host-provided `streamingModels` entry to the status text above the composer and updates it on failover; keep this decoration in the shared status helper so progress and search messages do not accidentally erase the active model. Tool-loop progress still includes a structured `[TOOL_EXEC]` payload prefix, but the webview now renders tooling updates inside the streaming inner-monologue block: by default only the latest line is shown, and earlier updates are available behind a collapsible disclosure. Project-run offers are stored as validated transcript metadata and rendered as a host-resolved card; the browser may request only `start`, `save`, or `cancel`, while the extension host re-reads the pending goal, prevents double resolution, and routes saving through Project Run Center.
+The dedicated chat panel now also carries lightweight runtime state for recovery-specific UI. When the extension host detects explicit operator frustration and biases the current turn toward direct corrective action, the panel receives a `recoveryNotice` payload and renders a banner near the transcript status area. Keep that state in the extension host and pass only already-sanitized strings into the webview so the browser script remains a pure renderer. Each chat surface keeps its own selected session pinned locally; session-change events should refresh state without forcing every open chat surface onto the globally active session. The composer mode is also status-driven: idle sessions default to `Send`, the active busy session flips to `Steer`, and one-shot `New Chat` or `New Session` choices immediately fall back to the live state after they are queued. During a busy turn, `media/chatPanel.js` appends the last host-provided `streamingModels` entry to the status text above the composer and updates it on failover; keep this decoration in the shared status helper so progress and search messages do not accidentally erase the active model. Tool-loop progress still includes a structured `[TOOL_EXEC]` payload prefix, but the webview now renders tooling updates inside the streaming inner-monologue block: by default only the latest line is shown, and earlier updates are available behind a collapsible disclosure. Project-run offers are stored as validated transcript metadata and rendered as a host-resolved card; the browser may request only `start`, `save`, or `cancel`, while the extension host re-reads the pending goal, prevents double resolution, and routes saving through Project Run Center. **Bursty state pushes are coalesced** (`scheduleCoalescedSync`, roughly one frame): a full `syncState()` enumerates providers through credential storage, reads the checkpoint store and run history off disk, rebuilds the context meter over the whole transcript and re-posts that transcript. Two callers used to run all of that far more often than what they changed warranted — every streamed chunk, which made a turn's cost scale with reply length and session size rather than with the request, and every `onDidChangeVisibleTextEditors` / `onDidChangeActiveTextEditor`, which fire on ordinary navigation while changing only the open-file chip list. Coalescing rate-limits the push and nothing else: a streamed chunk still updates its transcript entry synchronously and `lastActiveTextEditor` is still recorded the moment it changes, because both are sources of truth rather than rendering. The end-of-turn `syncAllPanels()` is the unconditional trailing flush on completion, failure and stop alike, with any pending tick cancelled first. Provider enumeration is additionally reused by coalesced syncs and re-read by every other sync, so its staleness window is one reply; when adding work to `syncState`, decide explicitly whether it belongs on the coalesced path.
 
 Workflow chat guidance follows the same split. The dedicated panel may show the short host-authored `follow` status for the current turn, but it must not add that status as a durable assistant message or ask the operator to repeat a magic phrase. Only the extension host reads the declared workflow and constructs the narrow `WorkflowChatExecutionPolicy`; the Orchestrator revalidates that object and renders fixed system guidance. Never send repository-authored workflow prose, commands, checks, or blockers through this context field.
 
@@ -507,7 +522,97 @@ The Project Dashboard (`src/views/projectDashboardPanel.ts`) now includes a dedi
 
 Dashboard refresh controls share `renderRefreshAction` and `.refresh-progress-button`: the indeterminate fill uses `--vscode-progressBar-background`, stays inside the pressed button, disables duplicate clicks, reports `aria-busy`, and becomes a static fill under `prefers-reduced-motion`. The browser sets an optimistic busy bit only for the post-message round-trip; `repositoryRefreshBusy`, `branchFetchBusy`, and branch-id-scoped `branchInspectionBusy` host replies own the real lifetime and clear in `finally`. One repository-activity refresh deliberately animates every matching Issues/PR/CI control because that guarded operation loads issues, pull requests, CI, taxonomy, and releases together. **Two host messages now drive that one flag**: `refreshIssues` (all five reads) and `refreshCi` (`gh run list` for the branch and repo, plus at most one `--log-failed` download). They are separate because the costs differ by more than an order of magnitude and somebody watching a build should not re-read a hundred issues to see whether it went green; they share `repositoryActivityRefreshRunning`, so clicking both is a no-op rather than two bursts of API quota. `handleRefreshCi` **records its failure on the snapshot** rather than swallowing it as `handleRefreshIssues` does — there the CI read is tertiary and hiding it would not hide the primary read that succeeded, here it is the entire point of the click. `DashboardCiIntelligence.fetchFailure` is kept apart from `logFailure` (the run list could not be read, versus one run's log could not be read: different causes, different fixes), and a failure *replaces* previously-read runs rather than sitting above them, because old runs under a fresh timestamp report a stale build as the current one. The header refresh exposes **Ctrl+Shift+R** / **⌘⇧R** through a panel-scoped `keydown` handler, visible platform-aware hint, tooltip, and `aria-keyshortcuts`; it works wherever focus sits inside the webview and does not register or override a global VS Code keybinding.
 
+Pipeline Studio is deliberately progressive rather than one dense renderer. `state.pipelineSection` selects
+**Start here / Workflow map / Runner / Tests / Analytics / Packages & repo** from a closed id list, and the
+start view always remains useful before GitHub history has been loaded. Add unfamiliar pipeline concepts
+through `renderInfoHelp`, which reuses the Workflow disclosure store and focus-restoration path; do not add
+decorative `i` glyphs with no explanation. Dials and charts use `data-anim-*` plus
+`applyValueAnimations()`, while test-cell, checkmark and graph-edge CSS must have a static
+`prefers-reduced-motion` outcome.
+
+The Start and Runner setup paths follow a **one-next-action** rule. Start renders the first incomplete
+decision as the only primary action, then a compact four-step progress strip; the complete list, specialist
+shortcuts, and recent history are native `<details>` disclosures. Runner renders its contextual action and
+critical blockers before `setupCard`; the setup disclosure is `open` only when a prerequisite needs action,
+and technical evidence stays in a separate closed disclosure. Do not move `runnerBlockers` into a disclosure
+or duplicate primary actions at the bottom of the card. Native details are appropriate here because this is
+optional depth; explanatory `renderWorkflowHelp`/`renderInfoHelp` controls still use persisted webview state
+and focus restoration so an open explanation survives a host-driven re-render.
+
+The beginner route must follow operational time rather than dashboard data availability: choose the
+workflow, prepare the machine, queue GitHub, then confirm one temporary runner; read the verdict afterwards.
+Do not make Start conditional on `queuedRun` already being in browser state—`prepare()` is the host-owned
+operation that discovers and authorises it. Runner setup is intentionally visible rather than hidden behind
+an information icon. Render unchecked prerequisites as “Not checked”, keep the live permission badge tied
+to `DashboardLocalCiEnablementSnapshot`, and explain that the Docker container removes the need for a
+permanent local runner daemon. Do not render raw machine installer commands in the repository workflow.
+After inspection finds a missing tool, the webview may post only a closed help id; the host resolves that id
+through `LOCAL_CI_SETUP_HELP_URLS`. Explain that Docker/GitHub CLI install outside the workspace. The browser
+sign-in command may be copied into the VS Code terminal because it changes OS credential state, not files.
+Queue instructions must say `--ref` uses pushed code, recognise both pending and queued workflow states,
+and render a typed queue preflight issue separately from fatal runner blockers so the check remains retryable.
+
+`bindPipelineGraph` runs only after the webview DOM is rebuilt. Its pointer and arrow-key handlers may
+persist layout coordinates in webview state, but graph interaction is presentation-only: editing a
+workflow still goes through the existing host-owned open/review/create boundaries. The Tests view may
+render current JUnit aggregates but must not infer flakiness or slow tests without per-test history and
+timings. Analytics may use the bounded GitHub runs already in the snapshot; creation-to-update duration is
+labelled answer time because it includes queueing. Package/monorepo collection is read-only and bounded:
+declared workspaces or one directory level, no repository command execution, no registry value reads, and
+no cache/scan/publication claim before a provider adapter supplies it.
+
 The Pipeline page also owns **CI configuration and management**, independently of run-history loading. `src/core/ciManager.ts` parses GitHub Actions files into bounded summaries—triggers and branch scopes, jobs/runners/step counts/timeouts, explicit permissions, concurrency, validation categories and declared cautions—while omitting raw YAML, commands, action inputs and environment values from the webview snapshot. The UI teaches the three layers explicitly: definition (workflow jobs), assignment (`on:` events/branches), and enforcement (required status checks/branch protection), then shows AtlasMind delivery-gate bindings without claiming those settings configure GitHub. Existing workflows open in the editor or enter a proposal-only AtlasMind review through an opaque filename that the host re-resolves. `createCiStarter` accepts no payload: the host derives a Node starter from live workflow config, lockfile and package scripts, confirms path/branches/checks, and writes `.github/workflows/ci.yml` with `wx`; an existing quality CI workflow, unreadable workflow, or occupied target filename suppresses creation to avoid duplicated checks and spend, while release-only automation does not masquerade as quality coverage.
+
+The **trusted workflow** — the file authorising a GitHub job to execute on this machine — is generated by
+`src/core/trustedLocalCiStarter.ts` and reviewed by `LocalCiRunnerManager.reviewWorkflow`. Both webview
+messages, `assessTrustedCiWorkflow` and `createTrustedCiStarter`, carry **no payload whatsoever**: the host
+re-derives the repository from the git remote (via `parseRepoSlug`, so no `gh` is required for either) and
+the branch, label and filename from machine-scoped settings. A crafted message can therefore request a
+review or a creation but can never name a different file, repository condition, or path outside
+`.github/workflows`. Creation writes with `flag: 'wx'`, opens the result for review, and immediately
+re-reviews what landed on disk rather than trusting the builder's own check. Review is a pure filesystem
+read and is deliberately callable before Docker, `gh` or a queued job exists — the policy used to be
+evaluated only at start time, which put the cheapest check at the end of the longest path.
+
+The Pipeline page presents **four views** — Activity, Canvas, Tests, Rules — named for what a person is
+doing rather than for the subsystem behind each. `PIPELINE_SECTIONS` is the allowlist and
+`PIPELINE_SECTION_ALIASES` remaps ids persisted by the previous eight-tab layout, so a stale
+`vscode.getState()` never resolves to a view that no longer exists. Setup is addressable (`setup`) but is
+deliberately not a tab: it takes the page over while `pipelineSetupState` reports it unfinished and hands
+it back once done. That predicate is computed **once** and shared by the journey card and the header chip,
+because two computations of "is setup done" on one screen will eventually disagree.
+
+The Pipeline page's **default view is state-aware**: with no explicitly chosen tab, a project with any
+build or run history opens on Builds and only a fresh project opens on the setup journey, whose card
+collapses to one line once the durable steps are done and anything has ever built. Routing rules are
+editable from the page through `editCiRoutingRule` — a message carrying only a workload id from the closed
+vocabulary; the QuickPick candidates are filtered by the same `routeSatisfiesRequirement` the decision
+engine uses (trust rule included) and the result passes `validateCiRoutingConfig` before
+`CiRoutingConfigManager.save`. `workOnCiFailure` carries no payload and hands the already-fetched
+`CiFailureReport` to a chat session through `buildCiFailurePrompt`, which fences the log as reported
+content — the builder existed unused since the failure analysis landed.
+
+The Pipeline page's **execution fabric** is the opt-in impure counterpart (`src/core/localCiRunner.ts`). The
+webview posts `inspectLocalCiRunner`, `startLocalCiRunner`, or `showLocalCiOutput` with no payload; all
+workflow, branch, label, image, capacity and shutdown values are re-read from machine-scoped configuration
+by the host. Rendering never probes Docker or GitHub. Inspection is read-only and derives a deterministic
+resource plan from host plus Docker-engine capacity. Start performs the live queue/workflow/actor/runner
+collision checks, then asks a modal before starting Desktop, pulling a digest or registering anything.
+The `gh` registration token crosses the shared `ghClient.ts` boundary through a stream into Docker stdin
+and is never captured. Runner output is ANSI/control-sanitized, secret-redacted and bounded before the
+output channel or snapshot receives it. Closing the dashboard does not kill a running job; the owning
+manager completes its ephemeral cleanup in the extension host. Add provider adapters behind this boundary
+rather than adding provider-specific process calls to the panel, and never convert Linux-container evidence
+into a native host result.
+
+Queue guidance follows the dashboard command-control contract: never style a branch argument by itself as
+runnable code. Render the complete `gh` command and its standard Copy/Send controls together. Queue
+Copy/Send messages carry no command payload; the host rebuilds a validated argv value with
+`buildLocalCiQueueInvocation` and formats it only at the terminal/clipboard presentation boundary. Cancel
+messages carry only a positive run id and the host resolves it against
+the current waiting-run issue. The shared command uses no shell-specific wrapper, and `sendText(..., false)`
+types it into the workspace-rooted **AtlasMind CI** terminal without pressing Enter, so the configured
+PowerShell, Command Prompt, bash, or zsh remains the operator's choice and execution boundary.
 
 The Workflow page's **Your workflow file** card treats enablement as a segment state, not a checkbox decoration. `media/projectDashboard.js` emits `is-enabled` / `is-disabled` on each stage row, while the panel stylesheet colours only the outline and the standard **Enabled** status tag; row content and the 24-pixel marker stay neutral. The explicit **Enabled** / **Disabled** text and `aria-pressed` mean colour speeds up scanning but never carries the state alone.
 
@@ -657,7 +762,7 @@ npm run tag:release    # Re-run the git tag step on its own if it failed after p
 
 `publish:release` runs `vsce publish` and nothing else, authenticating with whatever credential `vsce login` stored in the OS keychain — it is the emergency path for publishing from a developer machine. **CI uses `publish:release:ci` instead** (`vsce publish --azure-credential`), which authenticates as the managed identity `vscode-marketplace-publisher` through workload identity federation; there is no Marketplace secret in the repository. The two are kept separate because adding `--azure-credential` to the local script would break publishing from a machine that has no Azure sign-in. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag.
 
-The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. Review the `vsce package` file listing before publishing; a workspace-memory directory in that listing is a release blocker.
+The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), a top-level local/generated `website/` tree, `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. `tests/packageManifest.test.ts` pins the generated directory exclusions. Review the `vsce package` file listing before publishing; workspace memory or a project website in that listing is a release blocker.
 
 Requires `vsce` to be installed globally or as a dev dependency:
 ```bash

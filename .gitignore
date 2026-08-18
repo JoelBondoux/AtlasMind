@@ -17,3 +17,10 @@ project_memory/temp/
 project_memory/operations/project-run-*.json
 project_memory/operations/.delivery-lock.json
 .atlasmind/
+
+# A separate project that happens to live inside this working copy. It carries
+# its own .git, so `git add -A` staged it as a gitlink with no .gitmodules
+# entry — which every `actions/checkout` then failed on before any job could
+# run ("No url found for submodule path 'website'"). Ignored rather than
+# declared as a submodule: it is not part of this repository.
+website/

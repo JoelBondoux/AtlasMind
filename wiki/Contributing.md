@@ -27,7 +27,15 @@ npm run watch        # Watch mode — what you want during development
 npm run compile      # Full build: desktop, web type-check, and web bundle
 npm test             # All tests
 npm run lint         # ESLint
+npm run typecheck:tests # Type-check the tests (the build config only covers src/)
+npm run ci:local:quick  # Compile, lint, integration audit, and full suite
 ```
+
+`npm run compile` type-checks `src/` only, because that is what it builds. Tests are checked separately by
+`typecheck:tests`, and the suite carries a ratcheting baseline of the errors that already exist — so a new
+test that does not type-check fails `npm test` and is named in the failure, while the existing backlog does
+not block anyone. If you fix some of it, lower `TEST_TYPE_ERROR_CEILING`; the baseline test will tell you
+the number.
 
 And occasionally:
 
@@ -36,9 +44,17 @@ npm run watch:web            # Watch the browser bundle
 npm run open-in-browser      # Load the web build in Chromium
 npm run test:coverage        # The CI coverage gate, locally
 npm run test:mutation        # The slower mutation suite
+npm run ci:local             # Complete local gate, including coverage and VSIX
 npm run package:vsix         # Build a .vsix
 npm run resolve:release-conflicts   # Settle a merge's version-marker conflicts
 ```
+
+Run `npm ci` and then `npm run ci:local` before pushing an integration-ready change. For the full-history
+secret scan and GitHub-connected path, follow
+[Local CI and safe self-hosted runners](../docs/local-ci-and-safe-runners.md). The short version is
+important: run directly by default and never register a persistent runner on a personal workstation. The
+trusted workflow accepts only the owner's `develop` push or exact-ref manual dispatch on an isolated runner; public
+pull-request code stays on provider-hosted or disposable workers.
 
 ### Your branch will conflict on the release files
 
@@ -245,6 +261,7 @@ targeted regression tests is the current bar.
 - [ ] `npm run compile` passes with zero errors
 - [ ] `npm test` — everything passes
 - [ ] `npm run lint` — no new warnings
+- [ ] Any new test file type-checks (`npm test` enforces this; `npm run typecheck:tests` shows the detail)
 - [ ] Version bumped in `package.json`
 - [ ] `CHANGELOG.md` entry added
 - [ ] Relevant docs updated **in the same commit**

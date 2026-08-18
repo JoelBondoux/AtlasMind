@@ -55,6 +55,12 @@ export type ChatPanelMessage =
   | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
+  /**
+   * A file path a reply linked to, optionally carrying a `#L12` or `:12` line
+   * anchor. The webview supplies the text the model wrote and nothing else; the
+   * host resolves it against the workspace root and refuses anything outside.
+   */
+  | { type: 'openFileReference'; payload: string }
   | { type: 'pickAttachments' }
   | { type: 'attachOpenFile'; payload: string }
   | { type: 'attachOpenFiles' }
@@ -404,6 +410,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     }
     const language = (message.payload as { language?: unknown }).language;
     return language === undefined || (typeof language === 'string' && language.length <= 40);
+  }
+
+  if (message.type === 'openFileReference') {
+    // Bounded here rather than only at the resolver: the payload is markdown a
+    // model wrote, so its length is not something the panel controls.
+    return typeof message.payload === 'string'
+      && message.payload.length > 0
+      && message.payload.length <= 500;
   }
 
   return (message.type === 'selectSession'

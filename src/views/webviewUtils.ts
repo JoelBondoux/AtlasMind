@@ -275,9 +275,25 @@ export const ATLAS_DISCUSS_ACTION_CSS = `
   body.vscode-high-contrast .atlas-discuss-action img {
     filter: invert(1);
   }
+  /*
+   * The compact Atlas action: a pill carrying two symbols — the Atlas mark on
+   * the left saying *who* is being asked, and a glyph on the right saying
+   * *what* it will do.
+   *
+   * It replaces a bare circular icon that was the same button everywhere,
+   * whatever it did: "Ask Atlas" told you who but never what, so a row of them
+   * was a row of identical circles and the only way to tell them apart was to
+   * hover each one. The glyph makes the action visible at a glance while the
+   * tooltip and the accessible name still carry the full sentence.
+   */
   .atlas-discuss-action.icon-only {
-    width: 30px;
-    padding: 4px;
+    padding: 3px 9px 3px 5px;
+    gap: 5px;
+  }
+  .atlas-discuss-action.icon-only .atlas-discuss-glyph {
+    font-size: 0.86em;
+    line-height: 1;
+    opacity: 0.9;
   }
   .atlas-discuss-action.icon-only .atlas-discuss-label {
     position: absolute;
@@ -292,12 +308,38 @@ export const ATLAS_DISCUSS_ACTION_CSS = `
   }
 `;
 
+/**
+ * The glyph vocabulary, declared once so the same intent looks the same on
+ * every surface.
+ *
+ * Deliberately short: a symbol set nobody can learn is decoration. Each of
+ * these appears beside the Atlas mark, and the tooltip always carries the
+ * sentence — the glyph narrows what the button does, it never has to carry the
+ * whole meaning alone.
+ */
+export const ATLAS_ACTION_GLYPHS = {
+  /** Explain, review, or discuss something that already exists. */
+  discuss: '☷',
+  /** Propose a change to it. */
+  improve: '✎',
+  /** Work through a problem — a failure, a gap, a piece of debt. */
+  fix: '⚒',
+  /** Draft something that does not exist yet. */
+  draft: '+',
+  /** Summarise or report on a body of work. */
+  summarise: '≡',
+} as const;
+
+export type AtlasActionIntent = keyof typeof ATLAS_ACTION_GLYPHS;
+
 export interface AtlasDiscussActionOptions {
   iconUri: string;
   action: string;
   label: string;
   title: string;
   targetId?: string;
+  /** What this button will do, shown as a glyph beside the Atlas mark. */
+  intent?: AtlasActionIntent;
 }
 
 /** Render a nonce-free, delegated-event button that opens an Atlas discussion. */
@@ -305,7 +347,8 @@ export function renderAtlasDiscussAction(options: AtlasDiscussActionOptions): st
   const target = options.targetId
     ? ` data-id="${escapeHtml(options.targetId)}"`
     : '';
-  return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
+  const glyph = ATLAS_ACTION_GLYPHS[options.intent ?? 'discuss'];
+  return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">${glyph}</span><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
 }
 
 export function escapeHtml(text: string): string {

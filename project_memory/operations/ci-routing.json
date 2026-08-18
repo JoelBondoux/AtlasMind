@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-18T09:43:58.793Z",
+  "onCreditUnknown": "prefer",
+  "rules": [
+    {
+      "id": "fast-feedback-here",
+      "workload": "fast-feedback",
+      "prefer": "direct-local",
+      "fallback": [
+        "github-hosted"
+      ],
+      "onCreditExhausted": "fallback",
+      "note": "Immediate feedback on the working copy. Spends no hosted allowance."
+    },
+    {
+      "id": "full-suite-hosted",
+      "workload": "full-suite",
+      "prefer": "github-hosted",
+      "fallback": [
+        "local-runner"
+      ],
+      "onCreditExhausted": "fallback",
+      "note": "A clean checkout settles this. The borrowed machine can stand in when the allowance is gone."
+    },
+    {
+      "id": "packaging-hosted",
+      "workload": "packaging",
+      "prefer": "github-hosted",
+      "fallback": [
+        "local-runner"
+      ],
+      "onCreditExhausted": "fallback"
+    },
+    {
+      "id": "security-scan-hosted",
+      "workload": "security-scan",
+      "prefer": "github-hosted",
+      "fallback": [
+        "local-runner"
+      ],
+      "onCreditExhausted": "fallback",
+      "note": "Secret scanning needs full history, which both routes have."
+    },
+    {
+      "id": "platform-matrix-hosted",
+      "workload": "platform-matrix",
+      "prefer": "github-hosted",
+      "fallback": [],
+      "onCreditExhausted": "block",
+      "note": "No other route can produce evidence for an operating system you are not sitting at."
+    },
+    {
+      "id": "untrusted-hosted-only",
+      "workload": "untrusted-contribution",
+      "prefer": "github-hosted",
+      "fallback": [],
+      "onCreditExhausted": "block",
+      "note": "Never falls back. Running unreviewed code on a personal machine is not a budget decision."
+    }
+  ]
+}

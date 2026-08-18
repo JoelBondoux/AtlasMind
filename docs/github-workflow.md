@@ -24,8 +24,8 @@ The specification's stage 2 (Branch Creation & Naming), instantiated.
 
 | Role | Branch | Notes |
 |---|---|---|
-| Integration | `develop` | Default branch and normal push target. Expected to move constantly. |
-| Release | `main` | Protected. Updated only by an intentional Marketplace release promotion. |
+| Integration | `develop` | Default implementation branch and normal push target. Expected to move constantly. |
+| Release | `main` | GitHub default and protected branch. Updated only by an intentional Marketplace release promotion. |
 
 Feature branches are created from `develop` as `<type>/<short-name>` — `feat/`, `fix/`, `chore/`,
 `docs/`. Where the work has an issue, prefer `<type>/<issue>-<slug>` so the link back is derived
@@ -73,7 +73,8 @@ team release branch.
 
 - Do not require pull requests or approving reviews.
 - Keep admin enforcement disabled so the maintainer can push directly.
-- Let CI run on pushes for visibility, but do not treat `develop` as a release gate.
+- Run `npm run ci:local` before pushing. The owner-only trusted-runner workflow also queues on `develop`
+  pushes when shared GitHub logs add value; do not treat `develop` as a release gate.
 - Restrict force pushes.
 
 ## Release Flow
@@ -81,7 +82,7 @@ team release branch.
 The specification's stage 6 (Release Automation), instantiated. **The release is Actions-driven.**
 
 1. Trigger **`Release — promote develop to main`** from the Actions tab.
-   It creates or reuses the `develop` → `main` release PR and enables squash auto-merge.
+   It creates or reuses the `develop` → `main` release PR and enables merge-commit auto-merge.
 2. Wait for the release PR to merge into `main`.
 3. Run **`npm run tag:release`** locally. This pushes `v<package.json version>`.
 4. The tag push triggers **`Release — publish Marketplace from tag`**, which signs in as the managed identity `vscode-marketplace-publisher` via workload identity federation, verifies it still has publish rights, then publishes via `vsce`
@@ -153,7 +154,8 @@ Automation: auto-add newly opened issues and PRs; set `Status=In Progress` when 
 The specification's stage 7 (Maintenance & Tech-Debt), instantiated.
 
 - Dependabot reviews npm dependencies and GitHub Actions weekly via `.github/dependabot.yml`.
-  These arrive as **pull requests**, not issues, and pass through the same CI gate as any change.
+  These arrive as **pull requests**, not issues. Review and validate them locally or on the isolated trusted
+  runner before they land on `develop`; the hosted matrix then verifies the aggregate at release promotion.
   They are never auto-merged — a dependency bump is a supply-chain event.
 - `.github/integration-monitor.json` is the curated list of external integrations whose versions
   should trigger a compliance review.
@@ -171,10 +173,33 @@ The specification's stage 7 (Maintenance & Tech-Debt), instantiated.
 
 ## Continuous Integration
 
-`.github/workflows/ci.yml` runs on pushes and pull requests to **`main` and `develop`**, and on
-manual `workflow_dispatch` — so a branch with no PR can still be verified.
+`.github/workflows/ci.yml` is the hosted release-confidence workflow. It runs automatically only for pull
+requests into **`main`**—normally the reviewed `develop` → `main` promotion—and remains manually
+dispatchable when a platform-specific investigation justifies hosted capacity. It does not run on routine
+pushes or pull requests into `develop`.
+
+The repository's **Approval for running fork pull request workflows** setting is **Require approval for all
+external contributors**. Do not weaken it to either first-time-contributor option: an accepted harmless
+change would then grant later workflow code automatic execution. Approval permits a run; it does not make
+the submitted code suitable for a self-hosted machine.
 
 The `quality` job runs across `ubuntu-latest`, `windows-latest`, and `macos-latest` with
 `fail-fast: false`: compile, lint, integration audit, tests, and the local-recommendations
 regression. On Ubuntu it additionally uploads coverage and packages the `.vsix` as a build artifact
-with 14-day retention, which is how a branch build gets installed for testing.
+with 14-day retention, which is how a branch build gets installed for testing. Every hosted action is
+pinned to the full commit SHA currently associated with its reviewed major tag; the nearby version comment
+retains update intent without making the executable reference mutable.
+
+`.github/workflows/trusted-local-ci.yml` is the deliberately separate development route. Its trigger is an
+owner `push` to `develop` or manual dispatch; the job independently requires this repository,
+`refs/heads/develop`, and the repository owner as actor. It targets the sole public routing label
+`atlasmind-trusted-linux-x64`, grants only `contents: read`, supplies no repository/environment secrets or
+OIDC permission, pins checkout and Node setup to full action SHAs, disables checkout credential
+persistence, and runs `npm run ci:local`. Register that label with `--no-default-labels` only on the
+ephemeral non-root Linux container described in [`local-ci-and-safe-runners.md`](local-ci-and-safe-runners.md).
+It runs inside Docker Desktop's WSL2 VM with no host mount or Docker socket and exists for one job.
+
+For direct execution, `npm run ci:local:quick` provides compile, lint, integration-audit and full-suite
+feedback. `npm run ci:local` adds the focused local-model registry regression, coverage and packaging and
+is the required pre-push local gate. Full-history Gitleaks remains a separately installed security gate and
+the hosted release workflow retains its independent secret-scan job.

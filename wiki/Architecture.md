@@ -17,6 +17,14 @@ All three share the same core, so orchestration, model routing, tools, memory an
 identically whichever way you reach them. There's one implementation of "how AtlasMind decides things",
 not three.
 
+Repository checks also have one declared boundary with three execution locations. The quick and complete
+local npm gates need no GitHub capacity. A separate workflow may send only the repository owner's
+`develop` push or exact-ref manual dispatch to an isolated Linux runner. The provider-hosted
+Linux/Windows/macOS matrix is
+reserved for pull requests into protected `main`, where it supplies release evidence. The trusted runner
+never substitutes its one operating system for those three required release checks and never accepts a
+public pull-request event.
+
 ---
 
 ## What happens when you ask a question
@@ -342,6 +350,175 @@ is a closed create-only template derived host-side from declared branches and pa
 browser sends no YAML or command, the exact plan is confirmed, and `wx` prevents replacement even if a
 file appears between review and write.
 
+The **trusted workflow** — the file deciding which GitHub jobs may run on your own machine — is both
+generated and reviewed by AtlasMind (`trustedLocalCiStarter.ts` and `LocalCiRunnerManager.reviewWorkflow`).
+Every rule the runner enforces was previously applied to a file only a person could write, from a template
+that had drifted out of compliance with three of those rules, and only at the moment of lending the
+machine. Reviewing is now a filesystem read available before Docker, a GitHub sign-in or a queued job
+exists, and generation derives the file from the repository's own remote, branch, expanded runner label and
+declared package scripts, with action pins held as reviewed module constants rather than parsed from
+anywhere. A property test asserts every generated workflow passes the runner's own validator, so prose and
+policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay distinct outcomes — only an
+absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
+sentence. An unreviewed file reports as *not checked*, never as passing.
+
+The Pipeline page presents four views — Activity, Canvas, Tests, Rules — named for what a person is doing.
+The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
+same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels
+through after the gate. It edits nothing; the delivery stages are read-only because promotion has its own
+guarded surface. Selecting a node opens its panel *beside* the graph where the window is wide enough,
+stacking beneath it where it is not — below the graph, the one interaction the canvas exists for pushed
+its own answer out of view. The column appears only when something is selected, so an empty gutter never
+narrows the canvas for a panel that is usually absent.
+
+The page is arranged for the person who finished setting it up, not the person starting: Activity leads
+once anything has run and opens with the latest classified failure and a one-click handoff to a chat
+session (log fenced as untrusted content), the setup journey folds to one line when its durable steps are
+done, and routing rules are editable through a guided flow obeying the same rules as the decision engine.
+While setup is genuinely unfinished the borrowed-machine card leads the Rules view with its detail open,
+because that is where the guided journey's "prepare this computer" step lands. Tests reads verdicts and
+Rules decides routing, and neither is a dead end: a declared policy row opens that policy's own card on
+the Testing page, expanded, since this page can say a policy is unevidenced while only that card can say
+what it would take.
+
+Routes carry a second dimension beside what they prove: **how faithfully they reproduce it**. `act` and the
+borrowed machine both produce Linux-container evidence, yet one runs GitHub's own runner image and the
+other emulates artifacts, caches, services and secrets — and nothing in the model could tell them apart, so
+a routing rule could swap one for the other unopposed. Now a workload can demand the real thing, and
+packaging and security scanning do: the first exists to produce the artifact that ships, which is exactly
+what an approximation emulates, and the second would otherwise return a clean result nobody should act on.
+Everything else accepts an approximation and says when it used one, because under `act` your tests really
+do run — it is the orchestration around them that is emulated.
+
+`act` is the first alternative executor with a real adapter: any workflow on the map can be run locally
+with it. What AtlasMind adds is the part that decides whether the result means anything — it reads the
+workflow first and says which parts `act` will not reproduce, and refuses outright where a faithful run is
+impossible rather than running something else under the same job name. It plans the command and hands it to
+your terminal; it does not run `act` for you, because `act` executes arbitrary workflow content with
+container access, and the borrowed-machine route exists for the case where a reviewed workflow should
+actually be executed.
+
+The **Activity** view puts every route in one list, newest first. What makes it trustworthy rather than merely
+useful is that it records *how closely each build was watched*. The one-job runner streams its output, so
+AtlasMind can report a real verdict. GitHub is polled, because its CLI has no push channel, and running
+builds say so instead of pretending to stream. And the run-here route is `unobserved`: AtlasMind typed those
+commands into your terminal and does not read it, so it shows a question mark and says why. A tick there
+would be an invented pass on the page people check before shipping, so the rule is enforced where the record
+is created and again when it is read back.
+
+The list holds no log output — only a pointer to where the detail already lives — and local history is
+per-developer, kept in workspace state rather than the committed project memory.
+
+Which route each kind of check *should* use is recorded in a committed file, `ci-routing.json`, with a
+markdown mirror beside it — a team decision arrives as a reviewed diff rather than a habit nobody wrote
+down. Every decision names the rule that made it and explains why the other candidates lost.
+
+One rule in that file is not the file's to change. **Code nobody has reviewed never falls back to a local
+route, whatever the budget says.** That filter runs before the hosted allowance is even consulted and
+applies to every fallback, so running out of minutes produces a refusal rather than moving somebody else's
+pull request onto your computer — otherwise "fall back to local when credit runs out" would be a mechanism
+by which running out of money routes hostile code onto a developer's machine. A file demanding otherwise is
+reported as an error and refused at routing time, and a property test walks the guarantee over hundreds of
+generated combinations.
+
+AtlasMind can read the Actions allowance so budget-aware rules act on a real number. When it cannot — an
+endpoint that needs a scope nobody granted, most often — it says *unknown* and keeps using the preferred
+route. An unreadable meter is not an empty one, and treating it as one would relocate work whenever
+GitHub's billing API had a bad afternoon.
+
+The Pipeline page also models **where** a check runs, rather than assuming. Three routes are implemented —
+run the project's checks here, lend this computer to one queued GitHub job, or let GitHub's own runners do
+it — and each states what a pass on it actually proves. That last part is the point: a Linux container is
+not evidence about Windows however green it is, so evidence class is a property of the route fixed at
+declaration and no amount of passing promotes it. `act`, Buildkite and Woodpecker are listed as declared
+adapter boundaries, visible so the page does not claim three routes are all there is, and never selectable
+because a route with no adapter reporting itself usable would be a button that cannot work. A capability
+AtlasMind has not established shows as its own mark rather than a blank, since a blank reads as "no".
+
+Those three link to their own documentation, because they are the routes AtlasMind cannot set up for you.
+The address is a constant on the route definition: the page sends a route *id* and the extension host
+decides where that goes, so a row can offer a link without ever being able to choose one. The core three
+stay unlinked — sending somebody to github.com to learn what "run here" means would be worse than the
+silence. An executor nothing routes to also reads *optional* rather than *needs setup*, derived from your
+own rules so the answer changes when your policy does; before any rules exist, an empty set means
+undecided rather than unwanted, so the borrowed machine is never called optional at the moment you are
+setting it up.
+
+The simplest route finally has a button. It resolves the project's own check scripts by a published rule —
+a declared aggregate wins over guessing at its parts — shows them in a confirmation, and types them into a
+terminal without pressing Enter. It refuses outright if one of those scripts would leave the machine: a
+button labelled "run here" must not publish, and commands that do reach outside stay on the Delivery
+runbook where that is expected.
+
+Local CI also has a guide of its own, `/localci`, listed beside Buzz, ACP and Lens in `/setup`. It has more
+external prerequisites than anything else in AtlasMind, and was the only feature of that shape without one —
+so the way you found a missing prerequisite was by hitting the failure it caused. Every step is derived from
+your machine rather than asked for, and nothing in it installs or enables anything: each action opens the
+screen where you decide, and a test asserts that. Its last step is proving a job has actually run, which is
+kept out of the readiness check on purpose — a runner set up correctly and never used is ready, not faulty.
+A missing GitHub CLI can be installed from the Runner view, from commands held as constants in the extension
+host, shown in full before anything runs and confirmed afterwards by re-checking PATH rather than by an exit
+code. Docker is deliberately not installed that way, and neither is `gh` on Debian and Ubuntu, where the
+reliable route means adding a repository and keyring that AtlasMind will not script.
+
+The same Pipeline page now has a separate **execution fabric** backed by `localCiRunner.ts`. GitHub Actions
+is the connected provider and Docker is the current executor; Buildkite, Semaphore and other systems are
+shown as adapter positions, not as completed runs. Opening the page remains local and passive. An explicit
+inspection checks GitHub CLI availability/authentication and reads host CPU/RAM/GPU capability plus
+Docker-engine CPU, memory, OS, architecture and advertised runtimes. Unchecked prerequisites stay “Not
+checked” rather than becoming false missing-tool claims. Capacity planning preserves at least 25% for the
+desktop, applies machine-scoped ceilings, and publishes
+the exact calculation and Linux-container evidence boundary on the card. GPU identity and trustworthy
+VRAM are capability evidence only: the access policy remains disabled and Docker receives no `--gpus`.
+
+Starting is a one-job transaction. AtlasMind reads and deduplicates GitHub's `pending` and `queued` workflow
+states and requires exactly one waiting owner-authored run in total at current HEAD. A current run alongside
+a stale run refuses because GitHub may assign either job sharing the label. Queue absence or mismatch returns
+to a retryable ready state and carries the local/waiting SHAs for explanation. AtlasMind then re-validates
+the committed workflow's trigger, repository, branch, actor, read-only permissions,
+secret/OIDC absence, immutable action pins, checkout credential handling and unique dedicated label. Only
+then does a modal name the run, image, resource limits and cleanup effect. The registration token streams
+from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
+container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
+by CPU, memory, swap, process, capability and privilege-escalation controls.
+
+Docker Desktop cleanup records who opened it. The default stops it only when AtlasMind did; the operator
+may keep it open or request an always-close policy, but an unreadable inventory or unrelated running
+container inhibits shutdown. Linux system services are outside this lifecycle. Windows, macOS and Linux
+can host the control plane, while native Windows/macOS evidence still requires native executors.
+
+The dashboard re-reads the effective runner permission before every snapshot. The manager remembers the
+last configuration so identical reads do not reset an inspected runner, while a profile/extension-host
+change invalidates readiness and requires inspection again. The webview receives the effective setting
+source for explanation only and cannot submit a replacement value.
+
+The surrounding **Pipeline Studio** is a progressive webview over those host-owned services. A four-decision
+beginner route follows the real order—choose checks, prepare the computer, queue GitHub, lend one temporary
+runner—then presents result reading as the follow-up. Start here derives the first incomplete decision and
+shows one primary action with a compact progress strip; the full step list, specialist shortcuts, and recent
+history begin collapsed. Six local subviews cover workflow, runner, tests,
+analytics, and packages/monorepo context around the Start view. Runner setup explicitly says no permanent
+daemon is required and separates permission, Docker, GitHub CLI/sign-in and pinned-image readiness.
+The current runner action and critical blockers precede the setup disclosure. Missing prerequisites expand
+that disclosure automatically; completed diagnostics collapse, while hardware, GPU, providers, resource
+limits, lifecycle and evidence remain available in a separate technical disclosure.
+Installation help appears only for a missing item and opens a host-allowlisted official page from an opaque
+webview id; raw machine installer commands are not presented as repository steps. The page explicitly
+distinguishes operating-system applications from project dependencies.
+Queue guidance renders the trusted branch as prose and only complete `gh` commands as code. Standard Copy
+and Send controls post no queue command string; the host rebuilds it from validated configuration. Cancel
+posts only a positive run id that must still belong to the current waiting-run issue. Send writes without a
+newline into a workspace-rooted terminal using the configured Windows, macOS, or Linux shell.
+Accessible information disclosures reuse persisted open/focus state;
+measured dials, test cells and charts have reduced-motion final states. The draggable workflow graph saves
+only presentation coordinates in webview state and cannot edit or supply workflow YAML.
+
+Workspace topology is derived from declared Node workspaces or a bounded first-level manifest scan, with
+candidate paths constrained under the workspace. “Affected” means a current worktree path falls inside a
+unit; it is not dependency-graph evidence. The package inventory checks only manifest, lockfile, dependency
+monitor and registry-configuration presence. It never reads registry values, and external cache, approval,
+vulnerability or publication state stays unconfigured until a provider adapter supplies it.
+
 The Branches panel follows the same host-authority boundary for daily Git work. An expanded card groups
 **Work** separately from **Review**, but a work button sends only the card's opaque inventory id and a
 closed action name. The host rebuilds live branch, working-tree, tracking, remote and commit state before
@@ -393,11 +570,15 @@ the shell can stop on failure. Guarded promotion is untouched and remains the on
 commands from a reviewed `delivery.json`.
 
 Runbook phases render as collapsed disclosures whose numbered marker reflects the strongest step state.
-A non-green step can be handed to Chat through its AtlasMind-logo action, but the browser posts only the
+A non-green step can be handed to Chat through its Atlas action, but the browser posts only the
 step id: the host rebuilds the guide, refuses a now-green or missing id, and composes the bounded repair
-draft from the current record. The same icon-only action is shared by Dashboard, Lens, MCP, Website
-Studio, and Project Run surfaces. Its visible label is the logo; a precise `title` and `aria-label`
-preserve the action's meaning for hover, keyboard and assistive-technology users.
+draft from the current record. The same compact action is shared by Dashboard, Lens, MCP, Website
+Studio, and Project Run surfaces. It is a **pill carrying two symbols** — the AtlasMind mark on the left
+saying who is being asked, an intent glyph on the right saying what it will do. It was the mark alone
+until v0.360.0, which named the who and never the what, so a row of these was a row of identical circles
+you had to hover one at a time. The glyph narrows the meaning and never carries it alone: it is hidden
+from assistive technology, and a precise `title` and `aria-label` still preserve the whole sentence for
+hover, keyboard and assistive-technology users.
 
 On the Workflow page, the **Your workflow file** card makes each stage's enablement visible without
 tinting its contents: the segment outline and standard **Enabled** status tag carry the colour, while
@@ -452,7 +633,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

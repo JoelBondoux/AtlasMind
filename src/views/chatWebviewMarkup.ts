@@ -100,7 +100,10 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 buildMessageElement only while that turn is in flight — the part
                 that is actually new.
               -->
-              <section id="transcript" class="chat-transcript"></section>
+              <div id="chatSurface" class="chat-surface">
+                <section id="transcript" class="chat-transcript"></section>
+                <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
+              </div>
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
@@ -113,11 +116,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
               </div>
             </div>
-            <!-- Sits directly above the composer: everything it narrates -- the
-                 thinking indicator, the streaming reply, the send state -- is pinned
-                 to the bottom of the panel, while this used to sit at the very top,
-                 off-screen on a tall transcript. -->
-            <div id="status" class="status-label idle" role="status" aria-live="polite"></div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -165,7 +163,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                   </button>
                 </div>
                 <div class="model-pin-wrap">
-                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose which model answers" aria-label="Choose which model answers">
+                  <button id="modelPin" class="icon-btn compact-icon-btn model-pin-btn auto" type="button" aria-haspopup="listbox" aria-expanded="false" title="Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. Click to pin one instead." aria-label="Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. Click to pin one instead.">
                     <span id="modelPinLabel">Auto</span>
                   </button>
                   <div id="modelPinList" class="composer-typeahead model-pin-list hidden" role="listbox" aria-label="Model"></div>
@@ -477,7 +475,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           display: flex;
           align-items: center;
           gap: 8px;
-          margin: 8px 10px 0;
+          margin: 0 10px 10px;
           padding: 7px 12px;
           border-radius: 10px;
           border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, transparent);
@@ -683,7 +681,38 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .approval-actions button.danger {
           border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 70%, var(--vscode-widget-border, #444));
         }
-        .chat-transcript, .run-inspector {
+        /*
+          The bordered box the conversation lives in. The border used to sit on
+          the scrolling transcript itself, which left the activity strip outside
+          it looking like a caption on the panel rather than the last thing in
+          the thread. The frame is here now and the transcript scrolls inside it,
+          so the strip can sit within the same box without scrolling away with
+          the messages.
+        */
+        .chat-surface {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          min-height: 80px;
+          overflow: hidden;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
+        }
+        /* During a run the transcript is hidden and the inspector takes the
+           space, so the surface shrinks to whatever the strip needs rather than
+           holding open an empty frame. */
+        .chat-surface.run-mode { flex: 0 0 auto; min-height: 0; }
+        .chat-transcript {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 10px;
+        }
+        .run-inspector {
           flex: 1 1 0;
           display: flex;
           flex-direction: column;
@@ -988,11 +1017,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
         /* A link whose scheme was rejected is rewritten to '#'; without this it
-           still looked like a working link that merely did nothing. */
+           still looked like a working link that merely did nothing.
+           Struck through was the wrong word for it: strikethrough means the text
+           no longer applies, so a blocked link to a file that exists read as
+           "this file was deleted". A dotted rule says inert without saying that. */
         .chat-content a.blocked-link {
           color: var(--vscode-descriptionForeground);
-          text-decoration: line-through;
+          text-decoration: underline dotted;
+          text-underline-offset: 0.2em;
           cursor: not-allowed;
+        }
+        /* A file the reply linked to. Styled as an ordinary link because it now
+           behaves like one — it opens the file in the editor. */
+        .chat-content a.file-link {
+          cursor: pointer;
         }
         .open-file-chip {
           cursor: pointer;
@@ -2230,25 +2268,45 @@ ${QUICK_REPLY_CSS}
         .composer-typeahead-empty { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
 
         .model-pin-wrap { position: relative; display: inline-flex; }
-        .model-pin-btn {
+        /* Qualified with .icon-btn deliberately. This block sits earlier in the
+           sheet than the .icon-btn rule, so at equal specificity the generic
+           0.95rem won and the label rendered a size and a half larger than the
+           14px icons beside it — the control read as a heading rather than as one
+           of the row. */
+        .icon-btn.model-pin-btn {
           width: auto;
-          max-width: 160px;
-          padding: 0 8px;
+          max-width: 132px;
+          padding: 0 9px;
           gap: 4px;
-          font-size: 0.72rem;
+          /* Matches the font-size-controls compact buttons, which is what makes
+             it sit in the icon row rather than beside it. */
+          font-size: 0.68rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
           overflow: hidden;
         }
-        .model-pin-btn #modelPinLabel {
+        .icon-btn.model-pin-btn #modelPinLabel {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        /* Pinned reads differently from Auto, because a pin is a decision that
-           outlives the click and the operator should see it without opening
-           anything. */
-        .model-pin-btn.pinned {
-          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 55%, transparent);
+        /* Lit means automation is engaged, which is the same thing the Autopilot
+           button's pressed state says — so it is the same treatment: tinted
+           ground, ring, coloured text. The hue differs because the two automate
+           different things, and two identically-lit buttons side by side would
+           read as one control in two halves. */
+        .icon-btn.model-pin-btn.auto {
+          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 18%, transparent);
           color: var(--vscode-textLink-foreground, #3794ff);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 30%, transparent);
+        }
+        /* Pinned is deliberately *not* lit. The model's own name is already the
+           signal that somebody took the wheel; lighting it too would leave the
+           control lit in both states, which says nothing. */
+        .icon-btn.model-pin-btn.pinned {
+          border-color: var(--vscode-widget-border, #444);
+          color: var(--vscode-foreground);
         }
         .model-pin-list {
           right: 0;

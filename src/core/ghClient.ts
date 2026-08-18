@@ -314,6 +314,73 @@ export async function runGhOrThrow(
 }
 
 /**
+ * Stream `gh` stdout directly into another process without retaining it.
+ *
+ * The local CI runner uses this for GitHub's short-lived registration token:
+ * `gh` writes the token and Docker reads it, while AtlasMind never receives a
+ * string it could accidentally log, persist, or send to a webview. The same
+ * argv-only and bounded-failure rules as {@link runGhOrThrow} apply.
+ */
+export async function pipeGhStdoutOrThrow(
+  workspaceRoot: string,
+  args: readonly string[],
+  destination: NodeJS.WritableStream,
+  options: { timeoutMs?: number; maxStderrBytes?: number } = {},
+): Promise<void> {
+  assertNoShellMetacharacters(args);
+  const { spawn } = await import('node:child_process');
+  const timeoutMs = options.timeoutMs ?? DEFAULT_GH_TIMEOUT_MS;
+  const maxStderrBytes = options.maxStderrBytes ?? 64 * 1024;
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('gh', [...args], {
+      cwd: workspaceRoot,
+      windowsHide: true,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    let settled = false;
+    const finish = (error?: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(new GhError(classifyGhFailure(error)));
+      }
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(new Error(`gh timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      if (stderr.length < maxStderrBytes) {
+        stderr += chunk.slice(0, maxStderrBytes - stderr.length);
+      }
+    });
+    child.on('error', finish);
+    destination.on('error', error => {
+      child.kill();
+      finish(error);
+    });
+    child.stdout.pipe(destination);
+    child.on('close', code => {
+      if (code === 0) {
+        finish();
+      } else {
+        finish(new Error(stderr.trim() || `gh exited with code ${String(code)}`));
+      }
+    });
+  });
+}
+
+/**
  * The default runner, built on `node:child_process`.
  *
  * Separated from the class so the class itself imports nothing and can be

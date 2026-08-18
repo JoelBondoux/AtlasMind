@@ -63,6 +63,14 @@ import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
 const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
+/**
+ * How often a streaming reply pushes state to the webview.
+ *
+ * Roughly a frame. Low enough that the reply still reads as it is written, high
+ * enough that a fast provider cannot drive hundreds of full state rebuilds
+ * through a single answer.
+ */
+const COALESCED_SYNC_INTERVAL_MS = 60;
 
 /**
  * Structural subset of `vscode.WebviewPanel` / `vscode.WebviewView` that ChatPanel
@@ -389,6 +397,10 @@ export class ChatPanel {
    */
   private modelOverride: ModelOverride | undefined;
   private pickableModels: PickableModel[] = [];
+  /** Whether the provider enumeration has succeeded at least once this session. */
+  private providerListLoaded = false;
+  private coalescedSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  private coalescedSyncDirty = false;
   /**
    * Task ids that currently have a file snapshot.
    *
@@ -516,18 +528,24 @@ export class ChatPanel {
         void this.syncState();
       }) ?? (() => undefined),
     });
+    // Both of these fire on ordinary editor navigation and change exactly one
+    // thing in the payload — the open-file chip list — so they are coalesced
+    // rather than each triggering a credential-store enumeration and two disk
+    // reads. See `scheduleCoalescedSync`.
     vscode.window.onDidChangeVisibleTextEditors(() => {
-      void this.syncState();
+      this.scheduleCoalescedSync();
     }, null, this.disposables);
     vscode.window.onDidChangeActiveTextEditor(editor => {
       // Remembered because the chat panel is itself the active editor much of
       // the time: by the moment somebody clicks "Insert at cursor",
       // `activeTextEditor` is often this panel or nothing at all. The last real
-      // text editor is the one they mean.
+      // text editor is the one they mean. Recorded synchronously — it is a
+      // source of truth, not rendering, and "Insert at cursor" can be clicked
+      // before the coalesced push lands.
       if (editor && editor.document.uri.scheme !== 'output') {
         this.lastActiveTextEditor = editor;
       }
-      void this.syncState();
+      this.scheduleCoalescedSync();
     }, null, this.disposables);
     if (vscode.window.activeTextEditor) {
       this.lastActiveTextEditor = vscode.window.activeTextEditor;
@@ -543,6 +561,10 @@ export class ChatPanel {
 
   public dispose(): void {
     this._isDisposed = true;
+    if (this.coalescedSyncTimer) {
+      clearTimeout(this.coalescedSyncTimer);
+      this.coalescedSyncTimer = undefined;
+    }
     this.settleLoopDecision('stop');
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
@@ -739,6 +761,9 @@ export class ChatPanel {
         return;
       case 'openRunReviewFile':
         await this.openRunReviewFile(message.payload.runId, message.payload.relativePath);
+        return;
+      case 'openFileReference':
+        await this.openFileReference(message.payload);
         return;
       case 'pickAttachments':
         await this.pickAttachments();
@@ -1240,6 +1265,47 @@ export class ChatPanel {
     await vscode.window.showTextDocument(document, { preview: false });
   }
 
+  /**
+   * Open a file a reply linked to.
+   *
+   * The reference is text a model wrote, so it is treated as untrusted at both
+   * ends: the anchor is stripped before resolution (a line number is not part of
+   * the path), and containment is `resolveWorkspaceRelativeFile`'s decision, not
+   * this method's. A path outside the workspace is *reported* rather than opened
+   * — silently doing nothing would be indistinguishable from the dead links this
+   * replaced, which is the failure worth not rebuilding.
+   */
+  private async openFileReference(reference: string): Promise<void> {
+    const parsed = parseFileReference(reference);
+    if (!parsed) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That link does not name a file path.' });
+      return;
+    }
+
+    const fileUri = resolveWorkspaceRelativeFile(parsed.path);
+    if (!fileUri) {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `${parsed.path} is outside this workspace, so it was not opened.`,
+      });
+      return;
+    }
+
+    try {
+      const document = await vscode.workspace.openTextDocument(fileUri);
+      const selection = parsed.line === undefined
+        ? undefined
+        // The model counts lines from 1; the editor counts from 0.
+        : new vscode.Range(Math.max(0, parsed.line - 1), 0, Math.max(0, parsed.line - 1), 0);
+      await vscode.window.showTextDocument(document, { preview: false, selection });
+    } catch {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `${parsed.path} could not be opened — it may have been moved or deleted.`,
+      });
+    }
+  }
+
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     if (this._isDisposed) return;
     if (this.activePromptExecution) {
@@ -1426,9 +1492,12 @@ export class ChatPanel {
     const streamingThoughtLines: string[] = [];
     this.streamingModels = [];
     const renderPendingAssistant = async (): Promise<void> => {
+      // The transcript entry is updated on every chunk — that is the source of
+      // truth and must not be rate-limited. Only the push to the webview is
+      // coalesced; see `scheduleCoalescedSync`.
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
-      await this.syncState();
+      this.scheduleCoalescedSync();
     };
     const handleModelSelected = async (model: string): Promise<void> => {
       if (!this.streamingModels.includes(model)) {
@@ -1715,6 +1784,15 @@ export class ChatPanel {
         pendingSubmission = this.pendingPromptSubmission;
         this.pendingPromptSubmission = undefined;
       }
+      // The turn is over on every path through here — completed, failed or
+      // stopped — and the sync below is unconditional, so a coalesced tick still
+      // in flight has nothing left to contribute. Cancelling it keeps the final
+      // state the last thing written rather than a race with it.
+      if (this.coalescedSyncTimer) {
+        clearTimeout(this.coalescedSyncTimer);
+        this.coalescedSyncTimer = undefined;
+      }
+      this.coalescedSyncDirty = false;
       await ChatPanel.syncAllPanels();
       await this.host.webview.postMessage({ type: 'busy', payload: false });
       if (pendingSubmission) {
@@ -2502,12 +2580,58 @@ export class ChatPanel {
     }
   }
 
-  private async syncState(): Promise<void> {
+  /**
+   * Push state at most once per frame-ish interval, for events that arrive in
+   * bursts and cannot have changed which providers are configured.
+   *
+   * A full `syncState()` is not a cheap thing to run repeatedly: it enumerates
+   * every provider (which reaches credential storage, and for ACP performs two
+   * dynamic imports), reads the checkpoint store and the run history off disk,
+   * rebuilds the context meter over the whole transcript, and then posts the
+   * entire transcript across the webview boundary. Two callers used to run all
+   * of that far more often than anything they changed warranted:
+   *
+   * - **Every streamed chunk.** The cost of a turn therefore scaled with how
+   *   *long* the reply was and how much was already in the session, which is
+   *   exactly why short, simple turns still felt slow — the work was never
+   *   proportional to the question.
+   * - **Every editor change.** `onDidChangeVisibleTextEditors` and
+   *   `onDidChangeActiveTextEditor` fire on ordinary navigation, so clicking
+   *   between files re-read the credential store and the disk each time, while
+   *   the only thing that had actually changed was the open-file chip list.
+   *
+   * Coalescing rate-limits the *push* and nothing else — a streamed chunk still
+   * updates its transcript entry synchronously, and `lastActiveTextEditor` is
+   * still recorded the moment it changes, because both are sources of truth
+   * rather than rendering.
+   *
+   * The trailing edge matters more than the leading one: dropping an
+   * intermediate frame is invisible, dropping the last one would leave the reply
+   * truncated on screen. So a dirty flag always survives to the next tick, and
+   * `runPrompt` cancels any pending tick and syncs unconditionally when the turn
+   * ends, on completion, failure and stop alike.
+   */
+  private scheduleCoalescedSync(): void {
     if (this._isDisposed) return;
-    // Refreshed once per sync rather than per keystroke: enumerating providers
-    // touches credential storage, and the set changes when the operator
-    // configures one, not while they type.
-    await this.refreshPickableModels();
+    this.coalescedSyncDirty = true;
+    if (this.coalescedSyncTimer) return;
+    this.coalescedSyncTimer = setTimeout(() => {
+      this.coalescedSyncTimer = undefined;
+      if (!this.coalescedSyncDirty || this._isDisposed) return;
+      this.coalescedSyncDirty = false;
+      void this.syncState({ reuseProviderList: true });
+    }, COALESCED_SYNC_INTERVAL_MS);
+  }
+
+  private async syncState(options?: { reuseProviderList?: boolean }): Promise<void> {
+    if (this._isDisposed) return;
+    // Enumerating providers touches credential storage, and which providers are
+    // configured is a property of settings — a streamed chunk cannot change it.
+    // So a streaming sync reuses what the last full sync found, and every other
+    // sync re-reads. That is the whole staleness window: one reply.
+    if (!options?.reuseProviderList || !this.providerListLoaded) {
+      await this.refreshPickableModels();
+    }
     try {
       this.checkpointTaskIds = (await this.atlas.listCheckpoints?.() ?? []).map(item => item.taskId);
     } catch {
@@ -3324,6 +3448,7 @@ export class ChatPanel {
         this.atlas.modelRouter as never,
         providerId => this.atlas.isProviderConfigured(providerId),
       );
+      this.providerListLoaded = true;
     } catch {
       // A picker that cannot enumerate is empty, never stale: offering a model
       // that is no longer configured would pin a turn to something that fails.
@@ -5107,6 +5232,38 @@ function buildPendingRunReviewSummary(projectRuns: ProjectRunRecord[]): ChatPane
     totalPendingFiles: runs.reduce((total, run) => total + run.pendingFiles.length, 0),
     runs,
   };
+}
+
+/**
+ * Split a linked file reference into the path and the line it points at.
+ *
+ * Models write the same reference four ways — `src/a.ts`, `src/a.ts:12`,
+ * `src/a.ts#L12` and `src/a.ts#L12-20` — and the anchor has to come off before
+ * the path is resolved, because `src/a.ts:12` names no file on any platform. A
+ * range keeps only its first line: the reference is a place to go, not a
+ * selection to make.
+ *
+ * A reference that is only an anchor (`#L12`) yields nothing rather than
+ * resolving to the workspace root, which would open a folder for a link that
+ * named no file.
+ */
+export function parseFileReference(reference: string): { path: string; line?: number } | undefined {
+  const trimmed = String(reference ?? '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const anchored = /^(.*?)(?:#L(\d+)(?:[-,]\d+)?|:(\d+)(?::\d+)?)$/i.exec(trimmed);
+  const rawPath = anchored ? anchored[1] : trimmed;
+  const rawLine = anchored ? (anchored[2] ?? anchored[3]) : undefined;
+  if (!rawPath) {
+    return undefined;
+  }
+
+  const line = rawLine === undefined ? undefined : Number.parseInt(rawLine, 10);
+  return line === undefined || !Number.isFinite(line) || line < 1
+    ? { path: rawPath }
+    : { path: rawPath, line };
 }
 
 function resolveWorkspaceRelativeFile(relativePath: string): vscode.Uri | undefined {

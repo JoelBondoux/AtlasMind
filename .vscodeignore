@@ -16,6 +16,7 @@ project_memory*/**
 # Exclude local workspace-only artifacts
 .claude/**
 .continue/**
+website/**
 .vitest-*.json
 *.vsix
 package-lock.json
@@ -48,7 +49,7 @@ node_modules/**/.vscode/**
 
 # Exclude config files not needed by extension runtime
 vitest.config.ts
-tsconfig.json
+tsconfig*.json
 stryker.config.json
 
 # Keep required extension assets

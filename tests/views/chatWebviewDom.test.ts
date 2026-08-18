@@ -223,13 +223,30 @@ describe('activity strip', () => {
     expect(strip()?.classList.contains('idle')).toBe(true);
   });
 
-  it('sits between the thread and the composer, spanning the panel', () => {
-    // Full width and its own colour is what stops it reading as somebody's
-    // turn; position is what keeps it beside the work it describes.
+  it('sits inside the thread frame, at the end of the thread', () => {
     const status = strip();
-    expect(status?.previousElementSibling?.tagName.toLowerCase()).not.toBe('section');
-    expect(status?.nextElementSibling?.classList.contains('composer-shell')).toBe(true);
-    expect(harness.window.document.getElementById('transcript')?.contains(status ?? null)).toBe(false);
+    const surface = harness.window.document.getElementById('chatSurface');
+    const transcript = harness.window.document.getElementById('transcript');
+
+    // Inside the bordered frame, directly after the messages: it is the last
+    // thing in the thread rather than a caption on the panel.
+    expect(surface?.contains(status ?? null)).toBe(true);
+    expect(status?.previousElementSibling?.id).toBe('transcript');
+
+    // But *not* inside the transcript itself, which is what matters: the
+    // transcript is cleared and rebuilt on every render, so a strip living in
+    // there would be destroyed by the next state message and would scroll away
+    // with the messages in between.
+    expect(transcript?.contains(status ?? null)).toBe(false);
+  });
+
+  it('collapses the frame during a run instead of holding an empty box open', () => {
+    harness.send(stateWith([USER_TURN], { activeSurface: 'run' }));
+    harness.send({ type: 'busy', payload: false });
+
+    const surface = harness.window.document.getElementById('chatSurface');
+    expect(surface?.classList.contains('run-mode')).toBe(true);
+    expect(harness.window.document.getElementById('transcript')?.classList.contains('hidden')).toBe(true);
   });
 });
 
@@ -383,5 +400,117 @@ describe('dictation', () => {
     expect(harness.window.document.getElementById('status')?.textContent)
       .toContain('cannot record audio');
     expect(harness.errors).toEqual([]);
+  });
+});
+
+describe('links in a reply', () => {
+  let harness: Harness;
+
+  function linksIn(content: string): HTMLAnchorElement[] {
+    harness.send(stateWith([USER_TURN, { ...ASSISTANT_TURN, content }]));
+    const transcript = harness.window.document.getElementById('transcript');
+    return [...(transcript?.querySelectorAll('.chat-content a') ?? [])] as HTMLAnchorElement[];
+  }
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  it('makes a file path openable instead of struck through or inert', () => {
+    // The reported shape: a reply listing test files rendered every path with a
+    // line through it, which reads as "this file was deleted" for files that
+    // exist. Paths were reaching the blocked-link branch, whose only visual
+    // signal was strikethrough.
+    const links = linksIn('See [tests/e2e/initial-render.spec.ts](tests/e2e/initial-render.spec.ts).');
+
+    expect(links).toHaveLength(1);
+    expect(links[0].classList.contains('file-link')).toBe(true);
+    expect(links[0].classList.contains('blocked-link')).toBe(false);
+
+    links[0].dispatchEvent(new harness.window.Event('click'));
+    expect(harness.posted).toContainEqual({
+      type: 'openFileReference',
+      payload: 'tests/e2e/initial-render.spec.ts',
+    });
+  });
+
+  it('treats an absolute path and a file: URI as the same kind of reference', () => {
+    // Both are how a model names a local file; only the relative form used to
+    // pass, so the same file was a link or a strikethrough depending on spelling.
+    for (const href of ['C:\\repo\\src\\a.ts', 'file:///c:/repo/src/a.ts', './src/a.ts:12']) {
+      const links = linksIn(`Open [a.ts](${href}) now.`);
+      expect(links[0].classList.contains('file-link'), href).toBe(true);
+    }
+  });
+
+  it('still refuses a script scheme, and no longer strikes it through', () => {
+    const links = linksIn('Click [here](javascript:alert(1)) now.');
+
+    expect(links[0].classList.contains('blocked-link')).toBe(true);
+    expect(links[0].classList.contains('file-link')).toBe(false);
+    expect(links[0].getAttribute('href')).toBe('#');
+    links[0].dispatchEvent(new harness.window.Event('click'));
+    expect(harness.posted.some(message => message.type === 'openFileReference')).toBe(false);
+  });
+
+  it('leaves an ordinary web link alone', () => {
+    const links = linksIn('See [the docs](https://example.com/guide).');
+
+    expect(links[0].getAttribute('href')).toBe('https://example.com/guide');
+    expect(links[0].classList.contains('file-link')).toBe(false);
+    expect(links[0].classList.contains('blocked-link')).toBe(false);
+  });
+});
+
+describe('the model pin button', () => {
+  let harness: Harness;
+
+  function pin() {
+    return harness.window.document.getElementById('modelPin') as HTMLButtonElement;
+  }
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  it('is lit before any state arrives, because Auto is the starting state', () => {
+    // The button is in the markup before the host says anything. If only the
+    // renderer set the lit class, the control would open unlit and light up on
+    // the first state message, which reads as a flicker rather than a default.
+    expect(pin().classList.contains('auto')).toBe(true);
+  });
+
+  it('says what Auto means in the tooltip, and to a screen reader too', () => {
+    harness.send(stateWith([USER_TURN]));
+
+    // The visible label has room for one word; the explanation has to live
+    // somewhere, and a tooltip a screen reader never announces would explain it
+    // to some users only.
+    expect(pin().title).toContain('Auto model routing');
+    expect(pin().getAttribute('aria-label')).toBe(pin().title);
+  });
+
+  it('goes unlit and names the model once one is pinned', () => {
+    harness.send(stateWith([USER_TURN], {
+      modelOverride: { modelId: 'anthropic/claude-sonnet-5', scope: 'session' },
+    }));
+
+    // Lit means automation is engaged. Staying lit while pinned would leave the
+    // control lit in both states, which distinguishes nothing.
+    expect(pin().classList.contains('auto')).toBe(false);
+    expect(pin().classList.contains('pinned')).toBe(true);
+    expect(harness.window.document.getElementById('modelPinLabel')?.textContent).toBe('claude-sonnet-5');
+    expect(pin().title).toContain('for this chat');
+  });
+
+  it('lights up again when the pin is cleared', () => {
+    harness.send(stateWith([USER_TURN], {
+      modelOverride: { modelId: 'anthropic/claude-sonnet-5', scope: 'turn' },
+    }));
+    harness.send(stateWith([USER_TURN]));
+
+    expect(pin().classList.contains('auto')).toBe(true);
+    expect(pin().classList.contains('pinned')).toBe(false);
+    expect(harness.window.document.getElementById('modelPinLabel')?.textContent).toBe('Auto');
   });
 });

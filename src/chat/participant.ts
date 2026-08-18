@@ -1,4 +1,5 @@
 ﻿import * as fs from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
@@ -730,7 +731,14 @@ export function shouldCarryForwardConversationContext(
   }
 
   const promptTokens = extractTopicTokens(trimmed);
-  if (promptTokens.length < 2) {
+  // A prompt too short to state a subject is shorthand, and shorthand is
+  // contextual. "git status" and "project_memory/" both carry exactly two topic
+  // tokens, share none with what came before, and were dropped — after which a
+  // model with no session to look at still narrated one, reporting that it had
+  // made no changes on a turn where it had edited a file two turns earlier. The
+  // subject-shift veto above still runs first, so an explicit change of topic
+  // stays dropped however briefly it is put.
+  if (promptTokens.length <= 2) {
     return true;
   }
 
@@ -857,6 +865,7 @@ export async function runDeterministicSlashCommand(
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'lens': await handleLensCommand(stream); return true;
+    case 'localci': await handleLocalCiCommand(stream); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
@@ -1091,6 +1100,19 @@ export async function runProjectCommand(
   );
   const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
+  const workspaceReadiness = assessProjectWorkspace(
+    vscode.workspace.workspaceFolders?.length ?? 0,
+    baselineSnapshot.size,
+  );
+  if (workspaceReadiness.kind === 'no-folder') {
+    // Refused before planning, because planning costs a model call and there is
+    // no answer it could produce that would be usable.
+    stream.markdown(
+      'There is no folder open, so there is nowhere for this project to run.\n\n'
+      + 'Open the folder you want Atlas to work in, then ask again.',
+    );
+    return noOpOutcome;
+  }
   let lastImpactSnapshot = baselineSnapshot;
   let impactReporting = Promise.resolve();
   const fileAttribution = new Map<string, Set<string>>();
@@ -1129,13 +1151,31 @@ export async function runProjectCommand(
       .join('\n'),
   );
 
-  if (estimatedFiles > projectUiConfig.approvalFileThreshold && !approved) {
+  // Two independent reasons to stop, stated together rather than as two gates in
+  // sequence: a run is approved once, and an operator who cleared one gate and
+  // immediately met another would reasonably read the second as the first having
+  // failed.
+  const approvalReasons: string[] = [];
+  if (workspaceReadiness.kind === 'empty') {
+    approvalReasons.push(
+      'This folder is **empty** — there are no files for Atlas to read, so the plan above was built '
+      + 'from your goal alone. If you meant to start a new project here, that is fine and the run will '
+      + 'create the files. If you meant to work on an existing codebase, the wrong folder is open.',
+    );
+  }
+  if (estimatedFiles > projectUiConfig.approvalFileThreshold) {
+    approvalReasons.push(
+      `This project is estimated to modify **~${estimatedFiles} files**, which exceeds the safety `
+      + `threshold of ${projectUiConfig.approvalFileThreshold}. This gate exists to prevent unreviewed `
+      + `large-scale changes — you can adjust it in AtlasMind Settings → Advanced → Approval Threshold.`,
+    );
+  }
+
+  if (approvalReasons.length > 0 && !approved) {
     stream.markdown(
-      `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify **~${estimatedFiles} files**, ` +
-      `which exceeds the safety threshold of ${projectUiConfig.approvalFileThreshold}. ` +
-      `This gate exists to prevent unreviewed large-scale changes — you can adjust it in ` +
-      `AtlasMind Settings → Advanced → Approval Threshold.\n\n` +
-      `The plan above is what will run. Approve it below, or refine the goal and ask again.`,
+      '\n\n⚠️ **Approval required**\n\n'
+      + approvalReasons.map(reason => `- ${reason}`).join('\n\n')
+      + '\n\nThe plan above is what will run. Approve it below, or refine the goal and ask again.',
     );
     stream.button({
       command: 'atlasmind.showCostSummary',
@@ -2309,6 +2349,149 @@ async function handleLensCommand(stream: vscode.ChatResponseStream): Promise<voi
 }
 
 /**
+ * Gather the local CI guide's state from the machine, not from the user.
+ *
+ * Two costs, deliberately separated by `probe`. The workflow review and the
+ * permission are **free** — a file read and a settings read — so they are
+ * always done, which is what lets the guide give a useful answer on a machine
+ * with nothing installed. Probing `gh` and Docker means up to four process
+ * launches that are slowest exactly when they fail, so `/setup` skips them and
+ * `/localci` pays for them.
+ *
+ * The probe reuses `LocalCiRunnerManager.inspect` rather than reimplementing
+ * it. A second prerequisite probe would be a second answer to "is Docker
+ * available", and the two would eventually disagree — with the guide and the
+ * dashboard telling the same person different things about the same machine.
+ * The manager instantiated here is a throwaway reader: inspection starts no
+ * container and registers nothing.
+ */
+async function collectLocalCiSetupSteps(
+  options: { probe: boolean },
+): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildLocalCiSetupPlan }, { LocalCiRunnerManager, initialLocalCiRunnerSnapshot, buildLocalCiQueueInvocation }, { parseRepoSlug }] =
+    await Promise.all([
+      import('../core/localCiSetupPlan.js'),
+      import('../core/localCiRunner.js'),
+      import('../core/githubDeepLinks.js'),
+    ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const shutdown = configuration.get<string>('ci.localRunner.shutdownPolicy', 'ifStartedByAtlasMind');
+  const runnerConfiguration = {
+    enabled: configuration.get<boolean>('ci.localRunner.enabled', false),
+    workflowFile: configuration.get<string>('ci.localRunner.workflowFile', 'trusted-local-ci.yml').trim(),
+    trustedBranch: configuration.get<string>('ci.localRunner.trustedBranch', 'develop').trim(),
+    runnerLabel: configuration.get<string>('ci.localRunner.runnerLabel', 'atlasmind-trusted-linux-{arch}').trim(),
+    image: configuration.get<string>('ci.localRunner.image', '').trim(),
+    shutdownPolicy: (shutdown === 'never' || shutdown === 'always' ? shutdown : 'ifStartedByAtlasMind') as
+      'never' | 'always' | 'ifStartedByAtlasMind',
+    maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
+    maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+  };
+
+  const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');
+  const permissionSourceLabel = inspection?.workspaceFolderValue !== undefined ? 'workspace-folder setting'
+    : inspection?.workspaceValue !== undefined ? 'workspace setting'
+      : inspection?.globalValue !== undefined ? 'current VS Code user/machine setting'
+        : 'default for this VS Code profile and extension host';
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceRoot = folder?.uri.scheme === 'file' ? folder.uri.fsPath : undefined;
+
+  const queueInvocation = buildLocalCiQueueInvocation(runnerConfiguration);
+  const base = {
+    ...(queueInvocation ? { queueCommand: [queueInvocation.command, ...queueInvocation.args].join(' ') } : {}),
+    permissionEnabled: runnerConfiguration.enabled,
+    permissionSourceLabel,
+    workflowFile: runnerConfiguration.workflowFile || 'trusted-local-ci.yml',
+    trustedBranch: runnerConfiguration.trustedBranch || 'develop',
+    prerequisitesInspected: false,
+    githubCliInstalled: false,
+    githubAuthenticated: false,
+    dockerCliInstalled: false,
+    dockerEngineAvailable: false,
+    dockerDesktopAvailable: false,
+    // A completed run is a fact about a live manager the chat surface does not
+    // own. Reported as "not yet" rather than guessed: the dashboard knows, and
+    // claiming a run happened because the configuration looks right is exactly
+    // the "configured means working" conflation this step exists to refuse.
+    hasCompletedARun: false,
+  };
+  if (!workspaceRoot) {
+    return buildLocalCiSetupPlan(base);
+  }
+
+  const manager = new LocalCiRunnerManager(workspaceRoot, runnerConfiguration);
+  let snapshot = initialLocalCiRunnerSnapshot(runnerConfiguration);
+  if (options.probe) {
+    snapshot = await manager.inspect(runnerConfiguration).catch(() => snapshot);
+  }
+
+  // The remote answers "which repository is this" without needing `gh`, which
+  // matters because the workflow review has to work before `gh` is installed.
+  const remote = await new Promise<string>(resolve => {
+    execFile('git', ['remote', 'get-url', 'origin'], { cwd: workspaceRoot, windowsHide: true, timeout: 5_000 },
+      (error, stdout) => resolve(error ? '' : String(stdout).trim()));
+  });
+  const slug = parseRepoSlug(remote);
+  const workflowReview = slug
+    ? await manager.reviewWorkflow(
+      runnerConfiguration,
+      `${slug.owner}/${slug.repo}`,
+      snapshot.runnerLabel,
+    ).catch(() => undefined)
+    : undefined;
+
+  return buildLocalCiSetupPlan({
+    ...base,
+    ...(workflowReview ? { workflowReview } : {}),
+    prerequisitesInspected: options.probe && snapshot.prerequisites.inspection === 'inspected',
+    githubCliInstalled: snapshot.prerequisites.githubCliInstalled,
+    githubAuthenticated: snapshot.prerequisites.githubAuthenticated,
+    dockerCliInstalled: snapshot.engine.cliInstalled,
+    dockerEngineAvailable: snapshot.engine.available,
+    dockerDesktopAvailable: snapshot.engine.desktopAvailable,
+  });
+}
+
+/**
+ * `/localci` — the local CI walkthrough.
+ *
+ * Renders the whole plan rather than one step at a time, like `/lens` and
+ * unlike `/acp`. The steps are ordered but not strictly sequential: somebody
+ * may already have Docker and `gh` and need only the workflow, and marching
+ * them through five screens to reach the one they came for is how a guide
+ * stops being opened.
+ */
+async function handleLocalCiCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  const [{ LOCAL_CI_SETUP_GUIDE }, walkthrough] = await Promise.all([
+    import('../core/localCiSetupPlan.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+  stream.progress('Checking the trusted workflow, GitHub CLI and Docker on this machine…');
+  const steps = await collectLocalCiSetupSteps({ probe: true });
+  const progress = walkthrough.summarizeSetupProgress(steps, LOCAL_CI_SETUP_GUIDE.stepIds);
+
+  stream.markdown(walkthrough.renderSetupGuideMarkdown(LOCAL_CI_SETUP_GUIDE, steps, progress));
+  stream.markdown([
+    '',
+    '---',
+    '',
+    'AtlasMind runs no permanent runner service. When you lend the machine, it starts one container for one job and removes the registration afterwards.',
+    'Nothing here is switched on for you: the permission is yours to grant, and every run asks separately, naming the exact queued job.',
+  ].join('\n'));
+
+  const next = walkthrough.nextSetupStep(steps, LOCAL_CI_SETUP_GUIDE.stepIds);
+  if (next?.action && walkthrough.isOpeningAction(next.action.command)) {
+    stream.button({
+      command: next.action.command,
+      title: next.action.title,
+      ...(next.action.args ? { arguments: next.action.args } : {}),
+    });
+  }
+}
+
+/**
  * `/setup` — the index of every setup guide, with how far along each one is.
  *
  * Exists because a feature that needs configuring should be discoverable before
@@ -2340,11 +2523,20 @@ async function handleSetupCommand(
     await handleLensCommand(stream);
     return;
   }
+  if (requested?.id === 'localci') {
+    await handleLocalCiCommand(stream);
+    return;
+  }
 
   const plans: Array<{ guideId: string; steps: import('../core/setupWalkthrough.js').SetupStep[] }> = [];
   plans.push({ guideId: 'acp', steps: await collectAcpSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'buzz', steps: await collectBuzzSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'lens', steps: await collectLensSetupSteps().catch(() => []) });
+  // Probe-free on the index: `/setup` lists four guides, and paying for a
+  // Docker and `gh` probe to render one row would make opening the index
+  // noticeably slow on a machine that has neither. The row then reads
+  // "not checked yet", which is true, and `/localci` does the real probe.
+  plans.push({ guideId: 'localci', steps: await collectLocalCiSetupSteps({ probe: false }).catch(() => []) });
 
   stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
   if (trimmed && !requested) {
@@ -4561,8 +4753,9 @@ export function buildAssistantResponseMetadata(
     summary = result.autoDisabledProvider
       ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
       : 'No usable answer was returned.';
-  } else if (failedAttempts.length > 0) {
-    summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${failedAttempts.length} did not complete.`;
+  } else if (failedAttempts.some(attempt => attempt.model !== result.modelUsed)) {
+    const others = failedAttempts.filter(attempt => attempt.model !== result.modelUsed).length;
+    summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${others} did not complete.`;
   } else if (toolCallCount > 0) {
     const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
     summary = actionSummary
@@ -4587,13 +4780,22 @@ export function buildAssistantResponseMetadata(
         : `${result.autoDisabledProvider.displayName} was paused and no fallback model completed the request.`,
     );
   }
-  if (attempts.length > 1 || failedAttempts.length > 0 || supersededAttempts.length > 0) {
+  // The model that answered is never also reported as having failed.
+  //
+  // A model can be tried, refused, and tried again successfully, which produced
+  // a summary reading "final model: mistral-small" directly above "Did not
+  // complete: ..., mistral-small (capability-mismatch)" — and a headline of
+  // "Completed after 5 attempts; 5 did not complete", which cannot be true of a
+  // turn that produced an answer. The reader's question is which models failed
+  // them, and for the one that answered the honest answer is none.
+  const unsuccessfulAttempts = failedAttempts.filter(attempt => attempt.model !== result.modelUsed);
+  if (attempts.length > 1 || unsuccessfulAttempts.length > 0 || supersededAttempts.length > 0) {
     bullets.push(
       `${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; final model: ${result.modelUsed}.`,
     );
   }
-  if (failedAttempts.length > 0) {
-    bullets.push(`Did not complete: ${failedAttempts.map(attempt => `${attempt.model} (${attempt.status})`).join(', ')}.`);
+  if (unsuccessfulAttempts.length > 0) {
+    bullets.push(`Did not complete: ${unsuccessfulAttempts.map(attempt => `${attempt.model} (${attempt.status})`).join(', ')}.`);
   }
   if (supersededAttempts.length > 0) {
     bullets.push(`Superseded after a struggle signal: ${supersededAttempts.map(attempt => attempt.model).join(', ')}.`);
@@ -6305,6 +6507,35 @@ export function getProjectUiConfig(
 
 export function estimateTouchedFiles(subTaskCount: number, estimatedFilesPerSubtask: number): number {
   return Math.max(1, subTaskCount * Math.max(1, estimatedFilesPerSubtask));
+}
+
+/**
+ * Whether a project run has anything to run against.
+ *
+ * The planner reads the goal string, memory and the skill catalogue — it never
+ * looks at the workspace. So on an empty folder it invents subtasks from the
+ * wording alone and the executor then searches, reads and edits files that do
+ * not exist. Nothing on the path noticed: the snapshot taken immediately before
+ * planning came back empty and nobody read its size.
+ *
+ * `no-folder` is a refusal because there is nowhere to write. `empty` is *not*,
+ * because starting a project in an empty directory is a real thing people do —
+ * it is ambiguous, which is exactly the case the approval gate exists for, and
+ * the far commoner cause is the wrong folder being open.
+ */
+export type ProjectWorkspaceReadiness =
+  | { kind: 'no-folder' }
+  | { kind: 'empty' }
+  | { kind: 'populated'; fileCount: number };
+
+export function assessProjectWorkspace(
+  workspaceFolderCount: number,
+  fileCount: number,
+): ProjectWorkspaceReadiness {
+  if (workspaceFolderCount < 1) {
+    return { kind: 'no-folder' };
+  }
+  return fileCount < 1 ? { kind: 'empty' } : { kind: 'populated', fileCount };
 }
 
 export async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {

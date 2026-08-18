@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.341.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.360.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,197 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.341.0
+## What's new in 0.360.2
 
-The last Marketplace publication, **v0.327.0**, is the baseline; the items below recap recently shipped
+The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Atlas action buttons are pills now, everywhere in AtlasMind.** The Atlas mark on the left says who is
+  being asked; a glyph on the right says what they will do. "Ask Atlas" names who and never what, so a row
+  of these was a row of identical circles you had to hover one at a time. The tooltip still carries the
+  whole sentence — the glyph narrows the meaning, it never has to carry it alone.
+
+- **The canvas panel sits beside the graph** where the window is wide enough. Below it, selecting a
+  workflow scrolled its own answer out of view.
+
+- **Declared policy rows now open the policy.** A row on the Tests view can say a policy is unevidenced;
+  only its card on the Testing page can say what it would take. Clicking through opens that card expanded.
+  Cross-page links to a policy had been silently landing on the right page with no record for as long as
+  the link existed.
+
+- **`act`, Buildkite and Woodpecker link to their own documentation** rather than naming a hostname you
+  had to retype, and an executor nothing routes to reads *optional* rather than *needs setup*.
+
+- **The canvas is now the CI/CD hub.** Three overlays on the one graph rather than three separate views:
+  **Status** paints the latest outcome on each workflow from the same runs Activity reads, **Routing** says
+  where each kind of check runs, and **Delivery** appends the stages a commit travels through after the
+  gate — so CI and CD are finally one picture. Click a workflow for its panel: last result, its file, and
+  every action that applies to it. Dragging still changes nothing but the layout.
+
+- **Tests answers three questions instead of one.** What is failing right now — with the file, the policy
+  it belongs to, and a button to open it — then whether your declared testing policies are actually
+  evidenced, then the band that was never surfaced: declared endpoints, roles, migrations and schemas that
+  **no test names**, each with a *Draft with Atlas* action. That scanner has existed for months; nothing on
+  this page ever showed you its results. A report older than your newest test file now says so.
+
+- **Rules is now a grid, not a wall of prose.** Every kind of check against every place it could run:
+  preferred route, fallbacks numbered in order, and squares the policy refuses — each naming its reason on
+  hover, so the rule that unreviewed code never reaches an unsafe route is visible law rather than a
+  paragraph. One click cycles a square between unused, last resort and preferred, decided by the same
+  engine that routes for real, confirmed with the sentence describing the change, and written to the
+  committed file. Beside it, a dry run showing what would happen if checks ran right now, and executors
+  compressed to one line each with the borrowed machine's detail behind a drawer.
+
+- **The Pipeline page is being rebuilt around four views.** Phase A lands the shell and the landing view:
+  **Activity** (watch), **Canvas** (understand), **Tests** (verify), **Rules** (decide) — named by what you
+  are doing, not by which subsystem produced the data. Activity opens the page and leads with what needs
+  you: the classified failure with its evidence and a one-click handoff to Atlas, then a run ribbon per
+  pipeline where bar height is elapsed time and colour is the outcome, then everything that ran. Setup is
+  no longer a tab; it takes over only while genuinely unfinished, then retreats to a chip. The Analytics
+  and Builds tabs are gone — the ribbon replaced the donut, the waterfall and the pills.
+
+- **The Pipeline page answers its own five hardest questions.** Onboarding stops being the landing page
+  once anything has run — the page opens on Builds, and the setup journey collapses to one line with the
+  steps behind a disclosure. The routing card says plainly what the rules are and every rule has a
+  **Change…** flow, so picking where checks run no longer means editing JSON. The latest classified failure
+  now renders on Builds with **Ask Atlas to work on this failure** — the log fenced as untrusted content.
+  Analytics leads with sentences ("2 of the last 30 completed runs failed; the least reliable workflow is
+  CI") computed from the same numbers as the charts. And the Builds and Where-it-runs tabs, which shipped
+  unreachable behind a stale allowlist, actually open.
+
+- **Routes now say how faithfully they reproduce what they claim to prove.** `act` and the borrowed machine
+  both produce Linux-container evidence, but one runs GitHub's own runner image and the other emulates
+  artifacts, caches, services and secrets. Nothing in the model could tell them apart, so a routing rule
+  could substitute one for the other unopposed. Now packaging and security scanning demand the real thing
+  and refuse an approximation — while the full suite accepts one, because under `act` your tests genuinely
+  run and it is the orchestration around them that is emulated.
+
+- **The test suite is type-checked at last.** Tests were never covered by the build config, so a fixture
+  could claim a type it no longer satisfied and nothing noticed. `npm run typecheck:tests` checks them, and
+  a baseline holds the existing count so it can only go down — a new test that does not type-check now fails
+  the suite and is named in the failure.
+
+- **Run your existing GitHub workflow locally with `act` — after being told what it cannot reproduce.**
+  Any workflow on the map now offers **Run locally with act**. AtlasMind reads the file first and says which
+  parts will not behave like GitHub: artifacts and caches have no local service, secrets are absent so steps
+  needing one often pass for the wrong reason, and the event payload is synthesized. A job targeting Windows
+  or macOS, or using OIDC, is refused outright rather than run as something else with the same name. The
+  command goes to your terminal for you to run — AtlasMind will help you run `act` and will not run it for
+  you, because it executes arbitrary workflow content with container access.
+
+- **One build list, and it never invents a verdict.** A **Builds** view merges local runs with GitHub's,
+  newest first, so you can see what this project has actually run lately. How closely each build was watched
+  is part of the record: a tick or a cross means AtlasMind saw the result, and a question mark means it
+  started the run and cannot see how it ended — which is the honest answer for the run-here route, whose
+  commands go to your own terminal. Hosted builds refresh while they run, by polling with backoff, and the
+  page says so rather than dressing it up as a stream. Local history is yours alone: it lives in workspace
+  state, not in the committed project memory.
+
+- **Routing rules decide where each kind of check goes, and one rule is not yours to change.** A committed
+  `ci-routing.json` records which route serves fast feedback, the full suite, packaging, security scans, the
+  platform matrix and unreviewed contributions — and what each does when the hosted allowance runs out.
+  Every decision names the rule behind it and explains, in a sentence, why the others lost. **Unreviewed
+  code never falls back to a local route, whatever the budget says**: that filter runs before the meter is
+  consulted and applies to every fallback, so running out of hosted minutes produces a refusal rather than
+  moving somebody else's pull request onto your computer. AtlasMind can read your Actions allowance to make
+  budget-aware rules act on a real number — and when it cannot read it, it says so and keeps using the
+  preferred route, because a billing endpoint having a bad afternoon must not relocate your work.
+
+- **Pipeline now shows where a check can run, and lets you just run it here.** A **Where it runs** view
+  lists every route — run here, lend this computer to GitHub, GitHub-hosted — with what each can do, what
+  it costs, and whether this machine can use it today. Each states what a pass on it *proves*: a Linux
+  container is not evidence about Windows, and AtlasMind refuses that substitution rather than leaving you
+  to notice it. The simplest route finally has a button: **Run these checks now** resolves your project's
+  own check scripts by a published rule, shows them, and types them into a terminal for you to run — and
+  refuses outright if one of them would leave your machine. `act`, Buildkite and Woodpecker are listed as
+  adapter boundaries: visible, never pretending to be usable.
+
+- **`/localci` walks you through local CI, and AtlasMind can install the GitHub CLI for you.** Local CI has
+  more prerequisites than anything else in AtlasMind, and now has a guide that derives each one from your
+  machine rather than asking. It installs and enables nothing — every step opens the screen where you
+  decide — and its last step is proving one job has actually run, because configured is not the same as
+  working. A missing `gh` can now be installed from the Runner view, with the exact command shown first and
+  success confirmed by re-checking PATH rather than by an exit code. An arm64 machine is told plainly that
+  the shipped runner image is the reviewed x64 digest, which setting to change, and how to get the right
+  one, instead of meeting a confusing pull failure.
+
+- **AtlasMind writes the trusted local-CI workflow, and checks it before anything else.** The file that
+  authorises a GitHub job to run on your machine has the strictest contract in the product, and used to be
+  the one artifact you had to hand-author from a template. The Runner view now offers **Check the trusted
+  workflow** — a file read, so it works before Docker, a GitHub sign-in, or a queued job exists — and
+  **Write it for me…** when none is present. The generated workflow is derived from the repository's own
+  remote, branch, runner label and package scripts, and the confirmation says in plain words what it will
+  permit and refuse. Creation never overwrites. When a workflow fails the policy, each failed rule is
+  listed separately with the change that satisfies it, instead of one sentence at the end of a four-step
+  setup.
+
+- **Follow CI as a workflow, then zoom into the evidence.** Pipeline Studio opens with four plain-language
+  decisions—choose the checks, prepare the computer, queue GitHub, then lend one temporary runner—and
+  shows only the next required action and a compact progress strip by default. Completed setup detail,
+  specialist dashboards, and recent history are progressively disclosed instead of lengthening the setup
+  path. Pipeline Studio separates workflow mapping, the local runner, tests,
+  analytics, and packages/monorepo context into focused views. Measured status dials resolve to ticks; the
+  read-only node graph can be rearranged with a pointer or keyboard; current test reports animate into
+  honest pass/fail/skip cells; and bounded GitHub history drives outcome, answer-time and per-workflow
+  reliability charts. Missing history, timing, registry or report data stays labelled unknown rather than
+  being rendered as a healthy zero.
+
+- **Set up local CI without guessing what “enabled” means.** The Runner view now explains that no permanent
+  runner daemon is required and checks permission, PATH, Docker engine, GitHub authentication and the pinned
+  runner image as distinct states. Missing software opens a fixed official installation page and is clearly
+  described as an operating-system application outside the repository; no machine installer command is
+  presented as a project-terminal step. The permission badge shows the effective value and VS Code scope
+  AtlasMind actually read, and settings are re-synchronised before every dashboard snapshot.
+
+- **Queue exactly the code you intend to test.** The Runner view names the trusted branch in plain language,
+  recognises GitHub's `pending` as well as `queued` state, and shows the local and waiting SHAs when they
+  differ. Complete queue and stale-run cancellation commands have Copy and Send-to-Terminal controls; Send
+  works with the configured VS Code shell on Windows, macOS, or Linux and does not press Enter. A queue
+  check is retryable, while one correct run plus any stale run is refused: GitHub could assign either job
+  that shares the runner label.
+
+- **See the hardware and repository shape behind a run.** Machine inspection now reports GPU identity and
+  trustworthy VRAM readings alongside Docker's advertised GPU runtime, while keeping container GPU access
+  off by policy. The package view maps declared Node workspaces or a bounded first-level manifest scan,
+  highlights current-worktree impact, and inventories package formats, lockfiles, dependency monitors,
+  image pinning and artifacts. Registry configuration values are never read and external registry metrics
+  are shown only after a real provider adapter exists.
+
+- **Operate trusted local CI from the Pipeline dashboard.** A provider-aware runner command centre now
+  inspects host and Docker capacity, preserves at least 25% for the desktop, applies CPU/memory/process
+  limits, and shows the calculation before execution. It can lend the machine to one already-queued,
+  owner-authored GitHub Actions run for the current trusted commit; it never dispatches or reruns CI.
+  The runner is an ephemeral Linux container with no host mounts, Docker socket, GPU, persistent volume,
+  repository secrets or OIDC permission. Machine-scoped settings choose the workflow, branch, unique
+  architecture label, immutable image, resource caps, and whether Docker Desktop is kept open, closed only
+  when AtlasMind opened it, or always closed when no unrelated container is running. Linux-container
+  evidence remains visibly distinct from native Windows/macOS evidence, while provider cards reserve the
+  integration boundary for Buildkite, Semaphore and other executors.
+
+- **Run the complete quality workflow locally without exposing a workstation as a public runner.** The new
+  local-CI runbook covers compilation, lint, tests, coverage, packaging and full-history secret scanning,
+  states exactly what a local pass cannot prove, and defines four explicit execution postures: direct
+  local, protected trusted-branch, ephemeral/JIT, and provider-hosted PRs. A public repository may use a
+  dedicated self-hosted runner for reviewed branch code; untrusted PR code and personal credentials remain
+  outside that boundary. `npm run ci:local:quick` handles iteration and `npm run ci:local` runs the complete
+  pre-push gate. Hosted matrix jobs now run automatically only on release PRs into `main`; an owner-only
+  `develop` push/manual workflow targets an ephemeral Linux runner in Docker Desktop's isolated WSL2 VM.
+
+- **Replies stream faster, and long chats no longer get slower.** Every streamed chunk used to rebuild the
+  panel's entire state — re-reading your credential store, the checkpoint store and the run history from
+  disk, and re-sending the whole transcript. That cost scaled with reply length and chat size rather than
+  with the question, which is why short asks could still feel slow. Measured on one 200-chunk reply, the
+  credential-store enumeration alone dropped from 203 reads to 3. Switching editor tabs did the same work
+  on every click, and now does none of it.
+
+- **A project run checks it has somewhere to run.** With no folder open it stops and says so. With an
+  empty folder it shows you the plan and asks first, naming both things that could mean — a new project
+  starting here, or the wrong folder being open. Previously it planned against nothing and ran anyway.
+
+- **Click a file path in a reply to open it.** Paths are recognised however the model writes them, and a
+  `:12` or `#L12` anchor takes you to the line. A path outside the workspace is refused and says so.
+  Previously these either did nothing when clicked or drew with a line through them, as though the file
+  had been deleted.
 
 - **Dictate a message.** A microphone in the composer, transcribed on your own machine — inserted for you
   to read, never sent automatically.
@@ -951,7 +1138,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/cost` | Running spend for this workspace across all sessions (each reply's own cost is in its footer) |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
-| `/setup` · `/acp` · `/buzz` · `/lens` | Guided setup walkthroughs |
+| `/setup` · `/acp` · `/buzz` · `/lens` · `/localci` | Guided setup walkthroughs |
 | `/ship [routine]` | Run a saved project routine |
 | `/sync-instructions` | Keep every AI tool's instruction file in agreement |
 | `/voice` · `/vision` | Speech and image analysis panels |
@@ -975,8 +1162,10 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
+| `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
+| `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 
-All 116 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 142 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -984,7 +1173,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -994,6 +1183,7 @@ All 116 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
+| `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |
 | `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
 
@@ -1009,7 +1199,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

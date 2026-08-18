@@ -19,6 +19,7 @@
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
+  const chatSurface = document.getElementById('chatSurface');
   const recoveryNotice = document.getElementById('recoveryNotice');
   const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
   const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
@@ -3665,17 +3666,33 @@
         var href = linkMatch ? linkMatch[2] : '';
         var link = document.createElement('a');
         link.textContent = linkMatch ? linkMatch[1] : raw;
-        var safeHref = sanitizeLinkHref(href);
-        link.href = safeHref;
-        link.target = '_blank';
-        link.rel = 'noreferrer noopener';
-        // A rejected scheme is rewritten to '#', but the anchor still rendered
-        // link-coloured and underlined — indistinguishable from a working link
-        // that simply did nothing. Mark it so it reads as inert and says why.
-        if (safeHref === '#' && String(href || '').trim() !== '#') {
+        var classified = classifyLinkHref(href);
+        if (classified.kind === 'file') {
+          // A file reference is the commonest link a model emits, and until now
+          // it either did nothing (relative href in a webview resolves against
+          // vscode-webview://) or rendered struck through as though the file had
+          // been deleted. Route it to the host, which owns the workspace root
+          // and is the only side that can decide the path is inside it.
+          link.classList.add('file-link');
+          link.href = '#';
+          link.title = 'Open ' + classified.reference + ' in the editor';
+          link.addEventListener('click', function (reference) {
+            return function (event) {
+              event.preventDefault();
+              vscode.postMessage({ type: 'openFileReference', payload: reference });
+            };
+          }(classified.reference));
+        } else if (classified.kind === 'blocked') {
+          // Rewritten to '#', but the anchor still rendered link-coloured and
+          // underlined — indistinguishable from a working link that simply did
+          // nothing. Mark it so it reads as inert and says why.
+          link.href = '#';
           link.classList.add('blocked-link');
-          link.title = 'This link was blocked: only http, https, mailto and workspace-relative paths are allowed.';
-          link.removeAttribute('target');
+          link.title = 'This link was blocked: only http, https, mailto and workspace file paths are allowed.';
+        } else {
+          link.href = classified.href;
+          link.target = '_blank';
+          link.rel = 'noreferrer noopener';
         }
         container.appendChild(link);
         continue;
@@ -3708,15 +3725,59 @@
     }
   }
 
-  function sanitizeLinkHref(href) {
+  /**
+   * What kind of destination a link names, decided before anything is rendered.
+   *
+   * Three outcomes rather than the previous two, because "allowed" and "usable"
+   * were not the same thing: a workspace-relative href passed the old allowlist
+   * and then rendered as an ordinary anchor that did nothing when clicked, while
+   * the same file named as `file:///…` or `C:\…` failed it and rendered struck
+   * through — the presentation reserved for content that no longer applies. Both
+   * are file references, and the host can open either.
+   *
+   * The webview never decides whether a path is inside the workspace; it only
+   * decides that the text is shaped like a path and hands it over. Containment
+   * is the host's call, because the host is the side that knows the root.
+   */
+  function classifyLinkHref(href) {
     var value = String(href || '').trim();
     if (/^(https?:|mailto:)/i.test(value)) {
-      return value;
+      return { kind: 'external', href: value };
     }
-    if (/^(#|\.?\/?[A-Za-z0-9_./%\-]+(?:#.*)?)$/.test(value)) {
-      return value;
+    // A bare fragment is an in-document anchor, not a file.
+    if (/^#/.test(value)) {
+      return { kind: 'external', href: value };
     }
-    return '#';
+    if (looksLikeFileReference(value)) {
+      return { kind: 'file', href: '#', reference: value };
+    }
+    return { kind: 'blocked', href: '#' };
+  }
+
+  /**
+   * Path-shaped, and short enough to be a path rather than prose.
+   *
+   * Deliberately requires a separator or a file extension: `[docs](docs)` is far
+   * more likely to be a broken link than a file, and offering to open it would
+   * produce a failure notice for something nobody meant as a path.
+   */
+  function looksLikeFileReference(value) {
+    if (!value || value.length > 500) {
+      return false;
+    }
+    if (/^[a-z][a-z0-9+.\-]*:/i.test(value) && !/^file:\/\//i.test(value) && !/^[A-Za-z]:[\\/]/.test(value)) {
+      // Any scheme other than file:, and other than a Windows drive letter,
+      // is not a workspace path — vscode:, javascript:, data: all land here.
+      return false;
+    }
+    var withoutAnchor = value.replace(/(?:#L?\d+(?:[-,]\d+)?|:\d+(?::\d+)?)$/i, '');
+    if (!withoutAnchor) {
+      return false;
+    }
+    if (/[\s<>"'|?*]/.test(withoutAnchor)) {
+      return false;
+    }
+    return /[\\/]/.test(withoutAnchor) || /\.[A-Za-z0-9]{1,12}$/.test(withoutAnchor);
   }
 
   function createDeleteButton(entryId) {
@@ -4451,18 +4512,34 @@
 
   function renderModelPinButton() {
     var override = currentModelOverride();
+    // The visible label stays short enough to sit in the icon row; what the
+    // control *means* lives in the tooltip, which is the only place there is
+    // room to say it. aria-label carries the same sentence, because a tooltip a
+    // screen reader never announces is an explanation for some users only.
     if (override) {
       var short = String(override.modelId).split('/').pop() || override.modelId;
       modelPinLabel.textContent = short;
       modelPin.classList.add('pinned');
-      modelPin.title = 'Pinned to ' + override.modelId
+      modelPin.classList.remove('auto');
+      setModelPinDescription(
+        'Pinned to ' + override.modelId
         + (override.scope === 'turn' ? ' for the next message' : ' for this chat')
-        + ' — click to change or clear';
+        + ' — click to change or clear',
+      );
     } else {
       modelPinLabel.textContent = 'Auto';
       modelPin.classList.remove('pinned');
-      modelPin.title = 'The router is choosing. Click to pin a model.';
+      modelPin.classList.add('auto');
+      setModelPinDescription(
+        'Auto model routing — AtlasMind picks the model for each message, on cost, speed and capability. '
+        + 'Click to pin one instead.',
+      );
     }
+  }
+
+  function setModelPinDescription(description) {
+    modelPin.title = description;
+    modelPin.setAttribute('aria-label', description);
   }
 
   function sendModelOverride(modelId) {
@@ -4970,6 +5047,9 @@
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
+      // The frame collapses to the activity strip during a run rather than
+      // holding an empty box open beside the inspector.
+      chatSurface.classList.toggle('run-mode', isRun);
       runInspector.classList.toggle('hidden', !isRun);
       updateComposerAvailability();
       clearConversation.disabled = isRun;

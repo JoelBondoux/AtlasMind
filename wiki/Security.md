@@ -141,6 +141,14 @@ The important structural rule: **a panel supplies data, never a command.** The d
 promotion and attest a check; it can never supply the command string that runs. What executes comes from
 your persisted configuration, read on the extension side.
 
+**A file path in a reply is text a model wrote.** Clicking one opens it, so it is treated as untrusted at
+both ends: the webview decides only that the text is *shaped* like a path and hands over exactly what the
+model wrote, and the extension side resolves it against your workspace root. Anything that lands outside —
+including a `file://` URI or an absolute path from another drive — is reported to you and not opened. The
+webview never learns where your workspace is, which is why it cannot be the side that decides.
+
+A link naming any other scheme is still refused outright and drawn as visibly inert.
+
 **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
 single message each require a confirmation naming what is lost — including how many messages the session
 holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the
@@ -450,6 +458,87 @@ an unreadable workflow, or occupied `.github/workflows/ci.yml` target suppresses
 pipeline that spends twice and can disagree with the first; release-only automation remains visibly
 distinct from quality coverage. Existing workflows are reduced to non-executable metadata for display; raw commands, action
 inputs, environment values and YAML remain in the extension host.
+
+AtlasMind's own repository keeps local hardware in a separate workflow for the same reason. The hosted
+workflow accepts release PRs into `main`; the trusted local workflow accepts no PR event. It requires the
+repository owner's `develop` push or exact-ref manual dispatch, a custom runner label without
+generic self-hosted labels, a read-only token, no secrets or OIDC, full-SHA action references and
+non-persistent checkout credentials. Policy tests read the YAML as source because a trigger or permission
+regression is a security defect even when every TypeScript test remains green. Fork workflows require
+approval for every external contributor, not only their first contribution.
+
+The Pipeline dashboard can now operate that one-job lifecycle, but it does not turn the label into an
+authorization rule. The webview sends no configuration or command payload. The extension host re-reads
+machine-scoped settings, requires exactly one waiting owner-authored run in total for current HEAD, rejects a dirty workflow,
+and checks the exact repository/ref/actor conditions, trigger set, read-only permission, secret/OIDC/write
+absence, immutable action references, checkout credential setting, unique label and existing runner list.
+It cannot dispatch or rerun a workflow.
+
+Two properties of that policy changed in v0.348.0, in the safe direction. It can now be evaluated **before**
+a run rather than only at the moment of one — a filesystem read needing no Docker, no `gh` and no queued
+job — so a workflow that will be refused is found before anything is installed, and each failed rule is
+reported as its own item rather than flattened into a single sentence. An unreviewed file reports as *not
+checked*, never as acceptable, and a workflow directory that cannot be listed is a blocker rather than a
+pass, because the check exists precisely to prove that no *other* workflow claims the runner label.
+
+AtlasMind can also now generate that file. Generation does not relax the boundary: the two messages carry
+no payload at all, so the host derives the repository from the git remote and the branch, label and
+filename from machine-scoped settings — a crafted webview message can request a creation but can never name
+a different file, a different repository condition, or a path outside `.github/workflows`. Action pins are
+module constants that were reviewed in this repository, never parsed from documentation and never
+model-generated, because a SHA taken from fetched text is a boundary-shaped string rather than a boundary.
+Writing uses `wx`, so an existing reviewed workflow is never replaced, and the file that lands on disk is
+re-reviewed rather than assumed good. A property test asserts every generated workflow passes the same
+validator that gates a run: the previous documented template had drifted out of compliance with three of
+its rules, and a test is the only form of that guarantee which cannot drift.
+
+The one-hour registration token is streamed directly from `gh` stdout into Docker stdin, so it is never a
+JavaScript string, setting, log line, webview field or model input. The runner itself is still trusted
+infrastructure and receives GitHub's job-scoped token; the workflow limits that token to `contents: read`
+and checkout does not persist it. The ephemeral container receives no host paths, Docker socket, inbound
+port, GPU, persistent volume, repository/environment secrets or OIDC permission. Its immutable image id,
+non-root user, capability drop, no-new-privileges flag, CPU/memory/no-swap limits and process ceiling are
+shown in the confirmation and dashboard.
+
+Hardware detection is an evidence boundary as well as a convenience. AtlasMind reads Docker's actual
+OS/architecture and capacity after startup, reserves at least 25% for the desktop, and refuses if the safe
+remainder is below 2 CPUs/4 GB or if the workflow label does not match the engine. The same explicit scan
+can report host GPU identity, trustworthy driver VRAM and Docker-advertised GPU runtimes, but those values
+grant nothing: `accessPolicy` stays disabled and the runner never adds `--gpus`. A Windows or macOS host
+therefore produces an explicitly labelled Linux-container result; it can never satisfy a native platform
+check. Docker Desktop stops only under the machine's cleanup policy and only when unrelated containers are
+absent and inventory succeeded. AtlasMind never starts or stops a Linux system Docker daemon.
+
+Prerequisite setup follows the same boundary. Inspection must first prove a tool is missing. The Runner page
+then sends an opaque help id that the host resolves to a fixed official Docker/GitHub CLI page; it accepts no
+URL or installer command, and explains that these are machine applications outside the workspace. GitHub
+authentication uses `gh auth login --web`; AtlasMind accepts no token field. Inspection invokes only
+bounded argv-only version/status probes and returns readiness booleans, not credential output. The digest-
+pinned runner image remains a planned download until the existing run confirmation.
+
+Queue state is also deny-by-default. `pending` and `queued` lists are deduplicated, exactly one waiting run
+must exist in total, and its SHA must equal local HEAD. A correct run does not excuse a stale one because
+GitHub can assign either job sharing the label. Absence/mismatch remains retryable and never weakens this rule.
+Queue command Copy/Send messages contain no browser-authored command text: the extension host rebuilds the
+line from constrained workflow/ref settings. Stale-run recovery supplies only a positive numeric run id,
+and the host refuses it unless that id still appears in the current waiting-run preflight issue. Sending
+types into the configured VS Code shell without a newline, so it never silently executes on any host OS.
+
+The permission badge is derived again in the extension host for every dashboard snapshot and names the
+effective VS Code setting scope. Browser state cannot claim the switch is On. A changed active profile or
+remote extension host invalidates the manager's readiness, while an identical setting read is a no-op so
+ordinary refreshes do not erase a completed inspection.
+
+Pipeline Studio keeps presentation and authority separate. Its selected subview and draggable node
+coordinates remain local webview state; the graph cannot edit or submit workflow YAML. Workspace topology
+is path-constrained and bounded to declared workspaces or one manifest level. Package registry
+configuration is checked only for file presence—credential-bearing values are never read—and provider
+cache, approval, vulnerability and publication states stay explicitly unconfigured without adapter
+evidence. Missing test history and timing remain unknown rather than being rendered as healthy.
+Progressive disclosure does not hide an execution refusal: the Runner's current action and `runnerBlockers`
+remain outside every disclosure. Only completed/missing-prerequisite diagnostics, counted operator notes,
+hardware/capacity evidence and provider detail collapse; the start preflight and modal still re-read and
+name the full live plan.
 - **Production declares a GitHub Environment**, so you can require reviewers there. AtlasMind's
   confirmation protects the moment the file is written; the environment protects every run after that.
 - **Secrets are named, never written.** You are told which to add and where; no value goes near the

@@ -11,12 +11,14 @@ const mocks = vi.hoisted(() => {
     workspaceFolders: unknown;
     configurationState: Map<string, unknown>;
     configurationUpdates: Array<{ key: string; value: unknown; target: unknown }>;
+    activeTextEditorHandler: ((editor: unknown) => void) | undefined;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
     workspaceFolders: undefined,
     configurationState: new Map(),
     configurationUpdates: [],
+    activeTextEditorHandler: undefined,
   };
 
   const postMessage = vi.fn();
@@ -75,7 +77,12 @@ vi.mock('vscode', () => ({
     visibleTextEditors: [],
     createWebviewPanel: mocks.createWebviewPanel,
     onDidChangeVisibleTextEditors: vi.fn(() => ({ dispose: () => undefined })),
-    onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => undefined })),
+    onDidChangeActiveTextEditor: vi.fn((handler: (editor: unknown) => void) => {
+      // Captured so a test can drive editor navigation; the panel coalesces the
+      // state pushes these produce, and that is only checkable by firing them.
+      mocks.state.activeTextEditorHandler = handler;
+      return { dispose: () => undefined };
+    }),
     showInputBox: mocks.showInputBox,
     showQuickPick: mocks.showQuickPick,
     showInformationMessage: mocks.showInformationMessage,
@@ -92,7 +99,20 @@ vi.mock('vscode', () => ({
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Position: class { constructor(public line: number, public character: number) {} },
   Range: class {
-    constructor(public start: { line: number; character: number }, public end: { line: number; character: number }) {}
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+    // Mirrors both real overloads: two Positions, or four numbers. The
+    // four-number form is the one the file-reference handler uses, and without
+    // it a caller's line number silently became the whole `start`.
+    constructor(...args: unknown[]) {
+      if (args.length >= 4) {
+        this.start = { line: args[0] as number, character: args[1] as number };
+        this.end = { line: args[2] as number, character: args[3] as number };
+      } else {
+        this.start = args[0] as { line: number; character: number };
+        this.end = args[1] as { line: number; character: number };
+      }
+    }
     get isEmpty() { return this.start.line === this.end.line && this.start.character === this.end.character; }
   },
   workspace: {
@@ -4985,5 +5005,211 @@ describe('restoring files from before a turn', () => {
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'status', payload: expect.stringContaining('no file snapshot'),
     }));
+  });
+});
+
+describe('opening a file a reply linked to', () => {
+  function mount() {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+  }
+
+  function lastStatus(): string | undefined {
+    const statuses = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: unknown })
+      .filter(message => message?.type === 'status');
+    return statuses.length > 0 ? String(statuses[statuses.length - 1].payload) : undefined;
+  }
+
+  beforeEach(() => {
+    mocks.state.workspaceFolders = [{ uri: { fsPath: path.resolve('/workspace'), path: '/workspace' } }];
+  });
+
+  it('opens a workspace file at the line the link named', async () => {
+    const panel = mount();
+
+    await panel.handleMessage({ type: 'openFileReference', payload: 'src/views/chatPanel.ts#L12' });
+
+    expect(vscodeModule.workspace.openTextDocument).toHaveBeenCalled();
+    const options = (vscodeModule.window.showTextDocument as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.at(-1)?.[1] as { selection?: { start?: { line?: number } } };
+    // The model counts from 1 and the editor from 0; an off-by-one here lands
+    // the cursor a line away from the thing the reply was pointing at.
+    expect(options?.selection?.start?.line).toBe(11);
+  });
+
+  it('refuses a path outside the workspace and says so', async () => {
+    const panel = mount();
+    (vscodeModule.workspace.openTextDocument as unknown as { mockClear(): void }).mockClear();
+
+    await panel.handleMessage({ type: 'openFileReference', payload: '../../../etc/passwd' });
+
+    // Reported rather than silently ignored: doing nothing is exactly what the
+    // dead links this replaced did, and is indistinguishable from a bug.
+    expect(vscodeModule.workspace.openTextDocument).not.toHaveBeenCalled();
+    expect(lastStatus()).toContain('outside this workspace');
+  });
+});
+
+describe('streaming a reply does not rebuild everything per chunk', () => {
+  function mount(isProviderConfigured: ReturnType<typeof vi.fn>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const transcript: Array<{ id: string; role: string; content: string; timestamp: string }> = [];
+    const processTask = vi.fn(async (_task: unknown, onChunk: (chunk: string) => Promise<void>) => {
+      // A fast provider emits a lot of small deltas. This is the shape that made
+      // a short answer expensive: the cost was per chunk, not per question.
+      for (let index = 0; index < 200; index += 1) {
+        await onChunk('word ');
+      }
+      return {
+        id: 't', agentId: 'a', modelUsed: 'm', response: 'word '.repeat(200),
+        inputTokens: 1, outputTokens: 200, costUsd: 0, durationMs: 1,
+      };
+    });
+
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask },
+        isProviderConfigured,
+        modelRouter: {
+          listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn(() => transcript),
+          appendMessage: vi.fn((role: string, content: string) => {
+            const id = `m${transcript.length + 1}`;
+            transcript.push({ id, role, content, timestamp: '2026-08-15T00:00:00.000Z' });
+            return id;
+          }),
+          updateMessage: vi.fn((id: string, content: string) => {
+            const entry = transcript.find(item => item.id === id);
+            if (entry) { entry.content = content; }
+          }),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+    return {
+      processTask,
+      transcript,
+      panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
+    };
+  }
+
+  it('does not re-enumerate providers once per chunk', async () => {
+    const isProviderConfigured = vi.fn().mockResolvedValue(true);
+    const { panel, processTask } = mount(isProviderConfigured);
+    const before = isProviderConfigured.mock.calls.length;
+
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    // Without this the assertion below passes for the wrong reason: a turn that
+    // never streamed enumerates nothing either.
+    expect(processTask).toHaveBeenCalled();
+
+    // Enumerating reaches credential storage and, for ACP, performs two dynamic
+    // imports. Which providers are configured is a property of settings — 200
+    // chunks of one reply cannot change it. A handful of calls is the end-of-turn
+    // sync and any listener-driven ones; 200 would be the old behaviour.
+    const duringTurn = isProviderConfigured.mock.calls.length - before;
+    expect(duringTurn).toBeLessThan(40);
+  });
+
+  it('still shows the whole reply when the turn ends', async () => {
+    const { panel, transcript } = mount(vi.fn().mockResolvedValue(true));
+
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
+
+    // The coalescing rate-limits the push, never the text. Dropping an
+    // intermediate frame is invisible; dropping the last one would truncate the
+    // answer on screen, which is the one failure this must not have.
+    const assistant = transcript.find(entry => entry.role === 'assistant');
+    expect(assistant?.content).toContain('word word');
+    expect(assistant?.content.trim().split(/\s+/)).toHaveLength(200);
+  });
+});
+
+describe('editor navigation does not re-read the credential store each time', () => {
+  function mount(isProviderConfigured: ReturnType<typeof vi.fn>) {
+    (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    ChatPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        isProviderConfigured,
+        modelRouter: {
+          listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+  }
+
+  it('coalesces a burst of tab switches into one push', async () => {
+    const isProviderConfigured = vi.fn().mockResolvedValue(true);
+    mount(isProviderConfigured);
+    const fire = mocks.state.activeTextEditorHandler;
+    expect(fire, 'the panel did not register an active-editor listener').toBeDefined();
+    const before = isProviderConfigured.mock.calls.length;
+
+    // Clicking through 30 files. The only thing this changes in the payload is
+    // the open-file chip list; it cannot change which providers are configured.
+    for (let index = 0; index < 30; index += 1) {
+      fire?.({ document: { uri: { scheme: 'file', fsPath: `/repo/f${index}.ts`, path: `/repo/f${index}.ts` } } });
+    }
+
+    expect(isProviderConfigured.mock.calls.length - before).toBe(0);
+  });
+
+  it('still records the editor immediately, because that is not rendering', () => {
+    mount(vi.fn().mockResolvedValue(true));
+    const fire = mocks.state.activeTextEditorHandler;
+    const editor = { document: { uri: { scheme: 'file', fsPath: '/repo/a.ts', path: '/repo/a.ts' } } };
+
+    fire?.(editor);
+
+    // "Insert at cursor" can be clicked before the coalesced push lands, so the
+    // last real editor has to be known the moment it changes.
+    expect((ChatPanel.currentPanel as unknown as { lastActiveTextEditor?: unknown }).lastActiveTextEditor)
+      .toBe(editor);
   });
 });
