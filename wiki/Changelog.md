@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.362.1 — Two things that had quietly stopped working
+
+`npm run test:mutation` runs end to end again. Stryker copies the project into a sandbox, which is right
+for the `fs`-only managers here and wrong for exactly one test — the type-error ratchet, whose subject is
+the working tree rather than a fixture. Inside a copy it counts zero, concludes 244 errors were fixed, and
+fails; Stryker will not mutate an already-red suite, and is right not to, because a mutant "killed" by a
+test that was failing anyway proves nothing. It now runs through its own vitest config that excludes that
+one file, with the reason written beside it — one file rather than the fifty that read repository paths,
+since almost all of those work fine and a broad list would rot while quietly narrowing coverage. A full
+run takes about eight minutes and scores 58.73%, over the break threshold of 50.
+
+That config also stops a mutation run overwriting the project's own test verdict. It runs the suite
+hundreds of times against deliberately broken code, and the ordinary config writes the JUnit report the
+Testing dashboard reads — which would have shown Stryker's induced failures as this project's own, with no
+way to tell the difference.
+
+The `Trusted quality` check has stopped sitting amber forever. There is **no self-hosted runner registered
+on this repository**, so the job was routed to a label nothing answers to — and a queued job does not fail,
+it waits, for up to twenty-four hours. Every commit carried a check reading `pending` when the truth was
+"nobody is going to run this", and on a pull request those look identical. It is gated on a repository
+variable now, defaulting closed, so nothing queues and nothing claims to be running. Flip it when a runner
+actually exists.
+
+And the publishing routine gained a step it always needed: refresh the README's published baseline after
+tagging. The suite is red until that is done — `docsIntegrity` asserts the README names the newest tag,
+and the tag only exists after the tagging step, so every release passed its own CI and then failed on the
+next local run looking like a docs nit. Found by this release doing precisely that.
+
+---
+
 ## v0.362.0 — Teaching the page to read itself out loud
 
 Four pieces of feedback on Activity and pull requests, all of them the same problem underneath: this page

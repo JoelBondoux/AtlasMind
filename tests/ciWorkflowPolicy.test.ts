@@ -74,6 +74,29 @@ describe('cost-aware CI workflow policy', () => {
     expect(workflow).toContain('run: npm run ci:local');
   });
 
+  /**
+   * A job queued for a runner label nothing answers to does not fail — it waits,
+   * for up to twenty-four hours, reporting `pending` on the commit and on every
+   * pull request whose head that commit is. This repository had no runner
+   * registered at all, so that check had been permanently amber: unreadable as
+   * either progress or a problem, and the two are indistinguishable on a pull
+   * request.
+   *
+   * The gate defaults closed in both useful directions — nothing queues, and
+   * nothing claims to be running — and a skipped job says the true thing.
+   */
+  it('does not queue a trusted job unless a runner is declared available', () => {
+    const workflow = read('.github/workflows/trusted-local-ci.yml');
+    expect(workflow).toContain("vars.TRUSTED_LOCAL_RUNNER == 'true'");
+    // The gate joins the existing conditions rather than replacing one: it is
+    // an availability check, and must never be mistaken for the authorization.
+    expect(workflow).toContain('github.actor == github.repository_owner &&');
+    expect(workflow).toContain("github.repository == 'JoelBondoux/AtlasMind'");
+    // The variable is named in the file that needs it, with the command to set
+    // it — a gate whose key is documented elsewhere is a gate nobody opens.
+    expect(workflow).toContain('gh variable set TRUSTED_LOCAL_RUNNER');
+  });
+
   it('keeps quick iteration separate from the complete local gate', () => {
     const manifest = JSON.parse(read('package.json')) as {
       scripts: Record<string, string>;

@@ -398,3 +398,29 @@ describe('local CI queue command', () => {
       .toBeUndefined();
   });
 });
+
+/**
+ * The repository's own trusted workflow, checked against the policy the runner
+ * enforces before it will serve a job.
+ *
+ * The generated-starter tests already prove the *generator* emits an acceptable
+ * file. This proves the file actually committed here is still one — which is a
+ * different claim, because this copy is hand-edited and the generator's is not.
+ * It was tightened with an availability gate; a tightening that accidentally
+ * displaced one of the authorization conditions would leave the workflow
+ * looking stricter while being safe to serve for the wrong reason.
+ */
+describe('this repository’s own trusted workflow', () => {
+  it('still satisfies the policy the local runner enforces', () => {
+    const workflow = readFileSync(
+      path.join(process.cwd(), '.github', 'workflows', 'trusted-local-ci.yml'),
+      'utf8',
+    );
+    const assessment = assessTrustedLocalCiWorkflow(workflow, {
+      repoSlug: 'JoelBondoux/AtlasMind',
+      branch: 'develop',
+      runnerLabel: 'atlasmind-trusted-linux-x64',
+    });
+    expect(assessment.blockers).toEqual([]);
+  });
+});

@@ -45,7 +45,7 @@ And occasionally:
 npm run watch:web            # Watch the browser bundle
 npm run open-in-browser      # Load the web build in Chromium
 npm run test:coverage        # The CI coverage gate, locally
-npm run test:mutation        # The slower mutation suite
+npm run test:mutation        # The slower mutation suite (its own vitest config; see docs/development.md)
 npm run ci:local             # Complete local gate, including coverage and VSIX
 npm run package:vsix         # Build a .vsix
 npm run resolve:release-conflicts   # Settle a merge's version-marker conflicts
