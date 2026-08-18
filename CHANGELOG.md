@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.364.1] - 2026-08-19
+
+### Changed
+
+- **README published baseline refreshed to v0.364.0**, the release just published — step 8 of the
+  publishing routine, which exists because `docsIntegrity` asserts the README names the newest tag and
+  the tag only exists once tagging has run. Written after the Marketplace publish succeeded, as that
+  step now says: the line claims a *publication*, not a tag.
+
 ## [0.364.0] - 2026-08-19
 
 ### Added

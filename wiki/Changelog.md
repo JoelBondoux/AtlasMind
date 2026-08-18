@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.364.1 — The line that names the last publication
+
+Housekeeping. The README's published baseline moves to v0.364.0, the release just published — the step
+that exists because a test asserts the README names the newest tag, and the tag only exists once tagging
+has run.
+
+---
+
 ## v0.364.0 — Setup you already did, and a machine you can still use
 
 Two things that made the same complaint from opposite directions.
