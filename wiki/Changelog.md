@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.358.0 — Tests, and the ones you have not written
+
+Phase C. The Tests view now answers three separate questions in the order you would actually ask them.
+
+**What is broken right now**, read from the report your suite already writes — AtlasMind never runs your
+tests to find out. Each failure shows its suite, its file and which policy it belongs to, with a button
+to open it. If the report is older than your newest test file, it says so rather than presenting a stale
+verdict as current. If there is no report at all, that is *no verdict* — never zero failures.
+
+**Whether your declared policies are actually tested**, which was already computed and is now where you
+would look for it.
+
+**And what nothing tests at all.** This is the new one. AtlasMind has been extracting the things your
+project declares — endpoints, GraphQL operations, migrations, schemas, roles, prompt files — and checking
+whether any test so much as names them. That has worked for months and nothing on this page ever showed
+you the answer. Now the uncovered ones are grouped by policy, each with the file it was declared in and a
+*Draft with Atlas* button that asks for a proposal in your project's own testing style.
+
+Where AtlasMind cannot extract subjects for a policy, it says so rather than reporting zero uncovered —
+a clean zero would read as complete.
+
 ## v0.357.0 — Routing you can see and change in one grid
 
 Phase B of the Pipeline rebuild. Deciding where your checks run used to mean reading prose cards and

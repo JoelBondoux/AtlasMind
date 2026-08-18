@@ -1229,6 +1229,14 @@
       vscode.postMessage({ type: 'createCiRoutingConfig' });
       return;
     }
+    if (action === 'pipeline-tests-fix') {
+      vscode.postMessage({ type: 'workOnFailingTests' });
+      return;
+    }
+    if (action === 'pipeline-test-draft') {
+      if (payload) { vscode.postMessage({ type: 'draftMissingTest', payload: payload }); }
+      return;
+    }
     if (action === 'pipeline-route-cell') {
       const sep = payload.indexOf('|');
       if (sep > 0) {
@@ -6477,6 +6485,145 @@
    * is decided host-side by the same engine that routes for real, so this grid
    * cannot author a rule the engine would then refuse.
    */
+  const CI_SUBJECT_KIND_LABEL = {
+    'api-path': 'endpoint',
+    'graphql-operation': 'GraphQL operation',
+    'grpc-service': 'gRPC method',
+    migration: 'migration',
+    schema: 'schema',
+    route: 'route',
+    role: 'role',
+    prompt: 'prompt',
+  };
+
+  /**
+   * Tests — three bands, in the order somebody triages them.
+   *
+   * Failing now, because a red test is the only thing here asking for a
+   * decision. Then whether the policies this project declared are actually
+   * evidenced. Then the band nothing surfaced before: declared work — endpoints,
+   * roles, migrations — that no test so much as names.
+   *
+   * The absence rules are the same everywhere: no report is *no verdict*, never
+   * zero failures, and a policy with no extractor reports that rather than
+   * reporting zero uncovered subjects.
+   */
+  function renderPipelineTests(testing) {
+    const coverage = testing.policyCoverage;
+    const subjects = testing.policySubjects || { coverage: [], extractablePolicies: [] };
+    const report = coverage && coverage.report;
+
+    const help = renderInfoHelp('pipeline.tests', {
+      label: 'what these three bands mean',
+      why: 'A test suite answers three different questions and they are usually mixed together: what is broken right now, whether the policies this project declared are actually tested, and what the project declares but nothing tests at all. Separating them means each has its own answer and its own next step.',
+      how: [
+        { text: 'Failures come from the report your suite already writes — AtlasMind never runs your tests to find out.' },
+        { text: 'Coverage matches each declared policy against evidence on disk, and says tooling-only when a tool is installed but nothing uses it.' },
+        { text: 'Missing tests are declared subjects — an endpoint, a role, a migration — that no test file names. A test that never names what it tests is not evidence that it tests it.' },
+      ],
+    });
+
+    // ── Band 1: failing now ──────────────────────────────────────
+    const failures = coverage ? [
+      ...coverage.rows.flatMap(row => (row.failures || []).map(failure => ({ ...failure, policy: row.label }))),
+      ...(coverage.unattributedFailures || []).map(failure => ({ ...failure, policy: undefined })),
+    ] : [];
+    const failingBand = !coverage || !report
+      ? `<article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Failing now</p><h3>No test report to read</h3></div>${help.button}</div>
+          ${help.panel}
+          <p class="section-copy">AtlasMind reads pass and fail from a report your suite writes; it never runs your tests to find out. Without one there is <strong>no verdict</strong> — which is not the same as zero failures.</p>
+          ${coverage && coverage.reportHint ? `<pre class="local-ci-command"><code>${escapeHtml(coverage.reportHint)}</code></pre>` : ''}
+        </article>`
+      : failures.length === 0
+        ? `<article class="panel-card">
+            <div class="ci-section-heading"><div><p class="card-kicker">Failing now</p><h3>Nothing failing</h3><p class="stat-detail">${escapeHtml(`${report.tests} case${report.tests === 1 ? '' : 's'} in the report AtlasMind read.`)}</p></div>${help.button}</div>
+            ${help.panel}
+          </article>`
+        : `<article class="panel-card ci-tests-failing">
+            <div class="ci-section-heading">
+              <div><p class="card-kicker">Failing now</p><h3>${escapeHtml(`${failures.length} failing test${failures.length === 1 ? '' : 's'}`)}</h3>
+              <p class="stat-detail">From <code>${escapeHtml(report.relativePath || 'the report your suite wrote')}</code>${report.stale ? ' — <strong>which is older than your newest test file</strong>, so this verdict may be stale' : ''}.</p></div>
+              ${help.button}
+            </div>
+            ${help.panel}
+            <div class="ci-tests-list">${failures.slice(0, 25).map(failure => `
+              <div class="ci-test-row">
+                <span class="tag tag-warn">${escapeHtml(failure.kind)}</span>
+                <div>
+                  <strong>${escapeHtml(failure.name)}</strong>
+                  <div class="list-meta">${failure.suite ? `${escapeHtml(failure.suite)} · ` : ''}${failure.file ? escapeHtml(failure.file) : 'file not attributed by the report'}${failure.policy ? ` · ${escapeHtml(failure.policy)}` : ''}</div>
+                </div>
+                ${failure.file ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(failure.file)}">Open</button>` : ''}
+              </div>`).join('')}</div>
+            ${failures.length > 25 ? `<p class="stat-detail">${escapeHtml(`${failures.length - 25} more not shown.`)}</p>` : ''}
+            <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-tests-fix">Ask Atlas to work through these…</button></div>
+          </article>`;
+
+    // ── Band 2: policy coverage ──────────────────────────────────
+    const coverageBand = !coverage
+      ? ''
+      : `<article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Declared policies</p>
+              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.activeCount} evidenced`)}</h3>
+              <p class="stat-detail">${escapeHtml(coverage.summary || '')}</p>
+            </div>
+          </div>
+          <div class="mini-grid">
+            ${renderMetricPill('Covered', String(coverage.coveredCount), { tone: 'good', detail: 'A test names it' })}
+            ${renderMetricPill('Tooling only', String(coverage.toolingOnlyCount), { tone: coverage.toolingOnlyCount ? 'warn' : '', detail: 'Installed, nothing uses it' })}
+            ${renderMetricPill('Missing', String(coverage.missingCount), { tone: coverage.missingCount ? 'warn' : 'good', detail: 'Declared, no evidence' })}
+            ${renderMetricPill('Practices', String(coverage.practiceCount), { detail: 'Never file-evident — not gaps' })}
+          </div>
+          <details class="ci-progressive-details">
+            <summary>Every declared policy and its evidence</summary>
+            <div class="ci-progressive-details-body ci-tests-list">
+              ${coverage.rows.map(row => `<div class="ci-test-row">
+                <span class="tag ${row.status === 'covered' ? 'tag-good' : row.status === 'missing' ? 'tag-warn' : ''}">${escapeHtml(row.status)}</span>
+                <div><strong>${escapeHtml(row.label)}</strong><div class="list-meta">${escapeHtml(row.detail || '')}</div></div>
+              </div>`).join('')}
+            </div>
+          </details>
+        </article>`;
+
+    // ── Band 3: declared work nothing tests ──────────────────────
+    const uncovered = (subjects.coverage || []).filter(entry => !entry.covered);
+    const byPolicy = new Map();
+    for (const entry of uncovered) {
+      const key = entry.subject.policyId;
+      byPolicy.set(key, (byPolicy.get(key) || []).concat(entry));
+    }
+    const extractable = (subjects.extractablePolicies || []).length;
+    const missingBand = `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Suggested missing tests</p>
+          <h3>${escapeHtml(uncovered.length ? `${uncovered.length} declared thing${uncovered.length === 1 ? '' : 's'} no test names` : 'Nothing declared is untested')}</h3>
+          <p class="stat-detail">Endpoints, roles, migrations and schemas this project declares, matched against test files by reference. A test that never names what it tests is not evidence that it tests it.</p>
+        </div>
+      </div>
+      ${uncovered.length
+        ? `<div class="ci-tests-list">${[...byPolicy.entries()].slice(0, 8).map(([policyId, entries]) => `
+            <div class="ci-subject-group">
+              <div class="ci-subject-head"><strong>${escapeHtml(policyId)}</strong><span class="stat-detail">${escapeHtml(`${entries.length} uncovered`)}</span></div>
+              ${entries.slice(0, 6).map(entry => `<div class="ci-test-row">
+                <span class="tag">${escapeHtml(CI_SUBJECT_KIND_LABEL[entry.subject.kind] || entry.subject.kind)}</span>
+                <div><strong>${escapeHtml(entry.subject.label)}</strong><div class="list-meta">declared in ${escapeHtml(entry.subject.source)}</div></div>
+                <button type="button" class="action-link" data-action="pipeline-test-draft" data-payload="${escapeAttr(entry.subject.id)}" title="Open a chat with the subject, its policy and where it is declared">Draft with Atlas…</button>
+              </div>`).join('')}
+              ${entries.length > 6 ? `<p class="stat-detail">${escapeHtml(`${entries.length - 6} more in this policy.`)}</p>` : ''}
+            </div>`).join('')}</div>`
+        : `<p class="section-copy">${extractable
+          ? 'Every subject AtlasMind can extract has a test naming it.'
+          : 'No subjects were extracted, so this says nothing about coverage.'}</p>`}
+      <p class="stat-detail">AtlasMind extracts subjects for ${escapeHtml(String(extractable))} of the declared policies. The rest report <em>not extractable</em> rather than zero — zero uncovered would read as complete.</p>
+    </article>`;
+
+    return `<div class="ci-studio-stack">${failingBand}${coverageBand}${missingBand}</div>`;
+  }
+
   function renderPipelineRules(routes, routing, runnerCard) {
     const help = renderInfoHelp('pipeline.rules', {
       label: 'the routing grid',
@@ -7605,7 +7752,7 @@
       setup: overviewContent,
       activity: renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp }),
       canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}${renderPipelinePackages(delivery)}</div>`,
-      tests: renderPipelineTestEngine(snapshot.testing || {}),
+      tests: renderPipelineTests(snapshot.testing || {}),
       rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard),
     }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 

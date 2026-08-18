@@ -728,6 +728,10 @@ type ProjectDashboardMessage =
   | { type: 'cycleCiRoutingCell'; payload: { workload: string; route: string } }
   /** Flip a rule's allowance-exhausted behaviour. Workload id only. */
   | { type: 'toggleCiRoutingExhaustion'; payload: string }
+  /** Hand the failing tests to a chat session. No payload: the report is the input. */
+  | { type: 'workOnFailingTests' }
+  /** Draft a test for one declared subject. Opaque id, re-resolved host-side. */
+  | { type: 'draftMissingTest'; payload: string }
   /**
    * Hand the latest classified CI failure to a chat session. No payload at all:
    * the host uses the report it already fetched, and the log inside the prompt
@@ -4217,6 +4221,12 @@ export class ProjectDashboardPanel {
       case 'toggleCiRoutingExhaustion':
         await this.handleCiRoutingEdit(config => toggleCiRoutingExhaustion(config, message.payload));
         return;
+      case 'workOnFailingTests':
+        await this.handleWorkOnFailingTests();
+        return;
+      case 'draftMissingTest':
+        await this.handleDraftMissingTest(message.payload);
+        return;
       case 'workOnCiFailure':
         await this.handleWorkOnCiFailure();
         return;
@@ -6501,6 +6511,74 @@ export class ProjectDashboardPanel {
       pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
     });
     await this.syncState();
+  }
+
+  /**
+   * Hand the failing tests to a chat session.
+   *
+   * Reuses the prompt the Testing dashboard already builds from the same
+   * coverage snapshot, so the two surfaces cannot ask for different things
+   * about the same failures. No payload: the report AtlasMind already read is
+   * the input, and the page cannot contribute to it.
+   */
+  private async handleWorkOnFailingTests(): Promise<void> {
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const coverage = testing.policyCoverage;
+    if (!coverage?.report) {
+      void vscode.window.showWarningMessage(
+        'There is no test report to work from. AtlasMind reads pass and fail from a report your suite writes; it never runs your tests to find out.',
+      );
+      return;
+    }
+    const failing = coverage.rows.filter(row => row.failedCount > 0);
+    if (failing.length === 0 && coverage.unattributedFailures.length === 0) {
+      void vscode.window.showInformationMessage('Nothing is failing in the report AtlasMind read.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildFixActivatedTestingPrompt(testing),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Draft a test for one declared subject nothing names.
+   *
+   * The webview sends a subject id and the host re-resolves it against a fresh
+   * scan — the same opaque-id rule every other action here follows, so a
+   * crafted message can name a subject that does not exist and never supply
+   * one. The prompt states where the subject is declared and which policy
+   * wants it covered, and asks for a proposal rather than a write.
+   */
+  private async handleDraftMissingTest(subjectId: string): Promise<void> {
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const entry = (testing.policySubjects?.coverage ?? []).find(candidate => candidate.subject.id === subjectId);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That subject is no longer in the scan. Refresh the Pipeline page and try again.');
+      return;
+    }
+    if (entry.covered) {
+      void vscode.window.showInformationMessage(`${entry.subject.label} already has a test naming it.`);
+      return;
+    }
+    const subject = entry.subject;
+    const prompt = [
+      `Propose a test for ${subject.label}.`,
+      '',
+      `It is a ${subject.kind} declared in ${subject.source}, and the ${subject.policyId} testing policy expects it to be covered.`,
+      'No test file in this project currently names it, which is why AtlasMind raised it.',
+      '',
+      'Write the test the way this project already writes tests: match the framework, the file layout and the naming'
+        + ' of the nearest existing suite rather than introducing a new style.',
+      `The test must name ${subject.label} explicitly — a test that never names what it tests is not evidence that it tests it,`
+        + ' and AtlasMind will keep reporting this subject as uncovered until one does.',
+      '',
+      'Propose the file and its contents for review. Do not write it until asked.',
+    ].join('\n');
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: prompt,
+      sendMode: 'new-session',
+    });
   }
 
   /**
@@ -10292,6 +10370,18 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'toggleCiRoutingExhaustion') {
     return typeof candidate['payload'] === 'string'
       && findCiWorkloadClass(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'workOnFailingTests') {
+    return candidate['payload'] === undefined;
+  }
+
+  // A subject id, bounded. The host re-resolves it against a fresh scan, so an
+  // id naming nothing is refused there rather than becoming prompt content.
+  if (candidate['type'] === 'draftMissingTest') {
+    return typeof candidate['payload'] === 'string'
+      && candidate['payload'].length > 0
+      && candidate['payload'].length <= 300;
   }
 
   if (candidate['type'] === 'reviewCiWorkflow') {
@@ -19885,6 +19975,30 @@ const DASHBOARD_CSS = `
   .ci-activity-build-main { flex: 1 1 auto; min-width: 0; }
   .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
   .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
+
+  /* ── Tests: three bands ─────────────────────────────────────── */
+  .ci-tests-failing { border-left: 3px solid var(--dash-warn); }
+  .ci-tests-list { display: grid; gap: 6px; }
+  .ci-test-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    flex-wrap: wrap;
+    padding: 8px 11px;
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+  }
+  .ci-test-row > div { flex: 1 1 240px; min-width: 0; }
+  .ci-subject-group { display: grid; gap: 6px; margin-bottom: 10px; }
+  .ci-subject-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--dash-muted);
+    padding-top: 4px;
+  }
 
   /* ── Rules: the routing grid ────────────────────────────────── */
   .ci-matrix-wrap { overflow-x: auto; margin: 12px 0 8px; }

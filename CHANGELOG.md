@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.358.0] - 2026-08-19
+
+Phase C of the Pipeline redesign: the Tests view.
+
+### Added
+
+- **Three bands, in the order somebody triages them.** What is failing right now, whether the policies
+  this project declared are actually evidenced, and — new — what the project declares that no test names.
+- **Suggested missing tests.** The subject scanner has extracted declared endpoints, GraphQL operations,
+  gRPC methods, migrations, schemas, routes, roles and prompt files for months; nothing on the Pipeline
+  page ever showed them. Uncovered subjects are now grouped by policy with the file each was declared in,
+  and a **Draft with Atlas** action that names the subject, its policy and its source, and asks for a
+  proposal rather than a write.
+- **Per-failure actions.** Each failing case shows its suite, its file and the policy it was attributed
+  to, with a button to open the file, plus one action to work through the whole set — reusing the prompt
+  the Testing dashboard already builds, so the two surfaces cannot ask for different things.
+
+### Changed
+
+- **A stale report says so.** When the report predates the newest test file, the verdict is labelled as
+  possibly out of date rather than presented as current.
+- **The Tests tab now leads with failures** instead of opening on inventory counts.
+
+### Security
+
+- **The two new messages are host-derived.** Working through failures carries no payload — the report
+  AtlasMind already read is the input. A draft request carries a bounded subject id which the host
+  re-resolves against a fresh scan, so an id naming nothing is refused rather than becoming prompt text.
+
 ## [0.357.0] - 2026-08-19
 
 Phase B of the Pipeline redesign: the Rules view.

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.357.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.358.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.357.0
+## What's new in 0.358.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Tests answers three questions instead of one.** What is failing right now — with the file, the policy
+  it belongs to, and a button to open it — then whether your declared testing policies are actually
+  evidenced, then the band that was never surfaced: declared endpoints, roles, migrations and schemas that
+  **no test names**, each with a *Draft with Atlas* action. That scanner has existed for months; nothing on
+  this page ever showed you its results. A report older than your newest test file now says so.
 
 - **Rules is now a grid, not a wall of prose.** Every kind of check against every place it could run:
   preferred route, fallbacks numbered in order, and squares the policy refuses — each naming its reason on

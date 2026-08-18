@@ -314,7 +314,7 @@ describe('the Pipeline CI management surface', () => {
     expect(body).toContain('${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}');
     expect(body).toContain('setup: overviewContent');
     expect(body).toContain('activity: renderPipelineActivity(');
-    expect(body).toContain('tests: renderPipelineTestEngine(');
+    expect(body).toContain('tests: renderPipelineTests(');
     expect(body).toContain('rules: renderPipelineRules(');
     expect(body).not.toMatch(/if \(!intel\)\s*\{\s*return/);
   });
@@ -1281,5 +1281,60 @@ describe('Activity — one stream, honest about what it saw', () => {
     expect(activity).toContain('Hosted history has not been loaded');
     expect(activity).toContain('not evidence that nothing ran on GitHub');
     expect(activity).toContain('That is not evidence that the build passed');
+  });
+});
+
+describe('Tests — three bands in triage order', () => {
+  const tests = pipelineSource('renderPipelineTests', 'renderPipelineRules');
+
+  it('leads with what is broken, then policy evidence, then what nothing covers', () => {
+    expect(tests.indexOf('Failing now')).toBeGreaterThan(-1);
+    expect(tests.indexOf('Failing now')).toBeLessThan(tests.indexOf('Declared policies'));
+    expect(tests.indexOf('Declared policies')).toBeLessThan(tests.indexOf('Suggested missing tests'));
+  });
+
+  /**
+   * The rule inherited from the coverage engine and the one most worth keeping:
+   * AtlasMind reads pass and fail from a report the suite wrote and never runs
+   * anything to find out, so no report is *no verdict*, never zero failures.
+   */
+  it('never turns a missing report into zero failures', () => {
+    expect(tests).toContain('No test report to read');
+    expect(tests).toContain('no verdict');
+    expect(tests).toContain('not the same as zero failures');
+    expect(tests).toContain('never runs your tests to find out');
+  });
+
+  /** A verdict older than the code it judged says so. */
+  it('says when the report predates the newest test file', () => {
+    expect(tests).toContain('report.stale');
+    expect(tests).toContain('older than your newest test file');
+  });
+
+  /**
+   * The band nothing surfaced before: declared endpoints, roles and migrations
+   * no test names, each with the action that would fix it.
+   */
+  it('surfaces declared subjects nothing tests, with a draft action each', () => {
+    expect(tests).toContain('Suggested missing tests');
+    expect(tests).toContain('entry.covered');
+    expect(tests).toContain('pipeline-test-draft');
+    expect(tests).toContain('declared in ');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'draftMissingTest'");
+  });
+
+  /**
+   * Zero uncovered subjects reads as complete, so a policy with no extractor
+   * must say it has none rather than report a clean zero.
+   */
+  it('states how many policies subjects can even be extracted for', () => {
+    expect(tests).toContain('not extractable');
+    expect(tests).toContain('zero uncovered would read as complete');
+    expect(tests).toContain('says nothing about coverage');
+  });
+
+  it('offers to work through the failures without running anything', () => {
+    expect(tests).toContain('pipeline-tests-fix');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'workOnFailingTests'");
   });
 });
