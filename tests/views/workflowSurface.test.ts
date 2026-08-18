@@ -1043,3 +1043,32 @@ describe('Pipeline route surface', () => {
     expect(WEBVIEW_SCRIPT).toContain('pipeline-create-routing');
   });
 });
+
+describe('Pipeline build list', () => {
+  it('shows every route in one list', () => {
+    expect(WEBVIEW_SCRIPT).toContain('renderPipelineBuilds');
+    expect(WEBVIEW_SCRIPT).toContain("id: 'builds'");
+  });
+
+  /**
+   * The rule that keeps this page from inventing reassurance. A build AtlasMind
+   * only started, on a terminal it does not read, must never carry a tick.
+   */
+  it('says plainly when it cannot report how a build ended', () => {
+    expect(WEBVIEW_SCRIPT).toContain('does not read it, so it cannot report how they ended');
+    expect(WEBVIEW_SCRIPT).toContain('no verdict by design');
+  });
+
+  it('marks hosted progress as polled rather than streamed', () => {
+    expect(WEBVIEW_SCRIPT).toContain('checked at intervals, not streamed');
+  });
+
+  /**
+   * An unfetched hosted history and a genuinely empty one are different facts;
+   * rendering them alike would let the first read as a quiet week.
+   */
+  it('keeps unfetched hosted history distinct from empty history', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Hosted history has not been loaded');
+    expect(WEBVIEW_SCRIPT).toContain('not evidence that nothing ran there');
+  });
+});

@@ -6143,6 +6143,12 @@
     const supply = delivery.supplyChain || {};
     const tabs = [
       { id: 'overview', label: 'Start here', meta: 'guided' },
+      { id: 'builds', label: 'Builds', meta: (() => {
+        const builds = (delivery.builds && delivery.builds.records) || [];
+        if (!builds.length) { return delivery.builds && delivery.builds.githubLoaded ? 'none yet' : 'not loaded'; }
+        const running = builds.filter(build => build.status === 'running').length;
+        return running ? `${running} running` : `${builds.length} recent`;
+      })() },
       { id: 'routes', label: 'Where it runs', meta: (() => {
         const routes = delivery.routes || [];
         const usable = routes.filter(entry => entry.status === 'available').length;
@@ -6319,6 +6325,102 @@
    * because a decision citing the allowance without saying whether the
    * allowance was actually read is the failure the meter exists to prevent.
    */
+  const CI_BUILD_STATUS_MARK = {
+    running: '●',
+    passed: '✓',
+    failed: '✕',
+    cancelled: '–',
+    unknown: '?',
+  };
+
+  /**
+   * Every build, whatever ran it, newest first.
+   *
+   * Two absences are kept apart at the top of this view: hosted history that
+   * was never fetched, and hosted history that is genuinely empty. Rendering
+   * them the same way would let an unfetched list read as a quiet week.
+   *
+   * A build AtlasMind did not watch shows a question mark and says why, never a
+   * tick. The direct-local route types commands into the user's terminal and
+   * does not read it, so a verdict there would be invented — on the surface
+   * people check before shipping.
+   */
+  function renderPipelineBuilds(builds) {
+    const records = builds.records || [];
+    const help = renderInfoHelp('pipeline.builds', {
+      label: 'the build list',
+      why: 'One list across every route, so "what has this project run lately" has an answer. How closely each build was watched is part of the record: a run AtlasMind only started, and one whose output it read, are different kinds of evidence.',
+      how: [
+        { text: 'A tick or a cross means AtlasMind actually saw the result.' },
+        { text: 'A question mark means it started the run and cannot see how it ended — check the terminal.' },
+        { text: 'Hosted builds are checked at intervals, so a running one may be a few seconds behind.' },
+      ],
+    });
+    const notices = [];
+    if (!builds.githubLoaded) {
+      notices.push('<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. Refresh CI to include GitHub’s runs — an empty list here is not evidence that nothing ran there.</p><div class="tag-row"><button type="button" class="action-link" data-action="pipeline-refresh">Load hosted history</button></div></div>');
+    }
+    if (builds.unobservedCount) {
+      notices.push(`<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} build${builds.unobservedCount === 1 ? '' : 's'} here ${builds.unobservedCount === 1 ? 'was' : 'were'} started in your terminal, which AtlasMind does not read. ${builds.unobservedCount === 1 ? 'It has' : 'They have'} no verdict by design.</p>`);
+    }
+    if (builds.hasRunning) {
+      notices.push(`<p class="stat-detail">${escapeHtml(builds.pollNote || '')}</p>`);
+    }
+
+    const rows = records.map(build => {
+      const mark = CI_BUILD_STATUS_MARK[build.status] || '?';
+      const started = build.startedAt ? new Date(build.startedAt) : undefined;
+      const when = started && !Number.isNaN(started.getTime()) ? started.toLocaleString() : 'time unknown';
+      const duration = build.endedAt && build.startedAt
+        ? Math.max(0, Math.round((new Date(build.endedAt).getTime() - new Date(build.startedAt).getTime()) / 1000))
+        : undefined;
+      return `<div class="ci-build-row status-${escapeAttr(build.status)}">
+        <span class="ci-build-mark" aria-hidden="true">${escapeHtml(mark)}</span>
+        <div class="ci-build-main">
+          <strong>${escapeHtml(build.title || 'Build')}</strong>
+          <p class="stat-detail">${escapeHtml(describeCiBuildLine(build))}</p>
+          <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')} · ${escapeHtml(when)}${duration === undefined ? '' : ` · ${duration}s`}${build.commitSha ? ` · ${escapeHtml(String(build.commitSha).slice(0, 12))}` : ''}</div>
+        </div>
+        <div class="ci-build-side">
+          <span class="tag ${build.status === 'passed' ? 'tag-good' : build.status === 'failed' ? 'tag-warn' : ''}">${escapeHtml(build.status)}</span>
+          <small>${escapeHtml(build.observation)}</small>
+          ${build.pointer && build.pointer.kind === 'output-channel' ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Open output</button>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="ci-studio-stack">
+      <article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">Builds</p>
+            <h3>${records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'No builds recorded yet'}</h3>
+            <p class="section-copy">Every route in one list, newest first. How closely each was watched is part of the record.</p>
+          </div>${help.button}
+        </div>
+        ${help.panel}
+        ${notices.join('')}
+        ${records.length ? `<div class="ci-build-list">${rows}</div>` : '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. Start with <strong>Where it runs</strong>.</p>'}
+      </article>
+    </div>`;
+  }
+
+  /** Mirrors `describeCiBuild` in the host, kept short for the row. */
+  function describeCiBuildLine(build) {
+    if (build.observation === 'unobserved') {
+      return 'AtlasMind typed these commands into your terminal and does not read it, so it cannot report how they ended.';
+    }
+    if (build.status === 'running') {
+      return build.observation === 'polled'
+        ? 'Running. Progress is checked at intervals, not streamed.'
+        : 'Running. AtlasMind is reading the output live.';
+    }
+    if (build.status === 'unknown') {
+      return 'Finished, but AtlasMind could not read a verdict for it.';
+    }
+    return `${build.status === 'passed' ? 'Passed' : build.status === 'failed' ? 'Failed' : 'Cancelled'} — proving ${String(build.evidence || '').replace(/-/g, ' ')}.`;
+  }
+
   function renderPipelineRoutingRules(routing) {
     const help = renderInfoHelp('pipeline.routing', {
       label: 'the routing rules',
@@ -7164,6 +7266,7 @@
 
     const sectionContent = {
       overview: overviewContent,
+      builds: renderPipelineBuilds(delivery.builds || {}),
       routes: renderPipelineRoutes(delivery.routes || [], delivery.routing || {}),
       workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`,
       runner: runnerCard,

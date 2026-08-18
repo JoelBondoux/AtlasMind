@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.351.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.352.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.351.0
+## What's new in 0.352.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **One build list, and it never invents a verdict.** A **Builds** view merges local runs with GitHub's,
+  newest first, so you can see what this project has actually run lately. How closely each build was watched
+  is part of the record: a tick or a cross means AtlasMind saw the result, and a question mark means it
+  started the run and cannot see how it ended — which is the honest answer for the run-here route, whose
+  commands go to your own terminal. Hosted builds refresh while they run, by polling with backoff, and the
+  page says so rather than dressing it up as a stream. Local history is yours alone: it lives in workspace
+  state, not in the committed project memory.
 
 - **Routing rules decide where each kind of check goes, and one rule is not yours to change.** A committed
   `ci-routing.json` records which route serves fast feedback, the full suite, packaging, security scans, the
@@ -1092,7 +1100,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model and routing policy (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy and build ledger (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

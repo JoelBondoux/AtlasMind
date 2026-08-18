@@ -362,6 +362,17 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+The **Builds** view puts every route in one list, newest first. What makes it trustworthy rather than merely
+useful is that it records *how closely each build was watched*. The one-job runner streams its output, so
+AtlasMind can report a real verdict. GitHub is polled, because its CLI has no push channel, and running
+builds say so instead of pretending to stream. And the run-here route is `unobserved`: AtlasMind typed those
+commands into your terminal and does not read it, so it shows a question mark and says why. A tick there
+would be an invented pass on the page people check before shipping, so the rule is enforced where the record
+is created and again when it is read back.
+
+The list holds no log output — only a pointer to where the detail already lives — and local history is
+per-developer, kept in workspace state rather than the committed project memory.
+
 Which route each kind of check *should* use is recorded in a committed file, `ci-routing.json`, with a
 markdown mirror beside it — a team decision arrives as a reviewed diff rather than a habit nobody wrote
 down. Every decision names the rule that made it and explains why the other candidates lost.
@@ -573,7 +584,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

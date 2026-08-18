@@ -240,6 +240,16 @@ import {
   type CiRoutingProblem,
 } from '../core/ciRoutingPolicy.js';
 import {
+  CI_BUILD_LEDGER_NOTE,
+  HOSTED_POLL_NOTE,
+  buildCiLedgerView,
+  nextCiPollDelayMs,
+  recordCiBuild,
+  sanitizeCiBuildLedger,
+  upsertCiBuild,
+  type CiBuildRecord,
+} from '../core/ciBuildLedger.js';
+import {
   GITHUB_BILLING_ENDPOINTS,
   describeCreditReading,
   notMeteredReading,
@@ -2295,6 +2305,20 @@ interface DashboardSnapshot {
      * "somebody decided nothing" are different and only one is worth offering
      * to fix.
      */
+    /**
+     * Every build, whatever ran it, newest first.
+     *
+     * `githubLoaded: false` means nobody fetched hosted history — never that
+     * nothing ran there. The two are different facts and must not render alike.
+     */
+    builds: {
+      records: import('../core/ciBuildLedger.js').CiBuildRecord[];
+      hasRunning: boolean;
+      unobservedCount: number;
+      githubLoaded: boolean;
+      pollNote: string;
+      storageNote: string;
+    };
     routing: {
       configPresent: boolean;
       configPath: string;
@@ -3624,6 +3648,13 @@ export class ProjectDashboardPanel {
   private localCiOutput: vscode.OutputChannel | undefined;
   private ciRoutingManager: CiRoutingConfigManager | undefined;
   /**
+   * The hosted-build poll, live only while the panel is open and something is
+   * running. Cleared on dispose: a timer outliving its page is a background
+   * process nobody asked for, against a rate-limited API.
+   */
+  private ciPollTimer: ReturnType<typeof setTimeout> | undefined;
+  private ciPollAttempt = 0;
+  /**
    * The hosted allowance, as last read.
    *
    * Starts `unknown` with a reason rather than assuming either direction:
@@ -3719,6 +3750,100 @@ export class ProjectDashboardPanel {
     return this.workflowConfigManager;
   }
 
+  /** Local build history, read through the sanitizer so a stale shape cannot lie. */
+  private readCiBuildLedger(): CiBuildRecord[] {
+    // Optional, as every other workspaceState read in this file is: the
+    // extension context is stubbed in tests and absent in some hosts, and a
+    // build list is not worth throwing a whole dashboard render over.
+    return sanitizeCiBuildLedger(this.context.workspaceState?.get(CI_BUILD_LEDGER_STATE_KEY));
+  }
+
+  /**
+   * Record a local build, or update one already recorded.
+   *
+   * `recordCiBuild` forces an unobserved build's status to `unknown`, so a
+   * caller cannot record a pass for a run AtlasMind never watched — the rule
+   * lives in the ledger rather than here, where a refactor could lose it.
+   */
+  private async rememberCiBuild(input: Parameters<typeof recordCiBuild>[0]): Promise<void> {
+    const next = upsertCiBuild(this.readCiBuildLedger(), recordCiBuild(input));
+    await this.context.workspaceState?.update(CI_BUILD_LEDGER_STATE_KEY, next);
+  }
+
+  /**
+   * Mirror the one-job runner's lifecycle into the build ledger.
+   *
+   * Driven from the manager's own change callback rather than from the start
+   * handler, so a run that finishes after the dashboard was closed and reopened
+   * is still recorded — the manager deliberately outlives the panel, because
+   * closing a dashboard is not permission to kill a build.
+   *
+   * `live`, and genuinely so: this runner's output is streamed into the output
+   * channel as it happens, which is what separates it from the direct-local
+   * route in the same list.
+   */
+  private async recordLocalRunnerBuild(): Promise<void> {
+    const snapshot = this.localCiRunnerInstance?.getSnapshot();
+    const queued = snapshot?.queuedRun;
+    if (!snapshot || !queued) {
+      return;
+    }
+    const status = snapshot.lifecycle === 'finished' ? 'passed'
+      : snapshot.lifecycle === 'failed' ? 'failed'
+        : ['starting', 'waiting', 'running'].includes(snapshot.lifecycle) ? 'running'
+          : undefined;
+    if (!status) {
+      return;
+    }
+    await this.rememberCiBuild({
+      id: `local-runner-${queued.databaseId}`,
+      source: 'local',
+      routeId: 'local-runner',
+      routeLabel: 'Lend this computer to GitHub',
+      evidence: 'linux-container',
+      observation: 'live',
+      status,
+      title: queued.displayTitle || queued.workflowName || snapshot.workflowFile,
+      startedAt: queued.createdAt || snapshot.updatedAt,
+      ...(status === 'running' ? {} : { endedAt: new Date().toISOString() }),
+      ...(queued.headSha ? { commitSha: queued.headSha } : {}),
+      ...(queued.headBranch ? { branch: queued.headBranch } : {}),
+      pointer: { kind: 'output-channel', label: 'AtlasMind Local CI' },
+    });
+  }
+
+  /**
+   * Keep hosted build progress current while something is running.
+   *
+   * Polling, not streaming, and labelled as such throughout: the GitHub CLI has
+   * no push channel, so this is the honest mechanism rather than a stream
+   * dressed up. It backs off, stops the moment nothing is running, and never
+   * starts unless the Builds view is the one on screen — a background refresh
+   * for a tab nobody is looking at is cost without a reader.
+   */
+  private scheduleCiBuildPoll(hasRunning: boolean): void {
+    if (this.ciPollTimer) {
+      clearTimeout(this.ciPollTimer);
+      this.ciPollTimer = undefined;
+    }
+    if (this.disposed || !hasRunning) {
+      this.ciPollAttempt = 0;
+      return;
+    }
+    const delay = nextCiPollDelayMs(this.ciPollAttempt, true);
+    if (delay === undefined) {
+      return;
+    }
+    this.ciPollAttempt += 1;
+    this.ciPollTimer = setTimeout(() => {
+      this.ciPollTimer = undefined;
+      if (this.disposed) {
+        return;
+      }
+      void this.handleRefreshCi().catch(() => undefined);
+    }, delay);
+  }
+
   private get ciRouting(): CiRoutingConfigManager {
     this.ciRoutingManager ??= new CiRoutingConfigManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -3740,6 +3865,7 @@ export class ProjectDashboardPanel {
         line => this.localCiOutput?.appendLine(line),
         () => {
           if (!this.disposed) {
+            void this.recordLocalRunnerBuild();
             void this.syncState();
           }
         },
@@ -3855,6 +3981,12 @@ export class ProjectDashboardPanel {
 
   private dispose(): void {
     this.disposed = true;
+    // The poll belongs to the page. A timer that survives it keeps spending a
+    // rate-limited API for a surface nobody is looking at.
+    if (this.ciPollTimer) {
+      clearTimeout(this.ciPollTimer);
+      this.ciPollTimer = undefined;
+    }
     ProjectDashboardPanel.currentPanel = undefined;
     this.panel.dispose();
     for (const disposable of this.disposables) {
@@ -4335,7 +4467,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -4362,7 +4494,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -4388,7 +4520,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -4414,7 +4546,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, undefined, this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -4473,7 +4605,10 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
+      // Only keep polling while something is actually running. The schedule
+      // itself decides when to stop, so this cannot become a permanent timer.
+      this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
@@ -6089,6 +6224,21 @@ export class ProjectDashboardPanel {
     for (const line of outcome.plan.lines) {
       this.sendLocalCiCommandToTerminal({ command: line, workspaceRoot });
     }
+    // Recorded as `unobserved`, which is simply true: the commands go to the
+    // user's terminal and AtlasMind does not read it. The ledger forces the
+    // status to `unknown`, so this can never appear as a pass.
+    await this.rememberCiBuild({
+      id: `direct-local-${Date.now()}`,
+      source: 'local',
+      routeId: 'direct-local',
+      routeLabel: 'Run here',
+      evidence: 'this-machine',
+      observation: 'unobserved',
+      status: 'unknown',
+      title: outcome.plan.checks.scripts.join(', '),
+      startedAt: new Date().toISOString(),
+      pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
+    });
     vscode.window.setStatusBarMessage(
       outcome.plan.failFast
         ? 'AtlasMind: the checks are in your terminal — press Enter to run them.'
@@ -10802,6 +10952,8 @@ async function collectDashboardSnapshot(
   // Defaults to `unknown` rather than to headroom. An unread meter must never
   // route as though it had been read.
   credit: CiCreditReading = { state: 'unknown', reason: 'the hosted allowance has not been checked yet.' },
+  // Per-developer build history, read from workspaceState by the panel.
+  localBuilds: readonly CiBuildRecord[] = [],
 ): Promise<DashboardSnapshot> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const workspaceRoot = workspaceFolder?.uri.fsPath;
@@ -10925,6 +11077,15 @@ async function collectDashboardSnapshot(
     trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
     hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
   });
+  const ledgerView = buildCiLedgerView(localBuilds, ci?.runs);
+  const buildsSnapshot = {
+    records: ledgerView.builds,
+    hasRunning: ledgerView.hasRunning,
+    unobservedCount: ledgerView.unobservedCount,
+    githubLoaded: ledgerView.githubLoaded,
+    pollNote: HOSTED_POLL_NOTE,
+    storageNote: CI_BUILD_LEDGER_NOTE,
+  };
   const routingConfig = ciRoutingManager?.getConfig();
   const routingNotice = ciRoutingManager?.getNotice();
   const routingSnapshot = {
@@ -11379,6 +11540,7 @@ async function collectDashboardSnapshot(
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
         enablement: readLocalCiRunnerEnablement(),
       },
+      builds: buildsSnapshot,
       routing: routingSnapshot,
       routes: routeAvailability,
       ciSignals,
@@ -14027,6 +14189,15 @@ async function collectDeliveryStagePipeline(
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
+/**
+ * Local build history, per developer.
+ *
+ * `workspaceState` rather than the SSOT folder, for the reason
+ * `CI_BUILD_LEDGER_NOTE` gives: `project_memory/` is committed, so a shared
+ * ledger would report what *anybody* ran and conflict between two people on the
+ * same afternoon.
+ */
+const CI_BUILD_LEDGER_STATE_KEY = 'atlasmind.ciBuildLedger';
 
 /**
  * The last reading of the project's observed state, for "what moved since you
@@ -19102,6 +19273,38 @@ const DASHBOARD_CSS = `
   }
   .ci-runner-focus h3 { margin: 2px 0 0; }
   .ci-runner-focus .section-copy { margin: 5px 0 0; }
+
+  .ci-build-list { display: grid; gap: 7px; }
+  .ci-build-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 10px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+  }
+  .ci-build-row.status-failed { border-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); }
+  .ci-build-row.status-running { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .ci-build-mark {
+    display: grid;
+    place-items: center;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--dash-border) 60%, transparent);
+  }
+  .ci-build-row.status-passed .ci-build-mark { color: var(--dash-good); }
+  .ci-build-row.status-failed .ci-build-mark { color: var(--dash-warn); }
+  /* Unknown is deliberately marked, not blank: an unwatched build must read as
+     "no verdict", never as a quiet pass. */
+  .ci-build-row.status-unknown .ci-build-mark { color: var(--dash-muted); font-weight: 700; }
+  .ci-build-main { flex: 1 1 auto; min-width: 0; }
+  .ci-build-main p { margin: 3px 0 4px; }
+  .ci-build-side { display: grid; gap: 4px; justify-items: end; flex: 0 0 auto; }
+  .ci-build-side small { color: var(--dash-muted); font-size: 11px; }
 
   .ci-routing-credit {
     display: flex;

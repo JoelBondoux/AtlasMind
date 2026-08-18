@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.352.0] - 2026-08-18
+
+### Added
+
+- **One build list, whatever ran it.** A new **Builds** view on the Pipeline page merges local runs with
+  GitHub's, newest first, so "what has this project run lately" finally has an answer. Local records are
+  per-developer in `workspaceState`, never in the git-tracked SSOT folder — a shared ledger would report what
+  *anybody* ran, conflict between two people on the same afternoon, and commit local run history into the
+  repository.
+- **Hosted builds refresh while they run.** A backing-off poll runs only while something is in progress and
+  only while the page is open, and stops the moment nothing is running.
+
+### Changed
+
+- **How closely a build was watched is part of its record.** `live` for the one-job runner, whose output
+  AtlasMind streams; `polled` for hosted runs; `unobserved` for the direct-local route, whose commands go to
+  the user's own terminal.
+
+### Security
+
+- **A build nobody watched never reports a verdict.** AtlasMind types the direct-local commands into a
+  terminal and deliberately does not read that terminal, so it knows a run *started* and cannot know how it
+  ended. `recordCiBuild` forces an unobserved build's status to `unknown` whatever the caller passes, the
+  sanitizer re-applies that on read so a stale or hand-edited record cannot reintroduce a pass, and a
+  property test covers every generated combination. A green tick beside a run nobody observed would be an
+  invented pass on the surface people check before shipping.
+- **Hosted progress is polled and says so.** The GitHub CLI offers no push channel, so a running hosted
+  build's liveness is a sequence of requests with backoff. Presenting that as a stream would overstate it, so
+  the observation mode travels with the record and the lag is stated on the page.
+- **The ledger holds no log output.** `CiBuildRecord` has no field that could carry one — the type is the
+  enforcement, as in `workflowAuditRecord` — and a pointer says where the detail lives instead. Logs are
+  large and frequently contain secrets; they belong in the output channel and terminal that already have them.
+- **An unfetched hosted history is never rendered as an empty one.** `githubLoaded: false` is carried through
+  and stated, because a build page showing nothing because nothing was fetched, beside one showing nothing
+  because nothing ran, would be two very different facts rendered identically.
+- **GitHub's `status` and `conclusion` are read as the separate fields they are.** A run in progress has no
+  conclusion, and reading an empty one as either a pass or a failure is the classic misreading; an
+  unrecognised pairing is `unknown` rather than guessed.
+
 ## [0.351.0] - 2026-08-18
 
 ### Added

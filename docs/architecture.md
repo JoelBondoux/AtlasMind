@@ -559,6 +559,31 @@ rather than a plan, so a caller cannot reach runnable commands without that chec
 labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
 runbook, where the confirmation is built for them. Pure + unit-tested.
 
+### CiBuildLedger (`src/core/ciBuildLedger.ts`)
+
+One list of builds, whatever ran them. The page could show GitHub's runs and, separately, whether a local
+container was alive; nothing put those together, so "what has this project run lately" had no answer.
+
+**How closely a build was watched is recorded, and a build nobody watched never reports a verdict.**
+AtlasMind types the direct-local commands into a terminal and deliberately does not read it, so it knows a
+run *started* and cannot know how it ended. `recordCiBuild` forces an `unobserved` build's status to
+`unknown` whatever the caller passes, and `sanitizeCiBuildLedger` re-applies that on read so a stale or
+hand-edited record cannot reintroduce a pass. A property test walks it over every generated combination. A
+tick beside an unobserved run would be an invented pass on the surface people check before shipping.
+
+**Hosted progress is polled, and the record says so.** The GitHub CLI has no push channel, so liveness there
+is requests with backoff — `nextCiPollDelayMs` returns `undefined` once nothing is running, which is what
+stops the loop rather than a caller remembering to. `HOSTED_POLL_NOTE` is rendered beside running hosted
+builds; a stream would be an overstatement.
+
+**The ledger holds no log output** — `CiBuildRecord` has no field that could carry one, and a `pointer` says
+where the detail lives instead. **Storage is per-developer**, stated in `CI_BUILD_LEDGER_NOTE` for the same
+reason as `observedDelta`'s baseline: `project_memory/` is committed, so a shared ledger would mean "what has
+anybody run" and would conflict between two people on the same day. `githubRunToBuild` reads GitHub's
+`status` and `conclusion` as the separate fields they are — a run in progress has no conclusion, and reading
+an empty one either way is the classic misreading — and `buildCiLedgerView` carries `githubLoaded` so an
+unfetched history never renders as an empty one. Pure, clock-injected + unit-tested.
+
 ### CiRoutingPolicy (`src/core/ciRoutingPolicy.ts`)
 
 Which route runs which kind of check — a committed file rather than a setting, so a change to how a team

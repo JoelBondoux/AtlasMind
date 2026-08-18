@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.352.0 — One build list, and it will not invent a verdict
+
+Pipeline could show GitHub's runs, and separately whether a local container was alive. Nothing put those
+in one place, so the question a build page exists to answer — what has this project actually run lately —
+did not have one. **Builds** is that list: every route, newest first.
+
+The part worth knowing is that it records how closely each build was watched. The one-job runner streams
+its output, so AtlasMind can tell you it passed. GitHub is checked at intervals, because its CLI offers no
+push channel, and a running hosted build says so rather than pretending to stream. And the run-here route
+is honest about the thing it cannot do: those commands go to *your* terminal, AtlasMind does not read it,
+so the build shows a question mark and says why.
+
+That is enforced rather than intended. A build marked unobserved has its verdict forced to unknown when
+the record is created, and again when it is read back, so neither an optimistic caller nor an old stored
+record can put a tick beside a run nobody saw. This is the page people check before shipping; a green tick
+it made up would be the worst thing on it.
+
+The list keeps no logs — only a pointer to the output channel or terminal that already has them — and your
+local build history stays yours, in workspace state rather than the committed project memory.
+
 ## v0.351.0 — Routing rules, and the one rule the file cannot change
 
 Knowing your options is not the same as having decided. This release adds the decision: a committed
