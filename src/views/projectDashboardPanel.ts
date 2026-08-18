@@ -718,6 +718,7 @@ type ProjectDashboardMessage =
    * machine setup. Carries no data: the host re-derives every input.
    */
   | { type: 'assessTrustedCiWorkflow' }
+  | { type: 'resolveWorkflowStage'; payload: string }
   /** Create the trusted workflow. Create-only, previewed, and never overwrites. */
   | { type: 'createTrustedCiStarter' }
   /** Install the GitHub CLI. Carries nothing: the host owns every command. */
@@ -3731,6 +3732,8 @@ export class ProjectDashboardPanel {
    * finishes; closing a dashboard is not permission to kill a build.
    */
   private localCiRunnerInstance: LocalCiRunnerManager | undefined;
+  /** The stages behind the page currently on screen. See `syncState`. */
+  private lastWorkflowStages: readonly WorkflowStageDefinition[] = [];
   private localCiOutput: vscode.OutputChannel | undefined;
   private ciRoutingManager: CiRoutingConfigManager | undefined;
   /**
@@ -4264,6 +4267,9 @@ export class ProjectDashboardPanel {
       case 'draftMissingTest':
         await this.handleDraftMissingTest(message.payload);
         return;
+      case 'resolveWorkflowStage':
+        await this.handleResolveWorkflowStage(message.payload);
+        return;
       case 'workOnCiFailure':
         await this.handleWorkOnCiFailure();
         return;
@@ -4719,13 +4725,62 @@ export class ProjectDashboardPanel {
     }
   }
 
+  /**
+   * Re-derive the trusted workflow verdict, because it is a fact about a file.
+   *
+   * `workflowReview` lived only in the runner's in-memory snapshot, so it was
+   * lost on every extension-host restart and the setup journey asked you to
+   * check the workflow again each time you opened VS Code — a step you had
+   * already completed, reporting as outstanding because the answer had not
+   * survived the night.
+   *
+   * The fix is to stop remembering it rather than to remember it harder. A
+   * cached safety verdict has to be invalidated whenever the thing it judged
+   * changes, and getting that wrong in the reassuring direction would tell you
+   * a workflow is safe to lend a machine to after somebody edited it. This
+   * check is `fs`-only — one small YAML file plus a directory listing — so
+   * deriving it every refresh is cheaper than the cache invalidation would be,
+   * and it cannot go stale by construction.
+   *
+   * Deliberately *not* the Docker and `gh` inspection, which stays behind an
+   * explicit action: that one starts processes and talks to a daemon, and the
+   * two were only ever conflated because they arrive in the same snapshot.
+   */
+  private async refreshTrustedWorkflowReview(): Promise<void> {
+    const runner = this.localCiRunnerInstance;
+    if (!runner) {
+      // No instance yet means nothing has touched local CI in this session.
+      // Creating one here would open an output channel as a side effect of a
+      // dashboard refresh, which is not this method's business.
+      return;
+    }
+    const repoSlug = this.repositorySlugForWorkflow();
+    if (!repoSlug) {
+      // A trusted workflow names its own repository in an authorization
+      // condition, so there is nothing to assess against. Leaving the previous
+      // verdict in place would be worse than leaving it absent.
+      return;
+    }
+    try {
+      await runner.assessCommittedWorkflow(readLocalCiRunnerConfiguration(), repoSlug, { quiet: true });
+    } catch {
+      // A refresh must never fail because of a check that is an enhancement to
+      // it. The explicit action still reports its own errors.
+    }
+  }
+
   private async syncState(): Promise<void> {
     try {
+      await this.refreshTrustedWorkflowReview();
       const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
       // Only keep polling while something is actually running. The schedule
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
+      // Held so a stage id posted by the webview resolves against the same
+      // assessment the page is showing, rather than against a fresh one that
+      // may already disagree with what the button was drawn from.
+      this.lastWorkflowStages = snapshot.guidedWorkflow?.stages ?? [];
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -6886,6 +6941,71 @@ export class ProjectDashboardPanel {
     }
     await vscode.commands.executeCommand('atlasmind.openChatPanel', {
       draftPrompt: buildCiFailurePrompt(report),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Open a chat scoped to one workflow stage that is not finished.
+   *
+   * The webview posts a stage **id** and nothing else. Every word of the prompt
+   * is rebuilt here from the curriculum and the current assessment, so a
+   * crafted message can name a stage that exists but can never supply the text
+   * that reaches the model — the same boundary the issue, debt and testing
+   * handoffs keep, and for the same reason.
+   *
+   * A finished stage is refused rather than answered. Asking how to complete
+   * something already complete produces confident advice about work nobody
+   * needs to do, and the button is not offered on a green stage anyway — so a
+   * request for one arrived by a route worth declining.
+   */
+  private async handleResolveWorkflowStage(stageId: string): Promise<void> {
+    const stages = this.lastWorkflowStages;
+    const stage = stages.find(entry => entry.id === stageId);
+    if (!stage) {
+      void vscode.window.showWarningMessage(
+        'That workflow stage is not in the current assessment. Refresh the dashboard and try again.',
+      );
+      return;
+    }
+    if (stage.status === 'done') {
+      void vscode.window.showInformationMessage(`${stage.name} is already complete.`);
+      return;
+    }
+
+    // Stated only when the workflow file declares it. Defaulting to a level
+    // would assert a ceiling nobody chose, in a prompt that then tells a model
+    // to respect it.
+    const permitted = this.workflowConfig.getConfig()?.stages
+      .find(entry => entry.id === stageId)?.automationLevel;
+
+    // Only the steps that are actually outstanding. Handing over the finished
+    // ones invites a plan that redoes them.
+    const outstanding = (stage.steps ?? []).filter(step => step.status !== 'done');
+    const lines = [
+      `Help me finish the "${stage.name}" stage of this project's guided GitHub workflow.`,
+      '',
+      `It is currently ${stage.status === 'blocked' ? 'blocked' : 'incomplete'}. ${stage.blurb}`,
+      '',
+      'Why the stage exists:',
+      stage.why,
+      '',
+      outstanding.length > 0
+        ? `Outstanding steps (${outstanding.length}):`
+        : 'No individual step is recorded as outstanding, so start by establishing why the stage is not green.',
+      ...outstanding.map(step => `- ${step.title}${step.detail ? ` — ${step.detail}` : ''}`),
+      '',
+      ...(permitted
+        ? [
+          `The permitted automation level for this stage is "${permitted}". Respect it: at "observe"`,
+          'you may report and propose, but must not create, modify or close anything.',
+          '',
+        ]
+        : []),
+      'Tell me the smallest next action, and what evidence would make this stage green.',
+    ];
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: lines.filter(line => line !== undefined).join('\n'),
       sendMode: 'new-session',
     });
   }
@@ -10370,6 +10490,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'number'
       && Number.isSafeInteger(candidate['payload'])
       && candidate['payload'] > 0;
+  }
+
+  if (candidate['type'] === 'resolveWorkflowStage') {
+    // A stage id and nothing else. Every word of the prompt is rebuilt host
+    // side from the curriculum, so the shape check is all this needs to be.
+    return typeof candidate['payload'] === 'string'
+      && /^[a-z][a-z-]{0,40}$/.test(candidate['payload']);
   }
 
   if (candidate['type'] === 'openLocalCiSetupHelp') {
@@ -20083,6 +20210,8 @@ const DASHBOARD_CSS = `
       color-mix(in srgb, var(--dash-muted) 55%, transparent)
     );
   }
+  /* One label describes the whole strip, so it sits under the middle of it. */
+  .ci-ribbon-span { margin: 0 auto; }
   .ci-ribbon-scale {
     display: flex;
     justify-content: space-between;
@@ -20179,6 +20308,18 @@ const DASHBOARD_CSS = `
     .pr-ci-row { grid-template-columns: minmax(0, 1fr) minmax(110px, auto); row-gap: 6px; }
     .pr-ci-bar { grid-column: 1 / -1; }
     .pr-ci-failing { grid-column: 1 / -1; }
+  }
+
+  /*
+   * The action row under a stage that is not green. Indented to the depth of
+   * the steps it belongs with, and absent entirely on a finished stage — a row
+   * of buttons under every stage would make the ones that need you harder to
+   * find, which is the failure this is meant to fix.
+   */
+  .wf-stage-actions {
+    margin: 2px 0 10px;
+    padding-left: 2px;
+    align-items: center;
   }
 
   .ci-autorefresh {

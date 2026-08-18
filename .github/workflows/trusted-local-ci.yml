@@ -3,6 +3,19 @@ name: Trusted local CI
 # The repository-level runner label routes jobs but does not authorize them.
 # Only the repository owner's exact develop push or manual dispatch can reach
 # this job; pull-request events are deliberately absent.
+#
+# The job is additionally gated on the TRUSTED_LOCAL_RUNNER repository variable,
+# and that gate is about honesty rather than security. This label routes to a
+# machine you lend deliberately, so most of the time no runner is registered --
+# and a job queued for a label nothing answers to does not fail, it waits, for
+# up to twenty-four hours. Every commit then carries a check that reads
+# `pending` when the truth is `nobody is going to run this`, and the two are
+# indistinguishable on a pull request. A skipped job says the second thing.
+#
+# Set the variable to `true` when a runner with this label is registered:
+#   gh variable set TRUSTED_LOCAL_RUNNER --body true
+# Unset or any other value keeps the job skipped, which is the safe default in
+# both directions -- nothing queues, and nothing claims to be running.
 on:
   push:
     branches: [develop]
@@ -22,7 +35,8 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.repository == 'JoelBondoux/AtlasMind' &&
       github.ref == 'refs/heads/develop' &&
-      github.actor == github.repository_owner
+      github.actor == github.repository_owner &&
+      vars.TRUSTED_LOCAL_RUNNER == 'true'
     # Register the dedicated runner with --no-default-labels and this one
     # public routing label. Never place this label on a daily-use workstation.
     runs-on: [atlasmind-trusted-linux-x64]

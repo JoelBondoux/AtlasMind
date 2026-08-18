@@ -24,3 +24,10 @@ project_memory/operations/.delivery-lock.json
 # run ("No url found for submodule path 'website'"). Ignored rather than
 # declared as a submodule: it is not part of this repository.
 website/
+
+# Stryker writes both of these into the repository root on every mutation run.
+# Local evidence of a local run, like test-results/ above — and the HTML one is
+# a self-contained report measured in megabytes, which is not a thing to carry
+# in git history.
+mutation-report.json
+mutation-report.html

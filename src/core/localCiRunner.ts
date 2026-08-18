@@ -958,13 +958,30 @@ export class LocalCiRunnerManager {
    * host architecture otherwise, so this works on a machine where Docker is not
    * installed yet — which is the whole point of being able to ask early.
    */
+  /**
+   * Review the committed workflow.
+   *
+   * `quiet` exists for the caller that runs this on every dashboard refresh so
+   * the verdict never has to be remembered across a restart. It suppresses two
+   * things, and both matter: the change notification, because the refresh is
+   * already in progress and notifying would re-enter it forever; and the status
+   * `message`, because that field describes what the runner is *doing* and a
+   * background check has no business overwriting “Runner starting…” with its
+   * own commentary. The verdict itself is recorded either way — that is the
+   * whole point of the call.
+   */
   async assessCommittedWorkflow(
     configuration: LocalCiRunnerConfiguration,
     repoSlug: string,
+    options: { quiet?: boolean } = {},
   ): Promise<LocalCiWorkflowReview> {
     const arch = this.snapshot.engine.arch ?? this.snapshot.host.arch;
     const runnerLabel = resolveLocalCiRunnerLabel(configuration.runnerLabel, arch);
     const review = await this.reviewWorkflow(configuration, repoSlug, runnerLabel);
+    if (options.quiet) {
+      this.update({ workflowReview: review }, false);
+      return review;
+    }
     this.update({
       workflowReview: review,
       message: review.state === 'ok'

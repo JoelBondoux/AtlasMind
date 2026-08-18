@@ -19,6 +19,67 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.363.0 — A route from the report card to the classroom
+
+The Workflow page could tell you a stage was amber and then leave you to find the evidence by memory.
+Each unfinished stage now carries an **Ask Atlas** pill that opens a chat scoped to that stage, and a
+button to the dashboard page that owns its evidence. The mapping is declared rather than derived from the
+stage name, because two of them would be wrong if it were: *development* is about the working tree so it
+goes to Repo, and *automation* points back at Workflow, since the automation policy is the workflow file.
+A stage with no obvious owner gets no link at all — a wrong link is worse than a missing one, because it
+gets followed. A finished stage gets neither affordance, for the same reason the attention feed is empty
+when nothing is wrong.
+
+The page posts a stage id and nothing else; the prompt is rebuilt from the curriculum on the host side,
+carries only the steps that are actually outstanding, and states the automation ceiling only when the
+workflow file declares one — defaulting would assert a ceiling nobody chose, in a prompt that then tells a
+model to respect it.
+
+**The trusted workflow no longer needs re-checking every time VS Code reopens.** The verdict lived only in
+the runner's in-memory snapshot, so every restart lost it and the setup journey asked for a step you had
+already completed. It is derived on each refresh now rather than remembered harder — a cached safety
+verdict has to be invalidated whenever the thing it judged changes, and getting that wrong in the
+reassuring direction would tell you a workflow is safe to lend a machine to after somebody edited it.
+Reading one small YAML file is cheaper than the invalidation would be, and cannot go stale. The Docker and
+`gh` inspection stays behind an explicit action; the two were only ever conflated because they arrive in
+the same snapshot.
+
+And the run strips said **today** at both ends of their time axis. Day granularity meant a strip whose
+runs all happened today labelled both ends identically — which says nothing, and implies a span the strip
+does not cover. When both ends fall in the same bucket the axis states the elapsed span instead.
+
+---
+
+## v0.362.1 — Two things that had quietly stopped working
+
+`npm run test:mutation` runs end to end again. Stryker copies the project into a sandbox, which is right
+for the `fs`-only managers here and wrong for exactly one test — the type-error ratchet, whose subject is
+the working tree rather than a fixture. Inside a copy it counts zero, concludes 244 errors were fixed, and
+fails; Stryker will not mutate an already-red suite, and is right not to, because a mutant "killed" by a
+test that was failing anyway proves nothing. It now runs through its own vitest config that excludes that
+one file, with the reason written beside it — one file rather than the fifty that read repository paths,
+since almost all of those work fine and a broad list would rot while quietly narrowing coverage. A full
+run takes about eight minutes and scores 58.73%, over the break threshold of 50.
+
+That config also stops a mutation run overwriting the project's own test verdict. It runs the suite
+hundreds of times against deliberately broken code, and the ordinary config writes the JUnit report the
+Testing dashboard reads — which would have shown Stryker's induced failures as this project's own, with no
+way to tell the difference.
+
+The `Trusted quality` check has stopped sitting amber forever. There is **no self-hosted runner registered
+on this repository**, so the job was routed to a label nothing answers to — and a queued job does not fail,
+it waits, for up to twenty-four hours. Every commit carried a check reading `pending` when the truth was
+"nobody is going to run this", and on a pull request those look identical. It is gated on a repository
+variable now, defaulting closed, so nothing queues and nothing claims to be running. Flip it when a runner
+actually exists.
+
+And the publishing routine gained a step it always needed: refresh the README's published baseline after
+tagging. The suite is red until that is done — `docsIntegrity` asserts the README names the newest tag,
+and the tag only exists after the tagging step, so every release passed its own CI and then failed on the
+next local run looking like a docs nit. Found by this release doing precisely that.
+
+---
+
 ## v0.362.0 — Teaching the page to read itself out loud
 
 Four pieces of feedback on Activity and pull requests, all of them the same problem underneath: this page

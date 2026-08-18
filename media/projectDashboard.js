@@ -1597,6 +1597,10 @@
       vscode.postMessage({ type: 'generateCodeowners' });
       return;
     }
+    if (action === 'workflow-stage-resolve') {
+      if (payload) { vscode.postMessage({ type: 'resolveWorkflowStage', payload: payload }); }
+      return;
+    }
     if (action === 'set-pipeline-auto-refresh') {
       state.pipelineAutoRefresh = PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload) ? payload : 'off';
       vscode.setState({ ...(vscode.getState() || {}), pipelineAutoRefresh: state.pipelineAutoRefresh });
@@ -7478,15 +7482,31 @@
     // The span the strip covers, read off the runs themselves. Absent stamps
     // yield no axis labels rather than invented ones.
     const stamps = entries.map(entry => Date.parse(entry.startedAt || '')).filter(Number.isFinite);
+    const spanMs = stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : 0;
     const oldest = stamps.length ? relativeLabel(new Date(Math.min(...stamps)).toISOString()) : '';
     const newest = stamps.length ? relativeLabel(new Date(Math.max(...stamps)).toISOString()) : '';
+
+    /*
+     * Two labels, or one.
+     *
+     * `relativeLabel` has day granularity, so a strip whose runs all happened
+     * today rendered **today** at both ends of the axis — which says nothing,
+     * and worse, implies a span the strip does not cover. When both ends land
+     * in the same bucket the axis states the elapsed span instead, which is the
+     * question the labels were there to answer.
+     */
+    const scale = stamps.length < 2
+      ? ''
+      : oldest !== newest
+        ? `<span>${escapeHtml(oldest)}</span><span>${escapeHtml(newest)}</span>`
+        : `<span class="ci-ribbon-span">${escapeHtml(spanMs >= 60000
+          ? `all within ${formatDurationCompact(spanMs)}`
+          : 'all within a minute')}</span>`;
 
     return `<span class="ci-ribbon-wrap">
       <span class="ci-ribbon" role="img" aria-label="${escapeAttr(`${entries.length} recent runs, oldest on the left, newest on the right`)}">${bars}</span>
       <span class="ci-ribbon-axis" aria-hidden="true"></span>
-      ${stamps.length >= 2
-        ? `<span class="ci-ribbon-scale" aria-hidden="true"><span>${escapeHtml(oldest)}</span><span>${escapeHtml(newest)}</span></span>`
-        : '<span class="ci-ribbon-scale" aria-hidden="true"></span>'}
+      <span class="ci-ribbon-scale" aria-hidden="true">${scale}</span>
     </span>`;
   }
 
@@ -8512,6 +8532,78 @@
     </section>`;
   }
 
+  /**
+   * The dashboard page that owns each workflow stage's evidence.
+   *
+   * A stage on this page says *whether* you are doing something; the page named
+   * here is where the work and the evidence actually live. Without the link the
+   * Workflow page is a report card with no route to the classroom — you learn
+   * that stage 5 is not green and then navigate by memory.
+   *
+   * Declared rather than derived from the stage name, because two of them do
+   * not match: `development` is about the working tree so it goes to **Repo**,
+   * not to a page called Development that does not exist, and `automation`
+   * points back at this page because the automation policy *is* the workflow
+   * file. A stage with no obvious owner would be absent rather than guessed —
+   * a link to the wrong page is worse than no link, because it is followed.
+   */
+  const WF_STAGE_PAGE = {
+    planning: 'issues',
+    branching: 'branches',
+    development: 'repo',
+    'pull-request': 'pullRequests',
+    ci: 'pipeline',
+    release: 'release',
+    maintenance: 'debt',
+    automation: 'workflow',
+  };
+
+  /** Label for the page a stage links to, read from the declared nav. */
+  function dashboardPageLabel(pageId) {
+    const match = NAV_PAGES.find(entry => entry[0] === pageId);
+    return match ? match[1] : pageId;
+  }
+
+  /**
+   * What to offer on a stage that is not green.
+   *
+   * Two affordances, deliberately different in kind. **Ask Atlas** opens a chat
+   * scoped to that one stage — the webview posts the stage id and nothing else,
+   * and the host rebuilds every word of the prompt from the current curriculum,
+   * so a crafted message can name a stage but can never supply the text. **Open
+   * <page>** navigates to where the evidence lives, because the answer to "why
+   * is this amber" is almost never on this page.
+   *
+   * A `done` stage gets neither. An action row under a finished stage is noise
+   * that makes the rows that need you harder to find, which is the same reason
+   * the attention feed is empty when nothing is wrong.
+   */
+  function renderWorkflowStageActions(stage) {
+    if (stage.status === 'done') {
+      return '';
+    }
+    const page = WF_STAGE_PAGE[stage.id];
+    const label = page ? dashboardPageLabel(page) : '';
+    const blocked = stage.status === 'blocked';
+    return `<div class="tag-row wf-stage-actions">
+      ${renderAtlasDiscussAction(
+        'workflow-stage-resolve',
+        stage.id,
+        `Ask Atlas how to finish ${stage.name}`,
+        {
+          intent: 'fix',
+          title: blocked
+            ? `Ask Atlas what is blocking ${stage.name} and how to clear it. Nothing is changed without your say-so.`
+            : `Ask Atlas what ${stage.name} still needs and how to do it. Nothing is changed without your say-so.`,
+        },
+      )}
+      ${page
+        ? `<button type="button" class="action-link" data-action="page" data-payload="${escapeAttr(page)}"
+            title="${escapeAttr(`${label} is where this stage's work and evidence live`)}">Open ${escapeHtml(label)}</button>`
+        : ''}
+    </div>`;
+  }
+
   function renderWorkflow(snapshot) {
     const wf = snapshot.guidedWorkflow;
     if (!wf) {
@@ -8595,6 +8687,7 @@
           </div>
           <p class="stat-detail">${escapeHtml(stage.blurb)}</p>
           ${stageHelp.panel}
+          ${renderWorkflowStageActions(stage)}
           ${steps}
         </article>`;
     }).join('');

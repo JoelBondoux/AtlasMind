@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.363.0] - 2026-08-19
+
+### Added
+
+- **A stage that is not green now offers two ways forward.** The Workflow page could tell you stage 5 was
+  amber and leave you to find the evidence by memory — a report card with no route to the classroom. Each
+  unfinished stage gets an **Ask Atlas** pill that opens a chat scoped to that stage, and an **Open
+  \<page\>** button going to the dashboard page that owns its evidence. The mapping is declared, not
+  derived from the stage name, because two of them would be wrong if it were: `development` is about the
+  working tree so it points at **Repo**, and `automation` points back at Workflow because the automation
+  policy *is* the workflow file. A stage with no obvious owner would get no link rather than a guessed
+  one — a wrong link is worse than none, because it gets followed.
+
+  A finished stage gets neither, for the reason the attention feed is empty when nothing is wrong: a row
+  of buttons under every stage makes the ones that need you harder to find.
+
+  The webview posts a stage **id** and nothing else. Every word of the prompt is rebuilt host-side from
+  the curriculum and the assessment the page was drawn from, so a crafted message can name a stage but
+  never supply text that reaches the model. Only the *outstanding* steps travel — handing over the
+  finished ones invites a plan that redoes them — and the automation ceiling is stated only when the
+  workflow file declares one, since defaulting would assert a ceiling nobody chose in a prompt that then
+  tells a model to respect it.
+
+### Fixed
+
+- **The trusted workflow no longer needs re-checking every time VS Code reopens.** The verdict lived only
+  in the runner's in-memory snapshot, so each extension-host restart lost it and the setup journey asked
+  for a step you had already done — reporting as outstanding because the answer had not survived the
+  night. It is derived on each dashboard refresh now rather than remembered harder: a cached safety
+  verdict must be invalidated whenever the thing it judged changes, and getting that wrong in the
+  reassuring direction would tell you a workflow is safe to lend a machine to after somebody edited it.
+  The check is `fs`-only — one small YAML file and a directory listing — so re-reading is cheaper than
+  the invalidation would be and cannot go stale by construction. The Docker and `gh` inspection stays
+  behind an explicit action; the two were only ever conflated because they arrive in the same snapshot.
+
+  The background pass is deliberately quiet: notifying from inside a refresh would re-enter it forever,
+  and a background check must not overwrite the status line describing what the runner is actually doing.
+
+- **The run strips said "today" at both ends of the time axis.** `relativeLabel` has day granularity, so
+  a strip whose runs all happened today labelled both ends identically — which says nothing, and worse
+  implies a span the strip does not cover. When both ends land in the same bucket the axis now states the
+  elapsed span instead, which is the question the labels were there to answer, with a floor for a span
+  too short to name.
+
+## [0.362.1] - 2026-08-19
+
+### Fixed
+
+- **`npm run test:mutation` runs end to end again**, for the first time in a while. Stryker copies the
+  project into a sandbox, which is right for the `fs`-only managers here — a copied tree is a perfectly
+  good tree — and wrong for exactly one test, whose *subject* is this repository rather than a fixture:
+  `tests/baselines/testTypecheck.test.ts` is a ratchet over the working tree, counts zero inside the
+  sandbox, concludes 244 errors were fixed, and fails. Stryker will not mutate an already-red suite, and
+  is right not to — a mutant "killed" by a test that was failing anyway is not evidence of anything. It
+  now runs through **`vitest.stryker.config.ts`**, which excludes that one file, with its reason recorded
+  beside it. One file rather than a list of the fifty tests that read repository paths: almost all of
+  those work fine, and a broad exclusion would be a list that rots while quietly narrowing what mutation
+  testing covers. A full run completes in about eight minutes and scores 58.73%, above the configured
+  break threshold of 50.
+- **A mutation run no longer overwrites the project's own test verdict.** It executes the suite hundreds
+  of times against deliberately broken code, and the ordinary config writes `test-results/junit.xml` on
+  every run — which the Testing dashboard reads. Left alone, the dashboard would have reported Stryker's
+  *induced* failures as the project's own and had no way to know better. `mutation-report.json` and
+  `mutation-report.html` are also gitignored now; the HTML one is measured in megabytes and was landing
+  untracked in the repository root.
+- **The `Trusted quality` check no longer sits pending forever.** This repository has **no self-hosted
+  runner registered**, so a job routed to `atlasmind-trusted-linux-x64` was queued for a label nothing
+  answers to — and a queued job does not fail, it waits, for up to twenty-four hours. Every commit
+  therefore carried a check reading `pending` when the truth was "nobody is going to run this", and on a
+  pull request the two are indistinguishable. The job is now gated on a `TRUSTED_LOCAL_RUNNER` repository
+  variable, defaulting closed: nothing queues, and nothing claims to be running. Set it to `true` when a
+  runner with that label is actually registered. The gate is an availability check that *joins* the
+  existing conditions — it is deliberately not one of the authorization ones, and a test pins both that
+  it is present and that the committed workflow still passes the safety policy the local runner enforces
+  before it will serve anything.
+
+### Changed
+
+- **The publishing routine gained a step 8: refresh the README's published baseline after tagging.** Not
+  housekeeping — the suite is red until it is done. `docsIntegrity` asserts the README names the newest
+  tag, and that tag only exists once step 7 has run, so every release passed its own CI and then failed
+  on the next local `npm run test` looking like a docs nit rather than the direct consequence of tagging.
+  It cannot be folded into the release commit either, because the tag it must name does not exist yet.
+  Found by this release doing exactly that.
+
 ## [0.362.0] - 2026-08-19
 
 Four pieces of Activity and pull-request feedback, all of them versions of the same problem: this page

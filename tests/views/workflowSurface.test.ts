@@ -1795,3 +1795,120 @@ describe('the pull request page charts CI per pull request', () => {
     }
   });
 });
+
+/**
+ * A stage that is not green now offers two ways forward.
+ *
+ * The Workflow page could say stage 5 was amber and leave you to navigate to
+ * the evidence by memory — a report card with no route to the classroom.
+ */
+describe('unfinished workflow stages offer a way forward', () => {
+  const actions = WEBVIEW_SCRIPT.slice(
+    WEBVIEW_SCRIPT.indexOf('const WF_STAGE_PAGE'),
+    WEBVIEW_SCRIPT.indexOf('function renderWorkflow(snapshot)'),
+  );
+
+  /**
+   * Every stage the curriculum declares must map somewhere, or the link is
+   * silently missing on exactly the stage somebody is stuck on.
+   */
+  it('maps all eight stages to the page that owns their evidence', () => {
+    for (const stage of [
+      'planning', 'branching', 'development', 'pull-request',
+      'ci', 'release', 'maintenance', 'automation',
+    ]) {
+      expect(actions, `${stage} has no owning page`).toContain(`${stage.includes('-') ? `'${stage}'` : stage}:`);
+    }
+    // Two are deliberately not what their name suggests, and both would be
+    // wrong if derived: development is about the working tree, and the
+    // automation policy is the workflow file this page already shows.
+    expect(actions).toContain("development: 'repo'");
+    expect(actions).toContain("automation: 'workflow'");
+  });
+
+  /** A finished stage gets no action row: noise makes the amber ones harder to find. */
+  it('offers nothing on a stage that is already done', () => {
+    expect(actions).toContain("if (stage.status === 'done')");
+    expect(actions).toContain("return '';");
+  });
+
+  it('links to the owning page through the existing navigation bridge', () => {
+    expect(actions).toContain('data-action="page" data-payload="${escapeAttr(page)}"');
+    expect(actions).toContain('Open ${escapeHtml(label)}');
+  });
+
+  /**
+   * The webview posts an id. Every word of the prompt is rebuilt host side, so
+   * a crafted message can name a stage but never supply the text that reaches
+   * the model — the boundary the issue, debt and testing handoffs all keep.
+   */
+  it('sends only the stage id to the host', () => {
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'resolveWorkflowStage', payload: payload })");
+    const panel = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    expect(panel).toContain("candidate['type'] === 'resolveWorkflowStage'");
+    expect(panel).toContain('handleResolveWorkflowStage');
+    // Rebuilt from the assessment the page was drawn from, not from the message.
+    expect(panel).toContain('this.lastWorkflowStages');
+  });
+
+  /**
+   * Asking how to complete something already complete produces confident advice
+   * about work nobody needs to do. The button is not drawn on a green stage, so
+   * a request for one arrived by a route worth declining.
+   */
+  it('refuses to advise on a stage that is already finished', () => {
+    const panel = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    const handler = panel.slice(
+      panel.indexOf('private async handleResolveWorkflowStage'),
+      panel.indexOf("/** Type into the user's configured VS Code shell"),
+    );
+    expect(handler).toContain("stage.status === 'done'");
+    expect(handler).toContain('is already complete');
+    // Only the outstanding steps travel: handing over the finished ones invites
+    // a plan that redoes them.
+    expect(handler).toContain("(stage.steps ?? []).filter(step => step.status !== 'done')");
+    // And the automation ceiling is stated only when the workflow file declares
+    // one — defaulting would assert a ceiling nobody chose, in a prompt that
+    // then tells a model to respect it.
+    expect(handler).toContain('permitted');
+    expect(handler).toContain('...(permitted');
+  });
+});
+
+/**
+ * The bar strip's time axis says something true when both ends fall in the
+ * same bucket.
+ *
+ * `relativeLabel` has day granularity, so a strip whose runs all happened today
+ * rendered **today** at both ends — which says nothing, and worse implies a
+ * span the strip does not cover.
+ */
+describe('the run strip’s axis labels', () => {
+  const ribbon = WEBVIEW_SCRIPT.slice(
+    WEBVIEW_SCRIPT.indexOf('function renderRunRibbon'),
+    WEBVIEW_SCRIPT.indexOf('const PIPELINE_RIBBON_WINDOW'),
+  );
+
+  it('states the span instead of repeating one label at both ends', () => {
+    expect(ribbon).toContain('oldest !== newest');
+    expect(ribbon).toContain('all within');
+    expect(ribbon).toContain('spanMs');
+  });
+
+  /** Under a minute of runs is not "all within 0s". */
+  it('has a floor for a span too short to name', () => {
+    expect(ribbon).toContain('all within a minute');
+    expect(ribbon).toContain('spanMs >= 60000');
+  });
+
+  /** One stamp is not a span, and no stamps is not a zero-length one. */
+  it('renders no scale at all below two timestamps', () => {
+    expect(ribbon).toContain('stamps.length < 2');
+  });
+});
