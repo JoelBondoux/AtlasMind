@@ -1240,6 +1240,10 @@
       vscode.postMessage({ type: 'createCiStarter' });
       return;
     }
+    if (action === 'pipeline-run-act') {
+      if (payload) { vscode.postMessage({ type: 'runWorkflowWithAct', payload: payload }); }
+      return;
+    }
     if (action === 'pipeline-review-workflow') {
       vscode.postMessage({ type: 'reviewCiWorkflow', payload: payload });
       return;
@@ -6890,6 +6894,7 @@
         ${(workflow.cautions || []).length ? `<ul class="ci-caution-list">${workflow.cautions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
         <div class="tag-row ci-workflow-actions">
           <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open workflow</button>
+          <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}" title="Read this workflow, say what act cannot reproduce, then offer the command">Run locally with act…</button>
           ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
         </div>
       </div>`).join('');

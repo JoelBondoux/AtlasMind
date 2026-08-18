@@ -559,6 +559,30 @@ rather than a plan, so a caller cannot reach runnable commands without that chec
 labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
 runbook, where the confirmation is built for them. Pure + unit-tested.
 
+### CiActRoute (`src/core/ciActRoute.ts`)
+
+The first alternative executor, and the one the local-CI documentation picks first. `act` runs the
+repository's real workflow YAML locally in containers — its appeal — while its default images are
+deliberately incomplete and several GitHub services are only partially emulated, which makes a pass weaker
+evidence than the same workflow hosted **and makes that invisible from the exit code**.
+
+So the substance is `assessActFidelity`, not the command. A declared rule table, matched with bounded
+regular expressions against the workflow text as `assessTrustedLocalCiWorkflow` does, reports each gap with
+its consequence. Two severities, and the split is the point: `partial` (artifacts, caches, service
+containers, secrets, event payload) is stated and allowed, while `cannot-run` — a Windows or macOS job, or
+OIDC — **refuses the run**, because a `windows-latest` job under a Linux container is not a partial result
+but a different thing wearing the same job name. This is the documentation's own requirement for an
+executor adapter, implemented: a missing capability is a refusal or an explicit partial run, never an
+inferred success. An empty gap list reports "these checks found nothing" rather than claiming parity.
+
+**AtlasMind plans the command and does not run it.** `act` executes arbitrary repository workflow content
+through the Docker API by design; `localCiRunner` exists for the case where a *reviewed* workflow should be
+executed and applies twelve rules first. Helping somebody run this is the right level of involvement. The
+line therefore goes to a terminal without a newline, and the build is recorded `unobserved`, so the ledger
+forces its verdict to unknown. Every argument is a constant here with the filename, job id and event
+validated against closed grammars; `--pull=false` keeps a route whose appeal is being local and cheap from
+starting a multi-gigabyte download unasked. Pure + unit-tested.
+
 ### CiBuildLedger (`src/core/ciBuildLedger.ts`)
 
 One list of builds, whatever ran them. The page could show GitHub's runs and, separately, whether a local

@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.353.0] - 2026-08-18
+
+### Added
+
+- **`act` is now an implemented route, not a brochure card.** Any workflow on the Workflow map offers **Run
+  locally with act**: AtlasMind reads the file, reports what `act` cannot reproduce faithfully, and then
+  offers the exact command. It is the first alternative executor the local-CI documentation picks, and this
+  is that documentation's own requirement for an executor adapter met — *a missing capability is a refusal
+  or an explicit partial run, never an inferred success*.
+- **A fidelity assessment that runs before the command does.** A declared rule table, matched with bounded
+  regular expressions against the workflow text, reporting each gap with what it means for the result:
+  artifacts and caches have no local service, service containers are partly emulated, secrets are absent so
+  steps needing one frequently pass for the wrong reason, and the event payload is synthesized.
+
+### Security
+
+- **A job `act` cannot honestly run is refused, not attempted.** A `windows-latest` job under a Linux
+  container is not a partial result — it is a different thing wearing the same job name — so the run is
+  refused outright rather than offered with a warning. OIDC is refused for the same reason: there is no
+  local issuer, and no value can be supplied to make one.
+- **AtlasMind plans the `act` command and does not run it.** `act` executes arbitrary repository workflow
+  content through the Docker API by design. The trusted local runner exists for the case where a *reviewed*
+  workflow should be executed and applies a twelve-rule policy first; helping somebody run `act` is the
+  right level of involvement, running it on their behalf is not. The command goes to a terminal without a
+  trailing newline, and the resulting build is recorded as `unobserved`, so it can never show a verdict.
+- **The webview names a workflow, never a command.** The host re-reads the workflows directory and resolves
+  the name against what is actually there; the filename, job id and event are each validated against closed
+  grammars before reaching argv, and `--pull=false` keeps a route whose appeal is being local and cheap from
+  starting a multi-gigabyte download on somebody's behalf.
+- **An absent `act` blocks the route rather than passing.** The same direction every other unprobed
+  prerequisite takes: a route reported usable because nobody looked is a button that fails when pressed.
+
+### Notes
+
+- The seeded routing rules are **unchanged**: `act` is available to invoke directly and a team may add it to
+  their routing file deliberately, but it is not seeded as a fallback. Its evidence class is the same
+  `linux-container` as the borrowed-machine route while its fidelity is lower, and the route model does not
+  currently express that gradation — so seeding it as an equivalent would overstate what the model knows.
+
 ## [0.352.0] - 2026-08-18
 
 ### Added

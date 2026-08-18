@@ -24,6 +24,7 @@ function facts(overrides: Partial<CiRouteMachineFacts> = {}): CiRouteMachineFact
     localRunnerPermitted: true,
     trustedWorkflowReady: true,
     hostedWorkflowPresent: true,
+    actInstalled: true,
     ...overrides,
   };
 }
@@ -265,7 +266,9 @@ describe('CI routing policy — the file', () => {
   it('warns rather than errors when a rule names a route with no adapter', () => {
     const config: CiRoutingConfig = {
       ...seedCiRoutingConfig(CLOCK),
-      rules: [{ id: 'a', workload: 'full-suite', prefer: 'act', fallback: [], onCreditExhausted: 'fallback' }],
+      // `woodpecker` rather than `act`: act gained an adapter, and a test whose
+      // example quietly became implemented would stop testing the rule.
+      rules: [{ id: 'a', workload: 'full-suite', prefer: 'woodpecker', fallback: [], onCreditExhausted: 'fallback' }],
     };
     const problems = validateCiRoutingConfig(config).filter(problem => problem.ruleId === 'a');
     expect(problems.some(problem => problem.severity === 'warning' && /no adapter/.test(problem.message))).toBe(true);

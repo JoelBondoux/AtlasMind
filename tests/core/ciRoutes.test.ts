@@ -18,6 +18,7 @@ function facts(overrides: Partial<CiRouteMachineFacts> = {}): CiRouteMachineFact
     localRunnerPermitted: true,
     trustedWorkflowReady: true,
     hostedWorkflowPresent: true,
+    actInstalled: true,
     ...overrides,
   };
 }
@@ -55,8 +56,8 @@ describe('CI route registry', () => {
         expect(entry.blockers.length).toBeGreaterThan(0);
       }
     }
-    expect(statusOf(availability, 'act')).toBe('unimplemented');
     expect(statusOf(availability, 'buildkite')).toBe('unimplemented');
+    expect(statusOf(availability, 'woodpecker')).toBe('unimplemented');
   });
 
   it('marks every implemented route available on a fully configured machine', () => {
@@ -64,6 +65,17 @@ describe('CI route registry', () => {
     expect(statusOf(availability, 'direct-local')).toBe('available');
     expect(statusOf(availability, 'local-runner')).toBe('available');
     expect(statusOf(availability, 'github-hosted')).toBe('available');
+    expect(statusOf(availability, 'act')).toBe('available');
+  });
+
+  /**
+   * An unprobed prerequisite blocks rather than passes, in the same direction
+   * as every other one: a route reported usable because nobody looked is a
+   * button that fails when pressed.
+   */
+  it('blocks act when it is absent or Docker is not running', () => {
+    expect(statusOf(describeCiRouteAvailability(facts({ actInstalled: false })), 'act')).toBe('blocked');
+    expect(statusOf(describeCiRouteAvailability(facts({ dockerEngineAvailable: false })), 'act')).toBe('blocked');
   });
 
   /**

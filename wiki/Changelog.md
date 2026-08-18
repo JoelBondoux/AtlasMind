@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.353.0 — act, with the caveats up front
+
+`act` runs your existing GitHub workflows locally, in containers, without pushing and without spending
+hosted minutes. It is the first alternative executor worth having, and it has been listed on the Pipeline
+page as a card AtlasMind had not built. Now it is built.
+
+The useful part is not the command. It is that AtlasMind reads your workflow first and tells you what
+`act` will not reproduce: artifacts and caches have no local service, service containers are only partly
+emulated, secrets are absent so steps that need one often pass for the wrong reason, and the event payload
+is made up rather than delivered. Each of those is reported with what it means for the result, before you
+run anything.
+
+And where a faithful run is simply impossible, it refuses. A job targeting Windows or macOS under a Linux
+container is not a partial result — it is a different thing with the same job name — so AtlasMind will
+not offer to run it. Same for OIDC, where no local value can stand in for GitHub's issuer.
+
+AtlasMind hands the command to your terminal rather than running it. `act` executes whatever your workflow
+says, with container access; the borrowed-machine route is the one built for executing a reviewed workflow,
+and it checks twelve rules before it will. Helping you run this is the right amount of help.
+
 ## v0.352.0 — One build list, and it will not invent a verdict
 
 Pipeline could show GitHub's runs, and separately whether a local container was alive. Nothing put those

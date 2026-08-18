@@ -225,6 +225,13 @@ import {
 } from '../core/localCiRunner.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
+  ACT_COMMAND,
+  ACT_DOCS_URL,
+  assessActFidelity,
+  buildActRunConfirmation,
+  planActRun,
+} from '../core/ciActRoute.js';
+import {
   buildDirectLocalRunConfirmation,
   buildDirectLocalRunPlan,
   describeCiRouteAvailability,
@@ -691,6 +698,12 @@ type ProjectDashboardMessage =
   | { type: 'createCiRoutingConfig' }
   /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
   | { type: 'refreshCiCredit' }
+  /**
+   * Run a workflow locally with `act`. Carries an opaque workflow filename the
+   * host re-resolves against the workflows directory — the same rule
+   * `reviewCiWorkflow` follows, so the page can name a file and never a command.
+   */
+  | { type: 'runWorkflowWithAct'; payload: string }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -4158,6 +4171,9 @@ export class ProjectDashboardPanel {
       case 'refreshCiCredit':
         await this.handleRefreshCiCredit();
         return;
+      case 'runWorkflowWithAct':
+        await this.handleRunWorkflowWithAct(message.payload);
+        return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
         this.localCiOutput?.show(true);
@@ -6349,6 +6365,91 @@ export class ProjectDashboardPanel {
         reason: `${failure.detail} Reading the allowance needs a token with the billing scope; AtlasMind will use the preferred route until it can read one.`,
       };
     }
+    await this.syncState();
+  }
+
+  /**
+   * Offer to run one workflow locally with `act`, having read it first.
+   *
+   * The webview names a file, never a command: the host re-reads the workflows
+   * directory and resolves the name against what is actually there, so a
+   * crafted message can ask for a workflow that does not exist and can never
+   * supply argv.
+   *
+   * The fidelity assessment is the point of the feature, not a garnish. `act`
+   * runs the real workflow YAML, which is its appeal, but its images are
+   * incomplete and several GitHub services are only partially emulated — so a
+   * job targeting Windows is **refused** rather than run as something else with
+   * the same name, and every partial gap is stated before the command is sent.
+   *
+   * AtlasMind does not spawn `act`. It executes repository workflow content
+   * through the Docker API by design; the trusted local runner exists for the
+   * case where a *reviewed* workflow should be executed and applies a
+   * twelve-rule policy first. Helping somebody run this is the right level of
+   * involvement; running it for them is not.
+   */
+  private async handleRunWorkflowWithAct(workflowId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before running a workflow locally.');
+      return;
+    }
+    if (!findCommandExecutable(ACT_COMMAND)) {
+      const open = await vscode.window.showWarningMessage(
+        '`act` is not installed on this machine.',
+        { modal: true, detail: 'It runs your existing GitHub workflows locally in containers. AtlasMind does not install it.' },
+        'Open act documentation',
+      );
+      if (open === 'Open act documentation') {
+        await vscode.env.openExternal(vscode.Uri.parse(ACT_DOCS_URL));
+      }
+      return;
+    }
+
+    const workflow = (await collectWorkflowSnapshot(workspaceRoot))
+      .find(candidate => candidate.id === workflowId);
+    if (!workflow) {
+      void vscode.window.showWarningMessage('That workflow no longer exists. Refresh the Pipeline page and try again.');
+      return;
+    }
+    let text: string;
+    try {
+      text = await fs.readFile(path.join(workspaceRoot, ...workflow.path.split('/')), 'utf8');
+    } catch {
+      void vscode.window.showWarningMessage(`${workflow.path} could not be read, so AtlasMind cannot say what act would reproduce badly.`);
+      return;
+    }
+
+    const outcome = planActRun({ workflowFile: workflow.id, fidelity: assessActFidelity(text) });
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+    const confirmation = buildActRunConfirmation(outcome.plan);
+    const answer = await vscode.window.showWarningMessage(
+      confirmation.title,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel,
+    );
+    if (answer !== confirmation.confirmLabel) {
+      return;
+    }
+
+    this.sendLocalCiCommandToTerminal({ command: outcome.plan.line, workspaceRoot });
+    // `unobserved`, and truthfully so: this went to the user's terminal. The
+    // ledger forces the status to unknown, so it can never show a tick.
+    await this.rememberCiBuild({
+      id: `act-${Date.now()}`,
+      source: 'local',
+      routeId: 'act',
+      routeLabel: 'act',
+      evidence: 'linux-container',
+      observation: 'unobserved',
+      status: 'unknown',
+      title: `${workflow.name} via act`,
+      startedAt: new Date().toISOString(),
+      pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
+    });
     await this.syncState();
   }
 
@@ -9843,6 +9944,12 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return candidate['payload'] === undefined;
   }
 
+  if (candidate['type'] === 'runWorkflowWithAct') {
+    return typeof candidate['payload'] === 'string'
+      && candidate['payload'].length > 0
+      && candidate['payload'].length <= 120;
+  }
+
   if (candidate['type'] === 'reviewCiWorkflow') {
     return typeof candidate['payload'] === 'string'
       && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.ya?ml$/i.test(candidate['payload']);
@@ -11076,6 +11183,9 @@ async function collectDashboardSnapshot(
     localRunnerPermitted: readLocalCiRunnerEnablement().effective,
     trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
     hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
+    // Resolved on the render path because it is a PATH lookup, not a process
+    // launch — the same cost as the executable probes the runner already does.
+    actInstalled: Boolean(findCommandExecutable(ACT_COMMAND)),
   });
   const ledgerView = buildCiLedgerView(localBuilds, ci?.runs);
   const buildsSnapshot = {

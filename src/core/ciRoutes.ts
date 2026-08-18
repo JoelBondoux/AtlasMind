@@ -185,7 +185,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     label: 'act',
     blurb: 'Execute GitHub Actions workflows locally in containers, without GitHub.',
     evidence: 'linux-container',
-    evidenceCaveat: 'Would prove Linux container behaviour only, and its images are deliberately incomplete — several GitHub services are partially emulated, so a pass is weaker evidence than the same workflow on a hosted runner.',
+    evidenceCaveat: 'Proves Linux container behaviour only, and less of it than the borrowed-machine route: act\'s images are deliberately incomplete and several GitHub services are partially emulated, so a pass is weaker evidence than the same workflow on a hosted runner. AtlasMind reads the workflow first and states exactly which parts will not run faithfully.',
     capabilities: {
       githubWorkflowSyntax: 'yes',
       crossPlatform: 'no',
@@ -195,8 +195,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
       safeForUntrustedCode: 'no',
     },
     cost: 'local-only',
-    implementation: 'declared',
-    adapterNote: 'Adapter not built. It would need a capability declaration stating which GitHub services it emulates, so a partial run is never reported as a full one.',
+    implementation: 'implemented',
   },
   {
     id: 'buildkite',
@@ -252,6 +251,14 @@ export interface CiRouteMachineFacts {
   trustedWorkflowReady: boolean;
   /** At least one quality workflow exists that GitHub could run. */
   hostedWorkflowPresent: boolean;
+  /**
+   * `act` resolves on PATH.
+   *
+   * Defaulted false by every caller that has not probed, so an unchecked
+   * machine reports the route as blocked rather than as usable — the same
+   * direction every other unprobed prerequisite takes.
+   */
+  actInstalled: boolean;
 }
 
 export type CiRouteStatus =
@@ -314,6 +321,20 @@ export function describeCiRouteAvailability(
       if (!facts.githubCliAuthenticated) {
         blockers.push('The GitHub CLI is not signed in, so the queue cannot be read.');
         nextStep ??= 'Run /localci, or open the Runner view.';
+      }
+    }
+    if (route.id === 'act') {
+      if (!facts.actInstalled) {
+        blockers.push('`act` is not installed.');
+        nextStep = 'Install it from nektosact.com, then refresh.';
+      }
+      if (!facts.dockerEngineAvailable) {
+        blockers.push('The Docker engine is not running, and act needs it.');
+        nextStep ??= 'Run /localci, or open the Runner view.';
+      }
+      if (!facts.hostedWorkflowPresent) {
+        blockers.push('There is no workflow for act to run.');
+        nextStep ??= 'Create one from the Workflow map.';
       }
     }
     if (route.id === 'github-hosted') {
