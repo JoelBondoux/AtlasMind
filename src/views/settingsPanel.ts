@@ -199,6 +199,14 @@ export interface TestingDashboardSnapshot {
   coverageDataRelativePath?: string;
   files: TestingFileSummary[];
   tests: TestingCaseSummary[];
+  /**
+   * How many tests were discovered, as opposed to how many were sent.
+   *
+   * `tests` is capped, so without this the page cannot tell the difference
+   * between a small suite and a truncated view of a large one — and a filter
+   * that can only search what it was given must say so.
+   */
+  totalDiscoveredTests: number;
   categoryCounts: TestingDashboardCategoryCount[];
   verificationEnabled: boolean;
   verificationScripts: string[];
@@ -6460,6 +6468,7 @@ export function collectTestingDashboardSnapshot(
       configFiles: [],
       files: [],
       tests: [],
+      totalDiscoveredTests: 0,
       categoryCounts: [
         { key: 'unit', label: 'Unit', count: 0 },
         { key: 'integration', label: 'Integration', count: 0 },
@@ -6668,6 +6677,10 @@ export function collectTestingDashboardSnapshot(
     ? 'coverage/lcov-report/index.html'
     : (existsSync(path.join(workspaceRoot, 'coverage', 'index.html')) ? 'coverage/index.html' : undefined);
 
+  // The list the browser actually receives, and therefore the population every
+  // count beside it must describe.
+  const listedTests = discoveredTests.slice(0, MAX_DISCOVERED_TEST_CASES);
+
   return {
     policyEvidence,
     technicalControls,
@@ -6689,12 +6702,23 @@ export function collectTestingDashboardSnapshot(
     coverageReportRelativePath,
     coverageDataRelativePath: coverage.exists ? 'coverage/lcov.info' : undefined,
     files: fileSummaries.slice(0, 12),
-    tests: discoveredTests.slice(0, MAX_DISCOVERED_TEST_CASES),
+    tests: listedTests,
+    totalDiscoveredTests: discoveredTests.length,
+    /*
+     * Counted over the *listed* tests, not over everything discovered.
+     *
+     * These are filter pills, and the filter can only ever search the list it
+     * was given. Counting the full discovery produced a board where All read
+     * 600 — the cap — while Unit read 5,826, so a part was larger than its whole
+     * and clicking Unit showed at most 600 of them anyway. Every number here
+     * now describes the same population, and `totalDiscoveredTests` states the
+     * remainder separately rather than smuggling it into a category.
+     */
     categoryCounts: [
-      { key: 'unit', label: 'Unit', count: discoveredTests.filter(test => test.category === 'unit').length },
-      { key: 'integration', label: 'Integration', count: discoveredTests.filter(test => test.category === 'integration').length },
-      { key: 'e2e', label: 'E2E', count: discoveredTests.filter(test => test.category === 'e2e').length },
-      { key: 'other', label: 'Other', count: discoveredTests.filter(test => test.category === 'other').length },
+      { key: 'unit', label: 'Unit', count: listedTests.filter(test => test.category === 'unit').length },
+      { key: 'integration', label: 'Integration', count: listedTests.filter(test => test.category === 'integration').length },
+      { key: 'e2e', label: 'E2E', count: listedTests.filter(test => test.category === 'e2e').length },
+      { key: 'other', label: 'Other', count: listedTests.filter(test => test.category === 'other').length },
     ],
     verificationEnabled,
     verificationScripts,

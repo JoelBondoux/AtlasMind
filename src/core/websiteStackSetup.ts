@@ -124,6 +124,14 @@ export interface StackSetupOptions {
   generateCi: boolean;
   /** `atlasmind.website.setup.allowRemoteProjectCreation`. Off by default. */
   allowRemoteProjectCreation: boolean;
+  /**
+   * Node major for the generated workflow, resolved by the caller.
+   *
+   * Required, and passed in rather than defaulted here: a project being
+   * scaffolded has no package.json to read yet, so the only honest answer is
+   * the runtime the developer is on, and that is not this module's to know.
+   */
+  nodeVersion: string;
 }
 
 // ── Planning ─────────────────────────────────────────────────────
@@ -250,6 +258,7 @@ export function planWebsiteStackSetup(options: StackSetupOptions): StackSetupPla
       developBranch: branches.develop,
       stagingBranch: branches.staging,
       productionBranch: branches.production,
+      nodeVersion: options.nodeVersion,
     });
     if (workflow.ok) {
       steps.push({

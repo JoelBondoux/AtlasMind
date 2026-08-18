@@ -444,7 +444,13 @@ describe('Pipeline Studio progressive workflow', () => {
     // The Analytics tab is gone. Its one durable contract — never present a
     // measurement without the window and the caveat — moved into Activity.
     expect(WEBVIEW_SCRIPT).toContain('Recent history');
-    expect(WEBVIEW_SCRIPT).toContain('height is elapsed time including queue wait');
+    expect(WEBVIEW_SCRIPT).toContain('Height is elapsed time including queue wait');
+    // The strip now carries a time axis, and the caption states what the axis
+    // is *not*: bars are one per run and evenly spaced, so a burst and a steady
+    // month draw identically. An axis implying otherwise would read as more
+    // information than the strip has.
+    expect(WEBVIEW_SCRIPT).toContain('ci-ribbon-axis');
+    expect(WEBVIEW_SCRIPT).toContain('spaced one per run rather than by when they happened');
     expect(WEBVIEW_SCRIPT).toContain('Median elapsed time including queue wait, which needs at least 3 completed runs');
     expect(WEBVIEW_SCRIPT).toContain('Needs 3 completed runs');
     expect(WEBVIEW_SCRIPT).toContain('Runs GitHub returned for this branch');
@@ -1268,7 +1274,10 @@ describe('Activity — one stream, honest about what it saw', () => {
     expect(WEBVIEW_SCRIPT).toContain('does not read it, so it cannot report how they ended');
     expect(activity).toContain('no verdict by design');
     // Marked, never blank — a blank mark reads as "no", which is a claim.
-    expect(WEBVIEW_SCRIPT).toContain("unknown: '?'");
+    expect(WEBVIEW_SCRIPT).toContain("mark: '?'");
+    // And the mark now publishes what it means, rather than leaving a reader to
+    // infer a white question mark from context.
+    expect(WEBVIEW_SCRIPT).toContain('Marked rather than blank, because a blank reads as a pass.');
   });
 
   it('marks hosted progress as polled rather than streamed', () => {
@@ -1588,6 +1597,201 @@ describe('executor documentation links', () => {
     );
     for (const id of ['act', 'buildkite', 'woodpecker']) {
       expect(table).toContain(`findCiRoute('${id}')?.docsUrl`);
+    }
+  });
+});
+
+/**
+ * The Activity view's three legibility contracts.
+ *
+ * All three come from the same complaint, which is worth stating once: this
+ * page compresses a lot into very little — a glyph, a colour, a bar height, a
+ * bar position — and every compression is a private vocabulary until it is
+ * published. A reader who cannot decode the marks is not reading a dense
+ * dashboard, they are looking at decoration.
+ */
+describe('the Activity view explains its own notation', () => {
+
+  /**
+   * Every mark carries its sentence in the same table the legend renders from,
+   * so the key on the card cannot drift from the marks above it.
+   */
+  it('publishes a meaning for every status mark, from one table', () => {
+    const table = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const PIPELINE_BUILD_STATUS = {'),
+      WEBVIEW_SCRIPT.indexOf('const PIPELINE_BUILD_OBSERVATION'),
+    );
+    for (const status of ['passed', 'failed', 'running', 'cancelled', 'unknown']) {
+      expect(table, `${status} is missing from the status table`).toContain(`${status}: {`);
+    }
+    // Five entries, five meanings: a mark with no sentence is the defect.
+    expect([...table.matchAll(/meaning: '/g)]).toHaveLength(5);
+    expect(WEBVIEW_SCRIPT).toContain('function renderPipelineBuildLegend');
+    expect(WEBVIEW_SCRIPT).toContain('What the marks mean');
+  });
+
+  /**
+   * Outcome and observation are independent, and the legend has to say so — an
+   * unobserved run has no outcome to report, which is why it is marked rather
+   * than left blank, and reading the question mark as a failure is the mistake
+   * the two-vocabulary split exists to prevent.
+   */
+  it('keeps how it ended separate from how closely it was watched', () => {
+    expect(WEBVIEW_SCRIPT).toContain('const PIPELINE_BUILD_OBSERVATION');
+    for (const mode of ['live', 'polled', 'unobserved']) {
+      expect(WEBVIEW_SCRIPT).toContain(`${mode}:`);
+    }
+    expect(WEBVIEW_SCRIPT).toContain('They are independent');
+  });
+
+  /**
+   * A filtered list that also restates its own count as the total is how
+   * somebody concludes nothing failed today.
+   */
+  it('never lets a filter rewrite the total', () => {
+    expect(WEBVIEW_SCRIPT).toContain('the count above is every recorded build');
+    expect(WEBVIEW_SCRIPT).toContain('statusFilter !== \'all\'');
+  });
+
+  it('offers an order and a grouping, not just a stream', () => {
+    expect(WEBVIEW_SCRIPT).toContain('PIPELINE_STREAM_SORTS');
+    expect(WEBVIEW_SCRIPT).toContain('set-pipeline-stream-sort');
+    expect(WEBVIEW_SCRIPT).toContain('set-pipeline-stream-view');
+    expect(WEBVIEW_SCRIPT).toContain('By pipeline');
+  });
+
+  /**
+   * Cancelled is not failed. Folding it into the failure filter would report a
+   * cancellation as a defect, which is the same mistake the reliability figure
+   * on this page already refuses to make.
+   */
+  it('does not count a cancellation as a failure in the filter', () => {
+    expect(WEBVIEW_SCRIPT).toContain('no-verdict');
+    expect(WEBVIEW_SCRIPT).toContain('const hasVerdict = build =>');
+  });
+
+  /** A cap that hides rows says how many, and offers them. */
+  it('states the remainder rather than truncating quietly', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Show ${hidden} more');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-stream-expand');
+  });
+});
+
+/**
+ * Auto-refresh is the one control on this page that spends something without
+ * being asked again, so its defaults and its gates are the whole design.
+ */
+describe('the Activity view’s auto-refresh', () => {
+  it('is off by default, and off is a declared choice rather than an absence', () => {
+    const table = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const PIPELINE_AUTO_REFRESH_CHOICES'),
+      WEBVIEW_SCRIPT.indexOf('function pipelineAutoRefreshMs'),
+    );
+    // First in the list and zero-valued: a cadence control whose default polls
+    // would spend a rate limit nobody agreed to.
+    expect(table.indexOf("id: 'off'")).toBeGreaterThan(-1);
+    expect(table.indexOf("id: 'off'")).toBeLessThan(table.indexOf("id: '1m'"));
+    expect(table).toContain('ms: 0');
+    expect(WEBVIEW_SCRIPT).toContain("persistedWebviewState.pipelineAutoRefresh : 'off'");
+  });
+
+  /** The shortest cadence is a minute: faster is a poll nobody reads. */
+  it('offers nothing faster than a minute', () => {
+    const table = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const PIPELINE_AUTO_REFRESH_CHOICES'),
+      WEBVIEW_SCRIPT.indexOf('function pipelineAutoRefreshMs'),
+    );
+    const intervals = [...table.matchAll(/ms: (\d+)/g)].map(match => Number(match[1]));
+    expect(intervals.filter(value => value > 0).every(value => value >= 60000)).toBe(true);
+  });
+
+  /**
+   * Three gates, each closing a way this could spend a request nobody wanted:
+   * a hidden panel, a different page, and a fetch already in flight.
+   */
+  it('does not poll while hidden, off-page, or already fetching', () => {
+    const sync = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function syncPipelineAutoRefresh'),
+      WEBVIEW_SCRIPT.indexOf('document.addEventListener(\'visibilitychange\''),
+    );
+    expect(sync).toContain('document.hidden');
+    expect(sync).toContain("state.activePage !== 'pipeline'");
+    expect(sync).toContain('state.repositoryRefreshBusy');
+  });
+
+  /** A persisted cadence is untrusted input like any other. */
+  it('validates a restored cadence against the declared list', () => {
+    expect(WEBVIEW_SCRIPT).toContain("['off', '1m', '5m', '15m'].includes(persistedWebviewState.pipelineAutoRefresh)");
+    expect(WEBVIEW_SCRIPT).toContain('PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload)');
+  });
+});
+
+/**
+ * CI on each pull request.
+ *
+ * The tracker has fetched `statusChecks` for every pull request since v0.200
+ * and the page never rendered them, so the one question a reviewer arrives with
+ * — *is this branch green?* — was answerable only on GitHub.
+ */
+describe('the pull request page charts CI per pull request', () => {
+  const chart = WEBVIEW_SCRIPT.slice(
+    WEBVIEW_SCRIPT.indexOf('function renderPullRequestCiChart'),
+    WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)'),
+  );
+
+  it('renders a bar per pull request from the checks already fetched', () => {
+    expect(chart.length).toBeGreaterThan(500);
+    expect(chart).toContain('pr-ci-bar');
+    expect(chart).toContain('pr.statusChecks');
+  });
+
+  /**
+   * The rule this page shares with every other surface here: not looked at and
+   * nothing there are different facts, and drawing them the same way puts "we
+   * did not check" and "nothing is verifying this" in the same pixels.
+   */
+  it('keeps an unfetched rollup distinct from a pull request with no checks', () => {
+    expect(chart).toContain('!Array.isArray(checks)');
+    expect(chart).toContain('not read');
+    expect(chart).toContain('not evidence that nothing ran');
+    expect(chart).toContain('checks.length === 0');
+    expect(chart).toContain('no checks');
+    expect(chart).toContain('Nothing is verifying');
+  });
+
+  /** A check still running has no verdict, and green-so-far is how a PR merges early. */
+  it('never counts a running check as passed', () => {
+    const outcome = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function pullRequestCheckOutcome'),
+      WEBVIEW_SCRIPT.indexOf('function renderPullRequestCiChart'),
+    );
+    expect(outcome).toContain("conclusion === 'success'");
+    expect(outcome).toContain("return 'running'");
+    // A conclusion nothing recognises is not a pass either.
+    expect(outcome).toContain("return conclusion ? 'other' : 'running'");
+    expect(chart).toContain('buckets.running');
+    expect(chart).toContain('running');
+  });
+
+  /**
+   * Skipped, cancelled and neutral ran and decided nothing. Folding them into
+   * either pass or fail would report a skipped job as green.
+   */
+  it('gives checks that decided nothing their own bucket', () => {
+    const outcome = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function pullRequestCheckOutcome'),
+      WEBVIEW_SCRIPT.indexOf('function renderPullRequestCiChart'),
+    );
+    for (const conclusion of ['cancelled', 'skipped', 'neutral', 'stale']) {
+      expect(outcome).toContain(conclusion);
+    }
+    expect(chart).toContain('skipped, cancelled or neutral');
+  });
+
+  /** Every colour on the bar says what it means, on the card. */
+  it('publishes a key for the segments', () => {
+    for (const key of ['passed', 'failed', 'running', 'other']) {
+      expect(chart).toContain(`pr-ci-key ${key}`);
     }
   });
 });

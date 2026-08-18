@@ -83,7 +83,14 @@ export interface TrustedLocalCiStarterInput {
   workflowFile: string;
   packageManager: TrustedLocalCiPackageManager;
   scripts: readonly string[];
-  nodeVersion?: string;
+  /**
+   * The Node major to pin, resolved by `nodeVersionDetection`.
+   *
+   * Required. It was optional and nothing ever passed it, so the default behind
+   * it was not a fallback but the only value this ever wrote — see the same note
+   * on `NodeCiStarterInput`.
+   */
+  nodeVersion: string;
 }
 
 export interface TrustedLocalCiStarterPlan {
@@ -113,9 +120,15 @@ function safeScript(value: string): string | undefined {
   return SCRIPT_NAME.test(trimmed) ? trimmed : undefined;
 }
 
-function nodeVersionOf(value: string | undefined): string {
-  const trimmed = value?.trim() ?? '';
-  return NODE_VERSION.test(trimmed) ? trimmed : '20';
+/**
+ * A version number, or nothing. Refuses rather than coercing: this value is
+ * interpolated into YAML that runs on a machine the user is lending, and
+ * substituting a runtime nobody asked for is how a generator comes to emit the
+ * same version forever.
+ */
+function nodeVersionOf(value: string): string | undefined {
+  const trimmed = value.trim();
+  return NODE_VERSION.test(trimmed) ? trimmed : undefined;
 }
 
 function installCommand(packageManager: TrustedLocalCiPackageManager): string {
@@ -191,6 +204,9 @@ export function buildTrustedLocalCiStarter(input: TrustedLocalCiStarterInput): T
   }
 
   const nodeVersion = nodeVersionOf(input.nodeVersion);
+  if (!nodeVersion) {
+    return { ok: false, reason: `"${input.nodeVersion}" is not a Node version number.` };
+  }
   // Corepack rather than `pnpm/action-setup`, deliberately. A third action
   // means a third commit SHA to review and re-review, and the only pins this
   // module may emit are ones somebody actually reviewed. Corepack ships with

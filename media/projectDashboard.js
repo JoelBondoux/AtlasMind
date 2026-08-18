@@ -367,6 +367,21 @@
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
     issueFilter: 'open',
     debtSearch: '',
+    /**
+     * Everything-that-ran: how the list is ordered, what it shows, and whether
+     * it is one stream or grouped by where it ran.
+     *
+     * Newest-first is the default because the question that brings people to
+     * this card is "what just happened"; the other orders answer questions you
+     * arrive with deliberately.
+     */
+    pipelineAutoRefresh: ['off', '1m', '5m', '15m'].includes(persistedWebviewState.pipelineAutoRefresh)
+      ? persistedWebviewState.pipelineAutoRefresh : 'off',
+    pipelineStreamSort: 'newest',
+    pipelineStreamStatus: 'all',
+    pipelineStreamView: 'stream',
+    /** Show past the display cap on request; the remainder is always stated. */
+    pipelineStreamExpanded: false,
     // Filter by the *rule* rather than by severity: a project that declared
     // its own markers wants to see what `REVISIT` found, and two rules can
     // share a severity.
@@ -1580,6 +1595,33 @@
     }
     if (action === 'generate-codeowners') {
       vscode.postMessage({ type: 'generateCodeowners' });
+      return;
+    }
+    if (action === 'set-pipeline-auto-refresh') {
+      state.pipelineAutoRefresh = PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload) ? payload : 'off';
+      vscode.setState({ ...(vscode.getState() || {}), pipelineAutoRefresh: state.pipelineAutoRefresh });
+      syncPipelineAutoRefresh();
+      render();
+      return;
+    }
+    if (action === 'set-pipeline-stream-sort') {
+      state.pipelineStreamSort = payload || 'newest';
+      render();
+      return;
+    }
+    if (action === 'set-pipeline-stream-status') {
+      state.pipelineStreamStatus = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'set-pipeline-stream-view') {
+      state.pipelineStreamView = payload === 'grouped' ? 'grouped' : 'stream';
+      render();
+      return;
+    }
+    if (action === 'pipeline-stream-expand') {
+      state.pipelineStreamExpanded = !state.pipelineStreamExpanded;
+      render();
       return;
     }
     if (action === 'set-debt-rule-filter') {
@@ -4235,10 +4277,20 @@
             <p class="section-kicker">Test browser</p>
             <h3>Browse every detected test</h3>
             <div class="stat-detail">Use the category filters, searchable list, or dropdown jump menu when the suite gets large.</div>
+            ${/*
+               * Every count here describes the *listed* tests, which is the only
+               * population the filters can search. Counting the full discovery
+               * made All read 600 — the cap — while Unit read 5,826: a part
+               * larger than its whole, and clicking Unit showed 600 of them
+               * regardless. The remainder is stated below instead.
+               */''}
             <div class="tag-row">
-              <button type="button" class="tag ${state.activeTestCategory === 'all' ? 'tag-good' : ''}" data-action="test-category" data-payload="all">All (${escapeHtml(String(testing.tests.length || testing.totalCases))})</button>
+              <button type="button" class="tag ${state.activeTestCategory === 'all' ? 'tag-good' : ''}" data-action="test-category" data-payload="all">All (${escapeHtml(String(testing.tests.length))})</button>
               ${(testing.categoryCounts || []).map(group => `<button type="button" class="tag ${state.activeTestCategory === group.key ? 'tag-good' : ''}" data-action="test-category" data-payload="${escapeAttr(group.key)}">${escapeHtml(`${group.label} (${group.count})`)}</button>`).join('')}
             </div>
+            ${typeof testing.totalDiscoveredTests === 'number' && testing.totalDiscoveredTests > testing.tests.length
+              ? `<p class="stat-detail">Listing ${escapeHtml(String(testing.tests.length))} of ${escapeHtml(String(testing.totalDiscoveredTests))} discovered tests. The counts above and the search below cover the listed ones only.</p>`
+              : ''}
             <div class="panel-grid" style="grid-template-columns: 1fr 260px; margin-top: 12px;">
               <input id="test-search-input" class="ideation-input" type="search" placeholder="Search by title, suite, or file" value="${escapeAttr(state.testSearch || '')}" />
               <select id="test-select-jump" class="ideation-select">
@@ -5659,6 +5711,122 @@
     return String(number) + ':' + String(index);
   }
 
+  /**
+   * How a single check ended, in the four buckets a reader can act on.
+   *
+   * GitHub reports a dozen conclusions across two APIs — `success`, `neutral`,
+   * `skipped`, `timed_out`, `action_required`, `stale`, plus the commit-status
+   * spellings — and collapsing them to pass/fail would report a skipped check
+   * as green and a timeout as a mystery. Four buckets, and the one that matters
+   * is that **a check with no conclusion yet is `running`, never `passed`**.
+   */
+  function pullRequestCheckOutcome(check) {
+    const status = String(check.status || '').toLowerCase();
+    const conclusion = String(check.conclusion || '').toLowerCase();
+    if (['failure', 'timed_out', 'startup_failure', 'action_required', 'error'].includes(conclusion)) {
+      return 'failed';
+    }
+    if (conclusion === 'success') { return 'passed'; }
+    if (conclusion === 'cancelled' || conclusion === 'skipped' || conclusion === 'neutral' || conclusion === 'stale') {
+      return 'other';
+    }
+    // Queued, in progress, pending, or a conclusion nothing recognises. All of
+    // them mean "no verdict yet", which is not the same as passing.
+    if (status && status !== 'completed') { return 'running'; }
+    return conclusion ? 'other' : 'running';
+  }
+
+  /**
+   * CI on each pull request.
+   *
+   * The tracker has fetched `statusChecks` for every pull request since v0.200
+   * and this page never showed them, so the one question a reviewer opens this
+   * page with — *is this branch green?* — was answerable only on GitHub. It is
+   * a chart rather than a column of words because the useful comparison is
+   * across pull requests: one red bar in a column of green is a glance, and
+   * six rows of "3 passed, 1 failed" is reading.
+   *
+   * Three honesty rules, all of them the same rule wearing different clothes:
+   *
+   * - **Absent is not empty.** A pull request whose checks were never fetched
+   *   says so. Drawing it as a zero-length bar would put "nothing is verifying
+   *   this" and "we did not look" in the same pixels.
+   * - **An empty check list is a finding, not a pass.** A pull request that
+   *   genuinely reports no checks has nothing verifying it, and that is worth
+   *   saying out loud rather than rendering as a clean row.
+   * - **A running check is never counted as green.** The bar shows it as its
+   *   own colour and the summary refuses a verdict while any check is in
+   *   flight, because "green so far" is how a merge happens early.
+   */
+  function renderPullRequestCiChart(open) {
+    if (!open.length) {
+      return '';
+    }
+    const rows = open.map(pr => {
+      const checks = pr.statusChecks;
+      if (!Array.isArray(checks)) {
+        return `<div class="pr-ci-row">
+          <span class="pr-ci-name"><strong>#${escapeHtml(String(pr.number))}</strong> ${escapeHtml(pr.title || '')}</span>
+          <span class="pr-ci-bar pr-ci-bar-unknown" title="${escapeAttr('The check rollup was not part of this read. This is not evidence that nothing ran.')}"></span>
+          <span class="pr-ci-verdict wf-unknown">not read</span>
+        </div>`;
+      }
+      if (checks.length === 0) {
+        return `<div class="pr-ci-row">
+          <span class="pr-ci-name"><strong>#${escapeHtml(String(pr.number))}</strong> ${escapeHtml(pr.title || '')}</span>
+          <span class="pr-ci-bar pr-ci-bar-none" title="${escapeAttr('GitHub reported no checks on this head commit. Nothing is verifying this change.')}"></span>
+          <span class="pr-ci-verdict tone-warn">no checks</span>
+        </div>`;
+      }
+      const buckets = { passed: 0, failed: 0, running: 0, other: 0 };
+      const failing = [];
+      for (const check of checks) {
+        const outcome = pullRequestCheckOutcome(check);
+        buckets[outcome] += 1;
+        if (outcome === 'failed') { failing.push(check.name); }
+      }
+      const total = checks.length;
+      const segment = (key, label) => buckets[key]
+        ? `<span class="pr-ci-seg ${key}" style="flex-grow:${buckets[key]}" title="${escapeAttr(`${buckets[key]} ${label}`)}"></span>`
+        : '';
+      // Ordered worst-first so the eye lands on the failure, and so a row's
+      // shape is comparable with the row above it.
+      const bar = `${segment('failed', 'failed')}${segment('running', 'still running')}${segment('other', 'skipped, cancelled or neutral')}${segment('passed', 'passed')}`;
+      const verdict = buckets.failed
+        ? `<span class="pr-ci-verdict tone-bad">${escapeHtml(`${buckets.failed} of ${total} failing`)}</span>`
+        : buckets.running
+          ? `<span class="pr-ci-verdict tone-run">${escapeHtml(`${buckets.running} of ${total} running`)}</span>`
+          : `<span class="pr-ci-verdict tone-good">${escapeHtml(`${total} check${total === 1 ? '' : 's'} green`)}</span>`;
+      return `<div class="pr-ci-row">
+        <span class="pr-ci-name"><strong>#${escapeHtml(String(pr.number))}</strong> ${escapeHtml(pr.title || '')}</span>
+        <span class="pr-ci-bar" title="${escapeAttr(`${buckets.passed} passed, ${buckets.failed} failed, ${buckets.running} running, ${buckets.other} neither`)}">${bar}</span>
+        ${verdict}
+        ${failing.length ? `<span class="list-meta pr-ci-failing">${escapeHtml(failing.slice(0, 3).join(', '))}${failing.length > 3 ? ` +${failing.length - 3}` : ''}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const unread = open.filter(pr => !Array.isArray(pr.statusChecks)).length;
+    const bare = open.filter(pr => Array.isArray(pr.statusChecks) && pr.statusChecks.length === 0).length;
+    return `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">CI on each pull request</p>
+          <h3>${escapeHtml(`${open.length} in flight`)}</h3>
+          <p class="stat-detail">One bar per pull request, segments sized by how many checks ended each way. Worst first, so a failure is the leftmost thing on the row.</p>
+        </div>
+      </div>
+      <div class="pr-ci-list">${rows}</div>
+      <div class="ci-legend-grid pr-ci-legend">
+        <div class="ci-legend-item"><span class="pr-ci-key passed"></span><div class="list-meta">passed</div></div>
+        <div class="ci-legend-item"><span class="pr-ci-key failed"></span><div class="list-meta">failed, timed out, or action required</div></div>
+        <div class="ci-legend-item"><span class="pr-ci-key running"></span><div class="list-meta">queued or in progress — no verdict yet, and never counted as green</div></div>
+        <div class="ci-legend-item"><span class="pr-ci-key other"></span><div class="list-meta">skipped, cancelled or neutral — ran, decided nothing</div></div>
+      </div>
+      ${unread ? `<p class="stat-detail">${escapeHtml(`${unread} pull request${unread === 1 ? ' has' : 's have'} no check rollup in this read.`)} That is not evidence that nothing ran.</p>` : ''}
+      ${bare ? `<p class="stat-detail tone-warn-text">${escapeHtml(`${bare} pull request${bare === 1 ? ' reports' : 's report'} no checks at all.`)} Nothing is verifying ${bare === 1 ? 'that change' : 'those changes'} before it merges.</p>` : ''}
+    </article>`;
+  }
+
   function renderPullRequests(snapshot) {
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
@@ -5754,6 +5922,7 @@
         <p class="card-kicker">In flight</p>
         <div class="stack-list">${list}</div>
       </article>
+      ${renderPullRequestCiChart(open)}
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Review health</p>
@@ -7278,9 +7447,24 @@
    * against the row's own longest run, so a fast workflow does not render as a
    * flat line beside a slow one; the tooltip carries the real number.
    */
+  /**
+   * A pipeline's recent runs as bars, with a time axis under them.
+   *
+   * Two changes over the bare bar strip, both because "which of these is
+   * recent?" was unanswerable. The bars are **right-aligned to a fixed track**,
+   * so the newest run sits at the same x-position on every row and the eye can
+   * read down the column; and a faint axis runs under them carrying the span,
+   * so the strip states what period it covers instead of leaving it implied.
+   *
+   * The axis is honest about what it is not. Bars are one-per-run and evenly
+   * spaced, **not** positioned by timestamp — thirty runs in one afternoon and
+   * thirty over a month draw identically. Placing them by time would look more
+   * informative and would collapse every burst into an unreadable smear, so the
+   * caption says which it is rather than the axis implying the other.
+   */
   function renderRunRibbon(entries) {
     if (!entries.length) {
-      return '<span class="ci-ribbon empty" aria-hidden="true"></span>';
+      return '<span class="ci-ribbon-wrap"><span class="ci-ribbon empty" aria-hidden="true"></span></span>';
     }
     const longest = Math.max(1, ...entries.map(entry => entry.durationMs || 0));
     const bars = entries.map(entry => {
@@ -7290,7 +7474,102 @@
       const took = entry.durationMs === undefined ? 'duration unknown' : formatDurationCompact(entry.durationMs);
       return `<i class="${escapeAttr(entry.outcome)}" style="height:${height}px" title="${escapeAttr(`${entry.label} — ${entry.outcome === 'pass' ? 'passed' : entry.outcome === 'fail' ? 'failed' : entry.outcome} · ${took} · ${when}`)}"></i>`;
     }).join('');
-    return `<span class="ci-ribbon" role="img" aria-label="${escapeAttr(`${entries.length} recent runs, oldest first`)}">${bars}</span>`;
+
+    // The span the strip covers, read off the runs themselves. Absent stamps
+    // yield no axis labels rather than invented ones.
+    const stamps = entries.map(entry => Date.parse(entry.startedAt || '')).filter(Number.isFinite);
+    const oldest = stamps.length ? relativeLabel(new Date(Math.min(...stamps)).toISOString()) : '';
+    const newest = stamps.length ? relativeLabel(new Date(Math.max(...stamps)).toISOString()) : '';
+
+    return `<span class="ci-ribbon-wrap">
+      <span class="ci-ribbon" role="img" aria-label="${escapeAttr(`${entries.length} recent runs, oldest on the left, newest on the right`)}">${bars}</span>
+      <span class="ci-ribbon-axis" aria-hidden="true"></span>
+      ${stamps.length >= 2
+        ? `<span class="ci-ribbon-scale" aria-hidden="true"><span>${escapeHtml(oldest)}</span><span>${escapeHtml(newest)}</span></span>`
+        : '<span class="ci-ribbon-scale" aria-hidden="true"></span>'}
+    </span>`;
+  }
+
+  /**
+   * Auto-refresh cadences, in the words somebody choosing would use.
+   *
+   * **Off is the default and the first option**, because a refresh here reaches
+   * GitHub through `gh`: it spends a rate limit somebody else is also using, and
+   * on a metered plan it spends money. Switching the page on and letting it
+   * poll unattended are two decisions, and a control that made one of them
+   * silently would be the wrong shape whatever the interval.
+   *
+   * The shortest is a minute. Anything faster is a poll nobody reads at a cost
+   * somebody pays, and GitHub's own run list does not move faster than that in
+   * any way this page can show.
+   */
+  const PIPELINE_AUTO_REFRESH_CHOICES = [
+    { id: 'off', label: 'Off', ms: 0, detail: 'Nothing is fetched unless you ask.' },
+    { id: '1m', label: '1 min', ms: 60000, detail: 'For watching a run you just started.' },
+    { id: '5m', label: '5 min', ms: 300000, detail: 'A reasonable background cadence.' },
+    { id: '15m', label: '15 min', ms: 900000, detail: 'Light touch on the rate limit.' },
+  ];
+
+  function pipelineAutoRefreshMs() {
+    const choice = PIPELINE_AUTO_REFRESH_CHOICES.find(entry => entry.id === state.pipelineAutoRefresh);
+    return choice ? choice.ms : 0;
+  }
+
+  let pipelineAutoRefreshTimer = 0;
+  let pipelineAutoRefreshLastAt = 0;
+
+  /**
+   * Start, restart or stop the auto-refresh timer to match the current choice.
+   *
+   * Three conditions gate every tick, and each closes a way this could spend a
+   * request nobody wanted:
+   *
+   * - **The document must be visible.** A hidden panel that keeps polling is
+   *   pure cost — nobody is reading the result — and VS Code keeps a webview
+   *   alive behind other tabs, so this does not stop on its own.
+   * - **The Pipeline page must be the active one.** This control belongs to
+   *   Activity; leaving it running while somebody reads the Roadmap would be a
+   *   background job they never opted into.
+   * - **A refresh must not already be in flight.** Otherwise a slow `gh` call
+   *   and a short cadence queue up behind each other indefinitely.
+   */
+  function syncPipelineAutoRefresh() {
+    if (pipelineAutoRefreshTimer) {
+      clearInterval(pipelineAutoRefreshTimer);
+      pipelineAutoRefreshTimer = 0;
+    }
+    const interval = pipelineAutoRefreshMs();
+    if (!interval) { return; }
+    pipelineAutoRefreshTimer = setInterval(() => {
+      if (document.hidden) { return; }
+      if (state.activePage !== 'pipeline') { return; }
+      if (state.repositoryRefreshBusy) { return; }
+      pipelineAutoRefreshLastAt = Date.now();
+      requestRepositoryRefresh('refreshCi');
+    }, interval);
+  }
+
+  // A panel that goes to the background stops polling, and picks up again when
+  // it comes back. Without this the timer keeps firing into a hidden document.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && pipelineAutoRefreshMs()) {
+      syncPipelineAutoRefresh();
+    }
+  });
+
+  /** The cadence control, with what it costs stated on the control itself. */
+  function renderPipelineAutoRefresh() {
+    const current = state.pipelineAutoRefresh || 'off';
+    return `<div class="ci-autorefresh">
+      <span class="ci-autorefresh-label" id="ci-autorefresh-label">Auto-refresh</span>
+      <div class="segmented" role="group" aria-labelledby="ci-autorefresh-label">${PIPELINE_AUTO_REFRESH_CHOICES.map(entry => `
+        <button type="button" data-action="set-pipeline-auto-refresh" data-payload="${escapeAttr(entry.id)}"
+          class="${current === entry.id ? 'active' : ''}" aria-pressed="${current === entry.id ? 'true' : 'false'}"
+          title="${escapeAttr(entry.detail)}">${escapeHtml(entry.label)}</button>`).join('')}</div>
+      ${current === 'off'
+        ? ''
+        : '<span class="stat-detail ci-autorefresh-note">Reads GitHub on this cadence while the Pipeline page is open and in front. It pauses when the panel is hidden.</span>'}
+    </div>`;
   }
 
   /** The ribbon cap. Stated wherever the ribbon is, because a window nobody names is a number nobody can check. */
@@ -7377,8 +7656,59 @@
       .sort((left, right) => right.commits - left.commits || left.name.localeCompare(right.name));
   }
 
-  /** Status mark for a build row. Unknown is marked, never blank — a blank reads as "no". */
-  const PIPELINE_BUILD_MARK = { running: '●', passed: '✓', failed: '✕', cancelled: '–', unknown: '?' };
+  /**
+   * The vocabulary this card is written in, declared once and published on the
+   * card itself.
+   *
+   * A mark and a colour are a compression, and a compression nobody was taught
+   * is a puzzle: a white dash, a white circle and an amber cross are three
+   * facts about a build that the page was asking people to infer. Each entry
+   * carries the sentence it stands for, the legend renders straight from this
+   * table, and the row tooltips read from the same place — so the key on the
+   * card cannot drift from the marks above it.
+   *
+   * `unknown` is marked rather than blank, because a blank reads as "no", and
+   * "nobody looked" is not the same claim as "it did not pass".
+   */
+  const PIPELINE_BUILD_STATUS = {
+    passed: { mark: '✓', label: 'passed', meaning: 'Finished, and everything it ran succeeded.' },
+    failed: { mark: '✕', label: 'failed', meaning: 'Finished, and something it ran did not succeed.' },
+    running: { mark: '●', label: 'running', meaning: 'Started and has not finished. No verdict yet.' },
+    cancelled: { mark: '–', label: 'cancelled', meaning: 'Stopped before it could reach a verdict — by a person, a timeout, or a newer push. Not a failure.' },
+    unknown: { mark: '?', label: 'unknown', meaning: 'AtlasMind has no verdict for this run. Marked rather than blank, because a blank reads as a pass.' },
+  };
+
+  /**
+   * How closely each build was watched — the second vocabulary on this card,
+   * and the one that explains why some rows can never carry a verdict.
+   */
+  const PIPELINE_BUILD_OBSERVATION = {
+    live: 'AtlasMind read this run’s output as it happened.',
+    polled: 'Checked at intervals rather than streamed — GitHub offers no push channel through its CLI, so a running build may be a few seconds behind.',
+    unobserved: 'AtlasMind typed these commands into your terminal and does not read it, so it cannot report how they ended. The question mark is by design, not a gap.',
+  };
+
+  /** The key, rendered from the same table the marks are. */
+  function renderPipelineBuildLegend() {
+    const statuses = Object.entries(PIPELINE_BUILD_STATUS).map(([key, entry]) => `
+      <div class="ci-legend-item">
+        <span class="ci-activity-mark status-${escapeAttr(key)}" aria-hidden="true">${escapeHtml(entry.mark)}</span>
+        <div><strong>${escapeHtml(entry.label)}</strong><div class="list-meta">${escapeHtml(entry.meaning)}</div></div>
+      </div>`).join('');
+    const observations = Object.entries(PIPELINE_BUILD_OBSERVATION).map(([key, meaning]) => `
+      <div class="ci-legend-item">
+        <span class="ci-activity-obs ci-legend-obs">${escapeHtml(key)}</span>
+        <div class="list-meta">${escapeHtml(meaning)}</div>
+      </div>`).join('');
+    return `<details class="ci-progressive-details ci-legend">
+      <summary>What the marks mean</summary>
+      <div class="ci-progressive-details-body">
+        <p class="stat-detail">Two separate things are shown on every row: <strong>how it ended</strong>, and <strong>how closely AtlasMind was watching</strong>. They are independent — an unobserved run has no outcome to report, which is why it is marked rather than left blank.</p>
+        <div class="ci-legend-grid">${statuses}</div>
+        <div class="ci-legend-grid ci-legend-observation">${observations}</div>
+      </div>
+    </details>`;
+  }
 
   /**
    * Activity — what ran, what is running, what failed, and what to do about it.
@@ -7471,20 +7801,18 @@
       <div class="ci-activity-row">
         <span class="ci-activity-name">${escapeHtml(row.name)}</span>
         ${renderRunRibbon(row.entries)}
-        <span class="ci-activity-trio">
-          <span title="${escapeAttr(`Passed as a share of runs that reached a pass-or-fail verdict, over the last ${row.sampleSize} run${row.sampleSize === 1 ? '' : 's'} GitHub returned`)}">reliability <b>${row.reliability === undefined ? '—' : `${row.reliability}%`}</b></span>
-          <span title="${escapeAttr('Median elapsed time including queue wait, which needs at least 3 completed runs')}">typical <b>${row.medianMs === undefined ? '—' : formatDurationCompact(row.medianMs)}</b></span>
-          <span title="${escapeAttr('Runs per week across the span of this sample')}">runs/wk <b>${row.perWeek === undefined ? '—' : String(row.perWeek)}</b></span>
-        </span>
-        ${row.running ? `<span class="tag tag-warn">${escapeHtml(String(row.running))} running</span>` : ''}
+        <span class="ci-activity-stat" title="${escapeAttr(`Passed as a share of runs that reached a pass-or-fail verdict, over the last ${row.sampleSize} run${row.sampleSize === 1 ? '' : 's'} GitHub returned`)}"><span class="ci-stat-key">reliability</span><b>${row.reliability === undefined ? '—' : `${row.reliability}%`}</b></span>
+        <span class="ci-activity-stat" title="${escapeAttr('Median elapsed time including queue wait, which needs at least 3 completed runs')}"><span class="ci-stat-key">typical</span><b>${row.medianMs === undefined ? '—' : formatDurationCompact(row.medianMs)}</b></span>
+        <span class="ci-activity-stat" title="${escapeAttr('Runs per week across the span of this sample')}"><span class="ci-stat-key">runs/wk</span><b>${row.perWeek === undefined ? '—' : String(row.perWeek)}</b></span>
+        <span class="ci-activity-badge">${row.running ? `<span class="tag tag-warn">${escapeHtml(String(row.running))} running</span>` : ''}</span>
       </div>`).join('');
 
     const localRibbonRows = localSeries.map(row => `
       <div class="ci-activity-row">
         <span class="ci-activity-name">${escapeHtml(row.name)}</span>
         ${renderRunRibbon(row.entries)}
-        <span class="ci-activity-trio"><span>${escapeHtml(String(row.sampleSize))} run${row.sampleSize === 1 ? '' : 's'} on this machine</span></span>
-        ${row.unobserved ? `<span class="tag" title="${escapeAttr('AtlasMind started these in your terminal and does not read it, so it cannot report how they ended')}">${escapeHtml(String(row.unobserved))} unobserved</span>` : ''}
+        <span class="ci-activity-stat ci-activity-stat-wide">${escapeHtml(String(row.sampleSize))} run${row.sampleSize === 1 ? '' : 's'} on this machine</span>
+        <span class="ci-activity-badge">${row.unobserved ? `<span class="tag" title="${escapeAttr('AtlasMind started these in your terminal and does not read it, so it cannot report how they ended')}">${escapeHtml(String(row.unobserved))} unobserved</span>` : ''}</span>
       </div>`).join('');
 
     const shapeCard = (series.length || localSeries.length)
@@ -7494,8 +7822,9 @@
             <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
           </div>
           ${help.panel}
+          ${renderPipelineAutoRefresh()}
           ${ribbonRows}${localRibbonRows}
-          <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most — height is elapsed time including queue wait, colour is the outcome. Hover any bar for its exact time.</p>
+          <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most, oldest on the left and newest on the right, with the span under each strip. Height is elapsed time including queue wait; colour is the outcome. They are spaced one per run rather than by when they happened — thirty runs in an afternoon and thirty over a month draw the same. Hover any bar for its exact time.</p>
         </article>`
       : `<article class="panel-card">
           <div class="ci-section-heading"><div><p class="card-kicker">Recent history</p><h3>${intel ? 'No runs in this sample' : 'CI has not been read yet'}</h3></div>${help.button}</div>
@@ -7506,33 +7835,7 @@
           <div class="tag-row">${renderRefreshAction('pipeline-refresh', 'Read CI result', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
         </article>`;
 
-    const streamRows = records.slice(0, 20).map(build => {
-      const mark = PIPELINE_BUILD_MARK[build.status] || '?';
-      const when = build.startedAt ? relativeLabel(build.startedAt) : 'time unknown';
-      const duration = pipelineRunDurationMs(build);
-      return `<div class="ci-activity-build status-${escapeAttr(build.status || 'unknown')}">
-        <span class="ci-activity-mark" aria-hidden="true">${escapeHtml(mark)}</span>
-        <div class="ci-activity-build-main">
-          <strong>${escapeHtml(build.title || 'Build')}</strong>
-          <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')}${build.branch ? ` · ${escapeHtml(build.branch)}` : ''}${duration === undefined ? '' : ` · ${escapeHtml(formatDurationCompact(duration))}`} · ${escapeHtml(when)}</div>
-        </div>
-        <span class="ci-activity-obs" title="${escapeAttr(describeBuildObservation(build))}">${escapeHtml(build.observation || '')}</span>
-        ${build.pointer && build.pointer.kind === 'output-channel' && build.id === builds.liveOutputBuildId
-          ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>'
-          : build.pointer && build.pointer.kind === 'output-channel'
-            ? '<span class="ci-activity-obs" title="The output channel holds the run this window streamed. A build from an earlier session leaves no output behind.">output not retained</span>'
-            : ''}
-      </div>`;
-    }).join('');
-
-    const streamCard = `<article class="panel-card">
-      <div class="ci-section-heading">
-        <div><p class="card-kicker">Everything that ran</p><h3>${escapeHtml(records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'Nothing recorded yet')}</h3></div>
-      </div>
-      ${builds.githubLoaded === false ? '<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. An empty list here is not evidence that nothing ran on GitHub.</p></div>' : ''}
-      ${records.length ? `<div class="ci-activity-stream">${streamRows}</div>` : '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>'}
-      ${builds.unobservedCount ? `<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} of these were started in your terminal, which AtlasMind does not read — they have no verdict by design.</p>` : ''}
-    </article>`;
+    const streamCard = renderPipelineStream(records, builds);
 
     // Trend detail, one level down. The sentences above answer the question;
     // this is for somebody who wants the distribution behind them.
@@ -7560,6 +7863,156 @@
       ${streamCard}
       ${trendsCard}
     </div>`;
+  }
+
+  /** Display cap for the stream, stated wherever it bites. */
+  const PIPELINE_STREAM_PAGE = 20;
+
+  const PIPELINE_STREAM_SORTS = [
+    { id: 'newest', label: 'Newest first' },
+    { id: 'oldest', label: 'Oldest first' },
+    { id: 'longest', label: 'Longest first' },
+    { id: 'attention', label: 'Needs attention' },
+  ];
+
+  const PIPELINE_STREAM_STATUSES = [
+    { id: 'all', label: 'All' },
+    { id: 'failed', label: 'Failed' },
+    { id: 'passed', label: 'Passed' },
+    { id: 'running', label: 'Running' },
+    { id: 'no-verdict', label: 'No verdict' },
+  ];
+
+  /** One build row, in the vocabulary the legend publishes. */
+  function renderPipelineBuildRow(build, liveOutputBuildId) {
+    const status = PIPELINE_BUILD_STATUS[build.status] || PIPELINE_BUILD_STATUS.unknown;
+    const when = build.startedAt ? relativeLabel(build.startedAt) : 'time unknown';
+    const duration = pipelineRunDurationMs(build);
+    const observation = build.observation || '';
+    return `<div class="ci-activity-build status-${escapeAttr(build.status || 'unknown')}">
+      <span class="ci-activity-mark" title="${escapeAttr(`${status.label} — ${status.meaning}`)}"><span aria-hidden="true">${escapeHtml(status.mark)}</span><span class="sr-only">${escapeHtml(status.label)}</span></span>
+      <div class="ci-activity-build-main">
+        <strong>${escapeHtml(build.title || 'Build')}</strong>
+        <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')}${build.branch ? ` · ${escapeHtml(build.branch)}` : ''}${duration === undefined ? '' : ` · ${escapeHtml(formatDurationCompact(duration))}`} · ${escapeHtml(when)}</div>
+      </div>
+      ${observation ? `<span class="ci-activity-obs" title="${escapeAttr(PIPELINE_BUILD_OBSERVATION[observation] || describeBuildObservation(build))}">${escapeHtml(observation)}</span>` : ''}
+      ${build.pointer && build.pointer.kind === 'output-channel' && build.id === liveOutputBuildId
+        ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>'
+        : build.pointer && build.pointer.kind === 'output-channel'
+          ? '<span class="ci-activity-obs" title="The output channel holds the run this window streamed. A build from an earlier session leaves no output behind.">output not retained</span>'
+          : ''}
+    </div>`;
+  }
+
+  /**
+   * Everything that ran — orderable, filterable, and legible in two shapes.
+   *
+   * It was one unordered list of twenty rows with an unexplained glyph on each.
+   * Three separate things were wrong with that: the marks were a private
+   * vocabulary (the legend fixes that), a chronological stream cannot answer
+   * "which pipeline is unhealthy" (grouping fixes that), and a long list with no
+   * ordering makes you read all of it to find one thing (sorting fixes that).
+   *
+   * **Filtering never changes the total in the heading.** A filtered view that
+   * restates its own count as though it were the whole is how somebody concludes
+   * nothing failed today; the heading counts every record, and the filter states
+   * its subset beside it.
+   */
+  function renderPipelineStream(records, builds) {
+    const sort = state.pipelineStreamSort || 'newest';
+    const statusFilter = state.pipelineStreamStatus || 'all';
+    const grouped = state.pipelineStreamView === 'grouped';
+
+    // "No verdict" is everything that is not one of the three states that carry
+    // one — cancelled and unknown both belong here, and lumping them under
+    // "failed" would report a cancellation as a defect.
+    const hasVerdict = build => build.status === 'passed' || build.status === 'failed' || build.status === 'running';
+    const matchesStatus = build => statusFilter === 'all'
+      || (statusFilter === 'no-verdict' ? !hasVerdict(build) : build.status === statusFilter);
+    const filtered = records.filter(matchesStatus);
+
+    const attentionRank = build => build.status === 'failed' ? 0
+      : build.status === 'running' ? 1
+        : build.status === 'passed' ? 3 : 2;
+    const started = build => Date.parse(build.startedAt || '') || 0;
+    const ordered = [...filtered].sort((left, right) => {
+      if (sort === 'oldest') { return started(left) - started(right); }
+      if (sort === 'longest') { return (pipelineRunDurationMs(right) || 0) - (pipelineRunDurationMs(left) || 0); }
+      if (sort === 'attention') { return attentionRank(left) - attentionRank(right) || started(right) - started(left); }
+      return started(right) - started(left);
+    });
+
+    const cap = state.pipelineStreamExpanded ? ordered.length : PIPELINE_STREAM_PAGE;
+    const shown = ordered.slice(0, cap);
+    const hidden = ordered.length - shown.length;
+
+    const statusCount = id => id === 'all'
+      ? records.length
+      : records.filter(build => id === 'no-verdict' ? !hasVerdict(build) : build.status === id).length;
+
+    const controls = `<div class="ci-stream-controls">
+      <div class="segmented" role="group" aria-label="Order builds">${PIPELINE_STREAM_SORTS.map(entry => `
+        <button type="button" data-action="set-pipeline-stream-sort" data-payload="${escapeAttr(entry.id)}"
+          class="${sort === entry.id ? 'active' : ''}" aria-pressed="${sort === entry.id ? 'true' : 'false'}">${escapeHtml(entry.label)}</button>`).join('')}</div>
+      <div class="segmented" role="group" aria-label="Filter by outcome">${PIPELINE_STREAM_STATUSES.map(entry => `
+        <button type="button" data-action="set-pipeline-stream-status" data-payload="${escapeAttr(entry.id)}"
+          class="${statusFilter === entry.id ? 'active' : ''}" aria-pressed="${statusFilter === entry.id ? 'true' : 'false'}">${escapeHtml(`${entry.label} (${statusCount(entry.id)})`)}</button>`).join('')}</div>
+      <div class="segmented" role="group" aria-label="How to group builds">
+        <button type="button" data-action="set-pipeline-stream-view" data-payload="stream"
+          class="${grouped ? '' : 'active'}" aria-pressed="${grouped ? 'false' : 'true'}"
+          title="One list in time order">Stream</button>
+        <button type="button" data-action="set-pipeline-stream-view" data-payload="grouped"
+          class="${grouped ? 'active' : ''}" aria-pressed="${grouped ? 'true' : 'false'}"
+          title="Collected by where each build ran, so one unhealthy pipeline shows as one line instead of being scattered through the list">By pipeline</button>
+      </div>
+    </div>`;
+
+    let body;
+    if (!records.length) {
+      body = '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>';
+    } else if (!ordered.length) {
+      body = `<p class="section-copy">No build matches this filter. ${escapeHtml(String(records.length))} build${records.length === 1 ? ' is' : 's are'} recorded in total.</p>`;
+    } else if (grouped) {
+      const groups = new Map();
+      for (const build of shown) {
+        const key = build.routeLabel || build.routeId || 'Unattributed';
+        groups.set(key, (groups.get(key) || []).concat(build));
+      }
+      // A group with a failure opens itself. Everything else stays closed —
+      // collapsing a healthy pipeline is the whole point of this view.
+      body = `<div class="ci-activity-stream">${[...groups.entries()].map(([name, list]) => {
+        const failedCount = list.filter(build => build.status === 'failed').length;
+        return `<details class="ci-stream-group"${failedCount ? ' open' : ''}>
+          <summary>
+            <strong>${escapeHtml(name)}</strong>
+            <span class="tag">${escapeHtml(`${list.length} build${list.length === 1 ? '' : 's'}`)}</span>
+            ${failedCount ? `<span class="tag tag-warn">${escapeHtml(`${failedCount} failed`)}</span>` : ''}
+          </summary>
+          <div class="ci-activity-stream">${list.map(build => renderPipelineBuildRow(build, builds.liveOutputBuildId)).join('')}</div>
+        </details>`;
+      }).join('')}</div>`;
+    } else {
+      body = `<div class="ci-activity-stream">${shown.map(build => renderPipelineBuildRow(build, builds.liveOutputBuildId)).join('')}</div>`;
+    }
+
+    return `<article class="panel-card">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Everything that ran</p>
+          <h3>${escapeHtml(records.length ? `${records.length} recent build${records.length === 1 ? '' : 's'}` : 'Nothing recorded yet')}</h3>
+          ${records.length && statusFilter !== 'all'
+            ? `<p class="stat-detail">${escapeHtml(`Showing ${ordered.length} of ${records.length} — the count above is every recorded build, not this filter's.`)}</p>`
+            : ''}
+        </div>
+      </div>
+      ${builds.githubLoaded === false ? '<div class="inline-notice"><strong>Hosted history has not been loaded</strong><p class="stat-detail">This list shows local builds only. An empty list here is not evidence that nothing ran on GitHub.</p></div>' : ''}
+      ${records.length ? controls : ''}
+      ${body}
+      ${hidden > 0 ? `<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-stream-expand">${escapeHtml(`Show ${hidden} more`)}</button></div>` : ''}
+      ${state.pipelineStreamExpanded && ordered.length > PIPELINE_STREAM_PAGE ? '<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-stream-expand">Show fewer</button></div>' : ''}
+      ${builds.unobservedCount ? `<p class="stat-detail">${escapeHtml(String(builds.unobservedCount))} of these were started in your terminal, which AtlasMind does not read — they have no verdict by design.</p>` : ''}
+      ${records.length ? renderPipelineBuildLegend() : ''}
+    </article>`;
   }
 
   /** Mirrors the host's describeCiBuild, kept short for a row tooltip. */

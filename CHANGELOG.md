@@ -6,6 +6,156 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.362.0] - 2026-08-19
+
+Four pieces of Activity and pull-request feedback, all of them versions of the same problem: this page
+compresses a lot into very little, and a compression nobody was taught is decoration.
+
+### Added
+
+- **A key for the marks on "Everything that ran".** A white dash, a white circle and an amber cross were
+  three facts about a build that the page asked you to infer. Each status now carries the sentence it
+  stands for, and the legend renders from the same table the rows do — so the key cannot drift from the
+  marks above it. It publishes **two** vocabularies and says they are independent: how a build *ended*,
+  and how closely AtlasMind was *watching*. An unobserved run has no outcome to report, which is why it is
+  marked rather than left blank, and reading its question mark as a failure is the mistake the split
+  exists to prevent.
+- **Sorting, filtering and a second shape for that list.** Newest, oldest, longest, or needs-attention;
+  filter by outcome with a count on each pill; and **By pipeline**, which collects builds by where they ran
+  so one unhealthy pipeline is a single line instead of being scattered through twenty rows. Groups with a
+  failure open themselves and the rest stay closed. `no-verdict` is its own filter rather than being folded
+  into *failed*, because a cancelled build is not a defect.
+- **Auto-refresh, with a choice of cadence** — off, 1, 5 or 15 minutes. **Off is the default**, and the
+  first option: a refresh here reaches GitHub through `gh`, spending a rate limit somebody else is also
+  using, so switching the page on and letting it poll unattended are two decisions. Three gates on every
+  tick, each closing a way it could spend a request nobody wanted — the panel must be visible, the
+  Pipeline page must be the one you are on, and no fetch may already be in flight. Nothing faster than a
+  minute is offered.
+- **A CI chart on the pull request page.** The tracker has fetched each pull request's check rollup since
+  v0.200.0 and nothing ever displayed it, so *is this branch green?* was answerable only on GitHub. One bar
+  per pull request, segments sized by how many checks ended each way, worst-first so a failure is the
+  leftmost thing on the row. A check with no conclusion yet is **running, never green**; skipped, cancelled
+  and neutral get their own bucket rather than being counted either way; and an unfetched rollup is drawn
+  differently from a pull request that genuinely reports **no checks at all** — the first is "we did not
+  look", the second is "nothing is verifying this change", and they must not share a pixel.
+
+### Changed
+
+- **Recent history is laid out as the table it is.** It was a flex row, so each figure started wherever the
+  previous row's bar strip happened to end — six pipelines produced six different left edges for
+  *reliability*, and comparing two numbers meant hunting for them. Fixed columns put every figure in the
+  same place down the page, collapsing to two lines on a narrow panel.
+- **The bar strips carry a time axis**, and the bars are right-aligned to a fixed track so the newest run
+  sits at the same position on every row — which is what makes *which of these is recent?* answerable by
+  looking. The axis states the span it covers. It is also explicit about what it is **not**: bars are one
+  per run and evenly spaced, so thirty runs in an afternoon and thirty over a month draw identically.
+  Positioning them by timestamp would look more informative and would collapse every burst into a smear,
+  so the caption says which it is rather than the axis implying the other.
+
+## [0.361.1] - 2026-08-19
+
+### Fixed
+
+- **Unselected filter pills in the Test Browser were unreadable** — light grey text on the browser's
+  default button fill. `.tag` declared a text colour and no background, and a `<button>` with no
+  background takes the *browser's* default, a light grey that ignores the theme entirely. Only the
+  selected pill was legible, and only because `.tag-good` sets a background of its own — which is also
+  why it survived review, since the card looks correct in the one state anybody screenshots.
+- **The Test Browser's counts described two different populations.** *All* showed the length of the
+  capped list while each category counted the whole discovery, so on this repository *All (600)* sat
+  beside *Unit (5826)*: a part larger than its whole, and clicking Unit showed 600 of them regardless.
+  Every count now describes the listed tests — the only population the filters can actually search — and
+  the remainder is stated in its own sentence instead of being smuggled into a category.
+
+### Added
+
+- **A contrast guard for classes worn by buttons.** The existing computed-contrast pass could not see
+  this defect, and the reason is a modelling limit worth recording: when a rule declares no background it
+  assumes the page backdrop, which is right for a `<span>` and wrong for a `<button>`. The new check reads
+  the static class *combination* on each button — combinations, because that is how CSS composes, and
+  checking tokens alone reported `danger-link` and `dashboard-version-pill-more`, both legible since they
+  are only ever worn beside a class that sets a background. Verified by removing the fix and watching it
+  fail.
+
+## [0.361.0] - 2026-08-19
+
+### Fixed
+
+- **Every GitHub Actions workflow AtlasMind generates pinned Node 20**, a runtime that reached end of life
+  in April 2026. Not a stale default — the three generators (the hosted CI starter, the trusted
+  local-runner workflow, the website CI template) each took an *optional* `nodeVersion`, and **no caller
+  ever passed one**, so the value behind each `??` was not a fallback but the only version any of them
+  had ever written into anybody's repository.
+
+  The fix is not a newer number. `20` was correct when it was written and became wrong in silence, and
+  `24` would fail identically on the same schedule. `nodeVersionDetection` derives it instead, on a
+  four-rung ladder that publishes which rung answered: `engines.node` → `.nvmrc` → `.node-version` → the
+  major of the Node actually running. A declared range resolves to its **lowest** major, because the floor
+  is what the project promised and reaching for an API that only exists in the newer major is the ordinary
+  mistake. A declared version is honoured **even when it is end-of-life**: overriding it would put a
+  runtime in somebody's CI that nothing in their project claims to support. The last rung is measured
+  rather than written down, so it cannot go stale.
+
+  `nodeVersion` is now **required** on all three generators, which is the half that prevents recurrence:
+  optional is what made "nobody passes it" possible, and required makes it unrepresentable. The trusted
+  workflow's confirmation dialog states the version and the rule that chose it before the file is written.
+
+### Changed
+
+- **The generators refuse an unusable Node version rather than substituting one.** The value is
+  interpolated into YAML, so the shape check was already a real injection guard — the test feeding it a
+  newline and a `run:` step is guarding a live path. It coerced to a hardcoded default, which was safe but
+  is exactly the mechanism by which one version got emitted forever. Refusing is the same guarantee
+  without the substitution: a workflow AtlasMind cannot build correctly is one it does not write.
+
+## [0.360.4] - 2026-08-19
+
+### Changed
+
+- **Stryker 9.6.1 → 10.0.0 and jsdom 26.1.0 → 30.0.1** (Dependabot #194), now that CI runs a Node that can
+  execute them. Verified rather than accepted: the full suite passes on the new tree, including
+  `chatWebviewDom`, which is the one file that imports jsdom and therefore the one exposed to jsdom's
+  selector-engine swap in 27.0.0 and its CSSOM rewrite in 29.0.0.
+
+### Fixed
+
+- **An assertion that should have been a precondition kept `npm run test:mutation` from starting on
+  Windows.** The ACP private-desktop launch test asserts `process.env.ComSpec` is set, but the command
+  interpreter is that test's *vehicle* — any executable that writes a known string to stdout would do —
+  not its subject. Stryker's workers do not inherit `ComSpec`, so the test failed during the initial run
+  and Stryker refuses to mutate a suite that is already red: an environment that does not export a
+  variable was being reported as a defect in the launch wrapper. It is now a skip condition. Confirmed
+  pre-existing by reproducing it on Stryker 9.6.1 before the bump, so it is not a regression from #194.
+
+### Known
+
+- **`npm run test:mutation` still does not start**, now on a second and different pre-existing cause: the
+  ratcheting `TEST_TYPE_ERROR_CEILING` baseline measures the real working tree, and inside Stryker's
+  sandbox copy it counts zero and concludes 244 errors were fixed. That is a test whose subject is the
+  repository itself, which cannot be meaningful in a sandbox — the fix is to exclude repository
+  introspection tests from Stryker's run, which is a configuration decision rather than a bug fix, and is
+  deliberately not made here.
+
+## [0.360.3] - 2026-08-19
+
+### Changed
+
+- **CI now builds on Node 24 rather than Node 20**, across all five workflows. Not housekeeping: this
+  project's own dev dependencies have moved past Node 20 — `jsdom@30` requires
+  `^22.22.2 || ^24.15.0 || >=26`, and `@stryker-mutator/core@10` requires `>=22` — so the pending
+  dependency updates were unmergeable while CI sat on 20. Node 24 is what development actually happens on
+  here, so CI and the desk now agree. GitHub is separately removing the Node 20 *Actions runtime* from
+  hosted runners on 16 September 2026, which is unrelated machinery but the same deadline.
+- **`gitleaks-action` moved to v3** (Dependabot #193): the same action on the Node 24 runtime, with no
+  input, output or behaviour change. The pinned SHA was verified against both the `v3.0.0` and `v3` tags
+  before merging.
+
+### Fixed
+
+- **The comment beside the `gitleaks-action` pin still said `# v2`** after the SHA moved to v3. A comment
+  naming a different major than the hash beside it is worse than no comment, because it is what somebody
+  reads instead of resolving the hash.
+
 ## [0.360.2] - 2026-08-19
 
 ### Fixed

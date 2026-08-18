@@ -65,8 +65,14 @@ export interface CiTemplateInput {
   developBranch: string;
   stagingBranch: string;
   productionBranch: string;
-  /** Node major to run CI on. */
-  nodeVersion?: string;
+  /**
+   * Node major to run CI on, resolved by the caller.
+   *
+   * Required. It was optional with a hardcoded default nothing overrode, so
+   * every website workflow pinned the same ageing runtime — see the same note on
+   * `NodeCiStarterInput`.
+   */
+  nodeVersion: string;
 }
 
 export interface CiSecretRequirement {
@@ -185,7 +191,7 @@ export function renderWebsiteCiWorkflow(input: CiTemplateInput): CiTemplateResul
   if (!SAFE_PATH.test(spec.outputDir)) {
     return { ok: false, reason: `The framework's output directory "${spec.outputDir}" is not a plain relative path.` };
   }
-  const nodeVersion = input.nodeVersion ?? '20';
+  const nodeVersion = input.nodeVersion;
   if (!SAFE_NODE_VERSION.test(nodeVersion)) {
     return { ok: false, reason: `"${nodeVersion}" is not a Node version number.` };
   }

@@ -40,6 +40,7 @@ import {
   type StackSetupProbe,
 } from '../core/websiteStackSetup.js';
 import { CI_WORKFLOW_DIR, CI_WORKFLOW_FILENAME } from '../core/websiteCiTemplate.js';
+import { resolveWorkflowNodeVersion } from '../core/nodeVersionDetection.js';
 
 /** Paths the planner asks about. Probed up front so create-only decisions are made from facts. */
 const PROBED_PATHS: readonly string[] = [
@@ -84,6 +85,9 @@ export async function setUpWebsiteStack(config: WebsiteWorkspaceConfig): Promise
     environments: config.hostingEnvironments,
     probe,
     generateCi: settings.get<boolean>('website.setup.generateCi', false),
+    // A project being scaffolded has nothing to detect from, so the workflow
+    // pins the major this machine builds with rather than a constant that ages.
+    nodeVersion: resolveWorkflowNodeVersion({ runtimeVersion: process.versions.node }).version,
     allowRemoteProjectCreation: settings.get<boolean>('website.setup.allowRemoteProjectCreation', false),
   });
 

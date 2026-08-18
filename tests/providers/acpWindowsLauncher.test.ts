@@ -65,9 +65,22 @@ describe('the ACP private-desktop launch boundary', () => {
     expect(NATIVE_SOURCE).toContain('startup.startup_info.show_window = 0');
   });
 
-  it.skipIf(process.platform !== 'win32')('runs the shipped helper and preserves redirected stdio', async () => {
-    const commandInterpreter = process.env.ComSpec;
-    expect(commandInterpreter).toBeTruthy();
+  /*
+   * The command interpreter is the *vehicle* for this test, not its subject:
+   * it needs any real executable that writes a known string to stdout, and
+   * `ComSpec` is the one Windows always has. So its absence is a reason not to
+   * run, never a failure — asserting on it made an environment that does not
+   * export it report a defect in the launch wrapper.
+   *
+   * Which is exactly what happened under Stryker: its workers do not inherit
+   * `ComSpec`, so this failed during the initial test run and Stryker refuses
+   * to mutate a suite that is already red. `npm run test:mutation` has been
+   * unable to start on Windows because of it, while the same test passes under
+   * a plain `vitest run`.
+   */
+  const commandInterpreter = process.platform === 'win32' ? process.env.ComSpec : undefined;
+
+  it.skipIf(!commandInterpreter)('runs the shipped helper and preserves redirected stdio', async () => {
     const launch = wrapAcpLaunchForPrivateDesktop(
       commandInterpreter!,
       ['/d', '/s', '/c', 'echo atlasmind-private-desktop-ok'],

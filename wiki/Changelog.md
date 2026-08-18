@@ -19,6 +19,134 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.362.0 — Teaching the page to read itself out loud
+
+Four pieces of feedback on Activity and pull requests, all of them the same problem underneath: this page
+compresses a lot into very little — a glyph, a colour, a bar height, a bar position — and every
+compression is a private vocabulary until somebody publishes it.
+
+**"Everything that ran" has a key now.** A white dash, a white circle and an amber cross were three facts
+about a build that the page was asking you to infer. Each status carries the sentence it stands for, and
+the legend renders from the same table the rows do, so the key cannot drift from the marks above it. It
+publishes two vocabularies rather than one and says they are independent: how a build *ended*, and how
+closely AtlasMind was *watching*. An unobserved run has no outcome to report — that is why it is marked
+rather than blank, and reading its question mark as a failure is exactly the mistake the split prevents.
+
+That list is also sortable, filterable, and available in a second shape. **By pipeline** collects builds
+by where they ran, so one unhealthy pipeline is a single line rather than being scattered through twenty
+rows; a group with a failure opens itself and the rest stay shut. Cancelled builds get their own filter
+instead of being folded into *failed*, because a cancellation is not a defect.
+
+**Recent history is laid out as the table it always was.** It was a flex row, so each figure started
+wherever the previous row's bars happened to end — six pipelines, six different left edges for
+*reliability*. The bar strips now carry a faint time axis and are right-aligned to a fixed track, so the
+newest run sits in the same place on every row, which is what makes "which of these is recent?"
+answerable by looking. The axis is deliberately honest about what it is not: bars are one per run and
+evenly spaced, so thirty runs in an afternoon and thirty over a month draw identically. Placing them by
+timestamp would look more informative and would collapse every burst into a smear, so the caption says
+which it is instead of letting the axis imply the other.
+
+**Auto-refresh arrives with a cadence, and off is the default.** A refresh here reaches GitHub through
+`gh` and spends a rate limit somebody else is also using, so turning the page on and letting it poll
+unattended are two decisions rather than one. Three gates on every tick: the panel must be visible, the
+Pipeline page must be the one in front, and no fetch may already be in flight.
+
+**And the pull request page finally shows CI.** The tracker has fetched each pull request's check rollup
+since v0.200.0 and nothing ever displayed it, so the question a reviewer opens that page with — is this
+branch green? — could only be answered on GitHub. One bar per pull request, worst-first so a failure is
+the leftmost thing on the row. A check with no conclusion yet is running, never green. And an unfetched
+rollup is drawn differently from a pull request reporting no checks at all: the first means we did not
+look, the second means nothing is verifying that change, and those must never share a pixel.
+
+---
+
+## v0.361.1 — White text on a white button
+
+The Test Browser's unselected filter pills were unreadable. `.tag` sets a text colour and no background,
+and a `<button>` with no background takes the *browser's* default fill — a light grey that ignores the
+theme entirely. The selected pill was fine, and only because `.tag-good` sets a background of its own,
+which is also how this survived review: the card looks correct in the one state anybody screenshots.
+
+The same card was also reporting two different populations under one heading. *All* showed the length of
+the capped list while each category counted the entire discovery, so on this repository *All (600)* sat
+next to *Unit (5826)* — a part larger than its whole — and clicking Unit showed 600 of them anyway. Every
+count now describes the listed tests, which is the only population the filters can search, and the
+remainder gets its own sentence rather than being smuggled into a category.
+
+The computed-contrast guard could not have caught the first one, for a reason worth writing down: when a
+rule declares no background, it assumes the page backdrop. For a span that is correct. For a button it is
+not. The new check reads the static class *combination* on each button — combinations, because that is how
+CSS composes, and checking tokens in isolation flagged two classes that are perfectly legible since they
+are only ever worn beside one that sets a background. Verified the honest way: by taking the fix out and
+watching it fail.
+
+---
+
+## v0.361.0 — A default that was never a default
+
+Every GitHub Actions workflow AtlasMind generates pinned Node 20, a runtime that reached end of life in
+April 2026. It looked like a stale default and was not one: all three generators — the hosted CI starter,
+the trusted local-runner workflow, the website CI template — took an *optional* `nodeVersion`, and no
+caller ever passed it. The value behind each `??` was not a fallback for when detection failed. It was
+the only version any of them had ever written into anybody's repository.
+
+Which is why the fix is not a newer number. `20` was right when it was written and went wrong in silence;
+`24` would go wrong the same way on the same schedule. The version is derived now, on a ladder that says
+which rung answered: `engines.node`, then `.nvmrc`, then `.node-version`, then the major of the Node
+actually running. A range resolves to its **lowest** major, because the floor is what the project promised
+and using an API that only exists in the newer major is the ordinary mistake. A declared version is
+honoured **even when it is end-of-life** — overriding it would put a runtime in somebody's CI that nothing
+in their project claims to support, and their CI is where they would find out. The last rung is measured
+rather than written down, so it cannot go stale.
+
+`nodeVersion` is required now, and that is the half that stops this happening again: optional is what made
+"nobody passes it" possible. The trusted workflow's confirmation states the version and the rule that
+chose it before anything is written.
+
+The generators also refuse an unusable version rather than substituting one. That value is interpolated
+into YAML, so its shape check was always an injection guard; coercing to a default was safe, but coercion
+is the mechanism that emitted one version forever. A workflow AtlasMind cannot build correctly is one it
+does not write.
+
+---
+
+## v0.360.4 — The dependency updates, and what verifying them turned up
+
+Stryker moved to 10 and jsdom to 30 now that CI runs a Node that can execute them. Verified rather than
+accepted — jsdom swapped its CSS selector engine in 27 and rewrote CSSOM in 29, and `chatWebviewDom` is
+the one file here that imports it, so the whole suite was run against the new tree before the merge.
+
+Checking whether the bump had broken the mutation tool turned up that the mutation tool has not started
+on Windows for some time, for a reason worth stating: the ACP private-desktop launch test *asserted* that
+`process.env.ComSpec` was set. The command interpreter is that test's vehicle, not its subject — it needs
+any executable that writes a known string to stdout — so its absence is a reason not to run, never a
+failure. Stryker's workers do not inherit `ComSpec`, so an environment that does not export a variable was
+being reported as a defect in the launch wrapper, and Stryker will not mutate a suite that is already red.
+Reproduced on Stryker 9.6.1 first, so it is not a regression from the bump.
+
+That is fixed. `test:mutation` still does not start, on a second and unrelated pre-existing cause: the
+ratcheting test-type-error baseline measures the real working tree and counts zero inside Stryker's
+sandbox copy, concluding that 244 errors were fixed. A test whose subject is the repository cannot mean
+anything in a sandbox of it; excluding repository-introspection tests from Stryker's run is the fix, and
+that is a configuration decision rather than a bug, so it is recorded here rather than made in passing.
+
+---
+
+## v0.360.3 — CI catches up with its own dependencies
+
+CI builds on Node 24 now, across all five workflows. That is not housekeeping: this project's own dev
+dependencies have moved past Node 20 — `jsdom@30` wants `^22.22.2 || ^24.15.0 || >=26`, `Stryker 10`
+wants `>=22` — so the pending dependency updates simply could not be merged while CI sat on 20. Node 24
+is what development actually happens on here, so the two now agree. GitHub is separately removing the
+Node 20 *Actions runtime* from hosted runners on 16 September 2026; different machinery, same deadline.
+
+`gitleaks-action` moved to v3 for exactly that reason — the same action on the Node 24 runtime, no change
+to inputs, outputs or behaviour, with the pinned SHA verified against both the `v3.0.0` and `v3` tags
+before it was taken. The comment beside that pin still read `# v2` afterwards, which is worse than no
+comment at all: it is what somebody reads instead of resolving the hash.
+
+---
+
 ## v0.360.2 — A green suite that was lying about one platform
 
 With checkout fixed, the Windows leg of the matrix failed two workflow-policy tests while Linux and macOS

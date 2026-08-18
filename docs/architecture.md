@@ -580,6 +580,32 @@ what "run here" means would be worse than the silence. `https` only, and only a 
 link AtlasMind draws is a claim about where it goes, and the answer reaches `openExternal` without a
 further question. Pure + unit-tested.
 
+### NodeVersionDetection (`src/core/nodeVersionDetection.ts`)
+
+Which Node version a generated workflow pins, derived rather than chosen once. Three generators write
+Actions YAML into a user's repository — the hosted CI starter, the trusted local-runner workflow and the
+website CI template — and all three took an *optional* `nodeVersion` that no caller ever passed, so the
+`'20'` behind each `??` was not a fallback but the only value any of them emitted: every workflow AtlasMind
+had written pinned a runtime that reached end of life in April 2026.
+
+Four rules. **The project's own declaration wins, whatever it says** — an end-of-life version named in
+`engines.node` is still the answer, because overriding it puts a runtime in somebody's CI that nothing in
+their project claims to support. **A range resolves to its lowest declared major**: `engines.node` is a
+range and a pin is a single version, and the floor is both what the project promised and the half that
+breaks, since using an API that only exists in the newer major is the ordinary mistake. Upper bounds are
+skipped explicitly rather than by accident — `>=22 <25` declares 22, and counting the 25 would pin a major
+nobody claimed — and one unreadable alternative makes the whole range unreadable, since the lowest floor
+of the parts understood is not the lowest floor of the range. **The last resort is measured, never
+declared**: with nothing to read the answer is the major of the running process, which cannot go stale the
+way a constant does. **Every answer names the rule that produced it**, and the trusted workflow's
+confirmation shows it before the file is written.
+
+`nodeVersion` is **required** on all three generators. That is the half that prevents recurrence rather
+than merely fixing the instance: optional is what made "nobody passes it" possible. Each generator also
+**refuses** an unusable value rather than coercing it — the shape check guards a live YAML injection path,
+and coercion to a default is precisely how one version came to be emitted forever. Pure, with the runtime
+version injected, so the ladder is walkable by a test. Unit-tested.
+
 ### CiActRoute (`src/core/ciActRoute.ts`)
 
 The first alternative executor, and the one the local-CI documentation picks first. `act` runs the

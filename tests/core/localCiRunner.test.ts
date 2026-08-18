@@ -303,6 +303,7 @@ describe('trusted workflow review', () => {
     workflowFile: 'trusted-local-ci.yml',
     packageManager: 'npm',
     scripts: ['compile', 'lint', 'test'],
+    nodeVersion: '22',
   });
 
   it('accepts the workflow AtlasMind generates', async () => {

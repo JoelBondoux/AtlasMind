@@ -15,6 +15,7 @@ function baseInput(overrides: Partial<TrustedLocalCiStarterInput> = {}): Trusted
     workflowFile: 'trusted-local-ci.yml',
     packageManager: 'npm',
     scripts: ['compile', 'lint', 'test', 'package'],
+    nodeVersion: '22',
     ...overrides,
   };
 }

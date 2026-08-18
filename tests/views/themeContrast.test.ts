@@ -290,3 +290,95 @@ describe('computed text contrast on a dark theme', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * A class worn by a `<button>` must declare its own background.
+ *
+ * The computed-contrast pass above cannot see this one, and the reason is worth
+ * stating because it is a modelling limit rather than an oversight: when a rule
+ * declares no background, that pass assumes the page backdrop. For a `<span>`
+ * that is right. For a `<button>` it is wrong — the element takes the browser's
+ * *default* button background, a light grey that ignores the theme entirely, so
+ * a rule pairing muted near-white text with no background computes as perfectly
+ * legible and renders as unreadable.
+ *
+ * Which is exactly what happened to the Test Browser's category pills: `.tag`
+ * set `color` and no `background`, and every unselected filter was white on
+ * white. Only the selected one was readable, and only because `.tag-good`
+ * happens to set a background of its own — which is also why it survived
+ * review, since the card looked fine in the one state anybody screenshots.
+ */
+describe('classes worn by buttons declare their own background', () => {
+  const DASHBOARD_CSS = readFileSync(
+    path.join(ROOT, 'src', 'views', 'projectDashboardPanel.ts'),
+    'utf8',
+  );
+  const MARKUP = [
+    readFileSync(path.join(ROOT, 'media', 'projectDashboard.js'), 'utf8'),
+    DASHBOARD_CSS,
+  ].join('\n');
+
+  /**
+   * The static class combination on each `<button>`.
+   *
+   * Combinations rather than individual classes, because that is how CSS
+   * composes and checking tokens in isolation is wrong in both directions:
+   * `danger-link` and `dashboard-version-pill-more` set a colour and no
+   * background, and both are perfectly legible because they are only ever worn
+   * beside `action-link` and `dashboard-version-pill`, which set one.
+   */
+  function buttonClassSets(): string[][] {
+    const sets: string[][] = [];
+    for (const match of MARKUP.matchAll(/<button\b[^>]*?\bclass="([^"]*)"/g)) {
+      const tokens = (match[1] ?? '')
+        .split(/\s+/)
+        // Template expressions resolve at render time and cannot be read
+        // statically. Dropping them can only lose a background, never invent
+        // one, so the check stays biased towards reporting.
+        .filter(token => token && !token.includes('$') && !token.includes('{') && !token.includes('}'))
+        .filter(token => /^[a-z][a-z0-9-]*$/.test(token));
+      if (tokens.length > 0) {
+        sets.push(tokens);
+      }
+    }
+    return sets;
+  }
+
+  /** Every declaration block whose selector names this class. */
+  function bodiesFor(className: string): string[] {
+    const pattern = new RegExp(
+      String.raw`(?:^|[\s,>+~])(?:[a-z]+)?\.${className}(?![a-zA-Z0-9_-])[^{}]*\{([^{}]*)\}`,
+      'g',
+    );
+    return [...DASHBOARD_CSS.matchAll(pattern)].map(rule => rule[1] ?? '');
+  }
+
+  const declaresBackground = (className: string): boolean =>
+    bodiesFor(className).some(body => /(?:^|[\s;])background(?:-color|-image)?\s*:/.test(body));
+
+  const declaresColor = (className: string): boolean =>
+    bodiesFor(className).some(body => /(?:^|[\s;])color\s*:/.test(body));
+
+  it('finds the buttons to check', () => {
+    // Guards against the markup scan silently matching nothing and the
+    // assertion below passing over an empty set.
+    expect(buttonClassSets().length).toBeGreaterThan(5);
+  });
+
+  /**
+   * Only combinations that set a colour are checked. A class that styles
+   * nothing but layout inherits both colour and background from its container
+   * and is not at risk; the dangerous pair is a declared text colour with no
+   * declared background anywhere in the combination, because only then does the
+   * browser's light grey become the backdrop.
+   */
+  it('never pairs a declared text colour with an undeclared background on a button', () => {
+    const unreadable = [...new Set(buttonClassSets()
+      .filter(tokens => tokens.some(declaresColor) && !tokens.some(declaresBackground))
+      .map(tokens => tokens.join(' ')))].sort();
+    expect(
+      unreadable,
+      'button class combinations that set a colour and no background — these render on the browser default, not the theme',
+    ).toEqual([]);
+  });
+});

@@ -109,7 +109,7 @@ describe('Node CI starter', () => {
       branches: ['develop', 'main', '../../bad'],
       packageManager: 'npm',
       scripts: ['compile', 'lint', 'test', 'postinstall; curl bad'],
-      nodeVersion: "20'\n      - run: curl bad",
+      nodeVersion: '22',
     });
     expect(plan?.path).toBe('.github/workflows/ci.yml');
     expect(plan?.branches).toEqual(['develop', 'main']);
@@ -120,10 +120,26 @@ describe('Node CI starter', () => {
     expect(plan?.content).not.toContain('postinstall');
     expect(plan?.content).not.toContain('../../bad');
     expect(plan?.content).not.toContain('curl bad');
-    expect(plan?.content).toContain("node-version: '20'");
+    expect(plan?.content).toContain("node-version: '22'");
+  });
+
+  /*
+   * The version reaches YAML by interpolation, so a newline in it is an
+   * injected step. It used to be coerced to a hardcoded default — safe, but the
+   * mechanism by which this generator came to emit one version forever.
+   * Refusing is the same guarantee without the substitution: a workflow
+   * AtlasMind cannot build correctly is one it does not write.
+   */
+  it('refuses a node version that would inject a step, rather than substituting one', () => {
+    expect(buildNodeCiStarter({
+      branches: ['main'],
+      packageManager: 'npm',
+      scripts: ['compile', 'test'],
+      nodeVersion: "20'\n      - run: curl bad",
+    })).toBeUndefined();
   });
 
   it('refuses to create a workflow that validates nothing', () => {
-    expect(buildNodeCiStarter({ branches: ['main'], packageManager: 'npm', scripts: ['start'] })).toBeUndefined();
+    expect(buildNodeCiStarter({ branches: ['main'], packageManager: 'npm', scripts: ['start'], nodeVersion: '22' })).toBeUndefined();
   });
 });
