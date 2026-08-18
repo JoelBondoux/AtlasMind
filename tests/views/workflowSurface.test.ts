@@ -315,7 +315,7 @@ describe('the Pipeline CI management surface', () => {
     expect(body).toContain('setup: overviewContent');
     expect(body).toContain('activity: renderPipelineActivity(');
     expect(body).toContain('tests: renderPipelineTestEngine(');
-    expect(body).toContain('rules: `<div class="ci-studio-stack">');
+    expect(body).toContain('rules: renderPipelineRules(');
     expect(body).not.toMatch(/if \(!intel\)\s*\{\s*return/);
   });
 
@@ -1014,21 +1014,30 @@ describe('Pipeline route surface', () => {
   it('offers running the checks here as a route of its own', () => {
     expect(WEBVIEW_SCRIPT).toContain('pipeline-run-here');
     expect(WEBVIEW_SCRIPT).toContain("id: 'rules'");
-    expect(WEBVIEW_SCRIPT).toContain('Where it runs');
+    expect(WEBVIEW_SCRIPT).toContain('What can run a check on this machine');
   });
 
   /**
    * A capability nobody established must not render as a tick, and must not
    * render as blank either — a blank reads as "no", which is a different claim.
    */
-  it('renders an unknown capability as its own mark', () => {
-    expect(WEBVIEW_SCRIPT).toContain('ci-cap unknown');
-    expect(WEBVIEW_SCRIPT).toContain('never assume yes');
+  it('marks a square the policy refuses, and says why on the square', () => {
+    // The capability cards became grid cells. The rule they carried survives:
+    // a refusal is never an empty square, because empty reads as merely unused.
+    expect(WEBVIEW_SCRIPT).toContain("blocked: '\u2715'");
+    expect(WEBVIEW_SCRIPT).toContain('cell.state === \'blocked\' ? cell.reason');
+    expect(WEBVIEW_SCRIPT).toContain('locked by policy');
   });
 
-  it('states what each route proves rather than only whether it is usable', () => {
-    expect(WEBVIEW_SCRIPT).toContain('ci-route-evidence');
-    expect(WEBVIEW_SCRIPT).toContain('evidenceCaveat');
+  /**
+   * Policy and machine are different questions. A route the rules allow but
+   * this laptop cannot run must not look like one the rules refuse, or a Docker
+   * outage reads as a decision somebody made.
+   */
+  it('keeps "allowed by policy" apart from "usable on this machine"', () => {
+    expect(WEBVIEW_SCRIPT).toContain('!cell.usableHere');
+    expect(WEBVIEW_SCRIPT).toContain('not usable on this machine right now');
+    expect(WEBVIEW_SCRIPT).toContain('ci-cell-unusable-key');
   });
 
   /**
@@ -1036,13 +1045,16 @@ describe('Pipeline route surface', () => {
    * was actually read is the failure the meter exists to prevent, one layer up.
    */
   it('always shows the allowance reading beside the routing decisions', () => {
-    expect(WEBVIEW_SCRIPT).toContain('ci-routing-credit');
+    expect(WEBVIEW_SCRIPT).toContain('ci-rules-credit');
     expect(WEBVIEW_SCRIPT).toContain('pipeline-refresh-credit');
     expect(WEBVIEW_SCRIPT).toContain('has not been checked');
   });
 
-  it('names the rule behind every routing decision, and why the others lost', () => {
-    expect(WEBVIEW_SCRIPT).toContain('decision.ruleId');
+  it('shows what the same engine would decide right now, and why the others lost', () => {
+    // The grid states the policy; the dry run states what it means today, on
+    // this machine, with this allowance reading.
+    expect(WEBVIEW_SCRIPT).toContain('If checks ran right now');
+    expect(WEBVIEW_SCRIPT).toContain('decision.sentence');
     expect(WEBVIEW_SCRIPT).toContain('Why not the others');
   });
 
@@ -1145,16 +1157,22 @@ function pipelineSource(name: string, until: string): string {
 }
 
 describe('Pipeline routing edits and failure actions', () => {
-  it('offers a Change control on every routing decision, carrying only the workload id', () => {
-    expect(WEBVIEW_SCRIPT).toContain('pipeline-edit-route');
-    expect(WEBVIEW_SCRIPT).toContain(`data-payload="\${escapeAttr(decision.workload || '')}"`);
-    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'editCiRoutingRule', payload: payload })");
+  /**
+   * Every gesture is one click on a square, and both halves of what it names
+   * are closed vocabularies the host re-resolves.
+   */
+  it('makes every allowed square editable, carrying only two closed ids', () => {
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-route-cell');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'cycleCiRoutingCell'");
+    expect(WEBVIEW_SCRIPT).toContain('payload: { workload: payload.slice(0, sep), route: payload.slice(sep + 1) }');
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-route-exhaust');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'toggleCiRoutingExhaustion'");
   });
 
-  it('says on the card that rules apply themselves and edits become a reviewed diff', () => {
-    const src = pipelineSource('renderPipelineRoutingRules', 'renderPipelineRoutes');
-    expect(src).toContain('Rules apply themselves');
-    expect(src).toContain('reviews it as a diff');
+  it('says on the card that nothing here runs, and edits become a reviewed diff', () => {
+    const src = pipelineSource('renderPipelineRules', 'renderRulesExecutors');
+    expect(src).toContain('nothing runs as a result');
+    expect(src).toContain('your team reviews as a diff');
   });
 
   /**

@@ -48,6 +48,7 @@ import {
   findCiRoute,
   routeSatisfiesRequirement,
   type CiRouteAvailability,
+  type CiRouteDefinition,
   type CiRouteEvidence,
   type CiRouteFidelity,
   type CiRouteId,
@@ -587,6 +588,217 @@ export function decideAllCiRoutes(
     availability,
     credit,
   }));
+}
+
+// ── The routing matrix ───────────────────────────────────────────
+
+/**
+ * What one workload/route pairing is, in the rule file and on this machine.
+ *
+ * `blocked` is the interesting one: it means the policy refuses this pairing
+ * whatever anybody clicks, and it carries the reason so the grid can say why
+ * rather than rendering a dead square. Computed here rather than in the
+ * renderer for the reason every other policy answer is — a grid that decided
+ * eligibility itself would eventually offer a cell `decideCiRoute` refuses.
+ */
+export type CiRoutingCellState = 'preferred' | 'fallback' | 'available' | 'blocked' | 'unimplemented';
+
+export interface CiRoutingMatrixCell {
+  routeId: CiRouteId;
+  routeLabel: string;
+  state: CiRoutingCellState;
+  /** 1-based position in the fallback order, when this cell is a fallback. */
+  order?: number;
+  /** Why the policy refuses this pairing. Present exactly when state is blocked. */
+  reason?: string;
+  /** Whether the route is usable on this machine right now — separate from whether policy allows it. */
+  usableHere: boolean;
+}
+
+export interface CiRoutingMatrixRow {
+  workloadId: CiWorkloadId;
+  workloadLabel: string;
+  description: string;
+  input: 'trusted' | 'untrusted';
+  ruleId?: string;
+  onCreditExhausted?: CiCreditExhaustedBehaviour;
+  cells: CiRoutingMatrixCell[];
+}
+
+/**
+ * Every workload against every route, as a grid.
+ *
+ * Prose cards could describe one rule at a time; a team deciding where work
+ * goes needs to see the whole policy at once, including the cells they may not
+ * have. The locked cells are the point as much as the chosen ones: the trust
+ * invariant becomes visible law rather than a paragraph somebody has to find.
+ */
+export function buildCiRoutingMatrix(
+  config: CiRoutingConfig,
+  availability: readonly CiRouteAvailability[],
+  routes: readonly CiRouteDefinition[] = CI_ROUTES,
+): CiRoutingMatrixRow[] {
+  return CI_WORKLOAD_CLASSES.map(workload => {
+    const rule = config.rules.find(entry => entry.workload === workload.id);
+    const cells = routes.map(route => {
+      const usableHere = availability.find(entry => entry.route.id === route.id)?.status === 'available';
+      if (route.implementation !== 'implemented') {
+        return { routeId: route.id, routeLabel: route.label, state: 'unimplemented' as const, usableHere: false };
+      }
+      if (workload.input === 'untrusted' && route.capabilities.safeForUntrustedCode !== 'yes') {
+        return {
+          routeId: route.id,
+          routeLabel: route.label,
+          state: 'blocked' as const,
+          reason: `${route.label} is not safe for code nobody has reviewed. No rule and no budget state can change this.`,
+          usableHere,
+        };
+      }
+      const suitability = routeSatisfiesRequirement(route, {
+        evidence: workload.requiredEvidence,
+        ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+      });
+      if (!suitability.satisfied) {
+        return { routeId: route.id, routeLabel: route.label, state: 'blocked' as const, reason: suitability.reason, usableHere };
+      }
+      if (rule?.prefer === route.id) {
+        return { routeId: route.id, routeLabel: route.label, state: 'preferred' as const, usableHere };
+      }
+      const fallbackAt = rule ? rule.fallback.indexOf(route.id) : -1;
+      if (fallbackAt >= 0) {
+        return { routeId: route.id, routeLabel: route.label, state: 'fallback' as const, order: fallbackAt + 1, usableHere };
+      }
+      return { routeId: route.id, routeLabel: route.label, state: 'available' as const, usableHere };
+    });
+    return {
+      workloadId: workload.id,
+      workloadLabel: workload.label,
+      description: workload.description,
+      input: workload.input,
+      ...(rule ? { ruleId: rule.id, onCreditExhausted: rule.onCreditExhausted } : {}),
+      cells,
+    };
+  });
+}
+
+export type CiRoutingCellEdit =
+  | { ok: true; config: CiRoutingConfig; change: string }
+  | { ok: false; reason: string };
+
+/**
+ * Advance one cell through its three usable states, returning a new config.
+ *
+ * A grid needs one gesture, so a click cycles: not in the rule → last resort →
+ * preferred → out of the rule again. Every step is describable in a sentence,
+ * which is what the confirmation shows.
+ *
+ * The refusals matter more than the cycle. A blocked pairing cannot be entered
+ * at all — the same check `decideCiRoute` applies, so the grid cannot author a
+ * rule the engine would then refuse — and the last preferred route cannot be
+ * removed, because a rule without one is a workload with no answer.
+ */
+export function cycleCiRoutingCell(
+  config: CiRoutingConfig,
+  workloadId: string,
+  routeId: string,
+  routes: readonly CiRouteDefinition[] = CI_ROUTES,
+): CiRoutingCellEdit {
+  const workload = findCiWorkloadClass(workloadId);
+  const route = routes.find(entry => entry.id === routeId);
+  if (!workload || !route) {
+    return { ok: false, reason: 'That workload or route no longer exists.' };
+  }
+  if (route.implementation !== 'implemented') {
+    return { ok: false, reason: `AtlasMind has no adapter for ${route.label}, so it cannot be routed to.` };
+  }
+  if (workload.input === 'untrusted' && route.capabilities.safeForUntrustedCode !== 'yes') {
+    return {
+      ok: false,
+      reason: `${route.label} is not safe for code nobody has reviewed. This is refused whatever the routing file says.`,
+    };
+  }
+  const suitability = routeSatisfiesRequirement(route, {
+    evidence: workload.requiredEvidence,
+    ...(workload.requiredFidelity ? { fidelity: workload.requiredFidelity } : {}),
+  });
+  if (!suitability.satisfied) {
+    return { ok: false, reason: suitability.reason };
+  }
+
+  const existing = config.rules.find(entry => entry.workload === workload.id);
+  if (!existing) {
+    const usedIds = new Set(config.rules.map(entry => entry.id));
+    let id = `${workload.id}-rule`;
+    for (let suffix = 2; usedIds.has(id); suffix += 1) {
+      id = `${workload.id}-rule-${suffix}`;
+    }
+    return {
+      ok: true,
+      change: `${workload.label} will prefer ${route.label}.`,
+      config: {
+        ...config,
+        rules: [...config.rules, {
+          id,
+          workload: workload.id,
+          prefer: route.id,
+          fallback: [],
+          onCreditExhausted: 'fallback',
+        }],
+      },
+    };
+  }
+
+  let next: CiRoutingRule;
+  let change: string;
+  if (existing.prefer === route.id) {
+    // Preferred → out of the rule. Only possible when something else can take
+    // over: a rule with no preferred route cannot answer for its workload.
+    const promoted = existing.fallback[0];
+    if (!promoted) {
+      return {
+        ok: false,
+        reason: `${route.label} is the only route ${workload.label} has. Add another before removing this one.`,
+      };
+    }
+    next = { ...existing, prefer: promoted, fallback: existing.fallback.slice(1) };
+    change = `${workload.label} will prefer ${routes.find(entry => entry.id === promoted)?.label ?? promoted}, and no longer use ${route.label}.`;
+  } else if (existing.fallback.includes(route.id)) {
+    const demoted = existing.prefer;
+    next = {
+      ...existing,
+      prefer: route.id,
+      fallback: [demoted, ...existing.fallback.filter(entry => entry !== route.id)],
+    };
+    change = `${workload.label} will prefer ${route.label}, with ${routes.find(entry => entry.id === demoted)?.label ?? demoted} as its first fallback.`;
+  } else {
+    next = { ...existing, fallback: [...existing.fallback, route.id] };
+    change = `${workload.label} will fall back to ${route.label} when ${routes.find(entry => entry.id === existing.prefer)?.label ?? existing.prefer} cannot run.`;
+  }
+  return {
+    ok: true,
+    change,
+    config: { ...config, rules: config.rules.map(entry => (entry.id === existing.id ? next : entry)) },
+  };
+}
+
+/** Flip what a rule does when the hosted allowance is gone. */
+export function toggleCiRoutingExhaustion(config: CiRoutingConfig, workloadId: string): CiRoutingCellEdit {
+  const workload = findCiWorkloadClass(workloadId);
+  const existing = workload ? config.rules.find(entry => entry.workload === workload.id) : undefined;
+  if (!workload || !existing) {
+    return { ok: false, reason: 'There is no rule for that workload yet.' };
+  }
+  const next: CiCreditExhaustedBehaviour = existing.onCreditExhausted === 'block' ? 'fallback' : 'block';
+  return {
+    ok: true,
+    change: next === 'block'
+      ? `${workload.label} will stop rather than substitute a weaker route when the allowance runs out.`
+      : `${workload.label} will use its fallback when the allowance runs out.`,
+    config: {
+      ...config,
+      rules: config.rules.map(entry => (entry.id === existing.id ? { ...entry, onCreditExhausted: next } : entry)),
+    },
+  };
 }
 
 // ── Markdown mirror ──────────────────────────────────────────────

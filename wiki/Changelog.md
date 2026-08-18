@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.357.0 — Routing you can see and change in one grid
+
+Phase B of the Pipeline rebuild. Deciding where your checks run used to mean reading prose cards and
+then walking a chain of dropdowns. It is now a grid: every kind of check down the side, every place it
+could run across the top.
+
+The marks are your policy — one preferred route per row, fallbacks numbered in the order they are tried.
+The locked squares matter as much as the chosen ones: hover one and it tells you why it is locked.
+Unreviewed code can never reach a route that is not safe for it, and packaging can never reach a route
+that only approximates what it runs. That rule was always enforced; now you can see it.
+
+Click a square and it cycles — unused, last resort, preferred, unused again. What the click means is
+worked out by the same engine that does the real routing, so the grid cannot write a rule the engine
+would then refuse, and it will not let you remove a workload's only route. Every change is confirmed
+with the sentence describing it and lands in the committed file as a diff.
+
+Underneath, a dry run: what would actually happen if checks ran right now, on this machine, with this
+allowance reading. And the executors — what can run a check here at all — are one line each now, with
+the borrowed machine's setup and safety detail behind a drawer instead of occupying a whole tab.
+
+One small thing the contrast guard caught: the “no adapter” mark was too faint to read. A mark you
+cannot see is an empty square, and an empty square means something else.
+
 ## v0.356.0 — Four views instead of eight tabs
 
 The Pipeline page had grown one tab per feature until it was an org chart of shipping order rather than

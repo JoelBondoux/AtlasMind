@@ -2,9 +2,12 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   CI_WORKLOAD_CLASSES,
+  buildCiRoutingMatrix,
+  cycleCiRoutingCell,
   decideAllCiRoutes,
   decideCiRoute,
   findCiWorkloadClass,
+  toggleCiRoutingExhaustion,
   renderCiRoutingMarkdown,
   sanitizeCiRoutingConfig,
   seedCiRoutingConfig,
@@ -358,5 +361,167 @@ describe('CI routing policy — the file', () => {
   it('states what an unreadable meter will do', () => {
     expect(renderCiRoutingMarkdown(seedCiRoutingConfig(CLOCK)))
       .toContain('An unreadable meter is not an empty one.');
+  });
+});
+
+describe('the routing matrix', () => {
+  const MATRIX = () => buildCiRoutingMatrix(seedCiRoutingConfig(CLOCK), EVERYTHING_AVAILABLE);
+
+  function cell(rows: ReturnType<typeof buildCiRoutingMatrix>, workload: string, route: string) {
+    return rows.find(row => row.workloadId === workload)?.cells.find(entry => entry.routeId === route);
+  }
+
+  it('covers every workload against every route', () => {
+    const rows = MATRIX();
+    expect(rows).toHaveLength(CI_WORKLOAD_CLASSES.length);
+    for (const row of rows) {
+      expect(row.cells).toHaveLength(CI_ROUTES.length);
+    }
+  });
+
+  /**
+   * The locked cells are the point as much as the chosen ones: the trust
+   * invariant becomes visible law rather than a paragraph somebody has to find.
+   */
+  it('locks every unsafe route for unreviewed code, with the reason on the cell', () => {
+    const rows = MATRIX();
+    for (const route of CI_ROUTES) {
+      const entry = cell(rows, 'untrusted-contribution', route.id);
+      if (route.capabilities.safeForUntrustedCode === 'yes' && route.implementation === 'implemented') {
+        expect(entry?.state).not.toBe('blocked');
+      } else if (route.implementation === 'implemented') {
+        expect(entry?.state).toBe('blocked');
+        expect(entry?.reason).toContain('nobody has reviewed');
+      }
+    }
+  });
+
+  it('locks an approximate route where the workload demands the real thing', () => {
+    const entry = cell(MATRIX(), 'packaging', 'act');
+    expect(entry?.state).toBe('blocked');
+    expect(entry?.reason).toContain('needs the real thing');
+  });
+
+  it('marks the preferred route and numbers the fallbacks in order', () => {
+    const rows = MATRIX();
+    expect(cell(rows, 'full-suite', 'github-hosted')?.state).toBe('preferred');
+    expect(cell(rows, 'full-suite', 'local-runner')).toMatchObject({ state: 'fallback', order: 1 });
+    expect(cell(rows, 'fast-feedback', 'direct-local')?.state).toBe('preferred');
+  });
+
+  /**
+   * Policy and machine are separate questions. A route the rules allow but this
+   * laptop cannot run is not the same as one the rules refuse, and collapsing
+   * them would make a Docker outage look like a policy decision.
+   */
+  it('keeps "allowed by policy" apart from "usable on this machine"', () => {
+    const noDocker = describeCiRouteAvailability(facts({ dockerEngineAvailable: false }));
+    const rows = buildCiRoutingMatrix(seedCiRoutingConfig(CLOCK), noDocker);
+    const entry = cell(rows, 'full-suite', 'local-runner');
+    expect(entry?.state).toBe('fallback');
+    expect(entry?.usableHere).toBe(false);
+  });
+
+  it('reports a route with no adapter as unimplemented rather than blocked', () => {
+    expect(cell(MATRIX(), 'full-suite', 'buildkite')?.state).toBe('unimplemented');
+  });
+});
+
+describe('editing the matrix', () => {
+  /**
+   * One gesture, three states: not in the rule, last resort, preferred. Every
+   * step has to be describable in a sentence, because that sentence is what the
+   * confirmation shows before a committed file changes.
+   */
+  it('cycles a cell through fallback, preferred, and out again', () => {
+    let config = seedCiRoutingConfig(CLOCK);
+    const added = cycleCiRoutingCell(config, 'full-suite', 'act');
+    expect(added.ok).toBe(true);
+    if (!added.ok) { return; }
+    expect(added.config.rules.find(rule => rule.workload === 'full-suite')?.fallback).toContain('act');
+    expect(added.change).toContain('fall back to act');
+
+    const promoted = cycleCiRoutingCell(added.config, 'full-suite', 'act');
+    expect(promoted.ok).toBe(true);
+    if (!promoted.ok) { return; }
+    const rule = promoted.config.rules.find(entry => entry.workload === 'full-suite');
+    expect(rule?.prefer).toBe('act');
+    expect(rule?.fallback[0]).toBe('github-hosted');
+
+    const removed = cycleCiRoutingCell(promoted.config, 'full-suite', 'act');
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) { return; }
+    const after = removed.config.rules.find(entry => entry.workload === 'full-suite');
+    expect(after?.prefer).toBe('github-hosted');
+    expect(after?.fallback).not.toContain('act');
+  });
+
+  /**
+   * The grid must never author a rule the decision engine would refuse — the
+   * same check runs in both places, so a locked cell is locked everywhere.
+   */
+  it('refuses to route unreviewed code anywhere unsafe, from the grid too', () => {
+    const config = seedCiRoutingConfig(CLOCK);
+    for (const routeId of ['direct-local', 'local-runner', 'act']) {
+      const attempt = cycleCiRoutingCell(config, 'untrusted-contribution', routeId);
+      expect(attempt.ok).toBe(false);
+      if (!attempt.ok) {
+        expect(attempt.reason).toContain('nobody has reviewed');
+      }
+    }
+  });
+
+  it('refuses an approximate route for work that cannot tolerate one', () => {
+    const attempt = cycleCiRoutingCell(seedCiRoutingConfig(CLOCK), 'packaging', 'act');
+    expect(attempt.ok).toBe(false);
+    if (!attempt.ok) {
+      expect(attempt.reason).toContain('needs the real thing');
+    }
+  });
+
+  it('refuses a route with no adapter', () => {
+    const attempt = cycleCiRoutingCell(seedCiRoutingConfig(CLOCK), 'full-suite', 'buildkite');
+    expect(attempt.ok).toBe(false);
+    if (!attempt.ok) {
+      expect(attempt.reason).toContain('no adapter');
+    }
+  });
+
+  /** A rule with no preferred route is a workload with no answer. */
+  it('refuses to remove the last route a workload has', () => {
+    const config = seedCiRoutingConfig(CLOCK);
+    const attempt = cycleCiRoutingCell(config, 'platform-matrix', 'github-hosted');
+    expect(attempt.ok).toBe(false);
+    if (!attempt.ok) {
+      expect(attempt.reason).toContain('only route');
+    }
+  });
+
+  it('creates a rule for an uncovered workload rather than refusing', () => {
+    const sparse: CiRoutingConfig = { ...seedCiRoutingConfig(CLOCK), rules: [] };
+    const created = cycleCiRoutingCell(sparse, 'full-suite', 'github-hosted');
+    expect(created.ok).toBe(true);
+    if (created.ok) {
+      expect(created.config.rules).toHaveLength(1);
+      expect(created.config.rules[0]).toMatchObject({ workload: 'full-suite', prefer: 'github-hosted', fallback: [] });
+    }
+  });
+
+  it('never produces a config its own validator rejects', () => {
+    let config = seedCiRoutingConfig(CLOCK);
+    for (const [workload, route] of [['full-suite', 'act'], ['full-suite', 'act'], ['fast-feedback', 'local-runner']] as const) {
+      const step = cycleCiRoutingCell(config, workload, route);
+      if (step.ok) { config = step.config; }
+    }
+    expect(validateCiRoutingConfig(config).filter(problem => problem.severity === 'error')).toEqual([]);
+  });
+
+  it('flips what happens when the allowance runs out, and says which', () => {
+    const flipped = toggleCiRoutingExhaustion(seedCiRoutingConfig(CLOCK), 'full-suite');
+    expect(flipped.ok).toBe(true);
+    if (flipped.ok) {
+      expect(flipped.config.rules.find(rule => rule.workload === 'full-suite')?.onCreditExhausted).toBe('block');
+      expect(flipped.change).toContain('stop rather than substitute');
+    }
   });
 });

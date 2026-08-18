@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.356.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.357.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.356.0
+## What's new in 0.357.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Rules is now a grid, not a wall of prose.** Every kind of check against every place it could run:
+  preferred route, fallbacks numbered in order, and squares the policy refuses — each naming its reason on
+  hover, so the rule that unreviewed code never reaches an unsafe route is visible law rather than a
+  paragraph. One click cycles a square between unused, last resort and preferred, decided by the same
+  engine that routes for real, confirmed with the sentence describing the change, and written to the
+  committed file. Beside it, a dry run showing what would happen if checks ran right now, and executors
+  compressed to one line each with the borrowed machine's detail behind a drawer.
 
 - **The Pipeline page is being rebuilt around four views.** Phase A lands the shell and the landing view:
   **Activity** (watch), **Canvas** (understand), **Tests** (verify), **Rules** (decide) — named by what you

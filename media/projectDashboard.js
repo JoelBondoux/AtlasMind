@@ -1229,6 +1229,20 @@
       vscode.postMessage({ type: 'createCiRoutingConfig' });
       return;
     }
+    if (action === 'pipeline-route-cell') {
+      const sep = payload.indexOf('|');
+      if (sep > 0) {
+        vscode.postMessage({
+          type: 'cycleCiRoutingCell',
+          payload: { workload: payload.slice(0, sep), route: payload.slice(sep + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'pipeline-route-exhaust') {
+      if (payload) { vscode.postMessage({ type: 'toggleCiRoutingExhaustion', payload: payload }); }
+      return;
+    }
     if (action === 'pipeline-edit-route') {
       if (payload) { vscode.postMessage({ type: 'editCiRoutingRule', payload: payload }); }
       return;
@@ -6449,132 +6463,175 @@
    * does not read it, so a verdict there would be invented — on the surface
    * people check before shipping.
    */
-  function renderPipelineRoutingRules(routing) {
-    const help = renderInfoHelp('pipeline.routing', {
-      label: 'the routing rules',
-      why: 'Where each kind of check runs is a team decision, so it lives in a committed file that arrives as a reviewed diff rather than a habit nobody wrote down. One rule is not the file’s to change: unreviewed code never falls back to a local route, whatever the budget says.',
+  const CI_CELL_MARK = { preferred: '●', fallback: '○', available: '+', blocked: '✕', unimplemented: '·' };
+
+  /**
+   * Rules — the whole routing policy as one grid, and what it would decide now.
+   *
+   * Prose cards could describe one rule at a time. A team deciding where work
+   * goes needs the whole policy visible at once, including the squares they
+   * cannot have: the locked cells are what make the trust invariant law you can
+   * see rather than a paragraph somebody has to find.
+   *
+   * Every cell is a button and every gesture is one click. What a click means
+   * is decided host-side by the same engine that routes for real, so this grid
+   * cannot author a rule the engine would then refuse.
+   */
+  function renderPipelineRules(routes, routing, runnerCard) {
+    const help = renderInfoHelp('pipeline.rules', {
+      label: 'the routing grid',
+      why: 'Each row is a kind of check; each column is somewhere it could run. The marks are your policy: one preferred route, fallbacks in order, and locked squares the policy refuses whatever anybody clicks. Nothing here executes — a rule decides where work is recommended to go, and running it is still a separate, confirmed act.',
       how: [
-        { text: 'Each decision names the rule that made it, so a surprising answer is traceable.' },
-        { text: 'Edit the JSON, or the markdown mirror beside it, and reload the page.' },
-        { text: 'Read the allowance to let budget-aware rules act on a real number rather than an assumption.' },
+        { text: 'Click an empty square to add it as a last resort, again to make it preferred, again to remove it.' },
+        { text: 'A locked square names its reason when you hover it. Unreviewed code can never reach a route that is not safe for it.' },
+        { text: 'Each change is confirmed and lands in a committed file your team reviews as a diff.' },
       ],
     });
-    const creditTone = routing.creditState === 'exhausted' ? 'tag-warn'
-      : routing.creditState === 'remaining' ? 'tag-good' : '';
-    const creditRow = `<div class="ci-routing-credit">
+
+    const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
+    const creditRow = `<div class="ci-rules-credit">
       <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
       <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
       <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
     </div>`;
 
     if (!routing.configPresent) {
-      return `<article class="panel-card">
-        <div class="ci-section-heading">
-          <div>
-            <p class="card-kicker">Routing rules</p>
-            <h3>No routing file yet</h3>
-            <p class="section-copy">${escapeHtml(routing.notice || 'AtlasMind has no recorded decision about where each kind of check should run. It can write a starting set for you to review and commit — nothing runs as a result.')}</p>
-          </div>${help.button}
-        </div>
-        ${help.panel}
-        ${creditRow}
-        <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
-      </article>`;
+      return `<div class="ci-studio-stack">
+        <article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Rules</p>
+              <h3>No routing file yet</h3>
+              <p class="section-copy">${escapeHtml(routing.notice || 'Nothing records where each kind of check should run. AtlasMind can write a starting set for you to review and commit — creating it runs nothing.')}</p>
+            </div>${help.button}
+          </div>
+          ${help.panel}
+          ${creditRow}
+          <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
+        </article>
+        ${renderRulesExecutors(routes, runnerCard)}
+      </div>`;
     }
 
-    const problems = routing.problems || [];
-    const errors = problems.filter(problem => problem.severity === 'error');
-    const warnings = problems.filter(problem => problem.severity !== 'error');
-    const decisions = (routing.decisions || []).map(decision => `<div class="ci-routing-row ${decision.outcome === 'routed' ? '' : 'blocked'}">
+    const matrix = routing.matrix || [];
+    const columns = matrix.length ? matrix[0].cells : [];
+    const headers = columns.map(cell => `<th scope="col" title="${escapeAttr(cell.routeLabel)}">${escapeHtml(cell.routeLabel)}</th>`).join('');
+    const rows = matrix.map(row => {
+      const cells = row.cells.map(cell => {
+        const mark = CI_CELL_MARK[cell.state] || '·';
+        const label = cell.state === 'fallback' ? `${mark} ${cell.order}` : mark;
+        const clickable = cell.state === 'preferred' || cell.state === 'fallback' || cell.state === 'available';
+        const title = cell.state === 'blocked' ? cell.reason
+          : cell.state === 'unimplemented' ? `AtlasMind has no adapter for ${cell.routeLabel} yet.`
+            : cell.state === 'preferred' ? `${row.workloadLabel} prefers ${cell.routeLabel}. Click to remove it.`
+              : cell.state === 'fallback' ? `Fallback ${cell.order} for ${row.workloadLabel}. Click to make it preferred.`
+                : `Click to add ${cell.routeLabel} as a last resort for ${row.workloadLabel}.`;
+        const unusable = clickable && !cell.usableHere ? ' unusable' : '';
+        return `<td class="ci-cell ${escapeAttr(cell.state)}${unusable}">
+          ${clickable
+            ? `<button type="button" data-action="pipeline-route-cell" data-payload="${escapeAttr(`${row.workloadId}|${cell.routeId}`)}" title="${escapeAttr(title)}">${escapeHtml(label)}</button>`
+            : `<span title="${escapeAttr(title || '')}" aria-label="${escapeAttr(title || '')}">${escapeHtml(mark)}</span>`}
+        </td>`;
+      }).join('');
+      return `<tr>
+        <th scope="row" title="${escapeAttr(row.description)}">
+          ${escapeHtml(row.workloadLabel)}
+          ${row.input === 'untrusted' ? '<span class="ci-cell-flag" title="Code nobody has reviewed. Locked out of every route that is not safe for it.">unreviewed</span>' : ''}
+        </th>
+        ${cells}
+        <td class="ci-cell-exhaust">
+          <button type="button" class="action-link" data-action="pipeline-route-exhaust" data-payload="${escapeAttr(row.workloadId)}"
+            title="${escapeAttr(row.onCreditExhausted === 'block' ? 'Stops when the hosted allowance runs out. Click to use the fallback instead.' : 'Uses the fallback when the hosted allowance runs out. Click to stop instead.')}">
+            ${escapeHtml(row.onCreditExhausted === 'block' ? 'stop' : 'fall back')}
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const errors = (routing.problems || []).filter(problem => problem.severity === 'error');
+    const warnings = (routing.problems || []).filter(problem => problem.severity !== 'error');
+
+    // What the same engine would decide right now. The grid says what the
+    // policy is; this says what it means today, on this machine, with this
+    // allowance reading.
+    const decisions = (routing.decisions || []).map(decision => `<div class="ci-rules-decision">
+      <span class="tag ${decision.outcome === 'routed' ? (decision.usedFallback ? 'tag-warn' : 'tag-good') : 'tag-warn'}">${escapeHtml(decision.outcome === 'routed' ? (decision.usedFallback ? 'fallback' : 'preferred') : 'blocked')}</span>
       <div>
         <strong>${escapeHtml(decision.workloadLabel || decision.workload || '')}</strong>
         <p class="stat-detail">${escapeHtml(decision.sentence || '')}</p>
         ${(decision.rejected || []).length ? `<details class="ci-progressive-details"><summary>Why not the others (${decision.rejected.length})</summary><ul class="ci-caution-list">${decision.rejected.map(item => `<li><strong>${escapeHtml(item.routeId)}</strong> — ${escapeHtml(item.reason)}</li>`).join('')}</ul></details>` : ''}
       </div>
-      <div class="ci-routing-verdict">
-        <span class="tag ${decision.outcome === 'routed' ? (decision.usedFallback ? 'tag-warn' : 'tag-good') : 'tag-warn'}">${escapeHtml(decision.outcome === 'routed' ? (decision.usedFallback ? 'fallback' : 'preferred') : 'blocked')}</span>
-        ${decision.ruleId ? `<code>${escapeHtml(decision.ruleId)}</code>` : ''}
-        <button type="button" class="action-link" data-action="pipeline-edit-route" data-payload="${escapeAttr(decision.workload || '')}" title="Choose the preferred route and fallbacks for this kind of check">Change…</button>
-      </div>
     </div>`).join('');
 
-    return `<article class="panel-card">
-      <div class="ci-section-heading">
-        <div>
-          <p class="card-kicker">Routing rules</p>
-          <h3>Where each kind of check goes</h3>
-          <p class="section-copy">Each row below is a decision AtlasMind has already made from <code>${escapeHtml(routing.configPath || '')}</code>: the kind of check on the left, where it should run on the right. <strong>Rules apply themselves</strong> — they pick the recommended route wherever this page decides where a check belongs, and nothing executes without your confirmation. Use <em>Change…</em> to pick a different route; the file updates and your team reviews it as a diff.</p>
-        </div>${help.button}
-      </div>
-      ${help.panel}
-      ${creditRow}
-      ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
-      <div class="ci-routing-table">${decisions || '<p class="section-copy">The routing file declares no rules.</p>'}</div>
-      ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
-      <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the routing file</button></div>
-    </article>`;
-  }
-
-  function renderPipelineRoutes(routes, routing) {
-    const help = renderInfoHelp('pipeline.routes', {
-      label: 'choosing where checks run',
-      why: 'These are different answers to one question, and they prove different things. A pass in a Linux container is not evidence about Windows however green it is, so each route states what it establishes rather than leaving you to infer it from a tick.',
-      how: [
-        { text: 'Run here for immediate feedback on your own working copy, including uncommitted changes.' },
-        { text: 'Lend this computer when you want GitHub to orchestrate a reviewed job without spending hosted capacity.' },
-        { text: 'Use hosted runners when you need evidence for an operating system you are not sitting at.' },
-      ],
-    });
-    if (!routes.length) {
-      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Where it runs</p><h3>Routes have not been assessed</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Refresh the Pipeline page to work out which routes this machine can use.</p></article>`;
-    }
-    const mark = value => value === 'yes' ? '<span class="ci-cap yes" title="Yes">●</span>'
-      : value === 'no' ? '<span class="ci-cap no" title="No">○</span>'
-        : '<span class="ci-cap unknown" title="Not known — never assume yes">?</span>';
-    const cards = routes.map(entry => {
-      const route = entry.route || {};
-      const caps = route.capabilities || {};
-      const runnable = entry.status === 'available' && route.id === 'direct-local';
-      const actions = runnable
-        ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run these checks now…</button>'
-        : route.id === 'local-runner' && entry.status !== 'unimplemented'
-          ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Open the borrowed-machine setup</button>'
-          : route.id === 'github-hosted' && entry.status !== 'unimplemented'
-            ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="canvas">See the canvas</button>'
-            : '';
-      return `<article class="panel-card ci-route-card ${escapeAttr(entry.status || 'blocked')}">
-        <div class="ci-section-heading">
-          <div>
-            <p class="card-kicker">${escapeHtml(CI_ROUTE_COST_LABELS[route.cost] || 'Cost not stated')}</p>
-            <h3>${escapeHtml(route.label || route.id || 'Route')}</h3>
-            <p class="section-copy">${escapeHtml(route.blurb || '')}</p>
-          </div>
-          <span class="tag ${entry.status === 'available' ? 'tag-good' : entry.status === 'unimplemented' ? '' : 'tag-warn'}">${escapeHtml(entry.status === 'available' ? 'usable here' : entry.status === 'unimplemented' ? 'not built' : 'needs setup')}</span>
-        </div>
-        <p class="ci-route-evidence"><strong>Proves ${escapeHtml(CI_ROUTE_EVIDENCE_LABELS[route.evidence] || 'something unstated')}.</strong> ${escapeHtml(route.evidenceCaveat || '')}</p>
-        ${route.fidelity === 'approximate' ? `<p class="ci-route-fidelity"><strong>Approximate.</strong> ${escapeHtml(route.fidelityNote || 'Some of what the workflow declares is emulated or absent.')}</p>` : ''}
-        <ul class="ci-route-caps">
-          ${Object.keys(CI_ROUTE_CAPABILITY_LABELS).map(key => `<li>${mark(caps[key])}<span>${escapeHtml(CI_ROUTE_CAPABILITY_LABELS[key])}</span></li>`).join('')}
-        </ul>
-        ${(entry.blockers || []).length ? `<ul class="ci-caution-list">${entry.blockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
-        ${entry.nextStep ? `<p class="stat-detail">${escapeHtml(entry.nextStep)}</p>` : ''}
-        ${actions ? `<div class="tag-row">${actions}</div>` : ''}
-      </article>`;
-    }).join('');
     return `<div class="ci-studio-stack">
       <article class="panel-card">
         <div class="ci-section-heading">
           <div>
-            <p class="card-kicker">Where it runs</p>
-            <h3>Three ways to check this project, and one adapter boundary</h3>
-            <p class="section-copy">Each route states what a pass on it proves. None of them substitutes for another.</p>
+            <p class="card-kicker">Rules · <code>${escapeHtml(routing.configPath || '')}</code></p>
+            <h3>Where each kind of check goes</h3>
+            <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
           </div>${help.button}
         </div>
         ${help.panel}
+        ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
+        <div class="ci-matrix-wrap">
+          <table class="ci-matrix">
+            <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="ci-matrix-key">
+          <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
+          <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
+        </div>
+        ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
+        <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
       </article>
-      ${renderPipelineRoutingRules(routing || {})}
-      ${cards}
+
+      <article class="panel-card">
+        <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
+        ${creditRow}
+        <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
+      </article>
+
+      ${renderRulesExecutors(routes, runnerCard)}
     </div>`;
+  }
+
+  /**
+   * One line per executor, with the detail behind a drawer.
+   *
+   * The runner had a whole tab, most of which was diagnostics nobody reads
+   * until something breaks. A blocked executor states the step that would
+   * unblock it rather than presenting a dead capability card — an unavailable
+   * action should teach its own setup.
+   */
+  function renderRulesExecutors(routes, runnerCard) {
+    const rows = (routes || []).map(entry => {
+      const route = entry.route || {};
+      const tone = entry.status === 'available' ? 'tag-good' : entry.status === 'unimplemented' ? '' : 'tag-warn';
+      const label = entry.status === 'available' ? 'ready' : entry.status === 'unimplemented' ? 'not built' : 'needs setup';
+      return `<div class="ci-executor-row">
+        <span class="tag ${tone}">${escapeHtml(label)}</span>
+        <div>
+          <strong>${escapeHtml(route.label || route.id || '')}</strong>
+          <p class="stat-detail">${escapeHtml((entry.blockers || [])[0] || route.blurb || '')}</p>
+        </div>
+        ${entry.nextStep ? `<span class="ci-executor-next">${escapeHtml(entry.nextStep)}</span>` : ''}
+        ${route.id === 'direct-local' && entry.status === 'available'
+          ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run checks now…</button>'
+          : ''}
+      </div>`;
+    }).join('');
+
+    return `<article class="panel-card">
+      <div class="ci-section-heading"><div><p class="card-kicker">Executors</p><h3>What can run a check on this machine</h3></div></div>
+      <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
+      <details class="ci-progressive-details">
+        <summary>Borrowed machine — setup, capacity and safety detail</summary>
+        <div class="ci-progressive-details-body">${runnerCard}</div>
+      </details>
+    </article>`;
   }
 
   function renderPipelineGraph(workflows, requiredChecks) {
@@ -7549,7 +7606,7 @@
       activity: renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp }),
       canvas: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}${renderPipelinePackages(delivery)}</div>`,
       tests: renderPipelineTestEngine(snapshot.testing || {}),
-      rules: `<div class="ci-studio-stack">${renderPipelineRoutes(delivery.routes || [], delivery.routing || {})}${runnerCard}</div>`,
+      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard),
     }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 
     return `${pageSectionOpen('pipeline')}

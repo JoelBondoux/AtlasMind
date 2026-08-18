@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.357.0] - 2026-08-19
+
+Phase B of the Pipeline redesign: the Rules view.
+
+### Added
+
+- **The routing policy as one grid.** Every kind of check against every place it could run — preferred
+  route, fallbacks numbered in the order they are tried, squares the policy refuses, and squares no
+  adapter exists for. Prose cards could describe one rule at a time; a team deciding where work goes
+  needs the whole policy at once, including the squares they cannot have.
+- **Locked squares make the trust invariant visible law** rather than a paragraph somebody has to find.
+  Each names its own reason on hover: unreviewed code can never reach a route that is not safe for it,
+  and packaging can never reach an approximate one.
+- **One click edits the policy.** A square cycles: unused → last resort → preferred → unused. What a
+  click means is computed by `cycleCiRoutingCell` in the same module the decision engine uses, so the
+  grid cannot author a rule the engine would then refuse; the last preferred route cannot be removed,
+  because a rule without one is a workload with no answer. Each change is confirmed with the sentence
+  describing it and lands in the committed file.
+- **A dry-run panel: what the same engine would decide right now**, on this machine, with this allowance
+  reading — the grid states the policy, this states what it means today.
+- **Executors compressed to one line each**, with the borrowed machine's setup, capacity and safety
+  detail behind a drawer. A blocked executor states the step that would unblock it.
+
+### Changed
+
+- **"Allowed by policy" and "usable on this machine" are shown as the different facts they are.** A
+  route the rules permit but Docker cannot run today is outlined rather than locked — collapsing the two
+  would make an outage look like a decision somebody made.
+- **The Runner tab and the route capability cards are gone**, replaced by the grid and the executor list.
+
+### Fixed
+
+- **The "no adapter" mark was too faint to read** (2.31:1 against the panel). The contrast guard caught
+  it; a mark below the legibility floor is the same as an empty square, which means something else.
+
 ## [0.356.0] - 2026-08-19
 
 Phase A of the Pipeline redesign. The page was an org chart of when features shipped — eight tabs, four

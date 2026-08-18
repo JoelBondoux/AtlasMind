@@ -646,6 +646,16 @@ rejected candidate with the reason it lost. `CI_WORKLOAD_CLASSES` is deliberatel
 one per testing methodology: the 32 methodologies answer "what should be tested", this answers "what kind
 of machine settles it", and most share an answer. `fs`-only + unit-tested.
 
+`buildCiRoutingMatrix` renders the same policy as a grid — every workload against every route, with
+`preferred` / `fallback` / `available` / `blocked` / `unimplemented` decided by the same trust and
+suitability checks `decideCiRoute` applies, so a surface cannot offer a pairing the engine would refuse.
+`usableHere` is carried separately from the policy state on purpose: a route the rules permit but this
+machine cannot run today is a different fact from one the rules refuse, and collapsing them would make a
+Docker outage read as a decision. `cycleCiRoutingCell` is the single edit gesture — unused → fallback →
+preferred → unused — returning a new config plus the sentence describing the change, refusing a blocked
+pairing outright and refusing to remove a workload's last preferred route, since a rule without one is a
+workload with no answer.
+
 ### CiCreditMeter (`src/core/ciCreditMeter.ts`)
 
 How much hosted allowance is left, and the honest answer when nobody knows. Three states, and the third is

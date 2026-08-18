@@ -245,11 +245,15 @@ import {
 import {
   CI_ROUTING_SSOT_PATH,
   CiRoutingConfigManager,
+  buildCiRoutingMatrix,
+  cycleCiRoutingCell,
   decideAllCiRoutes,
   findCiWorkloadClass,
+  toggleCiRoutingExhaustion,
   validateCiRoutingConfig,
   type CiRoutingConfig,
   type CiRouteDecision,
+  type CiRoutingMatrixRow,
   type CiRoutingProblem,
   type CiRoutingRule,
 } from '../core/ciRoutingPolicy.js';
@@ -717,6 +721,13 @@ type ProjectDashboardMessage =
    * are derived host-side, so the page can name the row and nothing else.
    */
   | { type: 'editCiRoutingRule'; payload: string }
+  /**
+   * Advance one grid cell. Both ids come from closed vocabularies and the whole
+   * edit is recomputed host-side, so the page names a square and never a rule.
+   */
+  | { type: 'cycleCiRoutingCell'; payload: { workload: string; route: string } }
+  /** Flip a rule's allowance-exhausted behaviour. Workload id only. */
+  | { type: 'toggleCiRoutingExhaustion'; payload: string }
   /**
    * Hand the latest classified CI failure to a chat session. No payload at all:
    * the host uses the report it already fetched, and the log inside the prompt
@@ -2352,6 +2363,8 @@ interface DashboardSnapshot {
       storageNote: string;
     };
     routing: {
+      /** Every workload against every route, with the policy already applied. */
+      matrix: CiRoutingMatrixRow[];
       configPresent: boolean;
       configPath: string;
       notice?: string;
@@ -4195,6 +4208,14 @@ export class ProjectDashboardPanel {
         return;
       case 'editCiRoutingRule':
         await this.handleEditCiRoutingRule(message.payload);
+        return;
+      case 'cycleCiRoutingCell':
+        await this.handleCiRoutingEdit(
+          config => cycleCiRoutingCell(config, message.payload.workload, message.payload.route),
+        );
+        return;
+      case 'toggleCiRoutingExhaustion':
+        await this.handleCiRoutingEdit(config => toggleCiRoutingExhaustion(config, message.payload));
         return;
       case 'workOnCiFailure':
         await this.handleWorkOnCiFailure();
@@ -6480,6 +6501,63 @@ export class ProjectDashboardPanel {
       pointer: { kind: 'terminal', label: LOCAL_CI_TERMINAL_NAME },
     });
     await this.syncState();
+  }
+
+  /**
+   * Apply one routing edit: re-read, recompute, validate, confirm, save.
+   *
+   * Every grid gesture goes through here rather than each having its own path,
+   * because the four steps around the edit are the same every time and are the
+   * ones that matter. The re-read is first for the reason the guided flow has
+   * one: this manager reads the file once at construction, and saving the whole
+   * file from a stale copy would silently revert a hand edit or a pulled commit.
+   *
+   * The edit function itself is pure and lives in `ciRoutingPolicy`, so the
+   * refusals it returns are the engine's own — a cell the decision engine would
+   * reject cannot be authored here.
+   */
+  private async handleCiRoutingEdit(
+    edit: (config: CiRoutingConfig) => ReturnType<typeof cycleCiRoutingCell>,
+  ): Promise<void> {
+    const manager = this.ciRouting;
+    const config = manager.reload();
+    if (!config) {
+      void vscode.window.showWarningMessage(
+        manager.getNotice() ?? 'There is no routing file yet. Create it from the Rules view first.',
+      );
+      return;
+    }
+    const outcome = edit(config);
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+    const problems = validateCiRoutingConfig(outcome.config).filter(problem => problem.severity === 'error');
+    if (problems.length > 0) {
+      void vscode.window.showWarningMessage(
+        `That change cannot be saved: ${problems.map(problem => problem.message).join(' ')}`,
+      );
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${CI_ROUTING_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: `${outcome.change}\n\nThis file is committed, so the change arrives as a diff your team reviews. Nothing runs as a result.`,
+      },
+      'Save',
+    );
+    if (confirmation !== 'Save') {
+      return;
+    }
+    try {
+      await manager.save(outcome.config);
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: ${outcome.change}`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The routing file was not saved: ${detail.slice(0, 300)}`);
+    }
   }
 
   /**
@@ -10197,6 +10275,25 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return candidate['payload'] === undefined;
   }
 
+  // Both halves of a grid click are closed vocabularies. Anything else is a
+  // malformed message, not a request with an unusual argument.
+  if (candidate['type'] === 'cycleCiRoutingCell') {
+    const payload = candidate['payload'];
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return false;
+    }
+    const cell = payload as { workload?: unknown; route?: unknown };
+    return typeof cell.workload === 'string'
+      && findCiWorkloadClass(cell.workload) !== undefined
+      && typeof cell.route === 'string'
+      && CI_ROUTES.some(route => route.id === cell.route);
+  }
+
+  if (candidate['type'] === 'toggleCiRoutingExhaustion') {
+    return typeof candidate['payload'] === 'string'
+      && findCiWorkloadClass(candidate['payload']) !== undefined;
+  }
+
   if (candidate['type'] === 'reviewCiWorkflow') {
     return typeof candidate['payload'] === 'string'
       && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.ya?ml$/i.test(candidate['payload']);
@@ -11446,6 +11543,9 @@ async function collectDashboardSnapshot(
   const routingConfig = ciRoutingManager?.getConfig();
   const routingNotice = ciRoutingManager?.getNotice();
   const routingSnapshot = {
+    // Built host-side from the same policy the decision engine uses, so the
+    // grid can never offer a cell the engine would refuse.
+    matrix: routingConfig ? buildCiRoutingMatrix(routingConfig, routeAvailability) : [],
     configPresent: routingConfig !== undefined,
     configPath: CI_ROUTING_SSOT_PATH,
     ...(routingNotice ? { notice: routingNotice } : {}),
@@ -19785,6 +19885,126 @@ const DASHBOARD_CSS = `
   .ci-activity-build-main { flex: 1 1 auto; min-width: 0; }
   .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
   .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
+
+  /* ── Rules: the routing grid ────────────────────────────────── */
+  .ci-matrix-wrap { overflow-x: auto; margin: 12px 0 8px; }
+  .ci-matrix { border-collapse: collapse; font-size: 12.5px; min-width: 520px; }
+  .ci-matrix th,
+  .ci-matrix td { border: 1px solid var(--dash-border); padding: 0; text-align: center; }
+  .ci-matrix thead th {
+    padding: 8px 12px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .ci-matrix tbody th {
+    text-align: left;
+    padding: 8px 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--dash-heading);
+  }
+  .ci-cell-flag {
+    display: inline-block;
+    margin-left: 7px;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    color: var(--dash-critical);
+    border: 1px solid color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border));
+    border-radius: 99px;
+    padding: 0 7px;
+    font-weight: 500;
+  }
+  .ci-cell { width: 74px; }
+  .ci-cell button,
+  .ci-cell span {
+    display: block;
+    width: 100%;
+    padding: 9px 4px;
+    font-family: inherit;
+    font-size: 13px;
+    background: none;
+    border: none;
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ci-cell button { cursor: pointer; }
+  .ci-cell button:hover { background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent); }
+  .ci-cell.preferred button { color: var(--dash-good); font-weight: 700; }
+  .ci-cell.fallback button { color: var(--dash-heading); }
+  .ci-cell.available button { color: var(--dash-muted); opacity: 0.85; }
+  /* Locked by policy — never a blank square, which would read as merely unused. */
+  .ci-cell.blocked { background: color-mix(in srgb, var(--dash-critical) 8%, transparent); }
+  .ci-cell.blocked span { color: var(--dash-critical); cursor: help; }
+  /* Faint, but never below the legibility floor: "no adapter" is information,
+     and a mark too pale to read is the same as an empty square. */
+  .ci-cell.unimplemented span { color: var(--dash-muted); opacity: 0.7; }
+  /* Allowed by policy, unusable on this machine: a different fact, shown differently. */
+  .ci-cell.unusable button { outline: 1px dashed var(--dash-border); outline-offset: -4px; }
+  .ci-cell-exhaust { padding: 0 8px; white-space: nowrap; }
+
+  .ci-matrix-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    font-size: 11.5px;
+    color: var(--dash-muted);
+    padding-top: 4px;
+  }
+  .ci-matrix-key b { color: var(--dash-heading); font-weight: 600; margin-right: 3px; }
+  .ci-cell-unusable-key::before {
+    content: '';
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-right: 5px;
+    vertical-align: -1px;
+    outline: 1px dashed var(--dash-border);
+    outline-offset: -2px;
+  }
+
+  .ci-rules-credit {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-panel);
+    font-size: 12.5px;
+    color: var(--dash-muted);
+    margin-bottom: 10px;
+  }
+  .ci-rules-credit > span:nth-child(2) { flex: 1 1 240px; min-width: 0; }
+
+  .ci-rules-decisions { display: grid; gap: 8px; }
+  .ci-rules-decision {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-rules-decision p { margin: 3px 0 0; }
+
+  .ci-executor-list { display: grid; gap: 7px; }
+  .ci-executor-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+  }
+  .ci-executor-row > div { flex: 1 1 240px; min-width: 0; }
+  .ci-executor-row p { margin: 2px 0 0; }
+  .ci-executor-next { font-size: 11.5px; color: var(--dash-accent-strong); }
 
   .ci-routing-credit {
     display: flex;
