@@ -398,7 +398,28 @@ your terminal; it does not run `act` for you, because `act` executes arbitrary w
 container access, and the borrowed-machine route exists for the case where a reviewed workflow should
 actually be executed.
 
-The **Activity** view puts every route in one list, newest first. What makes it trustworthy rather than merely
+The **Activity** view puts every route in one list, orderable four ways and filterable by outcome, with a
+second shape — **By pipeline** — that collects builds by where they ran so one unhealthy pipeline reads as
+a single line rather than being scattered through twenty rows. Its marks are published on the card in a
+key that renders from the same table the rows do, and that key carries **two** vocabularies rather than
+one: how a build ended, and how closely AtlasMind was watching. They are independent, which is the whole
+point — an unobserved run has no outcome to report, so reading its question mark as a failure is the
+mistake the split exists to prevent. A cancelled build is filtered as *no verdict*, never as *failed*.
+
+The per-pipeline bar strips carry a faint time axis and are right-aligned to a fixed track, so the newest
+run sits in the same position on every row. The axis states its span and the caption states what the axis
+is not: bars are one per run and evenly spaced, so a burst and a steady month draw identically —
+positioning them by timestamp would look more informative and would collapse every burst into a smear.
+
+Auto-refresh is available at 1, 5 or 15 minutes and is **off by default**, because a refresh reaches
+GitHub through `gh` and spends a rate limit somebody else is also using. Three gates on every tick: the
+panel must be visible, the Pipeline page must be the active one, and no fetch may already be in flight.
+
+The **pull requests** page charts CI per pull request from the check rollup the tracker has fetched since
+v0.200.0 and nothing displayed until now. One bar each, worst-first. A check with no conclusion is running
+rather than green; skipped, cancelled and neutral get their own bucket; and an unfetched rollup is drawn
+differently from a pull request reporting no checks at all, since "we did not look" and "nothing is
+verifying this" must not share a pixel. What makes it trustworthy rather than merely
 useful is that it records *how closely each build was watched*. The one-job runner streams its output, so
 AtlasMind can report a real verdict. GitHub is polled, because its CLI has no push channel, and running
 builds say so instead of pretending to stream. And the run-here route is `unobserved`: AtlasMind typed those

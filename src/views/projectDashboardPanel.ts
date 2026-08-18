@@ -19985,37 +19985,86 @@ const DASHBOARD_CSS = `
   /* ── Activity ───────────────────────────────────────────────── */
   .ci-activity-lead { border-left: 3px solid var(--dash-warn); display: grid; gap: 10px; }
 
+  /*
+   * Recent history is a table, so it is laid out as one.
+   *
+   * It was a flex row, which meant each figure started wherever the previous
+   * row's ribbon happened to end — six pipelines produced six different
+   * left edges for "reliability", and comparing two numbers meant hunting for
+   * them. Fixed columns put every figure in the same place down the page.
+   */
   .ci-activity-row {
-    display: flex;
+    display: grid;
+    grid-template-columns:
+      minmax(120px, 1.4fr)
+      var(--ci-ribbon-track)
+      minmax(88px, auto)
+      minmax(88px, auto)
+      minmax(74px, auto)
+      minmax(0, 1fr);
     align-items: center;
     gap: 14px;
     padding: 9px 2px;
     border-bottom: 1px dashed var(--dash-border);
-    flex-wrap: wrap;
   }
   .ci-activity-row:last-child { border-bottom: none; }
-  .ci-activity-name { font-weight: 600; min-width: 150px; flex: 0 1 auto; }
-  .ci-activity-trio {
+  .ci-activity-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+  .ci-activity-stat {
     display: inline-flex;
-    gap: 14px;
-    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 5px;
     font-size: 12px;
     color: var(--dash-muted);
     font-variant-numeric: tabular-nums;
   }
-  .ci-activity-trio b { color: var(--dash-heading); font-weight: 600; }
+  .ci-activity-stat b { color: var(--dash-heading); font-weight: 600; }
+  .ci-stat-key { font-size: 11px; }
+  /* A local route has one figure where a hosted one has three. */
+  .ci-activity-stat-wide { grid-column: span 3; }
+  .ci-activity-badge { justify-self: start; min-width: 0; }
 
-  /* Two dimensions in one glyph: height is elapsed time, colour is outcome. */
+  /*
+   * Narrow panels cannot hold six columns. Below the breakpoint the row becomes
+   * two lines — name and bars, then the figures — which keeps the figures
+   * aligned with each other even though they no longer align with the name.
+   */
+  @media (max-width: 900px) {
+    .ci-activity-row {
+      grid-template-columns: minmax(0, 1fr) var(--ci-ribbon-track);
+      row-gap: 8px;
+    }
+    .ci-activity-stat,
+    .ci-activity-badge { grid-column: 1 / -1; }
+    .ci-activity-stat-wide { grid-column: 1 / -1; }
+  }
+
+  /*
+   * The bar strip and its axis.
+   *
+   * The track is a fixed width and the bars are right-aligned inside it, so the
+   * newest run sits at the same x-position on every row — which is what makes
+   * "which of these is recent" answerable by looking rather than by hovering.
+   */
+  .ci-ribbon-wrap {
+    --ci-ribbon-track: 190px;
+    display: grid;
+    grid-template-rows: auto 1px auto;
+    width: var(--ci-ribbon-track);
+    gap: 3px;
+  }
+  .ci-activity-row { --ci-ribbon-track: 190px; }
   .ci-ribbon {
-    display: inline-flex;
+    display: flex;
     align-items: flex-end;
+    justify-content: flex-end;
     gap: 2px;
     height: 26px;
-    flex: 0 0 auto;
+    overflow: hidden;
   }
   .ci-ribbon i {
     display: inline-block;
     width: 5px;
+    flex: 0 0 auto;
     border-radius: 1px;
     background: var(--dash-good);
   }
@@ -20023,7 +20072,169 @@ const DASHBOARD_CSS = `
   .ci-ribbon i.running { background: var(--dash-accent-strong); }
   .ci-ribbon i.other,
   .ci-ribbon i.unknown { background: var(--dash-border); }
-  .ci-ribbon.empty { width: 40px; border-bottom: 1px dashed var(--dash-border); height: 1px; align-self: center; }
+  .ci-ribbon.empty { border-bottom: 1px dashed var(--dash-border); height: 1px; align-self: center; }
+
+  /* Faint, because it is a reference line and not a thing to read. */
+  .ci-ribbon-axis {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--dash-border) 35%, transparent),
+      color-mix(in srgb, var(--dash-muted) 55%, transparent)
+    );
+  }
+  .ci-ribbon-scale {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 9.5px;
+    line-height: 1.2;
+    color: var(--dash-muted);
+    min-height: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /* ── CI on each pull request ─────────────────────────────────── */
+  .pr-ci-list { display: grid; gap: 7px; margin-top: 4px; }
+  .pr-ci-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1.6fr) minmax(120px, 1fr) minmax(110px, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 7px 2px;
+    border-bottom: 1px dashed var(--dash-border);
+  }
+  .pr-ci-row:last-child { border-bottom: none; }
+  .pr-ci-name {
+    min-width: 0;
+    font-size: 12px;
+    color: var(--dash-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pr-ci-name strong { color: var(--dash-heading); margin-right: 5px; }
+  .pr-ci-bar {
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--dash-border) 45%, transparent);
+  }
+  .pr-ci-seg { display: block; min-width: 3px; }
+  .pr-ci-seg.passed { background: var(--dash-good); }
+  .pr-ci-seg.failed { background: var(--dash-warn); }
+  .pr-ci-seg.running { background: var(--dash-accent-strong); }
+  .pr-ci-seg.other { background: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+  /*
+   * Unread and empty must not look alike, and neither may look like a result.
+   * Hatching says "no data here" in a way a flat bar cannot, and a dotted
+   * outline says "this bar is empty on purpose".
+   */
+  .pr-ci-bar-unknown {
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--dash-border) 60%, transparent),
+      color-mix(in srgb, var(--dash-border) 60%, transparent) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+  }
+  .pr-ci-bar-none {
+    background: transparent;
+    border: 1px dashed color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border));
+  }
+  .pr-ci-verdict {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--dash-muted);
+    white-space: nowrap;
+  }
+  .pr-ci-verdict.tone-good { color: var(--dash-good); }
+  .pr-ci-verdict.tone-bad { color: var(--dash-warn); }
+  .pr-ci-verdict.tone-run { color: var(--dash-accent-strong); }
+  .pr-ci-failing {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pr-ci-legend { grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); margin-top: 12px; }
+  .pr-ci-key {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 10px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+  .pr-ci-key.passed { background: var(--dash-good); }
+  .pr-ci-key.failed { background: var(--dash-warn); }
+  .pr-ci-key.running { background: var(--dash-accent-strong); }
+  .pr-ci-key.other { background: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+  .tone-warn-text { color: var(--dash-warn); }
+
+  @media (max-width: 820px) {
+    .pr-ci-row { grid-template-columns: minmax(0, 1fr) minmax(110px, auto); row-gap: 6px; }
+    .pr-ci-bar { grid-column: 1 / -1; }
+    .pr-ci-failing { grid-column: 1 / -1; }
+  }
+
+  .ci-autorefresh {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin: 2px 0 10px;
+  }
+  .ci-autorefresh-label { font-size: 11px; color: var(--dash-muted); font-weight: 600; }
+  .ci-autorefresh-note { flex: 1 1 240px; min-width: 0; }
+
+  /* ── Everything that ran: controls, groups, legend ───────────── */
+  .ci-stream-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 4px 0 10px;
+  }
+  .ci-stream-group {
+    border: 1px solid var(--dash-border);
+    border-radius: 9px;
+    background: var(--dash-panel);
+  }
+  .ci-stream-group > summary {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 11px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .ci-stream-group > summary::-webkit-details-marker { display: none; }
+  .ci-stream-group > summary::before {
+    content: '\\25B8';
+    color: var(--dash-muted);
+    font-size: 10px;
+  }
+  .ci-stream-group[open] > summary::before { content: '\\25BE'; }
+  .ci-stream-group > .ci-activity-stream { padding: 0 9px 9px; }
+
+  .ci-legend-grid { display: grid; gap: 8px; margin-top: 10px; }
+  .ci-legend-item { display: flex; align-items: flex-start; gap: 10px; }
+  .ci-legend-item .ci-activity-mark { margin-top: 1px; }
+  .ci-legend-obs {
+    flex: 0 0 84px;
+    font-weight: 600;
+    color: var(--dash-heading);
+  }
+  .ci-legend-observation { border-top: 1px dashed var(--dash-border); padding-top: 10px; }
+  /* The legend's marks carry the same colour they do on a row. */
+  .ci-legend-item .ci-activity-mark.status-passed { color: var(--dash-good); }
+  .ci-legend-item .ci-activity-mark.status-failed { color: var(--dash-warn); }
+  .ci-legend-item .ci-activity-mark.status-running { color: var(--dash-accent-strong); }
+  .ci-legend-item .ci-activity-mark.status-cancelled { color: var(--dash-muted); }
+  .ci-legend-item .ci-activity-mark.status-unknown { color: var(--dash-muted); font-weight: 700; }
 
   .ci-activity-stream { display: grid; gap: 6px; margin-top: 4px; }
   .ci-activity-build {
@@ -20037,7 +20248,24 @@ const DASHBOARD_CSS = `
   }
   .ci-activity-build.status-failed { border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border)); }
   .ci-activity-build.status-running { border-color: color-mix(in srgb, var(--dash-accent-strong) 50%, var(--dash-border)); }
+  /*
+   * Visually hidden, still read aloud. The mark is a glyph plus a word: sighted
+   * readers get the symbol and the legend, assistive technology gets the word,
+   * and neither depends on the other having been learnt.
+   */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .ci-activity-mark {
+    position: relative;
     display: grid;
     place-items: center;
     flex: 0 0 22px;

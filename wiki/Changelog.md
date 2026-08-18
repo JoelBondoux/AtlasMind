@@ -19,6 +19,47 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.362.0 — Teaching the page to read itself out loud
+
+Four pieces of feedback on Activity and pull requests, all of them the same problem underneath: this page
+compresses a lot into very little — a glyph, a colour, a bar height, a bar position — and every
+compression is a private vocabulary until somebody publishes it.
+
+**"Everything that ran" has a key now.** A white dash, a white circle and an amber cross were three facts
+about a build that the page was asking you to infer. Each status carries the sentence it stands for, and
+the legend renders from the same table the rows do, so the key cannot drift from the marks above it. It
+publishes two vocabularies rather than one and says they are independent: how a build *ended*, and how
+closely AtlasMind was *watching*. An unobserved run has no outcome to report — that is why it is marked
+rather than blank, and reading its question mark as a failure is exactly the mistake the split prevents.
+
+That list is also sortable, filterable, and available in a second shape. **By pipeline** collects builds
+by where they ran, so one unhealthy pipeline is a single line rather than being scattered through twenty
+rows; a group with a failure opens itself and the rest stay shut. Cancelled builds get their own filter
+instead of being folded into *failed*, because a cancellation is not a defect.
+
+**Recent history is laid out as the table it always was.** It was a flex row, so each figure started
+wherever the previous row's bars happened to end — six pipelines, six different left edges for
+*reliability*. The bar strips now carry a faint time axis and are right-aligned to a fixed track, so the
+newest run sits in the same place on every row, which is what makes "which of these is recent?"
+answerable by looking. The axis is deliberately honest about what it is not: bars are one per run and
+evenly spaced, so thirty runs in an afternoon and thirty over a month draw identically. Placing them by
+timestamp would look more informative and would collapse every burst into a smear, so the caption says
+which it is instead of letting the axis imply the other.
+
+**Auto-refresh arrives with a cadence, and off is the default.** A refresh here reaches GitHub through
+`gh` and spends a rate limit somebody else is also using, so turning the page on and letting it poll
+unattended are two decisions rather than one. Three gates on every tick: the panel must be visible, the
+Pipeline page must be the one in front, and no fetch may already be in flight.
+
+**And the pull request page finally shows CI.** The tracker has fetched each pull request's check rollup
+since v0.200.0 and nothing ever displayed it, so the question a reviewer opens that page with — is this
+branch green? — could only be answered on GitHub. One bar per pull request, worst-first so a failure is
+the leftmost thing on the row. A check with no conclusion yet is running, never green. And an unfetched
+rollup is drawn differently from a pull request reporting no checks at all: the first means we did not
+look, the second means nothing is verifying that change, and those must never share a pixel.
+
+---
+
 ## v0.361.1 — White text on a white button
 
 The Test Browser's unselected filter pills were unreadable. `.tag` sets a text colour and no background,

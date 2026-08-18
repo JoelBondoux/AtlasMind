@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.362.0] - 2026-08-19
+
+Four pieces of Activity and pull-request feedback, all of them versions of the same problem: this page
+compresses a lot into very little, and a compression nobody was taught is decoration.
+
+### Added
+
+- **A key for the marks on "Everything that ran".** A white dash, a white circle and an amber cross were
+  three facts about a build that the page asked you to infer. Each status now carries the sentence it
+  stands for, and the legend renders from the same table the rows do — so the key cannot drift from the
+  marks above it. It publishes **two** vocabularies and says they are independent: how a build *ended*,
+  and how closely AtlasMind was *watching*. An unobserved run has no outcome to report, which is why it is
+  marked rather than left blank, and reading its question mark as a failure is the mistake the split
+  exists to prevent.
+- **Sorting, filtering and a second shape for that list.** Newest, oldest, longest, or needs-attention;
+  filter by outcome with a count on each pill; and **By pipeline**, which collects builds by where they ran
+  so one unhealthy pipeline is a single line instead of being scattered through twenty rows. Groups with a
+  failure open themselves and the rest stay closed. `no-verdict` is its own filter rather than being folded
+  into *failed*, because a cancelled build is not a defect.
+- **Auto-refresh, with a choice of cadence** — off, 1, 5 or 15 minutes. **Off is the default**, and the
+  first option: a refresh here reaches GitHub through `gh`, spending a rate limit somebody else is also
+  using, so switching the page on and letting it poll unattended are two decisions. Three gates on every
+  tick, each closing a way it could spend a request nobody wanted — the panel must be visible, the
+  Pipeline page must be the one you are on, and no fetch may already be in flight. Nothing faster than a
+  minute is offered.
+- **A CI chart on the pull request page.** The tracker has fetched each pull request's check rollup since
+  v0.200.0 and nothing ever displayed it, so *is this branch green?* was answerable only on GitHub. One bar
+  per pull request, segments sized by how many checks ended each way, worst-first so a failure is the
+  leftmost thing on the row. A check with no conclusion yet is **running, never green**; skipped, cancelled
+  and neutral get their own bucket rather than being counted either way; and an unfetched rollup is drawn
+  differently from a pull request that genuinely reports **no checks at all** — the first is "we did not
+  look", the second is "nothing is verifying this change", and they must not share a pixel.
+
+### Changed
+
+- **Recent history is laid out as the table it is.** It was a flex row, so each figure started wherever the
+  previous row's bar strip happened to end — six pipelines produced six different left edges for
+  *reliability*, and comparing two numbers meant hunting for them. Fixed columns put every figure in the
+  same place down the page, collapsing to two lines on a narrow panel.
+- **The bar strips carry a time axis**, and the bars are right-aligned to a fixed track so the newest run
+  sits at the same position on every row — which is what makes *which of these is recent?* answerable by
+  looking. The axis states the span it covers. It is also explicit about what it is **not**: bars are one
+  per run and evenly spaced, so thirty runs in an afternoon and thirty over a month draw identically.
+  Positioning them by timestamp would look more informative and would collapse every burst into a smear,
+  so the caption says which it is rather than the axis implying the other.
+
 ## [0.361.1] - 2026-08-19
 
 ### Fixed
