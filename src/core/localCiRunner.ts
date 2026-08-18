@@ -593,6 +593,110 @@ export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfigu
   };
 }
 
+/**
+ * Review the committed trusted workflow against the policy, from disk alone.
+ *
+ * A free function rather than a method because the Project Dashboard has to be
+ * able to ask this question before anything has touched local CI in the
+ * session. It used to be reachable only through `LocalCiRunnerManager`, and the
+ * panel deliberately does not build one on a render — constructing it opens an
+ * output channel — so on a fresh extension host the verdict was derived only
+ * after somebody pressed a local-CI button. The page therefore opened saying
+ * the workflow had never been checked, which is the "asks you to do setup you
+ * already did" complaint arriving through the file half.
+ *
+ * The manager delegates here, so the answer on the page and the answer that
+ * gates a run come from one implementation. Two would eventually disagree, and
+ * the disagreement people would notice is a page reporting a clean workflow
+ * while the start button refuses it — which reads as a bug in the button.
+ */
+export async function reviewTrustedLocalCiWorkflow(
+  workspaceRoot: string,
+  configuration: LocalCiRunnerConfiguration,
+  repoSlug: string,
+  runnerLabel: string,
+): Promise<LocalCiWorkflowReview> {
+  const relativePath = `.github/workflows/${configuration.workflowFile}`;
+  const base = {
+    workflowFile: configuration.workflowFile,
+    path: relativePath,
+    repoSlug,
+    runnerLabel,
+    reviewedAt: new Date().toISOString(),
+  };
+  if (!/^[A-Za-z0-9._-]+\.ya?ml$/i.test(configuration.workflowFile)) {
+    return {
+      ...base,
+      state: 'unreadable',
+      blockers: ['The workflow setting must be one YAML filename inside .github/workflows.'],
+      warnings: [],
+      scaffoldable: false,
+    };
+  }
+  if (!runnerLabel) {
+    return {
+      ...base,
+      state: 'unreadable',
+      blockers: ['The runner label is invalid after architecture expansion, so AtlasMind cannot tell which job the workflow should route here.'],
+      warnings: [],
+      scaffoldable: false,
+    };
+  }
+
+  const workflowPath = path.join(workspaceRoot, '.github', 'workflows', configuration.workflowFile);
+  let workflowText: string;
+  try {
+    workflowText = await fs.readFile(workflowPath, 'utf8');
+  } catch (error) {
+    // A missing file is an offer to create one; any other read failure is a
+    // filesystem problem, and offering to "create" over it could destroy
+    // something unreadable rather than absent.
+    const missing = (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+    return {
+      ...base,
+      state: missing ? 'missing' : 'unreadable',
+      blockers: [missing
+        ? `No trusted workflow exists at ${relativePath} yet.`
+        : `${relativePath} could not be read: ${safeFailure(error)}`],
+      warnings: [],
+      scaffoldable: missing,
+    };
+  }
+
+  const assessment = assessTrustedLocalCiWorkflow(workflowText, {
+    repoSlug,
+    branch: configuration.trustedBranch,
+    runnerLabel,
+  });
+  const blockers = [...assessment.blockers];
+  const warnings = [...assessment.warnings];
+
+  try {
+    const workflowDir = path.dirname(workflowPath);
+    const otherFiles = (await fs.readdir(workflowDir, { withFileTypes: true }))
+      .filter(entry => entry.isFile() && /\.ya?ml$/i.test(entry.name) && entry.name !== configuration.workflowFile);
+    for (const entry of otherFiles) {
+      const other = await fs.readFile(path.join(workflowDir, entry.name), 'utf8').catch(() => '');
+      if (other.includes(runnerLabel)) {
+        blockers.push(`Runner label ${runnerLabel} also appears in ${entry.name}; a queued job there could claim this machine.`);
+      }
+    }
+  } catch (error) {
+    // Not provable either way, so it is a blocker rather than a pass: the
+    // whole point of the check is that an unseen workflow could claim the
+    // label, and an unreadable directory is exactly that case.
+    blockers.push(`The workflow directory could not be listed, so AtlasMind cannot prove no other workflow claims ${runnerLabel}: ${safeFailure(error)}`);
+  }
+
+  return {
+    ...base,
+    state: blockers.length === 0 ? 'ok' : 'blocked',
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    scaffoldable: false,
+  };
+}
+
 /** One-job, ephemeral GitHub runner lifecycle. Never dispatches or reruns CI. */
 export class LocalCiRunnerManager {
   private snapshot: LocalCiRunnerSnapshot;
@@ -870,85 +974,7 @@ export class LocalCiRunnerManager {
     repoSlug: string,
     runnerLabel: string,
   ): Promise<LocalCiWorkflowReview> {
-    const relativePath = `.github/workflows/${configuration.workflowFile}`;
-    const base = {
-      workflowFile: configuration.workflowFile,
-      path: relativePath,
-      repoSlug,
-      runnerLabel,
-      reviewedAt: new Date().toISOString(),
-    };
-    if (!/^[A-Za-z0-9._-]+\.ya?ml$/i.test(configuration.workflowFile)) {
-      return {
-        ...base,
-        state: 'unreadable',
-        blockers: ['The workflow setting must be one YAML filename inside .github/workflows.'],
-        warnings: [],
-        scaffoldable: false,
-      };
-    }
-    if (!runnerLabel) {
-      return {
-        ...base,
-        state: 'unreadable',
-        blockers: ['The runner label is invalid after architecture expansion, so AtlasMind cannot tell which job the workflow should route here.'],
-        warnings: [],
-        scaffoldable: false,
-      };
-    }
-
-    const workflowPath = path.join(this.workspaceRoot, '.github', 'workflows', configuration.workflowFile);
-    let workflowText: string;
-    try {
-      workflowText = await fs.readFile(workflowPath, 'utf8');
-    } catch (error) {
-      // A missing file is an offer to create one; any other read failure is a
-      // filesystem problem, and offering to "create" over it could destroy
-      // something unreadable rather than absent.
-      const missing = (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-      return {
-        ...base,
-        state: missing ? 'missing' : 'unreadable',
-        blockers: [missing
-          ? `No trusted workflow exists at ${relativePath} yet.`
-          : `${relativePath} could not be read: ${safeFailure(error)}`],
-        warnings: [],
-        scaffoldable: missing,
-      };
-    }
-
-    const assessment = assessTrustedLocalCiWorkflow(workflowText, {
-      repoSlug,
-      branch: configuration.trustedBranch,
-      runnerLabel,
-    });
-    const blockers = [...assessment.blockers];
-    const warnings = [...assessment.warnings];
-
-    try {
-      const workflowDir = path.dirname(workflowPath);
-      const otherFiles = (await fs.readdir(workflowDir, { withFileTypes: true }))
-        .filter(entry => entry.isFile() && /\.ya?ml$/i.test(entry.name) && entry.name !== configuration.workflowFile);
-      for (const entry of otherFiles) {
-        const other = await fs.readFile(path.join(workflowDir, entry.name), 'utf8').catch(() => '');
-        if (other.includes(runnerLabel)) {
-          blockers.push(`Runner label ${runnerLabel} also appears in ${entry.name}; a queued job there could claim this machine.`);
-        }
-      }
-    } catch (error) {
-      // Not provable either way, so it is a blocker rather than a pass: the
-      // whole point of the check is that an unseen workflow could claim the
-      // label, and an unreadable directory is exactly that case.
-      blockers.push(`The workflow directory could not be listed, so AtlasMind cannot prove no other workflow claims ${runnerLabel}: ${safeFailure(error)}`);
-    }
-
-    return {
-      ...base,
-      state: blockers.length === 0 ? 'ok' : 'blocked',
-      blockers: [...new Set(blockers)],
-      warnings: [...new Set(warnings)],
-      scaffoldable: false,
-    };
+    return reviewTrustedLocalCiWorkflow(this.workspaceRoot, configuration, repoSlug, runnerLabel);
   }
 
   /**

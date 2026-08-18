@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.363.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.364.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,29 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.363.1
+## What's new in 0.364.0
 
 The last Marketplace publication, **v0.363.0**, is the baseline — everything below is in it, except the
-CI change this version carries. The full history is in [CHANGELOG.md](CHANGELOG.md).
+Pipeline and test-runner changes this version carries. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Pipeline stops asking you to set up what you already set up.** Reopening VS Code used to send the
+  Runner view back to "Inspect this computer" and "Check the trusted workflow", because neither answer
+  survived the extension host. The workflow verdict is now re-derived from the file on every refresh — it
+  is one file read, so it cannot go stale — and the machine inspection is remembered as a **dated
+  observation**: the page says when it was taken, a record older than a fortnight or describing a
+  different computer is refused, and nothing remembered can authorise a run, because the runner inspects
+  again immediately before it lends the machine.
+
+- **Closing an issue or merging a pull request updates the page immediately.** The write was always
+  fast; the dashboard then re-read the entire repository — issues, pull requests, workflow runs, labels,
+  milestones, releases, and sometimes a CI log download — before showing you anything. What `gh`
+  confirmed now appears at once, each part of the re-read publishes as it arrives, and a refresh asked
+  for while one is already running is run afterwards instead of being dropped.
+
+- **The test suite leaves you half your machine.** `npm run test` was spawning one worker per thread —
+  23 of them on a 24-thread machine, each writing real project trees to disk — which made the editor
+  unresponsive for as long as the suite ran. It now uses 50% of the machine locally and the full default
+  in CI, where nothing else needs to stay responsive. `VITEST_MAX_WORKERS` still overrides it.
 
 - **Atlas action buttons are pills now, everywhere in AtlasMind.** The Atlas mark on the left says who is
   being asked; a glyph on the right says what they will do. "Ask Atlas" names who and never what, so a row
@@ -1173,7 +1192,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

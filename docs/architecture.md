@@ -760,6 +760,60 @@ fix what is not broken. The queue command is **passed in already validated** by
 GitHub CLI command line is the shape `ghExecBoundary` forbids, and the runner already owns that answer.
 Pure + unit-tested.
 
+### TrackerWriteOutcome (`src/core/trackerWriteOutcome.ts`)
+
+What a confirmed GitHub write already tells you, applied before the re-read. Closing an issue did the
+right thing and appeared to do nothing: the write returns in under a second, and the panel then re-read
+the whole repository — slug, viewer, a hundred issues, thirty pull requests with reviews and checks, two
+workflow-run listings, labels, milestones, releases, and, when the latest run had failed, a log download
+with a 45-second timeout — publishing nothing until the last of them returned.
+
+Four rules keep the echo narrower than the read it precedes. **Only what the write itself established** —
+`gh` exits non-zero when GitHub refuses, so a returned success is a fact about the tracker rather than a
+prediction about it, which is the same standard the rest of the codebase applies when it refuses to
+infer. **Never invents a record**: a number absent from the list yields the list unchanged, and creating
+an issue therefore echoes nothing at all, because the new number is not known here. **Only the fields the
+action names** — a close sets `state` and `updatedAt` and touches nothing it has no news about; `merged`
+and `closed` stay distinct because the delivery metrics read the difference. **An echo is a floor, not a
+ceiling**: the authoritative read follows immediately and replaces it, so nothing here needs to be right
+about anything except what just happened. The issues a `Closes #12` line closes are GitHub's inference
+and are deliberately left to that read.
+
+The panel completes the fix on the other side: `handleRefreshIssues` publishes each reading as it lands
+rather than only in its `finally`, so the issue list no longer waits behind the run listing, and a
+re-read requested while one is in flight is queued and run once afterwards instead of being dropped —
+dropping a duplicate *click* is right, but the read after a write is the only thing that will show the
+change. Pure, `vscode`-free and unit-tested in `tests/core/trackerWriteOutcome.test.ts`.
+
+### LocalCiInspectionMemory (`src/core/localCiInspectionMemory.ts`)
+
+What this computer was found to have, and when — the local CI setup answer that used to be forgotten
+every time VS Code closed. The trusted workflow verdict was made restart-proof by deriving it on every
+refresh, which works because it is one file read. The *machine* half cannot be treated that way: probing
+it runs `docker`, `docker info` and `gh auth status`, and doing that on every render would start processes
+as a side effect of looking at a page. So the prerequisites reset to `not-inspected` on every
+extension-host restart, the Pipeline page went back to "Inspect this computer", and the setup ladder asked
+for a step somebody had already done.
+
+Five rules keep the memory honest. **A memory is a dated observation, never a current reading** —
+`restoreLocalCiInspection` returns the observation with its age, and every surface showing it says when it
+was taken, because a page reporting "Docker: Ready" from a three-week-old probe is a claim about right now
+that nobody checked. **A memory guides, it never authorises**: `LocalCiRunnerManager.start` inspects again
+immediately before lending the machine and refuses if capacity or the engine changed, so nothing restored
+here can reach a running container — that is what makes remembering safe at all. **A memory of a different
+machine is refused, not adapted**, matched on a host fingerprint, since "Docker is installed" about the
+wrong computer is exactly the reassuring direction to be wrong in. **A memory expires** after fourteen
+days, long enough that the machine may genuinely have changed and short enough that a weekly user is never
+asked twice. **Only the durable half is remembered** — `otherRunningContainers` and the queue state are
+facts about a moment rather than about a setup, and `imagePresent` is dropped when the `image` setting has
+changed, because the old answer is about a different image.
+
+Stored in `globalState` rather than `workspaceState`: Docker, `gh` and its sign-in are facts about the
+machine, so a second workspace on the same computer should not have to ask again. Pure, `vscode`-free and
+unit-tested in `tests/core/localCiInspectionMemory.test.ts`; the storage key and the write live in the
+Project Dashboard panel, and the walkthrough reads the same record so `/localci` and `/setup` cannot
+report a different answer from the page.
+
 ### LocalCiInstaller (`src/core/localCiInstaller.ts`)
 
 Planning the GitHub CLI install, in the shape `acpInstaller` and `mcp/mcpRuntime` already settled: every
@@ -786,7 +840,12 @@ The lifecycle is `disabled → not-inspected → ready → starting → waiting 
 Opening or rendering the page performs no Docker or GitHub probe. **Inspect prerequisites** reads
 `os.cpus()` / `os.totalmem()`, the existing bounded cross-platform GPU probes, `gh --version`, bounded
 `gh auth status`, and Docker's actual `NCPU`, `MemTotal`, `OSType`, `Architecture` and advertised runtimes.
-`LocalCiPrerequisitesSnapshot.inspection` keeps an unchecked false value from being rendered as “missing”.
+`LocalCiPrerequisitesSnapshot.inspection` keeps an unchecked false value from being rendered as “missing”,
+and `localCiInspectionMemory` is what stops that honest "not checked" from re-appearing after every
+restart. `reviewTrustedLocalCiWorkflow` is exported as a free function so the dashboard can derive the
+trusted workflow verdict before anything has built a manager — constructing one opens an output channel,
+so a refresh must not — while the manager delegates to it, keeping one implementation behind the answer on
+the page and the answer that gates a run.
 Resource planning uses the lower execution capacity,
 reserves at least 25% (and 2 GB), applies operator maximums, and refuses below 2 CPUs or 4 GB. The container
 receives matching `--cpus`, `--memory`, `--memory-swap` and `--pids-limit 1024` limits. GPU identity/live

@@ -8187,6 +8187,17 @@
     const runnerPrerequisites = runner.prerequisites || { inspection: 'not-inspected', githubCliInstalled: false, githubAuthenticated: false };
     const runnerEnablement = runner.enablement || { effective: Boolean(runner.enabled), source: 'default', sourceLabel: 'current VS Code extension host' };
     const prerequisitesInspected = runnerPrerequisites.inspection === 'inspected';
+    // Present only when the readings above came from a stored inspection rather
+    // than one run in this session. Everything that shows a machine reading has
+    // to say so: a remembered probe rendered as a live one is a claim about
+    // right now that nobody checked, and the point of remembering was to stop
+    // asking for work already done — not to start asserting more than is known.
+    const rememberedInspection = runner.rememberedInspection;
+    const inspectionAgeLabel = rememberedInspection
+      ? (rememberedInspection.ageDays === 0 ? 'checked earlier today'
+        : rememberedInspection.ageDays === 1 ? 'checked yesterday'
+          : `checked ${rememberedInspection.ageDays} days ago`)
+      : '';
     const runnerBlockers = runner.blockers || [];
     const runnerWarnings = runner.warnings || [];
     const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
@@ -8239,17 +8250,18 @@
             <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>
           </section>`;
     const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction ? ' open' : ''}>
-      <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
+      <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'}${rememberedInspection ? ` · ${escapeHtml(inspectionAgeLabel)}` : ''} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
       <div class="ci-progressive-details-body" aria-label="Local runner installation and readiness">
         <p class="section-copy"><strong>No permanent runner daemon:</strong> AtlasMind uses a temporary Docker container for one authorised job, then removes it.</p>
         <div class="ci-setup-grid">
           ${setupStatus('Runner permission', runnerEnablement.effective ? 'ready' : 'action', `${runnerEnablement.effective ? 'On' : 'Off'} in the ${runnerEnablement.sourceLabel || 'current VS Code extension host'}.`)}
           ${setupStatus('Docker command', dockerState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerEngine.cliInstalled ? 'The Docker CLI is available.' : 'Install Docker and restart VS Code so PATH is refreshed.')}
-          ${setupStatus('Docker engine', engineState, !prerequisitesInspected ? 'Inspect to check the engine.' : runnerEngine.available ? 'Running and its real capacity was read.' : runnerEngine.desktopAvailable ? 'Docker Desktop can be started after you confirm the run.' : 'Start the managed Docker engine yourself.')}
+          ${setupStatus('Docker engine', engineState, !prerequisitesInspected ? 'Inspect to check the engine.' : runnerEngine.available ? (rememberedInspection ? `Running when last ${inspectionAgeLabel}; AtlasMind re-checks before it starts anything.` : 'Running and its real capacity was read.') : runnerEngine.desktopAvailable ? 'Docker Desktop can be started after you confirm the run.' : 'Start the managed Docker engine yourself.')}
           ${setupStatus('GitHub command', ghState, !prerequisitesInspected ? 'Inspect to check PATH.' : runnerPrerequisites.githubCliInstalled ? 'GitHub CLI is available.' : 'Install GitHub CLI and restart VS Code.')}
           ${setupStatus('GitHub sign-in', ghAuthState, !prerequisitesInspected ? 'Inspect to check gh auth status.' : runnerPrerequisites.githubAuthenticated ? 'Signed in to github.com.' : 'Run the browser sign-in command below.')}
           ${setupStatus('Runner software', imageState, !prerequisitesInspected ? 'Inspect to check the pinned image.' : !runnerEngine.cliInstalled ? 'Install Docker before the runner image can be checked.' : runnerEngine.imagePresent ? 'Digest-pinned runner image is already present.' : 'AtlasMind will download the digest-pinned image only after confirmation.')}
         </div>
+        ${rememberedInspection ? `<div class="inline-notice"><strong>Remembered from your last inspection</strong><p class="stat-detail">${escapeHtml(rememberedInspection.detail)}</p></div>` : ''}
         ${installationHelp}
         <div class="tag-row ci-runner-actions">
           <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>
