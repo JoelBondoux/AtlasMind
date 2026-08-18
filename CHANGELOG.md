@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.360.4] - 2026-08-19
+
+### Changed
+
+- **Stryker 9.6.1 → 10.0.0 and jsdom 26.1.0 → 30.0.1** (Dependabot #194), now that CI runs a Node that can
+  execute them. Verified rather than accepted: the full suite passes on the new tree, including
+  `chatWebviewDom`, which is the one file that imports jsdom and therefore the one exposed to jsdom's
+  selector-engine swap in 27.0.0 and its CSSOM rewrite in 29.0.0.
+
+### Fixed
+
+- **An assertion that should have been a precondition kept `npm run test:mutation` from starting on
+  Windows.** The ACP private-desktop launch test asserts `process.env.ComSpec` is set, but the command
+  interpreter is that test's *vehicle* — any executable that writes a known string to stdout would do —
+  not its subject. Stryker's workers do not inherit `ComSpec`, so the test failed during the initial run
+  and Stryker refuses to mutate a suite that is already red: an environment that does not export a
+  variable was being reported as a defect in the launch wrapper. It is now a skip condition. Confirmed
+  pre-existing by reproducing it on Stryker 9.6.1 before the bump, so it is not a regression from #194.
+
+### Known
+
+- **`npm run test:mutation` still does not start**, now on a second and different pre-existing cause: the
+  ratcheting `TEST_TYPE_ERROR_CEILING` baseline measures the real working tree, and inside Stryker's
+  sandbox copy it counts zero and concludes 244 errors were fixed. That is a test whose subject is the
+  repository itself, which cannot be meaningful in a sandbox — the fix is to exclude repository
+  introspection tests from Stryker's run, which is a configuration decision rather than a bug fix, and is
+  deliberately not made here.
+
 ## [0.360.3] - 2026-08-19
 
 ### Changed

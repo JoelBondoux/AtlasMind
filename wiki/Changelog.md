@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.360.4 — The dependency updates, and what verifying them turned up
+
+Stryker moved to 10 and jsdom to 30 now that CI runs a Node that can execute them. Verified rather than
+accepted — jsdom swapped its CSS selector engine in 27 and rewrote CSSOM in 29, and `chatWebviewDom` is
+the one file here that imports it, so the whole suite was run against the new tree before the merge.
+
+Checking whether the bump had broken the mutation tool turned up that the mutation tool has not started
+on Windows for some time, for a reason worth stating: the ACP private-desktop launch test *asserted* that
+`process.env.ComSpec` was set. The command interpreter is that test's vehicle, not its subject — it needs
+any executable that writes a known string to stdout — so its absence is a reason not to run, never a
+failure. Stryker's workers do not inherit `ComSpec`, so an environment that does not export a variable was
+being reported as a defect in the launch wrapper, and Stryker will not mutate a suite that is already red.
+Reproduced on Stryker 9.6.1 first, so it is not a regression from the bump.
+
+That is fixed. `test:mutation` still does not start, on a second and unrelated pre-existing cause: the
+ratcheting test-type-error baseline measures the real working tree and counts zero inside Stryker's
+sandbox copy, concluding that 244 errors were fixed. A test whose subject is the repository cannot mean
+anything in a sandbox of it; excluding repository-introspection tests from Stryker's run is the fix, and
+that is a configuration decision rather than a bug, so it is recorded here rather than made in passing.
+
+---
+
 ## v0.360.3 — CI catches up with its own dependencies
 
 CI builds on Node 24 now, across all five workflows. That is not housekeeping: this project's own dev
