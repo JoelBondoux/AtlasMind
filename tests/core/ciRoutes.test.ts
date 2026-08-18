@@ -184,6 +184,27 @@ describe('evidence satisfaction', () => {
     expect(verdict.reason).toContain('cannot stand in');
   });
 
+  /**
+   * Whether setup depends on a route has to be answerable *before* any routing
+   * file exists — which is exactly when somebody is setting up — so it is
+   * declared rather than derived from rules that do not exist yet.
+   */
+  it('declares whether setup depends on each route', () => {
+    for (const route of CI_ROUTES) {
+      expect(['core', 'alternative']).toContain(route.necessity);
+    }
+    // The three the guided setup is built around.
+    expect(findCiRoute('direct-local')?.necessity).toBe('core');
+    expect(findCiRoute('local-runner')?.necessity).toBe('core');
+    expect(findCiRoute('github-hosted')?.necessity).toBe('core');
+    // Everything act does, a core route already does with better fidelity, so
+    // reporting it as unfinished setup would invent a chore.
+    expect(findCiRoute('act')?.necessity).toBe('alternative');
+    for (const route of CI_ROUTES.filter(entry => entry.implementation === 'declared')) {
+      expect(route.necessity).toBe('alternative');
+    }
+  });
+
   it('declares a fidelity for every route, and a note wherever it is approximate', () => {
     for (const route of CI_ROUTES) {
       expect(['faithful', 'approximate']).toContain(route.fidelity);
@@ -291,5 +312,67 @@ describe('direct-local run plan', () => {
     if (legacy.ok) {
       expect(buildDirectLocalRunConfirmation(legacy.plan).detail).toContain('will NOT stop the rest');
     }
+  });
+});
+
+/**
+ * Where a route's own documentation lives.
+ *
+ * A route AtlasMind cannot set up for you still has to be reachable: naming
+ * `nektosact.com` in a sentence leaves somebody retyping a hostname, and
+ * Buildkite and Woodpecker were listed with no way to read about either. The
+ * URL is a constant here rather than anything a webview or a model could name,
+ * so a page can offer the link without being able to choose where it goes.
+ */
+describe('route documentation links', () => {
+  const linked = CI_ROUTES.filter(route => route.docsUrl);
+
+  it('gives every route AtlasMind cannot configure a way to read about it', () => {
+    const ids = linked.map(route => route.id).sort();
+    expect(ids).toEqual(['act', 'buildkite', 'woodpecker']);
+  });
+
+  /**
+   * A link AtlasMind draws is a claim about where it goes, and the answer is
+   * given to `openExternal` without a further question. `https` only, and only
+   * the route's own project.
+   */
+  it('points only at https on the route\u2019s own project', () => {
+    const expected: Record<string, string> = {
+      act: 'nektosact.com',
+      buildkite: 'buildkite.com',
+      woodpecker: 'woodpecker-ci.org',
+    };
+    for (const route of linked) {
+      const url = new URL(route.docsUrl as string);
+      expect(url.protocol).toBe('https:');
+      expect(url.hostname).toBe(expected[route.id]);
+    }
+  });
+
+  /**
+   * The three core routes are set up from inside AtlasMind. Sending somebody
+   * to github.com to learn what "run here" means would be worse than the
+   * silence.
+   */
+  it('leaves the core routes unlinked', () => {
+    for (const route of CI_ROUTES.filter(entry => entry.necessity === 'core')) {
+      expect(route.docsUrl).toBeUndefined();
+    }
+  });
+
+  /** The prose no longer spells a hostname the reader has to retype. */
+  it('states the action rather than the address in the next step', () => {
+    const act = describeCiRouteAvailability({
+      hasLocalChecks: true,
+      dockerEngineAvailable: true,
+      githubCliAuthenticated: true,
+      localRunnerPermitted: true,
+      trustedWorkflowReady: true,
+      hostedWorkflowPresent: true,
+      actInstalled: false,
+    }).find(entry => entry.route.id === 'act');
+    expect(act?.nextStep).toBe('Install `act` from its own site, then refresh.');
+    expect(act?.nextStep).not.toContain('nektosact.com');
   });
 });

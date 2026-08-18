@@ -366,13 +366,20 @@ The Pipeline page presents four views — Activity, Canvas, Tests, Rules — nam
 The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
 same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels
 through after the gate. It edits nothing; the delivery stages are read-only because promotion has its own
-guarded surface.
+guarded surface. Selecting a node opens its panel *beside* the graph where the window is wide enough,
+stacking beneath it where it is not — below the graph, the one interaction the canvas exists for pushed
+its own answer out of view. The column appears only when something is selected, so an empty gutter never
+narrows the canvas for a panel that is usually absent.
 
-The Pipeline page is arranged for the person who finished setting it up, not the person starting: it opens
-on Builds once anything has run, the setup journey folds to one line when its durable steps are done,
-routing rules are editable from the page through a guided flow that obeys the same rules as the decision
-engine, the latest classified failure renders on Builds with a one-click handoff to a chat session (log
-fenced as untrusted content), and analytics leads with its reading in sentences before any chart.
+The page is arranged for the person who finished setting it up, not the person starting: Activity leads
+once anything has run and opens with the latest classified failure and a one-click handoff to a chat
+session (log fenced as untrusted content), the setup journey folds to one line when its durable steps are
+done, and routing rules are editable through a guided flow obeying the same rules as the decision engine.
+While setup is genuinely unfinished the borrowed-machine card leads the Rules view with its detail open,
+because that is where the guided journey's "prepare this computer" step lands. Tests reads verdicts and
+Rules decides routing, and neither is a dead end: a declared policy row opens that policy's own card on
+the Testing page, expanded, since this page can say a policy is unevidenced while only that card can say
+what it would take.
 
 Routes carry a second dimension beside what they prove: **how faithfully they reproduce it**. `act` and the
 borrowed machine both produce Linux-container evidence, yet one runs GitHub's own runner image and the
@@ -391,7 +398,7 @@ your terminal; it does not run `act` for you, because `act` executes arbitrary w
 container access, and the borrowed-machine route exists for the case where a reviewed workflow should
 actually be executed.
 
-The **Builds** view puts every route in one list, newest first. What makes it trustworthy rather than merely
+The **Activity** view puts every route in one list, newest first. What makes it trustworthy rather than merely
 useful is that it records *how closely each build was watched*. The one-job runner streams its output, so
 AtlasMind can report a real verdict. GitHub is polled, because its CLI has no push channel, and running
 builds say so instead of pretending to stream. And the run-here route is `unobserved`: AtlasMind typed those
@@ -427,6 +434,15 @@ declaration and no amount of passing promotes it. `act`, Buildkite and Woodpecke
 adapter boundaries, visible so the page does not claim three routes are all there is, and never selectable
 because a route with no adapter reporting itself usable would be a button that cannot work. A capability
 AtlasMind has not established shows as its own mark rather than a blank, since a blank reads as "no".
+
+Those three link to their own documentation, because they are the routes AtlasMind cannot set up for you.
+The address is a constant on the route definition: the page sends a route *id* and the extension host
+decides where that goes, so a row can offer a link without ever being able to choose one. The core three
+stay unlinked — sending somebody to github.com to learn what "run here" means would be worse than the
+silence. An executor nothing routes to also reads *optional* rather than *needs setup*, derived from your
+own rules so the answer changes when your policy does; before any rules exist, an empty set means
+undecided rather than unwanted, so the borrowed machine is never called optional at the moment you are
+setting it up.
 
 The simplest route finally has a button. It resolves the project's own check scripts by a published rule —
 a declared aggregate wins over guessing at its parts — shows them in a confirmation, and types them into a
@@ -554,11 +570,15 @@ the shell can stop on failure. Guarded promotion is untouched and remains the on
 commands from a reviewed `delivery.json`.
 
 Runbook phases render as collapsed disclosures whose numbered marker reflects the strongest step state.
-A non-green step can be handed to Chat through its AtlasMind-logo action, but the browser posts only the
+A non-green step can be handed to Chat through its Atlas action, but the browser posts only the
 step id: the host rebuilds the guide, refuses a now-green or missing id, and composes the bounded repair
-draft from the current record. The same icon-only action is shared by Dashboard, Lens, MCP, Website
-Studio, and Project Run surfaces. Its visible label is the logo; a precise `title` and `aria-label`
-preserve the action's meaning for hover, keyboard and assistive-technology users.
+draft from the current record. The same compact action is shared by Dashboard, Lens, MCP, Website
+Studio, and Project Run surfaces. It is a **pill carrying two symbols** — the AtlasMind mark on the left
+saying who is being asked, an intent glyph on the right saying what it will do. It was the mark alone
+until v0.360.0, which named the who and never the what, so a row of these was a row of identical circles
+you had to hover one at a time. The glyph narrows the meaning and never carries it alone: it is hidden
+from assistive technology, and a precise `title` and `aria-label` still preserve the whole sentence for
+hover, keyboard and assistive-technology users.
 
 On the Workflow page, the **Your workflow file** card makes each stage's enablement visible without
 tinting its contents: the segment outline and standard **Enabled** status tag carry the colour, while

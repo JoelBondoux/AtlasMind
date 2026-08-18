@@ -911,7 +911,7 @@
       + '<textarea id="inspectorPrompt" rows="3" placeholder="Full-bleed photo, headline left, one primary button.">'
       + escapeText(element.designPrompt || '') + '</textarea></label>'
       + '<div class="inspector-actions">'
-      + '<button type="button" id="askAboutElement" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this wireframe element and its design prompt" aria-label="Ask AtlasMind about this wireframe element"><img src="' + escapeAttribute(state.atlasIcon || '') + '" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this wireframe element</span></button>'
+      + '<button type="button" id="askAboutElement" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this wireframe element and its design prompt" aria-label="Ask AtlasMind about this wireframe element"><img src="' + escapeAttribute(state.atlasIcon || '') + '" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">☷</span><span class="atlas-discuss-label">Ask AtlasMind about this wireframe element</span></button>'
       + (state.canGenerate ? '<button type="button" class="secondary" id="generateElement">Generate</button>' : '')
       + (isBase ? '<button type="button" class="secondary" id="duplicateElement"' + (state.readOnly || locked ? ' disabled' : '') + '>Duplicate</button>' : '')
       + '<button type="button" class="secondary subtle" id="toggleElementLock"' + (state.readOnly ? ' disabled' : '') + '>' + (locked ? 'Unlock' : 'Lock') + '</button>'

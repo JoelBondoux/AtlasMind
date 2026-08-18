@@ -1398,3 +1398,196 @@ describe('Canvas — overlays on one graph', () => {
     expect(WEBVIEW_SCRIPT).toContain('keep opening panels nobody asked for');
   });
 });
+
+describe('Rules — setup is findable, and optional stays optional', () => {
+  const executors = pipelineSource('renderRulesExecutors', 'renderPipelineGraph');
+  const rules = pipelineSource('renderPipelineRules', 'renderRulesExecutors');
+
+  /**
+   * The regression this pins. Demoting the runner into a collapsed drawer was
+   * right for a configured machine and wrong during setup: the journey's
+   * "prepare this computer" step lands on Rules, and what it wanted was a
+   * closed disclosure below a policy grid.
+   */
+  it('opens the borrowed-machine drawer and leads the view while setup is unfinished', () => {
+    expect(executors).toContain("${needsSetup ? ' open' : ''}");
+    expect(executors).toContain('the next step, and what is blocking it');
+    expect(executors).toContain('ci-executors-setup');
+    // Leading the view, not sitting under the grid.
+    expect(rules).toContain('needsSetup ? executors + intro : intro + executors');
+    expect(rules).toContain('needsSetup ? executors');
+  });
+
+  it('offers the setup action on the row, not only inside the drawer', () => {
+    expect(executors).toContain('pipeline-runner-inspect');
+    expect(executors).toContain('Set up this machine');
+  });
+
+  /**
+   * An executor nothing routes to is a capability you declined, not a chore
+   * you have not finished. Saying "needs setup" against `act` made the list
+   * feel endless.
+   */
+  it('calls an unused executor optional rather than unfinished', () => {
+    expect(executors).toContain("route.necessity === 'core'");
+    expect(executors).toContain("used ? 'needs setup' : 'optional'");
+    expect(executors).toContain('Optional alternative');
+    expect(executors).toContain('you can leave it');
+    expect(executors).toContain('no adapter yet');
+  });
+
+  /**
+   * Before any routing file exists an empty rule set means undecided, not
+   * unwanted — otherwise the borrowed machine reads as optional at the exact
+   * moment somebody is trying to set it up.
+   */
+  it('treats no rules as undecided rather than as nothing being needed', () => {
+    expect(executors).toContain('(core && referenced.size === 0)');
+    expect(executors).toContain('undecided, not unwanted');
+    expect(rules).toContain("|| !(routing.matrix || []).length");
+  });
+});
+
+/**
+ * The Atlas action pill.
+ *
+ * "Ask Atlas" names who is being asked and never what they will do, so a row
+ * of these buttons was a row of identical circles distinguishable only by
+ * hovering each one. The glyph is the second symbol that closes that gap —
+ * and, being a second copy of a table the host also holds, the thing most
+ * likely to drift.
+ */
+describe('the Atlas action pill', () => {
+  const HOST_SOURCE = readFileSync(
+    path.join(process.cwd(), 'src', 'views', 'webviewUtils.ts'),
+    'utf8',
+  );
+
+  /** The glyph table as written in a source file, keyed by intent. */
+  function glyphTable(source: string): Record<string, string> {
+    const start = source.indexOf('ATLAS_ACTION_GLYPHS = {');
+    expect(start, 'the glyph table is missing').toBeGreaterThan(-1);
+    const end = source.indexOf('};', start);
+    const body = source.slice(start, end);
+    const table: Record<string, string> = {};
+    for (const match of body.matchAll(/^\s*(\w+): '(.*)',$/gm)) {
+      table[match[1] as string] = match[2] as string;
+    }
+    return table;
+  }
+
+  /**
+   * Two copies of one vocabulary, because the webview script is a string
+   * handed to a browser and cannot import from the host. The duplication is
+   * unavoidable; the divergence is not.
+   */
+  it('uses the same glyph for the same intent on the host and in the webview', () => {
+    const host = glyphTable(HOST_SOURCE);
+    const page = glyphTable(WEBVIEW_SCRIPT);
+    expect(Object.keys(host).length).toBeGreaterThan(0);
+    expect(page).toEqual(host);
+  });
+
+  /**
+   * The glyph narrows the action; it never carries it alone. A symbol set
+   * nobody has learnt yet must not be the only statement of what a button
+   * does, so the tooltip and the accessible name stay full sentences and the
+   * glyph is hidden from assistive technology rather than read out as a
+   * trigram.
+   */
+  it('keeps the sentence in the tooltip and hides the glyph from screen readers', () => {
+    for (const source of [HOST_SOURCE, WEBVIEW_SCRIPT]) {
+      const button = source.slice(source.indexOf('atlas-discuss-action icon-only'));
+      expect(button).toContain('atlas-discuss-glyph');
+      expect(button.slice(0, button.indexOf('atlas-discuss-label'))).toContain('aria-hidden="true"');
+      expect(button).toContain('aria-label=');
+      expect(button).toContain('title=');
+    }
+  });
+
+  /** An intent nobody set still renders a pill rather than a bare mark. */
+  it('falls back to the discuss glyph when no intent is declared', () => {
+    expect(HOST_SOURCE).toContain("ATLAS_ACTION_GLYPHS[options.intent ?? 'discuss']");
+    expect(WEBVIEW_SCRIPT).toContain('ATLAS_ACTION_GLYPHS[options.intent] || ATLAS_ACTION_GLYPHS.discuss');
+  });
+});
+
+/**
+ * Reaching the record a verdict is about.
+ *
+ * The Pipeline page can say a policy is unevidenced; only the Testing page can
+ * say what it would take. A verdict with no way through to its subject is the
+ * dead end this rebuild exists to remove.
+ */
+describe('cross-page links out of the Pipeline page', () => {
+  const PANEL_SOURCE = readFileSync(
+    path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+    'utf8',
+  );
+
+  it('opens the policy card on the Testing page from a declared-policy row', () => {
+    const tests = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderPipelineTests'),
+      WEBVIEW_SCRIPT.indexOf('function renderPipelineRules'),
+    );
+    expect(tests).toContain('data-action="dashboard-focus" data-page="testing"');
+    expect(tests).toContain('data-focus-kind="testing-policy"');
+  });
+
+  /**
+   * The kind was declared in `types.ts` and rendered as a focus attribute on
+   * every policy card while being absent from both allowlists, so any link to
+   * a policy degraded silently to "the right page, no record". Both copies
+   * validate independently; both must know the kind.
+   */
+  it('accepts testing-policy as a focus kind on the host and in the webview', () => {
+    const hostList = PANEL_SOURCE.slice(
+      PANEL_SOURCE.indexOf('const DASHBOARD_FOCUS_KINDS'),
+      PANEL_SOURCE.indexOf('];', PANEL_SOURCE.indexOf('const DASHBOARD_FOCUS_KINDS')),
+    );
+    expect(hostList).toContain("'testing-policy'");
+    const pageList = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const DASHBOARD_FOCUS_KINDS'),
+      WEBVIEW_SCRIPT.indexOf('];', WEBVIEW_SCRIPT.indexOf('const DASHBOARD_FOCUS_KINDS')),
+    );
+    expect(pageList).toContain("'testing-policy'");
+  });
+
+  /** A collapsed card answers the click with a heading and nothing else. */
+  it('expands the policy card the link named', () => {
+    expect(WEBVIEW_SCRIPT).toContain("target.focus.kind === 'testing-policy'");
+    expect(WEBVIEW_SCRIPT).toContain('state.testingExpandedIds = [target.focus.id]');
+  });
+});
+
+/**
+ * The executor row's link to a route's own site.
+ *
+ * The page names a route id; the host owns the destination. That is what lets
+ * a row offer a link without ever being able to choose one — and it only works
+ * if the host's allowlist knows every id the page can send.
+ */
+describe('executor documentation links', () => {
+  const PANEL_SOURCE = readFileSync(
+    path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+    'utf8',
+  );
+
+  it('sends the route id, never a URL', () => {
+    const executors = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf('function renderRulesExecutors'));
+    expect(executors).toContain('data-action="pipeline-setup-help" data-payload="${escapeAttr(route.id)}"');
+    expect(executors).toContain('route.docsUrl');
+    // The row asks whether a link exists; it never interpolates the address.
+    expect(executors).not.toContain('href=');
+  });
+
+  it('resolves every linked route id through the host allowlist', () => {
+    const table = PANEL_SOURCE.slice(
+      PANEL_SOURCE.indexOf('const LOCAL_CI_SETUP_HELP_URLS'),
+      PANEL_SOURCE.indexOf('};', PANEL_SOURCE.indexOf('const LOCAL_CI_SETUP_HELP_URLS')),
+    );
+    for (const id of ['act', 'buildkite', 'woodpecker']) {
+      expect(table).toContain(`findCiRoute('${id}')?.docsUrl`);
+    }
+  });
+});

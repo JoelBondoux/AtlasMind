@@ -1060,7 +1060,7 @@ export function getWebsiteStudioHtml(
         <div class="hero-actions">
           <button type="button" class="secondary" data-command="atlasmind.openProjectIdeation">Ideation board</button>
           <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Project dashboard</button>
-          <button type="button" class="atlas-discuss-action icon-only" data-command="atlasmind.openChatPanel" title="Ask AtlasMind to plan the next safe UI milestone" aria-label="Ask AtlasMind to plan the next UI milestone"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to plan the next UI milestone</span></button>
+          <button type="button" class="atlas-discuss-action icon-only" data-command="atlasmind.openChatPanel" title="Ask AtlasMind to plan the next safe UI milestone" aria-label="Ask AtlasMind to plan the next UI milestone"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">+</span><span class="atlas-discuss-label">Ask AtlasMind to plan the next UI milestone</span></button>
         </div>
       </header>
       ${options.readOnly ? `
@@ -1170,7 +1170,7 @@ function renderBriefPage(
         </div>
         <textarea id="siteDesignPrompt" rows="3" placeholder="Calm, editorial, lots of white space. Photography-led, no stock illustration.">${escapeHtml(config.designPrompt)}</textarea>
         <div class="inspector-actions">
-          <button type="button" id="askAboutSite" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review the whole-site design prompt" aria-label="Ask AtlasMind about the whole site"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about the whole site</span></button>
+          <button type="button" id="askAboutSite" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review the whole-site design prompt" aria-label="Ask AtlasMind about the whole site"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">☷</span><span class="atlas-discuss-label">Ask AtlasMind about the whole site</span></button>
         </div>
       </article>
       <div class="two-column">
@@ -1471,7 +1471,7 @@ function renderWireframesPage(
                 placeholder="A services page that leads with outcomes, three service cards, then a short enquiry form."></textarea>
             </label>
             <div class="inspector-actions">
-              <button type="button" id="askAboutPage" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this page's wireframe and design prompt" aria-label="Ask AtlasMind about this page"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind about this page</span></button>
+              <button type="button" id="askAboutPage" class="atlas-discuss-action icon-only" title="Ask AtlasMind to review this page's wireframe and design prompt" aria-label="Ask AtlasMind about this page"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">☷</span><span class="atlas-discuss-label">Ask AtlasMind about this page</span></button>
             </div>
           </div>
         </aside>

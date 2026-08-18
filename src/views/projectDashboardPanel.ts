@@ -237,6 +237,7 @@ import {
   buildDirectLocalRunConfirmation,
   buildDirectLocalRunPlan,
   describeCiRouteAvailability,
+  findCiRoute,
   resolveDirectLocalChecks,
   routeSatisfiesRequirement,
   type CiRouteAvailability,
@@ -642,13 +643,33 @@ interface TestingFixResult {
   agentId?: string;
 }
 
-type LocalCiSetupHelpId = 'docker-windows' | 'docker-macos' | 'docker-linux' | 'github-cli';
+type LocalCiSetupHelpId =
+  | 'docker-windows'
+  | 'docker-macos'
+  | 'docker-linux'
+  | 'github-cli'
+  /* Each executor that lives outside AtlasMind, keyed by its own route id. */
+  | 'act'
+  | 'buildkite'
+  | 'woodpecker';
 
+/**
+ * Every page this panel can send somebody to, and the only ones.
+ *
+ * The webview names an id; this table decides the destination. A route's own
+ * entry is read from `CI_ROUTES` rather than copied, so the executor row and
+ * the link it draws can never disagree about where "Buildkite" goes — and a
+ * route whose `docsUrl` is removed loses the link rather than acquiring a
+ * stale one.
+ */
 const LOCAL_CI_SETUP_HELP_URLS: Readonly<Record<LocalCiSetupHelpId, string>> = {
   'docker-windows': 'https://docs.docker.com/desktop/setup/install/windows-install/',
   'docker-macos': 'https://docs.docker.com/desktop/setup/install/mac-install/',
   'docker-linux': 'https://docs.docker.com/engine/install/',
   'github-cli': 'https://cli.github.com/',
+  act: findCiRoute('act')?.docsUrl ?? 'https://nektosact.com/',
+  buildkite: findCiRoute('buildkite')?.docsUrl ?? 'https://buildkite.com/docs/pipelines',
+  woodpecker: findCiRoute('woodpecker')?.docsUrl ?? 'https://woodpecker-ci.org/docs/intro',
 };
 
 const LOCAL_CI_TERMINAL_NAME = 'AtlasMind CI';
@@ -922,6 +943,12 @@ type DashboardNavigationTarget = {
 const DASHBOARD_FOCUS_KINDS: readonly DashboardFocusKind[] = [
   'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
   'assignment', 'follow-up',
+  // The Testing page already marked its policy cards as focusable targets and
+  // nothing could name one: the kind was declared in `types.ts`, rendered as a
+  // focus attribute, and absent from both allowlists — so every link to a
+  // policy degraded silently to "the right page, no record". Listed here and in
+  // the webview's own copy, which validates the same message independently.
+  'testing-policy',
 ];
 
 /** Validate command-boundary navigation before it reaches the webview. */
@@ -2360,6 +2387,15 @@ interface DashboardSnapshot {
      */
     builds: {
       records: import('../core/ciBuildLedger.js').CiBuildRecord[];
+      /**
+       * The one build whose output the live channel currently holds, if any.
+       *
+       * Build records persist per developer across sessions; the output channel
+       * does not. Offering "Output" on every row that ever streamed meant most
+       * of those buttons opened an empty channel — which reads as a button that
+       * does nothing. Only the run this session actually streamed can be shown.
+       */
+      liveOutputBuildId?: string;
       hasRunning: boolean;
       unobservedCount: number;
       githubLoaded: boolean;
@@ -4231,8 +4267,15 @@ export class ProjectDashboardPanel {
         await this.handleWorkOnCiFailure();
         return;
       case 'showLocalCiOutput':
-        this.getLocalCiRunner();
-        this.localCiOutput?.show(true);
+        // Only reveal a channel that exists. Creating one here would open an
+        // empty panel and call that success — the failure this replaces.
+        if (this.localCiOutput) {
+          this.localCiOutput.show(true);
+        } else {
+          void vscode.window.showInformationMessage(
+            'There is no runner output to show. The output channel holds the run this window streamed; a build from an earlier session leaves no output behind.',
+          );
+        }
         return;
       case 'copyLocalCiQueueCommand':
         await this.handleCopyLocalCiQueueCommand();
@@ -11622,8 +11665,13 @@ async function collectDashboardSnapshot(
     actInstalled: Boolean(findCommandExecutable(ACT_COMMAND)),
   });
   const ledgerView = buildCiLedgerView(localBuilds, ci?.runs);
+  const liveOutputBuildId = localRunner?.queuedRun
+    && ['starting', 'waiting', 'running', 'finished', 'failed'].includes(localRunner.lifecycle)
+    ? `local-runner-${localRunner.queuedRun.databaseId}`
+    : undefined;
   const buildsSnapshot = {
     records: ledgerView.builds,
+    ...(liveOutputBuildId ? { liveOutputBuildId } : {}),
     hasRunning: ledgerView.hasRunning,
     unobservedCount: ledgerView.unobservedCount,
     githubLoaded: ledgerView.githubLoaded,
@@ -19974,6 +20022,13 @@ const DASHBOARD_CSS = `
   .ci-activity-build.status-unknown .ci-activity-mark { color: var(--dash-muted); font-weight: 700; }
   .ci-activity-build-main { flex: 1 1 auto; min-width: 0; }
   .ci-activity-obs { font-size: 10.5px; color: var(--dash-muted); flex: 0 0 auto; }
+  /* Three short figures do not need a column each at full width — a stat that
+     spans the card reads as a headline, and these are footnotes to the ribbon. */
+  .ci-progressive-details-body > .mini-grid,
+  .ci-activity-trends .mini-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  }
+
   .ci-activity-flaky { margin-top: 12px; display: grid; gap: 2px; }
 
   /* ── Canvas overlays ────────────────────────────────────────── */
@@ -20037,6 +20092,25 @@ const DASHBOARD_CSS = `
     border-radius: 9px;
   }
   .ci-test-row > div { flex: 1 1 240px; min-width: 0; }
+  /* The same row, when it is a way through to the record it describes. */
+  .ci-test-row-link {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .ci-test-row-link:hover {
+    border-color: var(--dash-accent);
+    background: var(--dash-panel-strong);
+  }
+  .ci-test-row-link:focus-visible {
+    outline: 2px solid var(--dash-accent);
+    outline-offset: 2px;
+  }
+  .ci-test-row-go { color: var(--dash-muted); flex: 0 0 auto; }
+  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent); }
   .ci-subject-group { display: grid; gap: 6px; margin-bottom: 10px; }
   .ci-subject-head {
     display: flex;
@@ -20166,6 +20240,15 @@ const DASHBOARD_CSS = `
   }
   .ci-executor-row > div { flex: 1 1 240px; min-width: 0; }
   .ci-executor-row p { margin: 2px 0 0; }
+  .ci-executor-row.needs-setup {
+    border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn) 6%, transparent);
+  }
+  /* An executor nothing routes to recedes rather than nagging. */
+  .ci-executor-row.optional { opacity: 0.78; }
+  .ci-executors-setup { border-left: 3px solid var(--dash-warn); }
+  .ci-runner-drawer > summary { font-weight: 600; }
+
   .ci-executor-next { font-size: 11.5px; color: var(--dash-accent-strong); }
 
   .ci-routing-credit {
@@ -20740,6 +20823,33 @@ const DASHBOARD_CSS = `
   .ci-capability-card small { color: var(--dash-muted); }
 
   .ci-graph-card { display: grid; gap: 12px; overflow: hidden; }
+  /*
+   * Canvas beside its selected node where there is room, stacked where there
+   * is not.
+   *
+   * The single column is the base case, so a narrow panel needs no query to
+   * behave: the side-by-side layout is the enhancement, and it only applies
+   * when something is actually selected. The minmax(0, 1fr) on the canvas
+   * column matters — a grid track defaults to auto, and the canvas carries a
+   * min-width in the hundreds of pixels, so without it the graph would refuse
+   * to shrink and would push the panel off the card rather than scrolling
+   * inside its own box.
+   */
+  .ci-graph-split { display: grid; gap: 12px; align-items: start; min-width: 0; }
+  .ci-graph-main { display: grid; gap: 12px; min-width: 0; }
+  .ci-graph-aside { min-width: 0; }
+  .ci-graph-aside .ci-node-panel { margin-top: 0; }
+  @media (min-width: 1020px) {
+    .ci-graph-split.has-selection {
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    }
+    .ci-graph-aside {
+      position: sticky;
+      top: 8px;
+      max-height: 610px;
+      overflow: auto;
+    }
+  }
   .ci-graph-scroll {
     overflow: auto;
     border: 1px solid var(--dash-border);

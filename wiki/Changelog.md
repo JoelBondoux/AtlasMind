@@ -19,6 +19,48 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.360.0 — Six pieces of feedback, and a button convention
+
+Everything here came from using the rebuilt Pipeline page rather than from a plan, with one change that
+reaches well beyond it.
+
+**Atlas action buttons are pills now, throughout AtlasMind.** The Atlas mark on the left says *who* is
+being asked; a glyph on the right says *what* they will do. "Ask Atlas" only ever named the who, so a row
+of these was a row of identical circles and telling two apart meant hovering each one. There are five
+intents — discuss, improve, fix, draft, summarise — declared once and mirrored into the dashboard's own
+script, with a test pinning the two copies together because a duplicated vocabulary is exactly the thing
+that drifts. The tooltip and the accessible name still carry the whole sentence: a symbol nobody has
+learnt yet narrows a meaning, it never carries one alone.
+
+**The selected node's panel sits beside the canvas** where the window is wide enough, stacking beneath it
+where it is not. Below the graph it was a scroll away from the node that opened it — the one interaction
+the canvas exists for was pushing its own answer out of view. The column appears only when something is
+selected, so an empty gutter never narrows the graph for a panel that is usually absent.
+
+**Declared policy rows lead somewhere.** The Tests view can say a policy is unevidenced; only its card on
+the Testing page can say what it would take — the evidence, the owner, the severity rule, the scaffold,
+the issue draft. Clicking a row now opens that card, expanded, because landing on a closed one answers the
+click with a heading. This also fixed something quieter: `testing-policy` was a declared focus kind,
+rendered as a focus attribute on every policy card, and missing from both validation allowlists — so
+every cross-page link to a policy had been silently degrading to "the right page, no record".
+
+**`act`, Buildkite and Woodpecker link to their own documentation.** The page used to tell you to install
+`act` "from nektosact.com" and leave you retyping it, and listed the other two with no way to read about
+either. The address is a constant on the route; the page sends a route *id* and the host decides where
+that goes, so a row can offer a link without being able to choose one. The three core routes stay
+unlinked — they are set up from inside AtlasMind, and sending somebody to github.com to learn what "run
+here" means would be worse than saying nothing.
+
+**And three smaller corrections.** The borrowed-machine setup panel now leads the Rules view with its
+drawer open while setup is unfinished, which is exactly where the guided journey sends you. An executor
+nothing routes to reads *optional* rather than *needs setup*, derived from your own rules so the answer
+changes when your policy does — though before any rules exist an empty set means undecided, not unwanted,
+so the borrowed machine is never called optional at the moment you are setting it up. And Output buttons
+no longer appear on runs that left no output: the channel holds the run *this window* streamed, and a
+build from an earlier session leaves nothing behind.
+
+---
+
 ## v0.359.0 — The canvas does more
 
 The last phase of the Pipeline rebuild, and the one aimed squarely at “I like the workflow canvas, I wish

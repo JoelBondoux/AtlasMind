@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.359.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.360.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,26 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.359.0
+## What's new in 0.360.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Atlas action buttons are pills now, everywhere in AtlasMind.** The Atlas mark on the left says who is
+  being asked; a glyph on the right says what they will do. "Ask Atlas" names who and never what, so a row
+  of these was a row of identical circles you had to hover one at a time. The tooltip still carries the
+  whole sentence — the glyph narrows the meaning, it never has to carry it alone.
+
+- **The canvas panel sits beside the graph** where the window is wide enough. Below it, selecting a
+  workflow scrolled its own answer out of view.
+
+- **Declared policy rows now open the policy.** A row on the Tests view can say a policy is unevidenced;
+  only its card on the Testing page can say what it would take. Clicking through opens that card expanded.
+  Cross-page links to a policy had been silently landing on the right page with no record for as long as
+  the link existed.
+
+- **`act`, Buildkite and Woodpecker link to their own documentation** rather than naming a hostname you
+  had to retype, and an executor nothing routes to reads *optional* rather than *needs setup*.
 
 - **The canvas is now the CI/CD hub.** Three overlays on the one graph rather than three separate views:
   **Status** paints the latest outcome on each workflow from the same runs Activity reads, **Routing** says

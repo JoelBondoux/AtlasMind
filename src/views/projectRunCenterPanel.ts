@@ -1226,7 +1226,7 @@ export class ProjectRunCenterPanel {
               <div class="button-row">
                 <span class="btn-tip" id="tip-previewGoal"><button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button></span>
                 <span class="btn-tip" id="tip-applyPlanEdits"><button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button></span>
-                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="atlas-discuss-action icon-only" type="button" title="Ask AtlasMind to refine the current Project Run draft before execution" aria-label="Ask AtlasMind to refine this Project Run draft"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">Ask AtlasMind to refine this Project Run draft</span></button></span>
+                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="atlas-discuss-action icon-only" type="button" title="Ask AtlasMind to refine the current Project Run draft before execution" aria-label="Ask AtlasMind to refine this Project Run draft"><img src="${ATLAS_ICON_DATA_URI}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">✎</span><span class="atlas-discuss-label">Ask AtlasMind to refine this Project Run draft</span></button></span>
                 <span class="btn-tip" id="tip-executePreview"><button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button></span>
               </div>
 

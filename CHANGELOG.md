@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.360.0] - 2026-08-19
+
+The Pipeline round, answering six pieces of feedback from actually using the rebuilt page — plus one
+convention change that reaches every panel in AtlasMind.
+
+### Added
+
+- **Atlas action buttons are now pills carrying two symbols**, throughout AtlasMind: the Atlas mark on the
+  left saying *who* is being asked, and a glyph on the right saying *what* it will do. "Ask Atlas" names
+  who and never what, so a row of these was a row of identical circles and the only way to tell two apart
+  was to hover each one. Five intents — discuss, improve, fix, draft, summarise — declared once in
+  `webviewUtils` and mirrored in the dashboard's own script, pinned against each other by test because two
+  copies of one vocabulary is the thing most likely to drift. The tooltip and the accessible name still
+  carry the whole sentence: a symbol set nobody has learnt yet must never be the only statement of what a
+  button does, and the glyph is hidden from assistive technology rather than read out as a trigram.
+- **`act`, Buildkite and Woodpecker now link to their own documentation.** Previously the page told you to
+  install `act` "from nektosact.com" and left you retyping a hostname, while Buildkite and Woodpecker were
+  listed with no way to read about either. The URL is a constant on the route definition; the page sends a
+  route *id* and the host owns the destination, so a row can offer the link without ever being able to
+  choose one. The three core routes stay unlinked — they are set up from inside AtlasMind, and pointing
+  somebody at github.com to learn what "run here" means would be worse than the silence.
+
+### Changed
+
+- **The selected node's panel now sits beside the canvas** where the window is wide enough, stacking
+  beneath it where it is not. Below the graph it was a scroll away from the node that opened it, so the
+  one interaction the canvas exists for pushed its own result out of view. The column only appears when
+  something is selected — an empty gutter would narrow the canvas permanently for a panel absent most of
+  the time.
+- **Declared policy rows on the Tests view open the policy's card on the Testing page.** This page can say
+  a policy is unevidenced; only that card can say what it would take — the evidence, the owner, the
+  severity rule, the scaffold and the issue draft all live there. The card is expanded on arrival, because
+  landing on a closed one answers the click with a heading.
+- **Trends and flakiness** shows its three statistics as a compact row rather than three full-width
+  identities.
+
+### Fixed
+
+- **`testing-policy` was declared as a focus kind, rendered as a focus attribute on every policy card, and
+  absent from both allowlists** — so every cross-page link to a policy degraded silently to "the right
+  page, no record". Now listed on the host and in the webview, which validate the same message
+  independently.
+- **The borrowed-machine setup panel led the Rules view while setup is unfinished**, with its drawer open,
+  instead of sitting closed beneath a grid — which is exactly where the guided journey's "prepare this
+  computer" step lands you.
+- **An executor nothing routes to now reads *optional*, not *needs setup*.** Derived from your own routing
+  rules rather than a hardcoded flag, so the answer changes when your policy does; before any rules exist,
+  an empty set means undecided rather than unwanted, so the borrowed machine is never called optional at
+  the moment you are setting it up.
+- **Output buttons on runs that left no output are gone.** The output channel holds the run *this window*
+  streamed; a build from an earlier session leaves nothing behind, and the row now says so rather than
+  offering a button that opens an empty panel.
+
 ## [0.359.0] - 2026-08-19
 
 Phase D, completing the Pipeline redesign: the canvas becomes the CI/CD hub.

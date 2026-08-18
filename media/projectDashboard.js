@@ -59,10 +59,36 @@
     }
   }
 
+  /**
+   * The glyph vocabulary, mirroring `ATLAS_ACTION_GLYPHS` in webviewUtils.
+   *
+   * Duplicated deliberately: this file is a script handed to a browser and
+   * cannot import from the host. Pinned against the host's copy by test, so one
+   * intent cannot come to mean two things on two surfaces.
+   */
+  const ATLAS_ACTION_GLYPHS = {
+    discuss: '☷',
+    improve: '✎',
+    fix: '⚒',
+    draft: '+',
+    summarise: '≡',
+  };
+
+  /**
+   * An Atlas action as a pill: who is being asked on the left, what they will
+   * do on the right.
+   *
+   * It was a bare circle, identical on every row whatever it did — "Ask Atlas"
+   * says who but never what, so telling two apart meant hovering each one. The
+   * glyph narrows the action at a glance; the tooltip and the accessible name
+   * still carry the whole sentence, because a symbol set nobody has learnt yet
+   * must never be the only thing carrying the meaning.
+   */
   function renderAtlasDiscussAction(action, payload, label, options = {}) {
     const title = options.title || label;
     const disabled = options.disabled ? ' disabled aria-disabled="true"' : '';
-    return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"${disabled}><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
+    const glyph = ATLAS_ACTION_GLYPHS[options.intent] || ATLAS_ACTION_GLYPHS.discuss;
+    return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"${disabled}><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">${glyph}</span><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
   /**
@@ -203,7 +229,7 @@
 
   const DASHBOARD_FOCUS_KINDS = [
     'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
-    'assignment', 'follow-up',
+    'assignment', 'follow-up', 'testing-policy',
   ];
 
   // The host validates this first; the webview validates it again because a
@@ -442,6 +468,11 @@
     } else if (target.focus.kind === 'debt') {
       state.debtSearch = '';
       state.debtRuleFilter = 'all';
+    } else if (target.focus.kind === 'testing-policy') {
+      // Policy cards are collapsed by default and open one at a time. Landing
+      // on a closed card would answer the click with a heading — the evidence,
+      // the failures and the actions are all inside it.
+      state.testingExpandedIds = [target.focus.id];
     }
   }
 
@@ -2761,7 +2792,7 @@
               'discuss-dashboard-error',
               '',
               'Resolve with Atlas',
-              { title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
+              { intent: 'fix', title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
             )}
           </div>
         </div>
@@ -3062,7 +3093,7 @@
             })}
             ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
             <div class="tag-row">
-              ${grouped.length > 0 ? grouped.map(group => renderAtlasDiscussAction('gap-group', group.priority, `Ask AtlasMind to resolve the ${group.priority} gap group`, { title: `Ask AtlasMind to resolve ${group.items.length} ${group.priority} gap-analysis item${group.items.length === 1 ? '' : 's'}` })).join('') : ''}
+              ${grouped.length > 0 ? grouped.map(group => renderAtlasDiscussAction('gap-group', group.priority, `Ask AtlasMind to resolve the ${group.priority} gap group`, { intent: 'fix', title: `Ask AtlasMind to resolve ${group.items.length} ${group.priority} gap-analysis item${group.items.length === 1 ? '' : 's'}` })).join('') : ''}
               <button type="button" class="action-link" data-action="gap-run" data-payload="" ${state.gapBusy ? 'disabled' : ''}>${state.gapBusy ? 'Running…' : gap.completed ? 'Re-run Analysis' : 'Run Gap Analysis'}</button>
             </div>
           </article>
@@ -3080,7 +3111,7 @@
                     <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
                     <div class="tag-row">
                       ${renderDirectorOwnerControl('gap', item.id)}
-                      ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
+                      ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { intent: 'fix', title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
                       <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
                     </div>
@@ -3763,6 +3794,7 @@
                       'Ask Atlas',
                       {
                         iconOnly: true,
+                        intent: 'summarise',
                         title: `Ask Atlas for a deterministic summary of ${branch.name}`,
                       },
                     )}
@@ -3979,7 +4011,7 @@
             <div class="stat-detail">${escapeHtml(rt.tdd.detail)}</div>
             <div class="tag-row">
               ${rt.tdd.missing > 0 || rt.tdd.blocked > 0 ? `
-              ${renderAtlasDiscussAction('prompt', buildTddChatPrompt(rt.tdd), 'Ask AtlasMind to fix the TDD gaps', { title: 'Ask AtlasMind to inspect and fix the blocked or missing TDD evidence' })}
+              ${renderAtlasDiscussAction('prompt', buildTddChatPrompt(rt.tdd), 'Ask AtlasMind to fix the TDD gaps', { intent: 'fix', title: 'Ask AtlasMind to inspect and fix the blocked or missing TDD evidence' })}
               <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(rt.tdd))}">▶ Plan a TDD fix run</button>
               ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
@@ -4261,7 +4293,7 @@
             </div>
             <div class="tag-row">
               ${selectedTest ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(`${selectedTest.relativePath}#L${selectedTest.line}`)}">Open at source</button>` : ''}
-              ${selectedTest ? renderAtlasDiscussAction('prompt', `Review the test named '${selectedTest.title}' in ${selectedTest.relativePath} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.`, 'Ask AtlasMind to analyze this test', { title: 'Ask AtlasMind to analyze the selected test and identify coverage gaps' }) : ''}
+              ${selectedTest ? renderAtlasDiscussAction('prompt', `Review the test named '${selectedTest.title}' in ${selectedTest.relativePath} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.`, 'Ask AtlasMind to analyze this test', { intent: 'discuss', title: 'Ask AtlasMind to analyze the selected test and identify coverage gaps' }) : ''}
             </div>
           </article>
         </div>
@@ -4407,7 +4439,7 @@
             'testing-fix-chat',
             '',
             result.outcome === 'failed' ? 'Resolve with Atlas' : 'Discuss with Atlas',
-            { title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
+            { intent: 'fix', title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
           )}
           <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
         </div>`
@@ -4583,8 +4615,8 @@
           ${detail && detail.scaffoldable ? `<button type="button" class="action-link" data-action="testing-policy-scaffold" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Create the starter framework for ${row.label} only. The exact files are listed before anything is written.`)}">Scaffold framework</button>` : ''}
           ${detail && detail.followUp ? `<button type="button" class="action-link" data-action="testing-policy-followup" data-payload="${escapeAttr(row.id)}" title="${escapeAttr(`Add ${row.label} to the owner’s follow-ups`)}">Add to follow-ups</button>` : ''}
           ${detail && detail.issue ? `<button type="button" class="action-link action-link-strong" data-action="testing-policy-issue" data-payload="${escapeAttr(row.id)}" title="${escapeAttr('Draft a GitHub issue for this finding. The draft is shown before anything is posted.')}">File as issue…</button>` : ''}
-          ${renderAtlasDiscussAction('discuss-testing-policy', row.id, 'Ask Atlas', { title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options` })}
-          ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
+          ${renderAtlasDiscussAction('discuss-testing-policy', row.id, 'Ask Atlas', { intent: 'discuss', title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options` })}
+          ${renderAtlasDiscussAction('prompt', row.actionPrompt, row.failedCount > 0 ? 'Ask AtlasMind to fix this' : row.status === 'covered' ? 'Ask AtlasMind to review this' : 'Ask AtlasMind to write these tests', { intent: 'fix', title: row.failedCount > 0 ? `Ask AtlasMind to fix failures for ${row.label}` : row.status === 'covered' ? `Ask AtlasMind to review the evidence for ${row.label}` : `Ask AtlasMind to add missing tests for ${row.label}` })}
         </div>
       </div>`;
   }
@@ -4941,7 +4973,7 @@
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
-          ${renderAtlasDiscussAction('fix-activated-testing', '', fixRunning ? 'AtlasMind is repairing activated testing' : 'Ask AtlasMind to fix activated testing', { disabled: fixRunning, title: fixRunning ? 'AtlasMind is currently repairing the enabled testing surfaces' : 'Ask AtlasMind to inspect and repair all enabled testing surfaces through the normal approval flow' })}
+          ${renderAtlasDiscussAction('fix-activated-testing', '', fixRunning ? 'AtlasMind is repairing activated testing' : 'Ask AtlasMind to fix activated testing', { intent: 'fix', disabled: fixRunning, title: fixRunning ? 'AtlasMind is currently repairing the enabled testing surfaces' : 'Ask AtlasMind to inspect and repair all enabled testing surfaces through the normal approval flow' })}
           <button type="button" class="action-link" data-action="reconcile-testing"${fixRunning ? ' disabled' : ''}>Reconcile with the repository…</button>
           <span class="list-meta">Fix runs only after confirmation and normal tool approvals; routed activity and its final report appear below. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
         </div>
@@ -5436,7 +5468,7 @@
         ${issue.body ? `<div class="list-meta issue-body">${escapeHtml(issue.body.slice(0, 320))}${issue.bodyTruncated || issue.body.length > 320 ? '…' : ''}</div>` : ''}
         <div class="tag-row">
           ${isOpen ? renderDirectorOwnerControl('issue', String(issue.number)) : ''}
-          ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
+          ${renderAtlasDiscussAction('issues-work', String(issue.number), `Ask AtlasMind to work on issue ${issue.number}`, { intent: 'fix', title: `Ask AtlasMind to inspect issue #${issue.number} as an untrusted report and propose or make the smallest safe change` })}
           <button type="button" class="action-link" data-action="issues-comment" data-payload="${escapeAttr(String(issue.number))}">${composing ? 'Cancel comment' : 'Comment'}</button>
           ${isOpen
             ? `<button type="button" class="action-link" data-action="issues-close" data-payload="${escapeAttr(String(issue.number))}">Close</button>`
@@ -5939,7 +5971,7 @@
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
-          ${renderAtlasDiscussAction('work-on-debt', entry.id, 'Ask AtlasMind to review this debt entry', { title: 'Ask AtlasMind to inspect this debt record and propose whether to fix, retain, or reclassify it' })}
+          ${renderAtlasDiscussAction('work-on-debt', entry.id, 'Ask AtlasMind to review this debt entry', { intent: 'discuss', title: 'Ask AtlasMind to inspect this debt record and propose whether to fix, retain, or reclassify it' })}
         </div>
       </div>`).join('');
 
@@ -6606,10 +6638,22 @@
           <details class="ci-progressive-details">
             <summary>Every declared policy and its evidence</summary>
             <div class="ci-progressive-details-body ci-tests-list">
-              ${coverage.rows.map(row => `<div class="ci-test-row">
+              ${/*
+                 * Each row opens the policy's own card on the Testing page.
+                 * This list can say a policy is `missing`; only that card can
+                 * say what it would take — the evidence, the owner, the
+                 * severity rule, the scaffold and the issue draft all live
+                 * there. Reading a verdict with no way to reach the thing it
+                 * judges is the dead end this page was rebuilt to remove.
+                 */''}
+              ${coverage.rows.map(row => `<button type="button" class="ci-test-row ci-test-row-link"
+                data-action="dashboard-focus" data-page="testing"
+                data-focus-kind="testing-policy" data-focus-id="${escapeAttr(row.id)}"
+                title="${escapeAttr(`Open ${row.label} on the Testing page — its evidence, owner and next actions`)}">
                 <span class="tag ${row.status === 'covered' ? 'tag-good' : row.status === 'missing' ? 'tag-warn' : ''}">${escapeHtml(row.status)}</span>
                 <div><strong>${escapeHtml(row.label)}</strong><div class="list-meta">${escapeHtml(row.detail || '')}</div></div>
-              </div>`).join('')}
+                <span class="ci-test-row-go" aria-hidden="true">→</span>
+              </button>`).join('')}
             </div>
           </details>
         </article>`;
@@ -6661,6 +6705,18 @@
       ],
     });
 
+    // Whether the borrowed machine still needs work. When it does, this view
+    // leads with it: somebody arriving from the journey's "prepare this
+    // computer" step is here to finish setup, not to read a policy grid.
+    const runnerEntry = (routes || []).find(entry => (entry.route || {}).id === 'local-runner');
+    const runnerReferenced = ((routing.matrix || []).some(row => (row.cells || []).some(cell =>
+      cell.routeId === 'local-runner' && (cell.state === 'preferred' || cell.state === 'fallback'))))
+      || !(routing.matrix || []).length;
+    const needsSetup = Boolean(runnerEntry
+      && runnerReferenced
+      && runnerEntry.status !== 'available'
+      && runnerEntry.status !== 'unimplemented');
+
     const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
     const creditRow = `<div class="ci-rules-credit">
       <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
@@ -6669,8 +6725,7 @@
     </div>`;
 
     if (!routing.configPresent) {
-      return `<div class="ci-studio-stack">
-        <article class="panel-card">
+      const intro = `<article class="panel-card">
           <div class="ci-section-heading">
             <div>
               <p class="card-kicker">Rules</p>
@@ -6681,9 +6736,9 @@
           ${help.panel}
           ${creditRow}
           <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
-        </article>
-        ${renderRulesExecutors(routes, runnerCard)}
-      </div>`;
+        </article>`;
+      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix });
+      return `<div class="ci-studio-stack">${needsSetup ? executors + intro : intro + executors}</div>`;
     }
 
     const matrix = routing.matrix || [];
@@ -6767,41 +6822,101 @@
         <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
       </article>
 
-      ${renderRulesExecutors(routes, runnerCard)}
+      ${renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix })}
     </div>`;
   }
 
   /**
-   * One line per executor, with the detail behind a drawer.
+   * One line per executor, with the setup detail behind a drawer — unless
+   * something needs setting up, in which case the drawer is open and this card
+   * leads the view.
    *
-   * The runner had a whole tab, most of which was diagnostics nobody reads
-   * until something breaks. A blocked executor states the step that would
-   * unblock it rather than presenting a dead capability card — an unavailable
-   * action should teach its own setup.
+   * The drawer was right for a configured machine, where the runner's capacity
+   * and safety detail is diagnostics nobody reads until something breaks. It
+   * was wrong during setup, which is exactly when somebody needs it: the
+   * journey's "prepare this computer" step lands here, and what it wanted was a
+   * closed disclosure below a grid. That is the state-first rule Activity
+   * already follows — what needs you floats — applied to this view too.
    */
-  function renderRulesExecutors(routes, runnerCard) {
+  function renderRulesExecutors(routes, runnerCard, options) {
+    const needsSetup = Boolean(options && options.needsSetup);
+    // Which executors your rules actually depend on — derived, not declared. A
+    // route no rule prefers or falls back to is one you can ignore, and saying
+    // "needs setup" against it reads as a chore you have to finish. Deriving it
+    // means the answer changes when your policy does, rather than a hardcoded
+    // "optional" flag going stale the moment somebody routes work to `act`.
+    const referenced = new Set();
+    for (const row of (options && options.matrix) || []) {
+      for (const cell of row.cells || []) {
+        if (cell.state === 'preferred' || cell.state === 'fallback') {
+          referenced.add(cell.routeId);
+        }
+      }
+    }
     const rows = (routes || []).map(entry => {
       const route = entry.route || {};
-      const tone = entry.status === 'available' ? 'tag-good' : entry.status === 'unimplemented' ? '' : 'tag-warn';
-      const label = entry.status === 'available' ? 'ready' : entry.status === 'unimplemented' ? 'not built' : 'needs setup';
-      return `<div class="ci-executor-row">
+      const blocked = entry.status !== 'available' && entry.status !== 'unimplemented';
+      // Needed here means one of two things: a rule actually routes work to it,
+      // or it is one of the three routes setup is built around and no rules
+      // exist yet to say otherwise. Before any routing file is written — which
+      // is exactly when somebody is setting up — an empty rule set means
+      // undecided, not unwanted.
+      const core = route.necessity === 'core';
+      const used = referenced.has(route.id) || (core && referenced.size === 0);
+      const tone = entry.status === 'available' ? 'tag-good'
+        : entry.status === 'unimplemented' ? ''
+          : used ? 'tag-warn' : '';
+      const label = entry.status === 'available' ? 'ready'
+        : entry.status === 'unimplemented' ? 'no adapter yet'
+          : used ? 'needs setup' : 'optional';
+      // An unavailable executor states the step that would unblock it *and*
+      // offers it. Text alone left people reading an instruction with nothing
+      // to press.
+      const action = route.id === 'direct-local' && entry.status === 'available'
+        ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run checks now…</button>'
+        : route.id === 'local-runner' && blocked
+          ? `<button type="button" class="action-link ${used ? 'primary' : ''}" data-action="pipeline-runner-inspect">Set up this machine…</button>`
+          : '';
+      // An executor that lives outside AtlasMind gets a way to reach its own
+      // site. Naming a hostname in prose leaves somebody retyping it; the
+      // route id goes to the host, which owns the destination, so this row can
+      // offer the link without being able to choose where it goes.
+      const docs = route.docsUrl
+        ? `<button type="button" class="action-link" data-action="pipeline-setup-help" data-payload="${escapeAttr(route.id)}">${escapeHtml(route.label || route.id)} docs ↗</button>`
+        : '';
+      // An optional executor explains that before it explains what is missing:
+      // reading a blocker for something you never needed is how a setup list
+      // feels endless.
+      const detail = entry.status === 'unimplemented'
+        ? `Alternative executor — AtlasMind has no adapter for it yet. ${route.blurb || ''}`.trim()
+        : blocked && !used
+          ? `${core ? 'Not used by any rule' : 'Optional alternative'} — nothing routes work here, so you can leave it. ${(entry.blockers || [])[0] || ''}`.trim()
+          : (entry.blockers || [])[0] || route.blurb || '';
+      return `<div class="ci-executor-row${blocked && used ? ' needs-setup' : ''}${!used && entry.status !== 'available' ? ' optional' : ''}">
         <span class="tag ${tone}">${escapeHtml(label)}</span>
         <div>
           <strong>${escapeHtml(route.label || route.id || '')}</strong>
-          <p class="stat-detail">${escapeHtml((entry.blockers || [])[0] || route.blurb || '')}</p>
+          <p class="stat-detail">${escapeHtml(detail)}</p>
         </div>
-        ${entry.nextStep ? `<span class="ci-executor-next">${escapeHtml(entry.nextStep)}</span>` : ''}
-        ${route.id === 'direct-local' && entry.status === 'available'
-          ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run checks now…</button>'
-          : ''}
+        ${entry.nextStep && used ? `<span class="ci-executor-next">${escapeHtml(entry.nextStep)}</span>` : ''}
+        ${action}
+        ${docs}
       </div>`;
     }).join('');
 
-    return `<article class="panel-card">
-      <div class="ci-section-heading"><div><p class="card-kicker">Executors</p><h3>What can run a check on this machine</h3></div></div>
+    return `<article class="panel-card${needsSetup ? ' ci-executors-setup' : ''}">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : ''}</p>
+          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine' : 'What can run a check on this machine')}</h3>
+          ${needsSetup ? '<p class="stat-detail">The next action and everything blocking it are below, open. Nothing here starts a runner — every step still asks first.</p>' : ''}
+        </div>
+      </div>
       <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
-      <details class="ci-progressive-details">
-        <summary>Borrowed machine — setup, capacity and safety detail</summary>
+      <details class="ci-progressive-details ci-runner-drawer"${needsSetup ? ' open' : ''}>
+        <summary>${escapeHtml(needsSetup
+          ? 'Borrowed machine — the next step, and what is blocking it'
+          : 'Borrowed machine — setup, capacity and safety detail')}</summary>
         <div class="ci-progressive-details-body">${runnerCard}</div>
       </details>
     </article>`;
@@ -6950,6 +7065,20 @@
         ? escapeHtml(routingSummary.join(' · '))
         : 'no routing rules are declared yet, so AtlasMind has no recommendation to show.'} <span class="stat-detail">Routes are chosen per kind of check, not per workflow file.</span></div>` : ''}
       ${overlays.status && !runs.length ? '<div class="ci-overlay-note"><strong>Status</strong> — no runs have been read, so nothing is painted. That is not evidence that anything passed.</div>' : ''}
+      ${/*
+         * The canvas and the selected node's panel are laid out side by side
+         * where there is room for both, and stacked where there is not.
+         *
+         * Below the graph, the panel was a scroll away from the node that
+         * opened it: selecting a workflow moved the answer off screen, so the
+         * one interaction the canvas exists for pushed its own result out of
+         * view. Beside it, the selection and what it says are readable at
+         * once. The column only appears when something is selected — an empty
+         * gutter would narrow the canvas permanently for a panel that is
+         * absent most of the time.
+         */''}
+      <div class="ci-graph-split${selected ? ' has-selection' : ''}">
+      <div class="ci-graph-main">
       <div class="ci-graph-scroll" data-scroll-key="pipeline-graph">
         <div class="ci-graph-canvas" style="height:${height}px; min-width:${width}px" aria-label="Interactive CI workflow graph">
           <svg class="ci-graph-edges" width="100%" height="100%" aria-hidden="true">${edges.map(edge => `<path data-edge-from="${edge[0]}" data-edge-to="${edge[1]}"></path>`).join('')}</svg>
@@ -6960,7 +7089,9 @@
         </div>
       </div>
       <div class="ci-graph-legend"><span><i class="trigger"></i>Event</span><span><i class="workflow"></i>Workflow</span><span><i class="job"></i>Job</span><span><i class="gate"></i>Enforcement</span>${overlays.delivery ? '<span><i class="stage"></i>Delivery stage</span>' : ''}</div>
-      ${selected ? renderCanvasNodePanel(selected, latest.get(selected.title), context) : ''}
+      </div>
+      ${selected ? `<aside class="ci-graph-aside" aria-label="Selected node">${renderCanvasNodePanel(selected, latest.get(selected.title), context)}</aside>` : ''}
+      </div>
     </article>`;
   }
 
@@ -6990,7 +7121,7 @@
       <div class="tag-row">
         <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open file</button>
         <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}">Run locally with act…</button>
-        ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
+        ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { intent: 'improve', title: 'Explain this workflow and propose a safe improvement plan' })}
         <button type="button" class="action-link" data-action="pipeline-node-clear">Close</button>
       </div>
     </section>`;
@@ -7386,7 +7517,11 @@
           <div class="list-meta">${escapeHtml(build.routeLabel || build.routeId || '')}${build.branch ? ` · ${escapeHtml(build.branch)}` : ''}${duration === undefined ? '' : ` · ${escapeHtml(formatDurationCompact(duration))}`} · ${escapeHtml(when)}</div>
         </div>
         <span class="ci-activity-obs" title="${escapeAttr(describeBuildObservation(build))}">${escapeHtml(build.observation || '')}</span>
-        ${build.pointer && build.pointer.kind === 'output-channel' ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>' : ''}
+        ${build.pointer && build.pointer.kind === 'output-channel' && build.id === builds.liveOutputBuildId
+          ? '<button type="button" class="action-link" data-action="pipeline-runner-output">Output</button>'
+          : build.pointer && build.pointer.kind === 'output-channel'
+            ? '<span class="ci-activity-obs" title="The output channel holds the run this window streamed. A build from an earlier session leaves no output behind.">output not retained</span>'
+            : ''}
       </div>`;
     }).join('');
 
@@ -7405,7 +7540,7 @@
     const p50 = allDurations.length >= 3 ? allDurations[Math.floor(allDurations.length * 0.5)] : undefined;
     const p95 = allDurations.length >= 3 ? allDurations[Math.min(allDurations.length - 1, Math.floor(allDurations.length * 0.95))] : undefined;
     const flaky = pipelineFlakyWorkflows(runs);
-    const trendsCard = `<details class="ci-progressive-details">
+    const trendsCard = `<details class="ci-progressive-details ci-activity-trends">
       <summary>Trends and flakiness${flaky.length ? ` · ${flaky.length} flaky` : ''}</summary>
       <div class="ci-progressive-details-body">
         <div class="mini-grid">
@@ -7527,7 +7662,7 @@
         <div class="tag-row ci-workflow-actions">
           <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(workflow.path)}">Open workflow</button>
           <button type="button" class="action-link" data-action="pipeline-run-act" data-payload="${escapeAttr(workflow.id)}" title="Read this workflow, say what act cannot reproduce, then offer the command">Run locally with act…</button>
-          ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { title: 'Explain this workflow and propose a safe improvement plan' })}
+          ${renderAtlasDiscussAction('pipeline-review-workflow', workflow.id, `Review ${workflow.name} with AtlasMind`, { intent: 'improve', title: 'Explain this workflow and propose a safe improvement plan' })}
         </div>
       </div>`).join('');
     const managerCard = `
@@ -8666,7 +8801,7 @@
               : `Nothing is tagged for ${gateLabel} yet. Use the ${gateLabel} chip on a backlog item below to put it on this release.`)}</div>
           `}
           <div class="tag-row">
-            ${renderAtlasDiscussAction('prompt', mvp.planPrompt || '', `Ask AtlasMind to plan the ${gateLabel} route`, { title: `Ask AtlasMind to plan the shortest defensible route to ${gateLabel}` })}
+            ${renderAtlasDiscussAction('prompt', mvp.planPrompt || '', `Ask AtlasMind to plan the ${gateLabel} route`, { intent: 'draft', title: `Ask AtlasMind to plan the shortest defensible route to ${gateLabel}` })}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
           </div>
         </article>
@@ -8935,7 +9070,7 @@
           ` : `
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|open')}" title="Reopen this finding">Reopen</button>
           `}
-          ${renderAtlasDiscussAction('prompt', 'Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.', 'Ask AtlasMind to investigate this finding', { title: 'Ask AtlasMind to verify this finding and propose the smallest concrete response' })}
+          ${renderAtlasDiscussAction('prompt', 'Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.', 'Ask AtlasMind to investigate this finding', { intent: 'discuss', title: 'Ask AtlasMind to verify this finding and propose the smallest concrete response' })}
         </div>
       </article>
     `;
@@ -9267,7 +9402,7 @@
         ${entry.sourceHint ? `<div class="list-meta">Tracks: ${escapeHtml(entry.sourceHint)}</div>` : ''}
         <div class="tag-row">
           ${entry.status === 'missing' || entry.status === 'review-due' ? renderDirectorOwnerControl('document', entry.id) : ''}
-          ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { title: 'Ask AtlasMind to inspect and update this document' })}
+          ${renderAtlasDiscussAction('prompt', entry.updatePrompt, 'Ask AtlasMind to update this document', { intent: 'improve', title: 'Ask AtlasMind to inspect and update this document' })}
           <button type="button" class="action-link" data-action="documents-mark-reviewed" data-payload="${escapeAttr(entry.id)}" title="Record that this document is current as of now">Mark reviewed</button>
           ${entry.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.path)}">Open</button>` : ''}
           <button type="button" class="action-link" data-action="documents-edit-auto" data-payload="${escapeAttr(entry.id)}">Edit</button>
@@ -10434,7 +10569,7 @@
                           'delivery-discuss-step',
                           step.id,
                           `Ask AtlasMind to resolve ${step.label}`,
-                          { title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
+                          { intent: 'fix', title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
                         ) : ''}
                       </div>
                       <p>${escapeHtml(step.detail)}</p>
@@ -11458,7 +11593,7 @@
         <div class="stat-detail">${escapeHtml(item.detail)}</div>
         ${resolved ? `<span class="card-destination">${escapeHtml(resolved.destination)} ›</span>` : ''}`;
     if (resolved && resolved.action === 'prompt') {
-      return `<div class="action-card score-recommendation-item static has-atlas-action">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, `Ask AtlasMind to address ${item.title}`, { title: `Ask AtlasMind to address this recommendation: ${item.title}` })}</div>`;
+      return `<div class="action-card score-recommendation-item static has-atlas-action">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, `Ask AtlasMind to address ${item.title}`, { intent: 'fix', title: `Ask AtlasMind to address this recommendation: ${item.title}` })}</div>`;
     }
     return resolved
       ? `<button type="button" class="action-card score-recommendation-item is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.destination)}">${inner}</button>`
@@ -11698,7 +11833,7 @@
     const resolved = resolveActionAttrs(options.action);
     if (resolved) {
       if (resolved.action === 'prompt') {
-        return `<div class="metric-pill has-atlas-action${toneClass}">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}</div>`;
+        return `<div class="metric-pill has-atlas-action${toneClass}">${inner}${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { intent: 'fix', title: resolved.hint })}</div>`;
       }
       return `<button type="button" class="metric-pill is-actionable${toneClass}" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">${inner}</button>`;
     }
@@ -11716,7 +11851,7 @@
         return `
           <div class="signal-card ${ok ? 'good' : 'warn'} static has-atlas-action">
             ${body}
-            ${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { title: resolved.hint })}
+            ${renderAtlasDiscussAction('prompt', resolved.payload, resolved.hint, { intent: 'fix', title: resolved.hint })}
           </div>
         `;
       }
@@ -11748,7 +11883,7 @@
     const resolved = resolveActionAttrs(o.action);
     const actionBtn = resolved
       ? resolved.action === 'prompt'
-        ? renderAtlasDiscussAction('prompt', resolved.payload, o.actionLabel || resolved.hint, { title: o.actionLabel || resolved.hint })
+        ? renderAtlasDiscussAction('prompt', resolved.payload, o.actionLabel || resolved.hint, { intent: 'fix', title: o.actionLabel || resolved.hint })
         : `<button type="button" class="action-link primary" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}">${escapeHtml(o.actionLabel || resolved.hint)}</button>`
       : '';
     return `

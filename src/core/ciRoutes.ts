@@ -129,6 +129,18 @@ export interface CiRouteDefinition {
   evidenceCaveat: string;
   /** Whether this route runs the declared thing, or an approximation of it. */
   fidelity: CiRouteFidelity;
+  /**
+   * Whether AtlasMind's own setup flow depends on this route.
+   *
+   * `core` routes are the three the guided setup is built around — run here,
+   * lend this machine, GitHub's runners — and an unfinished one is a real gap.
+   * `alternative` routes are extra executors somebody may adopt and never has
+   * to: reporting one as "needs setup" turns a capability you declined into a
+   * chore you have not finished, which is how a setup list starts feeling
+   * endless. Declared rather than inferred, because it must still be answerable
+   * before any routing file exists — the moment somebody is actually setting up.
+   */
+  necessity: 'core' | 'alternative';
   /** Required for an approximate route: what is approximated, and how. */
   fidelityNote?: string;
   capabilities: CiRouteCapabilities;
@@ -142,6 +154,20 @@ export interface CiRouteDefinition {
   implementation: 'implemented' | 'declared';
   /** For a declared route, what adopting it would mean. */
   adapterNote?: string;
+  /**
+   * Where somebody would go to read about this route, or install it.
+   *
+   * A constant here, never a URL assembled at render time and never one a
+   * webview message could name: the caller opens it by *route id* and this
+   * table decides the destination, so the page can offer a link without ever
+   * being able to choose one. `https` only, and only a route's own project —
+   * a link AtlasMind draws is a claim about where it goes.
+   *
+   * Absent where the route needs no page: the three core routes are set up
+   * from inside AtlasMind, and pointing somebody at github.com to learn what
+   * "run here" means would be worse than saying nothing.
+   */
+  docsUrl?: string;
 }
 
 /**
@@ -170,6 +196,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     // Faithful to what it claims: this *is* your machine, so nothing about it
     // is approximated. The narrow evidence class is what limits it, not fidelity.
     fidelity: 'faithful',
+    necessity: 'core',
     implementation: 'implemented',
   },
   {
@@ -193,6 +220,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     // GitHub's own official runner image and runner binary, executing the real
     // workflow. The container is local; what runs inside it is not an emulation.
     fidelity: 'faithful',
+    necessity: 'core',
     implementation: 'implemented',
   },
   {
@@ -211,6 +239,7 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     },
     cost: 'hosted-allowance',
     fidelity: 'faithful',
+    necessity: 'core',
     implementation: 'implemented',
   },
   {
@@ -230,7 +259,11 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     cost: 'local-only',
     fidelity: 'approximate',
     fidelityNote: 'Runs the real workflow file, but its images are deliberately incomplete and artifacts, caches, service containers, secrets and the event payload are emulated or absent. AtlasMind reads each workflow before offering a run and reports exactly which of those apply.',
+    // An extra executor, never a prerequisite: everything it does, the borrowed
+    // machine or GitHub already does with better fidelity.
+    necessity: 'alternative',
     implementation: 'implemented',
+    docsUrl: 'https://nektosact.com/',
   },
   {
     id: 'buildkite',
@@ -251,8 +284,10 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     // what runs is a translation of the workflow rather than the workflow.
     fidelity: 'approximate',
     fidelityNote: 'Uses its own pipeline format, so what runs is a second definition of the checks rather than the one GitHub would run.',
+    necessity: 'alternative',
     implementation: 'declared',
     adapterNote: 'Adapter not built. Uses its own pipeline format, so adopting it means maintaining a second definition of the checks.',
+    docsUrl: 'https://buildkite.com/docs/pipelines',
   },
   {
     id: 'woodpecker',
@@ -273,8 +308,10 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
     // what runs is a translation of the workflow rather than the workflow.
     fidelity: 'approximate',
     fidelityNote: 'Uses its own pipeline format, so what runs is a second definition of the checks rather than the one GitHub would run.',
+    necessity: 'alternative',
     implementation: 'declared',
     adapterNote: 'Adapter not built. Uses its own pipeline format and expects an always-on server.',
+    docsUrl: 'https://woodpecker-ci.org/docs/intro',
   },
 ];
 
@@ -369,7 +406,7 @@ export function describeCiRouteAvailability(
     if (route.id === 'act') {
       if (!facts.actInstalled) {
         blockers.push('`act` is not installed.');
-        nextStep = 'Install it from nektosact.com, then refresh.';
+        nextStep = 'Install `act` from its own site, then refresh.';
       }
       if (!facts.dockerEngineAvailable) {
         blockers.push('The Docker engine is not running, and act needs it.');

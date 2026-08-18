@@ -569,7 +569,16 @@ starters use, shared so three surfaces cannot disagree about what "the checks" m
 rather than repeating them, and **refuses outward-reaching commands structurally** — it returns a refusal
 rather than a plan, so a caller cannot reach runnable commands without that check having passed. A button
 labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
-runbook, where the confirmation is built for them. Pure + unit-tested.
+runbook, where the confirmation is built for them.
+
+`docsUrl` carries where somebody would go to read about a route or install it, and it is a constant on the
+definition rather than a URL assembled at render time or nameable by a webview message: the page sends a
+route *id* and this table decides the destination, so an executor row can offer a link without being able
+to choose one. It is set only for the three routes AtlasMind cannot configure for you — `act`, Buildkite
+and Woodpecker — and deliberately absent on the core three, since sending somebody to github.com to learn
+what "run here" means would be worse than the silence. `https` only, and only a route's own project; a
+link AtlasMind draws is a claim about where it goes, and the answer reaches `openExternal` without a
+further question. Pure + unit-tested.
 
 ### CiActRoute (`src/core/ciActRoute.ts`)
 
