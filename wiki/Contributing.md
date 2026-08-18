@@ -9,7 +9,9 @@ This page covers getting set up, the conventions, and how to add the things peop
 
 ## Getting set up
 
-You'll need **Node.js 18+**, **npm 9+**, **VS Code 1.96+** and **git**.
+You'll need **Node.js 22+**, **npm 9+**, **VS Code 1.96+** and **git**. CI builds on Node 24, which is
+what AtlasMind is developed against; the floor moved off 18 because the dev toolchain did — `jsdom` and
+Stryker both require 22 or newer now.
 
 ```bash
 git clone https://github.com/JoelBondoux/AtlasMind.git

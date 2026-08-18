@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.360.3] - 2026-08-19
+
+### Changed
+
+- **CI now builds on Node 24 rather than Node 20**, across all five workflows. Not housekeeping: this
+  project's own dev dependencies have moved past Node 20 — `jsdom@30` requires
+  `^22.22.2 || ^24.15.0 || >=26`, and `@stryker-mutator/core@10` requires `>=22` — so the pending
+  dependency updates were unmergeable while CI sat on 20. Node 24 is what development actually happens on
+  here, so CI and the desk now agree. GitHub is separately removing the Node 20 *Actions runtime* from
+  hosted runners on 16 September 2026, which is unrelated machinery but the same deadline.
+- **`gitleaks-action` moved to v3** (Dependabot #193): the same action on the Node 24 runtime, with no
+  input, output or behaviour change. The pinned SHA was verified against both the `v3.0.0` and `v3` tags
+  before merging.
+
+### Fixed
+
+- **The comment beside the `gitleaks-action` pin still said `# v2`** after the SHA moved to v3. A comment
+  naming a different major than the hash beside it is worse than no comment, because it is what somebody
+  reads instead of resolving the hash.
+
 ## [0.360.2] - 2026-08-19
 
 ### Fixed

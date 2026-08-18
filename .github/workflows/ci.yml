@@ -32,7 +32,9 @@ jobs:
           persist-credentials: false
 
       - name: Scan for committed secrets
-        # v2
+        # v3. The v2 line runs on the Node 20 Actions runtime, which GitHub
+        # removes from hosted runners on 16 September 2026; v3 is the same
+        # action on Node 24 with no input, output or behaviour change.
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +59,7 @@ jobs:
         # v7
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies

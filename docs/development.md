@@ -36,7 +36,9 @@ daily-use development machine and must not accept untrusted pull-request code.
 ## Prerequisites
 
 - **VS Code** ≥ 1.96.0
-- **Node.js** ≥ 18
+- **Node.js** ≥ 22 — CI builds on 24, which is what this is developed against. The floor moved off
+  18 because the dev toolchain moved: `jsdom` and Stryker both require 22 or newer, and a stated
+  prerequisite nobody can actually build on is worse than none.
 - **npm** ≥ 9
 
 ## Setup

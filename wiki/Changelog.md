@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.360.3 — CI catches up with its own dependencies
+
+CI builds on Node 24 now, across all five workflows. That is not housekeeping: this project's own dev
+dependencies have moved past Node 20 — `jsdom@30` wants `^22.22.2 || ^24.15.0 || >=26`, `Stryker 10`
+wants `>=22` — so the pending dependency updates simply could not be merged while CI sat on 20. Node 24
+is what development actually happens on here, so the two now agree. GitHub is separately removing the
+Node 20 *Actions runtime* from hosted runners on 16 September 2026; different machinery, same deadline.
+
+`gitleaks-action` moved to v3 for exactly that reason — the same action on the Node 24 runtime, no change
+to inputs, outputs or behaviour, with the pinned SHA verified against both the `v3.0.0` and `v3` tags
+before it was taken. The comment beside that pin still read `# v2` afterwards, which is worse than no
+comment at all: it is what somebody reads instead of resolving the hash.
+
+---
+
 ## v0.360.2 — A green suite that was lying about one platform
 
 With checkout fixed, the Windows leg of the matrix failed two workflow-policy tests while Linux and macOS
