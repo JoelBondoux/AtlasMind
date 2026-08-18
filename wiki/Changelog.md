@@ -17,6 +17,17 @@ A few things worth knowing as you read:
 
 Older entries below describe the software as it was at the time and are deliberately left as written.
 
+## v0.360.1 — CI had been red for a reason nobody had read
+
+Every CI job on this repository had been failing since 16 August, at checkout, before a single step ran:
+`fatal: No url found for submodule path 'website'`. A separate project living inside the working copy
+carries its own `.git`, so one `git add -A` staged it as a **gitlink with no `.gitmodules` entry** — a
+submodule reference pointing at nothing, which `actions/checkout` refuses outright. The quality matrix,
+the secret scan and the release promotion were all red for a reason that had nothing to do with the code
+they were checking, and the failure was fast enough to look like an infrastructure blip.
+
+Untracked and ignored rather than declared as a submodule: it is not part of this repository.
+
 ---
 
 ## v0.360.0 — Six pieces of feedback, and a button convention

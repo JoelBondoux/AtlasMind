@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.360.1] - 2026-08-19
+
+### Fixed
+
+- **Every CI job had been failing at checkout since 16 August**, before a single step ran, on
+  `fatal: No url found for submodule path 'website'`. A separate Next.js project living inside this
+  working copy carries its own `.git`, so a `git add -A` staged it as a **gitlink with no `.gitmodules`
+  entry** — a submodule reference pointing at nothing. `actions/checkout` fails hard on that, so the
+  quality matrix, the secret scan and the release promotion all went red for a reason that had nothing to
+  do with the code they were checking. Untracked and added to `.gitignore` rather than declared as a
+  submodule: it is not part of this repository.
+
 ## [0.360.0] - 2026-08-19
 
 The Pipeline round, answering six pieces of feedback from actually using the rebuilt page — plus one
