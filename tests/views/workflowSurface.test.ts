@@ -992,3 +992,29 @@ describe('the page answers "what moved", not only "what is the state"', () => {
     expect(rendered()).toContain('escapeHtml(change.summary)');
   });
 });
+
+describe('Pipeline route surface', () => {
+  /**
+   * The page used to describe one route in four guided steps and the rest as
+   * brochure cards, so the cheapest option was not offered at all.
+   */
+  it('offers running the checks here as a route of its own', () => {
+    expect(WEBVIEW_SCRIPT).toContain('pipeline-run-here');
+    expect(WEBVIEW_SCRIPT).toContain("id: 'routes'");
+    expect(WEBVIEW_SCRIPT).toContain('Where it runs');
+  });
+
+  /**
+   * A capability nobody established must not render as a tick, and must not
+   * render as blank either — a blank reads as "no", which is a different claim.
+   */
+  it('renders an unknown capability as its own mark', () => {
+    expect(WEBVIEW_SCRIPT).toContain('ci-cap unknown');
+    expect(WEBVIEW_SCRIPT).toContain('never assume yes');
+  });
+
+  it('states what each route proves rather than only whether it is usable', () => {
+    expect(WEBVIEW_SCRIPT).toContain('ci-route-evidence');
+    expect(WEBVIEW_SCRIPT).toContain('evidenceCaveat');
+  });
+});

@@ -362,6 +362,21 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+The Pipeline page also models **where** a check runs, rather than assuming. Three routes are implemented —
+run the project's checks here, lend this computer to one queued GitHub job, or let GitHub's own runners do
+it — and each states what a pass on it actually proves. That last part is the point: a Linux container is
+not evidence about Windows however green it is, so evidence class is a property of the route fixed at
+declaration and no amount of passing promotes it. `act`, Buildkite and Woodpecker are listed as declared
+adapter boundaries, visible so the page does not claim three routes are all there is, and never selectable
+because a route with no adapter reporting itself usable would be a button that cannot work. A capability
+AtlasMind has not established shows as its own mark rather than a blank, since a blank reads as "no".
+
+The simplest route finally has a button. It resolves the project's own check scripts by a published rule —
+a declared aggregate wins over guessing at its parts — shows them in a confirmation, and types them into a
+terminal without pressing Enter. It refuses outright if one of those scripts would leave the machine: a
+button labelled "run here" must not publish, and commands that do reach outside stay on the Delivery
+runbook where that is expected.
+
 Local CI also has a guide of its own, `/localci`, listed beside Buzz, ACP and Lens in `/setup`. It has more
 external prerequisites than anything else in AtlasMind, and was the only feature of that shape without one —
 so the way you found a missing prerequisite was by hitting the failure it caused. Every step is derived from
@@ -541,7 +556,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`), the guarded local CI executor (`localCiRunner.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

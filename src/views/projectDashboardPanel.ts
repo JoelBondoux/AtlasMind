@@ -225,6 +225,13 @@ import {
 } from '../core/localCiRunner.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import {
+  buildDirectLocalRunConfirmation,
+  buildDirectLocalRunPlan,
+  describeCiRouteAvailability,
+  resolveDirectLocalChecks,
+  type CiRouteAvailability,
+} from '../core/ciRoutes.js';
+import {
   planGitHubCliInstall,
   runGitHubCliInstallPlan,
   GITHUB_CLI_INSTALL_URL,
@@ -650,6 +657,11 @@ type ProjectDashboardMessage =
   | { type: 'createTrustedCiStarter' }
   /** Install the GitHub CLI. Carries nothing: the host owns every command. */
   | { type: 'installGitHubCli' }
+  /**
+   * Run the project's own checks here. Carries nothing — the host re-derives
+   * the scripts from package.json, so the page can ask but never supply.
+   */
+  | { type: 'runDirectLocalChecks' }
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
@@ -2247,6 +2259,15 @@ interface DashboardSnapshot {
     ciManagement: DashboardCiManagement;
     /** Machine-owned execution fabric. Never populated from webview input. */
     localRunner: DashboardLocalCiRunnerSnapshot;
+    /**
+     * Every route a check could run on, and whether it can here.
+     *
+     * Carried whole rather than reduced to the available ones: a route that is
+     * blocked, and a route AtlasMind has not built, are both things somebody
+     * choosing needs to see — the second is the adapter boundary, and hiding it
+     * would make the page claim these three are all there is.
+     */
+    routes: CiRouteAvailability[];
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
@@ -3939,6 +3960,9 @@ export class ProjectDashboardPanel {
         return;
       case 'installGitHubCli':
         await this.handleInstallGitHubCli();
+        return;
+      case 'runDirectLocalChecks':
+        await this.handleRunDirectLocalChecks();
         return;
       case 'showLocalCiOutput':
         this.getLocalCiRunner();
@@ -5940,6 +5964,75 @@ export class ProjectDashboardPanel {
       return;
     }
     this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  /**
+   * Run the project's own checks on this machine — the simplest route, which
+   * the Pipeline page did not previously offer at all.
+   *
+   * Everything in the guided flow described the GitHub-connected runner, so
+   * "check this before I push" routed somebody through Docker, `gh`, a
+   * committed workflow and a queued job to run commands they could have typed.
+   * This is the same act, planned and confirmed.
+   *
+   * The webview supplies nothing. The host re-reads `package.json`, resolves
+   * which scripts constitute the checks by the published rule, and refuses
+   * outright if one of them would leave this machine — a button labelled "run
+   * here" must not publish, and that refusal lives in `ciRoutes` where a test
+   * walks it rather than in this handler where a refactor could lose it.
+   *
+   * The commands are *sent* to a terminal rather than executed by the host, and
+   * without a trailing newline, keeping the human keystroke as the last gate —
+   * the same shape the queue command already uses.
+   */
+  private async handleRunDirectLocalChecks(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace before running its checks.');
+      return;
+    }
+    const packageFacts = await readNodePackageFacts(workspaceRoot);
+    const checks = packageFacts ? resolveDirectLocalChecks(packageFacts.scripts) : undefined;
+    if (!packageFacts || !checks) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind found no compile, build, lint or test script to run in this project.',
+      );
+      return;
+    }
+
+    const outcome = buildDirectLocalRunPlan(
+      checks,
+      packageFacts.packageManager,
+      vscode.env.shell,
+    );
+    if (!outcome.ok) {
+      void vscode.window.showWarningMessage(outcome.reason);
+      return;
+    }
+
+    const confirmation = buildDirectLocalRunConfirmation(outcome.plan);
+    const answer = await vscode.window.showWarningMessage(
+      confirmation.title,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel,
+    );
+    if (answer !== confirmation.confirmLabel) {
+      return;
+    }
+
+    // One line per send, Enter withheld. A multi-line chain that the shell
+    // cannot fail-fast is deliberately sent as separate lines, so the person
+    // running it can stop after a failure instead of discovering that the rest
+    // ran anyway.
+    for (const line of outcome.plan.lines) {
+      this.sendLocalCiCommandToTerminal({ command: line, workspaceRoot });
+    }
+    vscode.window.setStatusBarMessage(
+      outcome.plan.failFast
+        ? 'AtlasMind: the checks are in your terminal — press Enter to run them.'
+        : 'AtlasMind: each check was typed separately — run them one at a time; this shell will not stop on failure.',
+      6000,
+    );
   }
 
   /** Type into the user's configured VS Code shell, but leave Enter to them. */
@@ -9410,7 +9503,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
     || candidate['type'] === 'assessTrustedCiWorkflow'
     || candidate['type'] === 'createTrustedCiStarter'
-    || candidate['type'] === 'installGitHubCli') {
+    || candidate['type'] === 'installGitHubCli'
+    || candidate['type'] === 'runDirectLocalChecks') {
     return candidate['payload'] === undefined;
   }
 
@@ -10574,6 +10668,12 @@ async function collectDashboardSnapshot(
   const ciStarterPlan = workspaceRoot && !hasQualityCi && !hasUnreadableCi
     ? await buildCiStarterPlanForWorkspace(workspaceRoot, workflowConfigManager?.getConfig())
     : undefined;
+  // Whether the simplest route has anything to run, resolved by the same rule
+  // the route itself uses — a card saying "available" while the run refuses
+  // would be the two-answers problem the route model exists to remove.
+  const directLocalChecksAvailable = workspaceRoot
+    ? Boolean(resolveDirectLocalChecks((await readNodePackageFacts(workspaceRoot))?.scripts ?? []))
+    : false;
   const ciManagement: DashboardCiManagement = {
     assessment: assessCiPortfolio(workflowSnapshot),
     starterAvailable: ciStarterPlan !== undefined,
@@ -11081,6 +11181,14 @@ async function collectDashboardSnapshot(
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
         enablement: readLocalCiRunnerEnablement(),
       },
+      routes: describeCiRouteAvailability({
+        hasLocalChecks: directLocalChecksAvailable,
+        dockerEngineAvailable: localRunner?.engine.available ?? false,
+        githubCliAuthenticated: localRunner?.prerequisites.githubAuthenticated ?? false,
+        localRunnerPermitted: readLocalCiRunnerEnablement().effective,
+        trustedWorkflowReady: localRunner?.workflowReview?.state === 'ok',
+        hostedWorkflowPresent: ciManagement.assessment.qualityWorkflowCount > 0,
+      }),
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
@@ -18802,6 +18910,35 @@ const DASHBOARD_CSS = `
   }
   .ci-runner-focus h3 { margin: 2px 0 0; }
   .ci-runner-focus .section-copy { margin: 5px 0 0; }
+
+  .ci-route-card { display: grid; gap: 10px; }
+  .ci-route-card.blocked { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .ci-route-card.unimplemented { opacity: 0.82; }
+  .ci-route-evidence {
+    margin: 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--dash-accent-strong);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--dash-accent-strong) 7%, transparent);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .ci-route-caps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 5px 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 12px;
+  }
+  .ci-route-caps li { display: flex; align-items: center; gap: 7px; color: var(--dash-muted); }
+  /* Three marks, never two: an unknown capability that rendered as a blank
+     would be read as a no, and one that rendered as a tick would be worse. */
+  .ci-cap { flex: 0 0 auto; font-size: 13px; line-height: 1; }
+  .ci-cap.yes { color: var(--dash-good); }
+  .ci-cap.no { color: var(--dash-muted); }
+  .ci-cap.unknown { color: var(--dash-warn); font-weight: 700; }
 
   .ci-runner-workflow {
     display: grid;

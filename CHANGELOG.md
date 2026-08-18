@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.350.0] - 2026-08-18
+
+### Added
+
+- **Pipeline now models *where* a check runs, instead of assuming.** A new **Where it runs** view lists
+  every route — run here, lend this computer to GitHub, GitHub-hosted runners — with what each one can do,
+  what it costs, and whether this machine can currently use it. `act`, Buildkite and Woodpecker are listed
+  as declared adapter boundaries: visible, so the page does not claim three routes are all there is, and
+  never selectable, because a route with no adapter that reported itself available would be a button that
+  cannot work.
+- **Run this project's checks here, from the Pipeline page.** The simplest posture — the one the
+  documentation's own mode table opens with — had no button at all: everything in the guided flow described
+  the GitHub-connected runner, so "check this before I push" routed a person through Docker, `gh`, a
+  committed workflow and a queued job to run commands they could have typed. The route resolves which
+  scripts constitute the checks by a published rule (a declared `ci`, `ci:local`, `verify` or `check`
+  script wins over guessing at its parts), shows them in a confirmation, and types them into a terminal
+  without pressing Enter.
+
+### Changed
+
+- **Every route states what a pass on it proves, and success never widens that.** Evidence class is a
+  property of the route fixed at declaration, so no amount of green promotes it: a Linux container is not
+  evidence about Windows, and `routeSatisfiesEvidence` refuses that substitution rather than leaving it to
+  a reader. A hosted matrix can satisfy the narrower classes, because it may legitimately contain them.
+- **A capability AtlasMind has not established renders as its own mark.** Three states, not two — a blank
+  reads as "no", which is a different claim, and a tick would be worse. This matters most for the declared
+  adapters, where several capabilities genuinely are unknown.
+
+### Security
+
+- **The run-here route refuses a check script that would leave this machine.** A project whose `test`
+  script publishes should not publish because somebody pressed a button labelled "run here". The refusal is
+  structural — the planner returns a refusal rather than a plan, so a caller cannot reach runnable commands
+  without it having passed — and it shares the Delivery page's reach classifier, so the two surfaces agree
+  about what outward means. Commands that do reach outside remain available from the Delivery runbook,
+  where that is expected and confirmed as such.
+- **The run-here message carries no payload.** The host re-reads `package.json` and resolves the scripts
+  itself, so the page can ask for a run but can never name a command. Commands are typed into a terminal
+  rather than executed by the extension host, leaving the human keystroke as the last gate.
+
 ## [0.349.0] - 2026-08-18
 
 ### Added

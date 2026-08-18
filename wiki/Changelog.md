@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.350.0 — Where a check runs is now a choice, not an assumption
+
+Pipeline described one way of running checks: lend your computer to a GitHub job. Four guided steps, a
+container, a queue. Everything else — including the simplest thing anybody actually wants, which is to run
+the tests right now on the code in front of them — was either a brochure card or absent entirely. The
+project's own documentation opens its list of options by saying direct local execution is the simplest
+posture, and there was no button for it.
+
+**Where it runs** is the new view. It lists every route with what it can do, what it costs, and whether
+this machine can use it today — and, most importantly, what a pass on it actually proves. That last part
+is not decoration. A green run in a Linux container is not evidence about Windows, however green, so each
+route's evidence is fixed when it is declared and nothing can promote it by succeeding. Ask AtlasMind
+whether a container will do instead of a real Windows machine and it says no, with the reason.
+
+The simplest route now has a button. It works out which of your scripts constitute “the checks” — if you
+declare a `ci`, `verify` or `check` script it runs that, because you have already said what your checks
+are, rather than guessing at the pieces — shows you the exact commands, and types them into a terminal for
+you to press Enter on. If one of those scripts would publish or deploy, it refuses: a button labelled
+“run here” should not reach the internet, and that work stays on the Delivery runbook where it is
+expected.
+
+`act`, Buildkite and Woodpecker are listed too, marked as adapters AtlasMind has not built. They are
+visible so the page does not pretend three routes are all there is, and unselectable so nothing offers you
+a button that cannot work.
+
 ## v0.349.0 — A setup guide for local CI, and an installer for the CLI it needs
 
 Local CI asks more of you than anything else in AtlasMind: a workflow file that satisfies a dozen rules, a

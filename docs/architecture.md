@@ -529,6 +529,36 @@ release-only automation is not treated as quality coverage. Unit coverage lives 
 `tests/core/ciManager.test.ts`; the webview/host contract is pinned in `workflowSurface.test.ts` and
 `webviewMessages.test.ts`.
 
+### CiRoutes (`src/core/ciRoutes.ts`)
+
+Where a check can run, declared rather than assumed — the CI analogue of `modelRouter`. The Pipeline page
+had one route with a dashboard and several with brochure cards: everything in the guided flow described the
+GitHub-connected local runner, so "check this before I push" routed somebody through Docker, `gh`, a
+committed workflow and a queued job to run commands they could have typed, while the documentation's own
+mode table opened by calling direct local execution the simplest posture.
+
+Four rules carry the semantics. **A route declares what its evidence proves, and success never widens
+that** — `CiRouteEvidence` is fixed at declaration, so no amount of green promotes a Linux container into
+evidence about Windows; `routeSatisfiesEvidence` refuses that substitution and explains itself either way,
+while `declared-matrix` satisfies the narrower classes because a hosted matrix may legitimately contain
+them. **An unknown capability is never a yes** — three states, modelled explicitly, since a route silently
+treated as able to hold secrets is how a secret reaches somewhere nobody agreed to. **A route with no
+adapter is declared, not hidden** — `act`, Buildkite and Woodpecker mark a real boundary and are worth
+seeing, but `implementation: 'declared'` makes them permanently `unimplemented` rather than relying on a
+caller to remember. **Availability is derived from the machine**, with every unmet prerequisite named, so
+"why can I not run this here" is answerable on the page.
+
+`resolveDirectLocalChecks` publishes the rule that chose the commands: a declared aggregate (`ci`,
+`ci:local`, `verify`, `check`) wins over guessing at its parts, because a project declaring one has already
+said what its checks are — this repository's own `ci:local` chains six steps in an order
+`compile, lint, test` does not reproduce. The fallback vocabulary is the same four verbs both workflow
+starters use, shared so three surfaces cannot disagree about what "the checks" means.
+`buildDirectLocalRunPlan` reuses `deliveryRunPlan`'s shell classification, chaining and reach classifier
+rather than repeating them, and **refuses outward-reaching commands structurally** — it returns a refusal
+rather than a plan, so a caller cannot reach runnable commands without that check having passed. A button
+labelled "run here" must not publish; commands that do reach outside stay available from the Delivery
+runbook, where the confirmation is built for them. Pure + unit-tested.
+
 ### TrustedLocalCiStarter (`src/core/trustedLocalCiStarter.ts`)
 
 The write side of the trusted-runner contract, and the answer to a structural gap: every rule in

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.349.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.350.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,19 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.349.0
+## What's new in 0.350.0
 
 The last Marketplace publication, **v0.341.0**, is the baseline; the items below recap recently shipped
 capabilities. The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Pipeline now shows where a check can run, and lets you just run it here.** A **Where it runs** view
+  lists every route — run here, lend this computer to GitHub, GitHub-hosted — with what each can do, what
+  it costs, and whether this machine can use it today. Each states what a pass on it *proves*: a Linux
+  container is not evidence about Windows, and AtlasMind refuses that substitution rather than leaving you
+  to notice it. The simplest route finally has a button: **Run these checks now** resolves your project's
+  own check scripts by a published rule, shows them, and types them into a terminal for you to run — and
+  refuses outright if one of them would leave your machine. `act`, Buildkite and Woodpecker are listed as
+  adapter boundaries: visible, never pretending to be usable.
 
 - **`/localci` walks you through local CI, and AtlasMind can install the GitHub CLI for you.** Local CI has
   more prerequisites than anything else in AtlasMind, and now has a guide that derives each one from your
@@ -1073,7 +1082,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model (`ciRoutes.ts`), the local CI guide and GitHub CLI installer (`localCiSetupPlan.ts`, `localCiInstaller.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

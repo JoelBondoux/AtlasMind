@@ -1202,6 +1202,10 @@
       vscode.postMessage({ type: 'installGitHubCli' });
       return;
     }
+    if (action === 'pipeline-run-here') {
+      vscode.postMessage({ type: 'runDirectLocalChecks' });
+      return;
+    }
     if (action === 'pipeline-queue-command-copy') {
       vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
       return;
@@ -6131,6 +6135,11 @@
     const supply = delivery.supplyChain || {};
     const tabs = [
       { id: 'overview', label: 'Start here', meta: 'guided' },
+      { id: 'routes', label: 'Where it runs', meta: (() => {
+        const routes = delivery.routes || [];
+        const usable = routes.filter(entry => entry.status === 'available').length;
+        return routes.length ? `${usable} of ${routes.length} usable` : 'not assessed';
+      })() },
       { id: 'workflow', label: 'Workflow map', meta: `${(delivery.workflows || []).length} file${(delivery.workflows || []).length === 1 ? '' : 's'}` },
       { id: 'runner', label: 'Runner', meta: runner.lifecycle || 'not inspected' },
       { id: 'tests', label: 'Tests', meta: testing.policyCoverage && testing.policyCoverage.report ? `${testing.policyCoverage.report.tests} results` : `${testing.totalCases || 0} found` },
@@ -6262,6 +6271,95 @@
         </div>
       </details>
     </article>`;
+  }
+
+  const CI_ROUTE_CAPABILITY_LABELS = {
+    githubWorkflowSyntax: 'Runs GitHub workflow files',
+    crossPlatform: 'Other operating systems',
+    secrets: 'Can hold secrets',
+    artifacts: 'Keeps artifacts',
+    ephemeralWorkers: 'Fresh worker each job',
+    safeForUntrustedCode: 'Safe for untrusted code',
+  };
+
+  const CI_ROUTE_EVIDENCE_LABELS = {
+    'this-machine': 'this machine',
+    'linux-container': 'a Linux container',
+    'declared-matrix': 'whatever the workflow declares',
+  };
+
+  const CI_ROUTE_COST_LABELS = {
+    'local-only': 'Your machine only',
+    'hosted-allowance': 'Uses hosted allowance',
+    'external-account': 'Third-party account',
+  };
+
+  /**
+   * Where a check can run, and what each answer would actually prove.
+   *
+   * The page previously had one route with a dashboard and several with
+   * brochure cards, so the cheapest option — run the commands here — was not
+   * offered at all. Capability is shown as a three-state mark rather than a
+   * tick or nothing, because an unknown must never read as a yes.
+   */
+  function renderPipelineRoutes(routes) {
+    const help = renderInfoHelp('pipeline.routes', {
+      label: 'choosing where checks run',
+      why: 'These are different answers to one question, and they prove different things. A pass in a Linux container is not evidence about Windows however green it is, so each route states what it establishes rather than leaving you to infer it from a tick.',
+      how: [
+        { text: 'Run here for immediate feedback on your own working copy, including uncommitted changes.' },
+        { text: 'Lend this computer when you want GitHub to orchestrate a reviewed job without spending hosted capacity.' },
+        { text: 'Use hosted runners when you need evidence for an operating system you are not sitting at.' },
+      ],
+    });
+    if (!routes.length) {
+      return `<article class="panel-card"><div class="ci-section-heading"><div><p class="card-kicker">Where it runs</p><h3>Routes have not been assessed</h3></div>${help.button}</div>${help.panel}<p class="section-copy">Refresh the Pipeline page to work out which routes this machine can use.</p></article>`;
+    }
+    const mark = value => value === 'yes' ? '<span class="ci-cap yes" title="Yes">●</span>'
+      : value === 'no' ? '<span class="ci-cap no" title="No">○</span>'
+        : '<span class="ci-cap unknown" title="Not known — never assume yes">?</span>';
+    const cards = routes.map(entry => {
+      const route = entry.route || {};
+      const caps = route.capabilities || {};
+      const runnable = entry.status === 'available' && route.id === 'direct-local';
+      const actions = runnable
+        ? '<button type="button" class="action-link primary" data-action="pipeline-run-here">Run these checks now…</button>'
+        : route.id === 'local-runner' && entry.status !== 'unimplemented'
+          ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="runner">Open the Runner view</button>'
+          : route.id === 'github-hosted' && entry.status !== 'unimplemented'
+            ? '<button type="button" class="action-link" data-action="pipeline-section" data-payload="workflow">See the workflow map</button>'
+            : '';
+      return `<article class="panel-card ci-route-card ${escapeAttr(entry.status || 'blocked')}">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">${escapeHtml(CI_ROUTE_COST_LABELS[route.cost] || 'Cost not stated')}</p>
+            <h3>${escapeHtml(route.label || route.id || 'Route')}</h3>
+            <p class="section-copy">${escapeHtml(route.blurb || '')}</p>
+          </div>
+          <span class="tag ${entry.status === 'available' ? 'tag-good' : entry.status === 'unimplemented' ? '' : 'tag-warn'}">${escapeHtml(entry.status === 'available' ? 'usable here' : entry.status === 'unimplemented' ? 'not built' : 'needs setup')}</span>
+        </div>
+        <p class="ci-route-evidence"><strong>Proves ${escapeHtml(CI_ROUTE_EVIDENCE_LABELS[route.evidence] || 'something unstated')}.</strong> ${escapeHtml(route.evidenceCaveat || '')}</p>
+        <ul class="ci-route-caps">
+          ${Object.keys(CI_ROUTE_CAPABILITY_LABELS).map(key => `<li>${mark(caps[key])}<span>${escapeHtml(CI_ROUTE_CAPABILITY_LABELS[key])}</span></li>`).join('')}
+        </ul>
+        ${(entry.blockers || []).length ? `<ul class="ci-caution-list">${entry.blockers.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+        ${entry.nextStep ? `<p class="stat-detail">${escapeHtml(entry.nextStep)}</p>` : ''}
+        ${actions ? `<div class="tag-row">${actions}</div>` : ''}
+      </article>`;
+    }).join('');
+    return `<div class="ci-studio-stack">
+      <article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">Where it runs</p>
+            <h3>Three ways to check this project, and one adapter boundary</h3>
+            <p class="section-copy">Each route states what a pass on it proves. None of them substitutes for another.</p>
+          </div>${help.button}
+        </div>
+        ${help.panel}
+      </article>
+      ${cards}
+    </div>`;
   }
 
   function renderPipelineGraph(workflows, requiredChecks) {
@@ -6983,6 +7081,7 @@
 
     const sectionContent = {
       overview: overviewContent,
+      routes: renderPipelineRoutes(delivery.routes || []),
       workflow: `<div class="ci-studio-stack">${renderPipelineGraph(workflows, requiredChecks)}${managerCard}</div>`,
       runner: runnerCard,
       tests: renderPipelineTestEngine(snapshot.testing || {}),

@@ -736,6 +736,18 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'installGitHubCli', payload: { command: 'rm' } })).toBe(false);
   });
 
+  /**
+   * The direct-local route sends commands to a terminal, so the page must not
+   * be able to name one. The host re-reads package.json and resolves the check
+   * scripts by the published rule; a payload could only be an attempt to supply
+   * a command, and is refused in the shape of the message.
+   */
+  it('accepts no payload on the run-here request', () => {
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: 'npm run deploy' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: ['test'] })).toBe(false);
+  });
+
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
