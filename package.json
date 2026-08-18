@@ -2744,9 +2744,9 @@
     "tag:release": "node .github/scripts/tag-release.mjs"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/typescript-checker": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
     "@types/vscode": "^1.120.0",
@@ -2761,7 +2761,7 @@
     "fast-check": "^4.9.0",
     "highlight.js": "^11.12.0",
     "husky": "^9.1.7",
-    "jsdom": "^26.1.0",
+    "jsdom": "^30.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.2"
   },
