@@ -17,6 +17,24 @@ A few things worth knowing as you read:
 
 Older entries below describe the software as it was at the time and are deliberately left as written.
 
+---
+
+## v0.360.2 — A green suite that was lying about one platform
+
+With checkout fixed, the Windows leg of the matrix failed two workflow-policy tests while Linux and macOS
+passed. That is the worst shape a failure can take in that file, because a policy violation on one
+platform is precisely what it exists to detect — and this was not one.
+
+The assertion was `permissions:` followed by `contents: read` as a single multi-line string, which only
+matches an LF checkout. A Windows runner checks out CRLF, so both assertions missed. It stayed hidden
+because working copies here are mixed and the `permissions:` block happened to sit in an LF region, and
+because Windows CI had not got as far as running a test since 16 August.
+
+Line endings are normalised at the read rather than by folding the assertions onto one line, so the next
+multi-line assertion somebody writes cannot bring it back.
+
+---
+
 ## v0.360.1 — CI had been red for a reason nobody had read
 
 Every CI job on this repository had been failing since 16 August, at checkout, before a single step ran:

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.360.2] - 2026-08-19
+
+### Fixed
+
+- **Two CI workflow-policy tests failed on the Windows leg of the matrix and passed everywhere else**,
+  which is the worst shape a failure can take in that file: it reads as a policy violation on one
+  platform, and a policy violation is exactly what the file exists to detect. It was neither. A multi-line
+  `toContain` — `permissions:` followed by `contents: read` — only ever matched an LF checkout, so a
+  Windows runner's CRLF working copy failed both assertions. Line endings are now normalised at the read
+  rather than by folding the two assertions onto one line, so the next multi-line assertion somebody adds
+  cannot reintroduce it. Masked until now because this repository's own working copies are mixed and the
+  `permissions:` block happened to land in an LF region — and because Windows CI had not completed a
+  checkout since 16 August.
+
 ## [0.360.1] - 2026-08-19
 
 ### Fixed

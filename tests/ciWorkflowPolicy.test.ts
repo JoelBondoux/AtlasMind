@@ -5,8 +5,25 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 
+/**
+ * A repository file, with its line endings normalised.
+ *
+ * Every assertion here is about workflow *policy* — who may trigger a run,
+ * what permissions it takes, whether an action is pinned. None of them intends
+ * to assert a line-ending convention, and yet two did: a multi-line
+ * `toContain` such as `permissions:\n  contents: read` matches only an
+ * LF checkout, so both failed on the Windows leg of the matrix and passed
+ * everywhere else. That is the worst shape a failure can take in this file —
+ * it reads as a policy violation on one platform, which is exactly what this
+ * file exists to detect, and it is nothing of the kind.
+ *
+ * Normalised at the read rather than by rewriting the two assertions onto one
+ * line: the next multi-line assertion somebody adds would otherwise
+ * reintroduce it, and a `.gitattributes` rule would fix the checkout while
+ * leaving the test's own assumption in place.
+ */
 function read(relativePath: string): string {
-  return readFileSync(path.join(ROOT, relativePath), 'utf8');
+  return readFileSync(path.join(ROOT, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('cost-aware CI workflow policy', () => {
