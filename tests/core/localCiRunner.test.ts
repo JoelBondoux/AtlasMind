@@ -14,6 +14,7 @@ import {
   initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
   parseDockerGpuRuntimes,
+  localCiRunnerEnvArgs,
   parseDockerInfo,
   parseQueuedRuns,
   planLocalCiResources,
@@ -80,6 +81,30 @@ describe('local CI resource planning', () => {
     expect(plan.cpus).toBeLessThan(LOCAL_CI_MIN_CPUS);
     expect(plan.memoryGb).toBeLessThan(LOCAL_CI_MIN_MEMORY_GB);
     expect(plan.blockers).toHaveLength(2);
+  });
+});
+
+describe('local CI container resource hints', () => {
+  it('tells the runners inside what the container may actually use', () => {
+    const args = localCiRunnerEnvArgs({ cpus: 8, memoryGb: 16 });
+    expect(args).toContain('ATLASMIND_TEST_MAX_WORKERS=8');
+    expect(args).toContain('VITEST_MAX_WORKERS=8');
+    expect(args).toContain('JEST_MAX_WORKERS=8');
+    // 16 GB over 8 workers plus the parent.
+    expect(args).toContain(`NODE_OPTIONS=--max-old-space-size=${Math.floor((16 * 1024) / 9)}`);
+    // Every value is passed as its own --env flag, never folded into one.
+    expect(args.filter(arg => arg === '--env')).toHaveLength(4);
+  });
+
+  it('keeps the heap cap within sane bounds on extreme containers', () => {
+    const tiny = localCiRunnerEnvArgs({ cpus: 2, memoryGb: 4 });
+    expect(tiny.some(arg => arg === 'NODE_OPTIONS=--max-old-space-size=1365')).toBe(true);
+    const huge = localCiRunnerEnvArgs({ cpus: 2, memoryGb: 256 });
+    expect(huge).toContain('NODE_OPTIONS=--max-old-space-size=4096');
+  });
+
+  it('never asks for fewer than one worker', () => {
+    expect(localCiRunnerEnvArgs({ cpus: 0, memoryGb: 4 })).toContain('ATLASMIND_TEST_MAX_WORKERS=1');
   });
 });
 

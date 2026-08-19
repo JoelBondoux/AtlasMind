@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.366.0] - 2026-08-19
+
+### Added
+
+- **A local CI job survives the editor, and the next session picks it up.** A container is started by
+  the extension host but not owned by it: closing VS Code left the runner executing the job it had
+  claimed, which is the *right* behaviour — GitHub is waiting on real work, and killing it because a
+  window closed would discard minutes of compute and report a failure nobody caused. What was missing
+  was the other half. `localCiAdoption.ts` reconciles what is still running here: a live container is
+  **adopted** (its output reattached with `docker logs --follow`, its end recorded), and finished ones
+  are reported as strays. Four rules: only containers matching **both** the AtlasMind label and the
+  container-name shape are considered, because a label is a string anybody can set; running and
+  finished are different findings with different offers; a stray is reported and never removed
+  automatically, since it is the only local evidence a run happened and usually the crash somebody is
+  investigating; and an unreadable `docker ps` row is skipped rather than guessed at. Following is
+  read-only — `docker attach` would share the container's stdin — and dropping the follower on panel
+  close deliberately does not touch the job. Pure + unit-tested.
+
+### Fixed
+
+- **`/ship` no longer interpolates chat text into a shell command unchecked.** A routine step is a
+  command string run through a real shell, and `vars['message']` was raw prompt text substituted into
+  it: a step reading `git commit -m "${message}"` and a message carrying a quote followed by a second
+  command was injection with no gate in front of it. `routineVariables.ts` refuses a *value* — never
+  the template, which is a reviewed file in the repository — that contains a character a shell reads
+  as syntax. A refusal rather than quoting or environment indirection, because those two need to know
+  whether the template already quotes the placeholder, and guessing wrong either breaks ordinary
+  messages or leaves the hole open; this way the failure is loud and recoverable by editing four
+  characters. The refusal happens before any step runs, so a routine cannot push two commits and then
+  decline the third, and `/ship` reports it as *nothing was run* rather than as a failed step.
+- **Verbose build output no longer reports a step that succeeded as failed.** The routine and
+  promotion runners captured output into Node's 1 MiB default; a build that printed more died with
+  `ENOBUFS`, which on the promotion rollback path is the most expensive possible false alarm. Both now
+  use a 4 MiB buffer, matching the git path beside them.
+- **Tests inside the local CI container stop asking for the whole host.** AtlasMind's own runner sets
+  `CI=true` *on this machine*, inside a container capped at a few CPUs — so the CI branch of
+  `vitest.config.ts` asked for one worker per host thread, 23 of them behind an 8-CPU quota, paying
+  full per-worker memory for parallelism the cgroup will not grant. The runner now passes
+  `ATLASMIND_TEST_MAX_WORKERS` (with the Vitest and Jest native spellings, and a matching
+  `NODE_OPTIONS` heap cap) describing the container's real allowance, and the config prefers it over
+  the CI default. A hosted GitHub runner sets none of these and is unaffected.
+
 ## [0.365.0] - 2026-08-19
 
 ### Added

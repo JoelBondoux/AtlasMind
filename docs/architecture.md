@@ -904,6 +904,25 @@ reports a stopped run as `ready` with an honest message rather than as `finished
 mid-run is not a job that completed. Before this existed, a started run could only end by finishing, and a
 wedged job held its whole CPU/memory budget with nothing on this side able to take it back.
 
+**A run outlives the extension host, and the next session adopts it** (`src/core/localCiAdoption.ts`,
+pure + unit-tested in `tests/core/localCiAdoption.test.ts`). `docker run` is a detached lifetime, so closing
+VS Code leaves the container executing the job it claimed — deliberately kept, because GitHub is waiting on
+real work and killing it would discard minutes of compute and report a failure nobody caused. `inspect()`
+therefore lists `--all` containers carrying the AtlasMind label and reconciles them: a running one is
+*adopted* — lifecycle forced to `running` so the page cannot offer a Start button the one-operation guard
+would refuse, output reattached through `docker logs --follow`, and the end recorded — while finished ones
+are reported as *strays* with a confirmed removal action. Four rules hold it: a container must match **both**
+the label and the container-name shape, since a label is a string anybody can set on their own container;
+running and finished are different findings with different offers; a stray is never removed automatically,
+because it is the only local evidence a run happened and usually the crash being investigated; and an
+unreadable `docker ps` row is skipped rather than guessed at. Following is read-only by choice — `docker
+attach` shares the container's stdin — and the follower is a separate field from `runnerProcess` precisely so
+`disposeFollowers()` on panel close drops the *reader* and never the job. `localCiRunnerEnvArgs` additionally
+passes the container's real CPU allowance inward (`ATLASMIND_TEST_MAX_WORKERS` plus the Vitest/Jest spellings
+and a matching `NODE_OPTIONS` heap cap), because the cgroup bounds what a suite *can* take while these tell it
+what to *ask for* — without them a job sees the host's CPU count and starts one worker per thread behind a
+much smaller quota.
+
 ### TestResourceBudget (`src/core/testResourceBudget.ts`)
 
 The sliding scale for local test execution, and the OS reserve under it. The container runner above was the

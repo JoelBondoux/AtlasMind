@@ -1781,6 +1781,17 @@ async function handleShipCommand(
     },
   );
 
+  // A refusal is not a failed step: nothing ran, so there is no step output to
+  // show and no point rendering a ladder of steps that never started.
+  if (result.refusedReason) {
+    stream.markdown(
+      `\n\n**Nothing was run.** ${result.refusedReason}\n\n` +
+      'A routine step is a shell command, so a value substituted into one has to be text a shell cannot read as syntax.',
+    );
+    atlas.routinesRefresh.fire();
+    return;
+  }
+
   // Replace pending indicators with final status
   const finalLines = result.steps.map((s, i) => {
     const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';

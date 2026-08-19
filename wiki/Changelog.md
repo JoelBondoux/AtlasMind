@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.366.0 — The job keeps running, and the shell stops trusting your typing
+
+A local CI run already survived VS Code closing — the container keeps executing, because GitHub is waiting
+on real work — but nothing looked for it afterwards, so the page reported an idle machine while a runner
+held its whole budget, and the result was never recorded. AtlasMind now reconciles what is still running:
+a live container is adopted and its output reattached, finished ones are listed with a button to clear them
+and are never removed on sight. Only containers carrying both AtlasMind's label and its name shape are
+considered, and following a container is read-only, so closing the panel drops the reader and never the job.
+
+Two fixes beside it. Text typed after `/ship` was substituted into a routine's shell command line unchecked,
+which for a step like `git commit -m "${message}"` is a command-injection path; a value containing anything
+a shell reads as syntax is now refused before any step runs, with the offending characters named. And the
+routine and promotion runners no longer report a step that succeeded as failed when its output exceeded
+Node's 1 MiB default.
+
+---
 ## v0.365.0 — A sliding scale for testing, and a desktop that survives it
 
 Local test execution gets one machine-scoped slider — `atlasmind.testing.resourceShare` — and an

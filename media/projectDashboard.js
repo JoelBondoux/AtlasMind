@@ -113,13 +113,26 @@
    * Every dashboard refresh uses the same in-button progress treatment.
    * `busy` is host-backed; the optimistic webview state only covers the
    * message round-trip so a click can never look inert.
+   *
+   * `options.cadence` splits the button: the label still refreshes once, and a
+   * caret beside it opens the automatic-CI-refresh pop-out. It is opt-in per
+   * call site rather than automatic, because two kinds of refresh control must
+   * not carry it. A control that does something else — `branch-fetch` fetches
+   * remote refs, `branch-inspect` reads one branch's review — would be offering
+   * a cadence that governs neither. And a first-load or retry control ("Load
+   * issues", "Try again") is offering to schedule repeats of a read that has
+   * never once succeeded, which is the wrong thing to put in front of somebody
+   * whose immediate problem is that nothing loaded.
    */
   function renderRefreshAction(action, label, busy, options = {}) {
     const busyLabel = options.busyLabel || 'Refreshing…';
     const primary = options.primary === true ? ' primary' : '';
     const payload = options.payload ? ` data-payload="${escapeAttr(options.payload)}"` : '';
     const title = options.title ? ` title="${escapeAttr(options.title)}"` : '';
-    return `<button type="button" class="action-link${primary} refresh-progress-button${busy ? ' is-refreshing' : ''}" data-action="${escapeAttr(action)}"${payload}${title} aria-busy="${busy ? 'true' : 'false'}" ${busy ? 'disabled' : ''}><span class="refresh-button-label">${escapeHtml(busy ? busyLabel : label)}</span></button>`;
+    const button = `<button type="button" class="action-link${primary} refresh-progress-button${busy ? ' is-refreshing' : ''}" data-action="${escapeAttr(action)}"${payload}${title} aria-busy="${busy ? 'true' : 'false'}" ${busy ? 'disabled' : ''}><span class="refresh-button-label">${escapeHtml(busy ? busyLabel : label)}</span></button>`;
+    return options.cadence === true
+      ? `<span class="refresh-split">${button}${renderRefreshCadenceToggle()}</span>`
+      : button;
   }
 
   function setDashboardRefreshBusy(busy) {
@@ -393,8 +406,18 @@
      * this card is "what just happened"; the other orders answer questions you
      * arrive with deliberately.
      */
-    pipelineAutoRefresh: ['off', '1m', '5m', '15m'].includes(persistedWebviewState.pipelineAutoRefresh)
-      ? persistedWebviewState.pipelineAutoRefresh : 'off',
+    /**
+     * How often CI is re-read without being asked.
+     *
+     * Named for the panel rather than the page it used to live on: the control
+     * is now a pop-out on every refresh button, so a cadence set from the
+     * Issues page means the same thing as one set from Pipeline. The old
+     * `pipelineAutoRefresh` key is deliberately not migrated — a stored value
+     * whose meaning changed is better re-chosen than silently reinterpreted,
+     * and the direction it falls back in is Off.
+     */
+    ciRefreshCadence: ['off', '1m', '5m', '15m'].includes(persistedWebviewState.ciRefreshCadence)
+      ? persistedWebviewState.ciRefreshCadence : 'off',
     pipelineStreamSort: 'newest',
     pipelineStreamStatus: 'all',
     pipelineStreamView: 'stream',
@@ -1296,6 +1319,10 @@
       vscode.postMessage({ type: 'stopLocalCiRunner' });
       return;
     }
+    if (action === 'pipeline-runner-clear-strays') {
+      vscode.postMessage({ type: 'clearLocalCiStrays' });
+      return;
+    }
     if (action === 'pipeline-runner-output') {
       vscode.postMessage({ type: 'showLocalCiOutput' });
       return;
@@ -1632,13 +1659,6 @@
     }
     if (action === 'workflow-stage-resolve') {
       if (payload) { vscode.postMessage({ type: 'resolveWorkflowStage', payload: payload }); }
-      return;
-    }
-    if (action === 'set-pipeline-auto-refresh') {
-      state.pipelineAutoRefresh = PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload) ? payload : 'off';
-      vscode.setState({ ...(vscode.getState() || {}), pipelineAutoRefresh: state.pipelineAutoRefresh });
-      syncPipelineAutoRefresh();
-      render();
       return;
     }
     if (action === 'set-pipeline-stream-sort') {
@@ -2694,6 +2714,9 @@
       // against a wholesale innerHTML swap.
       applyValueAnimations();
       bindPipelineGraph();
+      // The split buttons this render just produced are shells; fill them from
+      // the one cadence the timer is actually running on.
+      syncRefreshCadenceIndicators();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -3566,7 +3589,7 @@
           </div>
           <div class="branch-control-actions">
             ${renderRefreshAction('branch-fetch', 'Fetch latest from remotes', state.branchFetchBusy, { busyLabel: 'Fetching remotes…' })}
-            ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…' })}
+            ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…', cadence: true })}
             <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
           </div>
           <div>
@@ -5574,7 +5597,7 @@
                 emptyLabel: 'No labels on the open issues.',
               })}
               <div class="tag-row">
-                ${renderRefreshAction('issues-refresh', 'Refresh issues', refreshBusy, { busyLabel: 'Refreshing issues…' })}
+                ${renderRefreshAction('issues-refresh', 'Refresh issues', refreshBusy, { busyLabel: 'Refreshing issues…', cadence: true })}
                 <button type="button" class="action-link" data-action="issues-new">New issue</button>
               </div>
             </article>
@@ -6034,7 +6057,7 @@
       ${intro}
       ${notice}
       <div class="tag-row">
-        ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…' })}
+        ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…', cadence: true })}
       </div>
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
@@ -7625,7 +7648,7 @@
   }
 
   /**
-   * Auto-refresh cadences, in the words somebody choosing would use.
+   * Automatic CI refresh cadences, in the words somebody choosing would use.
    *
    * **Off is the default and the first option**, because a refresh here reaches
    * GitHub through `gh`: it spends a rate limit somebody else is also using, and
@@ -7636,49 +7659,72 @@
    * The shortest is a minute. Anything faster is a poll nobody reads at a cost
    * somebody pays, and GitHub's own run list does not move faster than that in
    * any way this page can show.
+   *
+   * `short` is what the pop-out's own button carries once a cadence is running.
+   * A setting that spends money must not be invisible just because its control
+   * folded away, so an active cadence is always legible without opening
+   * anything — which is the whole reason the trigger has a slot for it.
    */
-  const PIPELINE_AUTO_REFRESH_CHOICES = [
-    { id: 'off', label: 'Off', ms: 0, detail: 'Nothing is fetched unless you ask.' },
-    { id: '1m', label: '1 min', ms: 60000, detail: 'For watching a run you just started.' },
-    { id: '5m', label: '5 min', ms: 300000, detail: 'A reasonable background cadence.' },
-    { id: '15m', label: '15 min', ms: 900000, detail: 'Light touch on the rate limit.' },
+  const CI_REFRESH_CADENCES = [
+    { id: 'off', label: 'Off', short: '', ms: 0, detail: 'Nothing is fetched unless you ask.' },
+    { id: '1m', label: 'Every minute', short: '1m', ms: 60000, detail: 'For watching a run you just started.' },
+    { id: '5m', label: 'Every 5 minutes', short: '5m', ms: 300000, detail: 'A reasonable background cadence.' },
+    { id: '15m', label: 'Every 15 minutes', short: '15m', ms: 900000, detail: 'Light touch on the rate limit.' },
   ];
 
-  function pipelineAutoRefreshMs() {
-    const choice = PIPELINE_AUTO_REFRESH_CHOICES.find(entry => entry.id === state.pipelineAutoRefresh);
-    return choice ? choice.ms : 0;
+  /**
+   * What the cadence costs, stated where the choice is made.
+   *
+   * It names the panel rather than a page on purpose. The control used to sit
+   * on Pipeline alone and stopped polling the moment you navigated away —
+   * which quietly defeated the main reason to set one minute, since watching a
+   * run you just started is exactly when you go and do something else. Now that
+   * the pop-out is on every refresh button, "only on that page" would also be a
+   * rule the affordance contradicts thirteen pages out of fourteen.
+   */
+  const CI_REFRESH_COST_NOTE = 'Reads CI from GitHub through `gh` on this cadence for as long as this panel is open and in front. It spends rate limit, and on a metered plan it spends money. Nothing is fetched while the panel is hidden, or while a refresh is already running.';
+
+  function currentCiRefreshCadence() {
+    return CI_REFRESH_CADENCES.find(entry => entry.id === state.ciRefreshCadence) || CI_REFRESH_CADENCES[0];
   }
 
-  let pipelineAutoRefreshTimer = 0;
-  let pipelineAutoRefreshLastAt = 0;
+  function ciRefreshCadenceMs() {
+    return currentCiRefreshCadence().ms;
+  }
+
+  let ciRefreshTimer = 0;
 
   /**
-   * Start, restart or stop the auto-refresh timer to match the current choice.
+   * Start, restart or stop the automatic CI read to match the current choice.
    *
-   * Three conditions gate every tick, and each closes a way this could spend a
+   * Two conditions gate every tick, and each closes a way this could spend a
    * request nobody wanted:
    *
    * - **The document must be visible.** A hidden panel that keeps polling is
    *   pure cost — nobody is reading the result — and VS Code keeps a webview
    *   alive behind other tabs, so this does not stop on its own.
-   * - **The Pipeline page must be the active one.** This control belongs to
-   *   Activity; leaving it running while somebody reads the Roadmap would be a
-   *   background job they never opted into.
    * - **A refresh must not already be in flight.** Otherwise a slow `gh` call
    *   and a short cadence queue up behind each other indefinitely.
+   *
+   * There used to be a third: the Pipeline page had to be the active one,
+   * because that was the only page carrying the control. It is gone in both
+   * directions. It defeated the cadence people most want — you set one minute
+   * to watch a run you just started, then go and do something else, which is
+   * precisely when it stopped — and now that the pop-out is on every refresh
+   * button, a rule that only held on one page would be contradicted by the
+   * affordance everywhere else. What is left is honest and is what the menu
+   * says: while this panel is open and in front.
    */
-  function syncPipelineAutoRefresh() {
-    if (pipelineAutoRefreshTimer) {
-      clearInterval(pipelineAutoRefreshTimer);
-      pipelineAutoRefreshTimer = 0;
+  function syncCiRefreshCadence() {
+    if (ciRefreshTimer) {
+      clearInterval(ciRefreshTimer);
+      ciRefreshTimer = 0;
     }
-    const interval = pipelineAutoRefreshMs();
+    const interval = ciRefreshCadenceMs();
     if (!interval) { return; }
-    pipelineAutoRefreshTimer = setInterval(() => {
+    ciRefreshTimer = setInterval(() => {
       if (document.hidden) { return; }
-      if (state.activePage !== 'pipeline') { return; }
       if (state.repositoryRefreshBusy) { return; }
-      pipelineAutoRefreshLastAt = Date.now();
       requestRepositoryRefresh('refreshCi');
     }, interval);
   }
@@ -7686,25 +7732,194 @@
   // A panel that goes to the background stops polling, and picks up again when
   // it comes back. Without this the timer keeps firing into a hidden document.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && pipelineAutoRefreshMs()) {
-      syncPipelineAutoRefresh();
+    if (!document.hidden && ciRefreshCadenceMs()) {
+      syncCiRefreshCadence();
     }
   });
 
-  /** The cadence control, with what it costs stated on the control itself. */
-  function renderPipelineAutoRefresh() {
-    const current = state.pipelineAutoRefresh || 'off';
-    return `<div class="ci-autorefresh">
-      <span class="ci-autorefresh-label" id="ci-autorefresh-label">Auto-refresh</span>
-      <div class="segmented" role="group" aria-labelledby="ci-autorefresh-label">${PIPELINE_AUTO_REFRESH_CHOICES.map(entry => `
-        <button type="button" data-action="set-pipeline-auto-refresh" data-payload="${escapeAttr(entry.id)}"
-          class="${current === entry.id ? 'active' : ''}" aria-pressed="${current === entry.id ? 'true' : 'false'}"
-          title="${escapeAttr(entry.detail)}">${escapeHtml(entry.label)}</button>`).join('')}</div>
-      ${current === 'off'
-        ? ''
-        : '<span class="stat-detail ci-autorefresh-note">Reads GitHub on this cadence while the Pipeline page is open and in front. It pauses when the panel is hidden.</span>'}
-    </div>`;
+  /**
+   * Record a cadence choice.
+   *
+   * Deliberately does not re-render: nothing on any page states the cadence any
+   * more, so the only things that must move are the timer and the triggers, and
+   * a full render would tear down the menu mid-interaction.
+   */
+  function chooseCiRefreshCadence(id) {
+    state.ciRefreshCadence = CI_REFRESH_CADENCES.some(entry => entry.id === id) ? id : 'off';
+    vscode.setState({ ...(vscode.getState() || {}), ciRefreshCadence: state.ciRefreshCadence });
+    syncCiRefreshCadence();
+    syncRefreshCadenceIndicators();
+    const choice = currentCiRefreshCadence();
+    announce(choice.ms
+      ? `CI will refresh ${choice.label.toLowerCase()} while this panel is in front.`
+      : 'Automatic CI refresh is off.');
   }
+
+  /**
+   * The pop-out beside a refresh button.
+   *
+   * Rendered with no state in it. Every trigger on the page is filled from the
+   * one source by `syncRefreshCadenceIndicators()` after each render, so a card
+   * that re-rendered a moment ago cannot disagree with the timer that is
+   * actually running — which is the failure a per-button copy of the value
+   * invites, and the reason this is a shell rather than a snapshot.
+   */
+  function renderRefreshCadenceToggle() {
+    return `<button type="button" class="refresh-cadence-toggle" data-refresh-cadence
+      aria-haspopup="menu" aria-expanded="false"><span class="refresh-cadence-value" aria-hidden="true"></span><span class="refresh-cadence-caret" aria-hidden="true">▾</span></button>`;
+  }
+
+  /** Fill every cadence trigger in the document, header and pages alike. */
+  function syncRefreshCadenceIndicators() {
+    const choice = currentCiRefreshCadence();
+    const running = choice.ms > 0;
+    const description = running
+      ? `Refreshing CI ${choice.label.toLowerCase()}. Change the cadence or switch it off.`
+      : 'CI is not refreshed automatically. Choose a cadence.';
+    document.querySelectorAll('[data-refresh-cadence]').forEach(trigger => {
+      trigger.classList.toggle('is-on', running);
+      const value = trigger.querySelector('.refresh-cadence-value');
+      if (value) { value.textContent = choice.short; }
+      trigger.title = description;
+      trigger.setAttribute('aria-label', description);
+    });
+  }
+
+  /**
+   * One menu, reused by every trigger.
+   *
+   * The alternative — a menu rendered inside each split button — puts N copies
+   * of the same control in the document, which is N chances for one to be left
+   * open behind a re-render, and needs an id per copy that stays stable across
+   * renders it cannot see. This is the pattern the Lens panel's info popover
+   * already uses for the same reason: one node, positioned against whichever
+   * trigger opened it, living outside `#dashboard-root` so `render()` cannot
+   * destroy it mid-interaction.
+   */
+  const ciRefreshCadenceMenu = (() => {
+    let node = null;
+    let items = [];
+    let anchor = null;
+
+    function build() {
+      node = document.createElement('div');
+      node.className = 'refresh-cadence-menu';
+      node.setAttribute('role', 'menu');
+      node.setAttribute('aria-label', 'Automatic CI refresh');
+      node.hidden = true;
+
+      const title = document.createElement('p');
+      title.className = 'refresh-cadence-title';
+      title.textContent = 'Refresh CI automatically';
+      node.appendChild(title);
+
+      items = CI_REFRESH_CADENCES.map(choice => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'refresh-cadence-item';
+        item.setAttribute('role', 'menuitemradio');
+        item.dataset.cadence = choice.id;
+        const label = document.createElement('span');
+        label.className = 'refresh-cadence-item-label';
+        label.textContent = choice.label;
+        const detail = document.createElement('span');
+        detail.className = 'refresh-cadence-item-detail';
+        detail.textContent = choice.detail;
+        item.append(label, detail);
+        item.addEventListener('click', () => {
+          chooseCiRefreshCadence(choice.id);
+          close({ restoreFocus: true });
+        });
+        node.appendChild(item);
+        return item;
+      });
+
+      const note = document.createElement('p');
+      note.className = 'refresh-cadence-note';
+      note.textContent = CI_REFRESH_COST_NOTE;
+      node.appendChild(note);
+
+      document.body.appendChild(node);
+    }
+
+    function close(options = {}) {
+      if (!anchor) { return; }
+      anchor.setAttribute('aria-expanded', 'false');
+      const previous = anchor;
+      anchor = null;
+      if (node) { node.hidden = true; }
+      // Focus goes back to the trigger on Escape or on a choice, and is left
+      // alone on an outside click — moving it there would yank the caret out of
+      // whatever the person actually clicked.
+      if (options.restoreFocus && previous.isConnected) { previous.focus(); }
+    }
+
+    function open(trigger) {
+      if (!node) { build(); }
+      const current = state.ciRefreshCadence || 'off';
+      items.forEach(item => {
+        const checked = item.dataset.cadence === current;
+        item.setAttribute('aria-checked', checked ? 'true' : 'false');
+        item.classList.toggle('is-current', checked);
+      });
+      anchor = trigger;
+      trigger.setAttribute('aria-expanded', 'true');
+      node.hidden = false;
+
+      const rect = trigger.getBoundingClientRect();
+      const size = node.getBoundingClientRect();
+      // Right-aligned to the trigger, because every one of these sits at the
+      // right-hand end of an action row; clamped so a panel narrower than the
+      // menu still shows all of it.
+      const left = Math.min(Math.max(8, rect.right - size.width), Math.max(8, window.innerWidth - size.width - 8));
+      const below = rect.bottom + 6;
+      node.style.left = `${left}px`;
+      node.style.top = `${below + size.height > window.innerHeight - 8 ? Math.max(8, rect.top - size.height - 6) : below}px`;
+
+      const checked = items.find(item => item.dataset.cadence === current) || items[0];
+      if (checked) { checked.focus(); }
+    }
+
+    document.addEventListener('click', event => {
+      const trigger = event.target instanceof Element ? event.target.closest('[data-refresh-cadence]') : null;
+      if (trigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (anchor === trigger) { close({ restoreFocus: true }); } else { close(); open(trigger); }
+        return;
+      }
+      if (event.target instanceof Element && !event.target.closest('.refresh-cadence-menu')) {
+        close();
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (!anchor) { return; }
+      if (event.key === 'Escape') {
+        close({ restoreFocus: true });
+        return;
+      }
+      if (event.key === 'Tab') {
+        close();
+        return;
+      }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') { return; }
+      // A role="menu" is arrow-navigated, not tab-navigated; without this the
+      // keyboard path out of the trigger is a dead end.
+      const index = items.indexOf(document.activeElement);
+      if (index === -1) { return; }
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + step + items.length) % items.length].focus();
+    });
+
+    window.addEventListener('resize', () => close());
+    // Capture, so a scroll inside any card closes it too: the menu is
+    // position-fixed against a trigger that moves out from under it.
+    document.addEventListener('scroll', () => close(), true);
+
+    return { close };
+  })();
 
   /** The ribbon cap. Stated wherever the ribbon is, because a window nobody names is a number nobody can check. */
   const PIPELINE_RIBBON_WINDOW = 30;
@@ -7894,7 +8109,7 @@
           ${renderCiFailure(report)}
           <div class="tag-row">
             <button type="button" class="action-link primary" data-action="pipeline-ci-failure-work" title="Open a chat with the classified report; the log travels as untrusted content">Ask Atlas to work on this…</button>
-            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…' })}
+            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…', cadence: true })}
           </div>
         </article>`
       : intel && intel.logFailure
@@ -7953,10 +8168,9 @@
       ? `<article class="panel-card">
           <div class="ci-section-heading">
             <div><p class="card-kicker">Recent history</p><h3>${escapeHtml(`${series.length + localSeries.length} pipeline${series.length + localSeries.length === 1 ? '' : 's'} with runs`)}</h3></div>
-            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…', cadence: true })}</div>
           </div>
           ${help.panel}
-          ${renderPipelineAutoRefresh()}
           ${ribbonRows}${localRibbonRows}
           <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most, oldest on the left and newest on the right, with the span under each strip. Height is elapsed time including queue wait; colour is the outcome. They are spaced one per run rather than by when they happened — thirty runs in an afternoon and thirty over a month draw the same. Hover any bar for its exact time.</p>
         </article>`
@@ -8371,7 +8585,19 @@
             </div>
             <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>
           </section>`;
-    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction ? ' open' : ''}>
+    // Containers this computer left behind — reported, never removed on sight:
+    // a finished container is the only local evidence that a run happened, and
+    // the usual reason one exists is the crash somebody is investigating.
+    const strayContainers = (runner.adopted && runner.adopted.strays) || [];
+    const strayNotice = strayContainers.length
+      ? `<div class="inline-notice warning">
+          <strong>${strayContainers.length} finished runner container${strayContainers.length === 1 ? '' : 's'} left over</strong>
+          <p class="stat-detail">A run ended without cleaning up, usually because VS Code closed while it was in flight. Nothing is running; they only take disk space.</p>
+          <ul class="ci-caution-list">${strayContainers.slice(0, 5).map(stray => `<li><code>${escapeHtml(stray.name)}</code> — ${escapeHtml(stray.status)}</li>`).join('')}</ul>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-runner-clear-strays">Remove them…</button></div>
+        </div>`
+      : '';
+    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction || strayContainers.length ? ' open' : ''}>
       <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'}${rememberedInspection ? ` · ${escapeHtml(inspectionAgeLabel)}` : ''} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
       <div class="ci-progressive-details-body" aria-label="Local runner installation and readiness">
         <p class="section-copy"><strong>No permanent runner daemon:</strong> AtlasMind uses a temporary Docker container for one authorised job, then removes it.</p>
@@ -8384,6 +8610,7 @@
           ${setupStatus('Runner software', imageState, !prerequisitesInspected ? 'Inspect to check the pinned image.' : !runnerEngine.cliInstalled ? 'Install Docker before the runner image can be checked.' : runnerEngine.imagePresent ? 'Digest-pinned runner image is already present.' : 'AtlasMind will download the digest-pinned image only after confirmation.')}
         </div>
         ${rememberedInspection ? `<div class="inline-notice"><strong>Remembered from your last inspection</strong><p class="stat-detail">${escapeHtml(rememberedInspection.detail)}</p></div>` : ''}
+        ${strayNotice}
         ${installationHelp}
         <div class="tag-row ci-runner-actions">
           <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>
@@ -8522,8 +8749,13 @@
       runnerFocusContext = '';
       runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>`;
     } else if (['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
-      runnerFocusTitle = runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
-      runnerFocusDetail = 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
+      const adoptedRunner = runner.adopted && runner.adopted.adoptable;
+      runnerFocusTitle = adoptedRunner
+        ? 'A runner from an earlier session is still going'
+        : runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
+      runnerFocusDetail = adoptedRunner
+        ? 'This container kept running while VS Code was closed, which is deliberate — GitHub is waiting on the job. AtlasMind has reattached to its output and will record the result when it ends.'
+        : 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
       runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
       runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>'
         + '<button type="button" class="action-link" data-action="pipeline-runner-stop">Stop the runner…</button>';
@@ -12915,6 +13147,14 @@
   function cssEscape(value) {
     return String(value).replace(/["\\]/g, '\\$&');
   }
+
+  // A cadence restored from a previous session has to start the timer here.
+  // It never did: the only callers were the click handler and the visibility
+  // listener, so reopening the panel with "every minute" saved showed the
+  // cadence as running and did not fetch anything until you switched tabs away
+  // and back. Restoring a setting and honouring it are the same act.
+  syncCiRefreshCadence();
+  syncRefreshCadenceIndicators();
 
   vscode.postMessage({ type: 'ready' });
 })();

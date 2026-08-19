@@ -1705,6 +1705,13 @@ export interface RoutineRunResult {
   /** ID of the first step that failed, if any. */
   failedStep?: string;
   durationMs: number;
+  /**
+   * Why the run was refused before any step executed — currently a substituted
+   * value that a shell would read as syntax. Distinct from a failed step: no
+   * command ran, so `steps` is empty and there is nothing to retry until the
+   * input changes.
+   */
+  refusedReason?: string;
 }
 
 // ── Website Studio ───────────────────────────────────────────────

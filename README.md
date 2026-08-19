@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.365.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.366.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,20 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.365.0
+## What's new in 0.366.0
 
 The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A local CI job keeps running when you close VS Code, and is waiting for you when you come back.**
+  That was always half true — the container kept going, because GitHub is waiting on real work and
+  killing it would throw away minutes of compute — but nothing looked for it afterwards, so the page
+  said the machine was idle while a runner held its whole budget. AtlasMind now finds it, reattaches
+  to its output, and records the result when it ends. Containers left behind by a run that crashed are
+  listed with a button to clear them, never removed on sight.
+- **`/ship` refuses a message a shell would read as syntax.** Text typed after `/ship` was substituted
+  into a routine's command line unchecked, which for a step like `git commit -m "${message}"` is a
+  command-injection path. It is now refused before any step runs, with the offending characters named.
 
 - **The Project Dashboard opens on the dashboard.** Its header was a generic 44px title, a three-line
   description of the tabs directly beneath it, a pill row, and then two full-width cards — one

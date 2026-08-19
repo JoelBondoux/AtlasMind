@@ -737,6 +737,12 @@ type ProjectDashboardMessage =
    */
   | { type: 'stopLocalCiRunner' }
   /**
+   * Remove finished runner containers left over from an earlier session. The
+   * host removes only the strays the last inspection classified, never a fresh
+   * listing the webview could influence.
+   */
+  | { type: 'clearLocalCiStrays' }
+  /**
    * Review the committed trusted workflow now, from disk, before any of the
    * machine setup. Carries no data: the host re-derives every input.
    */
@@ -4180,6 +4186,10 @@ export class ProjectDashboardPanel {
       clearTimeout(this.ciPollTimer);
       this.ciPollTimer = undefined;
     }
+    // Drop the reader for an adopted container, never the container. A local CI
+    // job outlives this panel on purpose — GitHub is waiting on it — and the
+    // next session's inspection finds it again and reattaches.
+    this.localCiRunnerInstance?.disposeFollowers();
     ProjectDashboardPanel.currentPanel = undefined;
     this.panel.dispose();
     for (const disposable of this.disposables) {
@@ -4335,6 +4345,9 @@ export class ProjectDashboardPanel {
         return;
       case 'stopLocalCiRunner':
         await this.handleStopLocalCiRunner();
+        return;
+      case 'clearLocalCiStrays':
+        await this.handleClearLocalCiStrays();
         return;
       case 'assessTrustedCiWorkflow':
         await this.handleAssessTrustedCiWorkflow();
@@ -6271,6 +6284,47 @@ export class ProjectDashboardPanel {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`AtlasMind could not stop the local runner: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Clear finished runner containers left behind by an earlier session.
+   *
+   * Confirmed, and the dialog names the count: a stray container is the only
+   * local evidence that a run happened at all, so removing one is a decision
+   * rather than tidying. The live runner is never a candidate — the manager
+   * only removes what its last inspection classified as finished.
+   */
+  private async handleClearLocalCiStrays(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    const strays = runner?.getSnapshot().adopted?.strays ?? [];
+    if (!runner || strays.length === 0) {
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${strays.length} finished runner container${strays.length === 1 ? '' : 's'}?`,
+      {
+        modal: true,
+        detail: [
+          'These containers finished but were not cleaned up, usually because VS Code closed while a run was in flight.',
+          '',
+          ...strays.slice(0, 8).map(stray => `${stray.name} — ${stray.status}`),
+          '',
+          'Removing them frees their disk space. It also discards the only local record that those runs happened; GitHub keeps its own.',
+        ].join('\n'),
+      },
+      'Remove them',
+    );
+    if (confirmation !== 'Remove them') {
+      return;
+    }
+    try {
+      const removed = await runner.removeStrayContainers();
+      vscode.window.setStatusBarMessage(`AtlasMind: removed ${removed} leftover runner container${removed === 1 ? '' : 's'}.`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not remove the leftover containers: ${detail.slice(0, 300)}`);
     }
     await this.syncState();
   }
@@ -10706,11 +10760,20 @@ ${buildCardEvidenceSection(source, derivation)}`;
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
               <button id="dashboard-score-chip" class="dashboard-score-chip" type="button" hidden
                 title="Composite score across operational discipline and outcome completeness. Opens the breakdown."></button>
-              <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
-                aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
-                title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
-                <span class="refresh-button-label">Refresh</span>
-              </button>
+              <!-- A split button. The label refreshes once; the caret opens the
+                   automatic-CI-refresh pop-out, which is the same control the
+                   page-level refresh buttons carry. The caret's own contents are
+                   filled by the script, so an active cadence is legible without
+                   opening anything. -->
+              <span class="refresh-split">
+                <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
+                  aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
+                  title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
+                  <span class="refresh-button-label">Refresh</span>
+                </button>
+                <button type="button" class="refresh-cadence-toggle" data-refresh-cadence
+                  aria-haspopup="menu" aria-expanded="false"><span class="refresh-cadence-value" aria-hidden="true"></span><span class="refresh-cadence-caret" aria-hidden="true">▾</span></button>
+              </span>
             </div>
           </div>
           <!-- No aria-live here. render() replaces this entire subtree on every
@@ -10789,6 +10852,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'inspectLocalCiRunner'
     || candidate['type'] === 'startLocalCiRunner'
     || candidate['type'] === 'stopLocalCiRunner'
+    || candidate['type'] === 'clearLocalCiStrays'
     || candidate['type'] === 'showLocalCiOutput'
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
@@ -19611,6 +19675,156 @@ const DASHBOARD_CSS = `
     border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
   }
 
+  /* ── Refresh, split ───────────────────────────────────────────────────
+     The automatic-CI-refresh cadence used to be four permanently visible
+     segmented buttons plus an explanatory sentence, on one card of one page.
+     That is a row and a half of vertical space spent on a setting most people
+     choose once, and it was unreachable from the thirteen other pages that show
+     what it refreshes. It is a caret on the refresh button now — joined to it,
+     so the pair reads as one control rather than two that happen to be
+     adjacent. The main button keeps its own left radius and loses its right;
+     the caret is the mirror, and shares the seam rather than drawing a second
+     border down the middle. */
+  .refresh-split {
+    display: inline-flex;
+    align-items: stretch;
+    /* Never split across lines: a caret alone on the next row is a control
+       with no subject. */
+    white-space: nowrap;
+  }
+
+  .refresh-split > .action-link,
+  .refresh-split > .dashboard-button {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .refresh-cadence-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 10px;
+    border: 1px solid var(--dash-border);
+    border-left: 0;
+    border-radius: 0 999px 999px 0;
+    background: color-mix(in srgb, var(--dash-panel) 82%, transparent);
+    color: var(--dash-muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .refresh-cadence-toggle:hover,
+  .refresh-cadence-toggle[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    color: var(--vscode-foreground);
+  }
+
+  .refresh-cadence-toggle:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: 2px;
+  }
+
+  /* A cadence that is running says so on the closed control. A setting that
+     spends a rate limit must not become invisible just because it folded away,
+     which is the one thing a pop-out can get badly wrong. */
+  .refresh-cadence-toggle.is-on {
+    color: var(--dash-accent-strong);
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 60%, var(--dash-border));
+  }
+
+  .refresh-cadence-value:empty {
+    display: none;
+  }
+
+  .refresh-cadence-caret {
+    font-size: 9px;
+    opacity: 0.85;
+  }
+
+  /* One menu for every trigger, appended to the body and positioned by script:
+     fixed, so it escapes the overflow of whichever card the trigger sits in. */
+  .refresh-cadence-menu {
+    position: fixed;
+    z-index: 60;
+    width: 274px;
+    max-width: calc(100vw - 16px);
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, var(--dash-panel-strong)));
+    color: var(--vscode-foreground);
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--tint-toward) 45%, transparent);
+  }
+
+  .refresh-cadence-menu[hidden] { display: none; }
+
+  .refresh-cadence-title {
+    margin: 0 0 6px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+  }
+
+  .refresh-cadence-item {
+    display: block;
+    width: 100%;
+    padding: 6px 8px 7px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .refresh-cadence-item:hover {
+    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--dash-panel) 70%, transparent));
+  }
+
+  .refresh-cadence-item:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: -2px;
+  }
+
+  /* The chosen one is marked by a tick and a border, not by colour alone. */
+  .refresh-cadence-item.is-current {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, transparent);
+  }
+
+  .refresh-cadence-item-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .refresh-cadence-item.is-current .refresh-cadence-item-label::after {
+    content: ' ✓';
+    color: var(--dash-accent-strong);
+  }
+
+  .refresh-cadence-item-detail {
+    display: block;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--dash-muted);
+  }
+
+  .refresh-cadence-note {
+    margin: 8px 6px 0;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--dash-muted);
+  }
+
   .nav-tab:hover {
     border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
@@ -20731,15 +20945,6 @@ const DASHBOARD_CSS = `
     align-items: center;
   }
 
-  .ci-autorefresh {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-    margin: 2px 0 10px;
-  }
-  .ci-autorefresh-label { font-size: 11px; color: var(--dash-muted); font-weight: 600; }
-  .ci-autorefresh-note { flex: 1 1 240px; min-width: 0; }
 
   /* ── Everything that ran: controls, groups, legend ───────────── */
   .ci-stream-controls {

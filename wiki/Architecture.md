@@ -515,6 +515,15 @@ from GitHub CLI directly into Docker stdin; it never enters browser state or Atl
 container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
 by CPU, memory, swap, process, capability and privilege-escalation controls.
 
+**A run outlives the editor, and the next session adopts it.** Closing VS Code leaves the container
+executing its job, which is kept on purpose: GitHub is waiting on real work, and killing it because a window
+closed would throw away minutes of compute. What is new is that AtlasMind now looks for it again — a running
+container is adopted and its output reattached, so the page shows the job instead of claiming the machine is
+idle, and the result is recorded when it ends. Containers left behind by a run that crashed are listed with
+a confirmed **Remove them** action and never deleted on sight, because a finished container is the only local
+evidence that a run happened. Only containers matching both AtlasMind's label and its container-name shape
+are ever considered, since a label is a string anybody can set on their own container.
+
 Behind all of that sits `testResourceBudget.ts` — the sliding scale for local test execution. The container
 was the only governed path; the paths that run tests **on the host** (the after-write auto-verification,
 the test-run skill, "Run here") had no CPU, memory or worker governance, and Jest's and Stryker's
