@@ -412,8 +412,17 @@ is not: bars are one per run and evenly spaced, so a burst and a steady month dr
 positioning them by timestamp would look more informative and would collapse every burst into a smear.
 
 Auto-refresh is available at 1, 5 or 15 minutes and is **off by default**, because a refresh reaches
-GitHub through `gh` and spends a rate limit somebody else is also using. Three gates on every tick: the
-panel must be visible, the Pipeline page must be the active one, and no fetch may already be in flight.
+GitHub through `gh` and spends a rate limit somebody else is also using. Two gates on every tick: the
+panel must be visible, and no fetch may already be in flight.
+
+The control is a **pop-out on the Refresh button** — every steady-state refresh button, including the one
+in the dashboard header, so a cadence can be set from wherever you happen to be. It was four permanently
+visible buttons on this one card, which spent a row and a half on a setting most people choose once and
+could not be reached from the other thirteen pages that display what it refreshes. A running cadence
+shows on the caret without opening anything, because a setting that spends a rate limit must not become
+invisible just because its control folded away. There used to be a third gate — the Pipeline page had to
+be the active one — and it is deliberately gone: it defeated the cadence people most want, since you set
+one minute to watch a run you just started and then go and do something else.
 
 The **pull requests** page charts CI per pull request from the check rollup the tracker has fetched since
 v0.200.0 and nothing displayed until now. One bar each, worst-first. A check with no conclusion is running

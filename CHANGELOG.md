@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.367.0] - 2026-08-19
+
+### Changed
+
+- **The automatic CI refresh cadence is a pop-out on every refresh button, not a row of buttons on one
+  page.** It was four permanently visible segmented buttons plus an explanatory sentence, on one card of
+  the Pipeline page — a row and a half of vertical space spent on a setting most people choose once, and
+  unreachable from the thirteen other pages that show what it refreshes. It is a caret joined to the
+  refresh button now, including the dashboard header's, so it is available wherever a refresh is offered.
+  Choosing a cadence is one click from anywhere, and choosing nothing costs nothing: the menu is a single
+  node built on first use and shared by every trigger, rather than one copy per button left to be
+  reopened or re-rendered. **A running cadence stays legible with the menu closed** — the caret carries
+  the interval and an accent — because a setting that spends a rate limit must not become invisible just
+  because its control folded away, which is the one thing a pop-out can get badly wrong. The menu states
+  the cost where the choice is made, marks the current choice with a tick as well as a colour, opens onto
+  the running option, and is arrow-navigable with Escape returning focus to the caret.
+- **A cadence now polls wherever you are, and the reason the old rule existed is gone.** Auto-refresh
+  stopped the moment you left the Pipeline page. That defeated the cadence people most want — you set one
+  minute to watch a run you just started, then go and do something else, which is exactly when it stopped
+  — and with the control now on every refresh button it would have been a rule contradicted by the
+  affordance on thirteen pages out of fourteen. The two gates that prevent genuinely wasted requests are
+  unchanged and still hold: nothing is fetched while the panel is hidden, or while a refresh is already
+  in flight. Off remains the default and the first option. Because the setting's meaning changed, the
+  stored value is re-chosen rather than reinterpreted: an existing cadence reverts to **Off**.
+
+### Fixed
+
+- **A cadence restored from a previous session now actually runs.** The timer was only ever started by
+  the click handler and the visibility listener, so reopening the panel with "every 5 minutes" saved
+  showed the cadence as set and fetched nothing until you switched editor tabs away and back. Restoring
+  a setting and honouring it are the same act, and it is done at startup.
+
 ## [0.366.0] - 2026-08-19
 
 ### Added

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.366.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.367.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,20 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.366.0
+## What's new in 0.367.0
 
 The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Auto-refresh moved into the Refresh button, and now works from any page.** The cadence used to be
+  four buttons and a paragraph parked on one card of the Pipeline page, taking up space permanently for
+  a setting you choose once — and it stopped polling the moment you looked at anything else, which is
+  precisely when you set "every minute" in the first place. It is a caret on the Refresh button now,
+  including the one in the dashboard header, so it is there wherever a refresh is. An interval that is
+  running shows on the caret without opening anything, the menu says what it costs, and the two rules
+  that matter are unchanged: nothing is fetched while the panel is hidden or while a refresh is already
+  running, and **Off** is still the default. Existing cadences revert to Off once, because the setting
+  now means something slightly different.
 - **A local CI job keeps running when you close VS Code, and is waiting for you when you come back.**
   That was always half true — the container kept going, because GitHub is waiting on real work and
   killing it would throw away minutes of compute — but nothing looked for it afterwards, so the page
@@ -141,7 +150,6 @@ history is in [CHANGELOG.md](CHANGELOG.md).
 - **`/ship` refuses a message a shell would read as syntax.** Text typed after `/ship` was substituted
   into a routine's command line unchecked, which for a step like `git commit -m "${message}"` is a
   command-injection path. It is now refused before any step runs, with the offending characters named.
-
 - **The Project Dashboard opens on the dashboard.** Its header was a generic 44px title, a three-line
   description of the tabs directly beneath it, a pill row, and then two full-width cards — one
   repeating the project name, one holding a 150px score ring — which is most of a screen before the

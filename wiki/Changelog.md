@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.367.0 — Auto-refresh where the Refresh button is
+
+**Auto-refresh moved into the Refresh button.** The cadence was four buttons and a paragraph parked on one
+card of the Pipeline page — permanent space for a setting you choose once — and it stopped polling the
+moment you looked at anything else, which is precisely when somebody sets "every minute". It is a caret on
+the Refresh button now, including the one in the dashboard header, so it is available wherever a refresh
+is. A running interval shows on the caret without opening anything, the menu states what the cadence costs
+and marks the current choice with a tick as well as a colour, and the rules that matter are unchanged:
+nothing is fetched while the panel is hidden or while a refresh is already running, and **Off** is still
+the default. A cadence saved in a previous session also *starts* now — it used to sit there looking set and
+fetch nothing until you switched editor tabs away and back. Existing cadences revert to Off once, because
+the setting no longer means "only while Pipeline is open".
+
+---
+
 ## v0.366.0 — The job keeps running, and the shell stops trusting your typing
 
 A local CI run already survived VS Code closing — the container keeps executing, because GitHub is waiting
