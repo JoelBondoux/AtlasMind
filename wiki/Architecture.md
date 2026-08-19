@@ -362,6 +362,25 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+**A failure card is only as good as the log it could read.** GitHub returns Actions logs with their colour
+codes *caret-encoded* — the literal characters `^` and `[` where the ESC byte was — and the sanitizer knew
+only the real escape, so nothing was stripped. Everything downstream then failed quietly and in the
+reassuring direction: the ANSI-before-redaction ordering stopped protecting CI logs, and the classifier's
+word-boundary rules could not see `1 failed` through the `^[[31m` glued to it, so a log naming its failing
+test reported as *unknown* above a box of raw escape garbage. The card also reported the *workflow* name
+because that was all the caller passed, while every line of the log began `quality (windows-latest)<TAB>Unit
+tests`. Both are fixed: the caret form is stripped, and deliberately more tightly than the real CSI grammar so a POSIX character class in a logged grep pattern is not eaten as a colour code, the
+`job<TAB>step` prefix is parsed and kept out of both the rules and the evidence box, and evidence names the
+failing test rather than counting failures — pattern order inside a rule chooses the evidence, and the
+deciding line is the last match rather than the first.
+
+**Every page carries a declared "Where next" strip**, rendered from the same single place as the GitHub link
+row so a page cannot acquire a route nobody reviewed. Routes are declared rather than derived — a list
+computed from the live snapshot would shift under the reader and could not be reviewed in a diff — and each
+states the question its target answers, because a bare page name is a link somebody has to click to find out
+whether they wanted it. A pull request row leads with its check rollup for the same reason: the fact that
+decides whether a branch can merge belongs above the ones a reader can rarely act on.
+
 The Pipeline page presents four views — Activity, Canvas, Tests, Rules — named for what a person is doing.
 The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
 same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels

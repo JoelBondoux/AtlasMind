@@ -293,10 +293,15 @@ describe('a GitHub deep link is resolved by the host, never named by the webview
     expect(PANEL).toContain('buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug)');
   });
 
-  it('renders the row from the one place that knows which page it is building', () => {
+  it('renders both routing rows from the one place that knows which page it is building', () => {
     // `renderPageIntro` runs inside each page's own render, where
     // `state.activePage` would give every page the active one's links.
-    expect(WEBVIEW).toContain('+ githubLinkRow(id);');
+    // The same argument applies to the cross-page strip, so both are built
+    // here and neither may migrate into a per-page renderer.
+    expect(WEBVIEW).toContain('+ githubLinkRow(id)');
+    expect(WEBVIEW).toContain('+ nextStepRow(id);');
+    expect(WEBVIEW).not.toContain('githubLinkRow(state.activePage)');
+    expect(WEBVIEW).not.toContain('nextStepRow(state.activePage)');
   });
 });
 

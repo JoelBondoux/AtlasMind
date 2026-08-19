@@ -29,7 +29,27 @@ const CSI_PATTERN = `${ESC}\\[[0-9;?:<=>]*[ -/]*[@-~]`;
 // BEL (0x07) or ST (ESC \). Non-greedy so it consumes a single marker only.
 const OSC_PATTERN = `${ESC}\\][\\s\\S]*?(?:${BEL}|${ESC}\\\\)`;
 
-const ANSI_SEQUENCE = new RegExp(`${OSC_PATTERN}|${CSI_PATTERN}`, 'g');
+// The same CSI sequences, but *caret-encoded* — the two literal characters
+// `^` and `[` where the ESC byte used to be. GitHub returns Actions logs this
+// way: a failed Windows run fetched through `gh run view --log-failed` carried
+// 7,253 of these and not one ESC byte, so the stripper above had nothing to
+// match and every colour code survived into the text.
+//
+// That is not cosmetic. Two readers downstream broke silently. `redactSecrets`
+// runs on this text, so a secret printed with colour codes inside it would not
+// match its pattern — the ANSI pass exists precisely to prevent that. And the
+// CI failure rules match on word boundaries, so `^[[31m1 failed` never matched
+// /\b1 failed\b/: `m` and `1` are both word characters, so there is no
+// boundary between them. A log that plainly said `1 failed` classified as
+// `unknown`.
+//
+// Params are restricted to digits and semicolons and the final byte to a
+// letter — deliberately tighter than the real CSI grammar, so a POSIX class
+// such as `^[[:alpha:]]` in a logged grep pattern is not eaten as a colour
+// code. A rare non-SGR form like `^[[?25l` is simply left alone.
+const CARET_CSI_PATTERN = String.raw`\^\[\[[0-9;]*[A-Za-z]`;
+
+const ANSI_SEQUENCE = new RegExp(`${OSC_PATTERN}|${CSI_PATTERN}|${CARET_CSI_PATTERN}`, 'g');
 
 // Remaining C0 control characters except TAB (0x09) and LF (0x0A), plus
 // DEL (0x7F). This also sweeps up any stray ESC byte (0x1B) left by a rare

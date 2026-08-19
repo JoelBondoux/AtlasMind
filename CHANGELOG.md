@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.0] - 2026-08-19
+
+### Fixed
+
+- **CI logs are unreadable to the classifier when GitHub caret-encodes their colour codes, and
+  every failure landed on the dashboard as `unknown`.** A failed Windows run fetched through
+  `gh run view --log-failed` carried **7,253 literal `^[` sequences and not one ESC byte**, so
+  `stripAnsiSequences` — which only ever knew the real escape — had nothing to match and every
+  colour code survived into the text. The rules match on word boundaries, and `^[[31m1 failed`
+  never matched `\b1 failed\b` because `m` and `1` are both word characters, so a log that plainly
+  said `1 failed` and named the failing test file was reported as "Nothing matched a known
+  pattern... this one needs a human", above an evidence box of raw `^[[2m` garbage.
+- **The same gap sat on a redaction boundary.** `ciFailureAnalysis` strips ANSI *before* redacting
+  precisely so a secret wrapped in colour codes still matches its pattern; with the caret form
+  surviving, that ordering was not protecting CI logs at all. Treated as a correctness bug, and
+  pinned by a test that redacts a caret-wrapped secret the way the ESC path already did.
+- **The failure card could not name the job or the step**, reporting `CI · step · run 32205750755`
+  — the *workflow* name, because that was all the caller passed — while every line of the log it
+  had just read began `quality (windows-latest)<TAB>Unit tests`. The prefix is parsed now, so the
+  card names the job and step the deciding line actually came from, and falls back to the caller
+  only for a log that carries no prefix.
+- **`Check GitHub queue → review start plan` was greyed out with no reason given.** Its gate read
+  `runner.enabled` while the Permission tick directly above it read `enablement.effective`, so a
+  ticked step could sit above a dead button. Both read the same fact now, and a disabled button
+  states which of permission, blockers, an in-flight run, or an executor that never reported ready
+  is holding it — with the control that clears it alongside.
+- **A Windows CI test was scheduled to flake.** `acpWindowsLauncher` launches a real helper → Node
+  → PowerShell tree whose deepest test compiles C# at runtime through `Add-Type`, against a 10s
+  child budget; it was killed at **10034ms**. A budget a healthy run lands just under is a flake
+  with a date on it. The budget is now wide enough that only a genuinely hung tree reaches it, and
+  a timeout reports itself as a timeout — previously indistinguishable from the boundary genuinely
+  leaking a visible console, since both surfaced as `Command failed` with empty stderr.
+
+### Added
+
+- **Every dashboard page carries a declared "Where next" strip.** The dashboard had 22 pages and,
+  outside the nav, almost no route between them: a page told you CI was red and left you to find
+  the Pipeline tab yourself. Routes are **declared, never derived** — a list computed from the live
+  snapshot would change under the reader and could not be reviewed in a diff — and **every link
+  states the question its target answers**, because a bare page name is a link somebody has to
+  click in order to find out whether they wanted it. Rendered from the same single place as the
+  GitHub link row, so a page cannot acquire a route nobody reviewed, and pinned by tests that read
+  the real map out of the shipped file.
+- **A pull request row leads with its check rollup.** The row led with "awaiting review" and "no
+  linked issue" — two things a reader can rarely act on immediately — while the one fact deciding
+  whether the branch can merge at all lived on a chart further down the page. A failing rollup now
+  names the failing checks, links straight to one, and routes to Pipeline. `checks not read` stays
+  distinct from `no checks`: one is a gap in what was fetched, the other is a change nothing is
+  verifying.
+
+### Changed
+
+- **Failure evidence names the failing test instead of counting failures.** Rule order decides the
+  *class*; pattern order inside a rule decides the *evidence*, and matching the bare count first
+  meant the card reported "Tests 1 failed" and left the reader to find which one in a log they
+  could not see. Evidence is also taken from the **last** match rather than the first — a runner
+  prints progress as it goes and its authoritative block at the end, the same reasoning that makes
+  truncation keep the tail.
+
+
 ## [0.368.0] - 2026-08-19
 
 ### Fixed

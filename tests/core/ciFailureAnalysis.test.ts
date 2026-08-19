@@ -7,6 +7,7 @@ import {
   buildCiFailurePrompt,
   buildCiFailureReport,
   classifyCiFailure,
+  parseCiLogLine,
   detectFlakeSuspect,
   sanitizeCiLog,
 } from '../../src/core/ciFailureAnalysis.ts';
@@ -322,5 +323,95 @@ describe('every class is fully described', () => {
         expect(known.has(owner), `${cls} → ${owner}`).toBe(true);
       }
     }
+  });
+});
+
+describe('GitHub returns colour codes caret-encoded, not as ESC bytes', () => {
+  // A real failed Windows run fetched with `gh run view --log-failed` carried
+  // 7,253 `^[` sequences and not one ESC byte. The stripper only knew ESC, so
+  // every colour code survived — and took the classifier down with it.
+  const caretLine = '^[[41m^[[1m FAIL ^[[22m^[[49m tests/providers/x.test.ts^[[2m > ^[[22mit breaks';
+
+  it('strips caret-encoded CSI sequences', () => {
+    const sanitized = sanitizeCiLog(caretLine);
+    expect(sanitized.text).not.toContain('^[');
+    expect(sanitized.text).toContain('FAIL');
+    expect(sanitized.text).toContain('tests/providers/x.test.ts');
+  });
+
+  it('classifies a log it previously called unknown', () => {
+    // `^[[31m1 failed` never matched /\b1 failed\b/ — `m` and `1` are both
+    // word characters, so there is no boundary between them.
+    const log = sanitizeCiLog('^[[2m      Tests ^[[22m ^[[1m^[[31m1 failed^[[39m | 7067 passed').text;
+    expect(classifyCiFailure(log).classification).toBe('test-failure');
+  });
+
+  it('redacts a secret wrapped in caret-encoded colour, as it does for ESC', () => {
+    // The ordering guarantee the ESC path already had. Without the caret form
+    // the colour codes sat inside the value and the pattern never matched.
+    const sanitized = sanitizeCiLog('^[[33mapi_key=abcdefghijklmnop1234^[[0m');
+    expect(sanitized.redacted).toBe(true);
+    expect(sanitized.text).not.toContain('abcdefghijklmnop1234');
+  });
+
+  it('leaves a POSIX character class alone', () => {
+    // The pattern is deliberately tighter than the real CSI grammar so a
+    // logged grep pattern is not eaten as a colour code.
+    expect(sanitizeCiLog('grep ^[[:alpha:]]+ file.txt').text).toContain('^[[:alpha:]]+');
+  });
+});
+
+describe('the log names the job, the step, and which test failed', () => {
+  // Every `gh run view --log-failed` line is `job<TAB>step<TAB>TIMESTAMP text`.
+  const line = (text: string) => `quality (windows-latest)\tUnit tests\t2026-08-19T01:43:14.5345320Z ${text}`;
+
+  it('splits a log line into job, step and content', () => {
+    const parsed = parseCiLogLine(line('FAIL  tests/a.test.ts'));
+    expect(parsed.jobName).toBe('quality (windows-latest)');
+    expect(parsed.stepName).toBe('Unit tests');
+    expect(parsed.content).toBe('FAIL  tests/a.test.ts');
+  });
+
+  it('returns an unprefixed line whole, so a plain log is unaffected', () => {
+    expect(parseCiLogLine('error TS2304: nope').content).toBe('error TS2304: nope');
+    expect(parseCiLogLine('error TS2304: nope').jobName).toBe('');
+  });
+
+  it('reports the job and step the deciding line came from', () => {
+    const report = buildCiFailureReport({
+      runId: '1',
+      jobName: 'CI',
+      log: [line('ok'), line('FAIL  tests/a.test.ts > it breaks')].join('\n'),
+    });
+    // Not the workflow name the caller passed: the job and step are on every line.
+    expect(report.jobName).toBe('quality (windows-latest)');
+    expect(report.stepName).toBe('Unit tests');
+  });
+
+  it('falls back to the caller when the log carries no prefix', () => {
+    const report = buildCiFailureReport({ runId: '1', jobName: 'CI', log: 'error TS2304: nope' });
+    expect(report.jobName).toBe('CI');
+  });
+
+  it('names the failing test rather than counting failures', () => {
+    // Pattern order inside a rule chooses the evidence. A reader needs the name
+    // of the failing test far more than a count they cannot act on.
+    const log = [
+      line('FAIL  tests/providers/acp.test.ts > keeps a nested shell'),
+      line('Tests  1 failed | 7067 passed (7068)'),
+    ].join('\n');
+    const { evidenceLines } = classifyCiFailure(sanitizeCiLog(log).text);
+    expect(evidenceLines.some(l => l.includes('keeps a nested shell'))).toBe(true);
+  });
+
+  it('prefers the summary at the end over an incidental early mention', () => {
+    // A runner prints progress as it goes; the authoritative block is last.
+    const log = [
+      line('tests/providers/acp.test.ts (10 tests | 1 failed) 10571ms'),
+      ...Array.from({ length: 40 }, (_, i) => line(`ok ${i}`)),
+      line('FAIL  tests/providers/acp.test.ts > the real name'),
+    ].join('\n');
+    const { evidenceLines } = classifyCiFailure(sanitizeCiLog(log).text);
+    expect(evidenceLines.some(l => l.includes('the real name'))).toBe(true);
   });
 });

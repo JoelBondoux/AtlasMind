@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.368.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.369.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,27 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.368.0
+## What's new in 0.369.0
 
 The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **CI failures are legible again.** GitHub returns Actions logs with their colour codes
+  caret-encoded — a failed Windows run carried 7,253 literal `^[` sequences and not one real escape
+  byte — so the stripper had nothing to match, every code survived into the text, and the rules,
+  which match on word boundaries, could not see `1 failed` through the `^[[31m` glued to it. Every
+  failure classified as `unknown` above a box of raw escape garbage. The same gap sat on a
+  redaction boundary, since colour is stripped before secrets are redacted precisely so a wrapped
+  secret still matches. The card now names the job, the step, the class, and the failing test.
+- **Where next.** Every page carries a declared strip of routes to the pages a reader is likely to
+  want, each stating the question it answers. Declared rather than derived, so the routes can be
+  reviewed in a diff instead of shifting under the reader.
+- **A pull request row leads with its checks.** A failing rollup names the failing checks, links to
+  one, and routes to Pipeline — rather than leading with "awaiting review" while the fact that
+  decides whether the branch can merge sat further down the page.
+- **No more silently greyed buttons.** `Check GitHub queue` was disabled with no reason shown, and
+  its gate disagreed with the tick directly above it. A disabled action now says what is holding
+  it and offers the control that clears it.
 - **The promotion dialog stopped fighting you.** Ticking a confirmation threw you back to the top of
   the list every time, so a promotion with nine checks meant nine scrolls back down; the run buttons
   sat below every check rather than staying in view; "Ask Atlas to fix this" on a failed step did

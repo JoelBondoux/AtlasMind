@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-11T12:16:18.674Z",
+  "updatedAt": "2026-08-19T01:41:44.219Z",
   "project": {
     "name": "atlasmind",
     "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
@@ -231,6 +231,21 @@
       "source": "dashboard",
       "createdAt": "2026-08-11T12:16:18.674Z",
       "updatedAt": "2026-08-11T12:16:18.674Z"
+    },
+    {
+      "id": "asg-dashboard-pull-request-1787103704218",
+      "title": "#199 chore: promote develop to main for 0.368.0",
+      "kind": "task",
+      "assigneeContactId": "contact-email-joelbondoux-net-1",
+      "status": "in-progress",
+      "priority": "medium",
+      "linkedWork": {
+        "kind": "pull-request",
+        "id": "199"
+      },
+      "source": "dashboard",
+      "createdAt": "2026-08-19T01:41:44.218Z",
+      "updatedAt": "2026-08-19T01:41:44.218Z"
     }
   ],
   "followUps": [],

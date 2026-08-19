@@ -19662,6 +19662,40 @@ const DASHBOARD_CSS = `
     font-weight: 500;
   }
 
+  /* The declared "where next" strip. Same quiet treatment as the GitHub row --
+     a route out rather than an action -- but placed after it so the two read as
+     one band. Kept below ".github-link-row .action-link" deliberately: see the
+     note above that rule about selectors migrating between blocks. */
+  .page-next-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .page-next-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  .page-next-row .action-link {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* The reason a disabled primary action is disabled, beside the control it
+     explains. Never hidden behind a tooltip alone: a greyed button whose only
+     explanation is on hover is indistinguishable from a broken one. */
+  .ci-runner-start-block {
+    flex-basis: 100%;
+    opacity: 0.8;
+  }
+
   /* Nav tabs and action links share one pill. ".page-nav button" was restored to
      this block after v0.206.0 moved it out; see the note above ".github-link-row". */
   .page-nav button,

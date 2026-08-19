@@ -660,3 +660,66 @@ describe('parseGhReleaseList', () => {
     expect(parseGhReleaseList('[null, 3, {"tagName": ""}]')).toEqual([]);
   });
 });
+
+/**
+ * The declared cross-page routes.
+ *
+ * A typo in a page id renders a button that navigates nowhere, and nothing else
+ * in the build would catch it: the map is data in a webview script, so neither
+ * the type checker nor the linter can see it. These read the real map out of
+ * the shipped file, exactly as the nav tests above do.
+ */
+describe('cross-page next steps', () => {
+  const navPages = readNavGroups().flatMap(group => group.pages);
+
+  function readNextSteps(): Array<{ from: string; to: string; reason: string }> {
+    const start = WEBVIEW_SCRIPT.indexOf('const PAGE_NEXT_STEPS = {');
+    expect(start, 'PAGE_NEXT_STEPS not found in media/projectDashboard.js').toBeGreaterThan(-1);
+    const end = WEBVIEW_SCRIPT.indexOf('\n  };', start);
+    expect(end, 'PAGE_NEXT_STEPS terminator not found').toBeGreaterThan(start);
+    const block = WEBVIEW_SCRIPT.slice(start, end);
+
+    const routes: Array<{ from: string; to: string; reason: string }> = [];
+    for (const line of block.split('\n')) {
+      const from = /^\s{4}([A-Za-z]+):\s*\[/.exec(line)?.[1];
+      if (!from) { continue; }
+      for (const match of line.matchAll(/\['([A-Za-z]+)',\s*'([^']*)'\]/g)) {
+        routes.push({ from, to: match[1]!, reason: match[2]! });
+      }
+    }
+    return routes;
+  }
+
+  const routes = readNextSteps();
+
+  it('declares routes at all', () => {
+    expect(routes.length).toBeGreaterThan(20);
+  });
+
+  it('only ever points at a page the nav actually has', () => {
+    const unknown = routes.filter(route => !navPages.includes(route.to));
+    expect(unknown, `unknown targets: ${unknown.map(r => `${r.from}->${r.to}`).join(', ')}`).toEqual([]);
+  });
+
+  it('only ever hangs off a page the nav actually has', () => {
+    const unknown = [...new Set(routes.map(route => route.from))].filter(id => !navPages.includes(id));
+    expect(unknown, `unknown sources: ${unknown.join(', ')}`).toEqual([]);
+  });
+
+  it('never links a page to itself', () => {
+    expect(routes.filter(route => route.from === route.to)).toEqual([]);
+  });
+
+  it('states the question every route answers', () => {
+    // A bare page name is a link somebody has to click to evaluate.
+    const silent = routes.filter(route => route.reason.trim().length < 8);
+    expect(silent, `routes with no stated reason: ${silent.map(r => `${r.from}->${r.to}`).join(', ')}`).toEqual([]);
+  });
+
+  it('does not declare the same target twice on one page', () => {
+    for (const from of new Set(routes.map(route => route.from))) {
+      const targets = routes.filter(route => route.from === from).map(route => route.to);
+      expect(new Set(targets).size, `${from} repeats a target`).toBe(targets.length);
+    }
+  });
+});

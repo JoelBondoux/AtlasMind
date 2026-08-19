@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.0 — CI failures you can actually read, and routes between pages
+
+GitHub returns Actions logs with their colour codes *caret-encoded* — the two literal characters `^` and
+`[` where the escape byte used to be. A failed Windows run carried 7,253 of them and not one real escape,
+so the stripper that only knew the real form had nothing to match and every code survived into the text.
+That was not cosmetic. The classifier matches on word boundaries, and `^[[31m1 failed` never matched
+`1 failed` because `m` and `1` are both word characters — so a log that plainly said `1 failed`, and named
+the test file it happened in, was reported as "Nothing matched a known pattern... this one needs a human"
+above an evidence box of raw `^[[2m` fragments. The same gap sat on a redaction boundary, since colour is
+stripped before secrets are redacted precisely so a secret wrapped in colour still matches its pattern.
+
+The card also could not name the job or the step, reporting the *workflow* name because that was all it was
+given, while every line of the log it had just read began `quality (windows-latest)` and `Unit tests`. That
+prefix is parsed now — and kept out of the rules, where a job called `lint-and-test` would have satisfied a
+rule on every line it printed. Evidence names the failing test instead of counting failures.
+
+Two navigation changes came out of the same session. Every page now carries a declared **Where next** strip
+— routes to the pages a reader is likely to want, each stating the question it answers, declared rather
+than derived so they can be reviewed in a diff. And a pull request row leads with its check rollup: a
+failing one names the failing checks, links to one, and routes to Pipeline, rather than leading with
+"awaiting review" while the fact deciding whether the branch can merge sat further down the page.
+
+Also: `Check GitHub queue` was greyed out with no reason given, and its gate disagreed with the tick
+directly above it — a disabled action now says what is holding it and offers the control that clears it.
+And a Windows CI test that launches a real helper → Node → PowerShell tree, compiling C# at runtime, was
+killed at 10034ms against a 10s budget. A budget a healthy run lands just under is a flake with a date on
+it; a timeout now also reports itself as one, instead of being indistinguishable from a genuine failure.
+
+---
+
 ## v0.368.0 — The promotion dialog stops fighting you
 
 Four things on one screen. Ticking a preflight confirmation re-rendered the whole dialog and reset its

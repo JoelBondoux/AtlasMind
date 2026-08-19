@@ -153,13 +153,18 @@ const RULES: readonly ClassRule[] = [
   },
   {
     cls: 'test-failure',
+    // Ordered most-specific first. Rule order decides the *class*; pattern
+    // order inside a rule decides the *evidence*, and a reader needs the name
+    // of the failing test far more than its count. Matching the bare count
+    // first meant the card reported "Tests 1 failed" and left the reader to
+    // find which one in a log they could not see.
     patterns: [
-      /\b\d+ (?:tests? )?failed\b/i,
-      /Tests:\s+\d+ failed/i,
       /FAIL\s+\S+\.(?:test|spec)\.[a-z]+/,
-      /AssertionError|expect\(.*?\)\.\w+|assert(?:Equal|True|That)\b/,
-      /=== FAIL:|--- FAIL:/,
       /\bFAILED\b\s+\S+::\S+/,
+      /=== FAIL:|--- FAIL:/,
+      /AssertionError|expect\(.*?\)\.\w+|assert(?:Equal|True|That)\b/,
+      /Tests:\s+\d+ failed/i,
+      /\b\d+ (?:tests? )?failed\b/i,
     ],
   },
   {
@@ -241,27 +246,95 @@ export function sanitizeCiLog(raw: string, maxChars = MAX_LOG_CHARS): SanitizedL
  * whole point of the design: a confidently wrong root cause costs more than an
  * honest admission, and `unknown` is the signal that a human should look.
  */
+/**
+ * One line of `gh run view --log-failed`, split into its columns.
+ *
+ * Every line arrives as `job<TAB>step<TAB>TIMESTAMP content`. That prefix was
+ * never parsed, with two consequences. The dashboard named the *workflow*
+ * ("CI") because that was all the caller had, even though the job and the step
+ * are on every single line. And the prefix went into the rules and the evidence
+ * box, so a reader was shown 60 characters of job name and ISO timestamp before
+ * the part that failed.
+ *
+ * A line that is not in this shape is returned whole, so a plain log — a local
+ * run, a pasted excerpt — is unaffected.
+ */
+export interface CiLogLine {
+  readonly jobName: string;
+  readonly stepName: string;
+  readonly content: string;
+}
+
+const GH_LOG_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[0-9:.]+Z ?/;
+
+export function parseCiLogLine(line: string): CiLogLine {
+  const columns = typeof line === 'string' ? line.split('\t') : [];
+  if (columns.length < 3) {
+    return { jobName: '', stepName: '', content: (line ?? '').replace(GH_LOG_TIMESTAMP, '') };
+  }
+  const [jobName, stepName, ...rest] = columns;
+  return {
+    jobName: (jobName ?? '').trim(),
+    stepName: (stepName ?? '').trim(),
+    content: rest.join('\t').replace(GH_LOG_TIMESTAMP, ''),
+  };
+}
+
+/** Where a deciding line came from, when the log says. */
+function locationOf(line: CiLogLine | undefined): { jobName: string; stepName: string } | undefined {
+  return line && line.jobName ? { jobName: line.jobName, stepName: line.stepName } : undefined;
+}
+
+/**
+ * The *last* line matching a pattern, not the first.
+ *
+ * A test runner prints progress as it goes and its authoritative summary at the
+ * end, so the earliest line mentioning a failure is usually incidental — a
+ * per-file progress row — while the block naming the failing test is at the
+ * bottom. This is the same reasoning that makes truncation keep the tail.
+ */
+function findLastMatch(lines: readonly string[], pattern: RegExp): number {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (matches(pattern, lines[index] ?? '')) { return index; }
+  }
+  return -1;
+}
+
 export function classifyCiFailure(log: string): {
   classification: CiFailureClass;
   evidenceLines: string[];
+  /** The job and step that produced the deciding line, when the log names them. */
+  location?: { jobName: string; stepName: string };
 } {
   const text = typeof log === 'string' ? log : '';
   if (text.trim().length === 0) {
     return { classification: 'unknown', evidenceLines: [] };
   }
 
-  const lines = text.split('\n');
+  // Rules and evidence both run on the *content* column. Matching the raw line
+  // let the prefix take part: a job called `lint-and-test` would have satisfied
+  // a rule on every line it ever printed.
+  const parsed = text.split('\n').map(parseCiLogLine);
+  const contents = parsed.map(line => line.content);
 
   for (const rule of RULES) {
     for (const pattern of rule.patterns) {
-      const index = lines.findIndex(line => matches(pattern, line));
+      const index = findLastMatch(contents, pattern);
       if (index !== -1) {
-        return { classification: rule.cls, evidenceLines: evidenceAround(lines, index) };
+        return {
+          classification: rule.cls,
+          evidenceLines: evidenceAround(contents, index),
+          location: locationOf(parsed[index]),
+        };
       }
     }
   }
 
-  return { classification: 'unknown', evidenceLines: tailEvidence(lines) };
+  return {
+    classification: 'unknown',
+    evidenceLines: tailEvidence(contents),
+    location: locationOf(parsed[parsed.length - 1]),
+  };
 }
 
 /**
@@ -317,17 +390,22 @@ export function buildCiFailureReport(input: {
   maxLogChars?: number;
 }): CiFailureReport {
   const sanitized = sanitizeCiLog(input.log, input.maxLogChars ?? MAX_LOG_CHARS);
-  const { classification, evidenceLines } = classifyCiFailure(sanitized.text);
+  const classified = classifyCiFailure(sanitized.text);
+  const { classification, evidenceLines } = classified;
 
   // History beats a single log: a job that has both passed and failed on this
   // commit is flaky whatever its most recent log happens to say.
   const flaky = detectFlakeSuspect(input.attempts ?? []);
   const finalClass: CiFailureClass = flaky ? 'flake-suspect' : classification;
 
+  // The log names the job and step on every line; the caller only ever knew
+  // the workflow. Prefer the log, fall back to what the caller passed.
+  const located = classified.location;
+
   return {
     runId: input.runId,
-    jobName: input.jobName,
-    stepName: input.stepName ?? '',
+    jobName: located?.jobName || input.jobName,
+    stepName: located?.stepName || input.stepName || '',
     classification: finalClass,
     evidenceLines,
     suggestedOwnerAgentId: OWNER_FOR_CLASS[finalClass],

@@ -287,7 +287,8 @@
   // cannot drift out of sync with the nav.
   function pageSectionOpen(id) {
     return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`
-      + githubLinkRow(id);
+      + githubLinkRow(id)
+      + nextStepRow(id);
   }
 
   // The GitHub page this dashboard page is about.
@@ -300,6 +301,68 @@
   // No URL is sent back: the button carries `page` and a link id, and the host
   // maps that to a URL it built itself. A surface that could name the URL to open
   // could name any URL.
+  /**
+   * Where a reader is likely to go next from each page, and the question that
+   * page answers when they get there.
+   *
+   * The dashboard had 22 pages and, apart from the nav, almost no route between
+   * them: a page told you CI was red and left you to find the Pipeline tab
+   * yourself, and a thought that began on one page ended there. This is the
+   * cheapest fix — one declared strip, rendered from the same place
+   * `githubLinkRow` is, so a page cannot acquire links nobody reviewed.
+   *
+   * Two rules. **Declared, never derived**: a related-page list computed from
+   * the live snapshot would change under the reader and could not be reviewed
+   * in a diff. And **every link states its question**, because a bare page name
+   * is a link somebody has to click in order to find out whether they wanted
+   * it. Pages that are genuinely a dead end are absent rather than padded out.
+   */
+  const PAGE_NEXT_STEPS = {
+    overview: [['workflow', 'What changed since I last looked'], ['pipeline', 'Whether CI is green right now'], ['roadmap', 'What we said we would build']],
+    score: [['gapAnalysis', 'Which gaps pulled the score down'], ['testing', 'What the test evidence actually shows']],
+    gapAnalysis: [['roadmap', 'Turn a gap into planned work'], ['debt', 'What was deferred on purpose']],
+    ideation: [['roadmap', 'Where a raised card lands'], ['issues', 'File one as an issue']],
+    workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
+    roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
+    issues: [['pullRequests', 'What is being done about them'], ['roadmap', 'How they map to planned work'], ['director', 'Who owns them']],
+    pullRequests: [['pipeline', 'Why a check is failing'], ['issues', 'The issue a change closes'], ['release', 'What merging unblocks']],
+    director: [['issues', 'The work these people own'], ['pullRequests', 'What is waiting on a review']],
+    branches: [['pullRequests', 'Which branches have a pull request'], ['delivery', 'Which branch represents each stage']],
+    repo: [['debt', 'What the code defers'], ['testing', 'What covers it']],
+    pipeline: [['pullRequests', 'The change a run is verifying'], ['testing', 'Which policy a failing test belongs to'], ['release', 'Whether the release gate is satisfied']],
+    testing: [['pipeline', 'Whether the suite actually ran'], ['debt', 'Coverage somebody deferred'], ['gapAnalysis', 'How a gap scores']],
+    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone']],
+    security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
+    privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
+    risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
+    release: [['pipeline', 'Whether CI is green'], ['delivery', 'Where the version goes next'], ['documents', 'What the notes must match']],
+    delivery: [['release', 'What is ready to promote'], ['branches', 'The branch behind each stage']],
+    documents: [['ssot', 'The memory these draw from'], ['release', 'Docs a release must update']],
+    ssot: [['documents', 'How memory reaches the docs'], ['ideation', 'Where new thinking is captured']],
+  };
+
+  /** The declared next-step strip for a page. Silent where nothing is declared. */
+
+  /**
+   * The declared next-step strip for a page. Silent where nothing is declared,
+   * and it never links a page to itself.
+   */
+  function nextStepRow(id) {
+    const steps = (PAGE_NEXT_STEPS[id] || []).filter(step => step[0] !== id);
+    if (steps.length === 0) { return ''; }
+    const buttons = steps.map(step => {
+      const entry = NAV_PAGES.find(page => page[0] === step[0]);
+      if (!entry) { return ''; }
+      return `<button type="button" class="action-link" data-action="page"
+        data-payload="${escapeAttr(step[0])}" title="${escapeAttr(step[1])}">${escapeHtml(entry[1])} →</button>`;
+    }).join('');
+    if (!buttons) { return ''; }
+    return `<div class="page-next-row">
+      <span class="page-next-label">Where next</span>
+      ${buttons}
+    </div>`;
+  }
+
   function githubLinkRow(id) {
     const gh = (state.snapshot && state.snapshot.githubLinks) || { links: {}, notices: {} };
     const links = (gh.links || {})[id] || [];
@@ -6021,6 +6084,49 @@
     </article>`;
   }
 
+  /**
+   * The check rollup on a pull request row, and what to do about it.
+   *
+   * The row led with "awaiting review" and "no linked issue" — two things a
+   * reader can rarely act on immediately — while the one fact that decides
+   * whether the branch can merge at all lived only on a chart further down the
+   * page. GitHub leads with the failing check; so does this now.
+   *
+   * Three states are kept apart on purpose. `not read` means AtlasMind did not
+   * fetch the rollup, which is not evidence that nothing ran; `no checks` means
+   * GitHub reported none, so nothing is verifying the change; and a green
+   * verdict is withheld while anything is still running, because "green so far"
+   * is how a merge happens early.
+   */
+  function pullRequestCiState(pr) {
+    const checks = pr.statusChecks;
+    if (!Array.isArray(checks)) {
+      return { tag: '<span class="tag wf-unknown">checks not read</span>', actions: '' };
+    }
+    if (checks.length === 0) {
+      return { tag: '<span class="tag tag-warn">no checks</span>', actions: '' };
+    }
+    const failing = checks.filter(check => pullRequestCheckOutcome(check) === 'failed');
+    const running = checks.filter(check => pullRequestCheckOutcome(check) === 'running');
+    if (failing.length) {
+      const named = failing.slice(0, 2).map(check => check.name).filter(Boolean).join(', ');
+      const linked = failing.find(check => check.url);
+      return {
+        tag: `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
+        actions: (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
+          + (linked ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(linked.url)}">Open the failing check</button>` : '')
+          + '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="The Pipeline page classifies the failure and names the job, the step and the failing test">Read the failure on Pipeline</button>',
+      };
+    }
+    if (running.length) {
+      return {
+        tag: `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
+        actions: '',
+      };
+    }
+    return { tag: `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: '' };
+  }
+
   function renderPullRequests(snapshot) {
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
@@ -6071,6 +6177,7 @@
         const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
         const approved = submitted.some(r => r.verdict === 'approved');
         const size = (pr.additions || 0) + (pr.deletions || 0);
+        const ciState = pullRequestCiState(pr);
         return `
           <div class="recent-item" data-dashboard-focus-kind="pull-request" data-dashboard-focus-id="${escapeAttr(String(pr.number))}">
             <div class="row-head">
@@ -6083,6 +6190,7 @@
               · ${size} line${size === 1 ? '' : 's'}
             </div>
             <div class="tag-row">
+              ${ciState.tag}
               ${renderDirectorOwnerControl('pull-request', String(pr.number))}
               ${changesRequested ? '<span class="tag tag-critical">changes requested</span>' : ''}
               ${approved && !changesRequested ? '<span class="tag tag-good">approved</span>' : ''}
@@ -6093,6 +6201,7 @@
                 ? `<span class="tag tag-warn">no linked issue</span>
                    <button type="button" class="action-link" data-action="pr-draft-issue" data-payload="${pr.number}">Draft tracking issue</button>`
                 : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
+              ${ciState.actions}
               ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
               ${comments === undefined
                 ? `<button type="button" class="action-link" data-action="load-review-comments" data-payload="${pr.number}">Read the review comments</button>`
@@ -8765,10 +8874,35 @@
       { label: 'One-job run', done: runner.lifecycle === 'finished' },
     ];
     const runnerProgressCurrent = runnerProgressSteps.findIndex(step => !step.done);
+    // Why the primary action is unavailable, in the same words as the tick
+    // above it. A disabled control with no reason is the worst state on this
+    // page: the button said "Check GitHub queue" and stayed grey, and nothing
+    // on screen distinguished a permission that is off from an executor that
+    // never reported ready from a run already in flight. The gate also read
+    // `runner.enabled` while the Permission tick read `enablement.effective`,
+    // so a ticked step could sit directly above a dead button.
+    const runnerStartBlock = !runnerEnablement.effective
+      ? {
+        why: 'Trusted local CI is not permitted on this machine yet.',
+        action: '<button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Open runner permission</button>',
+      }
+      : runnerBlockers.length
+        ? { why: `${runnerBlockers.length} safety blocker${runnerBlockers.length === 1 ? '' : 's'} listed above must be cleared first.`, action: '' }
+        : runnerActive
+          ? { why: `A run is already in flight (${runner.lifecycle}). One operation at a time, by design.`, action: '' }
+          : !runnerReady
+            ? {
+              why: `This computer has not reported ready — its executor state is "${runner.lifecycle || 'not inspected'}". Inspecting it again is safe and installs nothing.`,
+              action: `<button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect this computer</button>`,
+            }
+            : undefined;
     let runnerFocusTitle = 'Queue one trusted job';
     let runnerFocusDetail = 'Use the complete command below, then let AtlasMind verify the queue before it starts anything.';
     let runnerFocusContext = queuedRunCard;
-    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || !runnerReady || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Check GitHub queue → review start plan</button>`;
+    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${runnerStartBlock ? 'disabled' : ''} title="${escapeAttr(runnerStartBlock ? runnerStartBlock.why : 'Checks the GitHub queue and shows you a start plan to approve')}">Check GitHub queue → review start plan</button>`
+      + (runnerStartBlock
+        ? `<span class="list-meta ci-runner-start-block">${escapeHtml(runnerStartBlock.why)}</span>${runnerStartBlock.action}`
+        : '');
     if (!workflowOk && !['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
       // First, because it is the cheapest question in the flow and used to be
       // asked last. Checking a file needs no Docker, no GitHub sign-in and no
