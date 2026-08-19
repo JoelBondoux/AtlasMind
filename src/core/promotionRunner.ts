@@ -55,6 +55,13 @@ const VERIFY_TIMEOUT_MS = 15_000;
 const MAX_OUTPUT_CHARS = 4_000;
 /** Successful repository hooks can be verbose; do not kill git at Node's small default buffer. */
 const GIT_OUTPUT_BUFFER_BYTES = 16 * 1024 * 1024;
+/**
+ * The same courtesy for the user-authored deploy and rollback commands. A build
+ * or deploy that prints more than Node's 1 MiB default failed with `ENOBUFS` —
+ * reported as a failed promotion step for a command that had in fact succeeded,
+ * which on the rollback path is the most expensive possible false alarm.
+ */
+const STEP_OUTPUT_BUFFER_BYTES = 4 * 1024 * 1024;
 
 // ── Plan building ────────────────────────────────────────────────
 
@@ -571,7 +578,12 @@ export async function runPromotion(options: PromotionRunOptions): Promise<Promot
  */
 export async function runRollback(workspaceRoot: string, command: string): Promise<{ ok: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execAsync(command, { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true });
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: workspaceRoot,
+      timeout: STEP_TIMEOUT_MS,
+      windowsHide: true,
+      maxBuffer: STEP_OUTPUT_BUFFER_BYTES,
+    });
     return { ok: true, output: clip(`${stdout}${stderr ? `\n${stderr}` : ''}`) || 'Rollback command completed.' };
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string; message?: string };
@@ -585,6 +597,7 @@ async function runCommandStep(step: PromotionPlanStep, workspaceRoot: string): P
       cwd: workspaceRoot,
       timeout: STEP_TIMEOUT_MS,
       windowsHide: true,
+      maxBuffer: STEP_OUTPUT_BUFFER_BYTES,
     });
     return { id: step.id, label: step.label, ok: true, skipped: false, output: clip(`${stdout}${stderr ? `\n${stderr}` : ''}`) };
   } catch (err: unknown) {

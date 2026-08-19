@@ -19,11 +19,11 @@ Your own machine. Where you write and run code day to day. Data here is disposab
 - **Data:** No application database
 - **Backup before promotion:** not required
 
-### 2. Integration — `staging`
+### 2. Integration — `staging` 🔒 protected
 
 Shared integration branch (`develop`). Work merges here and is built, linted, and tested together before a release is promoted to production.
 
-- **Branch:** `develop`
+- **Branch:** `staging`
 - **Hosting:** —
 - **Config source:** — (location only — secret values stay in your secret store)
 - **Data:** No application database
@@ -75,4 +75,4 @@ Every promotion runs the same guarded sequence:
 
 ---
 
-_Last updated: 2026-08-12T14:12:41.017Z._
+_Last updated: 2026-08-19T01:13:47.929Z._

@@ -6,6 +6,245 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.0] - 2026-08-19
+
+### Fixed
+
+- **CI logs are unreadable to the classifier when GitHub caret-encodes their colour codes, and
+  every failure landed on the dashboard as `unknown`.** A failed Windows run fetched through
+  `gh run view --log-failed` carried **7,253 literal `^[` sequences and not one ESC byte**, so
+  `stripAnsiSequences` — which only ever knew the real escape — had nothing to match and every
+  colour code survived into the text. The rules match on word boundaries, and `^[[31m1 failed`
+  never matched `\b1 failed\b` because `m` and `1` are both word characters, so a log that plainly
+  said `1 failed` and named the failing test file was reported as "Nothing matched a known
+  pattern... this one needs a human", above an evidence box of raw `^[[2m` garbage.
+- **The same gap sat on a redaction boundary.** `ciFailureAnalysis` strips ANSI *before* redacting
+  precisely so a secret wrapped in colour codes still matches its pattern; with the caret form
+  surviving, that ordering was not protecting CI logs at all. Treated as a correctness bug, and
+  pinned by a test that redacts a caret-wrapped secret the way the ESC path already did.
+- **The failure card could not name the job or the step**, reporting `CI · step · run 32205750755`
+  — the *workflow* name, because that was all the caller passed — while every line of the log it
+  had just read began `quality (windows-latest)<TAB>Unit tests`. The prefix is parsed now, so the
+  card names the job and step the deciding line actually came from, and falls back to the caller
+  only for a log that carries no prefix.
+- **`Check GitHub queue → review start plan` was greyed out with no reason given.** Its gate read
+  `runner.enabled` while the Permission tick directly above it read `enablement.effective`, so a
+  ticked step could sit above a dead button. Both read the same fact now, and a disabled button
+  states which of permission, blockers, an in-flight run, or an executor that never reported ready
+  is holding it — with the control that clears it alongside.
+- **A Windows CI test was scheduled to flake.** `acpWindowsLauncher` launches a real helper → Node
+  → PowerShell tree whose deepest test compiles C# at runtime through `Add-Type`, against a 10s
+  child budget; it was killed at **10034ms**. A budget a healthy run lands just under is a flake
+  with a date on it. The budget is now wide enough that only a genuinely hung tree reaches it, and
+  a timeout reports itself as a timeout — previously indistinguishable from the boundary genuinely
+  leaking a visible console, since both surfaced as `Command failed` with empty stderr.
+
+### Added
+
+- **Every dashboard page carries a declared "Where next" strip.** The dashboard had 22 pages and,
+  outside the nav, almost no route between them: a page told you CI was red and left you to find
+  the Pipeline tab yourself. Routes are **declared, never derived** — a list computed from the live
+  snapshot would change under the reader and could not be reviewed in a diff — and **every link
+  states the question its target answers**, because a bare page name is a link somebody has to
+  click in order to find out whether they wanted it. Rendered from the same single place as the
+  GitHub link row, so a page cannot acquire a route nobody reviewed, and pinned by tests that read
+  the real map out of the shipped file.
+- **A pull request row leads with its check rollup.** The row led with "awaiting review" and "no
+  linked issue" — two things a reader can rarely act on immediately — while the one fact deciding
+  whether the branch can merge at all lived on a chart further down the page. A failing rollup now
+  names the failing checks, links straight to one, and routes to Pipeline. `checks not read` stays
+  distinct from `no checks`: one is a gap in what was fetched, the other is a change nothing is
+  verifying.
+
+### Changed
+
+- **Failure evidence names the failing test instead of counting failures.** Rule order decides the
+  *class*; pattern order inside a rule decides the *evidence*, and matching the bare count first
+  meant the card reported "Tests 1 failed" and left the reader to find which one in a log they
+  could not see. Evidence is also taken from the **last** match rather than the first — a runner
+  prints progress as it goes and its authoritative block at the end, the same reasoning that makes
+  truncation keep the tail.
+
+
+## [0.368.0] - 2026-08-19
+
+### Fixed
+
+- **"Ask Atlas to fix this" on a failed promotion step now does something.** The message was declared
+  on the dashboard's message union and handled in its switch, but never admitted by
+  `isProjectDashboardMessage` — so every click was dropped one layer before its handler and the
+  button read as dead. It type-checked and it linted; only calling the guard can catch it, which is
+  the same failure the settings panel shipped and is now pinned by the same shape of test.
+- **Ticking a preflight confirmation no longer throws you back to the top of the dialog.** The
+  attestation handler called `render()`, which replaces `#dashboard-root` wholesale — so every tick
+  destroyed and rebuilt the dialog and reset its scroller, on the one surface whose entire job is a
+  list worked down in order. Nothing structural depends on a tick, so `syncPromotionGate()` now
+  updates the meters and the button states in place, and the dialog body keeps its scroll position
+  across the re-renders that are legitimate, such as progress arriving during a run.
+
+### Changed
+
+- **The promotion dialog is a fixed column with a pinned action bar**, not a tall card inside a
+  scrolling overlay. The run controls used to sit below however many preflight checks a project had,
+  so the primary button was only reachable by scrolling past everything else.
+- **Each section carries a meter, and the footer says what is outstanding.** Checks the machine ran
+  and confirmations only a person can give are now separate metered sections, because they fail for
+  different reasons and are fixed by different people — one list is how a dialog shows a row of green
+  ticks above a disabled button and explains neither. The protected-stage text box counts as one of
+  the confirmation gates, so the meter and the readiness line cannot disagree with the button.
+  "Resolve & run" is disabled rather than absent until it applies: a control that materialises
+  mid-scroll moves everything under it.
+- **A running promotion can be closed, and says so.** The run belongs to the extension host and the
+  dialog has never been able to stop it — but there was no close control at all while running (the
+  only button was a disabled "Running…"), and the result was *dropped* whenever the dialog was gone,
+  so a dismissed run finished silently. Both halves are fixed: Escape and a "Close — the run
+  continues" button detach rather than cancel, keeping the state so the outcome still has somewhere
+  to land, and a strip on the Delivery page reports the running promotion and its result with a way
+  back into the detail. Closing a dialog with nothing running behind it still discards it outright.
+
+## [0.367.0] - 2026-08-19
+
+### Changed
+
+- **The automatic CI refresh cadence is a pop-out on every refresh button, not a row of buttons on one
+  page.** It was four permanently visible segmented buttons plus an explanatory sentence, on one card of
+  the Pipeline page — a row and a half of vertical space spent on a setting most people choose once, and
+  unreachable from the thirteen other pages that show what it refreshes. It is a caret joined to the
+  refresh button now, including the dashboard header's, so it is available wherever a refresh is offered.
+  Choosing a cadence is one click from anywhere, and choosing nothing costs nothing: the menu is a single
+  node built on first use and shared by every trigger, rather than one copy per button left to be
+  reopened or re-rendered. **A running cadence stays legible with the menu closed** — the caret carries
+  the interval and an accent — because a setting that spends a rate limit must not become invisible just
+  because its control folded away, which is the one thing a pop-out can get badly wrong. The menu states
+  the cost where the choice is made, marks the current choice with a tick as well as a colour, opens onto
+  the running option, and is arrow-navigable with Escape returning focus to the caret.
+- **A cadence now polls wherever you are, and the reason the old rule existed is gone.** Auto-refresh
+  stopped the moment you left the Pipeline page. That defeated the cadence people most want — you set one
+  minute to watch a run you just started, then go and do something else, which is exactly when it stopped
+  — and with the control now on every refresh button it would have been a rule contradicted by the
+  affordance on thirteen pages out of fourteen. The two gates that prevent genuinely wasted requests are
+  unchanged and still hold: nothing is fetched while the panel is hidden, or while a refresh is already
+  in flight. Off remains the default and the first option. Because the setting's meaning changed, the
+  stored value is re-chosen rather than reinterpreted: an existing cadence reverts to **Off**.
+
+### Fixed
+
+- **A cadence restored from a previous session now actually runs.** The timer was only ever started by
+  the click handler and the visibility listener, so reopening the panel with "every 5 minutes" saved
+  showed the cadence as set and fetched nothing until you switched editor tabs away and back. Restoring
+  a setting and honouring it are the same act, and it is done at startup.
+
+## [0.366.0] - 2026-08-19
+
+### Added
+
+- **A local CI job survives the editor, and the next session picks it up.** A container is started by
+  the extension host but not owned by it: closing VS Code left the runner executing the job it had
+  claimed, which is the *right* behaviour — GitHub is waiting on real work, and killing it because a
+  window closed would discard minutes of compute and report a failure nobody caused. What was missing
+  was the other half. `localCiAdoption.ts` reconciles what is still running here: a live container is
+  **adopted** (its output reattached with `docker logs --follow`, its end recorded), and finished ones
+  are reported as strays. Four rules: only containers matching **both** the AtlasMind label and the
+  container-name shape are considered, because a label is a string anybody can set; running and
+  finished are different findings with different offers; a stray is reported and never removed
+  automatically, since it is the only local evidence a run happened and usually the crash somebody is
+  investigating; and an unreadable `docker ps` row is skipped rather than guessed at. Following is
+  read-only — `docker attach` would share the container's stdin — and dropping the follower on panel
+  close deliberately does not touch the job. Pure + unit-tested.
+
+### Fixed
+
+- **`/ship` no longer interpolates chat text into a shell command unchecked.** A routine step is a
+  command string run through a real shell, and `vars['message']` was raw prompt text substituted into
+  it: a step reading `git commit -m "${message}"` and a message carrying a quote followed by a second
+  command was injection with no gate in front of it. `routineVariables.ts` refuses a *value* — never
+  the template, which is a reviewed file in the repository — that contains a character a shell reads
+  as syntax. A refusal rather than quoting or environment indirection, because those two need to know
+  whether the template already quotes the placeholder, and guessing wrong either breaks ordinary
+  messages or leaves the hole open; this way the failure is loud and recoverable by editing four
+  characters. The refusal happens before any step runs, so a routine cannot push two commits and then
+  decline the third, and `/ship` reports it as *nothing was run* rather than as a failed step.
+- **Verbose build output no longer reports a step that succeeded as failed.** The routine and
+  promotion runners captured output into Node's 1 MiB default; a build that printed more died with
+  `ENOBUFS`, which on the promotion rollback path is the most expensive possible false alarm. Both now
+  use a 4 MiB buffer, matching the git path beside them.
+- **Tests inside the local CI container stop asking for the whole host.** AtlasMind's own runner sets
+  `CI=true` *on this machine*, inside a container capped at a few CPUs — so the CI branch of
+  `vitest.config.ts` asked for one worker per host thread, 23 of them behind an 8-CPU quota, paying
+  full per-worker memory for parallelism the cgroup will not grant. The runner now passes
+  `ATLASMIND_TEST_MAX_WORKERS` (with the Vitest and Jest native spellings, and a matching
+  `NODE_OPTIONS` heap cap) describing the container's real allowance, and the config prefers it over
+  the CI default. A hosted GitHub runner sets none of these and is unaffected.
+
+## [0.365.0] - 2026-08-19
+
+### Added
+
+- **`TestResourceBudget` (`src/core/testResourceBudget.ts`) — the sliding scale for local test
+  execution, and the OS reserve under it.** The Docker-based local CI runner was the only governed
+  execution path; everything that runs tests on the host itself — the after-write auto-verification,
+  the test-run skill, the Pipeline "Run here" route — had no CPU, memory or worker governance at all,
+  and those are the paths that can take a desktop down: Jest defaults to (cores − 1) workers and
+  Stryker to (cores − 1) concurrent whole test runtimes, which on a 24-thread / 64 GB machine is
+  40–60 GB of commit on top of the desktop's baseline. Windows expresses that as a black screen with
+  corrupted graphics, not as a readable failure. Five rules: the reserve is for the operating system
+  and is measured **on the host**, never on the Docker/WSL VM (25%, never fewer than 2 CPUs / 8 GB);
+  one slider (`atlasmind.testing.resourceShare`, machine-scoped, default 50%) governs every path, so
+  two surfaces cannot answer the question differently; a budget can shrink a host run but never
+  refuse one; a worker flag is appended only where the runner is recognised (`--maxWorkers` for
+  Jest/Vitest, `--concurrency` at a harder cap for Stryker — each mutation runner is a whole test
+  runtime) and never to a compound script or one that states its own limit; and the `NODE_OPTIONS`
+  heap cap is a merge, never a replacement, so a machine that needs `--use-system-ca` keeps it.
+  Pure + unit-tested.
+- **A Stop button for the live one-job runner.** Once started, a run could only end by finishing: no
+  kill path existed anywhere in the manager, so a wedged job held its full CPU/memory budget until
+  Docker was killed by hand. `LocalCiRunnerManager.stop()` removes the container through the same
+  name-guarded remover the start path uses — it can only ever reach a container AtlasMind started —
+  and the confirmation says plainly that a claimed job will be reported to GitHub as failed.
+- **The first sight of the Pipeline page inspects the machine by itself** when local CI is enabled,
+  nothing has ever been probed, and no remembered inspection exists — so "Docker Desktop is not
+  installed" is surfaced without anyone having to find the Inspect button. Once per webview session,
+  and never when a dated observation already answers.
+
+### Changed
+
+- **The Project Dashboard opens on the dashboard.** The header was four stacked blocks — a 44px
+  generic title, a three-line description of the tabs sitting directly beneath it, a pill row, and
+  then two full-width cards, one repeating the project name at h2 with three provenance pills and one
+  carrying a 150px score ring. That is roughly 600px of chrome above the first real signal on a wide
+  editor and past 900px on a narrow one, on a page whose entire purpose is the signals. The same
+  facts are stated in one band now: **the project's own name is the largest text on the page**
+  instead of the third heading down, the sentence under it is the project's health summary rather
+  than a list of the tabs below it, "Generated / Branch / SSOT" is one muted line rather than three
+  pills, and the score is a chip beside **Refresh** that opens the Score page. The full animated ring
+  moves to that page, which is the one about the number. The header sits outside the re-rendered
+  subtree, so it is filled before the body is replaced — a page renderer that throws can no longer
+  leave the title reading "Loading project…" — cleared when a refresh fails rather than left showing
+  the previous collection's score as current, and the chip is hidden rather than reading zero when
+  nothing has been measured.
+- **The local CI container's reserve is computed on the host, not on Docker's view of itself.** On
+  Windows/macOS the engine reports the WSL/VM allocation, which is already a slice of the machine —
+  "25% reserved for the desktop" computed on the VM reserved a quarter of the slice and nothing of
+  the computer. The plan now takes the lowest of the operator caps, the engine's capacity, the
+  testing share, and what the host reserve leaves, and its explanation names each. The memory floor
+  rises from 2 GB to 8 GB.
+- **Agent-issued commands run at below-normal priority**, and their captured output is clipped to a
+  64 KB tail instead of failing at a 1 MiB buffer — the tail because test runners print failures
+  last, and the old `ENOBUFS` read as a test failure no test produced.
+- **The auto-verification run and the test-run skill carry the budget**: worker flags where the
+  script's runner is recognised, `testResources` environment caps always, and the "Run here" route
+  types the throttle into the terminal as part of the command, where the person about to press Enter
+  can read it or delete it.
+
+## [0.364.1] - 2026-08-19
+
+### Changed
+
+- **README published baseline refreshed to v0.364.0**, the release just published — step 8 of the
+  publishing routine, which exists because `docsIntegrity` asserts the README names the newest tag and
+  the tag only exists once tagging has run. Written after the Marketplace publish succeeded, as that
+  step now says: the line claims a *publication*, not a tag.
+
 ## [0.364.0] - 2026-08-19
 
 ### Added

@@ -2,9 +2,17 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ProjectRunRecord, RoutineDefinition, RoutineRunResult, RoutineStep, RoutineStepResult } from '../types.js';
 import type { ProjectRunHistory } from './projectRunHistory.js';
+import { checkRoutineVariables } from './routineVariables.js';
 
 const execAsync = promisify(exec);
 const STEP_TIMEOUT_MS = 60_000;
+/**
+ * A routine step is a build or release command; `npm run build` alone can
+ * exceed Node's 1 MiB default, and the failure arrives as `ENOBUFS` — a routine
+ * that reports a step failed when the step actually succeeded and only talked
+ * too much.
+ */
+const STEP_OUTPUT_BUFFER_BYTES = 4 * 1024 * 1024;
 
 export type RoutineProgressCallback = (
   step: RoutineStep,
@@ -36,6 +44,27 @@ export class RoutineRunner {
     const stepResults: RoutineStepResult[] = [];
     let failedStep: string | undefined;
     let succeeded = true;
+
+    // Checked once, before any step runs, because a routine that has already
+    // pushed two commits before refusing the third is worse than one that
+    // refuses at the door. The values reach a real shell through `exec`; the
+    // template is a reviewed file in the repository, the values are whatever
+    // somebody typed after `/ship`.
+    const variableCheck = checkRoutineVariables(vars);
+    if (!variableCheck.ok) {
+      const reason = variableCheck.refusals.map(refusal => refusal.reason).join(' ');
+      const result: RoutineRunResult = {
+        routineId: routine.id,
+        routineName: routine.name,
+        steps: [],
+        succeeded: false,
+        failedStep: routine.steps[0]?.id,
+        durationMs: Date.now() - startedAt,
+        refusedReason: reason,
+      };
+      await this.persistResult(routine, result);
+      return result;
+    }
 
     for (let i = 0; i < routine.steps.length; i++) {
       const step = routine.steps[i];
@@ -103,6 +132,7 @@ export class RoutineRunner {
         cwd: workspaceRoot,
         timeout: STEP_TIMEOUT_MS,
         windowsHide: true,
+        maxBuffer: STEP_OUTPUT_BUFFER_BYTES,
       });
       return {
         stepId: step.id,

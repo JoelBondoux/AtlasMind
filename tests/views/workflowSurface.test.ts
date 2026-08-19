@@ -24,6 +24,12 @@ const WEBVIEW_SCRIPT = readFileSync(
   'utf8',
 );
 
+/** The host side: the panel's own markup and stylesheet. */
+const HOST_PANEL = readFileSync(
+  path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+  'utf8',
+);
+
 /** The body of a named render function, up to the next one. */
 function renderSource(name: string, until: string): string {
   const start = WEBVIEW_SCRIPT.indexOf(`function ${name}(snapshot)`);
@@ -1678,51 +1684,158 @@ describe('the Activity view explains its own notation', () => {
 });
 
 /**
- * Auto-refresh is the one control on this page that spends something without
- * being asked again, so its defaults and its gates are the whole design.
+ * Automatic CI refresh is the one control in this panel that spends something
+ * without being asked again, so its defaults and its gates are the whole design.
+ *
+ * It was four permanently visible segmented buttons on one card of one page.
+ * It is a pop-out on every steady-state refresh button now, which changes two
+ * things this file has to keep honest: the cadence must stay visible while its
+ * control is folded away, and the poll must actually behave the way the menu
+ * says it does from whichever page you set it on.
  */
-describe('the Activity view’s auto-refresh', () => {
+const CADENCE_TABLE = WEBVIEW_SCRIPT.slice(
+  WEBVIEW_SCRIPT.indexOf('const CI_REFRESH_CADENCES'),
+  WEBVIEW_SCRIPT.indexOf('const CI_REFRESH_COST_NOTE'),
+);
+
+describe('the automatic CI refresh cadence', () => {
   it('is off by default, and off is a declared choice rather than an absence', () => {
-    const table = WEBVIEW_SCRIPT.slice(
-      WEBVIEW_SCRIPT.indexOf('const PIPELINE_AUTO_REFRESH_CHOICES'),
-      WEBVIEW_SCRIPT.indexOf('function pipelineAutoRefreshMs'),
-    );
     // First in the list and zero-valued: a cadence control whose default polls
     // would spend a rate limit nobody agreed to.
-    expect(table.indexOf("id: 'off'")).toBeGreaterThan(-1);
-    expect(table.indexOf("id: 'off'")).toBeLessThan(table.indexOf("id: '1m'"));
-    expect(table).toContain('ms: 0');
-    expect(WEBVIEW_SCRIPT).toContain("persistedWebviewState.pipelineAutoRefresh : 'off'");
+    expect(CADENCE_TABLE.indexOf("id: 'off'")).toBeGreaterThan(-1);
+    expect(CADENCE_TABLE.indexOf("id: 'off'")).toBeLessThan(CADENCE_TABLE.indexOf("id: '1m'"));
+    expect(CADENCE_TABLE).toContain('ms: 0');
+    expect(WEBVIEW_SCRIPT).toContain("persistedWebviewState.ciRefreshCadence : 'off'");
   });
 
   /** The shortest cadence is a minute: faster is a poll nobody reads. */
   it('offers nothing faster than a minute', () => {
-    const table = WEBVIEW_SCRIPT.slice(
-      WEBVIEW_SCRIPT.indexOf('const PIPELINE_AUTO_REFRESH_CHOICES'),
-      WEBVIEW_SCRIPT.indexOf('function pipelineAutoRefreshMs'),
-    );
-    const intervals = [...table.matchAll(/ms: (\d+)/g)].map(match => Number(match[1]));
+    const intervals = [...CADENCE_TABLE.matchAll(/ms: (\d+)/g)].map(match => Number(match[1]));
     expect(intervals.filter(value => value > 0).every(value => value >= 60000)).toBe(true);
   });
 
   /**
-   * Three gates, each closing a way this could spend a request nobody wanted:
-   * a hidden panel, a different page, and a fetch already in flight.
+   * Two gates, each closing a way this could spend a request nobody wanted: a
+   * hidden panel, and a fetch already in flight.
+   *
+   * A third — the Pipeline page had to be active — was deliberately removed
+   * when the control moved onto every refresh button. It defeated the cadence
+   * people most want (one minute, to watch a run you just started, which is
+   * exactly when you go and do something else), and a rule holding on one page
+   * out of fourteen would be contradicted by the affordance everywhere else.
+   * Its absence is asserted, because re-adding it would look like a fix.
    */
-  it('does not poll while hidden, off-page, or already fetching', () => {
+  it('does not poll while hidden or already fetching, and no longer cares which page is open', () => {
     const sync = WEBVIEW_SCRIPT.slice(
-      WEBVIEW_SCRIPT.indexOf('function syncPipelineAutoRefresh'),
+      WEBVIEW_SCRIPT.indexOf('function syncCiRefreshCadence'),
       WEBVIEW_SCRIPT.indexOf('document.addEventListener(\'visibilitychange\''),
     );
     expect(sync).toContain('document.hidden');
-    expect(sync).toContain("state.activePage !== 'pipeline'");
     expect(sync).toContain('state.repositoryRefreshBusy');
+    expect(sync).not.toContain('state.activePage');
+  });
+
+  /** A restored cadence starts its timer, rather than only looking as if it had. */
+  it('honours a cadence restored from a previous session at startup', () => {
+    // The only callers used to be the click handler and the visibility
+    // listener, so reopening the panel with a cadence saved showed it as
+    // running and fetched nothing until you switched tabs away and back.
+    const tail = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.lastIndexOf("vscode.postMessage({ type: 'ready' })") - 800);
+    expect(tail).toContain('syncCiRefreshCadence();');
+    expect(tail).toContain('syncRefreshCadenceIndicators();');
   });
 
   /** A persisted cadence is untrusted input like any other. */
   it('validates a restored cadence against the declared list', () => {
-    expect(WEBVIEW_SCRIPT).toContain("['off', '1m', '5m', '15m'].includes(persistedWebviewState.pipelineAutoRefresh)");
-    expect(WEBVIEW_SCRIPT).toContain('PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload)');
+    expect(WEBVIEW_SCRIPT).toContain("['off', '1m', '5m', '15m'].includes(persistedWebviewState.ciRefreshCadence)");
+    expect(WEBVIEW_SCRIPT).toContain('CI_REFRESH_CADENCES.some(entry => entry.id === id)');
+  });
+});
+
+describe('the cadence pop-out', () => {
+  it('replaced the permanently visible segmented row', () => {
+    // The row cost a line and a half of every Pipeline render for a setting
+    // most people choose once, and was unreachable from the other thirteen
+    // pages that display what it refreshes.
+    expect(WEBVIEW_SCRIPT).not.toContain('renderPipelineAutoRefresh');
+    expect(WEBVIEW_SCRIPT).not.toContain('set-pipeline-auto-refresh');
+    expect(HOST_PANEL).not.toContain('ci-autorefresh');
+  });
+
+  it('is one menu shared by every trigger rather than one per button', () => {
+    // N menus in the document is N chances for one to be left open behind a
+    // re-render, and needs an id per copy that survives renders it cannot see.
+    // The Lens panel's info popover already solved this the same way.
+    const menu = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const ciRefreshCadenceMenu'),
+      WEBVIEW_SCRIPT.indexOf("vscode.postMessage({ type: 'ready' })"),
+    );
+    expect(menu).toContain('document.body.appendChild(node)');
+    expect(WEBVIEW_SCRIPT.match(/className = 'refresh-cadence-menu'/g)?.length).toBe(1);
+  });
+
+  it('states what the cadence costs where the choice is made', () => {
+    const note = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const CI_REFRESH_COST_NOTE'),
+      WEBVIEW_SCRIPT.indexOf('function currentCiRefreshCadence'),
+    );
+    expect(note).toMatch(/rate limit/);
+    expect(note).toMatch(/spends money/);
+  });
+
+  it('keeps a running cadence legible while the menu is closed', () => {
+    // The one thing a pop-out can get badly wrong: hiding a setting that
+    // spends a rate limit behind a control that gives no sign it is on.
+    expect(CADENCE_TABLE).toContain("short: '5m'");
+    const sync = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function syncRefreshCadenceIndicators'),
+      WEBVIEW_SCRIPT.indexOf('const ciRefreshCadenceMenu'),
+    );
+    expect(sync).toContain("classList.toggle('is-on', running)");
+    expect(sync).toContain('choice.short');
+    expect(HOST_PANEL).toContain('.refresh-cadence-toggle.is-on');
+  });
+
+  it('is reachable from the header, so it is on every page', () => {
+    // The header is the "wherever": it is the one refresh control present on
+    // all fourteen pages, and it sits outside #dashboard-root, so its trigger
+    // is written into the host markup rather than produced by a renderer.
+    const start = HOST_PANEL.indexOf('<span class="refresh-split">');
+    expect(start, 'the header refresh is not a split button').toBeGreaterThan(-1);
+    const header = HOST_PANEL.slice(start, HOST_PANEL.indexOf('</span>\n', HOST_PANEL.indexOf('refresh-cadence-caret', start)));
+    expect(header).toContain('id="dashboard-refresh"');
+    expect(header).toContain('data-refresh-cadence');
+    expect(header).toContain('aria-haspopup="menu"');
+  });
+
+  it('is offered only on controls the cadence actually governs', () => {
+    // A git fetch and a single branch's review are different operations, and a
+    // first-load or retry control would be offering to schedule repeats of a
+    // read that has never once succeeded.
+    for (const [call, expected] of [
+      ["renderRefreshAction('pipeline-refresh', 'Refresh'", true],
+      ["renderRefreshAction('issues-refresh', 'Refresh issues'", true],
+      ["renderRefreshAction('branch-review-refresh', 'Refresh PR & CI'", true],
+      ["renderRefreshAction('branch-fetch'", false],
+      ["renderRefreshAction('issues-refresh', 'Load issues'", false],
+      ["renderRefreshAction('pipeline-refresh', 'Try again'", false],
+    ] as [string, boolean][]) {
+      const at = WEBVIEW_SCRIPT.indexOf(call);
+      expect(at, `${call} not found`).toBeGreaterThan(-1);
+      const site = WEBVIEW_SCRIPT.slice(at, WEBVIEW_SCRIPT.indexOf('})', at) + 2);
+      expect(site.includes('cadence: true'), `${call} cadence: ${expected}`).toBe(expected);
+    }
+  });
+
+  it('can be closed and left by the keyboard', () => {
+    const menu = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('const ciRefreshCadenceMenu'),
+      WEBVIEW_SCRIPT.indexOf("vscode.postMessage({ type: 'ready' })"),
+    );
+    expect(menu).toContain("event.key === 'Escape'");
+    expect(menu).toContain("event.key !== 'ArrowDown'");
+    expect(menu).toContain('restoreFocus: true');
+    expect(menu).toContain("setAttribute('role', 'menu')");
   });
 });
 

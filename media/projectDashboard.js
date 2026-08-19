@@ -1,6 +1,12 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById('dashboard-root');
+  // One automatic machine inspection per webview session, and only when the
+  // feature is enabled, nothing was ever inspected, and no remembered
+  // inspection exists — so "Docker is missing" is surfaced on first sight of
+  // the Pipeline page rather than waiting behind an Inspect button nobody
+  // knew they needed to press.
+  let localCiAutoInspectRequested = false;
   let hostBranchPreferences = {};
   try {
     hostBranchPreferences = root?.dataset.branchPreferences
@@ -47,6 +53,18 @@
   const GATE_HELP_TEXT = 'Release gates are the milestones your backlog is working towards — MVP is the built-in first one, and you can add your own (a public beta, v1.0, v2). Tagging an item puts it on that release\'s path. An item can belong to more than one, and removing a gate never deletes any work.';
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
+  // The header identity — project name, state, provenance and score. It lives
+  // in the host markup rather than inside #dashboard-root because render()
+  // replaces that subtree wholesale on every keystroke, and the header does not
+  // change between renders.
+  const projectNameEl = document.getElementById('dashboard-project-name');
+  const projectSummaryEl = document.getElementById('dashboard-project-summary');
+  const provenanceEl = document.getElementById('dashboard-provenance');
+  const scoreChip = document.getElementById('dashboard-score-chip');
+  // What the header says with nothing collected yet, taken from the host markup
+  // so the sentence is written in one place. Captured before the first render,
+  // which is also the first thing to clear it.
+  const HEADER_SUMMARY_FALLBACK = projectSummaryEl ? projectSummaryEl.textContent : '';
   const noProjectBanner = document.getElementById('no-project-banner');
   const statusRegion = document.getElementById('dashboard-status');
   const atlasDiscussIconUri = root?.dataset.atlasDiscussIcon || '';
@@ -95,13 +113,26 @@
    * Every dashboard refresh uses the same in-button progress treatment.
    * `busy` is host-backed; the optimistic webview state only covers the
    * message round-trip so a click can never look inert.
+   *
+   * `options.cadence` splits the button: the label still refreshes once, and a
+   * caret beside it opens the automatic-CI-refresh pop-out. It is opt-in per
+   * call site rather than automatic, because two kinds of refresh control must
+   * not carry it. A control that does something else — `branch-fetch` fetches
+   * remote refs, `branch-inspect` reads one branch's review — would be offering
+   * a cadence that governs neither. And a first-load or retry control ("Load
+   * issues", "Try again") is offering to schedule repeats of a read that has
+   * never once succeeded, which is the wrong thing to put in front of somebody
+   * whose immediate problem is that nothing loaded.
    */
   function renderRefreshAction(action, label, busy, options = {}) {
     const busyLabel = options.busyLabel || 'Refreshing…';
     const primary = options.primary === true ? ' primary' : '';
     const payload = options.payload ? ` data-payload="${escapeAttr(options.payload)}"` : '';
     const title = options.title ? ` title="${escapeAttr(options.title)}"` : '';
-    return `<button type="button" class="action-link${primary} refresh-progress-button${busy ? ' is-refreshing' : ''}" data-action="${escapeAttr(action)}"${payload}${title} aria-busy="${busy ? 'true' : 'false'}" ${busy ? 'disabled' : ''}><span class="refresh-button-label">${escapeHtml(busy ? busyLabel : label)}</span></button>`;
+    const button = `<button type="button" class="action-link${primary} refresh-progress-button${busy ? ' is-refreshing' : ''}" data-action="${escapeAttr(action)}"${payload}${title} aria-busy="${busy ? 'true' : 'false'}" ${busy ? 'disabled' : ''}><span class="refresh-button-label">${escapeHtml(busy ? busyLabel : label)}</span></button>`;
+    return options.cadence === true
+      ? `<span class="refresh-split">${button}${renderRefreshCadenceToggle()}</span>`
+      : button;
   }
 
   function setDashboardRefreshBusy(busy) {
@@ -256,7 +287,8 @@
   // cannot drift out of sync with the nav.
   function pageSectionOpen(id) {
     return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`
-      + githubLinkRow(id);
+      + githubLinkRow(id)
+      + nextStepRow(id);
   }
 
   // The GitHub page this dashboard page is about.
@@ -269,6 +301,68 @@
   // No URL is sent back: the button carries `page` and a link id, and the host
   // maps that to a URL it built itself. A surface that could name the URL to open
   // could name any URL.
+  /**
+   * Where a reader is likely to go next from each page, and the question that
+   * page answers when they get there.
+   *
+   * The dashboard had 22 pages and, apart from the nav, almost no route between
+   * them: a page told you CI was red and left you to find the Pipeline tab
+   * yourself, and a thought that began on one page ended there. This is the
+   * cheapest fix — one declared strip, rendered from the same place
+   * `githubLinkRow` is, so a page cannot acquire links nobody reviewed.
+   *
+   * Two rules. **Declared, never derived**: a related-page list computed from
+   * the live snapshot would change under the reader and could not be reviewed
+   * in a diff. And **every link states its question**, because a bare page name
+   * is a link somebody has to click in order to find out whether they wanted
+   * it. Pages that are genuinely a dead end are absent rather than padded out.
+   */
+  const PAGE_NEXT_STEPS = {
+    overview: [['workflow', 'What changed since I last looked'], ['pipeline', 'Whether CI is green right now'], ['roadmap', 'What we said we would build']],
+    score: [['gapAnalysis', 'Which gaps pulled the score down'], ['testing', 'What the test evidence actually shows']],
+    gapAnalysis: [['roadmap', 'Turn a gap into planned work'], ['debt', 'What was deferred on purpose']],
+    ideation: [['roadmap', 'Where a raised card lands'], ['issues', 'File one as an issue']],
+    workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
+    roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
+    issues: [['pullRequests', 'What is being done about them'], ['roadmap', 'How they map to planned work'], ['director', 'Who owns them']],
+    pullRequests: [['pipeline', 'Why a check is failing'], ['issues', 'The issue a change closes'], ['release', 'What merging unblocks']],
+    director: [['issues', 'The work these people own'], ['pullRequests', 'What is waiting on a review']],
+    branches: [['pullRequests', 'Which branches have a pull request'], ['delivery', 'Which branch represents each stage']],
+    repo: [['debt', 'What the code defers'], ['testing', 'What covers it']],
+    pipeline: [['pullRequests', 'The change a run is verifying'], ['testing', 'Which policy a failing test belongs to'], ['release', 'Whether the release gate is satisfied']],
+    testing: [['pipeline', 'Whether the suite actually ran'], ['debt', 'Coverage somebody deferred'], ['gapAnalysis', 'How a gap scores']],
+    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone']],
+    security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
+    privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
+    risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
+    release: [['pipeline', 'Whether CI is green'], ['delivery', 'Where the version goes next'], ['documents', 'What the notes must match']],
+    delivery: [['release', 'What is ready to promote'], ['branches', 'The branch behind each stage']],
+    documents: [['ssot', 'The memory these draw from'], ['release', 'Docs a release must update']],
+    ssot: [['documents', 'How memory reaches the docs'], ['ideation', 'Where new thinking is captured']],
+  };
+
+  /** The declared next-step strip for a page. Silent where nothing is declared. */
+
+  /**
+   * The declared next-step strip for a page. Silent where nothing is declared,
+   * and it never links a page to itself.
+   */
+  function nextStepRow(id) {
+    const steps = (PAGE_NEXT_STEPS[id] || []).filter(step => step[0] !== id);
+    if (steps.length === 0) { return ''; }
+    const buttons = steps.map(step => {
+      const entry = NAV_PAGES.find(page => page[0] === step[0]);
+      if (!entry) { return ''; }
+      return `<button type="button" class="action-link" data-action="page"
+        data-payload="${escapeAttr(step[0])}" title="${escapeAttr(step[1])}">${escapeHtml(entry[1])} →</button>`;
+    }).join('');
+    if (!buttons) { return ''; }
+    return `<div class="page-next-row">
+      <span class="page-next-label">Where next</span>
+      ${buttons}
+    </div>`;
+  }
+
   function githubLinkRow(id) {
     const gh = (state.snapshot && state.snapshot.githubLinks) || { links: {}, notices: {} };
     const links = (gh.links || {})[id] || [];
@@ -375,8 +469,18 @@
      * this card is "what just happened"; the other orders answer questions you
      * arrive with deliberately.
      */
-    pipelineAutoRefresh: ['off', '1m', '5m', '15m'].includes(persistedWebviewState.pipelineAutoRefresh)
-      ? persistedWebviewState.pipelineAutoRefresh : 'off',
+    /**
+     * How often CI is re-read without being asked.
+     *
+     * Named for the panel rather than the page it used to live on: the control
+     * is now a pop-out on every refresh button, so a cadence set from the
+     * Issues page means the same thing as one set from Pipeline. The old
+     * `pipelineAutoRefresh` key is deliberately not migrated — a stored value
+     * whose meaning changed is better re-chosen than silently reinterpreted,
+     * and the direction it falls back in is Off.
+     */
+    ciRefreshCadence: ['off', '1m', '5m', '15m'].includes(persistedWebviewState.ciRefreshCadence)
+      ? persistedWebviewState.ciRefreshCadence : 'off',
     pipelineStreamSort: 'newest',
     pipelineStreamStatus: 'all',
     pipelineStreamView: 'stream',
@@ -802,11 +906,17 @@
     }
 
     if (message.type === 'promotionDone') {
+      // Recorded whether or not the dialog is on screen. It used to be dropped
+      // when `state.promotion` was null, so a run somebody closed the dialog on
+      // finished silently — the one case where "closing is safe" needed to be
+      // demonstrably true rather than merely stated.
       if (state.promotion) {
         state.promotion.running = false;
         state.promotion.result = message.payload;
-        render();
       }
+      const succeeded = !!(message.payload && message.payload.succeeded);
+      announce(succeeded ? 'Promotion completed.' : 'Promotion failed.');
+      render();
       return;
     }
 
@@ -838,6 +948,17 @@
       renderError(message.payload || 'Dashboard refresh failed.');
       return;
     }
+  });
+
+  // The header sits outside #dashboard-root, so it is not reached by the
+  // delegated handler below and binds its own.
+  scoreChip?.addEventListener('click', () => {
+    if (!state.snapshot || state.activePage === 'score') {
+      return;
+    }
+    state.activePage = 'score';
+    resetScrollAfterRender = true;
+    render();
   });
 
   root?.addEventListener('click', event => {
@@ -1263,6 +1384,14 @@
       vscode.postMessage({ type: 'startLocalCiRunner' });
       return;
     }
+    if (action === 'pipeline-runner-stop') {
+      vscode.postMessage({ type: 'stopLocalCiRunner' });
+      return;
+    }
+    if (action === 'pipeline-runner-clear-strays') {
+      vscode.postMessage({ type: 'clearLocalCiStrays' });
+      return;
+    }
     if (action === 'pipeline-runner-output') {
       vscode.postMessage({ type: 'showLocalCiOutput' });
       return;
@@ -1601,13 +1730,6 @@
       if (payload) { vscode.postMessage({ type: 'resolveWorkflowStage', payload: payload }); }
       return;
     }
-    if (action === 'set-pipeline-auto-refresh') {
-      state.pipelineAutoRefresh = PIPELINE_AUTO_REFRESH_CHOICES.some(entry => entry.id === payload) ? payload : 'off';
-      vscode.setState({ ...(vscode.getState() || {}), pipelineAutoRefresh: state.pipelineAutoRefresh });
-      syncPipelineAutoRefresh();
-      render();
-      return;
-    }
     if (action === 'set-pipeline-stream-sort') {
       state.pipelineStreamSort = payload || 'newest';
       render();
@@ -1921,6 +2043,26 @@
       render();
       return;
     }
+    // Close the dialog on a promotion that is still running. The run belongs to
+    // the extension host, so hiding its dialog cannot affect it — but the state
+    // is *kept* rather than dropped, because the result still has to arrive
+    // somewhere. Dropping it was what made "you can close this" untrue: the
+    // promotion finished and nothing on screen ever said so.
+    if (action === 'promotion-detach') {
+      if (state.promotion) { state.promotion.hidden = true; }
+      render();
+      return;
+    }
+    if (action === 'promotion-reopen') {
+      if (state.promotion) { state.promotion.hidden = false; }
+      render();
+      return;
+    }
+    if (action === 'promotion-dismiss-notice') {
+      state.promotion = null;
+      render();
+      return;
+    }
     if (action === 'promotion-run') {
       const p = state.promotion;
       if (!p || !p.plan || p.running) { return; }
@@ -2202,7 +2344,13 @@
       return;
     }
     if (target instanceof HTMLInputElement && target.id === 'promotion-confirm-text') {
-      if (state.promotion) { state.promotion.confirmText = target.value; }
+      if (state.promotion) {
+        state.promotion.confirmText = target.value;
+        // The typed name is one of the counted gates, so the meter and the run
+        // button have to follow it as it is typed — in place, for the same
+        // reason the checkboxes do.
+        syncPromotionGate();
+      }
       return;
     }
     if (target instanceof HTMLInputElement && target.id === 'rollback-confirm-text') {
@@ -2301,6 +2449,27 @@
       return;
     }
     state.promotion.attestations[checkId] = target.checked;
+    // Updated in place rather than through render(). A re-render replaces
+    // #dashboard-root wholesale, which rebuilt this dialog and reset its
+    // scroller — so every tick threw the reader back to the top of a list they
+    // were working down in order. Nothing structural depends on a tick.
+    syncPromotionGate();
+  });
+
+  // Escape closes the promotion dialog. A modal with no keyboard way out is a
+  // trap, and while a run was in flight there was no way out at all — the only
+  // control was a disabled "Running…". Escape on a running promotion detaches
+  // rather than cancels, because the run is the host's and closing its dialog
+  // has never been able to stop it.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') { return; }
+    const p = state.promotion;
+    if (!p || p.hidden) { return; }
+    if (p.running && !p.result) {
+      p.hidden = true;
+    } else {
+      state.promotion = null;
+    }
     render();
   });
 
@@ -2556,9 +2725,7 @@
     try {
       const snapshot = state.snapshot;
       if (!snapshot) {
-        if (versionStrip) {
-          versionStrip.innerHTML = '';
-        }
+        clearHeaderIdentity();
         root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
         return;
       }
@@ -2566,27 +2733,12 @@
       if (versionStrip) {
         versionStrip.innerHTML = renderVersionStrip(snapshot);
       }
+      applyHeaderIdentity(snapshot);
 
+      // The page opens on the nav. The hero that used to sit above it said the
+      // project name, the health summary, three provenance pills and the score
+      // — all of which the header now says, in a band that was already there.
       root.innerHTML = `
-        <section class="hero-grid">
-          <article class="hero-card">
-            <p class="dashboard-kicker">${escapeHtml(snapshot.workspaceName)}</p>
-            <h2>${escapeHtml(snapshot.repositoryLabel)}</h2>
-            <p class="section-copy">${escapeHtml(snapshot.healthSummary)}</p>
-            <div class="hero-meta">
-              <span class="meta-pill">Generated ${escapeHtml(relativeLabel(snapshot.generatedAt))}</span>
-              <span class="meta-pill">Branch ${escapeHtml(snapshot.currentBranch)}</span>
-              <span class="meta-pill">SSOT ${escapeHtml(snapshot.ssot.path)}</span>
-            </div>
-          </article>
-          <button type="button" class="score-card" data-action="page" data-payload="score">
-            <p class="dashboard-kicker">Operational score</p>
-            ${renderScoreRing(snapshot.healthScore)}
-            <div class="score-value">${escapeHtml(String(snapshot.healthScore))}</div>
-            <div class="score-caption">Composite score across operational discipline and outcome completeness. Click for the breakdown.</div>
-          </button>
-        </section>
-
         <section class="toolbar-row">
           ${renderNav(snapshot)}
         </section>
@@ -2678,6 +2830,9 @@
       // against a wholesale innerHTML swap.
       applyValueAnimations();
       bindPipelineGraph();
+      // The split buttons this render just produced are shells; fill them from
+      // the one cadence the timer is actually running on.
+      syncRefreshCadenceIndicators();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -2825,9 +2980,9 @@
     if (!root) {
       return;
     }
-    if (versionStrip) {
-      versionStrip.innerHTML = '';
-    }
+    // A refresh that failed leaves the header carrying the last collection's
+    // score and provenance, which would read as current.
+    clearHeaderIdentity();
     root.innerHTML = `
       <div class="dashboard-empty">
         <div>
@@ -2843,6 +2998,96 @@
           </div>
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * The header's identity: which project, where it stands, and what it scores.
+   *
+   * This used to be two full-width cards below the title — one repeating the
+   * project name at h2 with three pills under it, one carrying a 150px ring —
+   * which put roughly 600px of chrome above the first real signal on a wide
+   * editor and considerably more on a narrow one. The same four facts are
+   * stated here, in the band that was already on screen.
+   *
+   * Written into the host markup rather than returned as HTML because the
+   * header sits outside #dashboard-root, which render() replaces wholesale.
+   * textContent throughout: none of these values is trusted markup.
+   */
+  function applyHeaderIdentity(snapshot) {
+    if (projectNameEl) {
+      projectNameEl.textContent = snapshot.workspaceName || 'This project';
+    }
+    if (projectSummaryEl) {
+      // The project's own state, not the description of the tabs beneath it
+      // that used to stand here. The neutral sentence in the host markup is
+      // what shows when there is no collection to describe.
+      projectSummaryEl.textContent = snapshot.healthSummary || HEADER_SUMMARY_FALLBACK;
+    }
+    if (provenanceEl) {
+      provenanceEl.textContent = '';
+      [
+        `Generated ${relativeLabel(snapshot.generatedAt)}`,
+        `Branch ${snapshot.currentBranch}`,
+        `SSOT ${snapshot.ssot.path}`,
+      ].forEach(fact => {
+        const span = document.createElement('span');
+        span.textContent = fact;
+        provenanceEl.appendChild(span);
+      });
+    }
+    if (scoreChip) {
+      scoreChip.innerHTML = renderScoreChip(snapshot.healthScore);
+      scoreChip.hidden = false;
+    }
+  }
+
+  /**
+   * Header state before the first snapshot, and after a failed refresh.
+   *
+   * Everything derived from a collection goes, because a header still carrying
+   * the previous one reads as current — the summary as much as the score, since
+   * both are readings and neither is any fresher than the other. The summary
+   * falls back to the neutral sentence rather than to nothing, so the header
+   * does not collapse while the first collection runs. The project's name stays:
+   * it identifies the workspace rather than measuring it.
+   */
+  function clearHeaderIdentity() {
+    if (versionStrip) { versionStrip.innerHTML = ''; }
+    if (provenanceEl) { provenanceEl.textContent = ''; }
+    if (projectSummaryEl) { projectSummaryEl.textContent = HEADER_SUMMARY_FALLBACK; }
+    if (scoreChip) {
+      scoreChip.innerHTML = '';
+      // Hidden rather than zeroed: a score of 0 is a reading, and this is the
+      // absence of one.
+      scoreChip.hidden = true;
+    }
+  }
+
+  /**
+   * The header's compact score.
+   *
+   * Deliberately not `renderScoreRing`: that one is animated by
+   * applyValueAnimations(), which only scans inside #dashboard-root, so a ring
+   * placed in the header would sit forever at its "from" value — an empty ring
+   * reading zero. This one paints its final offset in the markup.
+   */
+  function renderScoreChip(score) {
+    const safe = Math.max(0, Math.min(100, Number(score) || 0));
+    const radius = 56;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference - (safe / 100) * circumference;
+    const toneClass = safe >= 75 ? ' ring-good' : safe >= 50 ? ' ring-warn' : ' ring-critical';
+    return `
+      <span class="score-chip-figure">
+        <svg class="score-ring score-chip-ring${toneClass}" viewBox="0 0 140 140" aria-hidden="true" focusable="false">
+          <circle class="score-ring-track" cx="70" cy="70" r="${radius}"></circle>
+          <circle class="score-ring-progress" cx="70" cy="70" r="${radius}"
+            stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"></circle>
+        </svg>
+        <span class="score-chip-value">${escapeHtml(String(score))}</span>
+      </span>
+      <span class="score-chip-label">Operational score</span>
     `;
   }
 
@@ -3328,8 +3573,16 @@
         <div class="panel-grid score-summary-grid">
           <article class="panel-card score-overview-card">
             <p class="section-kicker">Operational score</p>
-            <h3>${escapeHtml(String(snapshot.healthScore))}/100</h3>
-            <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
+            <!-- The full ring. It used to sit in the dashboard header on every
+                 page, where it cost 150px of height to say what the header chip
+                 now says in 38px; here it is on the page about the number. -->
+            <div class="score-overview-head">
+              ${renderScoreRing(snapshot.healthScore)}
+              <div>
+                <h3>${escapeHtml(String(snapshot.healthScore))}/100</h3>
+                <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
+              </div>
+            </div>
             <div class="tag-row">
               <span class="tag ${snapshot.healthScore >= 85 ? 'tag-good' : snapshot.healthScore >= 65 ? '' : 'tag-warn'}">Operational ${escapeHtml(String(snapshot.healthScore))}</span>
               <span class="tag ${outcome.score >= 75 ? 'tag-good' : outcome.score >= 55 ? '' : 'tag-warn'}">Outcome completeness ${escapeHtml(String(outcome.score))}%</span>
@@ -3452,7 +3705,7 @@
           </div>
           <div class="branch-control-actions">
             ${renderRefreshAction('branch-fetch', 'Fetch latest from remotes', state.branchFetchBusy, { busyLabel: 'Fetching remotes…' })}
-            ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…' })}
+            ${renderRefreshAction('branch-review-refresh', 'Refresh PR & CI', githubRefreshing, { busyLabel: 'Refreshing PR & CI…', cadence: true })}
             <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
           </div>
           <div>
@@ -5460,7 +5713,7 @@
                 emptyLabel: 'No labels on the open issues.',
               })}
               <div class="tag-row">
-                ${renderRefreshAction('issues-refresh', 'Refresh issues', refreshBusy, { busyLabel: 'Refreshing issues…' })}
+                ${renderRefreshAction('issues-refresh', 'Refresh issues', refreshBusy, { busyLabel: 'Refreshing issues…', cadence: true })}
                 <button type="button" class="action-link" data-action="issues-new">New issue</button>
               </div>
             </article>
@@ -5831,6 +6084,49 @@
     </article>`;
   }
 
+  /**
+   * The check rollup on a pull request row, and what to do about it.
+   *
+   * The row led with "awaiting review" and "no linked issue" — two things a
+   * reader can rarely act on immediately — while the one fact that decides
+   * whether the branch can merge at all lived only on a chart further down the
+   * page. GitHub leads with the failing check; so does this now.
+   *
+   * Three states are kept apart on purpose. `not read` means AtlasMind did not
+   * fetch the rollup, which is not evidence that nothing ran; `no checks` means
+   * GitHub reported none, so nothing is verifying the change; and a green
+   * verdict is withheld while anything is still running, because "green so far"
+   * is how a merge happens early.
+   */
+  function pullRequestCiState(pr) {
+    const checks = pr.statusChecks;
+    if (!Array.isArray(checks)) {
+      return { tag: '<span class="tag wf-unknown">checks not read</span>', actions: '' };
+    }
+    if (checks.length === 0) {
+      return { tag: '<span class="tag tag-warn">no checks</span>', actions: '' };
+    }
+    const failing = checks.filter(check => pullRequestCheckOutcome(check) === 'failed');
+    const running = checks.filter(check => pullRequestCheckOutcome(check) === 'running');
+    if (failing.length) {
+      const named = failing.slice(0, 2).map(check => check.name).filter(Boolean).join(', ');
+      const linked = failing.find(check => check.url);
+      return {
+        tag: `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
+        actions: (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
+          + (linked ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(linked.url)}">Open the failing check</button>` : '')
+          + '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="The Pipeline page classifies the failure and names the job, the step and the failing test">Read the failure on Pipeline</button>',
+      };
+    }
+    if (running.length) {
+      return {
+        tag: `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
+        actions: '',
+      };
+    }
+    return { tag: `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: '' };
+  }
+
   function renderPullRequests(snapshot) {
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
@@ -5881,6 +6177,7 @@
         const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
         const approved = submitted.some(r => r.verdict === 'approved');
         const size = (pr.additions || 0) + (pr.deletions || 0);
+        const ciState = pullRequestCiState(pr);
         return `
           <div class="recent-item" data-dashboard-focus-kind="pull-request" data-dashboard-focus-id="${escapeAttr(String(pr.number))}">
             <div class="row-head">
@@ -5893,6 +6190,7 @@
               · ${size} line${size === 1 ? '' : 's'}
             </div>
             <div class="tag-row">
+              ${ciState.tag}
               ${renderDirectorOwnerControl('pull-request', String(pr.number))}
               ${changesRequested ? '<span class="tag tag-critical">changes requested</span>' : ''}
               ${approved && !changesRequested ? '<span class="tag tag-good">approved</span>' : ''}
@@ -5903,6 +6201,7 @@
                 ? `<span class="tag tag-warn">no linked issue</span>
                    <button type="button" class="action-link" data-action="pr-draft-issue" data-payload="${pr.number}">Draft tracking issue</button>`
                 : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
+              ${ciState.actions}
               ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
               ${comments === undefined
                 ? `<button type="button" class="action-link" data-action="load-review-comments" data-payload="${pr.number}">Read the review comments</button>`
@@ -5920,7 +6219,7 @@
       ${intro}
       ${notice}
       <div class="tag-row">
-        ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…' })}
+        ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…', cadence: true })}
       </div>
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
@@ -7511,7 +7810,7 @@
   }
 
   /**
-   * Auto-refresh cadences, in the words somebody choosing would use.
+   * Automatic CI refresh cadences, in the words somebody choosing would use.
    *
    * **Off is the default and the first option**, because a refresh here reaches
    * GitHub through `gh`: it spends a rate limit somebody else is also using, and
@@ -7522,49 +7821,72 @@
    * The shortest is a minute. Anything faster is a poll nobody reads at a cost
    * somebody pays, and GitHub's own run list does not move faster than that in
    * any way this page can show.
+   *
+   * `short` is what the pop-out's own button carries once a cadence is running.
+   * A setting that spends money must not be invisible just because its control
+   * folded away, so an active cadence is always legible without opening
+   * anything — which is the whole reason the trigger has a slot for it.
    */
-  const PIPELINE_AUTO_REFRESH_CHOICES = [
-    { id: 'off', label: 'Off', ms: 0, detail: 'Nothing is fetched unless you ask.' },
-    { id: '1m', label: '1 min', ms: 60000, detail: 'For watching a run you just started.' },
-    { id: '5m', label: '5 min', ms: 300000, detail: 'A reasonable background cadence.' },
-    { id: '15m', label: '15 min', ms: 900000, detail: 'Light touch on the rate limit.' },
+  const CI_REFRESH_CADENCES = [
+    { id: 'off', label: 'Off', short: '', ms: 0, detail: 'Nothing is fetched unless you ask.' },
+    { id: '1m', label: 'Every minute', short: '1m', ms: 60000, detail: 'For watching a run you just started.' },
+    { id: '5m', label: 'Every 5 minutes', short: '5m', ms: 300000, detail: 'A reasonable background cadence.' },
+    { id: '15m', label: 'Every 15 minutes', short: '15m', ms: 900000, detail: 'Light touch on the rate limit.' },
   ];
 
-  function pipelineAutoRefreshMs() {
-    const choice = PIPELINE_AUTO_REFRESH_CHOICES.find(entry => entry.id === state.pipelineAutoRefresh);
-    return choice ? choice.ms : 0;
+  /**
+   * What the cadence costs, stated where the choice is made.
+   *
+   * It names the panel rather than a page on purpose. The control used to sit
+   * on Pipeline alone and stopped polling the moment you navigated away —
+   * which quietly defeated the main reason to set one minute, since watching a
+   * run you just started is exactly when you go and do something else. Now that
+   * the pop-out is on every refresh button, "only on that page" would also be a
+   * rule the affordance contradicts thirteen pages out of fourteen.
+   */
+  const CI_REFRESH_COST_NOTE = 'Reads CI from GitHub through `gh` on this cadence for as long as this panel is open and in front. It spends rate limit, and on a metered plan it spends money. Nothing is fetched while the panel is hidden, or while a refresh is already running.';
+
+  function currentCiRefreshCadence() {
+    return CI_REFRESH_CADENCES.find(entry => entry.id === state.ciRefreshCadence) || CI_REFRESH_CADENCES[0];
   }
 
-  let pipelineAutoRefreshTimer = 0;
-  let pipelineAutoRefreshLastAt = 0;
+  function ciRefreshCadenceMs() {
+    return currentCiRefreshCadence().ms;
+  }
+
+  let ciRefreshTimer = 0;
 
   /**
-   * Start, restart or stop the auto-refresh timer to match the current choice.
+   * Start, restart or stop the automatic CI read to match the current choice.
    *
-   * Three conditions gate every tick, and each closes a way this could spend a
+   * Two conditions gate every tick, and each closes a way this could spend a
    * request nobody wanted:
    *
    * - **The document must be visible.** A hidden panel that keeps polling is
    *   pure cost — nobody is reading the result — and VS Code keeps a webview
    *   alive behind other tabs, so this does not stop on its own.
-   * - **The Pipeline page must be the active one.** This control belongs to
-   *   Activity; leaving it running while somebody reads the Roadmap would be a
-   *   background job they never opted into.
    * - **A refresh must not already be in flight.** Otherwise a slow `gh` call
    *   and a short cadence queue up behind each other indefinitely.
+   *
+   * There used to be a third: the Pipeline page had to be the active one,
+   * because that was the only page carrying the control. It is gone in both
+   * directions. It defeated the cadence people most want — you set one minute
+   * to watch a run you just started, then go and do something else, which is
+   * precisely when it stopped — and now that the pop-out is on every refresh
+   * button, a rule that only held on one page would be contradicted by the
+   * affordance everywhere else. What is left is honest and is what the menu
+   * says: while this panel is open and in front.
    */
-  function syncPipelineAutoRefresh() {
-    if (pipelineAutoRefreshTimer) {
-      clearInterval(pipelineAutoRefreshTimer);
-      pipelineAutoRefreshTimer = 0;
+  function syncCiRefreshCadence() {
+    if (ciRefreshTimer) {
+      clearInterval(ciRefreshTimer);
+      ciRefreshTimer = 0;
     }
-    const interval = pipelineAutoRefreshMs();
+    const interval = ciRefreshCadenceMs();
     if (!interval) { return; }
-    pipelineAutoRefreshTimer = setInterval(() => {
+    ciRefreshTimer = setInterval(() => {
       if (document.hidden) { return; }
-      if (state.activePage !== 'pipeline') { return; }
       if (state.repositoryRefreshBusy) { return; }
-      pipelineAutoRefreshLastAt = Date.now();
       requestRepositoryRefresh('refreshCi');
     }, interval);
   }
@@ -7572,25 +7894,194 @@
   // A panel that goes to the background stops polling, and picks up again when
   // it comes back. Without this the timer keeps firing into a hidden document.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && pipelineAutoRefreshMs()) {
-      syncPipelineAutoRefresh();
+    if (!document.hidden && ciRefreshCadenceMs()) {
+      syncCiRefreshCadence();
     }
   });
 
-  /** The cadence control, with what it costs stated on the control itself. */
-  function renderPipelineAutoRefresh() {
-    const current = state.pipelineAutoRefresh || 'off';
-    return `<div class="ci-autorefresh">
-      <span class="ci-autorefresh-label" id="ci-autorefresh-label">Auto-refresh</span>
-      <div class="segmented" role="group" aria-labelledby="ci-autorefresh-label">${PIPELINE_AUTO_REFRESH_CHOICES.map(entry => `
-        <button type="button" data-action="set-pipeline-auto-refresh" data-payload="${escapeAttr(entry.id)}"
-          class="${current === entry.id ? 'active' : ''}" aria-pressed="${current === entry.id ? 'true' : 'false'}"
-          title="${escapeAttr(entry.detail)}">${escapeHtml(entry.label)}</button>`).join('')}</div>
-      ${current === 'off'
-        ? ''
-        : '<span class="stat-detail ci-autorefresh-note">Reads GitHub on this cadence while the Pipeline page is open and in front. It pauses when the panel is hidden.</span>'}
-    </div>`;
+  /**
+   * Record a cadence choice.
+   *
+   * Deliberately does not re-render: nothing on any page states the cadence any
+   * more, so the only things that must move are the timer and the triggers, and
+   * a full render would tear down the menu mid-interaction.
+   */
+  function chooseCiRefreshCadence(id) {
+    state.ciRefreshCadence = CI_REFRESH_CADENCES.some(entry => entry.id === id) ? id : 'off';
+    vscode.setState({ ...(vscode.getState() || {}), ciRefreshCadence: state.ciRefreshCadence });
+    syncCiRefreshCadence();
+    syncRefreshCadenceIndicators();
+    const choice = currentCiRefreshCadence();
+    announce(choice.ms
+      ? `CI will refresh ${choice.label.toLowerCase()} while this panel is in front.`
+      : 'Automatic CI refresh is off.');
   }
+
+  /**
+   * The pop-out beside a refresh button.
+   *
+   * Rendered with no state in it. Every trigger on the page is filled from the
+   * one source by `syncRefreshCadenceIndicators()` after each render, so a card
+   * that re-rendered a moment ago cannot disagree with the timer that is
+   * actually running — which is the failure a per-button copy of the value
+   * invites, and the reason this is a shell rather than a snapshot.
+   */
+  function renderRefreshCadenceToggle() {
+    return `<button type="button" class="refresh-cadence-toggle" data-refresh-cadence
+      aria-haspopup="menu" aria-expanded="false"><span class="refresh-cadence-value" aria-hidden="true"></span><span class="refresh-cadence-caret" aria-hidden="true">▾</span></button>`;
+  }
+
+  /** Fill every cadence trigger in the document, header and pages alike. */
+  function syncRefreshCadenceIndicators() {
+    const choice = currentCiRefreshCadence();
+    const running = choice.ms > 0;
+    const description = running
+      ? `Refreshing CI ${choice.label.toLowerCase()}. Change the cadence or switch it off.`
+      : 'CI is not refreshed automatically. Choose a cadence.';
+    document.querySelectorAll('[data-refresh-cadence]').forEach(trigger => {
+      trigger.classList.toggle('is-on', running);
+      const value = trigger.querySelector('.refresh-cadence-value');
+      if (value) { value.textContent = choice.short; }
+      trigger.title = description;
+      trigger.setAttribute('aria-label', description);
+    });
+  }
+
+  /**
+   * One menu, reused by every trigger.
+   *
+   * The alternative — a menu rendered inside each split button — puts N copies
+   * of the same control in the document, which is N chances for one to be left
+   * open behind a re-render, and needs an id per copy that stays stable across
+   * renders it cannot see. This is the pattern the Lens panel's info popover
+   * already uses for the same reason: one node, positioned against whichever
+   * trigger opened it, living outside `#dashboard-root` so `render()` cannot
+   * destroy it mid-interaction.
+   */
+  const ciRefreshCadenceMenu = (() => {
+    let node = null;
+    let items = [];
+    let anchor = null;
+
+    function build() {
+      node = document.createElement('div');
+      node.className = 'refresh-cadence-menu';
+      node.setAttribute('role', 'menu');
+      node.setAttribute('aria-label', 'Automatic CI refresh');
+      node.hidden = true;
+
+      const title = document.createElement('p');
+      title.className = 'refresh-cadence-title';
+      title.textContent = 'Refresh CI automatically';
+      node.appendChild(title);
+
+      items = CI_REFRESH_CADENCES.map(choice => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'refresh-cadence-item';
+        item.setAttribute('role', 'menuitemradio');
+        item.dataset.cadence = choice.id;
+        const label = document.createElement('span');
+        label.className = 'refresh-cadence-item-label';
+        label.textContent = choice.label;
+        const detail = document.createElement('span');
+        detail.className = 'refresh-cadence-item-detail';
+        detail.textContent = choice.detail;
+        item.append(label, detail);
+        item.addEventListener('click', () => {
+          chooseCiRefreshCadence(choice.id);
+          close({ restoreFocus: true });
+        });
+        node.appendChild(item);
+        return item;
+      });
+
+      const note = document.createElement('p');
+      note.className = 'refresh-cadence-note';
+      note.textContent = CI_REFRESH_COST_NOTE;
+      node.appendChild(note);
+
+      document.body.appendChild(node);
+    }
+
+    function close(options = {}) {
+      if (!anchor) { return; }
+      anchor.setAttribute('aria-expanded', 'false');
+      const previous = anchor;
+      anchor = null;
+      if (node) { node.hidden = true; }
+      // Focus goes back to the trigger on Escape or on a choice, and is left
+      // alone on an outside click — moving it there would yank the caret out of
+      // whatever the person actually clicked.
+      if (options.restoreFocus && previous.isConnected) { previous.focus(); }
+    }
+
+    function open(trigger) {
+      if (!node) { build(); }
+      const current = state.ciRefreshCadence || 'off';
+      items.forEach(item => {
+        const checked = item.dataset.cadence === current;
+        item.setAttribute('aria-checked', checked ? 'true' : 'false');
+        item.classList.toggle('is-current', checked);
+      });
+      anchor = trigger;
+      trigger.setAttribute('aria-expanded', 'true');
+      node.hidden = false;
+
+      const rect = trigger.getBoundingClientRect();
+      const size = node.getBoundingClientRect();
+      // Right-aligned to the trigger, because every one of these sits at the
+      // right-hand end of an action row; clamped so a panel narrower than the
+      // menu still shows all of it.
+      const left = Math.min(Math.max(8, rect.right - size.width), Math.max(8, window.innerWidth - size.width - 8));
+      const below = rect.bottom + 6;
+      node.style.left = `${left}px`;
+      node.style.top = `${below + size.height > window.innerHeight - 8 ? Math.max(8, rect.top - size.height - 6) : below}px`;
+
+      const checked = items.find(item => item.dataset.cadence === current) || items[0];
+      if (checked) { checked.focus(); }
+    }
+
+    document.addEventListener('click', event => {
+      const trigger = event.target instanceof Element ? event.target.closest('[data-refresh-cadence]') : null;
+      if (trigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (anchor === trigger) { close({ restoreFocus: true }); } else { close(); open(trigger); }
+        return;
+      }
+      if (event.target instanceof Element && !event.target.closest('.refresh-cadence-menu')) {
+        close();
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (!anchor) { return; }
+      if (event.key === 'Escape') {
+        close({ restoreFocus: true });
+        return;
+      }
+      if (event.key === 'Tab') {
+        close();
+        return;
+      }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') { return; }
+      // A role="menu" is arrow-navigated, not tab-navigated; without this the
+      // keyboard path out of the trigger is a dead end.
+      const index = items.indexOf(document.activeElement);
+      if (index === -1) { return; }
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + step + items.length) % items.length].focus();
+    });
+
+    window.addEventListener('resize', () => close());
+    // Capture, so a scroll inside any card closes it too: the menu is
+    // position-fixed against a trigger that moves out from under it.
+    document.addEventListener('scroll', () => close(), true);
+
+    return { close };
+  })();
 
   /** The ribbon cap. Stated wherever the ribbon is, because a window nobody names is a number nobody can check. */
   const PIPELINE_RIBBON_WINDOW = 30;
@@ -7780,7 +8271,7 @@
           ${renderCiFailure(report)}
           <div class="tag-row">
             <button type="button" class="action-link primary" data-action="pipeline-ci-failure-work" title="Open a chat with the classified report; the log travels as untrusted content">Ask Atlas to work on this…</button>
-            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…' })}
+            ${renderRefreshAction('pipeline-refresh', 'Re-read CI', refreshBusy, { busyLabel: 'Reading CI…', cadence: true })}
           </div>
         </article>`
       : intel && intel.logFailure
@@ -7839,10 +8330,9 @@
       ? `<article class="panel-card">
           <div class="ci-section-heading">
             <div><p class="card-kicker">Recent history</p><h3>${escapeHtml(`${series.length + localSeries.length} pipeline${series.length + localSeries.length === 1 ? '' : 's'} with runs`)}</h3></div>
-            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…' })}</div>
+            <div class="tag-row">${help.button}${renderRefreshAction('pipeline-refresh', 'Refresh', refreshBusy, { busyLabel: 'Reading CI…', cadence: true })}</div>
           </div>
           ${help.panel}
-          ${renderPipelineAutoRefresh()}
           ${ribbonRows}${localRibbonRows}
           <p class="stat-detail">Bars are the last ${escapeHtml(String(PIPELINE_RIBBON_WINDOW))} runs at most, oldest on the left and newest on the right, with the span under each strip. Height is elapsed time including queue wait; colour is the outcome. They are spaced one per run rather than by when they happened — thirty runs in an afternoon and thirty over a month draw the same. Hover any bar for its exact time.</p>
         </article>`
@@ -8202,6 +8692,14 @@
     const runnerWarnings = runner.warnings || [];
     const runnerActive = ['inspecting', 'starting', 'waiting', 'running'].includes(runner.lifecycle);
     const runnerReady = ['ready', 'finished'].includes(runner.lifecycle);
+    if (!localCiAutoInspectRequested
+      && runner.enabled
+      && runner.lifecycle === 'not-inspected'
+      && !prerequisitesInspected
+      && !rememberedInspection) {
+      localCiAutoInspectRequested = true;
+      vscode.postMessage({ type: 'inspectLocalCiRunner' });
+    }
     const runnerTone = runner.lifecycle === 'running' || runner.lifecycle === 'finished' || runner.lifecycle === 'ready'
       ? 'tag-good'
       : runner.lifecycle === 'blocked' || runner.lifecycle === 'failed' ? 'tag-critical' : 'tag-warn';
@@ -8249,7 +8747,19 @@
             </div>
             <p class="stat-detail">Restart VS Code after installing a missing application so this extension host receives the updated PATH, then inspect again. AtlasMind never runs an installer for you.</p>
           </section>`;
-    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction ? ' open' : ''}>
+    // Containers this computer left behind — reported, never removed on sight:
+    // a finished container is the only local evidence that a run happened, and
+    // the usual reason one exists is the crash somebody is investigating.
+    const strayContainers = (runner.adopted && runner.adopted.strays) || [];
+    const strayNotice = strayContainers.length
+      ? `<div class="inline-notice warning">
+          <strong>${strayContainers.length} finished runner container${strayContainers.length === 1 ? '' : 's'} left over</strong>
+          <p class="stat-detail">A run ended without cleaning up, usually because VS Code closed while it was in flight. Nothing is running; they only take disk space.</p>
+          <ul class="ci-caution-list">${strayContainers.slice(0, 5).map(stray => `<li><code>${escapeHtml(stray.name)}</code> — ${escapeHtml(stray.status)}</li>`).join('')}</ul>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-runner-clear-strays">Remove them…</button></div>
+        </div>`
+      : '';
+    const setupCard = `<details class="ci-progressive-details ci-machine-setup"${machineSetupNeedsAction || strayContainers.length ? ' open' : ''}>
       <summary><span>Computer setup details</span><small>${!prerequisitesInspected ? 'Not inspected' : machineSetupNeedsAction ? 'Action needed' : 'Ready'}${rememberedInspection ? ` · ${escapeHtml(inspectionAgeLabel)}` : ''} · ${escapeHtml(platformName)} · permission ${runnerEnablement.effective ? 'On' : 'Off'}</small></summary>
       <div class="ci-progressive-details-body" aria-label="Local runner installation and readiness">
         <p class="section-copy"><strong>No permanent runner daemon:</strong> AtlasMind uses a temporary Docker container for one authorised job, then removes it.</p>
@@ -8262,6 +8772,7 @@
           ${setupStatus('Runner software', imageState, !prerequisitesInspected ? 'Inspect to check the pinned image.' : !runnerEngine.cliInstalled ? 'Install Docker before the runner image can be checked.' : runnerEngine.imagePresent ? 'Digest-pinned runner image is already present.' : 'AtlasMind will download the digest-pinned image only after confirmation.')}
         </div>
         ${rememberedInspection ? `<div class="inline-notice"><strong>Remembered from your last inspection</strong><p class="stat-detail">${escapeHtml(rememberedInspection.detail)}</p></div>` : ''}
+        ${strayNotice}
         ${installationHelp}
         <div class="tag-row ci-runner-actions">
           <button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>
@@ -8363,10 +8874,35 @@
       { label: 'One-job run', done: runner.lifecycle === 'finished' },
     ];
     const runnerProgressCurrent = runnerProgressSteps.findIndex(step => !step.done);
+    // Why the primary action is unavailable, in the same words as the tick
+    // above it. A disabled control with no reason is the worst state on this
+    // page: the button said "Check GitHub queue" and stayed grey, and nothing
+    // on screen distinguished a permission that is off from an executor that
+    // never reported ready from a run already in flight. The gate also read
+    // `runner.enabled` while the Permission tick read `enablement.effective`,
+    // so a ticked step could sit directly above a dead button.
+    const runnerStartBlock = !runnerEnablement.effective
+      ? {
+        why: 'Trusted local CI is not permitted on this machine yet.',
+        action: '<button type="button" class="action-link" data-action="setting" data-payload="atlasmind.ci.localRunner.enabled">Open runner permission</button>',
+      }
+      : runnerBlockers.length
+        ? { why: `${runnerBlockers.length} safety blocker${runnerBlockers.length === 1 ? '' : 's'} listed above must be cleared first.`, action: '' }
+        : runnerActive
+          ? { why: `A run is already in flight (${runner.lifecycle}). One operation at a time, by design.`, action: '' }
+          : !runnerReady
+            ? {
+              why: `This computer has not reported ready — its executor state is "${runner.lifecycle || 'not inspected'}". Inspecting it again is safe and installs nothing.`,
+              action: `<button type="button" class="action-link" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect this computer</button>`,
+            }
+            : undefined;
     let runnerFocusTitle = 'Queue one trusted job';
     let runnerFocusDetail = 'Use the complete command below, then let AtlasMind verify the queue before it starts anything.';
     let runnerFocusContext = queuedRunCard;
-    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${!runner.enabled || !runnerReady || runnerActive || runnerBlockers.length ? 'disabled' : ''}>Check GitHub queue → review start plan</button>`;
+    let runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-start" ${runnerStartBlock ? 'disabled' : ''} title="${escapeAttr(runnerStartBlock ? runnerStartBlock.why : 'Checks the GitHub queue and shows you a start plan to approve')}">Check GitHub queue → review start plan</button>`
+      + (runnerStartBlock
+        ? `<span class="list-meta ci-runner-start-block">${escapeHtml(runnerStartBlock.why)}</span>${runnerStartBlock.action}`
+        : '');
     if (!workflowOk && !['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
       // First, because it is the cheapest question in the flow and used to be
       // asked last. Checking a file needs no Docker, no GitHub sign-in and no
@@ -8400,10 +8936,16 @@
       runnerFocusContext = '';
       runnerFocusActions = `<button type="button" class="action-link primary" data-action="pipeline-runner-inspect" ${runnerActive ? 'disabled' : ''}>Inspect again</button>`;
     } else if (['starting', 'waiting', 'running'].includes(runner.lifecycle)) {
-      runnerFocusTitle = runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
-      runnerFocusDetail = 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
+      const adoptedRunner = runner.adopted && runner.adopted.adoptable;
+      runnerFocusTitle = adoptedRunner
+        ? 'A runner from an earlier session is still going'
+        : runner.lifecycle === 'running' ? 'The trusted job is running' : 'The one-job runner is starting';
+      runnerFocusDetail = adoptedRunner
+        ? 'This container kept running while VS Code was closed, which is deliberate — GitHub is waiting on the job. AtlasMind has reattached to its output and will record the result when it ends.'
+        : 'Follow the live output. AtlasMind will remove the temporary registration when this job ends.';
       runnerFocusContext = runner.queuedRun ? queuedRunCard : '';
-      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>';
+      runnerFocusActions = '<button type="button" class="action-link primary" data-action="pipeline-runner-output">Open live output</button>'
+        + '<button type="button" class="action-link" data-action="pipeline-runner-stop">Stop the runner…</button>';
     } else if (runner.lifecycle === 'finished') {
       runnerFocusTitle = 'Review the GitHub result';
       runnerFocusDetail = 'A clean runner exit is not a test verdict. Read GitHub before treating the job as passing.';
@@ -10463,6 +11005,7 @@
           ? `<div class="promotion-list">${pipeline.paths.map(p => renderPromotionCard(p, summaryPath)).join('')}</div>`
           : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
         ${pathEditor}
+        ${renderDetachedPromotionNotice()}
         ${state.rollbackNotice ? `<p class="stage-seeded-note">${escapeHtml(state.rollbackNotice)}</p>` : ''}
         ${state.healthNotice ? `<p class="stage-seeded-note">${escapeHtml(state.healthNotice)}</p>` : ''}
         ${renderDeliveryHistory(pipeline.history)}
@@ -10863,9 +11406,160 @@
     return '⏳';
   }
 
+  /**
+   * A compact meter for a modal section head.
+   *
+   * Deliberately not `renderPipelineDial`: that is a 112px ring built for a
+   * page, and three of them would push the controls further down the very
+   * dialog people already have to scroll. Same tone vocabulary, a fifth of the
+   * height.
+   *
+   * Every meter carries an id so `syncPromotionGate` can update it in place —
+   * ticking a checkbox must not re-render the dialog, because that is what was
+   * throwing the reader back to the top on every tick.
+   */
+  function promoMeter(id, done, total, options = {}) {
+    const known = total > 0;
+    const pct = known ? Math.round((done / total) * 100) : 0;
+    const tone = options.tone || (!known ? 'muted' : done >= total ? 'good' : done > 0 ? 'warn' : 'critical');
+    const label = options.label || `${done} of ${total}`;
+    return `<span class="promo-meter tone-${escapeAttr(tone)}" data-promo-meter="${escapeAttr(id)}"
+      role="img" aria-label="${escapeAttr(options.aria || label)}">
+      <span class="promo-meter-bar"><span class="promo-meter-fill" style="width:${pct}%"></span></span>
+      <span class="promo-meter-label">${escapeHtml(label)}</span>
+    </span>`;
+  }
+
+  /**
+   * What each gate group currently stands at.
+   *
+   * Split into *checks the machine ran* and *confirmations only a person can
+   * give*, because they fail for different reasons and are fixed by different
+   * people. The confirmation group counts the protected-stage text box as a
+   * gate too — it is one, and leaving it out of the count made a dialog that
+   * said "all clear" beside a disabled button.
+   */
+  function promotionGateCounts(p) {
+    const plan = p.plan;
+    const autoChecks = plan.checks.filter(c => c.kind === 'auto');
+    const manualChecks = plan.checks.filter(c => c.kind === 'manual');
+    const confirmTotal = manualChecks.length
+      + (plan.requiresApproval ? 1 : 0)
+      + (plan.isProtected ? 1 : 0);
+    const confirmDone = manualChecks.filter(c => p.attestations[c.id]).length
+      + (plan.requiresApproval && p.attestations['approve'] ? 1 : 0)
+      + (plan.isProtected
+        && (p.confirmText || '').trim().toLowerCase() === plan.toName.trim().toLowerCase() ? 1 : 0);
+    return {
+      autoChecks,
+      manualChecks,
+      autoPass: autoChecks.filter(c => c.status === 'pass').length,
+      autoTotal: autoChecks.length,
+      confirmDone,
+      confirmTotal,
+    };
+  }
+
+  /** Steps finished, for the Plan meter. Only meaningful once a run starts. */
+  function promotionStepProgress(p) {
+    const total = (p.plan.steps || []).length;
+    if (p.result) {
+      const steps = p.result.steps || [];
+      return { done: steps.filter(s => s.ok || s.skipped).length, total: steps.length || total };
+    }
+    if (p.progress && p.progress.length) {
+      return { done: p.progress.filter(s => s.status === 'done' || s.status === 'skipped').length, total };
+    }
+    return { done: 0, total };
+  }
+
+  /**
+   * Update the dialog's meters and buttons without re-rendering it.
+   *
+   * `render()` replaces `#dashboard-root` wholesale, so calling it from a
+   * checkbox handler destroyed and rebuilt the dialog — which reset the
+   * scroller and sent the reader back to the top on every single tick, on a
+   * dialog whose whole job is to be worked down in order. Nothing about a tick
+   * changes the dialog's *structure*, only these values, so nothing here needs
+   * a re-render.
+   */
+  function syncPromotionGate() {
+    const p = state.promotion;
+    if (!p || !p.plan || p.hidden) { return; }
+    const counts = promotionGateCounts(p);
+    const setMeter = (id, done, total) => {
+      const node = document.querySelector(`[data-promo-meter="${cssEscape(id)}"]`);
+      if (!node) { return; }
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const tone = total <= 0 ? 'muted' : done >= total ? 'good' : done > 0 ? 'warn' : 'critical';
+      const fill = node.querySelector('.promo-meter-fill');
+      const label = node.querySelector('.promo-meter-label');
+      if (fill) { fill.style.width = `${pct}%`; }
+      if (label) { label.textContent = `${done} of ${total}`; }
+      node.className = `promo-meter tone-${tone}`;
+      node.setAttribute('aria-label', `${done} of ${total}`);
+    };
+    setMeter('confirm', counts.confirmDone, counts.confirmTotal);
+
+    const ready = promotionRunEnabled(p) && !p.plan.blockers.length;
+    const runBtn = document.querySelector('[data-action="promotion-run"]');
+    if (runBtn) { runBtn.disabled = !ready; }
+    const resolveBtn = document.querySelector('[data-action="promotion-resolve-run"]');
+    if (resolveBtn) { resolveBtn.disabled = !resolveAndRunEnabled(p); }
+    const summary = document.querySelector('[data-promo-readiness]');
+    if (summary) {
+      const text = promotionReadinessText(p, counts);
+      summary.textContent = text;
+      summary.className = `promo-readiness ${ready ? 'is-ready' : 'is-waiting'}`;
+    }
+  }
+
+  /** One sentence naming what is still outstanding, or that nothing is. */
+  function promotionReadinessText(p, counts) {
+    if (p.plan.blockers.length) { return 'Blocked — see above.'; }
+    const failing = counts.autoTotal - counts.autoPass;
+    const outstanding = counts.confirmTotal - counts.confirmDone;
+    if (failing > 0 && outstanding > 0) {
+      return `${failing} check${failing === 1 ? '' : 's'} failing · ${outstanding} confirmation${outstanding === 1 ? '' : 's'} outstanding`;
+    }
+    if (failing > 0) { return `${failing} check${failing === 1 ? '' : 's'} failing`; }
+    if (outstanding > 0) { return `${outstanding} confirmation${outstanding === 1 ? '' : 's'} outstanding`; }
+    return 'Ready to run.';
+  }
+
+  /**
+   * The strip that stands in for a dialog somebody closed while its promotion
+   * was still running — and, once it lands, for the result.
+   *
+   * Without this, closing a running promotion was a one-way door: the run
+   * carried on correctly but became unobservable, which is a worse outcome than
+   * the modal that would not let go of the screen.
+   */
+  function renderDetachedPromotionNotice() {
+    const p = state.promotion;
+    if (!p || !p.hidden || !p.plan) { return ''; }
+    const route = `${p.plan.fromName} → ${p.plan.toName}`;
+    if (p.result) {
+      const ok = p.result.succeeded;
+      return `<div class="promo-detached ${ok ? 'good' : 'bad'}">
+        <span>${ok ? '✓' : '✗'} Promotion ${ok ? 'completed' : 'failed'} — ${escapeHtml(route)}.</span>
+        <span class="promo-detached-actions">
+          <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">View details</button>
+          <button type="button" class="action-link" data-action="promotion-dismiss-notice" data-payload="">Dismiss</button>
+        </span>
+      </div>`;
+    }
+    return `<div class="promo-detached running">
+      <span>⏳ Promotion running — ${escapeHtml(route)}. It continues whether or not this page is open.</span>
+      <span class="promo-detached-actions">
+        <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">Show progress</button>
+      </span>
+    </div>`;
+  }
+
   function renderPromotionModal() {
     const p = state.promotion;
-    if (!p) { return ''; }
+    if (!p || p.hidden) { return ''; }
     if (!p.plan) {
       return `
         <div class="promo-overlay">
@@ -10895,8 +11589,13 @@
 
     const autoChecks = plan.checks.filter(c => c.kind === 'auto');
     const manualChecks = plan.checks.filter(c => c.kind === 'manual');
-    const checksHtml = `
-      ${autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span>${c.fixable ? ' <span class="promo-fix-tag">fixable</span>' : ''}<small>${escapeHtml(c.detail)}</small></li>`).join('')}
+    // Checks the machine ran and confirmations only a person can give are
+    // rendered as separate sections. They were one list, which is why a dialog
+    // could show a row of green ticks above a disabled button: the two groups
+    // fail for different reasons, are fixed by different people, and only one
+    // of them is waiting on the reader.
+    const checksHtml = autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span>${c.fixable ? ' <span class="promo-fix-tag">fixable</span>' : ''}<small>${escapeHtml(c.detail)}</small></li>`).join('');
+    const confirmationsHtml = `
       ${runbook
         ? manualChecks.map(c => `<li class="promo-check manual">☐ <span>${escapeHtml(c.label)}</span> <small>(manual confirmation)</small></li>`).join('')
         : manualChecks.map(c => `<li class="promo-check manual"><label><input type="checkbox" class="promotion-attest" data-check-id="${escapeAttr(c.id)}" ${p.attestations[c.id] ? 'checked' : ''}/> <span>${escapeHtml(c.label)}</span></label></li>`).join('')}
@@ -10909,28 +11608,66 @@
     } else if (done) {
       actions = `<button type="button" class="action-link primary" data-action="promotion-cancel" data-payload="">Close</button>`;
     } else if (running) {
-      actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>`;
+      // A close button while the run is in flight, which there was not one of:
+      // the only control was a disabled "Running…", so a promotion that takes
+      // minutes held the screen for all of them. The run lives in the extension
+      // host and is unaffected by this dialog, so closing it is safe — the
+      // label says so rather than leaving people to guess.
+      actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>
+                 <button type="button" class="action-link" data-action="promotion-detach" data-payload="">Close — the run continues</button>`;
     } else {
       const enabled = promotionRunEnabled(p) && !blocked;
       const canResolve = resolveAndRunEnabled(p);
-      actions = `${canResolve ? `<button type="button" class="action-link primary" data-action="promotion-resolve-run" data-payload="">Resolve &amp; run</button>` : ''}
-                 <button type="button" class="action-link${canResolve ? '' : ' primary'}" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
+      // Rendered whenever a remediation exists, disabled until it applies,
+      // rather than appearing and disappearing as boxes are ticked: a control
+      // that materialises mid-scroll moves everything under it, and an option
+      // you cannot yet use is still worth knowing exists.
+      actions = `${plan.remediation ? `<button type="button" class="action-link primary" data-action="promotion-resolve-run" data-payload="" ${canResolve ? '' : 'disabled'}>Resolve &amp; run</button>` : ''}
+                 <button type="button" class="action-link${plan.remediation ? '' : ' primary'}" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
                  <button type="button" class="action-link" data-action="promotion-cancel" data-payload="">Cancel</button>`;
     }
 
+    const counts = promotionGateCounts(p);
+    const stepProgress = promotionStepProgress(p);
+    const readiness = promotionReadinessText(p, counts);
+    const readyNow = promotionRunEnabled(p) && !blocked;
+
     return `
       <div class="promo-overlay">
-        <div class="promo-modal">
-          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
+        <div class="promo-modal" role="dialog" aria-modal="true" aria-label="${escapeAttr(`${runbook ? 'Runbook' : 'Promote'} ${plan.fromName} to ${plan.toName}`)}">
+          <div class="promo-head">
+            <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
+          </div>
+          <div class="promo-body" id="promo-body" data-scroll-key="promo-body">
           ${blocked ? `<div class="promo-blockers">${plan.blockers.map(b => `<p class="promotion-block-note">⚠ ${escapeHtml(b)}</p>`).join('')}</div>` : ''}
+          ${running ? `<p class="promo-detach-note">This promotion is running in AtlasMind, not in this dialog. Closing it does not stop the run — the outcome is recorded on the Delivery page and in <code>delivery.md</code> either way.</p>` : ''}
           <div class="promo-section">
-            <h4>Plan</h4>
+            <div class="promo-section-head">
+              <h4>Plan</h4>
+              ${(running || done)
+                ? promoMeter('steps', stepProgress.done, stepProgress.total, { aria: `${stepProgress.done} of ${stepProgress.total} steps finished` })
+                : `<span class="promo-meter tone-muted" role="img" aria-label="${escapeAttr(`${plan.steps.length} steps, none run yet`)}"><span class="promo-meter-label">${escapeHtml(String(plan.steps.length))} step${plan.steps.length === 1 ? '' : 's'} · not started</span></span>`}
+            </div>
             <ol class="promo-plan-list">${stepsHtml}</ol>
           </div>
-          ${plan.checks.length ? `<div class="promo-section"><h4>Preflight checks</h4><ul class="promo-check-list">${checksHtml}</ul></div>` : ''}
+          ${plan.checks.length ? `<div class="promo-section">
+            <div class="promo-section-head">
+              <h4>Preflight checks</h4>
+              ${promoMeter('auto', counts.autoPass, counts.autoTotal, { aria: `${counts.autoPass} of ${counts.autoTotal} automatic checks passing` })}
+            </div>
+            <ul class="promo-check-list">${checksHtml}</ul>
+          </div>` : ''}
           ${(!runbook && !done && plan.remediation) ? `<div class="promo-remediation"><strong>⚙ Resolve &amp; run</strong> will ${escapeHtml(plan.remediation.summary)}<small>${escapeHtml(plan.remediation.bumpReason)}</small></div>` : ''}
-          ${(!runbook && plan.requiresApproval) ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
-          ${(!runbook && plan.isProtected) ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
+          ${(!runbook && counts.confirmTotal > 0) ? `<div class="promo-section">
+            <div class="promo-section-head">
+              <h4>Your confirmation</h4>
+              ${promoMeter('confirm', counts.confirmDone, counts.confirmTotal, { aria: `${counts.confirmDone} of ${counts.confirmTotal} confirmations given` })}
+            </div>
+            ${manualChecks.length ? `<ul class="promo-check-list">${confirmationsHtml}</ul>` : ''}
+            ${plan.requiresApproval ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
+            ${plan.isProtected ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
+          </div>` : ''}
+          ${(runbook && manualChecks.length) ? `<div class="promo-section"><h4>Manual confirmations</h4><ul class="promo-check-list">${confirmationsHtml}</ul></div>` : ''}
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
           ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
             <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
@@ -10938,7 +11675,11 @@
             ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
           </div>` : ''}
           ${p.error ? `<p class="promotion-block-note">⚠ ${escapeHtml(p.error)}</p>` : ''}
-          <div class="stage-edit-actions">${actions}</div>
+          </div>
+          <div class="promo-foot">
+            ${(!runbook && !done) ? `<span class="promo-readiness ${readyNow ? 'is-ready' : 'is-waiting'}" data-promo-readiness>${escapeHtml(readiness)}</span>` : '<span></span>'}
+            <div class="stage-edit-actions">${actions}</div>
+          </div>
         </div>
       </div>`;
   }
@@ -12792,6 +13533,14 @@
   function cssEscape(value) {
     return String(value).replace(/["\\]/g, '\\$&');
   }
+
+  // A cadence restored from a previous session has to start the timer here.
+  // It never did: the only callers were the click handler and the visibility
+  // listener, so reopening the panel with "every minute" saved showed the
+  // cadence as running and did not fetch anything until you switched tabs away
+  // and back. Restoring a setting and honouring it are the same act.
+  syncCiRefreshCadence();
+  syncRefreshCadenceIndicators();
 
   vscode.postMessage({ type: 'ready' });
 })();

@@ -5,6 +5,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { SkillExecutionContext } from '../types.js';
 import { NodeMemoryManager } from './nodeMemoryManager.js';
+import {
+  planTestResourceBudget,
+  TEST_RESOURCE_SHARE_DEFAULT,
+  withTestResourceEnv,
+} from '../core/testResourceBudget.js';
 
 const execFileAsync = promisify(execFile);
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', '.git', 'out', 'dist', 'coverage']);
@@ -95,11 +100,21 @@ export function createNodeSkillExecutionContext(
     async runCommand(executable, args = [], options) {
       const workspaceRoot = await canonicalWorkspaceRootPromise;
       const cwd = options?.cwd ? await assertInsideWorkspace(workspaceRoot, options.cwd, 'runCommand') : workspaceRoot;
+      // The CLI has no settings store, so a test command runs under the
+      // default testing share rather than the user's slider — governed at the
+      // default beats ungoverned at all.
+      const env = options?.testResources
+        ? withTestResourceEnv(process.env, planTestResourceBudget(
+          { cpuCount: Math.max(1, os.cpus().length), memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)) },
+          TEST_RESOURCE_SHARE_DEFAULT,
+        )) as NodeJS.ProcessEnv
+        : undefined;
       try {
         const result = await execFileAsync(executable, args, {
           cwd,
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           maxBuffer: 1024 * 1024 * 4,
+          ...(env ? { env } : {}),
         });
         return { ok: true, exitCode: 0, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
       } catch (error) {

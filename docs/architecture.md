@@ -846,8 +846,13 @@ restart. `reviewTrustedLocalCiWorkflow` is exported as a free function so the da
 trusted workflow verdict before anything has built a manager — constructing one opens an output channel,
 so a refresh must not — while the manager delegates to it, keeping one implementation behind the answer on
 the page and the answer that gates a run.
-Resource planning uses the lower execution capacity,
-reserves at least 25% (and 2 GB), applies operator maximums, and refuses below 2 CPUs or 4 GB. The container
+Resource planning measures the operating-system reserve **on the host, never on Docker's view of itself** —
+on Windows/macOS the engine reports the WSL/VM allocation, which is already a slice of the machine, so a
+reserve computed there protected the VM from itself and the desktop from nothing. The plan takes the lowest
+of the operator maximums, the engine's capacity, the testing resource share
+(`atlasmind.testing.resourceShare`, shared with every host-side test path via
+`src/core/testResourceBudget.ts`), and what the host reserve (25%, never fewer than 2 CPUs / 8 GB) leaves;
+it refuses below 2 CPUs or 4 GB. The container
 receives matching `--cpus`, `--memory`, `--memory-swap` and `--pids-limit 1024` limits. GPU identity/live
 VRAM and Docker runtime capability are evidence only; `LocalCiGpuSnapshot.accessPolicy` remains `disabled`
 and no `--gpus` argument is produced. OS/architecture are carried in the snapshot as evidence, so a Linux
@@ -892,6 +897,47 @@ the dashboard contract is pinned in `tests/views/workflowSurface.test.ts`. `Loca
 copy of the last applied machine configuration; identical reads are no-ops, while the dashboard reconciles
 the current VS Code value before every snapshot. This closes the gap where a long-lived panel could render
 an old enabled state after the active profile or extension host changed.
+
+The lifecycle also has a deliberate exit: `stop()` removes the live container through the same name-guarded
+remover the start path uses — it can only ever reach a container AtlasMind started — and the finish path
+reports a stopped run as `ready` with an honest message rather than as `finished`, because a job abandoned
+mid-run is not a job that completed. Before this existed, a started run could only end by finishing, and a
+wedged job held its whole CPU/memory budget with nothing on this side able to take it back.
+
+**A run outlives the extension host, and the next session adopts it** (`src/core/localCiAdoption.ts`,
+pure + unit-tested in `tests/core/localCiAdoption.test.ts`). `docker run` is a detached lifetime, so closing
+VS Code leaves the container executing the job it claimed — deliberately kept, because GitHub is waiting on
+real work and killing it would discard minutes of compute and report a failure nobody caused. `inspect()`
+therefore lists `--all` containers carrying the AtlasMind label and reconciles them: a running one is
+*adopted* — lifecycle forced to `running` so the page cannot offer a Start button the one-operation guard
+would refuse, output reattached through `docker logs --follow`, and the end recorded — while finished ones
+are reported as *strays* with a confirmed removal action. Four rules hold it: a container must match **both**
+the label and the container-name shape, since a label is a string anybody can set on their own container;
+running and finished are different findings with different offers; a stray is never removed automatically,
+because it is the only local evidence a run happened and usually the crash being investigated; and an
+unreadable `docker ps` row is skipped rather than guessed at. Following is read-only by choice — `docker
+attach` shares the container's stdin — and the follower is a separate field from `runnerProcess` precisely so
+`disposeFollowers()` on panel close drops the *reader* and never the job. `localCiRunnerEnvArgs` additionally
+passes the container's real CPU allowance inward (`ATLASMIND_TEST_MAX_WORKERS` plus the Vitest/Jest spellings
+and a matching `NODE_OPTIONS` heap cap), because the cgroup bounds what a suite *can* take while these tell it
+what to *ask for* — without them a job sees the host's CPU count and starts one worker per thread behind a
+much smaller quota.
+
+### TestResourceBudget (`src/core/testResourceBudget.ts`)
+
+The sliding scale for local test execution, and the OS reserve under it. The container runner above was the
+only governed execution path; every path that runs tests **on the host** — the after-write
+auto-verification in `extension.ts`, the `test-run` skill, the Pipeline "Run here" route — had no CPU,
+memory or worker governance, and those are the paths that can take a desktop down (Jest defaults to
+cores − 1 workers; Stryker to cores − 1 concurrent whole test runtimes). Pure and unit-tested
+(`tests/core/testResourceBudget.test.ts`). Five rules: the reserve is measured on the host and floored
+aggressively (25%, ≥2 CPUs / 8 GB); one slider (`atlasmind.testing.resourceShare`, machine-scoped) governs
+every path so two surfaces cannot answer differently; a budget can shrink a host run but never refuse one;
+worker flags are appended only where the runner is recognised and the script does not state its own limit
+(`planTestCommandThrottle` — `--maxWorkers` for Jest/Vitest, `--concurrency` at a harder cap for Stryker,
+nothing for compound scripts); and the `NODE_OPTIONS` heap cap is a merge, never a replacement
+(`withTestResourceEnv`). The host `runCommand` additionally runs every agent-issued command at below-normal
+priority and clips captured output to a bounded tail, because a runner prints its failures last.
 
 ### Pipeline Studio (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`)
 
@@ -1286,6 +1332,12 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 **`unknown` is a real answer**, not a fallback for guessing: it escalates to a human and names no agent. **Flakiness is a property of history, not of one log** — `detectFlakeSuspect` needs both a pass and a fail on the same commit, and overrides whatever the latest log says, because no amount of reading one failure can establish it.
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
+
+**Colour arrives in two forms, and only one of them is an escape byte.** GitHub returns Actions logs with their CSI sequences *caret-encoded* — the two literal characters `^` and `[` where the ESC byte was. A failed Windows run fetched through `gh run view --log-failed` carried 7,253 of these and not one ESC byte, so a stripper that knew only the real escape had nothing to match. Everything downstream then failed silently and in the reassuring direction: the redaction ordering above stopped protecting CI logs at all, and the rules, which match on word boundaries, could not see `1 failed` through the `^[[31m` glued to its left — `m` and `1` are both word characters, so there is no boundary between them. A log that plainly said `1 failed` and named the failing test file classified as `unknown`. The caret form is matched deliberately more tightly than the real CSI grammar, params restricted to digits and semicolons and the final byte to a letter, so a POSIX class such as `^[[:alpha:]]` in a logged grep pattern is not eaten as a colour code.
+
+**The log names the job and the step on every line; the caller only ever knew the workflow.** Each line arrives as `job<TAB>step<TAB>TIMESTAMP text`, and that prefix went unparsed — so the dashboard reported `CI · step · run …` while the log it had just read said `quality (windows-latest)` and `Unit tests`. The prefix is parsed now and the report prefers what the log says, falling back to the caller only for a log that carries none. Parsing it also keeps the prefix *out* of the rules, where a job called `lint-and-test` would otherwise have satisfied a rule on every line it ever printed, and out of the evidence box, where it cost 60 characters of job name and ISO timestamp before the part that failed.
+
+**Rule order decides the class; pattern order inside a rule decides the evidence.** Those are different questions and were conflated: the `test-failure` rule matched a bare failure count first, so the card reported `Tests 1 failed` and left the reader to find which one in a log they could not see. Patterns are ordered most-specific-first, and the deciding line is the **last** match rather than the first — a runner prints progress as it goes and its authoritative block at the end, the same reasoning that makes truncation keep the tail.
 
 ### AgentHandoff (`src/core/agentHandoff.ts`)
 

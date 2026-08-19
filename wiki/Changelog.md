@@ -19,6 +19,108 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.0 — CI failures you can actually read, and routes between pages
+
+GitHub returns Actions logs with their colour codes *caret-encoded* — the two literal characters `^` and
+`[` where the escape byte used to be. A failed Windows run carried 7,253 of them and not one real escape,
+so the stripper that only knew the real form had nothing to match and every code survived into the text.
+That was not cosmetic. The classifier matches on word boundaries, and `^[[31m1 failed` never matched
+`1 failed` because `m` and `1` are both word characters — so a log that plainly said `1 failed`, and named
+the test file it happened in, was reported as "Nothing matched a known pattern... this one needs a human"
+above an evidence box of raw `^[[2m` fragments. The same gap sat on a redaction boundary, since colour is
+stripped before secrets are redacted precisely so a secret wrapped in colour still matches its pattern.
+
+The card also could not name the job or the step, reporting the *workflow* name because that was all it was
+given, while every line of the log it had just read began `quality (windows-latest)` and `Unit tests`. That
+prefix is parsed now — and kept out of the rules, where a job called `lint-and-test` would have satisfied a
+rule on every line it printed. Evidence names the failing test instead of counting failures.
+
+Two navigation changes came out of the same session. Every page now carries a declared **Where next** strip
+— routes to the pages a reader is likely to want, each stating the question it answers, declared rather
+than derived so they can be reviewed in a diff. And a pull request row leads with its check rollup: a
+failing one names the failing checks, links to one, and routes to Pipeline, rather than leading with
+"awaiting review" while the fact deciding whether the branch can merge sat further down the page.
+
+Also: `Check GitHub queue` was greyed out with no reason given, and its gate disagreed with the tick
+directly above it — a disabled action now says what is holding it and offers the control that clears it.
+And a Windows CI test that launches a real helper → Node → PowerShell tree, compiling C# at runtime, was
+killed at 10034ms against a 10s budget. A budget a healthy run lands just under is a flake with a date on
+it; a timeout now also reports itself as one, instead of being indistinguishable from a genuine failure.
+
+---
+
+## v0.368.0 — The promotion dialog stops fighting you
+
+Four things on one screen. Ticking a preflight confirmation re-rendered the whole dialog and reset its
+scroller, so a promotion with nine checks meant scrolling back down nine times — the ticks now update
+in place. The run controls sat below every check; the dialog is now a fixed column with the buttons
+pinned in view and a line stating what is still outstanding. "Ask Atlas to fix this" on a failed step
+did nothing, because the message was declared and handled but never admitted by the guard between
+them, so every click was dropped silently. And a running promotion could not be closed at all, even
+though closing it was always safe — Escape or "Close — the run continues" now detaches it, with a
+strip on the Delivery page to bring you back and report how it ended. Each section also carries a
+meter, with checks the machine ran kept separate from confirmations only a person can give.
+
+---
+
+## v0.367.0 — Auto-refresh where the Refresh button is
+
+**Auto-refresh moved into the Refresh button.** The cadence was four buttons and a paragraph parked on one
+card of the Pipeline page — permanent space for a setting you choose once — and it stopped polling the
+moment you looked at anything else, which is precisely when somebody sets "every minute". It is a caret on
+the Refresh button now, including the one in the dashboard header, so it is available wherever a refresh
+is. A running interval shows on the caret without opening anything, the menu states what the cadence costs
+and marks the current choice with a tick as well as a colour, and the rules that matter are unchanged:
+nothing is fetched while the panel is hidden or while a refresh is already running, and **Off** is still
+the default. A cadence saved in a previous session also *starts* now — it used to sit there looking set and
+fetch nothing until you switched editor tabs away and back. Existing cadences revert to Off once, because
+the setting no longer means "only while Pipeline is open".
+
+---
+
+## v0.366.0 — The job keeps running, and the shell stops trusting your typing
+
+A local CI run already survived VS Code closing — the container keeps executing, because GitHub is waiting
+on real work — but nothing looked for it afterwards, so the page reported an idle machine while a runner
+held its whole budget, and the result was never recorded. AtlasMind now reconciles what is still running:
+a live container is adopted and its output reattached, finished ones are listed with a button to clear them
+and are never removed on sight. Only containers carrying both AtlasMind's label and its name shape are
+considered, and following a container is read-only, so closing the panel drops the reader and never the job.
+
+Two fixes beside it. Text typed after `/ship` was substituted into a routine's shell command line unchecked,
+which for a step like `git commit -m "${message}"` is a command-injection path; a value containing anything
+a shell reads as syntax is now refused before any step runs, with the offending characters named. And the
+routine and promotion runners no longer report a step that succeeded as failed when its output exceeded
+Node's 1 MiB default.
+
+---
+## v0.365.0 — A sliding scale for testing, and a desktop that survives it
+
+Local test execution gets one machine-scoped slider — `atlasmind.testing.resourceShare` — and an
+operating-system reserve that is measured on the real host (25%, never fewer than 2 CPUs / 8 GB), not on
+the Docker/WSL VM's view of itself. Every path that runs tests on this computer reads the same value: the
+after-write auto-verification, the test-run skill, the Pipeline's "Run here" commands, and the trusted
+local CI container. Jest and Vitest runs are capped with `--maxWorkers`, Stryker with `--concurrency` at a
+deliberately harder cap (each mutation runner is a whole test runtime), every governed Node process gets a
+heap ceiling merged into `NODE_OPTIONS`, and agent-issued commands run at below-normal priority. The live
+one-job runner gains a **Stop** button, and an enabled Pipeline page whose machine was never probed now
+inspects it automatically — so "Docker Desktop is not installed" is the first thing on the page, not a
+discovery behind a button. The motivating failure was real: an ungoverned Jest + Stryker default fans out
+to (cores - 1) whole test runtimes, which is how a mutation run can black-screen a 64 GB machine.
+
+The Project Dashboard also opens on the dashboard now: the header is one band carrying the project's own
+name, its health summary, provenance and a score chip, instead of roughly 600px of chrome above the first
+real signal.
+
+---
+## v0.364.1 — The line that names the last publication
+
+Housekeeping. The README's published baseline moves to v0.364.0, the release just published — the step
+that exists because a test asserts the README names the newest tag, and the tag only exists once tagging
+has run.
+
+---
+
 ## v0.364.0 — Setup you already did, and a machine you can still use
 
 Two things that made the same complaint from opposite directions.
@@ -779,7 +881,8 @@ file paths were landing there.
 
 Underneath that, two things were wrong at once. A path AtlasMind *accepted* did nothing when clicked, so the
 links that looked like they worked were the broken ones; and the same file passed or failed depending on how
-it was written, with `src/a.ts` accepted while `C:epo\src\a.ts` was not.
+it was written, with `src/a.ts` accepted while `C:
+epo\src\a.ts` was not.
 
 Now any of those spellings opens the file in the editor, at the line if the link named one. A path outside
 your workspace is not opened, and says so rather than doing nothing.

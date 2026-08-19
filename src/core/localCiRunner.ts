@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { pipeGhStdoutOrThrow, runGhOrThrow } from './ghClient.js';
@@ -9,6 +9,18 @@ import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
 import { probeGpuDevices } from '../providers/gpuProbe.js';
 import type { GpuDevice } from '../providers/gpuProbeParse.js';
+import {
+  clampTestResourceShare,
+  TEST_RESOURCE_RESERVE_MIN_CPUS,
+  TEST_RESOURCE_RESERVE_MIN_MEMORY_GB,
+} from './testResourceBudget.js';
+import {
+  describeAdoptedRunner,
+  parseOwnedLocalCiContainers,
+  reconcileLocalCiContainers,
+  type LocalCiContainerReconciliation,
+  type OwnedLocalCiContainer,
+} from './localCiAdoption.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +69,13 @@ export interface LocalCiRunnerConfiguration {
   shutdownPolicy: LocalCiShutdownPolicy;
   maxCpus: number;
   maxMemoryGb: number;
+  /**
+   * `atlasmind.testing.resourceShare` — the one slider that bounds every
+   * testing path, this container included. Optional so a caller that predates
+   * the slider still plans; absent means "no share stated", and only the OS
+   * reserve applies.
+   */
+  resourceSharePercent?: number;
 }
 
 export interface LocalCiQueueInvocation {
@@ -185,6 +204,16 @@ export interface LocalCiRunnerSnapshot {
   message: string;
   /** A recoverable GitHub queue state. It never weakens or replaces a trust-policy blocker. */
   preflightIssue?: LocalCiQueuePreflightIssue;
+  /**
+   * Runners this computer started that outlived the extension host.
+   *
+   * A container keeps executing when VS Code closes, which is deliberate — the
+   * job is real work GitHub is waiting on. This is how the next session finds
+   * it again: a live one is adopted and its output reattached, finished ones
+   * are reported so they can be cleared. Absent means *not looked for*, which
+   * is why it is only ever set by a real inspection.
+   */
+  adopted?: LocalCiContainerReconciliation;
   /**
    * The last on-disk review of the trusted workflow, if one has been run.
    *
@@ -379,16 +408,36 @@ export function resolveLocalCiRunnerLabel(pattern: string, arch: string): string
 export function planLocalCiResources(
   host: LocalCiCapacity,
   engine: LocalCiCapacity | undefined,
-  limits: Pick<LocalCiRunnerConfiguration, 'maxCpus' | 'maxMemoryGb'>,
+  limits: Pick<LocalCiRunnerConfiguration, 'maxCpus' | 'maxMemoryGb' | 'resourceSharePercent'>,
 ): LocalCiResourcePlan {
-  const capacity = engine ?? host;
   const basedOn = engine ? 'docker-engine' as const : 'host' as const;
-  const reserveCpus = Math.max(1, Math.ceil(capacity.cpuCount * 0.25));
-  const reserveMemoryGb = Math.max(2, Math.ceil(capacity.memoryGb * 0.25));
+  // The reserve is measured on the HOST, never on Docker's view of itself.
+  // On Windows/macOS the engine reports the WSL/VM allocation, which is
+  // already a slice of the machine — "25% reserved for the desktop" computed
+  // on the VM reserved 25% of the slice and nothing of the computer, which is
+  // how a correctly-configured runner could still starve the desktop.
+  const reserveCpus = Math.max(TEST_RESOURCE_RESERVE_MIN_CPUS, Math.ceil(host.cpuCount * 0.25));
+  const reserveMemoryGb = Math.max(TEST_RESOURCE_RESERVE_MIN_MEMORY_GB, Math.ceil(host.memoryGb * 0.25));
+  // Absent means "no share stated": only the reserve applies. The clamp runs
+  // on a stated value so a hand-edited settings file cannot ask for 100%.
+  const share = limits.resourceSharePercent === undefined ? 100 : clampTestResourceShare(limits.resourceSharePercent);
+  const shareCpus = share === 100 ? host.cpuCount : Math.floor((host.cpuCount * share) / 100);
+  const shareMemoryGb = share === 100 ? Math.floor(host.memoryGb) : Math.floor((host.memoryGb * share) / 100);
+  const capacity = engine ?? host;
   const configuredCpuCap = Math.max(0, Math.floor(limits.maxCpus));
   const configuredMemoryCap = Math.max(0, Math.floor(limits.maxMemoryGb));
-  const cpus = Math.max(0, Math.min(configuredCpuCap, Math.floor(capacity.cpuCount - reserveCpus)));
-  const memoryGb = Math.max(0, Math.min(configuredMemoryCap, Math.floor(capacity.memoryGb - reserveMemoryGb)));
+  const cpus = Math.max(0, Math.min(
+    configuredCpuCap,
+    capacity.cpuCount,
+    shareCpus,
+    Math.floor(host.cpuCount - reserveCpus),
+  ));
+  const memoryGb = Math.max(0, Math.min(
+    configuredMemoryCap,
+    Math.floor(capacity.memoryGb),
+    shareMemoryGb,
+    Math.floor(host.memoryGb - reserveMemoryGb),
+  ));
   const blockers: string[] = [];
   if (cpus < LOCAL_CI_MIN_CPUS) {
     blockers.push(`The calculated ${cpus}-CPU limit is below the safe ${LOCAL_CI_MIN_CPUS}-CPU minimum.`);
@@ -405,9 +454,38 @@ export function planLocalCiResources(
     basedOn,
     provisional: engine === undefined,
     blockers,
-    explanation: `${capacity.cpuCount} CPUs / ${capacity.memoryGb} GB ${basedOn === 'docker-engine' ? 'visible to Docker' : 'on the host'}; `
-      + `reserve ${reserveCpus} CPUs / ${reserveMemoryGb} GB, then apply caps of ${configuredCpuCap} CPUs / ${configuredMemoryCap} GB.`,
+    explanation: `${host.cpuCount} CPUs / ${host.memoryGb} GB on the host; `
+      + `reserve ${reserveCpus} CPUs / ${reserveMemoryGb} GB for the operating system`
+      + (share < 100 ? `; testing share ${share}%` : '')
+      + (engine ? `; Docker sees ${engine.cpuCount} CPUs / ${engine.memoryGb} GB` : '')
+      + `; caps ${configuredCpuCap} CPUs / ${configuredMemoryCap} GB.`,
   };
+}
+
+/**
+ * The resource hints handed to the job inside the container.
+ *
+ * Exported and pure so a test can assert the exact argv rather than trusting a
+ * comment. Each name is one a runner reads without the project opting in:
+ * `VITEST_MAX_WORKERS` and `JEST_MAX_WORKERS` are honoured by Vitest and by the
+ * common `process.env.JEST_MAX_WORKERS || …` config idiom, `NODE_OPTIONS`
+ * reaches every Node child including the workers this code never spawns, and
+ * `ATLASMIND_TEST_MAX_WORKERS` is the neutral spelling for a project whose
+ * runner is neither.
+ *
+ * The heap figure divides the container's memory across the workers plus the
+ * parent, the same arithmetic `testResourceBudget` uses on the host — one rule,
+ * two places it applies.
+ */
+export function localCiRunnerEnvArgs(resources: Pick<LocalCiResourcePlan, 'cpus' | 'memoryGb'>): string[] {
+  const workers = Math.max(1, Math.floor(resources.cpus));
+  const heapMb = Math.min(4096, Math.max(512, Math.floor((resources.memoryGb * 1024) / (workers + 1))));
+  return [
+    '--env', `ATLASMIND_TEST_MAX_WORKERS=${workers}`,
+    '--env', `VITEST_MAX_WORKERS=${workers}`,
+    '--env', `JEST_MAX_WORKERS=${workers}`,
+    '--env', `NODE_OPTIONS=--max-old-space-size=${heapMb}`,
+  ];
 }
 
 export function parseDockerInfo(raw: string): LocalCiCapacity | undefined {
@@ -564,7 +642,8 @@ function sameConfiguration(left: LocalCiRunnerConfiguration, right: LocalCiRunne
     && left.image === right.image
     && left.shutdownPolicy === right.shutdownPolicy
     && left.maxCpus === right.maxCpus
-    && left.maxMemoryGb === right.maxMemoryGb;
+    && left.maxMemoryGb === right.maxMemoryGb
+    && left.resourceSharePercent === right.resourceSharePercent;
 }
 
 export function initialLocalCiRunnerSnapshot(configuration: LocalCiRunnerConfiguration): LocalCiRunnerSnapshot {
@@ -703,7 +782,14 @@ export class LocalCiRunnerManager {
   private configuration: LocalCiRunnerConfiguration;
   private operationRunning = false;
   private startedDesktop = false;
+  private stopRequested = false;
   private runnerProcess: ChildProcessWithoutNullStreams | undefined;
+  /**
+   * A `docker logs --follow` reader for a container started in an earlier
+   * session. Deliberately separate from `runnerProcess`: this one may be
+   * dropped freely, because ending it stops the reading and not the job.
+   */
+  private followProcess: ChildProcess | undefined;
 
   constructor(
     private readonly workspaceRoot: string,
@@ -739,6 +825,13 @@ export class LocalCiRunnerManager {
         },
       } : {}),
       ...(this.snapshot.queuedRun ? { queuedRun: { ...this.snapshot.queuedRun } } : {}),
+      ...(this.snapshot.adopted ? {
+        adopted: {
+          ...this.snapshot.adopted,
+          strays: this.snapshot.adopted.strays.map(stray => ({ ...stray })),
+          ...(this.snapshot.adopted.adoptable ? { adoptable: { ...this.snapshot.adopted.adoptable } } : {}),
+        },
+      } : {}),
     };
   }
 
@@ -814,6 +907,7 @@ export class LocalCiRunnerManager {
     };
     const blockers: string[] = [];
     const warnings: string[] = [];
+    let adopted: LocalCiContainerReconciliation | undefined;
 
     try {
       await execCommand('gh', ['--version'], this.workspaceRoot);
@@ -861,6 +955,19 @@ export class LocalCiRunnerManager {
             engine.otherRunningContainers = rows.split(/\r?\n/).filter(line => line.trim() && !line.includes(LOCAL_CI_LABEL)).length;
           } catch {
             warnings.push('Running containers could not be counted, so AtlasMind will not stop Docker Desktop.');
+          }
+          // What this computer left behind. A separate `--all` listing because
+          // the count above deliberately excludes AtlasMind's own containers,
+          // and a finished one does not appear in a running-only list at all.
+          try {
+            const owned = await execCommand(
+              'docker',
+              ['ps', '--all', '--filter', `label=${LOCAL_CI_LABEL}`, '--format', '{{json .}}'],
+              this.workspaceRoot,
+            );
+            adopted = reconcileLocalCiContainers(parseOwnedLocalCiContainers(owned));
+          } catch {
+            warnings.push('AtlasMind could not check for a runner left over from an earlier session.');
           }
         }
       } catch {
@@ -927,7 +1034,18 @@ export class LocalCiRunnerManager {
       blockers.push('Start the Docker engine yourself; AtlasMind will not start or stop an unmanaged system service.');
     }
 
-    const lifecycle = retainedLifecycle ?? (!configuration.enabled ? 'disabled' : blockers.length > 0 ? 'blocked' : 'ready');
+    // A live runner from an earlier session outranks every derived lifecycle
+    // below: the machine is not `ready`, it is *busy*, and saying otherwise
+    // would offer a Start button that the one-operation guard then refuses for
+    // a reason nobody can see from the page.
+    const adoptable = this.runnerProcess ? undefined : adopted?.adoptable;
+    const lifecycle = retainedLifecycle
+      ?? (!configuration.enabled ? 'disabled'
+        : blockers.length > 0 ? 'blocked'
+          : adoptable ? 'running' : 'ready');
+    if (adoptable) {
+      warnings.push(describeAdoptedRunner(adoptable));
+    }
     const arch = engine.arch ?? normalizeLocalCiArch(host.arch);
     this.update({
       lifecycle,
@@ -945,14 +1063,67 @@ export class LocalCiRunnerManager {
       evidenceLabel: `Linux container (${arch}); not native ${host.os} evidence`,
       blockers: [...new Set(blockers)],
       warnings: [...new Set(warnings)],
-      message: lifecycle === 'ready'
-        ? 'The local executor is ready for a queued trusted job.'
-        : lifecycle === 'blocked' ? 'Resolve the safety blockers before starting a runner.'
-          : lifecycle === 'disabled' ? 'Enable local CI in machine settings to use this executor.'
-            : this.snapshot.message,
-      ...(retainedLifecycle ? {} : { preflightIssue: undefined, queuedRun: undefined, containerName: undefined }),
+      ...(adopted ? { adopted } : {}),
+      message: adoptable
+        ? 'A runner started earlier is still executing a job on this computer.'
+        : lifecycle === 'ready'
+          ? 'The local executor is ready for a queued trusted job.'
+          : lifecycle === 'blocked' ? 'Resolve the safety blockers before starting a runner.'
+            : lifecycle === 'disabled' ? 'Enable local CI in machine settings to use this executor.'
+              : this.snapshot.message,
+      ...(adoptable ? { containerName: adoptable.name } : {}),
+      ...(retainedLifecycle || adoptable ? {} : { preflightIssue: undefined, queuedRun: undefined, containerName: undefined }),
     });
+    if (adoptable) {
+      this.reattach(adoptable, configuration);
+    }
     return this.getSnapshot();
+  }
+
+  /**
+   * Follow a container this computer started in an earlier session.
+   *
+   * `docker logs --follow` rather than `docker attach`: attaching shares the
+   * container's stdin, and this process has no business being able to type at
+   * a runner it did not start. Following is read-only and ends when the
+   * container does, which is exactly the signal needed to record the verdict.
+   *
+   * The child is *not* the runner — killing it stops the following, not the
+   * job — so `runnerProcess` stays unset and `stop()` still goes through the
+   * container. That asymmetry is deliberate: closing the window must not end
+   * somebody's build.
+   */
+  private reattach(container: OwnedLocalCiContainer, configuration: LocalCiRunnerConfiguration): void {
+    if (this.followProcess) {
+      return;
+    }
+    this.log(`[runner] Reattaching to ${container.name}, started before this session.`);
+    const child = spawn('docker', ['logs', '--follow', '--tail', '50', container.name], {
+      cwd: this.workspaceRoot,
+      windowsHide: true,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.followProcess = child;
+    child.stdout?.on('data', chunk => this.consumeRunnerLine(chunk));
+    child.stderr?.on('data', chunk => this.consumeRunnerLine(chunk));
+    child.on('error', () => {
+      this.followProcess = undefined;
+    });
+    child.on('close', () => {
+      this.followProcess = undefined;
+      // `docker logs --follow` returns when the container exits, so this is the
+      // adopted run finishing. Its exit code belongs to the log follower, not
+      // to the job, so the verdict is deliberately left to GitHub rather than
+      // inferred from a number that describes something else.
+      this.update({
+        lifecycle: 'finished',
+        message: 'The adopted runner finished. Refresh CI to read the job verdict from GitHub.',
+        containerName: undefined,
+        adopted: undefined,
+      });
+      void this.applyShutdownPolicy(configuration.shutdownPolicy);
+    });
   }
 
   /**
@@ -1168,6 +1339,14 @@ export class LocalCiRunnerManager {
         '--memory', `${resources.memoryGb}g`,
         '--memory-swap', `${resources.memoryGb}g`,
         '--pids-limit', String(resources.pidsLimit),
+        // The cgroup limits above bound what the container *can* take; these
+        // tell the test runners inside what to *ask for*. Without them a suite
+        // sees the host's CPU count, starts one worker per thread and then
+        // fights the quota — bounded, but paying full context-switching and
+        // per-worker memory cost for parallelism it cannot use. Job steps
+        // inherit the runner process's environment, and a workflow that sets
+        // these itself still wins, so this is a default rather than a ceiling.
+        ...localCiRunnerEnvArgs(resources),
         '--cap-drop', 'ALL',
         '--security-opt', 'no-new-privileges:true',
         '--entrypoint', '/bin/bash',
@@ -1286,28 +1465,37 @@ export class LocalCiRunnerManager {
     return resolved;
   }
 
+  /**
+   * One line of runner output, redacted and bounded.
+   *
+   * Shared by the runner this session started and by a reattached one, so an
+   * adopted container's output is read, capped and redacted exactly like a
+   * live one's rather than through a second, subtly different path.
+   */
+  private consumeRunnerLine(chunk: Buffer | string): void {
+    const display = redactSecrets(sanitizeTerminalOutput(String(chunk))).text;
+    for (const rawLine of display.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      this.log(`[runner] ${line.slice(0, 1000)}`);
+      if (/Running job:/i.test(line) && this.snapshot.lifecycle !== 'running') {
+        this.update({ lifecycle: 'running', message: 'The queued CI job is running on this machine.', lastOutput: line.slice(0, 240) });
+      } else if (/Listening for Jobs|Waiting for a job/i.test(line) && this.snapshot.lifecycle === 'starting') {
+        this.update({ lifecycle: 'waiting', message: 'The ephemeral runner is online and waiting for the queued job.', lastOutput: line.slice(0, 240) });
+      } else {
+        this.snapshot = { ...this.snapshot, lastOutput: line.slice(0, 240), updatedAt: new Date().toISOString() };
+      }
+    }
+  }
+
   private attachRunnerOutput(
     child: ChildProcessWithoutNullStreams,
     containerName: string,
     configuration: LocalCiRunnerConfiguration,
   ): void {
-    const consume = (chunk: Buffer | string): void => {
-      const display = redactSecrets(sanitizeTerminalOutput(String(chunk))).text;
-      for (const rawLine of display.split('\n')) {
-        const line = rawLine.trim();
-        if (!line) {
-          continue;
-        }
-        this.log(`[runner] ${line.slice(0, 1000)}`);
-        if (/Running job:/i.test(line) && this.snapshot.lifecycle !== 'running') {
-          this.update({ lifecycle: 'running', message: 'The queued CI job is running on this machine.', lastOutput: line.slice(0, 240) });
-        } else if (/Listening for Jobs|Waiting for a job/i.test(line) && this.snapshot.lifecycle === 'starting') {
-          this.update({ lifecycle: 'waiting', message: 'The ephemeral runner is online and waiting for the queued job.', lastOutput: line.slice(0, 240) });
-        } else {
-          this.snapshot = { ...this.snapshot, lastOutput: line.slice(0, 240), updatedAt: new Date().toISOString() };
-        }
-      }
-    };
+    const consume = (chunk: Buffer | string): void => this.consumeRunnerLine(chunk);
     child.stdout.on('data', consume);
     child.stderr.on('data', consume);
     child.on('error', error => {
@@ -1321,15 +1509,79 @@ export class LocalCiRunnerManager {
     });
   }
 
+  /**
+   * Stop the live runner container on request.
+   *
+   * This was the missing half of the lifecycle: a run could be started from
+   * the panel but only ever ended by the job finishing, so a wedged or
+   * runaway job held its full CPU/memory budget with nothing on this side
+   * able to take it back. Removal goes through `removeOwnedContainer`, whose
+   * name guard means this can never reach a container AtlasMind did not
+   * start; the child's `close` handler then runs the normal finish path.
+   */
+  async stop(): Promise<void> {
+    const containerName = this.snapshot.containerName;
+    const child = this.runnerProcess;
+    if (!child && !containerName) {
+      return;
+    }
+    this.stopRequested = true;
+    this.log('[runner] Stop requested; removing the ephemeral runner container.');
+    if (containerName) {
+      await this.removeOwnedContainer(containerName);
+    }
+    if (child && !child.killed) {
+      try {
+        child.kill();
+      } catch {
+        // The docker client may already have exited with its container.
+      }
+    }
+    // An adopted container has no `runnerProcess` and therefore no `close`
+    // handler to settle the state, so the stop is recorded here. The follower
+    // ends by itself once the container is gone.
+    if (!child) {
+      this.stopRequested = false;
+      this.update({
+        lifecycle: 'ready',
+        message: 'The adopted runner was stopped on your request. Check GitHub for the state of the job it was serving.',
+        containerName: undefined,
+        adopted: undefined,
+      });
+    }
+  }
+
+  /**
+   * Drop the reader for an adopted container without touching the container.
+   *
+   * Called when the panel goes away: the job keeps running, and the next
+   * session's inspection finds and reattaches to it again.
+   */
+  disposeFollowers(): void {
+    const follower = this.followProcess;
+    this.followProcess = undefined;
+    if (follower && !follower.killed) {
+      try {
+        follower.kill();
+      } catch {
+        // Already gone; nothing to release.
+      }
+    }
+  }
+
   private async finishRun(containerName: string, configuration: LocalCiRunnerConfiguration, code: number | null): Promise<void> {
     this.log(`[runner] Container ${containerName} exited with code ${String(code)}.`);
+    const stopped = this.stopRequested;
+    this.stopRequested = false;
     const cleanExit = code === 0;
     this.update({
-      lifecycle: cleanExit ? 'finished' : 'failed',
-      message: cleanExit
-        ? 'The ephemeral runner finished and removed its registration. Refresh CI to read the job verdict.'
-        : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
-      ...(cleanExit ? { blockers: [] } : { blockers: [`Runner process exited with code ${String(code)}.`] }),
+      lifecycle: stopped ? 'ready' : cleanExit ? 'finished' : 'failed',
+      message: stopped
+        ? 'The local runner was stopped on your request. Check GitHub for the state of the job it was serving.'
+        : cleanExit
+          ? 'The ephemeral runner finished and removed its registration. Refresh CI to read the job verdict.'
+          : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
+      ...(stopped || cleanExit ? { blockers: [] } : { blockers: [`Runner process exited with code ${String(code)}.`] }),
     });
     await this.applyShutdownPolicy(configuration.shutdownPolicy);
   }
@@ -1360,6 +1612,30 @@ export class LocalCiRunnerManager {
     } catch (error) {
       this.log(`[engine] Docker Desktop was left open: ${safeFailure(error)}`);
     }
+  }
+
+  /**
+   * Clear away finished containers this computer left behind.
+   *
+   * Only ever the ones the last inspection *saw* and classified as finished —
+   * never a fresh listing, and never a live one. Removing a container is
+   * destructive of the only local record that a run happened, so the caller
+   * confirms first and this method does exactly what was confirmed.
+   */
+  async removeStrayContainers(): Promise<number> {
+    const strays = this.snapshot.adopted?.strays ?? [];
+    let removed = 0;
+    for (const stray of strays) {
+      await this.removeOwnedContainer(stray.name);
+      removed += 1;
+    }
+    if (removed > 0) {
+      this.update({
+        adopted: { ...(this.snapshot.adopted ?? { strays: [], ambiguous: false }), strays: [] },
+        message: `Removed ${removed} finished runner container${removed === 1 ? '' : 's'} left over from an earlier session.`,
+      });
+    }
+    return removed;
   }
 
   private async removeOwnedContainer(containerName: string): Promise<void> {

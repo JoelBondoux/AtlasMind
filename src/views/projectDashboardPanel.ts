@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -12,6 +13,7 @@ import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstatio
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
+import { clampTestResourceShare, planTestCommandThrottle, planTestResourceBudget } from '../core/testResourceBudget.js';
 import { collectTestingDashboardSnapshot, persistTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import {
   buildTestingPolicyLaymanGuide,
@@ -729,6 +731,17 @@ type ProjectDashboardMessage =
   | { type: 'refreshCi' }
   | { type: 'inspectLocalCiRunner' }
   | { type: 'startLocalCiRunner' }
+  /**
+   * Stop the live one-job runner. Carries no data: the manager stops only the
+   * container it started, resolved from its own snapshot.
+   */
+  | { type: 'stopLocalCiRunner' }
+  /**
+   * Remove finished runner containers left over from an earlier session. The
+   * host removes only the strays the last inspection classified, never a fresh
+   * listing the webview could influence.
+   */
+  | { type: 'clearLocalCiStrays' }
   /**
    * Review the committed trusted workflow now, from disk, before any of the
    * machine setup. Carries no data: the host re-derives every input.
@@ -1520,6 +1533,9 @@ function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
     shutdownPolicy,
     maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
+    // Clamped inside the planner, so a hand-edited settings file cannot state
+    // a share the policy would refuse.
+    resourceSharePercent: configuration.get<number>('testing.resourceShare', 50),
   };
 }
 
@@ -4147,7 +4163,7 @@ export class ProjectDashboardPanel {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('atlasmind')) {
-          if (event.affectsConfiguration('atlasmind.ci.localRunner')) {
+          if (event.affectsConfiguration('atlasmind.ci.localRunner') || event.affectsConfiguration('atlasmind.testing.resourceShare')) {
             this.localCiRunnerInstance?.applyConfiguration(readLocalCiRunnerConfiguration());
           }
           void this.syncState();
@@ -4170,6 +4186,10 @@ export class ProjectDashboardPanel {
       clearTimeout(this.ciPollTimer);
       this.ciPollTimer = undefined;
     }
+    // Drop the reader for an adopted container, never the container. A local CI
+    // job outlives this panel on purpose — GitHub is waiting on it — and the
+    // next session's inspection finds it again and reattaches.
+    this.localCiRunnerInstance?.disposeFollowers();
     ProjectDashboardPanel.currentPanel = undefined;
     this.panel.dispose();
     for (const disposable of this.disposables) {
@@ -4322,6 +4342,12 @@ export class ProjectDashboardPanel {
         return;
       case 'startLocalCiRunner':
         await this.handleStartLocalCiRunner();
+        return;
+      case 'stopLocalCiRunner':
+        await this.handleStopLocalCiRunner();
+        return;
+      case 'clearLocalCiStrays':
+        await this.handleClearLocalCiStrays();
         return;
       case 'assessTrustedCiWorkflow':
         await this.handleAssessTrustedCiWorkflow();
@@ -6230,6 +6256,80 @@ export class ProjectDashboardPanel {
   }
 
   /**
+   * Stop the live one-job runner on request.
+   *
+   * Confirmed first, because stopping abandons a claimed GitHub job mid-run —
+   * but the alternative used to be nothing at all: once started, a run could
+   * only end by finishing, and a wedged job held its whole CPU/memory budget
+   * with no way to take it back short of killing Docker by hand.
+   */
+  private async handleStopLocalCiRunner(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    if (!runner) {
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      'Stop the local CI runner?',
+      {
+        modal: true,
+        detail: 'The ephemeral runner container is removed immediately. A job it had already claimed will be reported to GitHub as failed rather than finishing.',
+      },
+      'Stop the runner',
+    );
+    if (confirmation !== 'Stop the runner') {
+      return;
+    }
+    try {
+      await runner.stop();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not stop the local runner: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Clear finished runner containers left behind by an earlier session.
+   *
+   * Confirmed, and the dialog names the count: a stray container is the only
+   * local evidence that a run happened at all, so removing one is a decision
+   * rather than tidying. The live runner is never a candidate — the manager
+   * only removes what its last inspection classified as finished.
+   */
+  private async handleClearLocalCiStrays(): Promise<void> {
+    const runner = this.getLocalCiRunner();
+    const strays = runner?.getSnapshot().adopted?.strays ?? [];
+    if (!runner || strays.length === 0) {
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${strays.length} finished runner container${strays.length === 1 ? '' : 's'}?`,
+      {
+        modal: true,
+        detail: [
+          'These containers finished but were not cleaned up, usually because VS Code closed while a run was in flight.',
+          '',
+          ...strays.slice(0, 8).map(stray => `${stray.name} — ${stray.status}`),
+          '',
+          'Removing them frees their disk space. It also discards the only local record that those runs happened; GitHub keeps its own.',
+        ].join('\n'),
+      },
+      'Remove them',
+    );
+    if (confirmation !== 'Remove them') {
+      return;
+    }
+    try {
+      const removed = await runner.removeStrayContainers();
+      vscode.window.setStatusBarMessage(`AtlasMind: removed ${removed} leftover runner container${removed === 1 ? '' : 's'}.`, 5000);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not remove the leftover containers: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
    * The repository this workspace is, without needing `gh`.
    *
    * The trusted workflow names its own repository in an authorization
@@ -6558,10 +6658,19 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // The typed commands carry the machine's testing budget where the
+    // script's runner understands a worker flag — visible in the terminal, so
+    // the throttle is something the person can read and delete, not a hidden
+    // difference between this button and typing the command themselves.
+    const budget = planTestResourceBudget(
+      { cpuCount: Math.max(1, os.cpus().length), memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)) },
+      clampTestResourceShare(vscode.workspace.getConfiguration('atlasmind').get<number>('testing.resourceShare', 50)),
+    );
     const outcome = buildDirectLocalRunPlan(
       checks,
       packageFacts.packageManager,
       vscode.env.shell,
+      script => planTestCommandThrottle(packageFacts.scriptBodies[script], budget).extraArgs,
     );
     if (!outcome.ok) {
       void vscode.window.showWarningMessage(outcome.reason);
@@ -10636,19 +10745,35 @@ ${buildCardEvidenceSection(source, derivation)}`;
               </div>
             </div>
           </div>
+          <!-- The header names the project, states where it stands, and scores
+               it. Everything in it is filled from the snapshot except the
+               fallbacks, which are what the panel shows for the second before
+               the first collection returns. -->
           <div class="dashboard-topbar">
-            <div>
-              <p class="dashboard-kicker">Command center</p>
-              <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, Testing intelligence, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
+            <div class="dashboard-heading">
+              <p class="dashboard-kicker">Project dashboard &middot; command center</p>
+              <h1 id="dashboard-project-name" class="dashboard-project-name">Project Dashboard</h1>
+              <p id="dashboard-project-summary" class="dashboard-copy">Workspace health, the work in flight, code and safety signals, and delivery readiness — in one view.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
+              <p id="dashboard-provenance" class="dashboard-provenance"></p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
-              <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
-                aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
-                title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
-                <span class="refresh-button-label">Refresh</span>
-              </button>
+              <button id="dashboard-score-chip" class="dashboard-score-chip" type="button" hidden
+                title="Composite score across operational discipline and outcome completeness. Opens the breakdown."></button>
+              <!-- A split button. The label refreshes once; the caret opens the
+                   automatic-CI-refresh pop-out, which is the same control the
+                   page-level refresh buttons carry. The caret's own contents are
+                   filled by the script, so an active cadence is legible without
+                   opening anything. -->
+              <span class="refresh-split">
+                <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost refresh-progress-button" type="button"
+                  aria-busy="false" aria-keyshortcuts="Control+Shift+R Meta+Shift+R"
+                  title="Refresh dashboard from anywhere in this panel (Ctrl/Cmd+Shift+R)">
+                  <span class="refresh-button-label">Refresh</span>
+                </button>
+                <button type="button" class="refresh-cadence-toggle" data-refresh-cadence
+                  aria-haspopup="menu" aria-expanded="false"><span class="refresh-cadence-value" aria-hidden="true"></span><span class="refresh-cadence-caret" aria-hidden="true">▾</span></button>
+              </span>
             </div>
           </div>
           <!-- No aria-live here. render() replaces this entire subtree on every
@@ -10726,6 +10851,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'refreshCi'
     || candidate['type'] === 'inspectLocalCiRunner'
     || candidate['type'] === 'startLocalCiRunner'
+    || candidate['type'] === 'stopLocalCiRunner'
+    || candidate['type'] === 'clearLocalCiStrays'
     || candidate['type'] === 'showLocalCiOutput'
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
@@ -10817,6 +10944,20 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
 
   if (candidate['type'] === 'workOnIssue') {
     return sanitizeIssueNumber(candidate['payload']) > 0;
+  }
+
+  // A promotion step id, and nothing else. The handler resolves it against the
+  // run *it* retained and rebuilds the prompt itself, so the webview can name a
+  // step but never supply its text — the same shape as `workOnIssue`.
+  //
+  // This was declared on the message union and handled in the switch, but never
+  // admitted here, so every "Ask Atlas to fix this" click was dropped one layer
+  // before its handler and the button read as dead. A validator that omits a
+  // case fails silently by construction, which is why the union and this
+  // function are pinned against each other by test.
+  if (candidate['type'] === 'fixPromotionStep') {
+    const payload = candidate['payload'];
+    return typeof payload === 'string' && payload.length > 0 && payload.length <= 120;
   }
 
   // Issue writes are outward-facing and usually public, so the shape is checked
@@ -15790,6 +15931,12 @@ function buildPromotionPathView(
 async function readNodePackageFacts(workspaceRoot: string): Promise<{
   packageManager: 'npm' | 'pnpm' | 'yarn';
   scripts: string[];
+  /**
+   * The script bodies, so a caller composing a run can ask what a script
+   * actually executes — the throttle planner appends worker flags only where
+   * the runner is recognised, and names alone cannot answer that.
+   */
+  scriptBodies: Record<string, string>;
   /** The Node major a generated workflow should pin, and why. */
   node: NodeVersionResolution;
 } | undefined> {
@@ -15803,6 +15950,14 @@ async function readNodePackageFacts(workspaceRoot: string): Promise<{
   const scripts = scriptsRecord && typeof scriptsRecord === 'object' && !Array.isArray(scriptsRecord)
     ? Object.keys(scriptsRecord as Record<string, unknown>)
     : [];
+  const scriptBodies: Record<string, string> = {};
+  if (scriptsRecord && typeof scriptsRecord === 'object' && !Array.isArray(scriptsRecord)) {
+    for (const [name, body] of Object.entries(scriptsRecord as Record<string, unknown>)) {
+      if (typeof body === 'string') {
+        scriptBodies[name] = body.slice(0, 500);
+      }
+    }
+  }
   const packageManager: 'npm' | 'pnpm' | 'yarn' | undefined = await fileExists(path.join(workspaceRoot, 'pnpm-lock.yaml'))
     ? 'pnpm'
     : await fileExists(path.join(workspaceRoot, 'yarn.lock'))
@@ -15825,7 +15980,7 @@ async function readNodePackageFacts(workspaceRoot: string): Promise<{
     ...(nodeVersionFile ? { nodeVersionFile } : {}),
     runtimeVersion: process.versions.node,
   });
-  return packageManager ? { packageManager, scripts, node } : undefined;
+  return packageManager ? { packageManager, scripts, scriptBodies, node } : undefined;
 }
 
 /** A small text file, or nothing. A missing dotfile is not an error here. */
@@ -18848,13 +19003,21 @@ const DASHBOARD_CSS = `
      column takes the slack (min-width:0 lets it shrink, which is what stops
      the buttons being squeezed), and past that the group drops to its own row
      at full size. */
+  /* Chrome, not content.
+     This header opened with a 44px title, a three-line description of the tabs
+     directly beneath it, a pill row, and then two full-width cards carrying the
+     project name again and a 150px score ring — a little over 600px on a wide
+     editor and past 900px on a narrow one, before a single real signal. It says
+     three things: which project, where it stands, and what it scores. All three
+     fit in one band, and the name is now the largest text on the page rather
+     than the third heading down. */
   .dashboard-topbar {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-    gap: 24px;
+    gap: 12px 24px;
     align-items: flex-start;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
   }
 
   .dashboard-topbar > :first-child {
@@ -18896,6 +19059,20 @@ const DASHBOARD_CSS = `
     font-size: clamp(30px, 4vw, 44px);
   }
 
+  /* The project's own name, and the one place on the page it is stated. Smaller
+     than the generic "Project Dashboard" title it replaced and considerably
+     louder than the h2 it used to be given inside the hero card. */
+  .dashboard-project-name {
+    margin: 0;
+    font-size: clamp(26px, 3vw, 36px);
+    line-height: 1.1;
+    font-weight: 700;
+  }
+
+  .dashboard-topbar .dashboard-kicker {
+    margin: 0 0 4px;
+  }
+
   .dashboard-copy {
     margin: 10px 0 0;
     max-width: 780px;
@@ -18903,19 +19080,44 @@ const DASHBOARD_CSS = `
     font-size: 14px;
   }
 
+  .dashboard-topbar .dashboard-copy {
+    margin: 6px 0 0;
+    font-size: 13px;
+  }
+
+  /* Generated / branch / SSOT: provenance, which is worth stating and is not
+     worth three pills. One muted line, wrapping. */
+  .dashboard-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    margin: 8px 0 0;
+    color: var(--dash-muted);
+    font-size: 12px;
+  }
+
+  .dashboard-provenance:empty {
+    display: none;
+  }
+
   .dashboard-version-strip {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 14px;
+    gap: 8px;
+    margin-top: 10px;
     min-height: 18px;
+  }
+
+  .dashboard-version-strip:empty {
+    display: none;
+    margin-top: 0;
   }
 
   .dashboard-version-pill {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 5px 11px;
     border-radius: 999px;
     border: 1px solid var(--dash-border);
     background: color-mix(in srgb, var(--dash-panel-strong) 80%, transparent);
@@ -18960,6 +19162,56 @@ const DASHBOARD_CSS = `
   .dashboard-version-pill-more:hover {
     border-color: var(--dash-accent-strong);
     color: var(--vscode-foreground);
+  }
+
+  /* The score, where it costs no vertical space: beside Refresh rather than in
+     a card of its own. The full ring, and the breakdown it introduces, live on
+     the Score page this opens — which is where somebody who wants either is
+     going anyway. */
+  .dashboard-score-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px 5px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel-strong) 80%, transparent);
+    color: var(--vscode-foreground);
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* [hidden] is a display:none the flex above would otherwise win against, so
+     the chip would show its empty self for the second before the first
+     snapshot lands. */
+  .dashboard-score-chip[hidden] {
+    display: none;
+  }
+
+  .dashboard-score-chip:hover {
+    border-color: var(--dash-accent-strong);
+  }
+
+  .score-chip-figure {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+  }
+
+  .score-chip-value {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .score-chip-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--dash-muted);
   }
 
   .dashboard-button {
@@ -19043,14 +19295,6 @@ const DASHBOARD_CSS = `
     color: var(--dash-muted);
   }
 
-  .hero-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
-    gap: 18px;
-  }
-
-  .hero-card,
-  .score-card,
   .stat-card,
   .chart-card,
   .panel-card,
@@ -19071,12 +19315,6 @@ const DASHBOARD_CSS = `
     box-shadow: var(--dash-shadow);
   }
 
-  .hero-card {
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-  }
-
   /* Cross-surface deep links land on a page and identify the exact record.
      The outline is temporary visual orientation; keyboard focus remains on the
      record so screen-reader and keyboard users receive the same destination. */
@@ -19092,23 +19330,6 @@ const DASHBOARD_CSS = `
     100% { box-shadow: var(--dash-shadow); }
   }
 
-  .hero-card::after {
-    content: '';
-    position: absolute;
-    inset: auto -40px -60px auto;
-    width: 220px;
-    height: 220px;
-    background: radial-gradient(circle, color-mix(in srgb, var(--dash-accent) 22%, transparent), transparent 68%);
-    pointer-events: none;
-  }
-
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 18px;
-  }
-
   .meta-pill,
   .governance-pill {
     display: inline-flex;
@@ -19121,18 +19342,44 @@ const DASHBOARD_CSS = `
     font-size: 12px;
   }
 
-  .score-card {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-    align-content: start;
-  }
-
   .score-ring {
     width: 150px;
     height: 150px;
     margin: 0 auto;
     display: block;
+  }
+
+  /* Two sizes, one ring. The header wants a glyph; the Score page, which is
+     about the number, keeps a ring big enough to read the arc off. */
+  .score-ring.score-chip-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+
+  .score-overview-card .score-ring {
+    width: 116px;
+    height: 116px;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+
+  .score-overview-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .score-overview-head > :last-child {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  .score-overview-head h3 {
+    margin: 0 0 4px;
   }
 
   .score-ring-track {
@@ -19151,24 +19398,11 @@ const DASHBOARD_CSS = `
     transition: stroke-dashoffset var(--dash-dur-entry) var(--dash-ease), stroke var(--dash-dur-value) ease;
   }
 
-  /* Score is the one number the hero exists to convey — carry it in the ring
-     colour too, not only in the digits underneath. */
+  /* The score is one number — carry it in the ring colour too, not only in the
+     digits, so the header chip reads at a glance without being read. */
   .score-ring.ring-good .score-ring-progress { stroke: var(--dash-good); }
   .score-ring.ring-warn .score-ring-progress { stroke: var(--dash-warn); }
   .score-ring.ring-critical .score-ring-progress { stroke: var(--dash-critical); }
-
-  .score-value {
-    text-align: center;
-    font-size: 42px;
-    font-weight: 700;
-    line-height: 1;
-  }
-
-  .score-caption {
-    text-align: center;
-    color: var(--dash-muted);
-    font-size: 13px;
-  }
 
   /* Sticky so switching tabs on the long pages (Delivery, Director, Testing)
      does not mean scrolling back to the top first. */
@@ -19428,6 +19662,40 @@ const DASHBOARD_CSS = `
     font-weight: 500;
   }
 
+  /* The declared "where next" strip. Same quiet treatment as the GitHub row --
+     a route out rather than an action -- but placed after it so the two read as
+     one band. Kept below ".github-link-row .action-link" deliberately: see the
+     note above that rule about selectors migrating between blocks. */
+  .page-next-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .page-next-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  .page-next-row .action-link {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* The reason a disabled primary action is disabled, beside the control it
+     explains. Never hidden behind a tooltip alone: a greyed button whose only
+     explanation is on hover is indistinguishable from a broken one. */
+  .ci-runner-start-block {
+    flex-basis: 100%;
+    opacity: 0.8;
+  }
+
   /* Nav tabs and action links share one pill. ".page-nav button" was restored to
      this block after v0.206.0 moved it out; see the note above ".github-link-row". */
   .page-nav button,
@@ -19453,6 +19721,156 @@ const DASHBOARD_CSS = `
   .action-link:focus-visible {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
     border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+  }
+
+  /* ── Refresh, split ───────────────────────────────────────────────────
+     The automatic-CI-refresh cadence used to be four permanently visible
+     segmented buttons plus an explanatory sentence, on one card of one page.
+     That is a row and a half of vertical space spent on a setting most people
+     choose once, and it was unreachable from the thirteen other pages that show
+     what it refreshes. It is a caret on the refresh button now — joined to it,
+     so the pair reads as one control rather than two that happen to be
+     adjacent. The main button keeps its own left radius and loses its right;
+     the caret is the mirror, and shares the seam rather than drawing a second
+     border down the middle. */
+  .refresh-split {
+    display: inline-flex;
+    align-items: stretch;
+    /* Never split across lines: a caret alone on the next row is a control
+       with no subject. */
+    white-space: nowrap;
+  }
+
+  .refresh-split > .action-link,
+  .refresh-split > .dashboard-button {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .refresh-cadence-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 10px;
+    border: 1px solid var(--dash-border);
+    border-left: 0;
+    border-radius: 0 999px 999px 0;
+    background: color-mix(in srgb, var(--dash-panel) 82%, transparent);
+    color: var(--dash-muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .refresh-cadence-toggle:hover,
+  .refresh-cadence-toggle[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    color: var(--vscode-foreground);
+  }
+
+  .refresh-cadence-toggle:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: 2px;
+  }
+
+  /* A cadence that is running says so on the closed control. A setting that
+     spends a rate limit must not become invisible just because it folded away,
+     which is the one thing a pop-out can get badly wrong. */
+  .refresh-cadence-toggle.is-on {
+    color: var(--dash-accent-strong);
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 60%, var(--dash-border));
+  }
+
+  .refresh-cadence-value:empty {
+    display: none;
+  }
+
+  .refresh-cadence-caret {
+    font-size: 9px;
+    opacity: 0.85;
+  }
+
+  /* One menu for every trigger, appended to the body and positioned by script:
+     fixed, so it escapes the overflow of whichever card the trigger sits in. */
+  .refresh-cadence-menu {
+    position: fixed;
+    z-index: 60;
+    width: 274px;
+    max-width: calc(100vw - 16px);
+    padding: 10px;
+    border: 1px solid var(--dash-border);
+    border-radius: 12px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, var(--dash-panel-strong)));
+    color: var(--vscode-foreground);
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--tint-toward) 45%, transparent);
+  }
+
+  .refresh-cadence-menu[hidden] { display: none; }
+
+  .refresh-cadence-title {
+    margin: 0 0 6px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+  }
+
+  .refresh-cadence-item {
+    display: block;
+    width: 100%;
+    padding: 6px 8px 7px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .refresh-cadence-item:hover {
+    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--dash-panel) 70%, transparent));
+  }
+
+  .refresh-cadence-item:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: -2px;
+  }
+
+  /* The chosen one is marked by a tick and a border, not by colour alone. */
+  .refresh-cadence-item.is-current {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, transparent);
+  }
+
+  .refresh-cadence-item-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .refresh-cadence-item.is-current .refresh-cadence-item-label::after {
+    content: ' ✓';
+    color: var(--dash-accent-strong);
+  }
+
+  .refresh-cadence-item-detail {
+    display: block;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--dash-muted);
+  }
+
+  .refresh-cadence-note {
+    margin: 8px 6px 0;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--dash-muted);
   }
 
   .nav-tab:hover {
@@ -20575,15 +20993,6 @@ const DASHBOARD_CSS = `
     align-items: center;
   }
 
-  .ci-autorefresh {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-    margin: 2px 0 10px;
-  }
-  .ci-autorefresh-label { font-size: 11px; color: var(--dash-muted); font-weight: 600; }
-  .ci-autorefresh-note { flex: 1 1 240px; min-width: 0; }
 
   /* ── Everything that ran: controls, groups, legend ───────────── */
   .ci-stream-controls {
@@ -22507,7 +22916,6 @@ const DASHBOARD_CSS = `
     letter-spacing: inherit;
   }
 
-  .hero-grid > *,
   .panel-grid > *,
   .repo-grid > *,
   .runtime-grid > *,
@@ -23748,11 +24156,10 @@ const DASHBOARD_CSS = `
      editor — an entirely ordinary width — leaves half the window empty. That
      was a large part of why these pages read as badly proportioned.
 
-     .hero-grid and .ideation-shell are asymmetric two-column layouts rather
-     than repeating tracks, so they cannot express "reflow when you no longer
-     fit" and still need to be told. */
+     .ideation-shell is an asymmetric two-column layout rather than repeating
+     tracks, so it cannot express "reflow when you no longer fit" and still
+     needs to be told. */
   @media (max-width: 1280px) {
-    .hero-grid,
     .ideation-shell { grid-template-columns: 1fr; }
   }
 
@@ -24092,9 +24499,40 @@ const DASHBOARD_CSS = `
   .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
-  .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }
-  .promo-modal { width: min(680px, 100%); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; padding: 20px 22px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); }
-  .promo-modal > h3 { margin: 0 0 12px; font-size: 1.1em; }
+  /* The dialog is a fixed-height column: a title that stays put, a body that
+     scrolls, and an action bar pinned to the bottom. The whole overlay used to
+     scroll instead, which put the run controls below however many preflight
+     checks the project had and meant the primary button was only reachable by
+     scrolling past everything else. */
+  .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 32px 16px; z-index: 1000; }
+  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
+  .promo-head { padding: 18px 22px 12px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); }
+  .promo-head h3 { margin: 0; font-size: 1.1em; }
+  .promo-body { padding: 4px 22px 16px; overflow-y: auto; flex: 1 1 auto; }
+  .promo-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px 16px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
+  .promo-foot .stage-edit-actions { margin: 0; }
+  .promo-readiness { font-size: 0.82em; color: var(--vscode-descriptionForeground); }
+  .promo-readiness.is-ready { color: var(--vscode-charts-green, #89d185); font-weight: 600; }
+
+  /* Section meters. A bar and a count, not a ring: three rings would push the
+     controls further down the dialog people are already scrolling. */
+  .promo-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 6px; }
+  .promo-section-head > h4 { margin: 0; }
+  .promo-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.74em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+  .promo-meter-bar { width: 68px; height: 5px; border-radius: 999px; background: var(--vscode-widget-border, rgba(127,127,127,0.28)); overflow: hidden; }
+  .promo-meter-fill { display: block; height: 100%; border-radius: 999px; background: currentColor; transition: width 140ms ease; }
+  .promo-meter.tone-good { color: var(--vscode-charts-green, #89d185); }
+  .promo-meter.tone-warn { color: var(--vscode-charts-yellow, #d7ba7d); }
+  .promo-meter.tone-critical { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-meter.tone-muted { color: var(--vscode-descriptionForeground); }
+  .promo-meter-label { font-variant-numeric: tabular-nums; }
+
+  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
+  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); }
+  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); }
+  .promo-detached.good { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 45%, transparent); }
+  .promo-detached.bad { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent); }
+  .promo-detached-actions { display: inline-flex; gap: 10px; }
   .promo-section { margin: 14px 0; }
   .promo-section > h4 { margin: 0 0 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
   .promo-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -24132,6 +24570,12 @@ const DASHBOARD_CSS = `
   @media (prefers-reduced-motion: reduce) {
     .chart-bars.is-animating .chart-bar-column {
       animation: none;
+    }
+    /* The promotion meters are updated in place, so unlike most bars here their
+       transition genuinely interpolates — which is exactly why it needs turning
+       off rather than being inert anyway. */
+    .promo-meter-fill {
+      transition: none;
     }
     .ci-status-dial.is-resolved .ci-dial-check {
       animation: none;

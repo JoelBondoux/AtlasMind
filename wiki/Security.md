@@ -67,6 +67,17 @@ follows the approval path, and an unrecognised subcommand is treated as a write.
 outright at any setting — most importantly `gh auth token`, which would print your GitHub token into
 model context through a tool whose whole job is returning what it read.
 
+**Routines are the exception, and they are gated at the value.** A routine step in
+`project_memory/routines/` *is* a shell command line — that is what a routine is, and it cannot be taken
+away without breaking every one of them. What `/ship <message>` used to do was substitute your typed text
+into that line unchecked, so a step like `git commit -m "${message}"` and a message carrying a quote and a
+second command was an injection path. AtlasMind now refuses any substituted **value** containing a character
+a shell reads as syntax — quotes, `$`, backticks, separators, redirection, newlines — before a single step
+runs, and names the characters. The refusal is deliberate rather than quoting the value for you: safe
+quoting has to know whether the template already quotes the placeholder, and guessing wrong either mangles
+ordinary messages or leaves the hole open. The template itself is not treated as suspect; it is a reviewed
+file in your repository, and a routine that pipes on purpose keeps working.
+
 Full detail in [[Tool Execution]].
 
 ---

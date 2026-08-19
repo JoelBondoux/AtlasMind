@@ -34,9 +34,58 @@ const NATIVE_SOURCE = readFileSync(
  *
  * The test timeout must therefore stay comfortably *above* the child timeout, or
  * the child's error can never surface. Neither value relaxes an assertion.
+ *
+ * The child budget was 10s until the deepest test was killed at 10034ms on a
+ * cold Windows runner — the `Add-Type` C# compile alone can spend most of it.
+ * A budget a healthy run lands just under is a scheduled flake, so it is now
+ * wide enough that only a genuinely hung tree reaches it. Nothing these tests
+ * assert changed; only how long a slow machine is allowed to take.
  */
-const CHILD_PROCESS_TIMEOUT_MS = 10_000;
-const PROCESS_LAUNCH_TIMEOUT_MS = 30_000;
+const CHILD_PROCESS_TIMEOUT_MS = 30_000;
+const PROCESS_LAUNCH_TIMEOUT_MS = 90_000;
+
+/**
+ * Launch one real process tree and fail with a diagnosis, not a bare
+ * "Command failed".
+ *
+ * `execFile` reports a timeout kill and a non-zero exit identically — same
+ * message shape, and for these children an empty stderr either way. So a slow
+ * runner and the boundary genuinely leaking a visible console produced the same
+ * red, which is the failure that cost an afternoon: the log said only "Command
+ * failed" and the duration was the only clue which had happened. A timeout now
+ * names itself, and a known exit code is translated into what it means.
+ */
+function runLaunch(
+  command: string,
+  args: readonly string[],
+  exitCodeMeanings: Readonly<Record<number, string>> = {},
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    execFile(
+      command,
+      [...args],
+      { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
+      (error, output, stderr) => {
+        if (!error) {
+          resolve(output);
+          return;
+        }
+        const killed = (error as { killed?: boolean }).killed === true;
+        const code = (error as { code?: unknown }).code;
+        const meaning = typeof code === 'number' ? exitCodeMeanings[code] : undefined;
+        reject(new Error([
+          killed
+            ? `The process tree was still running after ${CHILD_PROCESS_TIMEOUT_MS}ms and was killed. `
+              + 'That is this machine being slow, not the launch boundary refusing.'
+            : meaning
+              ? `The launch boundary failed: ${meaning} (exit ${String(code)}).`
+              : error.message,
+          stderr,
+        ].filter(Boolean).join(String.fromCharCode(10))));
+      },
+    );
+  });
+}
 
 describe('the ACP private-desktop launch boundary', () => {
   it('does not mistake the Windows schema default for the user choosing a mode', () => {
@@ -92,20 +141,7 @@ describe('the ACP private-desktop launch boundary', () => {
       return;
     }
 
-    const stdout = await new Promise<string>((resolve, reject) => {
-      execFile(
-        launch.command,
-        launch.args,
-        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
-        (error, output, stderr) => {
-          if (error) {
-            reject(new Error(`${error.message}\n${stderr}`));
-            return;
-          }
-          resolve(output);
-        },
-      );
-    });
+    const stdout = await runLaunch(launch.command, launch.args);
 
     expect(stdout.trim()).toBe('atlasmind-private-desktop-ok');
   }, PROCESS_LAUNCH_TIMEOUT_MS);
@@ -129,20 +165,7 @@ describe('the ACP private-desktop launch boundary', () => {
       return;
     }
 
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        launch.command,
-        launch.args,
-        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
-        (error, _output, stderr) => {
-          if (error) {
-            reject(new Error(`${error.message}\n${stderr}`));
-            return;
-          }
-          resolve();
-        },
-      );
-    });
+    await runLaunch(launch.command, launch.args);
   }, PROCESS_LAUNCH_TIMEOUT_MS);
 
   it.skipIf(process.platform !== 'win32')('keeps a nested ACP shell on one non-visible inherited console', async () => {
@@ -184,19 +207,9 @@ describe('the ACP private-desktop launch boundary', () => {
       return;
     }
 
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        launch.command,
-        launch.args,
-        { windowsHide: true, timeout: CHILD_PROCESS_TIMEOUT_MS },
-        (error, _output, stderr) => {
-          if (error) {
-            reject(new Error(`${error.message}\n${stderr}`));
-            return;
-          }
-          resolve();
-        },
-      );
+    await runLaunch(launch.command, launch.args, {
+      42: 'the inherited console window was visible, so the private desktop did not contain it',
+      43: 'the nested PowerShell child never reported an exit status',
     });
   }, PROCESS_LAUNCH_TIMEOUT_MS);
 

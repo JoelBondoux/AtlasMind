@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.364.0",
+  "version": "0.369.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2350,8 +2350,8 @@
           "default": 8,
           "minimum": 2,
           "maximum": 128,
-          "description": "Maximum logical CPUs the local runner container may use. AtlasMind may allocate less to preserve at least 25% for the host.",
-          "markdownDescription": "Upper CPU limit for the local runner container. AtlasMind reads both host and Docker-engine capacity, preserves at least 25% for the desktop, and uses the lower of the calculated allowance and this cap. It refuses to run below two CPUs."
+          "description": "Maximum logical CPUs the local runner container may use. AtlasMind may allocate less to honour the host reserve and the testing resource share.",
+          "markdownDescription": "Upper CPU limit for the local runner container. AtlasMind reserves at least 25% of the **host's** CPUs (and never fewer than 2) for the operating system — measured on the real machine, not on the Docker/WSL VM — then applies `#atlasmind.testing.resourceShare#`, the Docker engine's own capacity, and this cap, using the lowest. It refuses to run below two CPUs."
         },
         "atlasmind.ci.localRunner.maxMemoryGb": {
           "type": "number",
@@ -2359,8 +2359,17 @@
           "default": 16,
           "minimum": 4,
           "maximum": 512,
-          "description": "Maximum memory in GB the local runner container may use. AtlasMind may allocate less to preserve at least 25% for the host.",
-          "markdownDescription": "Upper memory limit for the local runner container. AtlasMind reads both host and Docker-engine capacity, preserves at least 25% (and at least 2 GB) for the desktop, and uses the lower of the calculated allowance and this cap. It refuses to run below 4 GB and disables container swap."
+          "description": "Maximum memory in GB the local runner container may use. AtlasMind may allocate less to honour the host reserve and the testing resource share.",
+          "markdownDescription": "Upper memory limit for the local runner container. AtlasMind reserves at least 25% of the **host's** memory (and never less than 8 GB) for the operating system — measured on the real machine, not on the Docker/WSL VM — then applies `#atlasmind.testing.resourceShare#`, the Docker engine's own capacity, and this cap, using the lowest. It refuses to run below 4 GB and disables container swap."
+        },
+        "atlasmind.testing.resourceShare": {
+          "type": "number",
+          "scope": "machine",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 90,
+          "description": "Percentage of this computer's CPUs and memory that locally-run tests and checks may use. AtlasMind always reserves at least 25% (and 2 CPUs / 8 GB) for the operating system, whatever this says.",
+          "markdownDescription": "**The sliding scale for local test execution.** The percentage of this computer's CPUs and memory that testing may use — the post-write auto-verification run, the test-run and npm-scripts skills, the Pipeline page's *Run here* route, and the trusted local CI container all read the same value, so no two surfaces can answer the question differently.\n\nThe budget is the **lower** of this share and what the operating-system reserve leaves: AtlasMind always keeps at least 25% of the host (and never fewer than 2 CPUs / 8 GB of memory) for the desktop, whatever this is set to. Worker caps (`--maxWorkers`, Stryker `--concurrency`) are appended only to scripts whose runner is recognised and that do not state their own limit; every governed process also receives a per-process Node heap cap through `NODE_OPTIONS`.\n\nMachine-scoped: how much of *this computer* tests may take is a fact about the computer, not about any one repository."
         },
         "atlasmind.ci.localRunner.shutdownPolicy": {
           "type": "string",

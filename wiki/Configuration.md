@@ -192,8 +192,9 @@ starts anything.
 | `atlasmind.ci.localRunner.trustedBranch` | `develop` | Requires this exact branch in the workflow, queue and current checkout |
 | `atlasmind.ci.localRunner.runnerLabel` | `atlasmind-trusted-linux-{arch}` | Uses one dedicated label, expanded from Docker's real x64/arm64 architecture |
 | `atlasmind.ci.localRunner.image` | pinned official digest | Auto-pulls only immutable digests and runs a resolved image id |
-| `atlasmind.ci.localRunner.maxCpus` | `8` | Caps CPU after keeping at least 25% for the desktop |
-| `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after keeping at least 25%/2 GB; disables container swap |
+| `atlasmind.ci.localRunner.maxCpus` | `8` | Caps CPU after the host reserve (25%, ≥2 CPUs, measured on the real machine, not the Docker/WSL VM) and the testing resource share |
+| `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after the host reserve (25%, ≥8 GB, measured on the real machine, not the Docker/WSL VM) and the testing resource share; disables container swap |
+| `atlasmind.testing.resourceShare` | `50` | The sliding scale for local test execution: what percentage of the computer tests may use. One value read by auto-verify, the test-run skill, "Run here" and the local CI container; the OS always keeps at least 25% (≥2 CPUs / 8 GB) |
 | `atlasmind.ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Close Desktop only when AtlasMind opened it, never close it, or close whenever no other container is running |
 
 The container has no host mount, Docker socket, GPU or persistent volume. Its result is Linux-container

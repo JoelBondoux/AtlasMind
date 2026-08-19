@@ -47,7 +47,16 @@ export const testRunSkill: SkillDefinition = {
 
     const { command, args } = buildTestCommand(detected, file, testName);
 
-    const result = await context.runCommand(command, args, { timeoutMs: 90_000 });
+    // The machine's testing budget: a worker cap where the runner understands
+    // one, and a per-process heap cap through the environment. Jest and Vitest
+    // both default to (cores − 1) workers, which on a large ts-jest suite is
+    // the difference between a test run and a frozen desktop.
+    const budget = context.testResourceBudget?.();
+    if (budget && (detected === 'jest' || detected === 'vitest')) {
+      args.push(`--maxWorkers=${budget.maxWorkers}`);
+    }
+
+    const result = await context.runCommand(command, args, { timeoutMs: 90_000, testResources: true });
 
     const header = result.ok ? '✓ Tests passed' : '✗ Tests failed';
     return [

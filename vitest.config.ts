@@ -1,5 +1,21 @@
 import { defineConfig } from 'vitest/config';
 
+/**
+ * The worker allowance a containerised runner declared for this job, if any.
+ *
+ * Read here rather than left to `VITEST_MAX_WORKERS` alone so the neutral
+ * spelling works too, and validated rather than trusted: an unreadable or
+ * absurd value falls through to the normal rules instead of pinning the suite
+ * to one worker for the rest of the run.
+ */
+const declaredWorkers = Number.parseInt(
+  process.env.ATLASMIND_TEST_MAX_WORKERS ?? process.env.VITEST_MAX_WORKERS ?? '',
+  10,
+);
+const ciWorkers = Number.isSafeInteger(declaredWorkers) && declaredWorkers > 0 && declaredWorkers <= 256
+  ? declaredWorkers
+  : undefined;
+
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
@@ -50,6 +66,16 @@ export default defineConfig({
     // be responsive for, and halving its parallelism would buy nobody anything
     // while making every pull request slower.
     //
+    // With one exception, and it is the reason `ciWorkers` exists: AtlasMind's
+    // own trusted local runner sets `CI=true` *on this machine*, inside a
+    // container capped at a few CPUs. Taking the CI branch there meant asking
+    // for one worker per host thread — 23 of them behind an 8-CPU quota, paying
+    // full per-worker memory for parallelism the cgroup will not grant. The
+    // runner therefore passes `ATLASMIND_TEST_MAX_WORKERS` (and the runner-native
+    // spellings) describing the container's real allowance, and it wins over the
+    // CI default whenever it is present. A hosted GitHub runner sets none of
+    // these and is unaffected.
+    //
     // A percentage rather than a fixed number so it scales with the machine —
     // 50% of 4 is 2, 50% of 24 is 12 — and `VITEST_MAX_WORKERS` still overrides
     // it, since Vitest applies that env var after the config is resolved. Set
@@ -59,7 +85,7 @@ export default defineConfig({
     // of the pool, and capping the pool is the lever that exists. Stryker is
     // unaffected — its runner pins `maxWorkers: 1` per instance and bounds the
     // instances with its own `concurrency`.
-    maxWorkers: process.env.CI ? undefined : '50%',
+    maxWorkers: ciWorkers ?? (process.env.CI ? undefined : '50%'),
     reporters: ['default', 'junit'],
     outputFile: {
       junit: 'test-results/junit.xml',

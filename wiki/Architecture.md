@@ -362,6 +362,25 @@ policy cannot separate again. `missing`, `unreadable`, `blocked` and `ok` stay d
 absent file may be scaffolded — and a failure is rendered as one item per failed rule rather than a single
 sentence. An unreviewed file reports as *not checked*, never as passing.
 
+**A failure card is only as good as the log it could read.** GitHub returns Actions logs with their colour
+codes *caret-encoded* — the literal characters `^` and `[` where the ESC byte was — and the sanitizer knew
+only the real escape, so nothing was stripped. Everything downstream then failed quietly and in the
+reassuring direction: the ANSI-before-redaction ordering stopped protecting CI logs, and the classifier's
+word-boundary rules could not see `1 failed` through the `^[[31m` glued to it, so a log naming its failing
+test reported as *unknown* above a box of raw escape garbage. The card also reported the *workflow* name
+because that was all the caller passed, while every line of the log began `quality (windows-latest)<TAB>Unit
+tests`. Both are fixed: the caret form is stripped, and deliberately more tightly than the real CSI grammar so a POSIX character class in a logged grep pattern is not eaten as a colour code, the
+`job<TAB>step` prefix is parsed and kept out of both the rules and the evidence box, and evidence names the
+failing test rather than counting failures — pattern order inside a rule chooses the evidence, and the
+deciding line is the last match rather than the first.
+
+**Every page carries a declared "Where next" strip**, rendered from the same single place as the GitHub link
+row so a page cannot acquire a route nobody reviewed. Routes are declared rather than derived — a list
+computed from the live snapshot would shift under the reader and could not be reviewed in a diff — and each
+states the question its target answers, because a bare page name is a link somebody has to click to find out
+whether they wanted it. A pull request row leads with its check rollup for the same reason: the fact that
+decides whether a branch can merge belongs above the ones a reader can rarely act on.
+
 The Pipeline page presents four views — Activity, Canvas, Tests, Rules — named for what a person is doing.
 The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
 same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels
@@ -412,8 +431,17 @@ is not: bars are one per run and evenly spaced, so a burst and a steady month dr
 positioning them by timestamp would look more informative and would collapse every burst into a smear.
 
 Auto-refresh is available at 1, 5 or 15 minutes and is **off by default**, because a refresh reaches
-GitHub through `gh` and spends a rate limit somebody else is also using. Three gates on every tick: the
-panel must be visible, the Pipeline page must be the active one, and no fetch may already be in flight.
+GitHub through `gh` and spends a rate limit somebody else is also using. Two gates on every tick: the
+panel must be visible, and no fetch may already be in flight.
+
+The control is a **pop-out on the Refresh button** — every steady-state refresh button, including the one
+in the dashboard header, so a cadence can be set from wherever you happen to be. It was four permanently
+visible buttons on this one card, which spent a row and a half on a setting most people choose once and
+could not be reached from the other thirteen pages that display what it refreshes. A running cadence
+shows on the caret without opening anything, because a setting that spends a rate limit must not become
+invisible just because its control folded away. There used to be a third gate — the Pipeline page had to
+be the active one — and it is deliberately gone: it defeated the cadence people most want, since you set
+one minute to watch a run you just started and then go and do something else.
 
 The **pull requests** page charts CI per pull request from the check rollup the tracker has fetched since
 v0.200.0 and nothing displayed until now. One bar each, worst-first. A check with no conclusion is running
@@ -493,9 +521,15 @@ probe in `globalState` as a **dated observation**: the page shows when it was ta
 different computer or one older than fourteen days is refused, and nothing restored from it can authorise
 a run, because the runner inspects again immediately before it lends the machine. The trusted workflow
 verdict is derived from disk on every refresh in the same pass, so neither half of the setup ladder asks
-for work that was already done. Capacity planning preserves at least 25% for the
-desktop, applies machine-scoped ceilings, and publishes
-the exact calculation and Linux-container evidence boundary on the card. GPU identity and trustworthy
+for work that was already done — and since v0.365.0, an enabled Pipeline page whose machine was never
+probed and has nothing remembered runs that first inspection by itself, so a missing Docker Desktop is the
+first thing on the page rather than a discovery behind a button. Capacity planning measures the
+operating-system reserve on the **real host**, never on the Docker/WSL VM's view of itself (25%, never
+fewer than 2 CPUs / 8 GB), applies the machine-scoped ceilings and the testing resource share
+(`atlasmind.testing.resourceShare` — see below), and publishes
+the exact calculation and Linux-container evidence boundary on the card. A live run finally has a **Stop**
+control: removal goes through the same name-guarded remover the start path uses, so it can only ever reach
+a container AtlasMind started, and a stopped run is reported honestly rather than as finished. GPU identity and trustworthy
 VRAM are capability evidence only: the access policy remains disabled and Docker receives no `--gpus`.
 
 Starting is a one-job transaction. AtlasMind reads and deduplicates GitHub's `pending` and `queued` workflow
@@ -508,6 +542,24 @@ then does a modal name the run, image, resource limits and cleanup effect. The r
 from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
 container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
 by CPU, memory, swap, process, capability and privilege-escalation controls.
+
+**A run outlives the editor, and the next session adopts it.** Closing VS Code leaves the container
+executing its job, which is kept on purpose: GitHub is waiting on real work, and killing it because a window
+closed would throw away minutes of compute. What is new is that AtlasMind now looks for it again — a running
+container is adopted and its output reattached, so the page shows the job instead of claiming the machine is
+idle, and the result is recorded when it ends. Containers left behind by a run that crashed are listed with
+a confirmed **Remove them** action and never deleted on sight, because a finished container is the only local
+evidence that a run happened. Only containers matching both AtlasMind's label and its container-name shape
+are ever considered, since a label is a string anybody can set on their own container.
+
+Behind all of that sits `testResourceBudget.ts` — the sliding scale for local test execution. The container
+was the only governed path; the paths that run tests **on the host** (the after-write auto-verification,
+the test-run skill, "Run here") had no CPU, memory or worker governance, and Jest's and Stryker's
+cores − 1 defaults are how a mutation run can black-screen a large machine. One machine-scoped slider
+(`atlasmind.testing.resourceShare`) now bounds every path; the budget is the lower of the share and what
+the host reserve leaves; Jest/Vitest runs get `--maxWorkers` and Stryker `--concurrency` (only where the
+script's runner is recognised and it does not state its own limit); every governed Node process gets a
+merged `NODE_OPTIONS` heap cap; and agent-issued commands run at below-normal priority.
 
 Docker Desktop cleanup records who opened it. The default stops it only when AtlasMind did; the operator
 may keep it open or request an always-close policy, but an unreadable inventory or unrelated running
@@ -611,6 +663,16 @@ On the Workflow page, the **Your workflow file** card makes each stage's enablem
 tinting its contents: the segment outline and standard **Enabled** status tag carry the colour, while
 the larger marker stays neutral. The words **Enabled** / **Disabled** and `aria-pressed` preserve the
 same distinction without colour.
+
+**The Project Dashboard header names the project rather than itself.** It used to open with a generic
+44px title, a three-line description of the tabs directly beneath it, a version strip, and then two
+full-width cards — one repeating the project name, one holding a 150px score ring — which is most of a
+screen before the first real signal. It is one band now: your project's name is the largest text on the
+page, the line under it is the project's health summary, provenance is one muted line, and the score is a
+chip beside **Refresh** that opens the Score page, where the full ring lives. The band sits outside the
+subtree the dashboard re-renders, so it is filled before the body is replaced — a page that fails to
+render cannot leave the title blank — and everything it took from a collection is cleared when a refresh
+fails, rather than being left on screen as though it were current.
 
 **They share one design language.** Each webview is an isolated document, so a panel cannot inherit
 another's stylesheet — which is how nineteen panels ended up with nineteen palettes, four of them drifted

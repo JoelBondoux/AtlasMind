@@ -42,10 +42,11 @@ _None recorded yet._
 | ATDD is enabled with no evidence it runs | debt: test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs | Joel Bondoux (you) | todo | medium | — |
 | main | branch: main | Joel Bondoux (you) | todo | medium | — |
 | Core functionality and feature completeness still need work relative to the intended project outcome. | gap: Y29yZSBmdW5jdGlv | Joel Bondoux (you) | todo | high | — |
+| #199 chore: promote develop to main for 0.368.0 | pull-request: 199 | Joel Bondoux (you) | in-progress | medium | — |
 
 ## Follow-ups
 
 _No open follow-ups._
 ---
 
-_Last updated: 2026-08-11T12:16:18.674Z._
+_Last updated: 2026-08-19T01:41:44.219Z._

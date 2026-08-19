@@ -36,7 +36,7 @@
       "kind": "staging",
       "rank": 1,
       "description": "Shared integration branch (`develop`). Work merges here and is built, linted, and tested together before a release is promoted to production.",
-      "branchRef": "develop",
+      "branchRef": "staging",
       "config": {},
       "hosting": {},
       "data": {
@@ -67,7 +67,7 @@
       "rollbackPolicy": {
         "runbookRef": "project_memory/operations/delivery.md"
       },
-      "isProtected": false
+      "isProtected": true
     },
     {
       "id": "stage-production",
@@ -118,9 +118,9 @@
       "fromStageId": "stage-local",
       "toStageId": "stage-staging",
       "lastPromotion": {
-        "ranAt": "2026-08-05T21:35:32.764Z",
+        "ranAt": "2026-08-19T00:48:12.551Z",
         "succeeded": true,
-        "version": "0.261.1"
+        "version": "0.367.0"
       }
     },
     {
@@ -129,11 +129,11 @@
       "toStageId": "stage-production",
       "routineId": "publishing-routine",
       "lastPromotion": {
-        "ranAt": "2026-08-12T14:11:54.219Z",
+        "ranAt": "2026-08-19T01:13:13.740Z",
         "succeeded": false,
-        "version": "0.302.0"
+        "version": "0.367.0"
       }
     }
   ],
-  "updatedAt": "2026-08-12T14:12:41.017Z"
+  "updatedAt": "2026-08-19T01:13:47.929Z"
 }

@@ -14,6 +14,7 @@ import {
   initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
   parseDockerGpuRuntimes,
+  localCiRunnerEnvArgs,
   parseDockerInfo,
   parseQueuedRuns,
   planLocalCiResources,
@@ -23,21 +24,39 @@ import {
 } from '../../src/core/localCiRunner.ts';
 
 describe('local CI resource planning', () => {
-  it('uses Docker capacity when it is lower than host capacity and preserves 25%', () => {
+  it('measures the reserve on the host, never on the Docker VM, and never exceeds engine capacity', () => {
+    // The engine's 8 CPUs / 12 GB is a WSL/VM slice of a 32-CPU / 64 GB host.
+    // The reserve must come off the host (8 CPUs / 16 GB here), and the plan
+    // may still use the whole slice because the host keeps far more than the
+    // reserve outside it. The old behaviour reserved 25% of the *slice*, which
+    // protected the VM from itself and the desktop from nothing.
     const plan = planLocalCiResources(
       { cpuCount: 32, memoryGb: 64, os: 'win32', arch: 'x64' },
       { cpuCount: 8, memoryGb: 12, os: 'linux', arch: 'x64' },
       { maxCpus: 16, maxMemoryGb: 32 },
     );
     expect(plan).toMatchObject({
-      cpus: 6,
-      memoryGb: 9,
-      reserveCpus: 2,
-      reserveMemoryGb: 3,
+      cpus: 8,
+      memoryGb: 12,
+      reserveCpus: 8,
+      reserveMemoryGb: 16,
       basedOn: 'docker-engine',
       provisional: false,
       blockers: [],
     });
+  });
+
+  it('applies the testing share as a further ceiling when one is stated', () => {
+    const plan = planLocalCiResources(
+      { cpuCount: 24, memoryGb: 64, os: 'win32', arch: 'x64' },
+      { cpuCount: 20, memoryGb: 48, os: 'linux', arch: 'x64' },
+      { maxCpus: 128, maxMemoryGb: 512, resourceSharePercent: 25 },
+    );
+    // 25% of the host is 6 CPUs / 16 GB — lower than both the engine slice
+    // and what the reserve (6 CPUs / 16 GB) leaves, so the share decides.
+    expect(plan.cpus).toBe(6);
+    expect(plan.memoryGb).toBe(16);
+    expect(plan.explanation).toContain('share 25%');
   });
 
   it('applies the operator caps after reserving capacity', () => {
@@ -62,6 +81,30 @@ describe('local CI resource planning', () => {
     expect(plan.cpus).toBeLessThan(LOCAL_CI_MIN_CPUS);
     expect(plan.memoryGb).toBeLessThan(LOCAL_CI_MIN_MEMORY_GB);
     expect(plan.blockers).toHaveLength(2);
+  });
+});
+
+describe('local CI container resource hints', () => {
+  it('tells the runners inside what the container may actually use', () => {
+    const args = localCiRunnerEnvArgs({ cpus: 8, memoryGb: 16 });
+    expect(args).toContain('ATLASMIND_TEST_MAX_WORKERS=8');
+    expect(args).toContain('VITEST_MAX_WORKERS=8');
+    expect(args).toContain('JEST_MAX_WORKERS=8');
+    // 16 GB over 8 workers plus the parent.
+    expect(args).toContain(`NODE_OPTIONS=--max-old-space-size=${Math.floor((16 * 1024) / 9)}`);
+    // Every value is passed as its own --env flag, never folded into one.
+    expect(args.filter(arg => arg === '--env')).toHaveLength(4);
+  });
+
+  it('keeps the heap cap within sane bounds on extreme containers', () => {
+    const tiny = localCiRunnerEnvArgs({ cpus: 2, memoryGb: 4 });
+    expect(tiny.some(arg => arg === 'NODE_OPTIONS=--max-old-space-size=1365')).toBe(true);
+    const huge = localCiRunnerEnvArgs({ cpus: 2, memoryGb: 256 });
+    expect(huge).toContain('NODE_OPTIONS=--max-old-space-size=4096');
+  });
+
+  it('never asks for fewer than one worker', () => {
+    expect(localCiRunnerEnvArgs({ cpus: 0, memoryGb: 4 })).toContain('ATLASMIND_TEST_MAX_WORKERS=1');
   });
 });
 

@@ -1479,8 +1479,24 @@ export interface SkillExecutionContext {
   runCommand(
     executable: string,
     args?: string[],
-    options?: { cwd?: string; timeoutMs?: number },
+    options?: {
+      cwd?: string;
+      timeoutMs?: number;
+      /**
+       * The caller knows this command runs tests: apply the machine's testing
+       * resource budget (a per-process Node heap cap via `NODE_OPTIONS`).
+       * Opt-in per call because the same cap on a production build would be a
+       * limit nobody asked for on a process that may legitimately need more.
+       */
+      testResources?: boolean;
+    },
   ): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  /**
+   * The machine's testing resource budget under `atlasmind.testing.resourceShare`.
+   * Optional so partial contexts (tests, the CLI before it learns settings)
+   * remain valid; a caller without one simply runs unthrottled worker counts.
+   */
+  testResourceBudget?(): import('./core/testResourceBudget.js').TestResourceBudget;
   /** Return `git status --short --branch` for the workspace repository. */
   getGitStatus(): Promise<string>;
   /** Return `git diff` output for the workspace repository. */
@@ -1689,6 +1705,13 @@ export interface RoutineRunResult {
   /** ID of the first step that failed, if any. */
   failedStep?: string;
   durationMs: number;
+  /**
+   * Why the run was refused before any step executed — currently a substituted
+   * value that a shell would read as syntax. Distinct from a failed step: no
+   * command ran, so `steps` is empty and there is nothing to retry until the
+   * input changes.
+   */
+  refusedReason?: string;
 }
 
 // ── Website Studio ───────────────────────────────────────────────

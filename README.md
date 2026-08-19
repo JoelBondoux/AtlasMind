@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.364.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.369.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,10 +127,74 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.364.0
+## What's new in 0.369.0
 
-The last Marketplace publication, **v0.363.0**, is the baseline — everything below is in it, except the
-Pipeline and test-runner changes this version carries. The full history is in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
+history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **CI failures are legible again.** GitHub returns Actions logs with their colour codes
+  caret-encoded — a failed Windows run carried 7,253 literal `^[` sequences and not one real escape
+  byte — so the stripper had nothing to match, every code survived into the text, and the rules,
+  which match on word boundaries, could not see `1 failed` through the `^[[31m` glued to it. Every
+  failure classified as `unknown` above a box of raw escape garbage. The same gap sat on a
+  redaction boundary, since colour is stripped before secrets are redacted precisely so a wrapped
+  secret still matches. The card now names the job, the step, the class, and the failing test.
+- **Where next.** Every page carries a declared strip of routes to the pages a reader is likely to
+  want, each stating the question it answers. Declared rather than derived, so the routes can be
+  reviewed in a diff instead of shifting under the reader.
+- **A pull request row leads with its checks.** A failing rollup names the failing checks, links to
+  one, and routes to Pipeline — rather than leading with "awaiting review" while the fact that
+  decides whether the branch can merge sat further down the page.
+- **No more silently greyed buttons.** `Check GitHub queue` was disabled with no reason shown, and
+  its gate disagreed with the tick directly above it. A disabled action now says what is holding
+  it and offers the control that clears it.
+- **The promotion dialog stopped fighting you.** Ticking a confirmation threw you back to the top of
+  the list every time, so a promotion with nine checks meant nine scrolls back down; the run buttons
+  sat below every check rather than staying in view; "Ask Atlas to fix this" on a failed step did
+  nothing at all, because the message was being dropped one layer before its handler; and a running
+  promotion could not be closed, even though closing it was always safe. Each section now carries a
+  meter, the footer says what is still outstanding and keeps the buttons in view, and a run in
+  flight can be closed with Escape or a button that says plainly that the run continues — with a
+  strip on the Delivery page to bring you back to it and report how it ended.
+- **Auto-refresh moved into the Refresh button, and now works from any page.** The cadence used to be
+  four buttons and a paragraph parked on one card of the Pipeline page, taking up space permanently for
+  a setting you choose once — and it stopped polling the moment you looked at anything else, which is
+  precisely when you set "every minute" in the first place. It is a caret on the Refresh button now,
+  including the one in the dashboard header, so it is there wherever a refresh is. An interval that is
+  running shows on the caret without opening anything, the menu says what it costs, and the two rules
+  that matter are unchanged: nothing is fetched while the panel is hidden or while a refresh is already
+  running, and **Off** is still the default. Existing cadences revert to Off once, because the setting
+  now means something slightly different.
+- **A local CI job keeps running when you close VS Code, and is waiting for you when you come back.**
+  That was always half true — the container kept going, because GitHub is waiting on real work and
+  killing it would throw away minutes of compute — but nothing looked for it afterwards, so the page
+  said the machine was idle while a runner held its whole budget. AtlasMind now finds it, reattaches
+  to its output, and records the result when it ends. Containers left behind by a run that crashed are
+  listed with a button to clear them, never removed on sight.
+- **`/ship` refuses a message a shell would read as syntax.** Text typed after `/ship` was substituted
+  into a routine's command line unchecked, which for a step like `git commit -m "${message}"` is a
+  command-injection path. It is now refused before any step runs, with the offending characters named.
+- **The Project Dashboard opens on the dashboard.** Its header was a generic 44px title, a three-line
+  description of the tabs directly beneath it, a pill row, and then two full-width cards — one
+  repeating the project name, one holding a 150px score ring — which is most of a screen before the
+  first real signal. It is one band now: your project's name is the largest text on the page, the line
+  under it is the project's health summary rather than a list of the tabs below it, provenance is one
+  muted line, and the score is a chip beside **Refresh** that opens the Score page, where the full ring
+  now lives.
+- **Local testing gets a sliding scale, and the operating system gets a guaranteed floor.** One
+  machine-scoped setting, `atlasmind.testing.resourceShare`, now bounds every path that runs tests on
+  this computer — the after-write auto-verification, the test-run skill, the Pipeline's "Run here"
+  commands, and the trusted local CI container. The budget is the lower of the share and what the OS
+  reserve leaves, and the reserve is aggressive on purpose: at least 25% of the machine, never fewer
+  than 2 CPUs or 8 GB, measured on the **real host** rather than the Docker/WSL VM. Jest and Vitest
+  runs get `--maxWorkers`, Stryker gets `--concurrency` at a harder cap, every governed Node process
+  gets a heap ceiling, agent-issued commands run at below-normal priority — and the live one-job
+  runner finally has a **Stop** button. An ungoverned Jest-plus-Stryker default was fanning out to
+  (cores − 1) whole test runtimes, which is how a mutation run can black-screen a 64 GB machine.
+- **A missing prerequisite announces itself.** With local CI enabled, the Pipeline page now runs the
+  machine inspection automatically the first time nothing has ever been probed and nothing is
+  remembered — so "Docker Desktop is not installed" is the first thing on the page, not a discovery
+  behind a button.
 
 - **The Pipeline stops asking you to set up what you already set up.** Reopening VS Code used to send the
   Runner view back to "Inspect this computer" and "Check the trusted workflow", because neither answer
@@ -1183,6 +1247,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
+| `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 
 All 142 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
