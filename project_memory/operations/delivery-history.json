@@ -1,5 +1,17 @@
 [
   {
+    "id": "promo-1787102027930",
+    "kind": "promotion",
+    "pathId": "promote-staging-production",
+    "fromName": "Integration",
+    "toName": "Production",
+    "version": "0.367.0",
+    "succeeded": false,
+    "ranAt": "2026-08-19T01:13:13.740Z",
+    "durationMs": 34188,
+    "actor": "Joel Bondoux <email@joelbondoux.net>"
+  },
+  {
     "id": "promo-1787100492552",
     "kind": "promotion",
     "pathId": "promote-local-staging",

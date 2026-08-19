@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.367.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.368.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,19 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.367.0
+## What's new in 0.368.0
 
 The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The promotion dialog stopped fighting you.** Ticking a confirmation threw you back to the top of
+  the list every time, so a promotion with nine checks meant nine scrolls back down; the run buttons
+  sat below every check rather than staying in view; "Ask Atlas to fix this" on a failed step did
+  nothing at all, because the message was being dropped one layer before its handler; and a running
+  promotion could not be closed, even though closing it was always safe. Each section now carries a
+  meter, the footer says what is still outstanding and keeps the buttons in view, and a run in
+  flight can be closed with Escape or a button that says plainly that the run continues — with a
+  strip on the Delivery page to bring you back to it and report how it ended.
 - **Auto-refresh moved into the Refresh button, and now works from any page.** The cadence used to be
   four buttons and a paragraph parked on one card of the Pipeline page, taking up space permanently for
   a setting you choose once — and it stopped polling the moment you looked at anything else, which is

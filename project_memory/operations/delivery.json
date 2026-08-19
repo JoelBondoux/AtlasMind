@@ -129,11 +129,11 @@
       "toStageId": "stage-production",
       "routineId": "publishing-routine",
       "lastPromotion": {
-        "ranAt": "2026-08-12T14:11:54.219Z",
+        "ranAt": "2026-08-19T01:13:13.740Z",
         "succeeded": false,
-        "version": "0.302.0"
+        "version": "0.367.0"
       }
     }
   ],
-  "updatedAt": "2026-08-19T00:48:12.552Z"
+  "updatedAt": "2026-08-19T01:13:47.929Z"
 }

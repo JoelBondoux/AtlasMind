@@ -843,11 +843,17 @@
     }
 
     if (message.type === 'promotionDone') {
+      // Recorded whether or not the dialog is on screen. It used to be dropped
+      // when `state.promotion` was null, so a run somebody closed the dialog on
+      // finished silently — the one case where "closing is safe" needed to be
+      // demonstrably true rather than merely stated.
       if (state.promotion) {
         state.promotion.running = false;
         state.promotion.result = message.payload;
-        render();
       }
+      const succeeded = !!(message.payload && message.payload.succeeded);
+      announce(succeeded ? 'Promotion completed.' : 'Promotion failed.');
+      render();
       return;
     }
 
@@ -1974,6 +1980,26 @@
       render();
       return;
     }
+    // Close the dialog on a promotion that is still running. The run belongs to
+    // the extension host, so hiding its dialog cannot affect it — but the state
+    // is *kept* rather than dropped, because the result still has to arrive
+    // somewhere. Dropping it was what made "you can close this" untrue: the
+    // promotion finished and nothing on screen ever said so.
+    if (action === 'promotion-detach') {
+      if (state.promotion) { state.promotion.hidden = true; }
+      render();
+      return;
+    }
+    if (action === 'promotion-reopen') {
+      if (state.promotion) { state.promotion.hidden = false; }
+      render();
+      return;
+    }
+    if (action === 'promotion-dismiss-notice') {
+      state.promotion = null;
+      render();
+      return;
+    }
     if (action === 'promotion-run') {
       const p = state.promotion;
       if (!p || !p.plan || p.running) { return; }
@@ -2255,7 +2281,13 @@
       return;
     }
     if (target instanceof HTMLInputElement && target.id === 'promotion-confirm-text') {
-      if (state.promotion) { state.promotion.confirmText = target.value; }
+      if (state.promotion) {
+        state.promotion.confirmText = target.value;
+        // The typed name is one of the counted gates, so the meter and the run
+        // button have to follow it as it is typed — in place, for the same
+        // reason the checkboxes do.
+        syncPromotionGate();
+      }
       return;
     }
     if (target instanceof HTMLInputElement && target.id === 'rollback-confirm-text') {
@@ -2354,6 +2386,27 @@
       return;
     }
     state.promotion.attestations[checkId] = target.checked;
+    // Updated in place rather than through render(). A re-render replaces
+    // #dashboard-root wholesale, which rebuilt this dialog and reset its
+    // scroller — so every tick threw the reader back to the top of a list they
+    // were working down in order. Nothing structural depends on a tick.
+    syncPromotionGate();
+  });
+
+  // Escape closes the promotion dialog. A modal with no keyboard way out is a
+  // trap, and while a run was in flight there was no way out at all — the only
+  // control was a disabled "Running…". Escape on a running promotion detaches
+  // rather than cancels, because the run is the host's and closing its dialog
+  // has never been able to stop it.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') { return; }
+    const p = state.promotion;
+    if (!p || p.hidden) { return; }
+    if (p.running && !p.result) {
+      p.hidden = true;
+    } else {
+      state.promotion = null;
+    }
     render();
   });
 
@@ -10818,6 +10871,7 @@
           ? `<div class="promotion-list">${pipeline.paths.map(p => renderPromotionCard(p, summaryPath)).join('')}</div>`
           : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
         ${pathEditor}
+        ${renderDetachedPromotionNotice()}
         ${state.rollbackNotice ? `<p class="stage-seeded-note">${escapeHtml(state.rollbackNotice)}</p>` : ''}
         ${state.healthNotice ? `<p class="stage-seeded-note">${escapeHtml(state.healthNotice)}</p>` : ''}
         ${renderDeliveryHistory(pipeline.history)}
@@ -11218,9 +11272,160 @@
     return '⏳';
   }
 
+  /**
+   * A compact meter for a modal section head.
+   *
+   * Deliberately not `renderPipelineDial`: that is a 112px ring built for a
+   * page, and three of them would push the controls further down the very
+   * dialog people already have to scroll. Same tone vocabulary, a fifth of the
+   * height.
+   *
+   * Every meter carries an id so `syncPromotionGate` can update it in place —
+   * ticking a checkbox must not re-render the dialog, because that is what was
+   * throwing the reader back to the top on every tick.
+   */
+  function promoMeter(id, done, total, options = {}) {
+    const known = total > 0;
+    const pct = known ? Math.round((done / total) * 100) : 0;
+    const tone = options.tone || (!known ? 'muted' : done >= total ? 'good' : done > 0 ? 'warn' : 'critical');
+    const label = options.label || `${done} of ${total}`;
+    return `<span class="promo-meter tone-${escapeAttr(tone)}" data-promo-meter="${escapeAttr(id)}"
+      role="img" aria-label="${escapeAttr(options.aria || label)}">
+      <span class="promo-meter-bar"><span class="promo-meter-fill" style="width:${pct}%"></span></span>
+      <span class="promo-meter-label">${escapeHtml(label)}</span>
+    </span>`;
+  }
+
+  /**
+   * What each gate group currently stands at.
+   *
+   * Split into *checks the machine ran* and *confirmations only a person can
+   * give*, because they fail for different reasons and are fixed by different
+   * people. The confirmation group counts the protected-stage text box as a
+   * gate too — it is one, and leaving it out of the count made a dialog that
+   * said "all clear" beside a disabled button.
+   */
+  function promotionGateCounts(p) {
+    const plan = p.plan;
+    const autoChecks = plan.checks.filter(c => c.kind === 'auto');
+    const manualChecks = plan.checks.filter(c => c.kind === 'manual');
+    const confirmTotal = manualChecks.length
+      + (plan.requiresApproval ? 1 : 0)
+      + (plan.isProtected ? 1 : 0);
+    const confirmDone = manualChecks.filter(c => p.attestations[c.id]).length
+      + (plan.requiresApproval && p.attestations['approve'] ? 1 : 0)
+      + (plan.isProtected
+        && (p.confirmText || '').trim().toLowerCase() === plan.toName.trim().toLowerCase() ? 1 : 0);
+    return {
+      autoChecks,
+      manualChecks,
+      autoPass: autoChecks.filter(c => c.status === 'pass').length,
+      autoTotal: autoChecks.length,
+      confirmDone,
+      confirmTotal,
+    };
+  }
+
+  /** Steps finished, for the Plan meter. Only meaningful once a run starts. */
+  function promotionStepProgress(p) {
+    const total = (p.plan.steps || []).length;
+    if (p.result) {
+      const steps = p.result.steps || [];
+      return { done: steps.filter(s => s.ok || s.skipped).length, total: steps.length || total };
+    }
+    if (p.progress && p.progress.length) {
+      return { done: p.progress.filter(s => s.status === 'done' || s.status === 'skipped').length, total };
+    }
+    return { done: 0, total };
+  }
+
+  /**
+   * Update the dialog's meters and buttons without re-rendering it.
+   *
+   * `render()` replaces `#dashboard-root` wholesale, so calling it from a
+   * checkbox handler destroyed and rebuilt the dialog — which reset the
+   * scroller and sent the reader back to the top on every single tick, on a
+   * dialog whose whole job is to be worked down in order. Nothing about a tick
+   * changes the dialog's *structure*, only these values, so nothing here needs
+   * a re-render.
+   */
+  function syncPromotionGate() {
+    const p = state.promotion;
+    if (!p || !p.plan || p.hidden) { return; }
+    const counts = promotionGateCounts(p);
+    const setMeter = (id, done, total) => {
+      const node = document.querySelector(`[data-promo-meter="${cssEscape(id)}"]`);
+      if (!node) { return; }
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const tone = total <= 0 ? 'muted' : done >= total ? 'good' : done > 0 ? 'warn' : 'critical';
+      const fill = node.querySelector('.promo-meter-fill');
+      const label = node.querySelector('.promo-meter-label');
+      if (fill) { fill.style.width = `${pct}%`; }
+      if (label) { label.textContent = `${done} of ${total}`; }
+      node.className = `promo-meter tone-${tone}`;
+      node.setAttribute('aria-label', `${done} of ${total}`);
+    };
+    setMeter('confirm', counts.confirmDone, counts.confirmTotal);
+
+    const ready = promotionRunEnabled(p) && !p.plan.blockers.length;
+    const runBtn = document.querySelector('[data-action="promotion-run"]');
+    if (runBtn) { runBtn.disabled = !ready; }
+    const resolveBtn = document.querySelector('[data-action="promotion-resolve-run"]');
+    if (resolveBtn) { resolveBtn.disabled = !resolveAndRunEnabled(p); }
+    const summary = document.querySelector('[data-promo-readiness]');
+    if (summary) {
+      const text = promotionReadinessText(p, counts);
+      summary.textContent = text;
+      summary.className = `promo-readiness ${ready ? 'is-ready' : 'is-waiting'}`;
+    }
+  }
+
+  /** One sentence naming what is still outstanding, or that nothing is. */
+  function promotionReadinessText(p, counts) {
+    if (p.plan.blockers.length) { return 'Blocked — see above.'; }
+    const failing = counts.autoTotal - counts.autoPass;
+    const outstanding = counts.confirmTotal - counts.confirmDone;
+    if (failing > 0 && outstanding > 0) {
+      return `${failing} check${failing === 1 ? '' : 's'} failing · ${outstanding} confirmation${outstanding === 1 ? '' : 's'} outstanding`;
+    }
+    if (failing > 0) { return `${failing} check${failing === 1 ? '' : 's'} failing`; }
+    if (outstanding > 0) { return `${outstanding} confirmation${outstanding === 1 ? '' : 's'} outstanding`; }
+    return 'Ready to run.';
+  }
+
+  /**
+   * The strip that stands in for a dialog somebody closed while its promotion
+   * was still running — and, once it lands, for the result.
+   *
+   * Without this, closing a running promotion was a one-way door: the run
+   * carried on correctly but became unobservable, which is a worse outcome than
+   * the modal that would not let go of the screen.
+   */
+  function renderDetachedPromotionNotice() {
+    const p = state.promotion;
+    if (!p || !p.hidden || !p.plan) { return ''; }
+    const route = `${p.plan.fromName} → ${p.plan.toName}`;
+    if (p.result) {
+      const ok = p.result.succeeded;
+      return `<div class="promo-detached ${ok ? 'good' : 'bad'}">
+        <span>${ok ? '✓' : '✗'} Promotion ${ok ? 'completed' : 'failed'} — ${escapeHtml(route)}.</span>
+        <span class="promo-detached-actions">
+          <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">View details</button>
+          <button type="button" class="action-link" data-action="promotion-dismiss-notice" data-payload="">Dismiss</button>
+        </span>
+      </div>`;
+    }
+    return `<div class="promo-detached running">
+      <span>⏳ Promotion running — ${escapeHtml(route)}. It continues whether or not this page is open.</span>
+      <span class="promo-detached-actions">
+        <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">Show progress</button>
+      </span>
+    </div>`;
+  }
+
   function renderPromotionModal() {
     const p = state.promotion;
-    if (!p) { return ''; }
+    if (!p || p.hidden) { return ''; }
     if (!p.plan) {
       return `
         <div class="promo-overlay">
@@ -11250,8 +11455,13 @@
 
     const autoChecks = plan.checks.filter(c => c.kind === 'auto');
     const manualChecks = plan.checks.filter(c => c.kind === 'manual');
-    const checksHtml = `
-      ${autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span>${c.fixable ? ' <span class="promo-fix-tag">fixable</span>' : ''}<small>${escapeHtml(c.detail)}</small></li>`).join('')}
+    // Checks the machine ran and confirmations only a person can give are
+    // rendered as separate sections. They were one list, which is why a dialog
+    // could show a row of green ticks above a disabled button: the two groups
+    // fail for different reasons, are fixed by different people, and only one
+    // of them is waiting on the reader.
+    const checksHtml = autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span>${c.fixable ? ' <span class="promo-fix-tag">fixable</span>' : ''}<small>${escapeHtml(c.detail)}</small></li>`).join('');
+    const confirmationsHtml = `
       ${runbook
         ? manualChecks.map(c => `<li class="promo-check manual">☐ <span>${escapeHtml(c.label)}</span> <small>(manual confirmation)</small></li>`).join('')
         : manualChecks.map(c => `<li class="promo-check manual"><label><input type="checkbox" class="promotion-attest" data-check-id="${escapeAttr(c.id)}" ${p.attestations[c.id] ? 'checked' : ''}/> <span>${escapeHtml(c.label)}</span></label></li>`).join('')}
@@ -11264,28 +11474,66 @@
     } else if (done) {
       actions = `<button type="button" class="action-link primary" data-action="promotion-cancel" data-payload="">Close</button>`;
     } else if (running) {
-      actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>`;
+      // A close button while the run is in flight, which there was not one of:
+      // the only control was a disabled "Running…", so a promotion that takes
+      // minutes held the screen for all of them. The run lives in the extension
+      // host and is unaffected by this dialog, so closing it is safe — the
+      // label says so rather than leaving people to guess.
+      actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>
+                 <button type="button" class="action-link" data-action="promotion-detach" data-payload="">Close — the run continues</button>`;
     } else {
       const enabled = promotionRunEnabled(p) && !blocked;
       const canResolve = resolveAndRunEnabled(p);
-      actions = `${canResolve ? `<button type="button" class="action-link primary" data-action="promotion-resolve-run" data-payload="">Resolve &amp; run</button>` : ''}
-                 <button type="button" class="action-link${canResolve ? '' : ' primary'}" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
+      // Rendered whenever a remediation exists, disabled until it applies,
+      // rather than appearing and disappearing as boxes are ticked: a control
+      // that materialises mid-scroll moves everything under it, and an option
+      // you cannot yet use is still worth knowing exists.
+      actions = `${plan.remediation ? `<button type="button" class="action-link primary" data-action="promotion-resolve-run" data-payload="" ${canResolve ? '' : 'disabled'}>Resolve &amp; run</button>` : ''}
+                 <button type="button" class="action-link${plan.remediation ? '' : ' primary'}" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
                  <button type="button" class="action-link" data-action="promotion-cancel" data-payload="">Cancel</button>`;
     }
 
+    const counts = promotionGateCounts(p);
+    const stepProgress = promotionStepProgress(p);
+    const readiness = promotionReadinessText(p, counts);
+    const readyNow = promotionRunEnabled(p) && !blocked;
+
     return `
       <div class="promo-overlay">
-        <div class="promo-modal">
-          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
+        <div class="promo-modal" role="dialog" aria-modal="true" aria-label="${escapeAttr(`${runbook ? 'Runbook' : 'Promote'} ${plan.fromName} to ${plan.toName}`)}">
+          <div class="promo-head">
+            <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
+          </div>
+          <div class="promo-body" id="promo-body" data-scroll-key="promo-body">
           ${blocked ? `<div class="promo-blockers">${plan.blockers.map(b => `<p class="promotion-block-note">⚠ ${escapeHtml(b)}</p>`).join('')}</div>` : ''}
+          ${running ? `<p class="promo-detach-note">This promotion is running in AtlasMind, not in this dialog. Closing it does not stop the run — the outcome is recorded on the Delivery page and in <code>delivery.md</code> either way.</p>` : ''}
           <div class="promo-section">
-            <h4>Plan</h4>
+            <div class="promo-section-head">
+              <h4>Plan</h4>
+              ${(running || done)
+                ? promoMeter('steps', stepProgress.done, stepProgress.total, { aria: `${stepProgress.done} of ${stepProgress.total} steps finished` })
+                : `<span class="promo-meter tone-muted" role="img" aria-label="${escapeAttr(`${plan.steps.length} steps, none run yet`)}"><span class="promo-meter-label">${escapeHtml(String(plan.steps.length))} step${plan.steps.length === 1 ? '' : 's'} · not started</span></span>`}
+            </div>
             <ol class="promo-plan-list">${stepsHtml}</ol>
           </div>
-          ${plan.checks.length ? `<div class="promo-section"><h4>Preflight checks</h4><ul class="promo-check-list">${checksHtml}</ul></div>` : ''}
+          ${plan.checks.length ? `<div class="promo-section">
+            <div class="promo-section-head">
+              <h4>Preflight checks</h4>
+              ${promoMeter('auto', counts.autoPass, counts.autoTotal, { aria: `${counts.autoPass} of ${counts.autoTotal} automatic checks passing` })}
+            </div>
+            <ul class="promo-check-list">${checksHtml}</ul>
+          </div>` : ''}
           ${(!runbook && !done && plan.remediation) ? `<div class="promo-remediation"><strong>⚙ Resolve &amp; run</strong> will ${escapeHtml(plan.remediation.summary)}<small>${escapeHtml(plan.remediation.bumpReason)}</small></div>` : ''}
-          ${(!runbook && plan.requiresApproval) ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
-          ${(!runbook && plan.isProtected) ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
+          ${(!runbook && counts.confirmTotal > 0) ? `<div class="promo-section">
+            <div class="promo-section-head">
+              <h4>Your confirmation</h4>
+              ${promoMeter('confirm', counts.confirmDone, counts.confirmTotal, { aria: `${counts.confirmDone} of ${counts.confirmTotal} confirmations given` })}
+            </div>
+            ${manualChecks.length ? `<ul class="promo-check-list">${confirmationsHtml}</ul>` : ''}
+            ${plan.requiresApproval ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
+            ${plan.isProtected ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
+          </div>` : ''}
+          ${(runbook && manualChecks.length) ? `<div class="promo-section"><h4>Manual confirmations</h4><ul class="promo-check-list">${confirmationsHtml}</ul></div>` : ''}
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
           ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
             <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
@@ -11293,7 +11541,11 @@
             ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
           </div>` : ''}
           ${p.error ? `<p class="promotion-block-note">⚠ ${escapeHtml(p.error)}</p>` : ''}
-          <div class="stage-edit-actions">${actions}</div>
+          </div>
+          <div class="promo-foot">
+            ${(!runbook && !done) ? `<span class="promo-readiness ${readyNow ? 'is-ready' : 'is-waiting'}" data-promo-readiness>${escapeHtml(readiness)}</span>` : '<span></span>'}
+            <div class="stage-edit-actions">${actions}</div>
+          </div>
         </div>
       </div>`;
   }

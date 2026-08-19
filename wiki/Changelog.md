@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.368.0 — The promotion dialog stops fighting you
+
+Four things on one screen. Ticking a preflight confirmation re-rendered the whole dialog and reset its
+scroller, so a promotion with nine checks meant scrolling back down nine times — the ticks now update
+in place. The run controls sat below every check; the dialog is now a fixed column with the buttons
+pinned in view and a line stating what is still outstanding. "Ask Atlas to fix this" on a failed step
+did nothing, because the message was declared and handled but never admitted by the guard between
+them, so every click was dropped silently. And a running promotion could not be closed at all, even
+though closing it was always safe — Escape or "Close — the run continues" now detaches it, with a
+strip on the Delivery page to bring you back and report how it ended. Each section also carries a
+meter, with checks the machine ran kept separate from confirmations only a person can give.
+
+---
+
 ## v0.367.0 — Auto-refresh where the Refresh button is
 
 **Auto-refresh moved into the Refresh button.** The cadence was four buttons and a paragraph parked on one
@@ -837,7 +851,8 @@ file paths were landing there.
 
 Underneath that, two things were wrong at once. A path AtlasMind *accepted* did nothing when clicked, so the
 links that looked like they worked were the broken ones; and the same file passed or failed depending on how
-it was written, with `src/a.ts` accepted while `C:epo\src\a.ts` was not.
+it was written, with `src/a.ts` accepted while `C:
+epo\src\a.ts` was not.
 
 Now any of those spellings opens the file in the editor, at the line if the link named one. A path outside
 your workspace is not opened, and says so rather than doing nothing.

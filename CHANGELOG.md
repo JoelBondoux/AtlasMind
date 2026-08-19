@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.368.0] - 2026-08-19
+
+### Fixed
+
+- **"Ask Atlas to fix this" on a failed promotion step now does something.** The message was declared
+  on the dashboard's message union and handled in its switch, but never admitted by
+  `isProjectDashboardMessage` — so every click was dropped one layer before its handler and the
+  button read as dead. It type-checked and it linted; only calling the guard can catch it, which is
+  the same failure the settings panel shipped and is now pinned by the same shape of test.
+- **Ticking a preflight confirmation no longer throws you back to the top of the dialog.** The
+  attestation handler called `render()`, which replaces `#dashboard-root` wholesale — so every tick
+  destroyed and rebuilt the dialog and reset its scroller, on the one surface whose entire job is a
+  list worked down in order. Nothing structural depends on a tick, so `syncPromotionGate()` now
+  updates the meters and the button states in place, and the dialog body keeps its scroll position
+  across the re-renders that are legitimate, such as progress arriving during a run.
+
+### Changed
+
+- **The promotion dialog is a fixed column with a pinned action bar**, not a tall card inside a
+  scrolling overlay. The run controls used to sit below however many preflight checks a project had,
+  so the primary button was only reachable by scrolling past everything else.
+- **Each section carries a meter, and the footer says what is outstanding.** Checks the machine ran
+  and confirmations only a person can give are now separate metered sections, because they fail for
+  different reasons and are fixed by different people — one list is how a dialog shows a row of green
+  ticks above a disabled button and explains neither. The protected-stage text box counts as one of
+  the confirmation gates, so the meter and the readiness line cannot disagree with the button.
+  "Resolve & run" is disabled rather than absent until it applies: a control that materialises
+  mid-scroll moves everything under it.
+- **A running promotion can be closed, and says so.** The run belongs to the extension host and the
+  dialog has never been able to stop it — but there was no close control at all while running (the
+  only button was a disabled "Running…"), and the result was *dropped* whenever the dialog was gone,
+  so a dismissed run finished silently. Both halves are fixed: Escape and a "Close — the run
+  continues" button detach rather than cancel, keeping the state so the outcome still has somewhere
+  to land, and a strip on the Delivery page reports the running promotion and its result with a way
+  back into the detail. Closing a dialog with nothing running behind it still discards it outright.
+
 ## [0.367.0] - 2026-08-19
 
 ### Changed

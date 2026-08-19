@@ -10946,6 +10946,20 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return sanitizeIssueNumber(candidate['payload']) > 0;
   }
 
+  // A promotion step id, and nothing else. The handler resolves it against the
+  // run *it* retained and rebuilds the prompt itself, so the webview can name a
+  // step but never supply its text — the same shape as `workOnIssue`.
+  //
+  // This was declared on the message union and handled in the switch, but never
+  // admitted here, so every "Ask Atlas to fix this" click was dropped one layer
+  // before its handler and the button read as dead. A validator that omits a
+  // case fails silently by construction, which is why the union and this
+  // function are pinned against each other by test.
+  if (candidate['type'] === 'fixPromotionStep') {
+    const payload = candidate['payload'];
+    return typeof payload === 'string' && payload.length > 0 && payload.length <= 120;
+  }
+
   // Issue writes are outward-facing and usually public, so the shape is checked
   // here and the content is re-sanitised before it reaches `gh`. The webview
   // never supplies a command or an argument list — only these fields.
@@ -24451,9 +24465,40 @@ const DASHBOARD_CSS = `
   .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
-  .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }
-  .promo-modal { width: min(680px, 100%); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; padding: 20px 22px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); }
-  .promo-modal > h3 { margin: 0 0 12px; font-size: 1.1em; }
+  /* The dialog is a fixed-height column: a title that stays put, a body that
+     scrolls, and an action bar pinned to the bottom. The whole overlay used to
+     scroll instead, which put the run controls below however many preflight
+     checks the project had and meant the primary button was only reachable by
+     scrolling past everything else. */
+  .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 32px 16px; z-index: 1000; }
+  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
+  .promo-head { padding: 18px 22px 12px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); }
+  .promo-head h3 { margin: 0; font-size: 1.1em; }
+  .promo-body { padding: 4px 22px 16px; overflow-y: auto; flex: 1 1 auto; }
+  .promo-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px 16px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
+  .promo-foot .stage-edit-actions { margin: 0; }
+  .promo-readiness { font-size: 0.82em; color: var(--vscode-descriptionForeground); }
+  .promo-readiness.is-ready { color: var(--vscode-charts-green, #89d185); font-weight: 600; }
+
+  /* Section meters. A bar and a count, not a ring: three rings would push the
+     controls further down the dialog people are already scrolling. */
+  .promo-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 6px; }
+  .promo-section-head > h4 { margin: 0; }
+  .promo-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.74em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+  .promo-meter-bar { width: 68px; height: 5px; border-radius: 999px; background: var(--vscode-widget-border, rgba(127,127,127,0.28)); overflow: hidden; }
+  .promo-meter-fill { display: block; height: 100%; border-radius: 999px; background: currentColor; transition: width 140ms ease; }
+  .promo-meter.tone-good { color: var(--vscode-charts-green, #89d185); }
+  .promo-meter.tone-warn { color: var(--vscode-charts-yellow, #d7ba7d); }
+  .promo-meter.tone-critical { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-meter.tone-muted { color: var(--vscode-descriptionForeground); }
+  .promo-meter-label { font-variant-numeric: tabular-nums; }
+
+  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
+  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); }
+  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); }
+  .promo-detached.good { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 45%, transparent); }
+  .promo-detached.bad { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent); }
+  .promo-detached-actions { display: inline-flex; gap: 10px; }
   .promo-section { margin: 14px 0; }
   .promo-section > h4 { margin: 0 0 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
   .promo-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -24491,6 +24536,12 @@ const DASHBOARD_CSS = `
   @media (prefers-reduced-motion: reduce) {
     .chart-bars.is-animating .chart-bar-column {
       animation: none;
+    }
+    /* The promotion meters are updated in place, so unlike most bars here their
+       transition genuinely interpolates — which is exactly why it needs turning
+       off rather than being inert anyway. */
+    .promo-meter-fill {
+      transition: none;
     }
     .ci-status-dial.is-resolved .ci-dial-check {
       animation: none;

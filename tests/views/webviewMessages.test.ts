@@ -1226,3 +1226,33 @@ describe('file references in a reply', () => {
     expect(parseFileReference('   ')).toBeUndefined();
   });
 });
+
+describe('isProjectDashboardMessage — promotion dialog', () => {
+  // The bug this catches shipped. `fixPromotionStep` was declared on the
+  // `ProjectDashboardMessage` union and handled in `handleMessage`'s switch,
+  // but never admitted by the guard — so every click of "Ask Atlas to fix this"
+  // was dropped one layer before its handler and the button read as dead. It
+  // type-checked and it linted; only calling the guard can catch it, which is
+  // the same failure the settings panel shipped and the same test shape.
+  it('accepts a promotion step id', () => {
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep', payload: 'preflight' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep', payload: 'step-compile' })).toBe(true);
+  });
+
+  it('refuses a step id that is empty, oversized, or not a string', () => {
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep', payload: 'x'.repeat(121) })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'fixPromotionStep' })).toBe(false);
+  });
+
+  // Every promotion message the dialog can post has to survive the guard. A
+  // dialog that gates an irreversible action must not have a control that
+  // silently does nothing.
+  it.each([
+    { type: 'runPromotion', payload: { pathId: 'p1', attestations: ['approve'], confirmText: 'Production' } },
+    { type: 'resolveAndRunPromotion', payload: { pathId: 'p1', attestations: [], confirmText: 'Production' } },
+  ])('accepts $type at the message guard', message => {
+    expect(isProjectDashboardMessage(message)).toBe(true);
+  });
+});
