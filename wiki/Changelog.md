@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.1 — Published baseline refreshed
+
+The README states which Marketplace version its release notes are measured against. That line can only
+be written after the publish has actually happened — the tag it names does not exist until the release
+is tagged — so it is always a commit of its own. It now names **v0.369.0**.
+
+---
 ## v0.369.0 — CI failures you can actually read, and routes between pages
 
 GitHub returns Actions logs with their colour codes *caret-encoded* — the two literal characters `^` and

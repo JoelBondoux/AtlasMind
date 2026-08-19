@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.369.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.369.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,9 +127,9 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.369.0
+## What's new in 0.369.1
 
-The last Marketplace publication, **v0.364.0**, is the baseline — everything below is in it. The full
+The last Marketplace publication, **v0.369.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **CI failures are legible again.** GitHub returns Actions logs with their colour codes

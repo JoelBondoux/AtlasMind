@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.1] - 2026-08-19
+
+### Changed
+
+- **The README names v0.369.0 as its published baseline.** The line states the last Marketplace
+  publication, and the tag it must name does not exist until the release is tagged — so this can
+  only ever be a commit of its own, after the publish has actually succeeded. Written now that it
+  has: pre-empting it would have the README claim a version that might never have shipped.
+
+
 ## [0.369.0] - 2026-08-19
 
 ### Fixed
