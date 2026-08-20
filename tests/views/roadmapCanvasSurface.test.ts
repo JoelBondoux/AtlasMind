@@ -188,7 +188,64 @@ describe('canvas state is dropped when it stops referring to anything', () => {
   });
 });
 
+describe('arranging is separated from changing', () => {
+  it('keeps fit and snap entirely in the webview — they change no plan', () => {
+    expect(namedFunction('fitRoadmapCanvas')).not.toContain('postMessage');
+    expect(namedFunction('rmSnap')).not.toContain('postMessage');
+  });
+
+  it('mirrors the host’s grid constant, and the layout is a multiple of it', () => {
+    // The two have to agree, or turning snapping on and then auto-aligning would
+    // leave every node a few pixels off the grid it claims to be on.
+    const webviewGrid = Number(/const RM_GRID = (\d+)/.exec(WEBVIEW_SCRIPT)?.[1]);
+    const hostGrid = Number(/ROADMAP_GRID_SIZE = (\d+)/.exec(
+      readFileSync(path.join(process.cwd(), 'src', 'core', 'roadmapGraph.ts'), 'utf8'),
+    )?.[1]);
+    expect(webviewGrid).toBe(hostGrid);
+
+    const source = readFileSync(path.join(process.cwd(), 'src', 'core', 'roadmapGraph.ts'), 'utf8');
+    for (const name of ['ROADMAP_COLUMN_WIDTH', 'ROADMAP_ROW_HEIGHT', 'ROADMAP_CANVAS_MARGIN']) {
+      const value = Number(new RegExp(`${name} = (\\d+)`).exec(source)?.[1]);
+      expect(value % hostGrid, `${name} is not a multiple of the grid`).toBe(0);
+    }
+  });
+
+  it('sends a direction to auto-align, never a set of positions', () => {
+    // Auto-align works by discarding hand-placed positions and letting the
+    // deterministic layout run. A webview that sent coordinates would be doing
+    // the layout, and two layouts would eventually disagree.
+    // The dispatch lives in the delegated click handler, above the canvas block.
+    const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
+    expect(align.slice(0, 400)).toContain("type: 'roadmapAutoLayout'");
+    expect(align.slice(0, 400)).not.toContain('position');
+  });
+
+  it('asks for the tree calculation and performs none of it', () => {
+    const derive = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-derive-links'"));
+    expect(derive.slice(0, 200)).toContain("type: 'roadmapDeriveLinks'");
+  });
+});
+
 describe('the host side', () => {
+  it('confirms before writing a whole inferred tree, and says how many', () => {
+    // Accepting forty inferences at once is exactly the moment a keyword
+    // coincidence would get into somebody's plan unnoticed.
+    const derive = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapDeriveLinks'));
+    expect(derive.slice(0, 4000)).toContain('modal: true');
+    expect(derive.slice(0, 4000)).toContain('inferred dependenc');
+  });
+
+  it('re-checks each inferred link against the growing set rather than trusting the batch', () => {
+    const derive = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapDeriveLinks'));
+    expect(derive.slice(0, 5000)).toContain('roadmapEdgeWouldCycle(edges,');
+  });
+
+  it('auto-aligns by releasing hand-placed positions, not by writing new ones', () => {
+    const align = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapAutoLayout'));
+    expect(align.slice(0, 2000)).toContain('layoutOrientation: orientation');
+    expect(align.slice(0, 2000)).toContain('position: _dropped');
+  });
+
   it('refuses a link that would make the plan circular before saving it', () => {
     expect(HOST_PANEL).toContain('roadmapEdgeWouldCycle');
     expect(HOST_PANEL).toContain('would make the plan circular');

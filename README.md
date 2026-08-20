@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.371.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.372.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.371.0
+## What's new in 0.372.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Arranging the canvas.** **Fit all** beside the zoom controls puts the whole plan on screen.
+  **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto align** re-flows the tree
+  across or down — releasing hand-placed positions rather than freezing this moment's arrangement, so
+  the next item added lands in its own column. And **Calculate tree**, carrying the AtlasMind mark,
+  works the whole dependency tree out from the wording of your backlog and offers it behind one
+  confirmation that says how many links it would add.
 - **The Roadmap is a dependency canvas, not just a list.** A list can say which item matters more; it
   cannot say which one *cannot start* until another lands. The Roadmap page now opens on a draggable
   graph — nodes carrying the item, its branch name, its deadline, the days left and an estimate; arrows

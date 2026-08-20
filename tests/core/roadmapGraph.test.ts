@@ -3,6 +3,7 @@ import {
   AI_ASSIST_MULTIPLIER,
   MAX_DERIVED_EDGES_IN,
   ROADMAP_EDGE_RULES,
+  ROADMAP_GRID_SIZE,
   daysUntilDeadline,
   deriveRoadmapEdges,
   describeRoadmapSchedule,
@@ -416,6 +417,83 @@ describe('resolveRoadmapGraph', () => {
     expect(graph.nodes.find(node => node.id === 'a')).toMatchObject({ branch: 'feat/derived-name', branchSource: 'derived' });
     expect(graph.nodes.find(node => node.id === 'b')).toMatchObject({ branch: 'fix/by-hand', branchSource: 'declared' });
     expect(graph.nodes.find(node => node.id === 'c')).toMatchObject({ branch: '', branchSource: 'unavailable' });
+  });
+});
+
+describe('layout orientation', () => {
+  const build = (orientation: 'horizontal' | 'vertical' | undefined) => resolveRoadmapGraph({
+    items: [item({ id: 'a' }), item({ id: 'b' }), item({ id: 'c' })],
+    records: [],
+    declaredEdges: [declaredEdge('a', 'b')],
+    deriveSuggestions: false,
+    ...(orientation === undefined ? {} : { orientation }),
+    now: NOW,
+  });
+
+  it('runs the tree left to right by default', () => {
+    const graph = build(undefined);
+    expect(graph.orientation).toBe('horizontal');
+    const [a, b] = ['a', 'b'].map(id => graph.nodes.find(node => node.id === id));
+    expect(b?.position.x).toBeGreaterThan(a?.position.x ?? 0);
+    expect(b?.position.y).toBe(a?.position.y);
+  });
+
+  it('runs the tree top to bottom when asked, and says which it used', () => {
+    const graph = build('vertical');
+    expect(graph.orientation).toBe('vertical');
+    const [a, b] = ['a', 'b'].map(id => graph.nodes.find(node => node.id === id));
+    expect(b?.position.y).toBeGreaterThan(a?.position.y ?? 0);
+    expect(b?.position.x).toBe(a?.position.x);
+  });
+
+  it('separates siblings along the other axis in each orientation', () => {
+    // `a` and `c` share a depth. Horizontally they stack; vertically they sit
+    // side by side. Collapsing either case would overlap them.
+    const horizontal = build('horizontal');
+    const [ha, hc] = ['a', 'c'].map(id => horizontal.nodes.find(node => node.id === id));
+    expect(ha?.position.x).toBe(hc?.position.x);
+    expect(ha?.position.y).not.toBe(hc?.position.y);
+
+    const vertical = build('vertical');
+    const [va, vc] = ['a', 'c'].map(id => vertical.nodes.find(node => node.id === id));
+    expect(va?.position.y).toBe(vc?.position.y);
+    expect(va?.position.x).not.toBe(vc?.position.x);
+  });
+
+  it('orders each layer along the cross axis, whichever way the tree runs', () => {
+    // Sorting siblings by `y` in a vertical tree would report them in creation
+    // order, since they all share one.
+    const vertical = build('vertical');
+    const layer = vertical.layers[0] ?? [];
+    const xs = layer.map(id => vertical.nodes.find(node => node.id === id)?.position.x ?? 0);
+    expect([...xs].sort((left, right) => left - right)).toEqual(xs);
+  });
+
+  it('keeps a hand-placed position in both orientations', () => {
+    // Dragging is a statement about how you read the plan; re-flowing the rest
+    // of the board must not overrule it.
+    for (const orientation of ['horizontal', 'vertical'] as const) {
+      const graph = resolveRoadmapGraph({
+        items: [item({ id: 'a' }), item({ id: 'b' })],
+        records: [{ id: 'b', normalizedText: 'b', position: { x: 1200, y: 640 } }],
+        declaredEdges: [declaredEdge('a', 'b')],
+        deriveSuggestions: false,
+        orientation,
+        now: NOW,
+      });
+      expect(graph.nodes.find(node => node.id === 'b')?.position).toEqual({ x: 1200, y: 640 });
+    }
+  });
+
+  it('places auto-aligned nodes on the grid snapping uses', () => {
+    // Otherwise turning snapping on and then auto-aligning would leave every
+    // node a few pixels off the grid it claims to be on, and the first drag
+    // afterwards would jump.
+    const graph = build('vertical');
+    for (const node of graph.nodes) {
+      expect(node.position.x % ROADMAP_GRID_SIZE).toBe(0);
+      expect(node.position.y % ROADMAP_GRID_SIZE).toBe(0);
+    }
   });
 });
 

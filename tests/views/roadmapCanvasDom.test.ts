@@ -155,6 +155,7 @@ const GRAPH = {
   notes: ['1 suggestion refused for contradicting a link somebody drew.'],
   rules: [{ id: 'explicit-reference', label: 'Names what it waits for', detail: 'The item says “after”…', rank: 0 }],
   suggestLinks: true,
+  orientation: 'horizontal',
   anchored: true,
   routes: {
     alpha: { nodeIds: ['alpha'], edgeKeys: [], order: ['alpha'], routeDays: 2, completedCount: 0 },
@@ -288,7 +289,8 @@ describe('the roadmap canvas draws', () => {
     const harness = mount();
     harness.send(snapshot());
 
-    expect(harness.root().querySelector('.rm-canvas-card img')).toBeNull();
+    // Scoped to the nodes: the toolbar carries a legitimate AtlasMind mark.
+    expect(harness.root().querySelector('.rm-node img')).toBeNull();
     expect(harness.root().querySelector('[onerror]')).toBeNull();
     expect(harness.root().querySelector('[data-rm-node="beta"] .rm-node-title')?.textContent)
       .toBe('Ship the <img src=x onerror=alert(1)> export');
@@ -418,6 +420,122 @@ describe('the canvas talks to the host in node ids', () => {
     harness.click('[data-action="roadmap-suggest-toggle"]');
 
     expect(harness.posted).toEqual([{ type: 'roadmapSuggestToggle', payload: false }]);
+  });
+});
+
+describe('arranging the canvas', () => {
+  it('fits the whole plan without asking the host anything', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    // jsdom reports a zero-size frame, so pin the measurement the fit reads.
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    Object.defineProperty(frame, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(frame, 'clientHeight', { value: 400, configurable: true });
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-fit"]');
+
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+    expect(world.style.transform).toContain('scale(');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('never zooms past 100% to fill the frame', () => {
+    // A two-node plan blown up to 160% is harder to read than the same two nodes
+    // at their natural size.
+    const harness = mount();
+    harness.send(snapshot());
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    Object.defineProperty(frame, 'clientWidth', { value: 4000, configurable: true });
+    Object.defineProperty(frame, 'clientHeight', { value: 3000, configurable: true });
+
+    harness.click('[data-action="roadmap-fit"]');
+
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+    const scale = Number(/scale\(([\d.]+)\)/.exec(world.style.transform)?.[1]);
+    expect(scale).toBeLessThanOrEqual(1);
+  });
+
+  it('does nothing rather than throwing when there is nothing to fit', () => {
+    const harness = mount();
+    harness.send(snapshot({ active: [], edges: [], suggested: [], routes: {} }));
+    expect(() => harness.click('[data-action="roadmap-fit"]')).not.toThrow();
+  });
+
+  it('toggles snap-to-grid locally and remembers it', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+
+    expect(harness.root().querySelector('[data-action="roadmap-snap-toggle"]')?.textContent?.trim())
+      .toBe('Snap off');
+    harness.click('[data-action="roadmap-snap-toggle"]');
+
+    expect(harness.root().querySelector('[data-action="roadmap-snap-toggle"]')?.getAttribute('aria-pressed'))
+      .toBe('true');
+    // A viewing preference, not a change to the plan: nothing is sent.
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('sends only a direction when auto-aligning, never coordinates', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-auto-align"][data-payload="vertical"]');
+
+    expect(harness.posted).toEqual([{ type: 'roadmapAutoLayout', payload: 'vertical' }]);
+  });
+
+  it('shows which direction the tree currently runs', () => {
+    const harness = mount();
+    harness.send(snapshot({ orientation: 'vertical' }));
+    expect(harness.root().querySelector('[data-action="roadmap-auto-align"][data-payload="vertical"]')?.getAttribute('aria-pressed'))
+      .toBe('true');
+    expect(harness.root().querySelector('[data-action="roadmap-auto-align"][data-payload="horizontal"]')?.getAttribute('aria-pressed'))
+      .toBe('false');
+  });
+
+  it('draws an edge out of the bottom face when the tree runs downward', () => {
+    const horizontal = mount();
+    horizontal.send(snapshot());
+    const across = horizontal.root().querySelector('.rm-edge')?.getAttribute('d');
+
+    const vertical = mount();
+    vertical.send(snapshot({ orientation: 'vertical' }));
+    const down = vertical.root().querySelector('.rm-edge')?.getAttribute('d');
+
+    expect(down).not.toBe(across);
+    // `alpha` sits at (80, 80) and is 250 wide, 132 tall: across leaves its right
+    // edge, down leaves the middle of its bottom edge.
+    expect(across?.startsWith('M 330 146')).toBe(true);
+    expect(down?.startsWith('M 205 212')).toBe(true);
+  });
+
+  it('offers the tree calculation as an Atlas action that only asks', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+
+    const button = harness.root().querySelector('[data-action="roadmap-derive-links"]');
+    expect(button.querySelector('img')).not.toBeNull();
+    expect(button.getAttribute('aria-label')).toContain('AtlasMind');
+
+    harness.click('[data-action="roadmap-derive-links"]');
+    // The webview asks; the confirmation and every write live in the host.
+    expect(harness.posted).toEqual([{ type: 'roadmapDeriveLinks' }]);
+  });
+
+  it('hides arranging controls on the delivered canvas, where they mean nothing', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    expect(harness.root().querySelector('[data-action="roadmap-auto-align"]')).toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-derive-links"]')).toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-snap-toggle"]')).toBeNull();
+    // Fit and zoom still apply — a delivered plan is still something you look at.
+    expect(harness.root().querySelector('[data-action="roadmap-fit"]')).not.toBeNull();
   });
 });
 

@@ -132,6 +132,14 @@ branch name, its deadline, the days left and an estimate, with arrows for what h
 Press **Route** on any node to hide everything that isn't that item or a prerequisite of it — completed
 prerequisites included, because the route is how you got here — and see the outstanding days along it.
 
+Four controls arrange the canvas. **Fit all**, beside the zoom buttons, puts the whole plan on screen.
+**Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto align** re-flows the tree
+**across** (each column one step further from work that can start now) or **down** (better on a wide,
+shallow plan) — it releases every node you've positioned by hand, so drag one again afterwards to pin
+it. And **Calculate tree**, the button carrying the AtlasMind mark, works the whole dependency tree out
+from the wording of your backlog and offers it in one go, behind a confirmation that says how many links
+it would add.
+
 AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
 *says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation
 work for the other, and two items sitting on different release gates. Each suggestion is drawn dashed and

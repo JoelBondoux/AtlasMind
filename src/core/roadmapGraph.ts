@@ -237,6 +237,16 @@ export interface RoadmapGraph {
   notes: string[];
   /** The rules that graded this graph, published with it. */
   rules: readonly RoadmapEdgeRule[];
+  /**
+   * Which way the tree runs.
+   *
+   * Carried on the graph rather than left for the canvas to infer from the
+   * positions: an edge is drawn from the trailing face of one node to the
+   * leading face of the next, and "trailing" is a different side in each
+   * orientation. Guessing it from coordinates would get it wrong for exactly the
+   * nodes somebody has dragged.
+   */
+  orientation: RoadmapLayoutOrientation;
 }
 
 // ── Bounds ────────────────────────────────────────────────────────────────
@@ -251,8 +261,29 @@ export const MAX_DERIVED_EDGES_OUT = 4;
 export const MAX_DERIVED_EDGES = 120;
 
 export const ROADMAP_COLUMN_WIDTH = 320;
-export const ROADMAP_ROW_HEIGHT = 190;
+/**
+ * Deliberately a multiple of `ROADMAP_GRID_SIZE`, as are the column width and
+ * the margin.
+ *
+ * Snap-to-grid and auto-align have to agree, or turning snapping on and then
+ * auto-aligning would leave every node a few pixels off the grid it claims to
+ * be on — and the first drag afterwards would jump.
+ */
+export const ROADMAP_ROW_HEIGHT = 200;
 export const ROADMAP_CANVAS_MARGIN = 80;
+/** The canvas grid. Shared with the webview's snap-to-grid, which mirrors it. */
+export const ROADMAP_GRID_SIZE = 20;
+
+/**
+ * Which way the tree runs.
+ *
+ * Both orientations show the same graph; which one is readable depends on its
+ * shape. A long chain with little branching reads best left-to-right; a wide,
+ * shallow plan reads best top-down. It is a property of *this roadmap* rather
+ * than of the person looking, so it lives in the committed file: two people
+ * opening the same plan should see the same picture.
+ */
+export type RoadmapLayoutOrientation = 'horizontal' | 'vertical';
 
 // ── Text handling ─────────────────────────────────────────────────────────
 
@@ -728,6 +759,8 @@ export interface RoadmapGraphInput {
    * link would silently conjure a different one in its place.
    */
   dismissedEdges?: ReadonlyArray<{ from: string; to: string }>;
+  /** Which way the tree runs. Defaults to left-to-right. */
+  orientation?: RoadmapLayoutOrientation;
   now?: Date;
 }
 
@@ -742,6 +775,7 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
   const now = input.now ?? new Date();
   const notes: string[] = [];
 
+  const orientation = input.orientation ?? 'horizontal';
   let items = [...input.items];
   if (items.length > MAX_ROADMAP_GRAPH_NODES) {
     notes.push(`Showing the first ${MAX_ROADMAP_GRAPH_NODES} of ${items.length} roadmap items. The rest are in the backlog list below.`);
@@ -862,15 +896,22 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
     };
   });
 
-  applyRoadmapLayout(nodes, recordById);
+  applyRoadmapLayout(nodes, recordById, orientation);
 
   const layerCount = nodes.reduce((max, node) => Math.max(max, node.depth), 0) + 1;
   const layers: string[][] = Array.from({ length: nodes.length === 0 ? 0 : layerCount }, () => []);
-  for (const node of [...nodes].sort((left, right) => left.position.y - right.position.y || left.id.localeCompare(right.id))) {
+  // Ordered along the *cross* axis, which the orientation decides: siblings in a
+  // vertical tree sit side by side, so sorting them by `y` would report them in
+  // whatever order they happened to be created.
+  const across = (node: RoadmapGraphNode): number => (
+    orientation === 'vertical' ? node.position.x : node.position.y
+  );
+  for (const node of [...nodes].sort((left, right) => across(left) - across(right) || left.id.localeCompare(right.id))) {
     layers[node.depth]?.push(node.id);
   }
 
   return {
+    orientation,
     nodes,
     edges: declared,
     suggested,
@@ -1023,6 +1064,7 @@ function computeRouteDays(
 function applyRoadmapLayout(
   nodes: RoadmapGraphNode[],
   records: Map<string, RoadmapNodeRecord>,
+  orientation: RoadmapLayoutOrientation = 'horizontal',
 ): void {
   const occupied = new Set<string>();
   const cellKey = (x: number, y: number): string => `${Math.round(x / 16)}:${Math.round(y / 16)}`;
@@ -1046,21 +1088,29 @@ function applyRoadmapLayout(
     byDepth.set(node.depth, bucket);
   }
 
+  // Depth always runs along the *reading* axis and siblings along the other, so
+  // the two orientations are one placement rule with its axes swapped rather
+  // than two layouts that could drift apart.
+  const place = (depth: number, row: number): { x: number; y: number } => (
+    orientation === 'vertical'
+      ? { x: ROADMAP_CANVAS_MARGIN + row * ROADMAP_COLUMN_WIDTH, y: ROADMAP_CANVAS_MARGIN + depth * ROADMAP_ROW_HEIGHT }
+      : { x: ROADMAP_CANVAS_MARGIN + depth * ROADMAP_COLUMN_WIDTH, y: ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT }
+  );
+
   for (const [depth, bucket] of [...byDepth.entries()].sort((left, right) => left[0] - right[0])) {
     const ordered = bucket.sort((left, right) =>
       right.priorityScore - left.priorityScore || left.id.localeCompare(right.id));
     let row = 0;
     for (const node of ordered) {
-      let x = ROADMAP_CANVAS_MARGIN + depth * ROADMAP_COLUMN_WIDTH;
-      let y = ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT;
+      let position = place(depth, row);
       // Skip over any cell a dragged node already claims, so an auto-placed node
       // is never dropped on top of one somebody positioned by hand.
-      while (occupied.has(cellKey(x, y))) {
+      while (occupied.has(cellKey(position.x, position.y))) {
         row += 1;
-        y = ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT;
+        position = place(depth, row);
       }
-      node.position = { x, y };
-      occupied.add(cellKey(x, y));
+      node.position = position;
+      occupied.add(cellKey(position.x, position.y));
       row += 1;
     }
   }

@@ -772,6 +772,24 @@ type ProjectDashboardMessage =
   | { type: 'roadmapLinkAccept'; payload: { from: string; to: string } }
   | { type: 'roadmapLinkDismiss'; payload: { from: string; to: string } }
   | { type: 'roadmapSuggestToggle'; payload: boolean }
+  /**
+   * Re-flow the canvas, in the named direction.
+   *
+   * Carries a direction and nothing else — never positions. Auto-align works by
+   * *discarding* the hand-placed ones and letting the deterministic layout run,
+   * so a webview that sent coordinates would be doing the layout, and two
+   * layouts would eventually disagree about the same plan.
+   */
+  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' }
+  /**
+   * Ask AtlasMind to work the tree out and offer it.
+   *
+   * Derivation already runs on every render; what this adds is the bulk accept,
+   * which is the only step that writes. It is one deliberate human act behind a
+   * modal that says how many links it would add — the same shape as every other
+   * outward or irreversible action on this page.
+   */
+  | { type: 'roadmapDeriveLinks' }
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
@@ -2132,6 +2150,8 @@ interface DashboardRoadmapGraphView {
   rules: typeof ROADMAP_EDGE_RULES;
   /** Whether AtlasMind may propose links. A property of this roadmap, not a setting. */
   suggestLinks: boolean;
+  /** Which way the tree runs, so the canvas draws edges from the right faces. */
+  orientation: 'horizontal' | 'vertical';
   /**
    * Whether the backlog has been given durable ids yet.
    *
@@ -4454,6 +4474,12 @@ export class ProjectDashboardPanel {
         break;
       case 'roadmapSuggestToggle':
         await this.handleRoadmapSuggestToggle(message.payload === true);
+        break;
+      case 'roadmapAutoLayout':
+        await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
+        break;
+      case 'roadmapDeriveLinks':
+        await this.handleRoadmapDeriveLinks();
         break;
       case 'createRoadmapGate':
         await this.handleCreateRoadmapGate();
@@ -9767,6 +9793,137 @@ ${buildCardEvidenceSection(source, derivation)}`;
   ): Promise<RoadmapEdge | undefined> {
     const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
     return roadmap.graph.suggested.find(edge => edgeKey(edge) === key);
+  }
+
+  /**
+   * Re-flow the canvas in one direction.
+   *
+   * Implemented by **discarding** hand-placed positions rather than by writing
+   * new ones, so what the canvas shows afterwards is the same deterministic
+   * layout everybody else's copy shows. Writing coordinates would freeze this
+   * moment's arrangement into the file, and the next item added would land
+   * wherever there was a gap rather than in its own column.
+   *
+   * Every position is cleared, including nodes not currently on screen: an
+   * "align everything" that quietly skipped what a filter was hiding would leave
+   * the plan half aligned in a way nobody could see.
+   */
+  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical'): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return;
+    }
+    const moved = context.document.nodes.filter(node => node.position !== undefined).length;
+    const nodes = context.document.nodes.map(node => {
+      const { position: _dropped, ...rest } = node;
+      return rest;
+    });
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...context.document,
+      nodes,
+      layoutOrientation: orientation,
+    });
+    if (moved > 0) {
+      void vscode.window.showInformationMessage(
+        `Re-flowed the roadmap ${orientation === 'vertical' ? 'top to bottom' : 'left to right'}. ${moved} hand-placed ${moved === 1 ? 'position was' : 'positions were'} released; drag any node again to pin it.`,
+      );
+    }
+  }
+
+  /**
+   * Work the tree out, and offer it.
+   *
+   * The suggestions themselves are not new — they are drawn on every render and
+   * each one is a click away. What this adds is doing the whole board at once,
+   * which is what makes the graph usable on a backlog nobody has wired up by
+   * hand. It stays a *human* act: the modal names the number and the write only
+   * happens on confirmation, because accepting forty inferences in one go is
+   * exactly the moment a keyword coincidence would get into somebody's plan
+   * unnoticed.
+   *
+   * Each accepted link keeps the rule that proposed it, so the committed mirror
+   * can say "accepted suggestion" rather than claiming a person drew it.
+   */
+  private async handleRoadmapDeriveLinks(): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return;
+    }
+    const roadmap = await collectRoadmapSnapshot(context.workspaceRoot, context.ssotPath);
+    const suggestions = roadmap.graph.suggested;
+
+    if (suggestions.length === 0) {
+      void vscode.window.showInformationMessage(
+        context.document.suggestLinks
+          ? 'AtlasMind found no dependencies it could infer from the wording of these items. Draw the ones you know about with “Link →”.'
+          : 'Suggested links are turned off for this roadmap. Turn them on to let AtlasMind propose an order.',
+      );
+      return;
+    }
+
+    const nameOf = (id: string): string => roadmap.graph.active
+      .concat(roadmap.graph.completed)
+      .find(node => node.id === id)?.text ?? id;
+    const preview = suggestions.slice(0, 3)
+      .map(edge => `“${nameOf(edge.from)}” before “${nameOf(edge.to)}”`)
+      .join('\n');
+
+    const confirm = await vscode.window.showWarningMessage(
+      `Add ${suggestions.length} inferred dependenc${suggestions.length === 1 ? 'y' : 'ies'} to the roadmap?`,
+      {
+        modal: true,
+        detail: [
+          preview,
+          suggestions.length > 3 ? `…and ${suggestions.length - 3} more.` : '',
+          '',
+          'These are inferred from the wording of your backlog items, not from anything you told AtlasMind. Each one is recorded with the rule that produced it, and any of them can be removed afterwards.',
+        ].filter(Boolean).join('\n'),
+      },
+      'Add them',
+    );
+    if (confirm !== 'Add them') {
+      return;
+    }
+
+    // Applied one at a time against a growing edge set, so an inference that
+    // only becomes circular *because of another one accepted in the same batch*
+    // is refused rather than written. Derivation already guarantees this for the
+    // set it produced; re-checking here means the guarantee does not depend on
+    // two modules agreeing.
+    const edges = [...context.document.edges];
+    const now = new Date().toISOString();
+    const self = readProjectDirectorConfig(context.workspaceRoot)?.selfContactId;
+    let added = 0;
+    let refused = 0;
+    for (const suggestion of suggestions) {
+      if (edges.some(edge => edgeKey(edge) === edgeKey(suggestion))
+        || roadmapEdgeWouldCycle(edges, suggestion.from, suggestion.to)) {
+        refused += 1;
+        continue;
+      }
+      edges.push({
+        from: suggestion.from,
+        to: suggestion.to,
+        origin: 'declared',
+        ...(suggestion.rule === undefined ? {} : { rule: suggestion.rule }),
+        ...(suggestion.evidence === undefined ? {} : { evidence: suggestion.evidence }),
+        createdAt: now,
+        ...(self === undefined ? {} : { createdBy: self }),
+      });
+      added += 1;
+    }
+
+    const accepted = new Set(suggestions.map(edge => edgeKey(edge)));
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...context.document,
+      edges,
+      dismissed: context.document.dismissed.filter(entry => !accepted.has(edgeKey(entry))),
+    });
+    void vscode.window.showInformationMessage(
+      refused === 0
+        ? `Added ${added} dependenc${added === 1 ? 'y' : 'ies'} to the roadmap.`
+        : `Added ${added} dependenc${added === 1 ? 'y' : 'ies'}. ${refused} ${refused === 1 ? 'was' : 'were'} skipped because ${refused === 1 ? 'it' : 'they'} would have made the plan circular.`,
+    );
   }
 
   private async handleRoadmapSuggestToggle(enabled: boolean): Promise<void> {
@@ -17666,6 +17823,7 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     notes: [],
     rules: ROADMAP_EDGE_RULES,
     suggestLinks: true,
+    orientation: 'horizontal',
     anchored: true,
     routes: {},
     people: [],
@@ -17762,6 +17920,7 @@ function buildRoadmapGraphView(
       gateOrder: normalizeGates(gates).map(gate => gate.id),
       deriveSuggestions: reconciled.document.suggestLinks,
       dismissedEdges: reconciled.document.dismissed,
+      orientation: reconciled.document.layoutOrientation,
     });
 
     const partition = partitionRoadmapCompletion(graph);
@@ -17795,6 +17954,7 @@ function buildRoadmapGraphView(
       notes,
       rules: graph.rules,
       suggestLinks: reconciled.document.suggestLinks,
+      orientation: graph.orientation,
       anchored,
       routes,
       people: (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name })),
@@ -23951,6 +24111,32 @@ const DASHBOARD_CSS = `
   .rm-chip-row .action-link.is-on {
     border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
     color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+  }
+
+  /* The two alignment directions are one choice, so they sit in one shell with a
+     shared border rather than reading as two unrelated buttons. */
+  .rm-control-group {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .rm-control-group .action-link {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .rm-control-group .action-link + .action-link {
+    border-left: 1px solid var(--dash-border);
+  }
+
+  /* The one control on this page where AtlasMind reaches a conclusion of its own
+     rather than reporting something it read, so it carries the mark. */
+  .rm-derive-action {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
   }
 
   .rm-filter-chip {

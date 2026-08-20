@@ -633,6 +633,18 @@ committed plan worth comparing. Delivered work moves to its own chronological ca
 and keeping the links between pieces of work, unless something outstanding still depends on it, in which
 case it stays on the plan as the left-hand end of a route somebody is still walking.
 
+Four toolbar controls arrange the canvas without changing the plan. **Fit all** puts everything on
+screen, measured from the frame the canvas is in and never zooming past 100% to fill space. **Snap to
+grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid
+so a hand-placed node lines up with an auto-aligned one. **Auto align** re-flows the tree across or
+down by *releasing* hand-placed positions rather than writing new ones — so the result is the same
+deterministic layout everybody's copy shows, and the next item added lands in its own column; drag a
+node again to pin it. The direction is stored in the committed plan, because which way a graph reads
+best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
+it only changes where your next drag lands. **Calculate tree**, carrying the AtlasMind mark, works the
+whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
+how many links it would add.
+
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
 line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. A

@@ -412,6 +412,15 @@
     roadmapEditingNodeId: '',
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
+    /**
+     * Whether a dragged node snaps to the canvas grid.
+     *
+     * A viewing preference, not a property of the plan — it changes where *your*
+     * next drag lands and nothing about what the roadmap says — so it lives in
+     * webview state rather than in the committed graph file, unlike the layout
+     * orientation, which everybody opening the plan should see the same way.
+     */
+    roadmapSnapToGrid: persistedWebviewState.roadmapSnapToGrid === true,
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -1390,6 +1399,27 @@
       state.roadmapZoom = 1;
       state.roadmapPan = { x: 0, y: 0 };
       render();
+      return;
+    }
+    if (action === 'roadmap-fit') {
+      fitRoadmapCanvas();
+      return;
+    }
+    if (action === 'roadmap-snap-toggle') {
+      state.roadmapSnapToGrid = !state.roadmapSnapToGrid;
+      persistRoadmapCanvasPreferences();
+      render();
+      return;
+    }
+    if (action === 'roadmap-auto-align') {
+      vscode.postMessage({
+        type: 'roadmapAutoLayout',
+        payload: payload === 'vertical' ? 'vertical' : 'horizontal',
+      });
+      return;
+    }
+    if (action === 'roadmap-derive-links') {
+      vscode.postMessage({ type: 'roadmapDeriveLinks' });
       return;
     }
     if (action === 'roadmap-add') {
@@ -2828,8 +2858,10 @@
     }
     // The pointer moves in screen pixels; the world is scaled, so the delta has
     // to be divided by the zoom or a node lags behind the cursor when zoomed out.
-    rmDrag.x = Math.max(0, Math.round(rmDrag.originX + dx / state.roadmapZoom));
-    rmDrag.y = Math.max(0, Math.round(rmDrag.originY + dy / state.roadmapZoom));
+    // Snapping is applied here rather than on drop, so the node visibly lands on
+    // the grid while you are still holding it.
+    rmDrag.x = Math.max(0, rmSnap(rmDrag.originX + dx / state.roadmapZoom));
+    rmDrag.y = Math.max(0, rmSnap(rmDrag.originY + dy / state.roadmapZoom));
     rmPaintDrag();
   });
 
@@ -10412,6 +10444,17 @@
   const RM_NODE_HEIGHT = 132;
   const RM_MIN_ZOOM = 0.35;
   const RM_MAX_ZOOM = 1.6;
+  /**
+   * The canvas grid, mirroring `ROADMAP_GRID_SIZE` in `roadmapGraph.ts`.
+   *
+   * Duplicated because this file is a script handed to a browser and cannot
+   * import from the host — the same reason `ATLAS_ACTION_GLYPHS` is duplicated.
+   * The layout constants there are multiples of it, so a snapped drag lands on
+   * the same lattice an auto-aligned node does.
+   */
+  const RM_GRID = 20;
+  /** Breathing room left around the content when fitting the whole plan. */
+  const RM_FIT_PADDING = 48;
 
   function roadmapGraph() {
     const graph = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.graph : null;
@@ -10419,6 +10462,7 @@
       return {
         active: [], completed: [], completedColumns: [], retainedIds: [], edges: [], suggested: [],
         layers: [], cycles: [], notes: [], rules: [], suggestLinks: true, anchored: true, routes: {},
+        orientation: 'horizontal',
         people: [], filePath: 'project_memory/roadmap/improvement-plan.md',
       };
     }
@@ -10566,13 +10610,116 @@
               title="${escapeAttr('Whether AtlasMind proposes links nobody drew. A suggestion is drawn dashed and changes nothing until you accept it; it can never contradict a link you drew, and it can never make the plan circular.')}">
               ${graph.suggestLinks ? 'Suggestions on' : 'Suggestions off'}
             </button>`}
+          ${state.roadmapView === 'completed' ? '' : `
+            <span class="rm-control-group" role="group" aria-label="Arrange the plan">
+              <button type="button" class="action-link${graph.orientation !== 'vertical' ? ' is-on' : ''}"
+                data-action="roadmap-auto-align" data-payload="horizontal"
+                aria-pressed="${graph.orientation !== 'vertical' ? 'true' : 'false'}"
+                title="${escapeAttr('Re-flow the tree left to right, so each column is one step further from work that can start now. Releases every node you have positioned by hand — drag one again to pin it.')}">
+                <span aria-hidden="true">→</span> Align across
+              </button>
+              <button type="button" class="action-link${graph.orientation === 'vertical' ? ' is-on' : ''}"
+                data-action="roadmap-auto-align" data-payload="vertical"
+                aria-pressed="${graph.orientation === 'vertical' ? 'true' : 'false'}"
+                title="${escapeAttr('Re-flow the tree top to bottom, which reads better on a wide, shallow plan. Releases every node you have positioned by hand — drag one again to pin it.')}">
+                <span aria-hidden="true">↓</span> Align down
+              </button>
+            </span>
+            <button type="button" class="action-link${state.roadmapSnapToGrid ? ' is-on' : ''}"
+              data-action="roadmap-snap-toggle" aria-pressed="${state.roadmapSnapToGrid ? 'true' : 'false'}"
+              title="${escapeAttr('Snap a dragged node to the canvas grid, so hand-placed nodes line up with auto-aligned ones instead of sitting a few pixels off.')}">
+              ${state.roadmapSnapToGrid ? 'Snap on' : 'Snap off'}
+            </button>`}
           <button type="button" class="action-link" data-action="roadmap-zoom-out" aria-label="Zoom out">−</button>
           <button type="button" class="action-link" data-action="roadmap-zoom-reset" title="Reset the view to 100% and re-centre">${zoomPercent}%</button>
           <button type="button" class="action-link" data-action="roadmap-zoom-in" aria-label="Zoom in">+</button>
-          ${state.roadmapView === 'completed' ? '' : '<button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>'}
+          <button type="button" class="action-link" data-action="roadmap-fit"
+            title="${escapeAttr('Zoom and pan so the whole plan is on screen at once.')}">Fit all</button>
+          ${state.roadmapView === 'completed' ? '' : `
+            ${renderRoadmapDeriveAction()}
+            <button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>`}
         </div>
       </div>
       ${state.roadmapView === 'completed' ? renderRoadmapCompletionColumns(graph) : ''}`;
+  }
+
+  /**
+   * “Let Atlas work the tree out.”
+   *
+   * Carries the AtlasMind mark, because this is the one control on the page
+   * where AtlasMind reaches a conclusion of its own rather than reporting
+   * something it read. It shares the shape and styling of the chat hand-off
+   * buttons for that reason, and differs in one way that matters: those open a
+   * conversation, this one opens a confirmation that names what it would write.
+   */
+  function renderRoadmapDeriveAction() {
+    const title = 'Work out the dependency tree from the wording of the backlog, and offer it. '
+      + 'Nothing is written until you confirm, and the confirmation says how many links it would add.';
+    return `<button type="button" class="atlas-discuss-action icon-only rm-derive-action" data-action="roadmap-derive-links"
+      title="${escapeAttr(title)}" aria-label="Calculate the dependency tree with AtlasMind"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">⌘</span><span class="atlas-discuss-label">Calculate tree</span></button>`;
+  }
+
+  /**
+   * Remember the canvas viewing preferences across a panel close.
+   *
+   * Merged into whatever is already stored rather than replacing it, because
+   * this webview's state is shared with the pipeline graph and the branch view.
+   */
+  function persistRoadmapCanvasPreferences() {
+    vscode.setState({
+      ...(vscode.getState() || {}),
+      roadmapSnapToGrid: state.roadmapSnapToGrid,
+    });
+  }
+
+  /** Snap a coordinate to the canvas grid, when snapping is on. */
+  function rmSnap(value) {
+    return state.roadmapSnapToGrid ? Math.round(value / RM_GRID) * RM_GRID : Math.round(value);
+  }
+
+  /**
+   * Fit the whole plan on screen.
+   *
+   * Measured from the frame the canvas is actually in rather than from a assumed
+   * size, so it stays right in a split editor and on a narrow window. Zoom is
+   * clamped to the same range the buttons use — fitting a very large plan would
+   * otherwise silently leave the canvas at a zoom no control can undo — and the
+   * pan then centres whatever that zoom could reach.
+   */
+  function fitRoadmapCanvas() {
+    if (!root) { return; }
+    const frame = root.querySelector('[data-rm-frame="true"]');
+    const nodes = [...root.querySelectorAll('[data-rm-node]')];
+    if (!frame || nodes.length === 0) { return; }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(el => {
+      const x = parseFloat(el.style.left) || 0;
+      const y = parseFloat(el.style.top) || 0;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + RM_NODE_WIDTH);
+      // Measured, not assumed: a node's height varies with how many links and
+      // chips it carries, and using the constant would clip the tallest ones.
+      maxY = Math.max(maxY, y + (el.offsetHeight || RM_NODE_HEIGHT));
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) { return; }
+
+    const contentWidth = Math.max(1, maxX - minX);
+    const contentHeight = Math.max(1, maxY - minY);
+    const frameWidth = Math.max(1, frame.clientWidth - RM_FIT_PADDING * 2);
+    const frameHeight = Math.max(1, frame.clientHeight - RM_FIT_PADDING * 2);
+    // Never zoom past 100% to fill a frame: a two-node plan blown up to 160% is
+    // harder to read than the same two nodes at their natural size.
+    const zoom = Math.min(RM_MAX_ZOOM, Math.max(RM_MIN_ZOOM, Math.min(1, Math.min(frameWidth / contentWidth, frameHeight / contentHeight))));
+
+    state.roadmapZoom = Math.round(zoom * 100) / 100;
+    state.roadmapPan = {
+      x: Math.round((frame.clientWidth - contentWidth * state.roadmapZoom) / 2 - minX * state.roadmapZoom),
+      y: Math.round((frame.clientHeight - contentHeight * state.roadmapZoom) / 2 - minY * state.roadmapZoom),
+    };
+    render();
+    announce('Fitted ' + nodes.length + ' item' + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
   }
 
   function renderRoadmapCompletionColumns(graph) {
@@ -10622,12 +10769,23 @@
     }
     const a = roadmapNodePosition(from);
     const b = roadmapNodePosition(to);
-    const x1 = a.x + RM_NODE_WIDTH;
-    const y1 = a.y + RM_NODE_HEIGHT / 2;
-    const x2 = b.x;
-    const y2 = b.y + RM_NODE_HEIGHT / 2;
-    const lean = Math.max(60, Math.abs(x2 - x1) / 2);
-    const path = `M ${x1} ${y1} C ${x1 + lean} ${y1}, ${x2 - lean} ${y2}, ${x2} ${y2}`;
+    const vertical = roadmapGraph().orientation === 'vertical';
+    // The curve leaves the trailing face of the prerequisite and enters the
+    // leading face of the dependent, which is a different side in each
+    // orientation — so direction stays readable without relying on the
+    // arrowhead alone.
+    const x1 = vertical ? a.x + RM_NODE_WIDTH / 2 : a.x + RM_NODE_WIDTH;
+    const y1 = vertical ? a.y + RM_NODE_HEIGHT : a.y + RM_NODE_HEIGHT / 2;
+    const x2 = vertical ? b.x + RM_NODE_WIDTH / 2 : b.x;
+    const y2 = vertical ? b.y : b.y + RM_NODE_HEIGHT / 2;
+    // A fixed minimum lean, so a link between two nodes dragged into the same
+    // column still reads as a curve rather than collapsing to a straight line.
+    const lean = vertical
+      ? Math.max(60, Math.abs(y2 - y1) / 2)
+      : Math.max(60, Math.abs(x2 - x1) / 2);
+    const path = vertical
+      ? `M ${x1} ${y1} C ${x1} ${y1 + lean}, ${x2} ${y2 - lean}, ${x2} ${y2}`
+      : `M ${x1} ${y1} C ${x1 + lean} ${y1}, ${x2 - lean} ${y2}, ${x2} ${y2}`;
     const title = suggested
       ? `Suggested: “${from.text}” before “${to.text}” — ${edge.evidence || 'derived from the rule table'}`
       : `“${from.text}” has to land before “${to.text}”`;

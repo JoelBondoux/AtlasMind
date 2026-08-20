@@ -180,6 +180,12 @@ describe('sanitizeRoadmapGraphDocument', () => {
     expect(sanitizeRoadmapGraphDocument({ version: 1, nodes: [], edges: [], suggestLinks: false })?.suggestLinks).toBe(false);
   });
 
+  it('defaults the layout to horizontal and only accepts the two it knows', () => {
+    expect(sanitizeRoadmapGraphDocument({ version: 1, nodes: [], edges: [] })?.layoutOrientation).toBe('horizontal');
+    expect(sanitizeRoadmapGraphDocument({ version: 1, nodes: [], edges: [], layoutOrientation: 'vertical' })?.layoutOrientation).toBe('vertical');
+    expect(sanitizeRoadmapGraphDocument({ version: 1, nodes: [], edges: [], layoutOrientation: 'diagonal' })?.layoutOrientation).toBe('horizontal');
+  });
+
   it('never throws on hostile input', () => {
     expect(() => sanitizeRoadmapGraphDocument({ version: 1, nodes: 'nope', edges: 42, dismissed: null })).not.toThrow();
     expect(sanitizeRoadmapGraphDocument('nope')).toBeUndefined();
@@ -268,11 +274,13 @@ describe('persistence', () => {
       nodes: [{ id: 'a', normalizedText: 'a', position: { x: 10, y: 20 } }],
       edges: [{ from: 'a', to: 'b', origin: 'declared' }],
       suggestLinks: false,
+      layoutOrientation: 'vertical',
     }));
     const read = readRoadmapGraph(root, 'project_memory');
     expect(read.nodes[0]?.position).toEqual({ x: 10, y: 20 });
     expect(read.edges).toHaveLength(1);
     expect(read.suggestLinks).toBe(false);
+    expect(read.layoutOrientation).toBe('vertical');
   });
 
   it('treats a missing file as nothing to preserve', () => {

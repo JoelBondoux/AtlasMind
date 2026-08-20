@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.372.0 — Arranging the roadmap canvas
+
+Four controls on the canvas toolbar, all about making a plan readable rather than changing it.
+
+**Fit all** sits next to the zoom buttons and puts the whole plan on screen, measured from the frame the
+canvas is actually in so it stays right in a split editor. It never zooms past 100% to fill space — two
+nodes blown up to 160% are harder to read than two nodes.
+
+**Snap to grid** applies while you drag, not on drop, so the node lands on the grid while you are still
+holding it. Every layout constant is now a multiple of that grid, so a hand-placed node lines up with an
+auto-aligned one instead of sitting a few pixels off.
+
+**Auto align** re-flows the tree across or down. It works by *releasing* hand-placed positions rather
+than writing new ones, so what you see is the same deterministic layout everybody else's copy shows, and
+the next item added lands in its own column rather than in whatever gap was left. Drag any node again to
+pin it. The direction is stored in the committed plan, not in a setting — two people opening the same
+roadmap should see the same picture — and edges follow, leaving the bottom face rather than the right
+one when the tree runs downward.
+
+**Calculate tree**, carrying the AtlasMind mark, works the dependency tree out from the wording of the
+whole backlog and offers it in one go. The suggestions are not new; the bulk accept is, and it stays a
+deliberate act — a modal names how many links it would add before anything is written. Each accepted
+link keeps the rule that proposed it, and any inference that would make the plan circular is skipped and
+reported rather than saved.
+
+---
+
 ## v0.371.0 — The roadmap becomes a graph
 
 An ordered list can only say *this one matters more*. It cannot say **this one cannot start until that

@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.372.0] - 2026-08-20
+
+### Added
+
+- **Fit all.** Next to the zoom controls: zooms and pans so the whole plan is on screen at once.
+  Measured from the frame the canvas is actually in, so it stays right in a split editor and on a
+  narrow window, and it never zooms *past* 100% to fill space — a two-node plan blown up to 160% is
+  harder to read than the same two nodes at their natural size. Node heights are measured rather than
+  assumed, since a node with several links is taller than one without.
+- **Snap to grid.** A toggle beside the alignment controls. Snapping is applied while you drag rather
+  than on drop, so the node visibly lands on the grid while you are still holding it. It is a viewing
+  preference — it changes where *your* next drag lands and nothing about what the roadmap says — so it
+  is remembered per editor rather than committed to the plan.
+- **Auto align, across or down.** Re-flows the tree left-to-right (each column one step further from
+  work that can start now) or top-to-bottom, which reads better on a wide, shallow plan. Implemented by
+  *releasing* hand-placed positions rather than by writing new ones, so what you see afterwards is the
+  same deterministic layout everybody else's copy shows, and the next item added lands in its own
+  column rather than in whatever gap was left. Drag any node again to pin it. The direction is stored
+  in the committed graph file, not in a setting: two people opening the same plan should see the same
+  picture. Edges follow — in the vertical tree a link leaves the bottom face of the prerequisite and
+  enters the top face of the dependent, so direction stays readable without relying on the arrowhead.
+- **"Calculate tree" — the AtlasMind mark on the canvas toolbar.** Works the dependency tree out from
+  the wording of the whole backlog and offers it in one go, which is what makes the graph usable on a
+  plan nobody has wired up by hand. The suggestions themselves are not new — they are drawn on every
+  render and each is a click away — what this adds is the bulk accept, and that stays a deliberate human
+  act: a modal names how many links it would add and shows the first few, and nothing is written until
+  you confirm. Each accepted link keeps the rule that proposed it, so the committed mirror says
+  "accepted suggestion" rather than claiming a person drew it. Inferences are applied one at a time
+  against a growing edge set, so one that only becomes circular *because of another accepted in the same
+  batch* is skipped and reported rather than written.
+
+### Changed
+
+- The canvas row height moved from 190px to 200px so every layout constant is a multiple of the grid
+  snapping uses. Without that, turning snapping on and then auto-aligning would leave every node a few
+  pixels off the grid it claims to be on, and the first drag afterwards would jump. Pinned by test in
+  both directions.
+- The Delivered canvas keeps zoom and Fit all — a delivered plan is still something you look at — and
+  drops the arranging controls, which have nothing to arrange.
+
 ## [0.371.0] - 2026-08-20
 
 ### Added

@@ -46,6 +46,7 @@ import {
   parseRoadmapDeadline,
   type RoadmapEdge,
   type RoadmapEdgeRuleId,
+  type RoadmapLayoutOrientation,
   type RoadmapNodeRecord,
 } from './roadmapGraph.js';
 
@@ -82,11 +83,20 @@ export interface RoadmapGraphDocument {
    * first" are different statements, and only the second belongs in the plan.
    */
   dismissed: Array<{ from: string; to: string }>;
+  /**
+   * Which way the tree runs on the canvas.
+   *
+   * A property of this roadmap rather than of whoever is looking, so it lives
+   * here and not in a setting: two people opening the same plan should see the
+   * same picture, and which orientation reads better depends on the shape of the
+   * graph rather than on the person.
+   */
+  layoutOrientation: RoadmapLayoutOrientation;
   updatedAt: string;
 }
 
 export function seedRoadmapGraphDocument(now: Date = new Date()): RoadmapGraphDocument {
-  return { version: 1, nodes: [], edges: [], suggestLinks: true, dismissed: [], updatedAt: now.toISOString() };
+  return { version: 1, nodes: [], edges: [], suggestLinks: true, dismissed: [], layoutOrientation: 'horizontal', updatedAt: now.toISOString() };
 }
 
 // ── The markdown anchor ───────────────────────────────────────────────────
@@ -335,6 +345,7 @@ export function sanitizeRoadmapGraphDocument(value: unknown): RoadmapGraphDocume
     edges,
     suggestLinks: record['suggestLinks'] !== false,
     dismissed,
+    layoutOrientation: record['layoutOrientation'] === 'vertical' ? 'vertical' : 'horizontal',
     updatedAt: sanitizeTimestamp(record['updatedAt']) ?? new Date(0).toISOString(),
   };
 }
@@ -539,6 +550,8 @@ export function renderRoadmapGraphMarkdown(document: RoadmapGraphDocument): stri
     `Last updated: ${document.updatedAt}`,
     '',
     `Suggested links: ${document.suggestLinks ? 'on — AtlasMind proposes links, and nothing is applied until somebody accepts it' : 'off — only links drawn by hand are shown'}`,
+    '',
+    `Layout: ${document.layoutOrientation === 'vertical' ? 'vertical — the tree runs top to bottom' : 'horizontal — the tree runs left to right'}. Nodes moved by hand keep their position whichever way the tree runs.`,
     '',
     '## Nodes',
     '',
