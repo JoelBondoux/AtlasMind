@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.2 — The queue command, findable when you need it
+
+Two fixes to the local CI first-run path. The Rules view's borrowed-machine drawer closed the moment
+the machine read ready — which is exactly the state the journey's "Queue one trusted job" step sends
+you there in, looking for the queue command inside it. The drawer now stays open, and the executors
+card leads the view, until one job has actually completed. And the queue step now pre-empts the
+misleading `HTTP 404: workflow not found on the default branch` from `gh workflow run`: the file is
+not misplaced — GitHub only registers dispatchable workflows from the default branch, so merge the
+workflow there or push a commit to the trusted branch instead.
+
+---
 ## v0.369.1 — Published baseline refreshed
 
 The README states which Marketplace version its release notes are measured against. That line can only

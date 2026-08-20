@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.369.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.369.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,18 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.369.1
+## What's new in 0.369.2
 
 The last Marketplace publication, **v0.369.0**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The local CI queue command is findable when you need it.** The borrowed-machine drawer on
+  Pipeline → Rules closed the moment the machine read ready — exactly the state the setup journey
+  sends you there in, looking for the queue command inside it. It now stays open, with the
+  executors card leading the view, until one trusted job has actually completed. And the queue
+  step pre-empts `gh workflow run`'s misleading `HTTP 404: workflow not found on the default
+  branch`: the file is not misplaced — GitHub only registers dispatchable workflows from the
+  default branch, so merge the file there, or push a commit to the trusted branch instead.
 - **CI failures are legible again.** GitHub returns Actions logs with their colour codes
   caret-encoded — a failed Windows run carried 7,253 literal `^[` sequences and not one real escape
   byte — so the stripper had nothing to match, every code survived into the text, and the rules,

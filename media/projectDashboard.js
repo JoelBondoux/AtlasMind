@@ -7166,7 +7166,7 @@
     return `<div class="ci-studio-stack">${failingBand}${coverageBand}${missingBand}</div>`;
   }
 
-  function renderPipelineRules(routes, routing, runnerCard) {
+  function renderPipelineRules(routes, routing, runnerCard, setup) {
     const help = renderInfoHelp('pipeline.rules', {
       label: 'the routing grid',
       why: 'Each row is a kind of check; each column is somewhere it could run. The marks are your policy: one preferred route, fallbacks in order, and locked squares the policy refuses whatever anybody clicks. Nothing here executes — a rule decides where work is recommended to go, and running it is still a separate, confirmed act.',
@@ -7188,6 +7188,18 @@
       && runnerReferenced
       && runnerEntry.status !== 'available'
       && runnerEntry.status !== 'unimplemented');
+    // The machine can read ready while nothing has ever run — which is exactly
+    // the state the journey's "Queue one trusted job" step sends somebody here
+    // in, looking for the queue command. That command lives on the runner card,
+    // and a closed drawer at that moment hides the one thing the visit is for.
+    // So the first run keeps the drawer open and the card leading, until there
+    // is evidence that anything ran. Configured is not working.
+    const needsFirstRun = Boolean(!needsSetup
+      && runnerEntry
+      && runnerReferenced
+      && runnerEntry.status === 'available'
+      && setup && !setup.hasRun);
+    const runnerNeedsYou = needsSetup || needsFirstRun;
 
     const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
     const creditRow = `<div class="ci-rules-credit">
@@ -7209,8 +7221,8 @@
           ${creditRow}
           <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
         </article>`;
-      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix });
-      return `<div class="ci-studio-stack">${needsSetup ? executors + intro : intro + executors}</div>`;
+      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix });
+      return `<div class="ci-studio-stack">${runnerNeedsYou ? executors + intro : intro + executors}</div>`;
     }
 
     const matrix = routing.matrix || [];
@@ -7263,7 +7275,12 @@
       </div>
     </div>`).join('');
 
+    // With a routing file present the executors card also leads while the
+    // borrowed machine needs somebody — arriving from the journey to finish
+    // setup or to queue the first job should not start under a policy grid.
+    const executorsCard = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix });
     return `<div class="ci-studio-stack">
+      ${runnerNeedsYou ? executorsCard : ''}
       <article class="panel-card">
         <div class="ci-section-heading">
           <div>
@@ -7294,7 +7311,7 @@
         <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
       </article>
 
-      ${renderRulesExecutors(routes, runnerCard, { needsSetup, matrix: routing.matrix })}
+      ${runnerNeedsYou ? '' : executorsCard}
     </div>`;
   }
 
@@ -7309,9 +7326,21 @@
    * journey's "prepare this computer" step lands here, and what it wanted was a
    * closed disclosure below a grid. That is the state-first rule Activity
    * already follows — what needs you floats — applied to this view too.
+   *
+   * "During setup" turned out to have two halves. A machine whose blockers are
+   * all resolved reads `available`, but the journey's "Queue one trusted job"
+   * step still sends somebody here for the queue command — which lives on the
+   * runner card, inside this drawer. Closing the drawer the moment the machine
+   * is ready hid the command from exactly the visit it exists for, so the
+   * first-run state keeps it open too. It closes for good once a job has run.
    */
   function renderRulesExecutors(routes, runnerCard, options) {
     const needsSetup = Boolean(options && options.needsSetup);
+    // Ready but never run. The drawer stays open in this state too, because the
+    // queue command and the start plan live on the runner card inside it, and
+    // this is precisely when somebody arrives looking for them.
+    const needsFirstRun = Boolean(options && options.needsFirstRun);
+    const drawerOpen = needsSetup || needsFirstRun;
     // Which executors your rules actually depend on — derived, not declared. A
     // route no rule prefers or falls back to is one you can ignore, and saying
     // "needs setup" against it reads as a chore you have to finish. Deriving it
@@ -7376,19 +7405,24 @@
       </div>`;
     }).join('');
 
-    return `<article class="panel-card${needsSetup ? ' ci-executors-setup' : ''}">
+    return `<article class="panel-card${drawerOpen ? ' ci-executors-setup' : ''}">
       <div class="ci-section-heading">
         <div>
-          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : ''}</p>
-          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine' : 'What can run a check on this machine')}</h3>
+          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : needsFirstRun ? ' · next: first run' : ''}</p>
+          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine'
+            : needsFirstRun ? 'The borrowed machine is ready — queue one trusted job'
+              : 'What can run a check on this machine')}</h3>
           ${needsSetup ? '<p class="stat-detail">The next action and everything blocking it are below, open. Nothing here starts a runner — every step still asks first.</p>' : ''}
+          ${needsFirstRun ? '<p class="stat-detail">The queue command and the start plan are below, open, until one job has actually run. Queueing runs nothing on this machine — lending it to the job still asks first.</p>' : ''}
         </div>
       </div>
       <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
-      <details class="ci-progressive-details ci-runner-drawer"${needsSetup ? ' open' : ''}>
+      <details class="ci-progressive-details ci-runner-drawer"${drawerOpen ? ' open' : ''}>
         <summary>${escapeHtml(needsSetup
           ? 'Borrowed machine — the next step, and what is blocking it'
-          : 'Borrowed machine — setup, capacity and safety detail')}</summary>
+          : needsFirstRun
+            ? 'Borrowed machine — the queue command and the start plan'
+            : 'Borrowed machine — setup, capacity and safety detail')}</summary>
         <div class="ci-progressive-details-body">${runnerCard}</div>
       </details>
     </article>`;
@@ -8814,7 +8848,7 @@
         <div><span class="ci-workflow-label">GitHub queue · repository action</span><strong>Queue the same commit that is open locally</strong></div>
         <ol class="ci-queue-steps">
           <li><strong>Commit and push first.</strong><span>AtlasMind queues the commit already pushed to the <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> branch. It cannot include uncommitted or unpushed files.</span></li>
-          <li><strong>Queue from this repository’s VS Code terminal.</strong><span>This complete GitHub CLI command works in PowerShell, Command Prompt, bash, and zsh. It installs no software and changes no local files.</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to terminal — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div></li>
+          <li><strong>Queue from this repository’s VS Code terminal.</strong><span>This complete GitHub CLI command works in PowerShell, Command Prompt, bash, and zsh. It installs no software and changes no local files.</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to terminal — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div><p class="stat-detail">If GitHub answers <em>HTTP 404: workflow not found on the default branch</em>, nothing is misplaced — the file belongs in <code>.github/workflows/</code>, and the URL in that error is GitHub’s API address, not a folder. GitHub only registers a dispatchable workflow once the file exists on the repository’s <strong>default branch</strong>. Merge it there first, or push a commit to <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> instead — a push runs the workflow from the pushed commit itself, no registration needed.</p></li>
           <li><strong>Return here after GitHub confirms the dispatch.</strong><span>Select <em>Check GitHub queue → review start plan</em>. This checks the queue first; it does not lend the machine until you approve the separate plan.</span></li>
         </ol>
         <p class="stat-detail">A waiting self-hosted job may be reported by GitHub as “pending”; AtlasMind checks both pending and queued runs.</p>
@@ -9076,7 +9110,7 @@
         stages: (delivery.stages && delivery.stages.stages) || [],
       })}${managerCard}${renderPipelinePackages(delivery)}</div>`,
       tests: renderPipelineTests(snapshot.testing || {}),
-      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard),
+      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup),
     }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 
     return `${pageSectionOpen('pipeline')}

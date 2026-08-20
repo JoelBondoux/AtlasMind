@@ -353,6 +353,14 @@ from the webview.
    on Windows, macOS, or Linux and does not press Enter; review the line before running it. The command uses
    only GitHub CLI syntax and is the same in PowerShell, Command Prompt, bash, and zsh.
 
+   If the dispatch answers `HTTP 404: workflow trusted-local-ci.yml not found on the default branch`,
+   nothing is misplaced. The URL in that error is GitHub's API address for the workflow, not a folder, and
+   the file belongs in `.github/workflows/` — what is missing is registration: GitHub only registers a
+   dispatchable workflow once the file exists on the repository's **default branch**. Merge the workflow
+   file there first, or trigger by pushing a commit to the trusted branch instead — a push runs the
+   workflow from the pushed commit itself, with no registration needed. Either way, `--ref` can only name
+   a branch that actually exists on the remote.
+
 7. When the terminal reports that it created the dispatch, select **Check GitHub queue → review start
    plan**. A waiting self-hosted workflow may be `pending` while its job is `queued`; AtlasMind checks both.
    Queue discovery happens in this host-owned preflight and a not-yet-visible or mismatched run returns to
