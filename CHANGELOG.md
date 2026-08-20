@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.4] - 2026-08-20
+
+### Changed
+
+- **Published baseline refreshed.** The README's release-notes baseline now names **v0.369.3**, the
+  Marketplace publication just shipped. This line can only be written after the tag exists and the
+  publish has succeeded, so it is always a commit of its own.
+
 ## [0.369.3] - 2026-08-20
 
 ### Changed

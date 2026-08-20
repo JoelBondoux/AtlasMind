@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.4 — Published baseline refreshed
+
+The README states which Marketplace version its release notes are measured against, and that line can
+only be written after the publish has actually happened. It now names **v0.369.3**.
+
+---
 ## v0.369.3 — Delivery register catches up
 
 A record-keeping release: the Delivery page's register now carries the Local → Integration promotion
