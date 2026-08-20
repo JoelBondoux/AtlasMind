@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.3] - 2026-08-20
+
+### Changed
+
+- **Delivery register updated.** The Delivery page recorded the Local → Integration promotion of
+  0.369.2 in `project_memory/operations/delivery-history.json`, and the delivery state and runbook
+  mirror now carry it as the last promotion on that path.
+
 ## [0.369.2] - 2026-08-20
 
 ### Fixed

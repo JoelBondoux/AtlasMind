@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.3 — Delivery register catches up
+
+A record-keeping release: the Delivery page's register now carries the Local → Integration promotion
+of 0.369.2 — the promotion history, the delivery state, and the runbook mirror all agree on what was
+promoted and when.
+
+---
 ## v0.369.2 — The queue command, findable when you need it
 
 Two fixes to the local CI first-run path. The Rules view's borrowed-machine drawer closed the moment

@@ -75,4 +75,4 @@ Every promotion runs the same guarded sequence:
 
 ---
 
-_Last updated: 2026-08-19T01:13:47.929Z._
+_Last updated: 2026-08-20T11:34:08.300Z._
