@@ -302,6 +302,13 @@ export function buildLocalCiSetupPlan(state: LocalCiSetupState): SetupStep[] {
         text: `Commit and push to ${state.trustedBranch}, or queue the workflow by hand. GitHub can only run the commit already pushed — never uncommitted or unpushed local files.`,
         ...(state.queueCommand ? { command: state.queueCommand } : {}),
       },
+      {
+        // The 404 this pre-empts reads like a missing file and is not one: the
+        // URL in GitHub's error is its API address for the workflow, not a
+        // folder, and the file belongs in .github/workflows. What is actually
+        // missing is registration, which only the default branch provides.
+        text: `If \`gh workflow run\` answers "HTTP 404: workflow not found on the default branch", the file is fine where it is — GitHub only registers a dispatchable workflow once it exists on the repository's default branch. Merge ${state.workflowFile} there first, or push a commit to ${state.trustedBranch} instead: a push runs the workflow from the pushed commit itself, no registration needed.`,
+      },
       ...(state.queueCommand ? [] : [{
         text: 'AtlasMind cannot show the queue command: the configured workflow filename or trusted branch is not a value it will put on a command line. Fix `atlasmind.ci.localRunner.workflowFile` and `atlasmind.ci.localRunner.trustedBranch` first.',
       }]),

@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.369.3] - 2026-08-20
+
+### Changed
+
+- **Delivery register updated.** The Delivery page recorded the Local → Integration promotion of
+  0.369.2 in `project_memory/operations/delivery-history.json`, and the delivery state and runbook
+  mirror now carry it as the last promotion on that path.
+
+## [0.369.2] - 2026-08-20
+
+### Fixed
+
+- **The queue command was hidden exactly when somebody came looking for it.** The Rules view kept
+  the borrowed-machine drawer open while the runner had blockers, and closed it the moment the
+  machine read ready — but ready-and-never-run is precisely the state the journey's "Queue one
+  trusted job → See the queue command" step sends you here in, and the command lives on the runner
+  card inside that drawer. The drawer now also stays open, and the executors card leads the view
+  with a "queue one trusted job" heading, until one job has actually completed. Configured is not
+  working, and the page now behaves that way.
+- **`gh workflow run` answering `HTTP 404: workflow not found on the default branch` reads like a
+  wrong folder, and nothing explained it.** The URL in GitHub's error is its API address for the
+  workflow, not a path — the file belongs in `.github/workflows/` — and what is actually missing is
+  registration: GitHub only registers a dispatchable workflow once the file exists on the
+  repository's default branch, which a workflow freshly scaffolded on a feature branch never does.
+  The queue step on the Pipeline page, the `/localci` walkthrough's first-run step, and the local
+  CI guide now all pre-empt it, with the same fix in the same words: merge the file to the default
+  branch, or push a commit to the trusted branch — a push runs the workflow from the pushed commit
+  itself, no registration needed.
+
+## [0.369.1] - 2026-08-19
+
+### Changed
+
+- **The README names v0.369.0 as its published baseline.** The line states the last Marketplace
+  publication, and the tag it must name does not exist until the release is tagged — so this can
+  only ever be a commit of its own, after the publish has actually succeeded. Written now that it
+  has: pre-empting it would have the README claim a version that might never have shipped.
+
+
 ## [0.369.0] - 2026-08-19
 
 ### Fixed

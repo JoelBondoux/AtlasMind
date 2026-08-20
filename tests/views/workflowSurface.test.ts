@@ -1425,12 +1425,43 @@ describe('Rules — setup is findable, and optional stays optional', () => {
    * closed disclosure below a policy grid.
    */
   it('opens the borrowed-machine drawer and leads the view while setup is unfinished', () => {
-    expect(executors).toContain("${needsSetup ? ' open' : ''}");
+    expect(executors).toContain("${drawerOpen ? ' open' : ''}");
     expect(executors).toContain('the next step, and what is blocking it');
     expect(executors).toContain('ci-executors-setup');
     // Leading the view, not sitting under the grid.
-    expect(rules).toContain('needsSetup ? executors + intro : intro + executors');
-    expect(rules).toContain('needsSetup ? executors');
+    expect(rules).toContain('runnerNeedsYou ? executors + intro : intro + executors');
+    expect(rules).toContain("runnerNeedsYou ? executorsCard : ''");
+  });
+
+  /**
+   * The second half of the same regression. A machine whose blockers are all
+   * resolved reads `available`, but the journey's "Queue one trusted job" step
+   * still sends somebody here for the queue command — which lives on the
+   * runner card, inside the drawer. Closing the drawer the moment the machine
+   * is ready hid the command from exactly the visit it exists for.
+   */
+  it('keeps the drawer open and the card leading until one job has actually run', () => {
+    expect(rules).toContain("runnerEntry.status === 'available'");
+    expect(rules).toContain('setup && !setup.hasRun');
+    expect(executors).toContain('const drawerOpen = needsSetup || needsFirstRun');
+    expect(executors).toContain('queue one trusted job');
+    expect(executors).toContain('the queue command and the start plan');
+    // The Pipeline page hands Rules the same setup reading the journey uses,
+    // so the two surfaces cannot disagree about whether anything has run.
+    expect(WEBVIEW_SCRIPT).toContain('renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup)');
+  });
+
+  /**
+   * `gh workflow run` resolves workflows through GitHub's registry, which only
+   * knows files on the default branch — so a freshly scaffolded workflow
+   * answers HTTP 404 with an API URL that reads like a wrong folder. The queue
+   * step says so where the command is offered, because everything about that
+   * error suggests moving a file that is already in the right place.
+   */
+  it('pre-empts the dispatch 404 in the queue step itself', () => {
+    expect(WEBVIEW_SCRIPT).toContain('HTTP 404: workflow not found on the default branch');
+    expect(WEBVIEW_SCRIPT).toContain('GitHub only registers a dispatchable workflow once the file exists');
+    expect(WEBVIEW_SCRIPT).toContain('a push runs the workflow from the pushed commit itself');
   });
 
   it('offers the setup action on the row, not only inside the drawer', () => {

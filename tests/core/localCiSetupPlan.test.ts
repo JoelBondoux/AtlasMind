@@ -194,6 +194,24 @@ describe('local CI setup plan', () => {
   });
 
   /**
+   * `gh workflow run` resolves the workflow through GitHub's registry, and
+   * GitHub only registers a dispatchable workflow from the default branch. A
+   * file freshly scaffolded on a feature branch therefore answers HTTP 404 —
+   * with an API URL that reads like a wrong folder — and the guide must
+   * pre-empt that, because everything about the error suggests moving a file
+   * that is already in the right place.
+   */
+  it('explains the default-branch registration rule behind the dispatch 404', () => {
+    const firstRun = buildLocalCiSetupPlan(everythingReady({ trustedBranch: 'main', workflowFile: 'ci-trusted.yml' }))
+      .find(step => step.id === 'firstRun');
+    const note = firstRun?.guidance?.find(line => line.text.includes('default branch'));
+    expect(note?.text).toContain('HTTP 404');
+    expect(note?.text).toContain('ci-trusted.yml');
+    expect(note?.text).toContain('push a commit to main');
+    expect(note?.command).toBeUndefined();
+  });
+
+  /**
    * The command is built and validated by `buildLocalCiQueueInvocation`, which
    * refuses a filename or branch it would not put on a command line. When it
    * refuses, the guide says so rather than printing something unusable — and

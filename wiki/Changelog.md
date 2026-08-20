@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.369.3 — Delivery register catches up
+
+A record-keeping release: the Delivery page's register now carries the Local → Integration promotion
+of 0.369.2 — the promotion history, the delivery state, and the runbook mirror all agree on what was
+promoted and when.
+
+---
+## v0.369.2 — The queue command, findable when you need it
+
+Two fixes to the local CI first-run path. The Rules view's borrowed-machine drawer closed the moment
+the machine read ready — which is exactly the state the journey's "Queue one trusted job" step sends
+you there in, looking for the queue command inside it. The drawer now stays open, and the executors
+card leads the view, until one job has actually completed. And the queue step now pre-empts the
+misleading `HTTP 404: workflow not found on the default branch` from `gh workflow run`: the file is
+not misplaced — GitHub only registers dispatchable workflows from the default branch, so merge the
+workflow there or push a commit to the trusted branch instead.
+
+---
+## v0.369.1 — Published baseline refreshed
+
+The README states which Marketplace version its release notes are measured against. That line can only
+be written after the publish has actually happened — the tag it names does not exist until the release
+is tagged — so it is always a commit of its own. It now names **v0.369.0**.
+
+---
 ## v0.369.0 — CI failures you can actually read, and routes between pages
 
 GitHub returns Actions logs with their colour codes *caret-encoded* — the two literal characters `^` and
