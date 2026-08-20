@@ -47,6 +47,7 @@ import {
   type RoadmapEdge,
   type RoadmapEdgeRuleId,
   type RoadmapLayoutOrientation,
+  type RoadmapNodeOrigin,
   type RoadmapNodeRecord,
 } from './roadmapGraph.js';
 
@@ -231,6 +232,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
   const completedAt = sanitizeTimestamp(record['completedAt']);
   const completedBy = sanitizeId(record['completedBy']);
   const position = sanitizePosition(record['position']);
+  const origin = sanitizeRoadmapOrigin(record['origin']);
 
   return {
     id,
@@ -248,6 +250,37 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
     ...(completedAt === undefined ? {} : { completedAt }),
     ...(completedBy === undefined ? {} : { completedBy }),
     ...(position === undefined ? {} : { position }),
+    ...(origin === undefined ? {} : { origin }),
+  };
+}
+
+/**
+ * The register a roadmap item was raised from.
+ *
+ * Refused entirely rather than partially repaired when the kind or the id is
+ * unreadable: a provenance line naming a register nobody can look the finding up
+ * in is worse than no provenance, because it reads as a link somebody could
+ * follow.
+ */
+function sanitizeRoadmapOrigin(value: unknown): RoadmapNodeOrigin | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const kind = record['kind'];
+  if (kind !== 'gap' && kind !== 'debt' && kind !== 'risk') {
+    return undefined;
+  }
+  const sourceId = clampString(record['sourceId'], 120);
+  if (sourceId === undefined || !/^[\w.:/-]+$/.test(sourceId)) {
+    return undefined;
+  }
+  const raisedAt = sanitizeTimestamp(record['raisedAt']);
+  return {
+    kind,
+    sourceId,
+    sourceTitle: clampString(record['sourceTitle'], 300) ?? '',
+    ...(raisedAt === undefined ? {} : { raisedAt }),
   };
 }
 

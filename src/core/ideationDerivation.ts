@@ -80,12 +80,23 @@ export interface IdeationConnectionSource {
  * on positional ids. `roadmapText` is kept alongside it so a broken link can say
  * what it used to point at.
  */
+/**
+ * There is deliberately no `issueNumber` here.
+ *
+ * One was declared and sanitized for several releases, and nothing ever wrote
+ * it: a dead field, which the project's own dead-field methodology exists to
+ * catch. Removing it rather than filling it in is the deliberate choice, and the
+ * reasoning is already in `roadmapIssueDraft` — the chain is followable in one
+ * direction (card → roadmap item → issue, each step naming the one before it),
+ * and a number copied back onto the card goes stale the moment an issue is
+ * transferred, deleted, or filed from an edited draft that no longer matches the
+ * item it came from. A field that would be wrong some of the time is worse than
+ * no field, because nothing on the card would say which.
+ */
 export interface IdeationDerivedRecord {
   readonly roadmapText: string;
   readonly roadmapNormalized: string;
   readonly derivedAt: string;
-  /** Set once the roadmap item has been filed as an issue. */
-  readonly issueNumber?: number;
 }
 
 export interface CardDerivation {

@@ -613,6 +613,19 @@ the panel is closed and recreated. Folded local/upstream cards derive activity f
 visible commits; recency sorting therefore describes the logical branch rather than always describing its
 local ref.
 
+Three registers record things somebody found and wrote down — the gap analysis, the tech-debt register
+and the risk register — and every finding in all three can become work. **Add to roadmap** and **Raise
+as issue** sit on each finding. The page names a finding by an opaque key and nothing else; the host
+resolves it against the snapshot it last published, derives the wording from a declared table, and shows
+the exact line in a confirmation before anything reaches a tracked file. An issue draft opens in the
+composer, where the existing confirmation is still the only route to GitHub. A prefix is added only where
+it changes what the sentence commits to, and provenance runs both ways: the raised item says where it
+came from and routes back, the register says "on the roadmap" rather than letting the same finding be
+raised twice. That link is stored on the roadmap side, because the gap analysis is regenerated wholesale
+on every run and a link written there would not survive the next scan. Each register still decides what
+*outstanding* means for itself — an accepted risk is a closed decision, accepted debt is work somebody
+agreed to carry.
+
 The Roadmap page holds two different facts about the same backlog, and keeps them apart. The
 **prioritised backlog** is an ordered list, and its order is the only thing that sets Atlas's default
 next-work weighting. The **dependency canvas** answers a question a list cannot: which item cannot start
@@ -760,7 +773,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), and the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), and the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

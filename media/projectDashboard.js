@@ -1422,6 +1422,16 @@
       vscode.postMessage({ type: 'roadmapDeriveLinks' });
       return;
     }
+    if (action === 'raise-register-work' || action === 'draft-register-issue') {
+      // `kind::id` and nothing else. The host derives the wording, confirms it,
+      // and owns every write — a line that lands in a tracked file or on somebody
+      // else's tracker is never composed here.
+      vscode.postMessage({
+        type: action === 'raise-register-work' ? 'raiseRegisterWork' : 'draftRegisterIssue',
+        payload: String(payload || ''),
+      });
+      return;
+    }
     if (action === 'roadmap-add') {
       state.activePage = 'roadmap';
       state.roadmapView = 'list';
@@ -3645,6 +3655,39 @@
     state.pendingDashboardFocus = null;
   }
 
+  /**
+   * The two hand-offs every register finding shares: onto the roadmap, or into
+   * an issue.
+   *
+   * One control for gaps, debt and risk, because they are the same act. The
+   * webview sends `kind::id` and nothing else — the host derives the wording,
+   * shows it, and owns every write — so a card here can name a finding and can
+   * never compose the line that lands in a tracked file.
+   *
+   * When the finding is already on the roadmap it says so instead of offering to
+   * add it again: a register that lets you raise the same gap three times is
+   * worse than one that never let you raise it at all.
+   */
+  function renderRegisterHandoff(kind, id) {
+    const key = kind + '::' + id;
+    const raised = registerRaisedOn(kind, id);
+    const roadmapControl = raised
+      ? `<span class="tag tag-good" title="${escapeAttr('Already raised as the roadmap item “' + raised.text + '”. The roadmap remains the source of truth for whether it is still wanted.')}">on the roadmap</span>`
+      : `<button type="button" class="action-link" data-action="raise-register-work" data-payload="${escapeAttr(key)}"
+          title="${escapeAttr('Add this to the roadmap as planned work. You will see the exact line before anything is written.')}">Add to roadmap</button>`;
+    return roadmapControl
+      + `<button type="button" class="action-link" data-action="draft-register-issue" data-payload="${escapeAttr(key)}"
+          title="${escapeAttr('Draft a GitHub issue from this finding. It opens in the composer for you to review; nothing is posted until you confirm.')}">Raise as issue</button>`;
+  }
+
+  /** The roadmap item a finding became, if it became one. */
+  function registerRaisedOn(kind, id) {
+    const graph = roadmapGraph();
+    const nodes = (graph.active || []).concat(graph.completed || []);
+    const found = nodes.find(node => node.origin && node.origin.kind === kind && node.origin.sourceId === id);
+    return found ? { text: found.text, id: found.id } : null;
+  }
+
   function renderDirectorOwnerBadge(kind, stableId) {
     const cfg = state.snapshot && state.snapshot.director && state.snapshot.director.config;
     if (!cfg) { return ''; }
@@ -3712,6 +3755,7 @@
                     <div class="tag-row">
                       ${renderDirectorOwnerControl('gap', item.id)}
                       ${renderAtlasDiscussAction('gap-resolve', item.id, 'Ask AtlasMind to resolve this gap', { intent: 'fix', title: 'Ask AtlasMind to inspect and resolve this gap-analysis item' })}
+                      ${renderRegisterHandoff('gap', item.id)}
                       <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
                     </div>
@@ -6749,6 +6793,7 @@
         <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
           ${renderDirectorOwnerControl('debt', entry.id)}
+          ${renderRegisterHandoff('debt', entry.id)}
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
@@ -10453,6 +10498,14 @@
    * the same lattice an auto-aligned node does.
    */
   const RM_GRID = 20;
+  /** How a raised-from-a-register item names its origin, and where it routes. */
+  const REGISTER_ORIGIN_LABEL = {
+    gap: 'the gap analysis',
+    debt: 'the tech-debt register',
+    risk: 'the risk register',
+  };
+  const REGISTER_ORIGIN_SHORT = { gap: 'gap analysis', debt: 'tech debt', risk: 'risk' };
+  const REGISTER_ORIGIN_PAGE = { gap: 'gapAnalysis', debt: 'debt', risk: 'risk' };
   /** Breathing room left around the content when fitting the whole plan. */
   const RM_FIT_PADDING = 48;
 
@@ -10826,6 +10879,7 @@
           ${renderRoadmapScheduleChip(node)}
           ${node.blockedBy.length > 0 ? `<span class="rm-chip rm-chip-blocked" title="${escapeAttr(`Waiting on ${node.blockedBy.length} item${node.blockedBy.length === 1 ? '' : 's'} that ${node.blockedBy.length === 1 ? 'is' : 'are'} not done.`)}">blocked ×${node.blockedBy.length}</span>` : ''}
           ${owner ? `<span class="rm-chip" title="${escapeAttr(node.completedBy ? 'Recorded as completed by this person.' : 'Recorded as added by this person.')}">${escapeHtml(owner)}</span>` : ''}
+          ${node.origin ? `<button type="button" class="rm-chip rm-chip-origin" title="${escapeAttr('Raised from ' + REGISTER_ORIGIN_LABEL[node.origin.kind] + ': “' + node.origin.sourceTitle + '”. That register remains the source of truth for whether it is still open.')}" data-action="page" data-payload="${escapeAttr(REGISTER_ORIGIN_PAGE[node.origin.kind])}">from ${escapeHtml(REGISTER_ORIGIN_SHORT[node.origin.kind])}</button>` : ''}
         </div>
         <div class="rm-node-actions">
           ${linking
@@ -11073,6 +11127,7 @@
         ` : ''}
         <div class="tag-row">
           ${isOpen ? renderDirectorOwnerControl('risk', finding.id) : ''}
+          ${isOpen ? renderRegisterHandoff('risk', finding.id) : ''}
           ${isOpen ? `
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|accepted')}" title="Record that a human has consciously accepted this risk">Accept</button>
             <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|mitigated')}" title="Mark as mitigated">Mitigated</button>

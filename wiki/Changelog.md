@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.373.0 — The registers can become work
+
+AtlasMind keeps three registers of things somebody found and wrote down: the gap analysis, the
+tech-debt register and the risk register. All three fed the score and the attention band, and none of
+them could reach the roadmap or the issue tracker. The Gap Analysis page's own navigation even said
+*"Turn a gap into planned work"* and routed you to the Roadmap, where you retyped it by hand.
+
+Every finding now carries **Add to roadmap** and **Raise as issue**. Both are derived rather than
+typed: the page names a finding and nothing else, the host works out the wording from a declared table
+and shows the exact line before anything is written, and an issue draft opens in the composer where the
+existing confirmation is still the only route to GitHub. A prefix is added only where it changes what
+the sentence commits to — `Close:` a gap, `Pay down:` debt, `Mitigate:` a risk, that last word matching
+what the ideation board already says so one backlog does not carry two vocabularies.
+
+Provenance runs both ways. A raised item shows where it came from and routes back to the register; the
+register shows "on the roadmap" rather than offering to raise the same finding twice. Each register
+still decides what *outstanding* means for itself, because only it knows: an accepted risk is a closed
+decision, while accepted debt is work somebody agreed to carry.
+
+One removal in the same pass. `issueNumber` on an ideation card was declared, sanitized, and never
+written by anything — a dead field. It is gone rather than filled in: the chain is followable in one
+direction already, and a number copied backwards goes stale the moment an issue is transferred or
+filed from an edited draft.
+
+---
+
 ## v0.372.0 — Arranging the roadmap canvas
 
 Four controls on the canvas toolbar, all about making a plan readable rather than changing it.

@@ -151,6 +151,28 @@ export interface RoadmapNodeRecord {
   completedBy?: string;
   /** Canvas position. Absent means the layout pass places it. */
   position?: { x: number; y: number };
+  /**
+   * The register finding this item was raised from, where there is one.
+   *
+   * Stored on the *roadmap* side rather than on the register's, because the
+   * registers do not all survive a re-scan: the gap analysis is regenerated
+   * wholesale from a markdown file, so provenance written there would be
+   * destroyed the next time it ran. The roadmap node has a durable id and keeps
+   * its record through a rename, so it is the end of the link that can actually
+   * hold one — and the register page derives "already on the roadmap" by joining
+   * back on `sourceId`.
+   */
+  origin?: RoadmapNodeOrigin;
+}
+
+/** Where a roadmap item came from, when it was not typed in by hand. */
+export interface RoadmapNodeOrigin {
+  kind: 'gap' | 'debt' | 'risk';
+  /** The register's own id. Content-derived in all three, so it survives a re-scan. */
+  sourceId: string;
+  /** What the finding said, so the item can explain itself without the register. */
+  sourceTitle: string;
+  raisedAt?: string;
 }
 
 /** How urgent a node is, given its deadline and the work still ahead of it. */
@@ -206,6 +228,8 @@ export interface RoadmapGraphNode {
   addedBy?: string;
   completedAt?: string;
   completedBy?: string;
+  /** The register finding this was raised from, where there is one. */
+  origin?: RoadmapNodeOrigin;
   position: { x: number; y: number };
   positionSource: 'declared' | 'derived';
   /** Longest-path depth from a node with no prerequisites. Drives the columns. */
@@ -887,6 +911,7 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
       ...(record?.addedBy === undefined ? {} : { addedBy: record.addedBy }),
       ...(record?.completedAt === undefined ? {} : { completedAt: record.completedAt }),
       ...(record?.completedBy === undefined ? {} : { completedBy: record.completedBy }),
+      ...(record?.origin === undefined ? {} : { origin: record.origin }),
       position: { x: 0, y: 0 },
       positionSource: 'derived',
       depth: depths.get(item.id) ?? 0,

@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.373.0] - 2026-08-20
+
+### Added
+
+- **A gap, a debt entry or a risk finding can now become work.** All three registers fed the
+  operational score and the attention band, and none of them could reach the roadmap or the issue
+  tracker. The Gap Analysis page's own nav strip said *"Turn a gap into planned work"* and routed you
+  to the Roadmap, where you retyped it by hand with no link in either direction. Every finding in all
+  three registers now carries **Add to roadmap** and **Raise as issue**.
+- **Both hand-offs are derived, not typed.** The webview sends `kind::id` and nothing else; the host
+  resolves that against the findings the last snapshot actually published, derives the wording from a
+  declared table, and shows the exact line in a modal before anything reaches a tracked file. No model
+  is in the path, so the same finding yields a byte-identical roadmap line and issue draft — which is
+  what makes them reviewable. Issue drafts open in the composer; the existing create flow's
+  confirmation remains the only route to GitHub.
+- **A prefix is added only where it changes what the sentence commits to.** A register records a
+  *finding* — "no CODEOWNERS file", "TODO: replace this shim" — and the work is closing it, not having
+  it: `Close:` for a gap, `Pay down:` for debt, `Mitigate:` for a risk. That last one deliberately
+  matches the word the ideation board already uses, pinned by test so two vocabularies cannot drift
+  into meaning different things in the same backlog.
+- **Provenance both ways.** A raised item carries a "from gap analysis" chip on the canvas that routes
+  back to the register, and the register shows "on the roadmap" instead of offering to add the same
+  finding twice. The link is stored on the *roadmap* side, because the gap analysis is regenerated
+  wholesale on every run and a link written there would not survive the next scan; the roadmap node has
+  a durable id and keeps its record through a rename.
+- **New: `src/core/registerHandoff.ts`** — one rule table for all three registers, rather than three
+  that would eventually disagree about how a finding becomes a sentence. Pure and unit-tested.
+
+### Changed
+
+- Each register still decides what *outstanding* means for itself, because only it knows: an `accepted`
+  risk is a decision somebody took and closed, while an `accepted` debt entry is work somebody agreed
+  to carry. The shared module deliberately refuses to make that call.
+
+### Removed
+
+- **`IdeationDerivedRecord.issueNumber`**, which was declared and sanitized for several releases and
+  never written by anything — a dead field, of exactly the kind this project's own dead-field
+  methodology exists to catch. Removed rather than filled in: the reasoning was already recorded in
+  `roadmapIssueDraft`, which chose a followable chain (card → roadmap item → issue, each step naming
+  the one before it) over a number copied backwards that goes stale the moment an issue is transferred,
+  deleted, or filed from an edited draft. A field that would be wrong some of the time is worse than no
+  field, because nothing on the card would say which. A value written by an older build is dropped on
+  read.
+
 ## [0.372.0] - 2026-08-20
 
 ### Added

@@ -60,6 +60,12 @@ import {
 } from '../core/workflowCurriculum.js';
 import { deriveRoadmapIssueDraft } from '../core/roadmapIssueDraft.js';
 import {
+  deriveRegisterIssueDraft,
+  deriveRegisterRoadmapText,
+  type RegisterFinding,
+  type RegisterKind,
+} from '../core/registerHandoff.js';
+import {
   buildCardEvidenceSection,
   collectCardConnectionSources,
   countUnrealizedByKind,
@@ -342,6 +348,7 @@ import {
   type RoadmapEdge,
   type RoadmapFocus,
   type RoadmapGraphNode,
+  type RoadmapNodeOrigin,
   type RoadmapNodeRecord,
 } from '../core/roadmapGraph.js';
 import {
@@ -790,6 +797,18 @@ type ProjectDashboardMessage =
    * outward or irreversible action on this page.
    */
   | { type: 'roadmapDeriveLinks' }
+  /**
+   * Raise a gap, a debt entry or a risk finding as planned work.
+   *
+   * Carries `kind::id` and nothing else. The host resolves that against the
+   * findings the last snapshot actually published, derives the wording itself,
+   * and shows the exact line before anything reaches a tracked file — so the
+   * webview can name a finding and can never compose the sentence that gets
+   * committed.
+   */
+  | { type: 'raiseRegisterWork'; payload: string }
+  /** The same contract, for the issue composer. Nothing is posted here either. */
+  | { type: 'draftRegisterIssue'; payload: string }
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
@@ -1144,7 +1163,7 @@ interface IdeationCardRecord {
   color: string;
   imageSources: string[];
   /** What this card became, for showing a roadmap item's origin. */
-  derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string; issueNumber?: number };
+  derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string };
   /** Archived cards do not count as live board state. */
   archivedAt?: string;
   createdAt: string;
@@ -4032,6 +4051,21 @@ export class ProjectDashboardPanel {
    */
   private taxonomyState: { labels: LabelRecord[]; milestones: MilestoneRecord[] } | undefined;
 
+  /**
+   * The register findings the last published snapshot actually contained.
+   *
+   * The webview names a finding by `kind::id` and nothing else; this is what the
+   * host resolves that against — the same pattern the Director's assignment
+   * tokens already use, and for the same reason. Re-collecting a register on
+   * every click would mean three fresh filesystem passes to answer a question the
+   * snapshot just answered, and re-deriving a *gap* is not even possible: its
+   * heuristic items are built from twenty inputs assembled during a full refresh.
+   *
+   * Replaced wholesale on every snapshot, so a stale card cannot raise a finding
+   * that has since been resolved.
+   */
+  private registerFindings = new Map<string, { finding: RegisterFinding; outstanding: boolean }>();
+
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -4480,6 +4514,12 @@ export class ProjectDashboardPanel {
         break;
       case 'roadmapDeriveLinks':
         await this.handleRoadmapDeriveLinks();
+        break;
+      case 'raiseRegisterWork':
+        await this.handleRaiseRegisterWork(message.payload);
+        break;
+      case 'draftRegisterIssue':
+        await this.handleDraftRegisterIssue(message.payload);
         break;
       case 'createRoadmapGate':
         await this.handleCreateRoadmapGate();
@@ -5104,6 +5144,7 @@ export class ProjectDashboardPanel {
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
       this.dashboardWorkTargets = new Map(snapshot.workAssignments.targets.map(target => [target.token, target]));
+      this.registerFindings = collectRegisterFindings(snapshot);
       // Held so a stage id posted by the webview resolves against the same
       // assessment the page is showing, rather than against a fresh one that
       // may already disagree with what the button was drawn from.
@@ -9459,6 +9500,187 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Read the roadmap document once, with its gates and items already parsed. */
+  // ── Registers → planned work ────────────────────────────────────
+
+  /**
+   * Resolve what the webview named, against what the host last published.
+   *
+   * An unknown key is a stale card, which is the ordinary case rather than an
+   * attack: somebody clicks a gap that a re-run has since dropped. It is refused
+   * with the reason, never guessed at.
+   */
+  private resolveRegisterFinding(key: unknown): { finding: RegisterFinding; outstanding: boolean } | undefined {
+    if (typeof key !== 'string') {
+      return undefined;
+    }
+    const resolved = this.registerFindings.get(key);
+    if (resolved === undefined) {
+      void vscode.window.showWarningMessage(
+        'That finding could not be found. It may have been resolved or replaced since this page was drawn — refresh and try again.',
+      );
+      return undefined;
+    }
+    return resolved;
+  }
+
+  /**
+   * Raise a register finding as a roadmap item.
+   *
+   * Mirrors the ideation board's "Add to roadmap" step for step, because it is
+   * the same act: the host derives the wording, shows the exact line in a modal,
+   * writes through the one roadmap writer, and records provenance **only after
+   * the write succeeded** — an item claiming an origin that does not exist is
+   * worse than one claiming nothing.
+   *
+   * The provenance is stored on the roadmap side rather than on the register's,
+   * because the gap analysis is regenerated wholesale on every run: a link
+   * written into that file would not survive the next scan.
+   */
+  private async handleRaiseRegisterWork(key: string): Promise<void> {
+    const resolved = this.resolveRegisterFinding(key);
+    if (resolved === undefined) {
+      return;
+    }
+    const { finding, outstanding } = resolved;
+    const derivation = deriveRegisterRoadmapText(finding);
+    if (derivation.text === '') {
+      void vscode.window.showWarningMessage('That finding has no text to raise as work.');
+      return;
+    }
+
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    if (workspaceRoot === undefined) {
+      return;
+    }
+
+    // An already-on-the-roadmap check before the dialog rather than after it:
+    // offering to add a duplicate and only saying so afterwards is how a backlog
+    // acquires the same item three times.
+    const existing = readRoadmapGraphFile(workspaceRoot, ssotPath).config?.nodes
+      .find(node => node.origin?.kind === finding.kind && node.origin.sourceId === finding.id);
+    if (existing !== undefined) {
+      void vscode.window.showInformationMessage(
+        'This finding is already on the roadmap. Open the Roadmap page to see it.',
+      );
+      return;
+    }
+
+    const detail = [
+      derivation.text,
+      '',
+      `“${derivation.prefix}:” is added because the work is closing this, not having it.`,
+      ...(derivation.clamped ? ['The finding’s full wording was longer than a roadmap line and has been cut.'] : []),
+      ...(outstanding ? [] : ['This finding is not outstanding any more. Raising it is usually a mis-click.']),
+      '',
+      'The roadmap is a tracked file, so this will show up as a change to commit.',
+    ].join('\n');
+
+    const confirmation = await vscode.window.showInformationMessage(
+      'Add this to the roadmap?',
+      { modal: true, detail },
+      'Add to roadmap',
+    );
+    if (confirmation !== 'Add to roadmap') {
+      return;
+    }
+
+    const written = await addRoadmapItemFromExternalSurface(this.atlas, derivation.text);
+    if (written === undefined) {
+      void vscode.window.showWarningMessage('The roadmap could not be written, so nothing was recorded against the finding either.');
+      return;
+    }
+
+    await this.recordRoadmapOrigin(workspaceRoot, ssotPath, written.text, {
+      kind: finding.kind,
+      sourceId: finding.id,
+      sourceTitle: finding.title.slice(0, 300),
+      raisedAt: new Date().toISOString(),
+    });
+    void vscode.window.showInformationMessage(`Added to the roadmap: “${derivation.text}”.`);
+    await this.syncState();
+  }
+
+  /**
+   * Attach an origin to the roadmap item that was just written.
+   *
+   * Runs the same anchor-minting path a canvas edit does, so the item gains a
+   * durable id at the moment it gains provenance — which is what lets the link
+   * survive the reorder that happens the next time somebody drags the backlog.
+   */
+  private async recordRoadmapOrigin(
+    workspaceRoot: string,
+    ssotPath: string,
+    itemText: string,
+    origin: RoadmapNodeOrigin,
+  ): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return;
+    }
+    const target = normalizeRoadmapNodeText(itemText);
+    const nodeId = [...context.nodeText.entries()].find(([, text]) => normalizeRoadmapNodeText(text) === target)?.[0];
+    if (nodeId === undefined) {
+      return;
+    }
+    await this.commitRoadmapGraph(
+      workspaceRoot,
+      ssotPath,
+      ProjectDashboardPanel.upsertRoadmapNode(context.document, nodeId, itemText, record => {
+        record.origin = origin;
+        record.addedAt ??= origin.raisedAt ?? new Date().toISOString();
+      }),
+    );
+  }
+
+  /**
+   * Draft an issue from a register finding.
+   *
+   * Into the composer, not onto the tracker: the user reads it, edits it, and the
+   * existing create flow's modal confirmation remains the only route to GitHub.
+   */
+  private async handleDraftRegisterIssue(key: string): Promise<void> {
+    const resolved = this.resolveRegisterFinding(key);
+    if (resolved === undefined) {
+      return;
+    }
+    const { finding, outstanding } = resolved;
+
+    if (!outstanding) {
+      const proceed = await vscode.window.showWarningMessage(
+        'That finding is not outstanding any more.',
+        {
+          modal: true,
+          detail: 'Raising an issue for something already resolved or dismissed is usually a mis-click. Nothing has been created yet.',
+        },
+        'Draft it anyway',
+      );
+      if (proceed !== 'Draft it anyway') {
+        return;
+      }
+    }
+
+    // The repository's real labels where they have been loaded. An empty list is
+    // a legitimate answer and produces a draft with no labels — never invented
+    // ones, because an invented label is created on the repository as a side
+    // effect of filing.
+    const declared = this.taxonomyState?.labels.map(label => label.name) ?? [];
+    const draft = deriveRegisterIssueDraft(finding, declared);
+    if (draft.title === '') {
+      void vscode.window.showWarningMessage('That finding has no text to draft an issue from.');
+      return;
+    }
+
+    this.pendingNavigationTarget = { page: 'issues' };
+    await this.postMessage({ type: 'issueDraft', payload: {
+      title: draft.title,
+      body: draft.body,
+      labels: draft.labels,
+      ...(draft.droppedLabels.length === 0 ? {} : { droppedLabels: [...draft.droppedLabels] }),
+    } });
+    await this.syncState();
+  }
+
   // ── Roadmap canvas ──────────────────────────────────────────────
 
   /**
@@ -13417,6 +13639,81 @@ async function collectDashboardSnapshot(
     ...snapshotWithAssignments,
     attention: buildAttentionFeed(buildAttentionInput(snapshotWithAssignments, latestCiConclusion)),
   };
+}
+
+/**
+ * Every register finding in this snapshot, keyed the way the webview names one.
+ *
+ * Three registers, one normalisation, so `registerHandoff` never learns three
+ * record shapes. Each mapper answers the one question only that register can:
+ * what its own status vocabulary means by *outstanding*. A gap is outstanding
+ * while it is unresolved and is not praise; a debt entry while it has not been
+ * resolved or gone obsolete; a risk finding while it is open — an *accepted*
+ * risk is a decision somebody took, and offering to raise work for it would
+ * quietly re-open a question that was closed.
+ */
+export function collectRegisterFindings(
+  snapshot: Pick<DashboardSnapshot, 'gapAnalysis' | 'debt' | 'risk'>,
+): Map<string, { finding: RegisterFinding; outstanding: boolean }> {
+  const findings = new Map<string, { finding: RegisterFinding; outstanding: boolean }>();
+  const add = (finding: RegisterFinding, outstanding: boolean): void => {
+    findings.set(registerFindingKey(finding.kind, finding.id), { finding, outstanding });
+  };
+
+  for (const item of snapshot.gapAnalysis.items) {
+    add(
+      {
+        kind: 'gap',
+        id: item.id,
+        title: item.text,
+        // P1 is the gap analysis's own word for "this one first"; the register
+        // hand-off speaks in high/medium/low, and the mapping is stated here
+        // rather than assumed by the shared module.
+        severity: item.priority === 'P1' ? 'high' : item.priority === 'P3' ? 'low' : 'medium',
+        category: item.category,
+        rule: `${item.priority} ${item.type}, from the ${item.source === 'heuristic' ? 'built-in checks' : 'gap analysis'}`,
+      },
+      !item.resolved && item.type !== 'praise',
+    );
+  }
+
+  for (const entry of snapshot.debt.entries) {
+    add(
+      {
+        kind: 'debt',
+        id: entry.id,
+        title: entry.title,
+        severity: entry.severity,
+        category: entry.domain,
+        evidencePath: entry.evidencePath,
+        ...(entry.evidenceLine === undefined ? {} : { evidenceLine: entry.evidenceLine }),
+        rule: entry.rule,
+      },
+      entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled',
+    );
+  }
+
+  for (const finding of snapshot.risk.findings) {
+    add(
+      {
+        kind: 'risk',
+        id: finding.id,
+        title: finding.title,
+        detail: finding.detail,
+        severity: finding.impact,
+        category: finding.domain,
+        ...(finding.evidence[0] === undefined ? {} : { evidencePath: finding.evidence[0] }),
+        rule: `${finding.likelihood} likelihood, ${finding.impact} impact`,
+      },
+      finding.status === 'open',
+    );
+  }
+
+  return findings;
+}
+
+function registerFindingKey(kind: RegisterKind, id: string): string {
+  return `${kind}::${id}`;
 }
 
 /**
@@ -24329,6 +24626,17 @@ const DASHBOARD_CSS = `
     border: 1px solid var(--dash-border);
     color: var(--dash-muted);
   }
+
+  /* A chip that is actually a control still has to look and behave like one. */
+  .rm-chip-origin {
+    background: transparent;
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    border-style: dashed;
+  }
+
+  .rm-chip-origin:hover { border-color: var(--dash-accent-strong); color: var(--dash-accent-strong); }
 
   .rm-chip-overdue { border-color: var(--dash-critical, #d13438); color: var(--dash-critical, #d13438); }
   .rm-chip-at-risk, .rm-chip-blocked { border-color: var(--dash-warn, #d0a215); color: var(--dash-warn, #d0a215); }
