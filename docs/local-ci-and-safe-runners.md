@@ -339,19 +339,34 @@ from the webview.
    - `never` keeps Desktop open for other work;
    - `always` closes it after the job even if it was already open.
    All three leave Docker open when another container is running or inventory cannot be read.
-6. Commit and push the reviewed checkout to the trusted branch, then manually dispatch the trusted workflow
-   if the push did not already queue it. The dashboard names `develop` as a branch label, not as a command:
-   GitHub can queue only the commit already pushed to that branch, not uncommitted or unpushed files from
-   the local checkout. AtlasMind deliberately has no Queue or Rerun button.
+6. Commit and push the reviewed checkout to the trusted branch, then dispatch the trusted workflow if the
+   push did not already queue it. GitHub can queue only the commit already pushed to that branch, not
+   uncommitted or unpushed files from the local checkout.
+
+   **Queue the run…** does this for you. It is a dispatch, not a run: nothing starts on this computer, and
+   lending the machine to the queued job remains a separate step with its own confirmation. Before the
+   dialog appears AtlasMind reads the head of the trusted branch *from GitHub* and compares it with the
+   local `HEAD`, because a dispatch runs the remote tip and not what is on screen — where they differ the
+   confirmation leads with that fact, and where GitHub could not be asked it says so rather than implying
+   agreement. The dialog then names the repository, the exact command and the workflow path, and the
+   dispatch is written to the workflow audit ledger before it is sent.
+
+   The command is never supplied by the page. The webview posts a bare request with no payload; the host
+   re-reads the settings and rebuilds the invocation, so the workflow filename and the ref come only from
+   the validated settings pair. No automation-ladder capability governs it, because the ladder governs
+   writes AtlasMind may make *unattended* and this one exists only as a click on a modal dialog — the
+   ledger entry records `actor: user` accordingly.
 
    ```text
    gh workflow run trusted-local-ci.yml --ref develop
    ```
 
-   Use **Copy** to place the whole command on the clipboard, or **Send to Terminal** to type the whole line
-   into an **AtlasMind CI** terminal rooted at the workspace. Send uses the user's configured VS Code shell
-   on Windows, macOS, or Linux and does not press Enter; review the line before running it. The command uses
-   only GitHub CLI syntax and is the same in PowerShell, Command Prompt, bash, and zsh.
+   The same command stays available to run yourself. Use **Copy** to place the whole line on the clipboard,
+   or **Send to Terminal** to type it into an **AtlasMind CI** terminal rooted at the workspace. Send uses
+   the user's configured VS Code shell on Windows, macOS, or Linux, moves focus to the terminal, and does
+   not press Enter — the missing newline is the gate, and focus is what makes it reachable. Review the line
+   before running it. The command uses only GitHub CLI syntax and is the same in PowerShell, Command
+   Prompt, bash, and zsh.
 
    If the dispatch answers `HTTP 404: workflow trusted-local-ci.yml not found on the default branch`,
    nothing is misplaced. The URL in that error is GitHub's API address for the workflow, not a folder, and

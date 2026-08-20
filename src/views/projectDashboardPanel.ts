@@ -123,8 +123,19 @@ import {
 import {
   buildReleasePlan,
   describeReleasePlan,
+  type ReleaseGate,
   type ReleasePlan,
+  type ReleaseGateStatus,
 } from '../core/releasePreparation.js';
+import {
+  RELEASE_GATE_FILTERS,
+  RELEASE_GATE_SORTS,
+  resolveReleaseGateDestination,
+  summarizeReleaseGateView,
+  type ReleaseGateDestination,
+  type ReleaseGateFilter,
+  type ReleaseGateSort,
+} from '../core/releaseGateNavigation.js';
 import {
   DEBT_SSOT_PATH,
   DEBT_RULES,
@@ -882,6 +893,12 @@ type ProjectDashboardMessage =
   | { type: 'showLocalCiOutput' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
+  /**
+   * Dispatch the trusted workflow on GitHub. Carries no payload by design: the
+   * host rebuilds the whole invocation from settings, so this message can ask
+   * for the queue step and can never say what gets queued.
+   */
+  | { type: 'queueLocalCiWorkflowRun' }
   | { type: 'copyLocalCiCancelCommand'; payload: number }
   | { type: 'sendLocalCiCancelCommandToTerminal'; payload: number }
   /** Opaque id resolved to a fixed official installation guide in the host. */
@@ -1946,12 +1963,44 @@ interface DashboardCiIntelligence {
  * not a repository with no releases, and only one of those two facts justifies
  * telling somebody their deployment frequency is unmeasurable.
  */
+/**
+ * Every way of looking at the release gates, computed once by the host.
+ *
+ * The alternative — shipping the rules and letting the webview apply them — is
+ * how one fact ends up with two implementations that eventually disagree, and
+ * the disagreement would surface as the Release page ranking a blocked gate
+ * differently from the Needs-you band that links to it. The alternative in the
+ * other direction — a message per filter click — makes a *way of looking*
+ * something that can fail, which the roadmap canvas already refuses for
+ * exactly this reason.
+ *
+ * So both orderings and every filter's admitted set travel with the snapshot as
+ * gate ids. Ten small arrays of at most eight strings; the webview picks two of
+ * them and intersects.
+ */
+interface DashboardReleaseGateView {
+  /** Gate ids in each declared order. Keyed by `ReleaseGateSort`. */
+  order: Record<ReleaseGateSort, string[]>;
+  /** Gate ids each declared filter admits. Keyed by `ReleaseGateFilter`. */
+  admits: Record<ReleaseGateFilter, string[]>;
+  /** The sentence stating what each filter shows and hides. */
+  summaries: Record<ReleaseGateFilter, string>;
+  /** Counts over the whole set, so a chip stays honest while a filter is on. */
+  counts: Record<ReleaseGateStatus, number>;
+  filters: { id: ReleaseGateFilter; label: string; hint: string }[];
+  sorts: { id: ReleaseGateSort; label: string; hint: string }[];
+  /** Where each gate's evidence lives, by gate id. Absent for an undeclared id. */
+  destinations: Record<string, ReleaseGateDestination>;
+}
+
 interface DashboardReleaseSnapshot {
   releases: MetricReleaseInput[];
   /** Every tag `git tag` reported, so an existing tag can block a re-publish. */
   tags: string[];
   plan: ReleasePlan;
   planSummary: string;
+  /** Precomputed filter/sort views over `plan.gates`. See the interface. */
+  gateView: DashboardReleaseGateView;
   dora: DoraMetrics;
   /** The rule the change-failure number applied, shown wherever it is shown. */
   changeFailureRule: string;
@@ -4652,6 +4701,9 @@ export class ProjectDashboardPanel {
       case 'sendLocalCiQueueCommandToTerminal':
         await this.handleSendLocalCiQueueCommandToTerminal();
         return;
+      case 'queueLocalCiWorkflowRun':
+        await this.handleQueueLocalCiWorkflowRun();
+        return;
       case 'copyLocalCiCancelCommand':
         await this.handleCopyLocalCiCancelCommand(message.payload);
         return;
@@ -6553,7 +6605,13 @@ export class ProjectDashboardPanel {
               ...(plan.imageMayBePulled ? ['The digest-pinned image is absent and will be downloaded.'] : []),
               shutdown,
               '',
-              'The runner is ephemeral and has no host mounts, Docker socket, GPU, persistent volume, default labels, repository secrets, or OIDC permission. AtlasMind will not dispatch or rerun a workflow.',
+              // Narrowed in v0.375.0, when the Pipeline page gained a button
+              // that dispatches the trusted workflow. The container's
+              // inability to dispatch or rerun is unchanged and is still worth
+              // stating; "AtlasMind will not dispatch a workflow" no longer is,
+              // and a confirmation dialog making a promise the product does not
+              // keep is worse than one that makes none.
+              'The runner is ephemeral and has no host mounts, Docker socket, GPU, persistent volume, default labels, repository secrets, or OIDC permission. Nothing it runs can dispatch or rerun a workflow.',
             ].join('\n'),
           },
           'Start one-job runner',
@@ -6941,6 +6999,205 @@ export class ProjectDashboardPanel {
       return;
     }
     this.sendLocalCiCommandToTerminal(resolved);
+  }
+
+  /**
+   * Queue the trusted workflow on GitHub, on the user's behalf.
+   *
+   * Step 2 of the borrowed-machine guide read "queue it from this repository's
+   * VS Code terminal" and offered copy and send-to-terminal. Both leave the
+   * person to run a command AtlasMind composed, validated and displayed — which
+   * is the definition of work the tool could do itself, and it sat in the
+   * middle of an onboarding flow as the one step that broke stride.
+   *
+   * Four things make it safe to do rather than merely to suggest.
+   *
+   * **The command is not composed here and cannot be influenced from the
+   * page.** The webview posts a bare type with no payload; the host re-reads
+   * the settings and rebuilds the invocation through
+   * {@link buildLocalCiQueueInvocation}, whose regexes are what constrain the
+   * workflow filename and the branch. There is no path by which a crafted
+   * message supplies either.
+   *
+   * **What will actually run is established first, and an unknown is reported
+   * as one.** A dispatch runs the *remote* tip of the branch, not the checkout
+   * on screen — which is the whole content of step 1's "commit and push first",
+   * and the mismatch the runner's own preflight catches only later, after
+   * somebody has lent their machine to the wrong commit. So the head is read
+   * from GitHub and compared with local `HEAD`; where they differ the dialog
+   * leads with it, and where GitHub could not be asked the dialog says that
+   * rather than implying agreement.
+   *
+   * **It is confirmed, modally, naming the repository and the exact command** —
+   * the same gate every other outward-facing write in this panel goes through.
+   *
+   * **It is recorded before it happens.** No new automation-ladder capability
+   * was invented for it: the ladder's capabilities govern writes AtlasMind may
+   * make *unattended*, and this one exists only as a click on a dialog. The
+   * record therefore states `actor: 'user'` and a decision saying exactly that,
+   * rather than borrowing `issueWrites` — a switch whose owner has said nothing
+   * about CI.
+   */
+  private async handleQueueLocalCiWorkflowRun(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const configuration = readLocalCiRunnerConfiguration();
+    const invocation = buildLocalCiQueueInvocation(configuration);
+    if (!workspaceRoot || !invocation) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind cannot queue this run: no workspace is open, or the workflow file and trusted branch settings are not a valid pair.',
+      );
+      return;
+    }
+    const command = [invocation.command, ...invocation.args].join(' ');
+
+    const evidence = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'AtlasMind: checking what this would queue',
+        cancellable: false,
+      },
+      async () => this.gatherLocalCiQueueEvidence(workspaceRoot, configuration.trustedBranch),
+    );
+    if (!evidence.repoSlug) {
+      void vscode.window.showWarningMessage(
+        'AtlasMind could not read this repository’s identity from `gh`, so it will not dispatch a workflow it cannot name. '
+        + 'Sign GitHub CLI in and try again, or use Send to terminal and run the command yourself.',
+      );
+      return;
+    }
+
+    // Root-cause first, as the release gates are: which commit runs matters
+    // more than anything else in this dialog, so it leads.
+    const headLine = evidence.remoteHeadSha === undefined
+      ? `Which commit runs: unknown. GitHub could not be asked for the head of ${configuration.trustedBranch}.`
+      : evidence.localHeadSha === undefined
+        ? `Runs ${configuration.trustedBranch} at ${evidence.remoteHeadSha.slice(0, 12)} on GitHub. The local checkout could not be read for comparison.`
+        : evidence.remoteHeadSha === evidence.localHeadSha
+          ? `Runs ${configuration.trustedBranch} at ${evidence.remoteHeadSha.slice(0, 12)} — the same commit as your checkout.`
+          : `Runs ${configuration.trustedBranch} at ${evidence.remoteHeadSha.slice(0, 12)} on GitHub, NOT your checkout at ${evidence.localHeadSha.slice(0, 12)}. `
+            + 'Anything committed locally and not pushed is not in this run.';
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Queue a workflow run on ${evidence.repoSlug}?`,
+      {
+        modal: true,
+        detail: [
+          headLine,
+          '',
+          `Command: ${command}`,
+          `Workflow: .github/workflows/${configuration.workflowFile}`,
+          ...(evidence.dirty ? ['Your working tree has uncommitted changes. They are not part of any run.'] : []),
+          ...(configuration.enabled
+            ? []
+            : ['Trusted local CI is switched off on this machine, so nothing here will serve the queued job until you allow it.']),
+          '',
+          'This dispatches a job on GitHub. It runs nothing on this computer — lending the machine to the queued job is a separate step with its own confirmation.',
+        ].join('\n'),
+      },
+      'Queue the run',
+    );
+    if (confirmation !== 'Queue the run') {
+      return;
+    }
+
+    // A click, on a dialog, by a person. Recorded as exactly that rather than
+    // as a level the ladder granted.
+    const decision: AutomationDecision = {
+      level: 'auto',
+      limitedBy: 'none',
+      detail: 'Dispatched by the user from the Pipeline page after a modal confirmation naming the repository and the exact command.',
+    };
+    const dispatched = await this.runRecorded(
+      {
+        stageId: 'ci',
+        action: 'queueLocalCiWorkflowRun',
+        actor: 'user',
+        decision,
+        requestedLevel: 'auto',
+        inputs: {
+          repo: evidence.repoSlug,
+          workflow: configuration.workflowFile,
+          ref: configuration.trustedBranch,
+          ...(evidence.remoteHeadSha === undefined ? {} : { headSha: evidence.remoteHeadSha }),
+        },
+      },
+      async () => {
+        await runGh(workspaceRoot, [...invocation.args]);
+        return { ok: true };
+      },
+    ).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind did not queue the run: ${detail.slice(0, 400)}`);
+      return undefined;
+    });
+    if (!dispatched) {
+      return;
+    }
+
+    // Re-check rather than assert. `gh` exiting zero says GitHub accepted the
+    // dispatch; only the queue read says a job is waiting, and that is what the
+    // next step of the guide acts on.
+    const runner = this.getLocalCiRunner();
+    if (runner) {
+      await runner.inspect(configuration).catch(() => undefined);
+    }
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `Queued ${configuration.workflowFile} on ${evidence.repoSlug} (${configuration.trustedBranch}). `
+      + 'Use "Check GitHub queue → review start plan" when you are ready to lend this machine to it.',
+    );
+  }
+
+  /**
+   * What a dispatch would actually run, gathered before the dialog is shown.
+   *
+   * Every field is optional and absent means *not established* — never
+   * "matches", never "clean". This is the one place where guessing in the
+   * reassuring direction would produce the exact failure the check exists to
+   * prevent: a confirmation stating that your work is included when it is not.
+   */
+  private async gatherLocalCiQueueEvidence(
+    workspaceRoot: string,
+    branch: string,
+  ): Promise<{ repoSlug?: string; remoteHeadSha?: string; localHeadSha?: string; dirty?: boolean }> {
+    const evidence: { repoSlug?: string; remoteHeadSha?: string; localHeadSha?: string; dirty?: boolean } = {};
+    try {
+      const slug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+      if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(slug)) {
+        evidence.repoSlug = slug;
+      }
+    } catch {
+      // Left absent. Reported as "could not be named", and the dispatch stops.
+    }
+    if (evidence.repoSlug) {
+      try {
+        const sha = (await runGh(workspaceRoot, [
+          'api', `repos/${evidence.repoSlug}/commits/${branch}`, '--jq', '.sha',
+        ])).trim().toLowerCase();
+        if (/^[a-f0-9]{40}$/.test(sha)) {
+          evidence.remoteHeadSha = sha;
+        }
+      } catch {
+        // Absent means unknown, which the dialog states rather than smoothing over.
+      }
+    }
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: workspaceRoot, windowsHide: true });
+      const sha = stdout.trim().toLowerCase();
+      if (/^[a-f0-9]{40}$/.test(sha)) {
+        evidence.localHeadSha = sha;
+      }
+    } catch {
+      // Absent.
+    }
+    try {
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: workspaceRoot, windowsHide: true });
+      evidence.dirty = stdout.trim() !== '';
+    } catch {
+      // Absent, so the dialog says nothing about the working tree rather than
+      // claiming it is clean.
+    }
+    return evidence;
   }
 
   /**
@@ -7626,7 +7883,17 @@ export class ProjectDashboardPanel {
     });
   }
 
-  /** Type into the user's configured VS Code shell, but leave Enter to them. */
+  /**
+   * Type into the user's configured VS Code shell, but leave Enter to them.
+   *
+   * Focus moves to the terminal — `show()` rather than `show(true)`. The
+   * withheld newline is the gate, and it only works if the keystroke that
+   * completes it is the very next thing the user can make: typing a command
+   * into a panel that does not have focus leaves them reading "press Enter to
+   * run it" with the caret still in a webview, where Enter does something else
+   * entirely. Taking focus makes the promise on screen true without weakening
+   * it, because the command is still unsubmitted and still theirs to abandon.
+   */
   private sendLocalCiCommandToTerminal(resolved: { command: string; workspaceRoot: string }): void {
     let terminal = vscode.window.terminals.find(candidate => candidate.name === LOCAL_CI_TERMINAL_NAME);
     if (!terminal) {
@@ -7636,7 +7903,7 @@ export class ProjectDashboardPanel {
         isTransient: false,
       });
     }
-    terminal.show(true);
+    terminal.show();
     terminal.sendText(resolved.command, false);
     vscode.window.setStatusBarMessage('AtlasMind: sent the complete command to your terminal — press Enter to run it.', 5000);
   }
@@ -10091,11 +10358,16 @@ ${buildCardEvidenceSection(source, derivation)}`;
       nodes,
       layoutOrientation: orientation,
     });
-    if (moved > 0) {
-      void vscode.window.showInformationMessage(
-        `Re-flowed the roadmap ${orientation === 'vertical' ? 'top to bottom' : 'left to right'}. ${moved} hand-placed ${moved === 1 ? 'position was' : 'positions were'} released; drag any node again to pin it.`,
-      );
-    }
+    // Reported either way. Saying nothing when no node was pinned made the
+    // control indistinguishable from one that failed — which, together with the
+    // re-flow happening outside a viewport that never moved, is why this read as
+    // a button that did nothing. The webview re-fits; this says what was done.
+    const direction = orientation === 'vertical' ? 'top to bottom' : 'left to right';
+    void vscode.window.showInformationMessage(
+      moved > 0
+        ? `Laid the roadmap out as a tree, running ${direction}. ${moved} hand-placed ${moved === 1 ? 'position was' : 'positions were'} released; drag any node again to pin it.`
+        : `Laid the roadmap out as a tree, running ${direction}. Nothing was pinned by hand, so every item was already where the layout puts it.`,
+    );
   }
 
   /**
@@ -10845,6 +11117,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * and the setup walkthroughs — so the human's own keystroke stays the last
    * gate on a single command. That is why this needs no confirmation dialog and
    * running a whole column does.
+   *
+   * Focus follows the command, for the reason given on
+   * {@link ProjectDashboardPanel.sendLocalCiCommandToTerminal}: the gate is the
+   * missing newline, and a gate the user cannot reach without first clicking
+   * somewhere else is one they learn to route around.
    */
   private async handleSendDeliveryCommandToTerminal(stepId: string): Promise<void> {
     const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
@@ -10853,7 +11130,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
     const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
-    terminal.show(true);
+    terminal.show();
     terminal.sendText(resolved.command, false);
     vscode.window.setStatusBarMessage('AtlasMind: sent to the terminal — press Enter to run it.', 5000);
   }
@@ -11834,6 +12111,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'showLocalCiOutput'
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
+    || candidate['type'] === 'queueLocalCiWorkflowRun'
     || candidate['type'] === 'assessTrustedCiWorkflow'
     || candidate['type'] === 'createTrustedCiStarter'
     || candidate['type'] === 'installGitHubCli'
@@ -12763,6 +13041,52 @@ function normalizeWorkflowProfile(value: string | undefined): 'solo' | 'studio' 
  * so is the only honest option — a plan that reported the version as fine
  * because it could not check would be worse than one that reported nothing.
  */
+/**
+ * Precompute every filter/sort view over the gates, plus each gate's declared
+ * destination.
+ *
+ * Everything here is a call into `releaseGateNavigation`; no rule is restated.
+ * That is the point — the page ends up with data it can only look up, so there
+ * is no second copy of "an unknown ranks with the failures" to fall out of step
+ * with the first.
+ */
+function buildReleaseGateView(gates: readonly ReleaseGate[]): DashboardReleaseGateView {
+  const order = {} as Record<ReleaseGateSort, string[]>;
+  for (const sort of RELEASE_GATE_SORTS) {
+    order[sort.id] = summarizeReleaseGateView(gates, 'all', sort.id).gates.map(gate => gate.id);
+  }
+
+  const admits = {} as Record<ReleaseGateFilter, string[]>;
+  const summaries = {} as Record<ReleaseGateFilter, string>;
+  let counts: Record<ReleaseGateStatus, number> = { fail: 0, unknown: 0, pass: 0 };
+  for (const filter of RELEASE_GATE_FILTERS) {
+    const view = summarizeReleaseGateView(gates, filter.id, 'evaluation');
+    admits[filter.id] = view.gates.map(gate => gate.id);
+    summaries[filter.id] = view.summary;
+    counts = view.counts;
+  }
+
+  // Only gates that actually exist get a destination entry, so the page cannot
+  // draw a control for something it is not showing.
+  const destinations: Record<string, ReleaseGateDestination> = {};
+  for (const gate of gates) {
+    const destination = resolveReleaseGateDestination(gate.id);
+    if (destination) {
+      destinations[gate.id] = destination;
+    }
+  }
+
+  return {
+    order,
+    admits,
+    summaries,
+    counts,
+    filters: RELEASE_GATE_FILTERS.map(entry => ({ ...entry })),
+    sorts: RELEASE_GATE_SORTS.map(entry => ({ ...entry })),
+    destinations,
+  };
+}
+
 function buildReleaseSnapshot(input: {
   packageVersion: string;
   changelog?: string;
@@ -12822,6 +13146,7 @@ function buildReleaseSnapshot(input: {
     tags: [...(input.tags ?? [])],
     plan,
     planSummary: describeReleasePlan(plan),
+    gateView: buildReleaseGateView(plan.gates),
     dora: deriveDoraMetrics({
       releases: input.releases ?? [],
       ...(input.pullRequests === undefined ? {} : {
@@ -21922,6 +22247,34 @@ const DASHBOARD_CSS = `
      ignore the styling. */
   .wf-unknown { color: var(--dash-muted); font-style: italic; }
 
+  /*
+   * Release gates: the controls above them, and the urgency of each row.
+   *
+   * Urgency is a left border rather than a filled background, for the reason
+   * the Needs-you band gives: eight saturated cards read as an alarm even when
+   * three of them say "unknown", and an alarm that is always on is one people
+   * stop seeing. An unknown gate is marked, and marked differently from a
+   * blocked one — the two need opposite actions and only one of them is yours.
+   */
+  .wf-gate-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .wf-gate-count {
+    margin-left: 6px;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+  }
+  .wf-gate { border-left: 3px solid transparent; }
+  .wf-gate-fail { border-left-color: var(--dash-critical); }
+  .wf-gate-unknown { border-left-color: var(--dash-warn); }
+  .wf-gate-pass { border-left-color: color-mix(in srgb, var(--dash-good) 55%, transparent); }
+  .wf-gate-actions { margin-top: 7px; }
+
   /* A classified CI failure and the lines that decided it. */
   .wf-ci-failure {
     margin-top: 10px;
@@ -22587,7 +22940,42 @@ const DASHBOARD_CSS = `
   /* An executor nothing routes to recedes rather than nagging. */
   .ci-executor-row.optional { opacity: 0.78; }
   .ci-executors-setup { border-left: 3px solid var(--dash-warn); }
-  .ci-runner-drawer > summary { font-weight: 600; }
+
+  /*
+   * The borrowed-machine drawer is the whole of setup behind one row, so it has
+   * to read as a control rather than as a caption. It did not: the summary
+   * carried a bare text node, which the shared summary rule (space-between)
+   * pushed to the far right with only the chevron on the left, leaving the
+   * setup path looking like a right-aligned footnote under the executor list.
+   * The markup now supplies the span/small pair those rules were written for,
+   * and these give the row the weight of the thing it opens.
+   */
+  .ci-runner-drawer {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 30%, var(--dash-border));
+  }
+  .ci-runner-drawer > summary {
+    font-weight: 650;
+    font-size: 13px;
+    padding: 13px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 7%, transparent);
+  }
+  .ci-runner-drawer > summary:hover {
+    background: color-mix(in srgb, var(--dash-accent-strong) 13%, transparent);
+  }
+  .ci-runner-drawer > summary::before { color: var(--dash-accent-strong); font-size: 15px; }
+  /*
+   * When setup is outstanding the drawer is not one card among several — it is
+   * the reason the page was opened. It takes the warning tone the executor row
+   * above it already uses, so the two read as one path rather than as a notice
+   * and an unrelated disclosure.
+   */
+  .ci-executors-setup .ci-runner-drawer {
+    border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border));
+  }
+  .ci-executors-setup .ci-runner-drawer > summary {
+    background: color-mix(in srgb, var(--dash-warn) 10%, transparent);
+  }
+  .ci-executors-setup .ci-runner-drawer > summary::before { color: var(--dash-warn); }
 
   .ci-executor-next { font-size: 11.5px; color: var(--dash-accent-strong); }
 
@@ -22915,6 +23303,18 @@ const DASHBOARD_CSS = `
   .ci-queue-steps li > strong,
   .ci-queue-steps li > span { display: block; }
   .ci-queue-steps li > span { margin-top: 2px; color: var(--dash-muted); line-height: 1.45; }
+  .ci-queue-actions { margin-top: 8px; }
+  /*
+   * The typed command is now the fallback rather than the instruction, so it is
+   * labelled as one. Without the label the block reads as a second, competing
+   * step and the reader has to work out which of the two they were meant to do.
+   */
+  .ci-queue-manual-label {
+    display: block;
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--dash-muted);
+  }
   .local-ci-command-block { position: relative; margin-top: 7px; min-width: 0; }
   .local-ci-command {
     margin: 0;
@@ -24473,8 +24873,12 @@ const DASHBOARD_CSS = `
     color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
   }
 
-  /* The two alignment directions are one choice, so they sit in one shell with a
-     shared border rather than reading as two unrelated buttons. */
+  /* Arranging the plan is one choice — lay it out as a tree, and which way it
+     runs — so the action and its two directions sit in one shell with a shared
+     border rather than reading as three unrelated buttons. They were two
+     equal-looking "Align across"/"Align down" buttons, which named the axis and
+     never named the thing being done, so the feature had no control that said
+     what it was for. */
   .rm-control-group {
     display: inline-flex;
     align-items: stretch;
@@ -24491,6 +24895,25 @@ const DASHBOARD_CSS = `
 
   .rm-control-group .action-link + .action-link {
     border-left: 1px solid var(--dash-border);
+  }
+
+  /* The action leads; the directions are a mode beside it, narrow because an
+     arrow glyph is the whole label. */
+  .rm-auto-tree { font-weight: 600; }
+  .rm-orientation { padding-left: 9px; padding-right: 9px; }
+
+  /* How many suggestions are on screen. On the toggle rather than in prose,
+     because "Showing suggestions" with nothing drawn is the state people read
+     as a broken button. */
+  .rm-count {
+    display: inline-block;
+    min-width: 15px;
+    padding: 0 4px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 24%, transparent);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
   }
 
   /* The one control on this page where AtlasMind reaches a conclusion of its own

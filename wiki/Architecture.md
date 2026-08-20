@@ -660,12 +660,18 @@ case it stays on the plan as the left-hand end of a route somebody is still walk
 Four toolbar controls arrange the canvas without changing the plan. **Fit all** puts everything on
 screen, measured from the frame the canvas is in and never zooming past 100% to fill space. **Snap to
 grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid
-so a hand-placed node lines up with an auto-aligned one. **Auto align** re-flows the tree across or
-down by *releasing* hand-placed positions rather than writing new ones — so the result is the same
-deterministic layout everybody's copy shows, and the next item added lands in its own column; drag a
-node again to pin it. The direction is stored in the committed plan, because which way a graph reads
+so a hand-placed node lines up with an auto-aligned one. **Auto tree** re-flows the tree by *releasing* hand-placed
+positions rather than writing new ones — so the result is the same deterministic layout everybody's copy
+shows, and the next item added lands in its own column; drag a node again to pin it. **→** and **↓**
+beside it choose the direction, which is stored in the committed plan because which way a graph reads
 best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
-it only changes where your next drag lands. **Calculate tree**, carrying the AtlasMind mark, works the
+it only changes where your next drag lands. Every arrangement is followed by a fit, computed in the
+webview from the rendered geometry: a re-flow moves every node while pan and zoom stay where they were,
+so on any plan wider than the frame the entire result used to happen out of view — which is why the
+arrange controls read as buttons that did nothing. The same fit runs when the plan gains an item, and
+only on a genuine arrival, so redrawing does not fight the pan of somebody reading a large plan. Where
+nothing is linked yet the canvas states why every item sits at one level: the tree is built from
+accepted links, and a suggestion moves no node by design. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 
@@ -784,7 +790,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), and the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), and the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

@@ -497,7 +497,19 @@ authorization rule. The webview sends no configuration or command payload. The e
 machine-scoped settings, requires exactly one waiting owner-authored run in total for current HEAD, rejects a dirty workflow,
 and checks the exact repository/ref/actor conditions, trigger set, read-only permission, secret/OIDC/write
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
-It cannot dispatch or rerun a workflow.
+The runner it starts cannot dispatch or rerun a workflow.
+
+Since v0.375.0 the *page* can queue one — a **Queue the run…** control that dispatches the trusted workflow
+on GitHub. It is not the runner gaining a capability: the container's token is unchanged and still cannot
+dispatch anything, and queueing starts nothing locally. Four properties bound it. The webview posts a bare
+request with **no payload**, so the host rebuilds the invocation from the validated settings pair and a
+crafted message can ask for the queue step without ever naming a workflow or a ref. The head of the trusted
+branch is read from GitHub and compared with local `HEAD` first, because a dispatch runs the remote tip
+rather than the checkout on screen — a difference leads the dialog, and an unreadable head is stated as
+unknown rather than assumed to agree. It is confirmed modally, naming the repository and the exact command.
+And it is recorded in the workflow audit ledger *before* it is sent, as `actor: user` under stage `ci`: no
+automation-ladder capability governs it, because the ladder governs writes AtlasMind may make unattended
+and this one exists only as a click on a dialog.
 
 Two properties of that policy changed in v0.348.0, in the safe direction. It can now be evaluated **before**
 a run rather than only at the moment of one — a filesystem read needing no Docker, no `gh` and no queued

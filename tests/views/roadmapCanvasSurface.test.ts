@@ -222,7 +222,70 @@ describe('arranging is separated from changing', () => {
 
   it('asks for the tree calculation and performs none of it', () => {
     const derive = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-derive-links'"));
-    expect(derive.slice(0, 200)).toContain("type: 'roadmapDeriveLinks'");
+    expect(derive.slice(0, 500)).toContain("type: 'roadmapDeriveLinks'");
+    // It may ask for a fit — a view change, computed from the rendered DOM —
+    // but it still sends no edge, no position and no rule.
+    expect(derive.slice(0, 500)).not.toContain('position');
+    expect(derive.slice(0, 500)).not.toContain('edges');
+  });
+
+  it('shows the result of every arrangement, because a re-flow off-screen reads as nothing', () => {
+    // Re-flowing moves every node while pan and zoom stay where they were, so
+    // on any plan wider than the frame the whole result happened out of view —
+    // which is why both arrange controls read as buttons that did nothing.
+    const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
+    expect(align.slice(0, 800)).toContain('state.roadmapFitAfterRender = true;');
+    const derive = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-derive-links'"));
+    expect(derive.slice(0, 500)).toContain('state.roadmapFitAfterRender = true;');
+
+    // The fit runs after the render that produced the nodes it measures, and
+    // clears its own flag first — fitting renders, so a flag cleared afterwards
+    // would fit for ever.
+    expect(WEBVIEW_SCRIPT).toMatch(/state\.roadmapFitAfterRender = false;\s*\n\s*fitRoadmapCanvas\(\);/);
+  });
+
+  it('re-fits when the plan gains an item, and not on every redraw', () => {
+    // A new node is laid into the tree by the host and then sits outside a
+    // viewport that never moved, which is indistinguishable from never having
+    // been added. Only arrivals qualify: re-fitting on every snapshot would
+    // fight the pan of anybody reading a large plan.
+    expect(WEBVIEW_SCRIPT).toContain('state.roadmapSeenNodeIds');
+    expect(WEBVIEW_SCRIPT).toContain('const arrivedIds = [...roadmapNodeIds].filter(id => !state.roadmapSeenNodeIds.has(id));');
+    expect(WEBVIEW_SCRIPT).toContain('if (arrivedIds.length > 0 && hadNodes) {');
+  });
+
+  it('names the thing being done, not just the axis it runs along', () => {
+    // Two equal buttons labelled "Align across" and "Align down" named the axis
+    // and never named the feature, so the tree layout had no control that said
+    // what it was for.
+    expect(WEBVIEW_SCRIPT).toContain('Auto tree');
+    expect(WEBVIEW_SCRIPT).not.toContain('Align across');
+    expect(WEBVIEW_SCRIPT).not.toContain('Align down');
+    // The bare action keeps whatever orientation the plan already declares,
+    // rather than silently flipping it.
+    const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
+    expect(align.slice(0, 800)).toContain("roadmapGraph().orientation === 'vertical' ? 'vertical' : 'horizontal'");
+  });
+
+  it('explains a one-column plan rather than leaving it looking broken', () => {
+    // The most confusing state the canvas has: no accepted links means every
+    // item is at depth zero, so the tree is one step and the dashed suggestions
+    // criss-cross it. The rule that produces it — a suggestion moves no node —
+    // is defensible and invisible, which is the worst combination.
+    const notice = namedFunction('renderRoadmapFlatNotice');
+    expect(notice).toContain('Nothing is linked yet');
+    expect(notice).toContain('never move an item');
+    expect(notice).toContain('Calculate tree');
+    // Said only where somebody is looking at the consequence.
+    expect(notice).toContain('visibleEdges.length > 0');
+  });
+
+  it('says what the suggestions toggle does, and what it cannot do', () => {
+    // Read as a broken button because turning it on draws dashed arrows and
+    // changes no layout, which is not what "suggestions on" sounds like.
+    expect(WEBVIEW_SCRIPT).toContain('Showing suggestions');
+    expect(WEBVIEW_SCRIPT).toContain('Suggestions hidden');
+    expect(WEBVIEW_SCRIPT).toContain('a suggestion never moves an item and never blocks one');
   });
 });
 

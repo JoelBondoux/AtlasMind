@@ -133,12 +133,25 @@ Press **Route** on any node to hide everything that isn't that item or a prerequ
 prerequisites included, because the route is how you got here — and see the outstanding days along it.
 
 Four controls arrange the canvas. **Fit all**, beside the zoom buttons, puts the whole plan on screen.
-**Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto align** re-flows the tree
-**across** (each column one step further from work that can start now) or **down** (better on a wide,
-shallow plan) — it releases every node you've positioned by hand, so drag one again afterwards to pin
-it. And **Calculate tree**, the button carrying the AtlasMind mark, works the whole dependency tree out
-from the wording of your backlog and offers it in one go, behind a confirmation that says how many links
-it would add.
+**Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out as
+a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs — across
+(each column one step further from work that can start now) or down (better on a wide, shallow plan).
+Arranging always re-fits: a re-flow moves every node while your pan and zoom stay put, so without the
+fit the whole result happens off-screen and the button reads as though it did nothing. It releases every
+node you've positioned by hand, so drag one again afterwards to pin it. And **Calculate tree**, the
+button carrying the AtlasMind mark, works the whole dependency tree out from the wording of your backlog
+and offers it in one go, behind a confirmation that says how many links it would add.
+
+**The tree is built from links you have accepted.** A suggestion is drawn dashed and deliberately moves
+no item and blocks none — an inference should not reorder your plan on its own. So a plan with nothing
+accepted has every item at the same level and lays out as a single column with the dashed arrows
+crossing it, which looks like a broken layout and is not one. The canvas says so when you are in that
+state, and points at Calculate tree. The suggestions toggle only shows and hides the dashed arrows; it
+carries the count so "showing" with nothing drawn is distinguishable from a control that failed.
+
+**Adding an item re-fits the canvas.** A new item is laid into the tree at the next free row of its
+level and would otherwise sit outside a viewport that never moved — indistinguishable from not having
+been added. Only genuine arrivals do this; redrawing the same plan leaves your pan alone.
 
 AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
 *says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation

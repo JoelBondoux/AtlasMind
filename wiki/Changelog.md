@@ -19,6 +19,92 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.376.0 — Controls that visibly do the thing
+
+Three roadmap-canvas controls that were reported as doing nothing. One of them genuinely did nothing you
+could see; the other two did exactly what they said and said the wrong thing.
+
+**Arranging the tree worked and happened off-screen.** A re-flow moves every node, while your pan and
+zoom stay precisely where you left them — so on any plan wider than the frame, the whole result landed
+outside the viewport. Arranging now fits the canvas afterwards, which is not decoration: arranging and
+looking at what you arranged are one act. The confirmation message also appears either way. It used to
+be shown only when a hand-placed node had been released, so on a plan nobody had dragged, a working
+control gave no sign at all.
+
+The same fit now runs when the plan **gains an item**. A new item is laid into the tree at the next free
+row of its level and then sat somewhere off-screen, which is indistinguishable from not having been
+added. Only genuine arrivals trigger it — re-fitting on every redraw would fight the pan of anybody
+reading a large plan.
+
+**"Align across" and "Align down" named the axis and never named the feature.** They are now **Auto
+tree**, with **→** and **↓** beside it as its direction. Auto tree keeps whatever orientation the plan
+already declares rather than silently flipping it, and direction still lives in the committed plan,
+because which way a graph reads best depends on its shape rather than on who is looking.
+
+**The suggestions toggle did what it said and said the wrong thing.** Turning it on draws dashed arrows
+and rearranges nothing, which is not what "Suggestions on" sounds like. It reads **Showing
+suggestions** / **Suggestions hidden** now, carries a count of what is drawn, and states the rule
+underneath: a suggestion never moves an item and never blocks one, because an inference should not
+reorder your plan on its own. Accept one and it becomes a real link, which does.
+
+That rule has a consequence worth naming, because it looks like a bug. The tree is built from links you
+have **accepted** — so a plan with nothing accepted has every item at the same level, lays out as a
+single column, and has the dashed suggestions crossing it. Nothing is broken; the layout is correct and
+the plan is flat. The canvas now says exactly that, where you are looking at it, and points at
+**Calculate tree**. It says it only in that state: a plan with links drawn does not need telling, and a
+plan with neither links nor suggestions has nothing to accept.
+
+---
+
+## v0.375.0 — Doing the step instead of describing it
+
+Three surfaces that told you what to do, and now do it — or at least get out of the way while you do.
+
+**Step 2 of the borrowed-machine setup was an instruction to run a command AtlasMind had already
+written.** It composed the command, validated the workflow name and the ref, printed it, and offered to
+copy it or type it into a terminal — and then asked you to finish. That is the definition of work the
+tool could do itself, sitting in the middle of an onboarding flow.
+
+**Queue the run…** now dispatches it, bounded four ways. The page posts a bare request with *no
+payload*, so the host rebuilds the invocation from the validated settings pair — a crafted message can
+ask for the queue step and can never name a workflow or a ref. What would actually run is worked out
+first: a dispatch runs the **remote tip** of the trusted branch, not the checkout on screen, so the head
+is read from GitHub and compared with your local `HEAD`. Where they differ the dialog leads with it;
+where GitHub could not be asked, it says *unknown* rather than implying agreement. It is confirmed
+modally, naming the repository and the exact command. And it goes into the workflow audit ledger before
+it is sent, as `actor: user` — no new automation-ladder switch was invented, because the ladder governs
+what AtlasMind may do *unattended* and this only exists as a click on a dialog.
+
+Queueing still starts nothing on your computer. Lending the machine to the job is the separate step it
+always was, with its own confirmation. One sentence in *that* dialog had to change: it said "AtlasMind
+will not dispatch or rerun a workflow", which a queue button makes false. The claim that was ever
+load-bearing — that nothing the container runs can dispatch anything — is unchanged and still stated.
+
+**The setup drawer holding all of that was nearly invisible.** Its title was a bare text node, which the
+shared layout rule pushed to the far right behind a lone chevron: the whole of the borrowed-machine
+setup, presented as a right-aligned footnote. It now looks like the control it is.
+
+**The Release page listed eight gates flat, unclickable, in the order they were checked.** Check order
+is a property of the checker — root cause before symptom — and it is not the order you want to read. The
+gates now lead with what is blocking the release, then unknown, then ready, with the check order kept
+inside each band. **Unknown ranks with the failures**, because this stage is built on "an unknown is not
+a pass" and sinking unknowns down beside the passes would undo that at the last surface before somebody
+tags a version that can never be replaced.
+
+Each gate now opens where its evidence lives — CI to the Pipeline page, the testing policy to Testing,
+the changelog gates to `CHANGELOG.md` — from a declared table with no fallback: a gate nobody wrote a
+destination for is simply not clickable, because a link that opens somewhere unrelated teaches people to
+distrust the others. And there are filters: **Needs you** (blocked *and* unknown), Blocked, Unknown,
+Ready. Their counts come from the whole board rather than from what the filter admits, so "Blocked 3"
+does not read zero the moment you pick "Ready", and a filter hiding something always says how many.
+
+**Send to terminal now moves focus to the terminal.** Everywhere AtlasMind types a command without
+pressing Enter, the missing newline is the gate — and it only works as one if your keystroke is the very
+next thing available. Typing into a panel you are not focused on left people reading "press Enter to run
+it" with the caret still in a webview. The command is still unsubmitted, and still yours to abandon.
+
+---
+
 ## v0.374.0 — A dashboard that can tell you it has stopped listening
 
 This one was reported as "the Delivery runbook's copy and send-to-terminal buttons don't work", and

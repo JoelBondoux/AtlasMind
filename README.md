@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.374.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.376.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.374.0
+## What's new in 0.376.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
@@ -143,11 +143,15 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   only thing that posts it. A raised item says where it came from and routes back; the register says
   "on the roadmap" rather than letting you raise the same finding twice.
 - **Arranging the canvas.** **Fit all** beside the zoom controls puts the whole plan on screen.
-  **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto align** re-flows the tree
-  across or down — releasing hand-placed positions rather than freezing this moment's arrangement, so
-  the next item added lands in its own column. And **Calculate tree**, carrying the AtlasMind mark,
-  works the whole dependency tree out from the wording of your backlog and offers it behind one
-  confirmation that says how many links it would add.
+  **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out
+  as a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs —
+  releasing hand-placed positions rather than freezing this moment's arrangement, so the next item added
+  lands in its own column. Arranging always re-fits, and so does adding an item: a re-flow moves every
+  node while your pan stays put, so without the fit the result happens off-screen. And **Calculate
+  tree**, carrying the AtlasMind mark, works the whole dependency tree out from the wording of your
+  backlog and offers it behind one confirmation that says how many links it would add — which is the
+  control that actually builds the tree, because a suggestion is drawn dashed and deliberately moves no
+  item until you accept it.
 - **The Roadmap is a dependency canvas, not just a list.** A list can say which item matters more; it
   cannot say which one *cannot start* until another lands. The Roadmap page now opens on a draggable
   graph — nodes carrying the item, its branch name, its deadline, the days left and an estimate; arrows
@@ -999,7 +1003,8 @@ history is in [CHANGELOG.md](CHANGELOG.md).
 
   Every command has a **copy** icon and a **send to terminal** icon, and each column has a **▶ Run**
   button for the whole phase. Refreshing the page still runs nothing. Send-to-terminal deliberately
-  does not press Enter, so your own keystroke stays the last gate on a single command; running a column
+  does not press Enter — it moves focus to the terminal instead, so your own keystroke stays the last
+  gate on a single command and is the very next one available; running a column
   opens a confirmation that names every command in order, marks the ones that leave your machine, and
   says whether a failure will stop the rest — it will not on shells without `&&`, which is precisely
   the case where a failed test would otherwise be followed by a publish.
@@ -1312,7 +1317,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

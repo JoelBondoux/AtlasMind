@@ -1449,6 +1449,20 @@ The tag gate is what catches a double publish: an existing tag means the publish
 
 **Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
+### ReleaseGateNavigation (`src/core/releaseGateNavigation.ts`)
+
+Where a release gate sends you, and which gate you should read first. The Release page listed the eight gates as flat, equally-weighted, unclickable text in evaluation order — and evaluation order is a property of the *checker*, root-cause-first, which is the wrong order for a reader who wants the gate actually blocking the release at the top. Several gates named the page holding their evidence in prose (“Open the Pipeline page”) and then left you to find it, which is the failure `githubDeepLinks` exists to close: reasoning about a fact and then not offering the way to it.
+
+**A destination is declared per gate, never inferred.** `RELEASE_GATE_DESTINATIONS` is a `Record` over the `ReleaseGateId` union, so a new gate is a compile error here until somebody decides where it goes. There is no fallback: `resolveReleaseGateDestination` returns `undefined` for an undeclared id and the control is simply not drawn, because a gate silently routed somewhere unrelated is worse than one that is not clickable — the reader follows it, finds nothing, and learns not to trust the others. The id arrives from a webview click, so the lookup is `hasOwnProperty`-guarded and `toString` resolves to nothing.
+
+**Ranked by consequence, ties on declaration order** — the rule `attentionFeed` and `observedDelta` already use, so the list cannot reshuffle between renders. Within a rank the gates keep the evaluator's order, which is how the root-cause-first reasoning survives inside each band.
+
+**`unknown` ranks with the failures, not with the passes.** This is the whole point of the ordering. `releasePreparation` is built on “an unknown is not a pass”, and an ordering that sank unknowns beside the passing gates would undo that at the last surface before somebody tags a release. The same rule shapes the filters: `outstanding` (“Needs you”) admits `fail` *and* `unknown`, while `blocked` and `unknown` stay separate because they need opposite actions and only one of them is yours.
+
+**A filter states what it hid.** `summarizeReleaseGateView` carries the hidden count, and its per-status counts are computed over the **unfiltered** set — a chip reading “Blocked 3” that counted only what the current filter admits would report zero the moment somebody selected “Ready”, which is precisely when a reader most needs to know there are three.
+
+The panel calls it once per snapshot and ships **both orderings and every filter's admitted set** to the webview as gate ids (`DashboardReleaseGateView`). Shipping the rules instead would give one fact two implementations; a message per filter click would make a *way of looking* something that can fail, which the roadmap canvas already refuses for the same reason. Ten arrays of at most eight strings is cheaper than either.
+
 ### IdeationDerivation (`src/core/ideationDerivation.ts`)
 
 Ideation as stage 0 of the workflow. The board held nine card kinds and had two outbound paths — launch an autonomous run, or append prose to a memory file — so nothing fed the backlog and a card called `requirement` could not become a requirement.

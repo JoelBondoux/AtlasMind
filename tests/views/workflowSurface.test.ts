@@ -506,14 +506,14 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain('Inspect this computer');
     expect(WEBVIEW_SCRIPT).toContain('gh workflow run ${escapeHtml(runner.workflowFile');
     expect(WEBVIEW_SCRIPT).toContain('Copy the complete GitHub queue command');
-    expect(WEBVIEW_SCRIPT).toContain('Send complete command to terminal — typed, not run');
+    expect(WEBVIEW_SCRIPT).toContain('typed, not run');
     expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'copyLocalCiQueueCommand' });");
     expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'sendLocalCiQueueCommandToTerminal' });");
-    expect(WEBVIEW_SCRIPT).toContain('PowerShell, Command Prompt, bash, and zsh');
+    expect(WEBVIEW_SCRIPT).toContain('PowerShell, Command Prompt, bash or zsh');
     expect(WEBVIEW_SCRIPT).not.toContain('<code>--ref ${escapeHtml(runner.trustedBranch');
     expect(WEBVIEW_SCRIPT).toContain('Cancel the stale run before queueing this checkout');
     expect(WEBVIEW_SCRIPT).toContain('Check GitHub queue → review start plan');
-    expect(WEBVIEW_SCRIPT).toContain('queues the commit already pushed to the');
+    expect(WEBVIEW_SCRIPT).toContain('It cannot include uncommitted or unpushed files');
     expect(WEBVIEW_SCRIPT).toContain('checks both pending and queued runs');
     expect(WEBVIEW_SCRIPT).not.toContain("actionLabel: runner.enabled ? 'Inspect machine' : 'Enable runner'");
     expect(css).toContain('.ci-machine-setup');
@@ -522,6 +522,68 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(css).toContain("configuration.inspect<boolean>('ci.localRunner.enabled')");
     expect(css).toContain('this.localCiRunnerInstance?.applyConfiguration(configuration, false);');
     expect(css).toContain('enablement: readLocalCiRunnerEnablement()');
+  });
+
+  it('offers to queue the trusted workflow itself, without letting the page say what gets queued', () => {
+    // Step 2 of the borrowed-machine guide used to be an instruction. It is now
+    // an offer, with the typed command kept as the manual fallback.
+    expect(WEBVIEW_SCRIPT).toContain('data-action="pipeline-queue-run"');
+    expect(WEBVIEW_SCRIPT).toContain('Queue the run…');
+    expect(WEBVIEW_SCRIPT).toContain('Or run it yourself');
+
+    // The message carries no payload. That is the safety property: the host
+    // rebuilds the invocation from settings, so a crafted message can ask for
+    // the queue step and can never supply a workflow file or a ref.
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'queueLocalCiWorkflowRun' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'queueLocalCiWorkflowRun', payload/);
+    expect(HOST_PANEL).toContain("| { type: 'queueLocalCiWorkflowRun' }");
+    expect(HOST_PANEL).toContain('buildLocalCiQueueInvocation(configuration)');
+
+    // Confirmed modally, naming the repository, and recorded before it happens.
+    expect(HOST_PANEL).toContain('Queue a workflow run on ${evidence.repoSlug}?');
+    expect(HOST_PANEL).toContain("action: 'queueLocalCiWorkflowRun',");
+    expect(HOST_PANEL).toContain("stageId: 'ci',");
+  });
+
+  it('establishes which commit a dispatch would run, and reports an unknown as one', () => {
+    // A dispatch runs the remote tip, not the checkout on screen. Getting this
+    // wrong in the reassuring direction is the whole hazard: a dialog saying
+    // your work is included when it is not.
+    expect(HOST_PANEL).toContain('gatherLocalCiQueueEvidence');
+    expect(HOST_PANEL).toContain('Which commit runs: unknown.');
+    expect(HOST_PANEL).toContain('NOT your checkout at');
+    // Every field optional, so absent means "not established" rather than "fine".
+    expect(HOST_PANEL).toContain('{ repoSlug?: string; remoteHeadSha?: string; localHeadSha?: string; dirty?: boolean }');
+  });
+
+  it('no longer promises that AtlasMind will not dispatch a workflow', () => {
+    // The start-plan dialog carried that sentence. Gaining a dispatch button
+    // makes it false, and a confirmation dialog making a promise the product
+    // does not keep is worse than one that makes none. The container's own
+    // inability is unchanged and still stated.
+    expect(HOST_PANEL).not.toContain('AtlasMind will not dispatch or rerun a workflow.');
+    expect(HOST_PANEL).toContain('Nothing it runs can dispatch or rerun a workflow.');
+  });
+
+  it('gives the borrowed-machine drawer a summary the shared rules can lay out', () => {
+    // The summary held a bare text node, which the shared flex rule pushed to
+    // the far right behind a lone chevron — the whole of setup, presented as a
+    // right-aligned footnote. The span/small pair is what those rules target.
+    expect(WEBVIEW_SCRIPT).toContain('<summary><span>${escapeHtml(needsSetup');
+    expect(WEBVIEW_SCRIPT).toContain('Borrowed machine — setup, capacity and safety detail');
+    expect(css).toContain('.ci-runner-drawer > summary {');
+  });
+
+  it('moves focus to the terminal when it types a command there', () => {
+    // The withheld newline is the gate. It only works if the next keystroke
+    // reaches the terminal rather than the webview the caret is still in.
+    const sendBlock = HOST_PANEL.slice(
+      HOST_PANEL.indexOf('private sendLocalCiCommandToTerminal'),
+      HOST_PANEL.indexOf('private sendLocalCiCommandToTerminal') + 1200,
+    );
+    expect(sendBlock).toContain('terminal.show();');
+    expect(sendBlock).not.toContain('terminal.show(true);');
+    expect(sendBlock).toContain('terminal.sendText(resolved.command, false);');
   });
 
   it('keeps setup focused on one next action and progressively discloses depth', () => {
@@ -582,6 +644,53 @@ describe('the Release page', () => {
     expect(WEBVIEW_SCRIPT).toMatch(/GATE_TONE = \{[^}]*unknown: 'tag-warn'/);
     expect(WEBVIEW_SCRIPT).toMatch(/GATE_TONE = \{[^}]*fail: 'tag-critical'/);
     expect(WEBVIEW_SCRIPT).toMatch(/GATE_WORD = \{[^}]*unknown: 'unknown'/);
+  });
+
+  it('sends each gate to where its evidence lives, and only where the host declared one', () => {
+    expect(rendered()).toContain('data-action="release-gate-open"');
+    // The page reads the destination; it never decides one. The table is
+    // host-side, and a gate with no declared destination is simply not
+    // clickable rather than routed somewhere plausible.
+    expect(rendered()).toContain('(gateView.destinations || {})[gate.id]');
+    expect(HOST_PANEL).toContain('resolveReleaseGateDestination(gate.id)');
+    expect(WEBVIEW_SCRIPT).toContain("if (action === 'release-gate-open')");
+  });
+
+  it('orders the gates urgent-first by default, using the ranking the host computed', () => {
+    expect(WEBVIEW_SCRIPT).toContain("releaseGateSort: typeof persistedWebviewState.releaseGateSort === 'string'");
+    expect(WEBVIEW_SCRIPT).toMatch(/releaseGateSort[\s\S]{0,120}: 'urgency'/);
+    // Order is looked up, never recomputed here: a second opinion about which
+    // gate is most urgent is a second opinion that can disagree.
+    expect(rendered()).toContain('gateView.order[gateSort]');
+  });
+
+  it('opens showing every gate, so a filter can never hide one you never chose to hide', () => {
+    expect(WEBVIEW_SCRIPT).toMatch(/releaseGateFilter[\s\S]{0,140}: 'all'/);
+  });
+
+  it('filters and sorts without a round trip, because a way of looking must not fail', () => {
+    expect(WEBVIEW_SCRIPT).toContain("if (action === 'release-gate-filter')");
+    expect(WEBVIEW_SCRIPT).toContain("if (action === 'release-gate-sort')");
+    // Neither posts to the host.
+    const handlers = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf("if (action === 'release-gate-filter')"),
+      WEBVIEW_SCRIPT.indexOf("if (action === 'release-gate-open')"),
+    );
+    expect(handlers).not.toContain('vscode.postMessage');
+  });
+
+  it('states what a filter is hiding, and counts every status over the whole board', () => {
+    expect(rendered()).toContain('gateView.summaries || {})[gateFilter]');
+    // A chip counting only what the filter admits would read "Blocked 0" the
+    // moment somebody selected "Ready".
+    expect(rendered()).toContain('gateView.counts || {}');
+    expect(HOST_PANEL).toContain('Counts over the whole set');
+  });
+
+  it('marks gate urgency with a border rather than a filled card', () => {
+    // Eight saturated cards read as an alarm even when three say "unknown".
+    expect(HOST_PANEL).toContain('.wf-gate-fail { border-left-color: var(--dash-critical); }');
+    expect(HOST_PANEL).toContain('.wf-gate-unknown { border-left-color: var(--dash-warn); }');
   });
 
   it('distinguishes "releases not read" from "no releases"', () => {

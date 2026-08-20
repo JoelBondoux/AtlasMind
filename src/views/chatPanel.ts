@@ -850,7 +850,11 @@ export class ChatPanel {
         return;
       case 'sendToTerminal': {
         const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal('AtlasMind');
-        terminal.show(true);
+        // Focus moves with the command. The withheld newline is what keeps the
+        // human's keystroke the last gate on anything AtlasMind types, and that
+        // gate is only real if Enter reaches the terminal rather than the chat
+        // composer the caret is still sitting in.
+        terminal.show();
         terminal.sendText(message.payload.code, false);
         return;
       }

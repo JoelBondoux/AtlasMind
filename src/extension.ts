@@ -3498,7 +3498,9 @@ async function bootstrapAtlasMind(
       }
       const terminal = vscode.window.terminals.find((entry) => entry.name === 'Buzz setup')
         ?? vscode.window.createTerminal({ name: 'Buzz setup' });
-      terminal.show(true);
+      // Focus follows the command: the missing newline is the gate, and it only
+      // functions as one if the next keystroke lands in the terminal.
+      terminal.show();
       // `false` types the command without submitting it.
       terminal.sendText(text, false);
     }),
@@ -3524,7 +3526,7 @@ async function bootstrapAtlasMind(
       }
       const terminal = vscode.window.terminals.find((entry) => entry.name === SETUP_TERMINAL_NAME)
         ?? vscode.window.createTerminal({ name: SETUP_TERMINAL_NAME });
-      terminal.show(true);
+      terminal.show();
       terminal.sendText(text, false);
     }),
 

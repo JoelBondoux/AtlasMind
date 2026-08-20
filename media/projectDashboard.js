@@ -421,6 +421,21 @@
      * orientation, which everybody opening the plan should see the same way.
      */
     roadmapSnapToGrid: persistedWebviewState.roadmapSnapToGrid === true,
+    /**
+     * Node ids the canvas has already drawn, so an *arrival* can be told from a
+     * redraw. Deliberately session-only: it answers "is this new to what is on
+     * screen right now", which a value restored from a previous session cannot.
+     */
+    roadmapSeenNodeIds: new Set(),
+    /**
+     * Fit the canvas once, after the next render.
+     *
+     * Set when the plan is rearranged or gains a node, because both change where
+     * the tree *is* while pan and zoom stay where you left them — and a re-flow
+     * you cannot see is indistinguishable from a button that did nothing, which
+     * is exactly how the arrange controls read before this existed.
+     */
+    roadmapFitAfterRender: false,
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -499,6 +514,18 @@
     contributorFilter: '',
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
     issueFilter: 'open',
+    /**
+     * Release gates: which are shown, and in what order.
+     *
+     * Both default to seeing everything, urgent first. Filtering defaults to
+     * `all` deliberately — a release board that opened already hiding gates
+     * would be a board somebody could ship from without ever learning what it
+     * was not showing them.
+     */
+    releaseGateFilter: typeof persistedWebviewState.releaseGateFilter === 'string'
+      ? persistedWebviewState.releaseGateFilter : 'all',
+    releaseGateSort: typeof persistedWebviewState.releaseGateSort === 'string'
+      ? persistedWebviewState.releaseGateSort : 'urgency',
     debtSearch: '',
     /**
      * Everything-that-ran: how the list is ordered, what it shows, and whether
@@ -808,6 +835,24 @@
       const roadmapNodeIds = new Set(((message.payload && message.payload.roadmap && message.payload.roadmap.graph
         ? (message.payload.roadmap.graph.active || []).concat(message.payload.roadmap.graph.completed || [])
         : [])).map(node => node.id));
+      /*
+       * An item that arrived since the last snapshot is laid into the tree by
+       * the host, at the next free row of its depth — and then sits outside the
+       * viewport, because pan and zoom are wherever you left them. A node you
+       * cannot see is indistinguishable from one that was never added, which is
+       * why adding an item used to read as the canvas ignoring it.
+       *
+       * So a genuinely new node re-fits the view. Only *new* ones: re-fitting on
+       * every snapshot would fight the pan of anybody reading a large plan, and
+       * the first snapshot is not an addition — there is nothing to have been
+       * added to.
+       */
+      const arrivedIds = [...roadmapNodeIds].filter(id => !state.roadmapSeenNodeIds.has(id));
+      const hadNodes = state.roadmapSeenNodeIds.size > 0;
+      state.roadmapSeenNodeIds = roadmapNodeIds;
+      if (arrivedIds.length > 0 && hadNodes) {
+        state.roadmapFitAfterRender = true;
+      }
       if (state.roadmapFocusNodeId && !roadmapNodeIds.has(state.roadmapFocusNodeId)) {
         state.roadmapFocusNodeId = '';
       }
@@ -1489,14 +1534,33 @@
       render();
       return;
     }
+    /**
+     * Re-flow the tree, and then show it.
+     *
+     * The fit is not decoration. Re-flowing moves every node while pan and zoom
+     * stay exactly where you left them, so on any plan wider than the viewport
+     * the entire result happened off-screen — which is why both arrange
+     * controls read as buttons that did nothing. Arranging and looking at what
+     * you arranged are one act.
+     *
+     * `payload` is the orientation, or empty to keep the one the plan already
+     * declares. The webview never sends coordinates: a page supplying positions
+     * would be doing the layout, and two layouts would drift.
+     */
     if (action === 'roadmap-auto-align') {
+      const declared = roadmapGraph().orientation === 'vertical' ? 'vertical' : 'horizontal';
+      state.roadmapFitAfterRender = true;
       vscode.postMessage({
         type: 'roadmapAutoLayout',
-        payload: payload === 'vertical' ? 'vertical' : 'horizontal',
+        payload: payload === 'vertical' ? 'vertical' : payload === 'horizontal' ? 'horizontal' : declared,
       });
       return;
     }
     if (action === 'roadmap-derive-links') {
+      // Accepting links changes every node's depth, which is the largest layout
+      // change this page can make. Fit afterwards for the same reason arranging
+      // does: a re-flow you cannot see reads as nothing having happened.
+      state.roadmapFitAfterRender = true;
       vscode.postMessage({ type: 'roadmapDeriveLinks' });
       return;
     }
@@ -1714,6 +1778,12 @@
       vscode.postMessage({ type: 'sendLocalCiQueueCommandToTerminal' });
       return;
     }
+    // No payload: the host rebuilds the whole invocation from settings, so this
+    // asks for the queue step and can never say what gets queued.
+    if (action === 'pipeline-queue-run') {
+      vscode.postMessage({ type: 'queueLocalCiWorkflowRun' });
+      return;
+    }
     if (action === 'pipeline-cancel-command-copy') {
       const runId = Number(payload);
       if (Number.isSafeInteger(runId) && runId > 0) { vscode.postMessage({ type: 'copyLocalCiCancelCommand', payload: runId }); }
@@ -1743,6 +1813,44 @@
     if (action === 'issues-filter') {
       state.issueFilter = payload || 'open';
       render();
+      return;
+    }
+    // Filter and sort are ways of looking, so they never leave the webview. The
+    // value is stored raw and validated at render against the sets the host
+    // shipped — an unrecognised one falls back rather than emptying the board.
+    if (action === 'release-gate-filter') {
+      state.releaseGateFilter = payload || 'all';
+      vscode.setState({ ...(vscode.getState() || {}), releaseGateFilter: state.releaseGateFilter });
+      refocusAfterRender = 'button[data-action="release-gate-filter"][data-payload="' + cssEscape(state.releaseGateFilter) + '"]';
+      render();
+      return;
+    }
+    if (action === 'release-gate-sort') {
+      state.releaseGateSort = payload || 'urgency';
+      vscode.setState({ ...(vscode.getState() || {}), releaseGateSort: state.releaseGateSort });
+      refocusAfterRender = 'button[data-action="release-gate-sort"][data-payload="' + cssEscape(state.releaseGateSort) + '"]';
+      render();
+      return;
+    }
+    /**
+     * Open where a gate's evidence lives.
+     *
+     * The destination is resolved host-side from a declared table and shipped
+     * on the snapshot, so this reads it rather than deciding it: a click can
+     * name a gate and can never name a place to go.
+     */
+    if (action === 'release-gate-open') {
+      const release = (state.snapshot && state.snapshot.release) || {};
+      const destination = ((release.gateView || {}).destinations || {})[payload];
+      if (!destination) { return; }
+      if (destination.kind === 'page') {
+        const next = normalizePageId(destination.target);
+        if (next !== state.activePage) { resetScrollAfterRender = true; }
+        state.activePage = next;
+        render();
+      } else if (destination.kind === 'file') {
+        vscode.postMessage({ type: 'openFile', payload: destination.target });
+      }
       return;
     }
     if (action === 'issues-work') {
@@ -3232,6 +3340,17 @@
       // against a wholesale innerHTML swap.
       applyValueAnimations();
       bindPipelineGraph();
+      /*
+       * Fit the canvas once, now that the nodes it measures actually exist in
+       * the DOM. `fitRoadmapCanvas` reads laid-out geometry, so it cannot run
+       * from the handler that asked for it — and the flag is cleared *before*
+       * the call, because fitting itself renders and would otherwise re-enter
+       * here and fit forever.
+       */
+      if (state.roadmapFitAfterRender && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
+        state.roadmapFitAfterRender = false;
+        fitRoadmapCanvas();
+      }
       // The split buttons this render just produced are shells; fill them from
       // the one cadence the timer is actually running on.
       syncRefreshCadenceIndicators();
@@ -6997,18 +7116,69 @@
       ],
     });
 
-    // The gates, in evaluation order. `unknown` is rendered as its own state
-    // rather than folded into failure: "we could not check" and "we checked and
-    // it is wrong" call for different actions, and only one of them is yours.
-    const gateRows = (plan.gates || []).map(gate => `
-      <div class="recent-item">
+    // `unknown` is rendered as its own state rather than folded into failure:
+    // "we could not check" and "we checked and it is wrong" call for different
+    // actions, and only one of them is yours.
+    //
+    // Order and membership are *looked up*, never recomputed. Both orderings
+    // and every filter's admitted set arrive precomputed on the snapshot, so
+    // the page cannot hold a second, drifting opinion about which gate is most
+    // urgent — and switching filter or sort stays offline, because a way of
+    // looking at a release board must not be something that can fail.
+    const gateView = rel.gateView || {};
+    const gatesById = new Map((plan.gates || []).map(gate => [gate.id, gate]));
+    const gateFilter = (gateView.admits && gateView.admits[state.releaseGateFilter]) ? state.releaseGateFilter : 'all';
+    const gateSort = (gateView.order && gateView.order[state.releaseGateSort]) ? state.releaseGateSort : 'urgency';
+    const admitted = new Set((gateView.admits && gateView.admits[gateFilter]) || []);
+    const orderedGateIds = (gateView.order && gateView.order[gateSort]) || (plan.gates || []).map(gate => gate.id);
+    const shownGates = orderedGateIds.filter(id => admitted.has(id)).map(id => gatesById.get(id)).filter(Boolean);
+
+    const gateRows = shownGates.map(gate => {
+      // Where this gate's evidence lives. Declared per gate in the host; a gate
+      // with no declared destination simply is not clickable, because a control
+      // that opened somewhere unrelated would teach people to distrust the rest.
+      const destination = (gateView.destinations || {})[gate.id];
+      const link = destination
+        ? `<button type="button" class="action-link" data-action="release-gate-open" data-payload="${escapeAttr(gate.id)}"
+            title="${escapeAttr(destination.reason)}">${escapeHtml(destination.label)} →</button>`
+        : '';
+      return `
+      <div class="recent-item wf-gate wf-gate-${escapeAttr(gate.status)}">
         <div class="row-head">
           <strong>${escapeHtml(gate.label)}</strong>
           <span class="tag ${GATE_TONE[gate.status] || ''}">${escapeHtml(GATE_WORD[gate.status] || gate.status)}</span>
         </div>
         <div class="list-meta">${escapeHtml(gate.detail)}</div>
         ${gate.fixHint ? `<p class="stat-detail${gate.status === 'pass' ? '' : ' wf-unknown'}">${escapeHtml(gate.fixHint)}</p>` : ''}
-      </div>`).join('');
+        ${link ? `<div class="tag-row wf-gate-actions">${link}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    // Counts on the chips come from the whole board, never from what the
+    // current filter admits — a "Blocked 3" chip that read zero the moment you
+    // selected "Ready" would be lying at the one moment it matters.
+    const gateCounts = gateView.counts || {};
+    const gateCountFor = id => id === 'all' ? (plan.gates || []).length
+      : id === 'outstanding' ? (gateCounts.fail || 0) + (gateCounts.unknown || 0)
+        : id === 'blocked' ? (gateCounts.fail || 0)
+          : id === 'unknown' ? (gateCounts.unknown || 0)
+            : (gateCounts.pass || 0);
+    const gateControls = (gateView.filters || []).length ? `
+      <div class="wf-gate-controls">
+        <div class="segmented" role="group" aria-label="Filter release gates">
+          ${gateView.filters.map(entry => `<button type="button" data-action="release-gate-filter" data-payload="${escapeAttr(entry.id)}"
+            class="${gateFilter === entry.id ? 'active' : ''}" aria-pressed="${gateFilter === entry.id ? 'true' : 'false'}"
+            title="${escapeAttr(entry.hint)}">${escapeHtml(entry.label)}<span class="wf-gate-count">${gateCountFor(entry.id)}</span></button>`).join('')}
+        </div>
+        <div class="segmented" role="group" aria-label="Order release gates">
+          ${(gateView.sorts || []).map(entry => `<button type="button" data-action="release-gate-sort" data-payload="${escapeAttr(entry.id)}"
+            class="${gateSort === entry.id ? 'active' : ''}" aria-pressed="${gateSort === entry.id ? 'true' : 'false'}"
+            title="${escapeAttr(entry.hint)}">${escapeHtml(entry.label)}</button>`).join('')}
+        </div>
+      </div>` : '';
+    // Always rendered when a filter is hiding something. A filtered board that
+    // does not say so reads as the whole board.
+    const gateSummary = (gateView.summaries || {})[gateFilter];
 
     const gateHelp = renderWorkflowHelp('release.gates', {
       label: 'why a release has gates at all',
@@ -7034,7 +7204,9 @@
           <span class="tag ${plan.ready ? 'tag-good' : 'tag-warn'}">${plan.ready ? 'all clear' : (plan.blockedBy || []).length + ' outstanding'}</span>
         </div>
         ${gateHelp.panel}
-        <div class="stack-list">${gateRows || '<div class="dashboard-empty">No gates evaluated.</div>'}</div>
+        ${gateControls}
+        <div class="stack-list">${gateRows || `<div class="dashboard-empty">${escapeHtml(gateSummary || 'No gates evaluated.')}</div>`}</div>
+        ${gateRows && gateSummary ? `<p class="stat-detail">${escapeHtml(gateSummary)}</p>` : ''}
         <p class="stat-detail">Nothing here publishes anything. Tagging and publishing stay with you at every automation level, because a released version cannot be taken back.</p>
       </article>`;
 
@@ -7880,11 +8052,15 @@
       </div>
       <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
       <details class="ci-progressive-details ci-runner-drawer"${drawerOpen ? ' open' : ''}>
-        <summary>${escapeHtml(needsSetup
+        <summary><span>${escapeHtml(needsSetup
           ? 'Borrowed machine — the next step, and what is blocking it'
           : needsFirstRun
             ? 'Borrowed machine — the queue command and the start plan'
-            : 'Borrowed machine — setup, capacity and safety detail')}</summary>
+            : 'Borrowed machine — setup, capacity and safety detail')}</span><small>${escapeHtml(needsSetup
+              ? 'Open — action needed'
+              : needsFirstRun
+                ? 'Open — nothing has run yet'
+                : 'Setup, capacity, safety')}</small></summary>
         <div class="ci-progressive-details-body">${runnerCard}</div>
       </details>
     </article>`;
@@ -9309,8 +9485,10 @@
       <section class="ci-queue-guide" aria-label="Queue a trusted GitHub job">
         <div><span class="ci-workflow-label">GitHub queue · repository action</span><strong>Queue the same commit that is open locally</strong></div>
         <ol class="ci-queue-steps">
-          <li><strong>Commit and push first.</strong><span>AtlasMind queues the commit already pushed to the <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> branch. It cannot include uncommitted or unpushed files.</span></li>
-          <li><strong>Queue from this repository’s VS Code terminal.</strong><span>This complete GitHub CLI command works in PowerShell, Command Prompt, bash, and zsh. It installs no software and changes no local files.</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to terminal — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div><p class="stat-detail">If GitHub answers <em>HTTP 404: workflow not found on the default branch</em>, nothing is misplaced — the file belongs in <code>.github/workflows/</code>, and the URL in that error is GitHub’s API address, not a folder. GitHub only registers a dispatchable workflow once the file exists on the repository’s <strong>default branch</strong>. Merge it there first, or push a commit to <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> instead — a push runs the workflow from the pushed commit itself, no registration needed.</p></li>
+          <li><strong>Commit and push first.</strong><span>A dispatch runs the commit already on the <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> branch at GitHub. It cannot include uncommitted or unpushed files — AtlasMind checks which commit that is and tells you before it queues anything.</span></li>
+          <li><strong>Queue it.</strong><span>AtlasMind can dispatch this for you. It reads the head of <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> from GitHub, compares it with your checkout, then names the repository and the exact command in a confirmation before anything is sent. Queueing runs nothing on this computer.</span>
+            <div class="tag-row ci-queue-actions"><button type="button" class="action-link primary" data-action="pipeline-queue-run">Queue the run…</button></div>
+            <span class="ci-queue-manual-label">Or run it yourself — the same complete command, in PowerShell, Command Prompt, bash or zsh:</span><div class="local-ci-command-block"><pre class="local-ci-command"><code>gh workflow run ${escapeHtml(runner.workflowFile || 'trusted-local-ci.yml')} --ref ${escapeHtml(runner.trustedBranch || 'develop')}</code></pre><div class="local-ci-command-actions"><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-copy" title="Copy the complete GitHub queue command" aria-label="Copy the complete GitHub queue command">⧉</button><button type="button" class="code-icon-btn" data-action="pipeline-queue-command-send" title="Send complete command to the terminal and focus it — typed, not run" aria-label="Send the complete GitHub queue command to the terminal">&gt;_</button></div></div><p class="stat-detail">If GitHub answers <em>HTTP 404: workflow not found on the default branch</em>, nothing is misplaced — the file belongs in <code>.github/workflows/</code>, and the URL in that error is GitHub’s API address, not a folder. GitHub only registers a dispatchable workflow once the file exists on the repository’s <strong>default branch</strong>. Merge it there first, or push a commit to <strong>${escapeHtml(runner.trustedBranch || 'develop')}</strong> instead — a push runs the workflow from the pushed commit itself, no registration needed.</p></li>
           <li><strong>Return here after GitHub confirms the dispatch.</strong><span>Select <em>Check GitHub queue → review start plan</em>. This checks the queue first; it does not lend the machine until you approve the separate plan.</span></li>
         </ol>
         <p class="stat-detail">A waiting self-hosted job may be reported by GitHub as “pending”; AtlasMind checks both pending and queued runs.</p>
@@ -10721,6 +10899,7 @@
         ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
         ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap has not been wired to the canvas yet. It is laid out from the backlog order — the first change you make writes a hidden id into each backlog line so positions, dates and links can be kept.')}</div>`}
         ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
+        ${renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions)}
         <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
           <div class="rm-world" data-rm-world="true"
             style="width:${worldWidth}px;height:${worldHeight}px;transform:translate(${state.roadmapPan.x}px, ${state.roadmapPan.y}px) scale(${state.roadmapZoom});">
@@ -10743,6 +10922,37 @@
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
       </article>`;
+  }
+
+  /**
+   * Why the tree is a single column.
+   *
+   * The most confusing state this canvas has, and it looked like a layout bug:
+   * a plan with no accepted links has every item at depth zero, so **Auto tree**
+   * lays them all in one row of the reading axis and the dashed suggestions
+   * criss-cross it. Nothing is broken — the tree is built from links you have
+   * accepted, and a suggestion deliberately moves no node and blocks none,
+   * because an inference silently reordering somebody's plan is the one thing
+   * the suggestion mechanism exists to avoid.
+   *
+   * That rule is defensible and invisible, which is the worst combination. So
+   * it is said, once, exactly where somebody is looking at its consequence —
+   * and only then: a plan with links already drawn does not need telling, and a
+   * plan with neither links nor suggestions has nothing to accept.
+   */
+  function renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions) {
+    if (state.roadmapView === 'completed' || visibleEdges.length > 0) { return ''; }
+    const count = visibleSuggestions.length;
+    if (count === 0) {
+      return graph.suggestLinks === false && (graph.suggested || []).length > 0
+        ? `<div class="rm-banner" role="status">${escapeHtml('Nothing is linked yet, so every item sits at the same level. Suggestions are switched off — turn them on to see what AtlasMind would propose.')}</div>`
+        : '';
+    }
+    return `<div class="rm-banner" role="status">${escapeHtml(
+      `Nothing is linked yet, so every item sits at the same level and the tree has only one step. The ${count} dashed `
+      + `arrow${count === 1 ? '' : 's'} ${count === 1 ? 'is a suggestion' : 'are suggestions'} — they never move an item, `
+      + 'because an inference should not reorder your plan on its own. Accept them (individually, or all at once with '
+      + 'Calculate tree) and the tree takes shape.')}</div>`;
   }
 
   function renderRoadmapCanvasToolbar(graph, filter, focusNode, totalCount, shownCount) {
@@ -10768,22 +10978,28 @@
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
               aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"
-              title="${escapeAttr('Whether AtlasMind proposes links nobody drew. A suggestion is drawn dashed and changes nothing until you accept it; it can never contradict a link you drew, and it can never make the plan circular.')}">
-              ${graph.suggestLinks ? 'Suggestions on' : 'Suggestions off'}
+              title="${escapeAttr('Whether AtlasMind draws links nobody has accepted. This control only shows and hides the dashed arrows — a suggestion never moves an item and never blocks one, so turning it on will not rearrange the tree. Accept a suggestion and it becomes a real link, which does. It can never contradict a link you drew, and can never make the plan circular.')}">
+              ${graph.suggestLinks ? 'Showing suggestions' : 'Suggestions hidden'}${graph.suggestLinks && (graph.suggested || []).length ? ` <span class="rm-count">${(graph.suggested || []).length}</span>` : ''}
             </button>`}
           ${state.roadmapView === 'completed' ? '' : `
-            <span class="rm-control-group" role="group" aria-label="Arrange the plan">
-              <button type="button" class="action-link${graph.orientation !== 'vertical' ? ' is-on' : ''}"
+            <span class="rm-control-group" role="group" aria-label="Arrange the plan as a tree">
+              <button type="button" class="action-link rm-auto-tree" data-action="roadmap-auto-align" data-payload=""
+                title="${escapeAttr('Lay the plan out as a tree and fit it on screen. Each step along the reading axis is one step further from work that can start now. Releases every node you have positioned by hand — drag one again to pin it. Only links you have accepted shape the tree; suggestions never move a node.')}">
+                <span aria-hidden="true">⌗</span> Auto tree
+              </button>
+              <button type="button" class="action-link rm-orientation${graph.orientation !== 'vertical' ? ' is-on' : ''}"
                 data-action="roadmap-auto-align" data-payload="horizontal"
                 aria-pressed="${graph.orientation !== 'vertical' ? 'true' : 'false'}"
-                title="${escapeAttr('Re-flow the tree left to right, so each column is one step further from work that can start now. Releases every node you have positioned by hand — drag one again to pin it.')}">
-                <span aria-hidden="true">→</span> Align across
+                aria-label="Run the tree left to right"
+                title="${escapeAttr('Run the tree left to right, and re-fit. Reads best on a long chain with little branching.')}">
+                <span aria-hidden="true">→</span>
               </button>
-              <button type="button" class="action-link${graph.orientation === 'vertical' ? ' is-on' : ''}"
+              <button type="button" class="action-link rm-orientation${graph.orientation === 'vertical' ? ' is-on' : ''}"
                 data-action="roadmap-auto-align" data-payload="vertical"
                 aria-pressed="${graph.orientation === 'vertical' ? 'true' : 'false'}"
-                title="${escapeAttr('Re-flow the tree top to bottom, which reads better on a wide, shallow plan. Releases every node you have positioned by hand — drag one again to pin it.')}">
-                <span aria-hidden="true">↓</span> Align down
+                aria-label="Run the tree top to bottom"
+                title="${escapeAttr('Run the tree top to bottom, and re-fit. Reads best on a wide, shallow plan.')}">
+                <span aria-hidden="true">↓</span>
               </button>
             </span>
             <button type="button" class="action-link${state.roadmapSnapToGrid ? ' is-on' : ''}"
