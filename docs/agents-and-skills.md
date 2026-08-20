@@ -590,7 +590,12 @@ Selection is separate from authorisation, and both had to change: GitHub work is
 | `git-diff` | ✅ Implemented | Show repository diff (staged or against a ref) |
 | `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |
 | `git-log` | ✅ Implemented | Query commit log with ref, filePath, and maxCount (capped at 100) |
-| `git-branch` | ✅ Implemented | List, create, switch, or delete branches with name validation |
+| `git-branch` | ✅ Implemented | List branches (optionally only those merged into a ref — the safe deletion candidates — or including remote-tracking refs), create, switch, or delete locally (`--delete`/`-D`) or on the remote (`git push --delete`); protected branches (main, master, production, release/*, hotfix/*) are refused for deletion, and flag-shaped names are rejected so a branch name can never become a git option |
+| `git-fetch` | ✅ Implemented | Download new commits and refs from a remote without touching the working tree; `--prune` drops remote-tracking refs whose branch was deleted — the first step of a branch cleanup. Classified `network-read`: it changes nothing a person is editing, but it does leave the machine |
+| `git-pull` | ✅ Implemented | Fetch and integrate remote changes; fast-forward-only by default so a routine sync can never invent a merge commit, with explicit `rebase` and `merge` modes for diverged history |
+| `git-merge` | ✅ Implemented | Merge a named branch into the current branch (optional `--no-ff` and message) or abort an in-progress merge; a conflict is reported with the exact conflicted files and both ways out |
+| `git-worktree` | ✅ Implemented | List, remove, or prune git worktrees — a linked worktree pins its branch, so branch cleanup runs through here. Removal only ever targets a worktree `git worktree list` itself names, never the main worktree; with force on Windows it can clear read-only attributes and delete the directory, but only inside the workspace root |
+| `git-stash` | ✅ Implemented | List, show, push (save), apply, pop, or drop stash entries; entries are addressed by a validated integer index (`stash@{n}` is constructed, never accepted as free text) |
 | `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |
 | `diagnostics` | ✅ Implemented | Retrieve compiler errors/warnings via the VS Code diagnostics API |
 | `code-symbols` | ✅ Implemented | AST-aware navigation: list symbols, find references, go to definition |

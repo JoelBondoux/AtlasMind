@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.370.0 — The git lifecycle becomes real skills
+
+Two chat logs made the gap measurable. A branch-cleanup request ran seventeen improvised terminal
+commands — models were even hallucinating `git_fetch`-style tool names for auto-synthesis to
+reverse-engineer — and stalled unresolved on a Windows-locked worktree. Five new built-in skills close
+it: `git-worktree` (removal only ever targets a worktree git itself lists, and knows the
+OneDrive/read-only failure mode), `git-fetch` (`--prune`), `git-pull` (fast-forward-only by default),
+`git-merge` (conflicts reported with the exact files and both ways out), and `git-stash` (validated
+integer index only). `git-branch` gained merged-into listing and local/force/remote deletion, with
+protected branches refused outright.
+
+Selection and grading caught up too: the git intent pattern now matches "branches" (it literally did
+not, which is why the cleanup run got no git tools), integration flows select `git-merge` itself, and
+local git skills no longer fall through to a `network`-risk "invoke external tool" grade. And two
+prompt-level fixes from the same logs: models are told the per-turn tool-call ceiling before they hit
+it, and told to call `find-tool` before declaring a capability blocker — the way a gap-analysis run
+wrongly concluded it had no way to edit files.
+
+---
 ## v0.369.4 — Published baseline refreshed
 
 The README states which Marketplace version its release notes are measured against, and that line can

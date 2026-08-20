@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.369.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.370.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,27 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.369.4
+## What's new in 0.370.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Agents hold the whole local git lifecycle as real skills.** Five new built-ins — `git-worktree`,
+  `git-fetch`, `git-pull`, `git-merge`, `git-stash` — plus a `git-branch` that can list merged-only
+  candidates and delete locally, force, or on the remote (protected branches refused). Previously a
+  branch cleanup ran as seventeen improvised terminal commands and stalled on a locked worktree;
+  worktree removal now knows the Windows read-only/OneDrive failure mode and only ever targets a
+  worktree git itself lists.
+- **Git requests select git tools reliably.** The intent pattern now matches inflected words
+  ("branches", "merged", "pushing"), integration flows select `git-merge` itself, and a cleanup
+  request selects `git-branch` + `git-fetch` + `git-worktree` together. Local git skills are graded
+  by what they do (argument-aware), instead of falling through to a `network`-risk "external tool"
+  grade that blocked read-only turns and confused approval dialogs.
+- **Two observed failure modes closed at the prompt.** Models are told the per-turn tool-call ceiling
+  before they hit it (a run died requesting 9 tools against a limit of 8 it was never told about),
+  and told that the visible tool list is a task-scoped selection — call `find-tool` before declaring
+  a capability blocker, which is exactly how a gap-analysis run wrongly concluded it could not edit
+  files.
 - **The local CI queue command is findable when you need it.** The borrowed-machine drawer on
   Pipeline → Rules closed the moment the machine read ready — exactly the state the setup journey
   sends you there in, looking for the queue command inside it. It now stays open, with the
@@ -1182,7 +1198,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | | |
 |---|---|
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
-| **45 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
+| **50 built-in skills** | File edits, the full local git lifecycle (branches, worktrees, fetch/pull, merge, stash), terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |

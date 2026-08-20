@@ -224,6 +224,12 @@ clear a confidence threshold, and behaviour-changing work needs passing verifica
 
 - **AtlasMind never force-pushes.** Where a force is genuinely unavoidable it uses a lease; to a protected
   branch it refuses outright
+- **Protected branches are never deleted.** `git-branch` refuses to delete main, master, production,
+  release/* or hotfix/* — locally and on the remote — and branch, remote and ref arguments are rejected
+  when flag-shaped, so a name can never smuggle a git option
+- **Worktree removal only targets what git itself lists.** `git-worktree` matches the requested path
+  against `git worktree list` before anything runs, never touches the main worktree, and its escalated
+  Windows cleanup (read-only attributes, directory delete) stays inside the workspace root
 - **Promotion is deny-by-default** where required backup or approval evidence is missing
 - **The backup command ships empty** on a production stage with a database, and that emptiness is the
   gate — AtlasMind can't invent a backup that would actually restore your data

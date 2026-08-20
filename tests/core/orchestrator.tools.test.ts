@@ -5192,6 +5192,47 @@ describe('task-scoped skill context', () => {
     expect(selected).toEqual(expect.arrayContaining(['git-commit', 'git-branch', 'git-push']));
   });
 
+  const BRANCH_CLEANUP_SKILLS = [
+    ...GIT_AND_DELIVERY_SKILLS, 'git-worktree', 'git-fetch', 'git-pull', 'git-stash', 'git-merge',
+  ];
+
+  it('selects the whole branch-cleanup set for a cleanup request, including its typo', () => {
+    // The run that motivated this: "Can you clean up all old and unneccessary
+    // branches?" selected only git-branch, so pruning remote-tracking refs and
+    // removing the worktrees that pinned two of the branches ran as seventeen
+    // improvised terminal commands and stalled on the first locked worktree.
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    for (const message of [
+      'Can you clean up all old and unneccessary branches?',
+      'Can you clean up all old and unnecessary branches?',
+      'delete the stale branches',
+    ]) {
+      expect(select(message)).toEqual(expect.arrayContaining(['git-branch', 'git-fetch', 'git-worktree']));
+    }
+  });
+
+  it('selects the merge skill itself for integration flows, and per-word for the rest', () => {
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    expect(select('ok, merge to main then publish')).toContain('git-merge');
+    expect(select('remove the leftover worktrees from the repo')).toContain('git-worktree');
+    expect(select('stash my changes before switching branch')).toContain('git-stash');
+    expect(select('fetch and prune the remote branches')).toContain('git-fetch');
+    expect(select('pull the latest develop')).toEqual(expect.arrayContaining(['git-pull', 'git-fetch']));
+    // "pull request" is GitHub vocabulary: the deterministic per-word stage must
+    // not read it as a local pull, and the turn still gets the GitHub set.
+    expect(select('review my pull request checks')).toContain('terminal-run');
+  });
+
   it('bundles the write tools for an integration flow without widening a plain commit', () => {
     // The bundle is deliberately narrower than "any word implying a write":
     // asking about a commit is not asking for the ability to publish one.

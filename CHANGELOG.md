@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.370.0] - 2026-08-20
+
+### Added
+
+- **The local git lifecycle is now covered by five new built-in skills, so agents stop improvising it.**
+  Two chat runs made the gap measurable: a branch-cleanup request ran seventeen raw terminal commands
+  and stalled unresolved on a locked worktree, and models were observed hallucinating `git_fetch`-style
+  tool names for the auto-synthesis path to reverse-engineer. New skills: `git-worktree` (list/remove/
+  prune — removal only ever targets a worktree `git worktree list` itself names, never the main one,
+  and its escalated Windows cleanup for OneDrive/read-only-attribute blocks stays inside the workspace
+  root), `git-fetch` (with `--prune`, classified `network-read`), `git-pull` (fast-forward-only by
+  default; rebase and merge are explicit modes), `git-merge` (merge/abort, conflicts reported with the
+  exact files and both ways out), and `git-stash` (entries addressed by validated integer index only).
+- **`git-branch` can now finish a cleanup.** List accepts `mergedInto` (only branches already merged
+  into a ref — the safe deletion candidates) and `all` (remote-tracking refs); delete accepts `force`
+  (`-D`) and `remote` (`git push --delete`). Protected branches (main, master, production, release/*,
+  hotfix/*) are refused for deletion outright, and a delete pinned by a worktree points at
+  `git-worktree` instead of dead-ending.
+
+### Fixed
+
+- **Task-scoped selection now recognises the words people actually use for git work.** The git intent
+  pattern matched `branch` but not `branches` — so "clean up all old and unnecessary branches", the
+  exact wording of the run above, never selected the git tool group at all. The pattern is now
+  inflection-tolerant, integration flows select `git-merge` itself (previously the one step of
+  "merge X into Y" with no tool behind it), and a branch-cleanup request selects the whole set the
+  job needs: `git-branch`, `git-fetch`, and `git-worktree`.
+- **Local git skills no longer grade as "invoke external tool".** `git-log`, `git-blame`,
+  `git-branch`, `git-push`, and `diff-preview` were never named in the tool policy, so they fell
+  through to the unknown-tool rule and graded `network`/high — which denied `git-log` in a read-only
+  turn and put "invoke external tool git-log" in approval dialogs for a local history read. All git
+  skills are now graded explicitly, argument-aware where the action decides the risk (`git-branch`
+  list vs delete, `git-worktree` list vs remove, `git-stash` show vs drop), with unreadable arguments
+  always grading as the write.
+- **Models are told the per-turn tool-call ceiling before they hit it.** A cleanup run died with
+  "model requested 9 tools in one turn, exceeding the safety limit of 8" — a limit the model had no
+  way to know about. The system prompt now states the configured ceiling and says to batch under it.
+- **Models are told to search before declaring a capability blocker.** A gap-analysis run ended with
+  "I do not have a tool to edit files" while `file-edit` sat one `find-tool` call away — the
+  task-scoped selection had (correctly) withheld write tools for an assessment prompt, and the model
+  read the visible list as the whole set. When tools were withheld, the prompt now says the list is a
+  selection and to try `find-tool` before reporting a blocker or handing work back.
+
 ## [0.369.4] - 2026-08-20
 
 ### Changed

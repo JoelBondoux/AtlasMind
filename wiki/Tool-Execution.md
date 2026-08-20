@@ -45,14 +45,21 @@ your status bar so you always know it's on.
 
 | Category | Risk | Examples |
 |----------|-----------|---------|
-| `read` | Low | Reading files, searching, listing directories, diagnostics, git status and diff |
-| `git-read` | Low | Status, diff, log, listing branches |
+| `read` | Low | Reading files, searching, listing directories, diagnostics, diff previews |
+| `git-read` | Low | Status, diff, log, blame, listing branches, worktrees, or stashes |
+| `network-read` | Low–Medium | A remote call that changes nothing a person is editing but does leave the machine — an MCP `list_tables`, a docs search, `git fetch` |
 | `terminal-read` | Low | Read-only commands |
 | `audio-input` / `audio-output` | Low | Microphone and speech playback |
-| `workspace-write` | Medium | Writing, editing, deleting or moving files; writing to memory |
-| `network` | Medium | Fetching a URL |
-| `git-write` | High | Committing, creating or deleting branches |
+| `workspace-write` | Medium | Writing, editing, deleting or moving files; writing to memory; removing a worktree directory |
+| `network` | Medium–High | Fetching a URL; pushing commits or deleting a branch on the remote |
+| `git-write` | High | Committing, merging, pulling, creating or deleting branches, stash operations that discard an entry |
 | `terminal-write` | High | Installs, build scripts, anything that changes state |
+
+Several git skills grade **by their arguments**, the way `terminal-run` grades `git` subcommands: `git-branch`
+with `action: "list"` is a `git-read`, with `action: "delete"` a high-risk `git-write`, and deleting on the
+remote is `network`; `git-worktree` listing is a read while removal is a `workspace-write`, because it deletes
+a directory tree from disk; `git-stash` `list`/`show` are reads while `pop` and `drop` are high-risk writes,
+because both discard the stash entry. Unreadable arguments always grade as the write, never the read.
 
 ### Tools AtlasMind hasn't seen before
 

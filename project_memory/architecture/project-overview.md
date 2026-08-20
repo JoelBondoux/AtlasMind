@@ -52,7 +52,7 @@ Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, UI Studi
 
 ### Grow the team around the project
 
-Start with 21 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
+Start with 21 built-in agents and 50 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
 
 ---
 

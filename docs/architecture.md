@@ -2109,7 +2109,11 @@ extension.ts
         │     └── mcp/buzzCliBridge.ts
         ├── skills/index.ts
         │     ├── skills/dockerCli.ts
-        │     └── skills/gitApplyPatch.ts
+        │     ├── skills/gitApplyPatch.ts
+        │     ├── skills/gitSync.ts        (git-fetch + git-pull)
+        │     ├── skills/gitWorktree.ts
+        │     ├── skills/gitStash.ts
+        │     └── skills/gitMerge.ts
         └── providers/index.ts
               ├── providers/anthropic.ts
               ├── providers/copilot.ts

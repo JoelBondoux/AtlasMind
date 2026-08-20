@@ -25,8 +25,68 @@ export function classifyToolInvocation(
     case 'memory-query':
     case 'git-status':
     case 'git-diff':
+    case 'git-log':
+    case 'git-blame':
+    case 'diff-preview':
     case 'specialist-guidance':
       return { category: toolName.startsWith('git-') ? 'git-read' : 'read', risk: 'low', summary: `run ${toolName}` };
+
+    // Downloads refs from the configured remote and changes nothing in the
+    // working tree — the same two answers as an MCP read: *will this change
+    // something* (nothing a person is editing) and *does this leave the machine*
+    // (yes), which is what `network-read` exists to say.
+    case 'git-fetch':
+      return { category: 'network-read', risk: 'medium', summary: 'fetch new commits and refs from the remote' };
+
+    // Args decide, exactly as terminal-run's git grading does: listing branches
+    // is a read, deleting one is not, and deleting one *on the remote* leaves
+    // the machine. The permissive default when args are unreadable is refused —
+    // an unknown action grades as the write.
+    case 'git-branch': {
+      if (args['action'] === 'list') {
+        return { category: 'git-read', risk: 'low', summary: 'list git branches' };
+      }
+      if (args['action'] === 'delete' && args['remote'] === true) {
+        return { category: 'network', risk: 'high', summary: 'delete a branch on the remote repository' };
+      }
+      const branchAction = typeof args['action'] === 'string' ? args['action'] : 'modify';
+      return {
+        category: 'git-write',
+        risk: branchAction === 'delete' ? 'high' : 'medium',
+        summary: `${branchAction} a git branch`,
+      };
+    }
+
+    case 'git-worktree': {
+      if (args['action'] === 'list') {
+        return { category: 'git-read', risk: 'low', summary: 'list git worktrees' };
+      }
+      // Removal deletes a directory tree from disk; prune only drops stale
+      // registrations of directories already gone.
+      return args['action'] === 'prune'
+        ? { category: 'git-write', risk: 'medium', summary: 'prune stale git worktree registrations' }
+        : { category: 'workspace-write', risk: 'high', summary: 'remove a git worktree directory' };
+    }
+
+    case 'git-stash': {
+      if (args['action'] === 'list' || args['action'] === 'show') {
+        return { category: 'git-read', risk: 'low', summary: `run git stash ${args['action']}` };
+      }
+      const stashAction = typeof args['action'] === 'string' ? args['action'] : 'modify';
+      // pop and drop both discard the stash entry; push and apply are recoverable.
+      return {
+        category: 'git-write',
+        risk: stashAction === 'drop' || stashAction === 'pop' ? 'high' : 'medium',
+        summary: `run git stash ${stashAction}`,
+      };
+    }
+
+    case 'git-pull':
+    case 'git-merge':
+      return { category: 'git-write', risk: 'high', summary: `integrate changes using ${toolName}` };
+
+    case 'git-push':
+      return { category: 'network', risk: 'high', summary: 'push commits to the remote repository' };
 
     // Opening one of AtlasMind's own panels changes nothing. Gating it would be
     // friction with no risk behind it, and a navigation tool that prompts is one

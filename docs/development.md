@@ -698,6 +698,8 @@ The Manage Agents webview is a two-column master/detail workspace: search, enabl
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
 
+The local git lifecycle is covered end to end by dedicated skill files rather than terminal passthrough: `src/skills/gitWorktree.ts` (list/remove/prune, removal restricted to worktrees `git worktree list` itself names), `src/skills/gitSync.ts` (`git-fetch` and `git-pull`, fast-forward-only by default), `src/skills/gitStash.ts` (entries addressed by validated integer index), and `src/skills/gitMerge.ts` (merge/abort with conflict-file reporting). All of them execute through `context.runCommand('git', args)` with no shell, and every remote, branch, and ref argument is rejected when flag-shaped (`isSafeGitRefArgument` in `gitSync.ts`), so a name can never be parsed as a git option.
+
 Container-aware automation uses a separate Docker skill (`src/skills/dockerCli.ts`) rather than expanding generic terminal passthrough. That skill only permits a curated subset of `docker` and `docker compose` inspection and lifecycle commands, keeping container workflows explicit in the approval pipeline.
 
 Detailed SEO and UX instructions use the read-only `specialist-guidance` skill (`src/skills/specialistGuidance.ts`). Its short tool description stays in the normal tool schema, while the selected checklist is returned only when called. Keep permanent agent prompts limited to role, scope, safety boundaries, and measurable completion criteria; add or revise a guidance topic instead of embedding volatile platform facts or full audit matrices in `src/runtime/core.ts`.
