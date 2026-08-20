@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.371.0] - 2026-08-20
+
+### Added
+
+- **The Roadmap page has a dependency canvas.** The roadmap has always been an ordered list, and an
+  ordered list can only say *this one matters more*. It cannot say **this one cannot start until that
+  one lands** — so a backlog could look well-sequenced and still be unbuildable in the order it was
+  written. The Roadmap page now opens on a draggable graph of the plan: nodes carry the item, its
+  branch name, its deadline, the days left, and an estimate; arrows carry what has to happen first.
+  Three views share the page — **Dependency canvas**, the unchanged **Prioritised backlog** (still the
+  only place drag-reorder sets Atlas's next-work weighting), and **Delivered**.
+- **Filter to one item and see the route to it.** "Route" on any node hides everything that is not that
+  item or a prerequisite of it, and reports the outstanding days on that route. Completed prerequisites
+  are kept, because the route is *how you got here*; what happens after the item is excluded, because
+  that is a different question. Filtering is an offline view change — no round trip, nothing that can
+  fail.
+- **AtlasMind proposes the links, and never applies them.** Three declared rules — an item that *says*
+  what it waits for, two items sharing a subject where one is foundation work for the other, and two
+  items on different declared release gates — produce **suggestions**, drawn dashed and thinner and
+  dimmer, each naming the rule and the evidence that produced it. A suggestion moves no column, blocks
+  no node, and changes nothing until somebody accepts it. It can never contradict a link drawn by hand,
+  and it can never make the plan circular. Dismissing one is remembered, so it does not reappear on the
+  next render.
+- **Nodes are edited in place.** Name, branch, deadline, estimate and a per-node AI-assistance toggle,
+  in the node's own footprint on the canvas — because where the item sits in the plan is part of what
+  you are reasoning about. The branch name is derived from the item by `branchNaming` (so it follows a
+  rename) unless overridden, and an override that is not a legal git ref is **refused, not corrected**.
+- **Estimates come from a published table, never a model.** Base days by kind of work, a size factor, a
+  complexity marker, and one stated AI-assistance multiplier. Every node publishes the rule that graded
+  it, and the same backlog grades identically on two machines — which is what makes an estimate on a
+  committed plan worth comparing.
+- **Delivered work moves to its own canvas.** A completed item leaves the plan — unless something
+  outstanding still depends on it, in which case it stays as the left-hand end of a route somebody is
+  still walking. The Delivered view lays work out by month, keeps the links between pieces of work, and
+  records when each landed and by whom (from the Project Director roster). Work with no recorded date
+  is placed in a trailing *No date recorded* column rather than at the start of the chronology.
+- **New: `src/core/roadmapGraph.ts`** (graph semantics, layout, route filtering, estimation, scheduling,
+  completion partitioning — pure, clock-injected, unit-tested) and **`src/core/roadmapGraphStore.ts`**
+  (`project_memory/roadmap/roadmap-graph.json` plus a `roadmap-graph.md` mirror — `fs`-only,
+  version-gated, unit-tested).
+
+### Changed
+
+- **A roadmap item can now keep an identity across a rename or a reorder.** Item ids were positional
+  (`roadmap-3`) and renumbered whenever anything was inserted above them, which is fine for a list and
+  useless for a graph. A backlog line now carries a durable id as an invisible HTML comment
+  (`<!-- rm:ship-the-export -->`), minted deterministically and only for items that actually gained
+  graph data, so a roadmap nobody has put on the canvas stays exactly as clean as it was. A record whose
+  anchor is hand-deleted is repaired by text match rather than orphaned, and an anchored item always
+  beats a text match for the same record.
+- `schemaMigration` gained the `roadmap-graph` document kind, at version 1.
+
+### Fixed
+
+- **A circular dependency is refused at the point of drawing, not reported afterwards.** Saving one
+  first would mean showing somebody a plan that cannot run and asking them to work out why. A cycle
+  that arrives from a hand-edited file is still reported by name — the items involved are the finding —
+  and the canvas still draws.
+
 ## [0.370.0] - 2026-08-20
 
 ### Added

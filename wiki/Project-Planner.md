@@ -125,6 +125,33 @@ gets the minimum evidence set, which forces it onto a model that can actually us
 matters, but it isn't absolute: critical, security, architectural and delivery-risk signals can still
 outrank something that just happens to sit near the top.
 
+That ordering answers *which item matters more*. It cannot answer *which item cannot start until another
+lands* — a different fact, and the one that decides whether a backlog can actually be built in the order
+it's written. The Roadmap page's **dependency canvas** holds it: draggable nodes carrying the item, its
+branch name, its deadline, the days left and an estimate, with arrows for what has to happen first.
+Press **Route** on any node to hide everything that isn't that item or a prerequisite of it — completed
+prerequisites included, because the route is how you got here — and see the outstanding days along it.
+
+AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
+*says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation
+work for the other, and two items sitting on different release gates. Each suggestion is drawn dashed and
+names the rule and the evidence behind it. It moves no column, blocks no node, can't contradict a link
+you drew, and can't make the plan circular — and it changes nothing until you accept it. Dismiss one and
+it stays dismissed.
+
+Estimates come from a published table rather than a model, with a per-item AI-assistance toggle, so the
+same backlog grades identically on two machines. Nodes are edited where they sit — name, branch,
+deadline, estimate — and the branch name follows a rename unless you override it.
+
+Completed items move to a **Delivered** canvas, laid out by month, keeping the links between pieces of
+work and recording when each landed and by whom. One exception: a completed item stays on the plan while
+something outstanding still depends on it, because removing it would make the dependent item look like it
+starts from nothing.
+
+The deadlines, positions and links live in `roadmap-graph.json` beside the plan, keyed on a durable id
+each backlog line carries as an invisible HTML comment — so renaming or reordering an item no longer
+loses its history. Only items you've actually put on the canvas get one.
+
 ### Limits and rules
 
 - **Maximum 20 steps** per plan

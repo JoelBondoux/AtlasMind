@@ -47,6 +47,7 @@ export type SchemaDocumentKind =
   | 'workflow'
   | 'ci-routing'
   | 'research'
+  | 'roadmap-graph'
   | 'website';
 
 /**
@@ -70,6 +71,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   workflow: 1,
   'ci-routing': 1,
   research: 1,
+  'roadmap-graph': 1,
   website: 13,
 };
 

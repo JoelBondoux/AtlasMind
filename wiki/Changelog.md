@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.371.0 — The roadmap becomes a graph
+
+An ordered list can only say *this one matters more*. It cannot say **this one cannot start until that
+one lands**, which is the question anybody planning a release actually asks — so a backlog could read
+as well-sequenced and still be unbuildable in the order it was written.
+
+The Roadmap page now opens on a dependency canvas: draggable nodes carrying the item, its branch name,
+its deadline, the days left and an estimate, with arrows for what has to happen first. Press **Route**
+on any node to hide everything that is not that item or a prerequisite of it — completed prerequisites
+included, because the route is how you got here. Nodes are edited where they sit, since the position is
+part of what you are reasoning about.
+
+AtlasMind proposes links from three declared rules and applies none of them. A suggestion is drawn
+dashed, names the rule and the evidence behind it, moves no column, blocks no node, cannot contradict a
+link somebody drew, and cannot make the plan circular. Accepting is one click; so is dismissing, and a
+dismissal is remembered. Estimates come from a published table rather than a model, so the same backlog
+grades identically on two machines — the property that makes an estimate on a committed plan worth
+comparing at all.
+
+Delivered work moves to its own chronological canvas, keeping the links between pieces of work and
+recording when each landed and by whom — unless something outstanding still depends on it, in which
+case it stays on the plan as the left-hand end of a route somebody is still walking. Underneath, a
+backlog line can finally keep an identity across a rename or a reorder, via an invisible id comment
+minted only for the items that actually gained graph data.
+
+---
+
 ## v0.370.0 — The git lifecycle becomes real skills
 
 Two chat logs made the gap measurable. A branch-cleanup request ran seventeen improvised terminal

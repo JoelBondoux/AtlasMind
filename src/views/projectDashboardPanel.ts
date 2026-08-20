@@ -176,7 +176,7 @@ import {
   type LabelRecord,
   type MilestoneRecord,
 } from '../core/labelRegistry.js';
-import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
+import { PROTECTED_BRANCH_NAMES, deriveBranchName, inferBranchType } from '../core/branchNaming.js';
 import {
   deriveBranchDashboard,
   latestWorkflowRuns,
@@ -330,6 +330,30 @@ import {
   upsertRoadmapGatesBlock,
   type RoadmapGate,
 } from '../core/roadmapGates.js';
+import {
+  ROADMAP_EDGE_RULES,
+  edgeKey,
+  layoutRoadmapCompletion,
+  normalizeRoadmapNodeText,
+  parseRoadmapDeadline,
+  partitionRoadmapCompletion,
+  resolveRoadmapGraph,
+  roadmapRouteTo,
+  type RoadmapEdge,
+  type RoadmapFocus,
+  type RoadmapGraphNode,
+  type RoadmapNodeRecord,
+} from '../core/roadmapGraph.js';
+import {
+  assignRoadmapNodeIds,
+  extractRoadmapNodeAnchor,
+  readRoadmapGraphFile,
+  reconcileRoadmapGraph,
+  renderRoadmapNodeAnchor,
+  seedRoadmapGraphDocument,
+  writeRoadmapGraph,
+  type RoadmapGraphDocument,
+} from '../core/roadmapGraphStore.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
@@ -363,6 +387,7 @@ import {
   countOverdueFollowUps,
   configStoresRawPii,
   appendProjectDirectorHistory,
+  readProjectDirectorConfig,
   type ProjectDirectorSeedInput,
   type FollowUpUrgency,
 } from '../core/projectDirectorManager.js';
@@ -719,6 +744,34 @@ type ProjectDashboardMessage =
   /** The host re-derives the candidate before opening the canvas with it. */
   | { type: 'addIdeationEvidence'; payload: string }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
+  /**
+   * Roadmap-canvas mutations.
+   *
+   * Every one of these names a node by its durable id and nothing else. The
+   * webview never supplies a position for a node it did not receive, never
+   * supplies an edge endpoint that is not a known node, and never supplies text
+   * that is written anywhere but the item it names — the host re-reads the
+   * roadmap and validates each id against it, so a crafted message can address a
+   * node that exists and nothing more.
+   */
+  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number } }
+  | {
+    type: 'roadmapNodeUpdate';
+    payload: {
+      nodeId: string;
+      /** `null` clears a field; `undefined` leaves it alone. The two are different intents. */
+      branch?: string | null;
+      deadline?: string | null;
+      estimateDays?: number | null;
+      aiAssisted?: boolean;
+      text?: string;
+    };
+  }
+  | { type: 'roadmapLinkCreate'; payload: { from: string; to: string } }
+  | { type: 'roadmapLinkDelete'; payload: { from: string; to: string } }
+  | { type: 'roadmapLinkAccept'; payload: { from: string; to: string } }
+  | { type: 'roadmapLinkDismiss'; payload: { from: string; to: string } }
+  | { type: 'roadmapSuggestToggle'; payload: boolean }
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
@@ -1691,13 +1744,23 @@ interface DashboardRoadmapSavePayload {
    * webview (or a queued message from one) must not silently drop an item's MVP
    * membership. `gates` supersedes it when present.
    */
-  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean; gates?: string[] }>;
+  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean; gates?: string[]; nodeId?: string }>;
   /** Declared release gates, when the save also changes the gate list. */
   gates?: Array<{ id: string; label: string }>;
 }
 
 interface DashboardRoadmapItem {
   id: string;
+  /**
+   * The durable graph id carried in the markdown line, when the item has one.
+   *
+   * Distinct from `id`, which is positional (`roadmap-3`) and renumbers when
+   * anything is inserted above it. Both exist on purpose: every surface built
+   * before the canvas keys on `id`, and re-keying them would silently orphan
+   * every Director assignment made so far, while the graph needs an identity
+   * that survives a reorder or a rename.
+   */
+  nodeId?: string;
   text: string;
   completed: boolean;
   focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
@@ -2039,6 +2102,52 @@ interface DashboardRoadmapSnapshot {
   gates: DashboardRoadmapGateView[];
   /** One route per gate, keyed by gate id, so switching gates needs no round trip. */
   gateRoutes: Record<string, DashboardMvpSnapshot>;
+  /** The dependency canvas: what has to happen before what. */
+  graph: DashboardRoadmapGraphView;
+}
+
+/**
+ * The roadmap canvas, as the webview receives it.
+ *
+ * Everything the canvas needs is computed here and sent once. Panning, filtering
+ * to a route and switching between the plan and the completion canvas are then
+ * offline view changes rather than message round trips — the same reasoning
+ * `gateRoutes` already applies to the gate selector, and for the same reason: a
+ * view toggle that can fail is a view toggle people stop trusting.
+ */
+interface DashboardRoadmapGraphView {
+  /** Nodes on the plan canvas: outstanding work, plus delivered work still holding something up. */
+  active: RoadmapGraphNode[];
+  /** Nodes on the completion canvas, laid out chronologically. */
+  completed: RoadmapGraphNode[];
+  /** Month columns for the completion canvas, in order, with an undated column last. */
+  completedColumns: Array<{ key: string; label: string }>;
+  /** Delivered work still on the plan canvas because something outstanding needs it. */
+  retainedIds: string[];
+  edges: RoadmapEdge[];
+  suggested: RoadmapEdge[];
+  layers: string[][];
+  cycles: string[][];
+  notes: string[];
+  rules: typeof ROADMAP_EDGE_RULES;
+  /** Whether AtlasMind may propose links. A property of this roadmap, not a setting. */
+  suggestLinks: boolean;
+  /**
+   * Whether the backlog has been given durable ids yet.
+   *
+   * False on a roadmap nobody has opened the canvas on. The canvas still draws —
+   * ids are minted in memory for the view — but nothing can be *saved* against a
+   * node until the anchors are written, so the surface says so rather than
+   * accepting a drag that would evaporate.
+   */
+  anchored: boolean;
+  /** Precomputed route per node, so filtering to one is instant and offline. */
+  routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
+  /** People who can be recorded as adding or completing work, from the Director roster. */
+  people: Array<{ id: string; name: string }>;
+  /** The contact id AtlasMind stamps new work with, when the roster names one. */
+  selfContactId?: string;
+  filePath: string;
 }
 
 interface DashboardScoreRecommendation {
@@ -4325,6 +4434,27 @@ export class ProjectDashboardPanel {
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
+      case 'roadmapNodeMove':
+        await this.handleRoadmapNodeMove(message.payload);
+        break;
+      case 'roadmapNodeUpdate':
+        await this.handleRoadmapNodeUpdate(message.payload);
+        break;
+      case 'roadmapLinkCreate':
+        await this.handleRoadmapLinkChange(message.payload, 'create');
+        break;
+      case 'roadmapLinkDelete':
+        await this.handleRoadmapLinkChange(message.payload, 'delete');
+        break;
+      case 'roadmapLinkAccept':
+        await this.handleRoadmapLinkChange(message.payload, 'accept');
+        break;
+      case 'roadmapLinkDismiss':
+        await this.handleRoadmapLinkChange(message.payload, 'dismiss');
+        break;
+      case 'roadmapSuggestToggle':
+        await this.handleRoadmapSuggestToggle(message.payload === true);
+        break;
       case 'createRoadmapGate':
         await this.handleCreateRoadmapGate();
         return;
@@ -5860,23 +5990,99 @@ export class ProjectDashboardPanel {
             : [...(item.isMvp === true ? [MVP_GATE_ID] : []), ...stripped.gates],
           declaredGates,
         );
+        // The anchor is metadata the webview only ever echoes back. It is
+        // re-validated here rather than trusted: it is about to be written into
+        // a tracked file as an id other records key on.
+        const nodeId = typeof item.nodeId === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/i.test(item.nodeId.trim())
+          ? item.nodeId.trim().toLowerCase()
+          : undefined;
         return {
           id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
           text: stripped.text,
           completed: item.completed === true,
           isMvp: gates.includes(MVP_GATE_ID),
           gates,
+          ...(nodeId === undefined ? {} : { nodeId }),
         };
       })
       .filter(item => item.text.length > 0);
 
+    // Who finished what, and when, has to be captured at the moment the checkbox
+    // is ticked — it is not recoverable afterwards from a markdown file that
+    // records only that the box is ticked.
+    const previouslyCompleted = new Set(
+      parseDashboardRoadmapItems(existing, declaredGates)
+        .filter(item => item.completed && item.nodeId !== undefined)
+        .map(item => item.nodeId as string),
+    );
+
     const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems, declaredGates);
     await fs.writeFile(filePath, nextDocument, 'utf-8');
+    await this.stampRoadmapCompletion(workspaceRoot, ssotPath, sanitizedItems, previouslyCompleted);
 
     const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
     await this.atlas.memoryManager.loadFromDisk(ssotRoot);
     this.atlas.memoryRefresh.fire();
     await this.syncState();
+  }
+
+  /**
+   * Record when a node was delivered, and by whom, on the save that delivered it.
+   *
+   * Only nodes that *changed* state are touched. Re-stamping an already-complete
+   * node on every unrelated save would rewrite the completion canvas's chronology
+   * to "whenever somebody last dragged something", which is the one thing that
+   * canvas is for. Un-ticking clears the stamp, because a date claiming delivery
+   * of outstanding work is worse than no date.
+   */
+  private async stampRoadmapCompletion(
+    workspaceRoot: string,
+    ssotPath: string,
+    items: ReadonlyArray<{ text: string; completed: boolean; nodeId?: string }>,
+    previouslyCompleted: ReadonlySet<string>,
+  ): Promise<void> {
+    const anchored = items.filter((item): item is typeof item & { nodeId: string } => item.nodeId !== undefined);
+    const newlyCompleted = anchored.filter(item => item.completed && !previouslyCompleted.has(item.nodeId));
+    const newlyReopened = anchored.filter(item => !item.completed && previouslyCompleted.has(item.nodeId));
+    if (newlyCompleted.length === 0 && newlyReopened.length === 0) {
+      return;
+    }
+
+    const read = readRoadmapGraphFile(workspaceRoot, ssotPath);
+    if (read.preserveExisting) {
+      return;
+    }
+    const document = read.config ?? seedRoadmapGraphDocument();
+    const now = new Date().toISOString();
+    const self = readProjectDirectorConfig(workspaceRoot)?.selfContactId;
+
+    const byId = new Map(document.nodes.map(node => [node.id, { ...node }]));
+    const ensure = (item: { nodeId: string; text: string }): RoadmapNodeRecord => {
+      const existing = byId.get(item.nodeId);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const seeded: RoadmapNodeRecord = { id: item.nodeId, normalizedText: normalizeRoadmapNodeText(item.text) };
+      byId.set(item.nodeId, seeded);
+      return seeded;
+    };
+
+    for (const item of newlyCompleted) {
+      const record = ensure(item);
+      record.completedAt = now;
+      if (self !== undefined) {
+        record.completedBy = self;
+      }
+    }
+    for (const item of newlyReopened) {
+      const record = byId.get(item.nodeId);
+      if (record !== undefined) {
+        delete record.completedAt;
+        delete record.completedBy;
+      }
+    }
+
+    await writeRoadmapGraph(workspaceRoot, ssotPath, { ...document, nodes: [...byId.values()] });
   }
 
   /**
@@ -9227,13 +9433,360 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Read the roadmap document once, with its gates and items already parsed. */
+  // ── Roadmap canvas ──────────────────────────────────────────────
+
+  /**
+   * Open the canvas for writing.
+   *
+   * Writing anchors into the backlog is the first thing this does, because every
+   * canvas mutation is *about* a node and a node has no durable identity until
+   * its line carries one. Minting is deterministic, so this is idempotent: the
+   * ids written here are exactly the ids the view already showed, which is what
+   * lets the webview address a node it has never seen saved.
+   *
+   * Returns `undefined` when there is nothing to write to, or when the graph file
+   * on disk was written by a newer AtlasMind — in which case the honest outcome
+   * is to change nothing and say so, rather than to overwrite it.
+   */
+  private async openRoadmapGraphForWrite(): Promise<{
+    workspaceRoot: string;
+    ssotPath: string;
+    document: RoadmapGraphDocument;
+    /** Durable id → the item's current text, for the ids this roadmap actually has. */
+    nodeText: Map<string, string>;
+  } | undefined> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      return undefined;
+    }
+    const read = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (read.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        read.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Nothing was changed.',
+      );
+      return undefined;
+    }
+    const document = read.config ?? seedRoadmapGraphDocument();
+
+    const ids = assignRoadmapNodeIds(
+      context.items.map(item => ({
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+      })),
+      new Set(document.nodes.map(node => node.id)),
+    );
+    const anchored = context.items.map((item, index) => ({ ...item, nodeId: ids[index] as string }));
+    if (context.items.some((item, index) => item.nodeId !== ids[index])) {
+      await this.writeRoadmapAnchors(context, anchored);
+    }
+
+    const reconciled = reconcileRoadmapGraph(document, anchored);
+    return {
+      workspaceRoot: context.workspaceRoot,
+      ssotPath: context.ssotPath,
+      document: reconciled.document,
+      nodeText: new Map(anchored.map(item => [item.nodeId, item.text])),
+    };
+  }
+
+  /** Write the backlog back with anchors, changing nothing else about it. */
+  private async writeRoadmapAnchors(
+    context: { filePath: string; existing: string; gates: RoadmapGate[] },
+    items: ReadonlyArray<{ text: string; completed: boolean; gates: string[]; nodeId: string }>,
+  ): Promise<void> {
+    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+    await fs.writeFile(
+      context.filePath,
+      serializeDashboardRoadmapDocument(context.existing, [...items], context.gates),
+      'utf-8',
+    );
+  }
+
+  /** Persist the graph and redraw. One place, so no handler can forget the refresh. */
+  private async commitRoadmapGraph(
+    workspaceRoot: string,
+    ssotPath: string,
+    document: RoadmapGraphDocument,
+  ): Promise<void> {
+    await writeRoadmapGraph(workspaceRoot, ssotPath, document);
+    await this.syncState();
+  }
+
+  /**
+   * Upsert one node record.
+   *
+   * `normalizedText` is refreshed on every touch so the text-match repair path
+   * keeps working after a rename — the anchor is the key, but the repair only
+   * helps if the text it remembers is the current one.
+   */
+  private static upsertRoadmapNode(
+    document: RoadmapGraphDocument,
+    nodeId: string,
+    text: string,
+    change: (record: RoadmapNodeRecord) => void,
+  ): RoadmapGraphDocument {
+    const nodes = document.nodes.map(node => ({ ...node }));
+    let record = nodes.find(node => node.id === nodeId);
+    if (record === undefined) {
+      record = { id: nodeId, normalizedText: normalizeRoadmapNodeText(text) };
+      nodes.push(record);
+    }
+    record.normalizedText = normalizeRoadmapNodeText(text);
+    change(record);
+    return { ...document, nodes };
+  }
+
+  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number }): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    const text = context?.nodeText.get(payload.nodeId);
+    if (context === undefined || text === undefined) {
+      return;
+    }
+    if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) {
+      return;
+    }
+    const position = {
+      x: Math.max(0, Math.min(40000, Math.round(payload.x))),
+      y: Math.max(0, Math.min(40000, Math.round(payload.y))),
+    };
+    await this.commitRoadmapGraph(
+      context.workspaceRoot,
+      context.ssotPath,
+      ProjectDashboardPanel.upsertRoadmapNode(context.document, payload.nodeId, text, record => {
+        record.position = position;
+      }),
+    );
+  }
+
+  /**
+   * Edit a node in place.
+   *
+   * The text edit is routed back through the roadmap markdown rather than stored
+   * here: the backlog is still the one file that says what the work is, and a
+   * title living in two places would drift the first time somebody edited the
+   * markdown by hand.
+   */
+  private async handleRoadmapNodeUpdate(payload: {
+    nodeId: string;
+    branch?: string | null;
+    deadline?: string | null;
+    estimateDays?: number | null;
+    aiAssisted?: boolean;
+    text?: string;
+  }): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    const currentText = context?.nodeText.get(payload.nodeId);
+    if (context === undefined || currentText === undefined) {
+      return;
+    }
+
+    const nextText = typeof payload.text === 'string' && payload.text.trim().length > 0
+      ? payload.text.trim().slice(0, 400)
+      : undefined;
+
+    if (payload.branch !== undefined && payload.branch !== null && payload.branch.trim().length > 0) {
+      // Validated against the same rules the branch skill enforces, and refused
+      // rather than corrected: a nearly-valid branch name that looks fine on a
+      // card and fails at `git checkout` is worse than a rejected one.
+      const candidate = payload.branch.trim();
+      if (PROTECTED_BRANCH_NAMES.has(candidate.toLowerCase()) || /[~^:\s\\?*[\]]|\.\.|@\{/.test(candidate)) {
+        void vscode.window.showWarningMessage(
+          `“${candidate}” is not a usable branch name. It was not saved.`,
+        );
+        return;
+      }
+    }
+
+    let document = ProjectDashboardPanel.upsertRoadmapNode(
+      context.document,
+      payload.nodeId,
+      nextText ?? currentText,
+      record => {
+        if (payload.branch === null) {
+          delete record.branch;
+        } else if (typeof payload.branch === 'string' && payload.branch.trim().length > 0) {
+          record.branch = payload.branch.trim().slice(0, 120);
+        }
+
+        if (payload.deadline === null) {
+          delete record.deadline;
+        } else if (typeof payload.deadline === 'string') {
+          const parsed = parseRoadmapDeadline(payload.deadline);
+          if (parsed !== undefined) {
+            record.deadline = parsed;
+          }
+        }
+
+        if (payload.estimateDays === null) {
+          delete record.estimateDays;
+        } else if (typeof payload.estimateDays === 'number' && Number.isFinite(payload.estimateDays) && payload.estimateDays > 0) {
+          record.estimateDays = Math.min(365, Math.round(payload.estimateDays * 2) / 2);
+        }
+
+        if (typeof payload.aiAssisted === 'boolean') {
+          record.aiAssisted = payload.aiAssisted;
+        }
+
+        if (record.addedAt === undefined) {
+          // Backfilled the first time a node is touched, not invented for the
+          // past: an item that predates the canvas genuinely has no record of
+          // when it was added, and the honest first date is this one.
+          record.addedAt = new Date().toISOString();
+          const self = readProjectDirectorConfig(context.workspaceRoot)?.selfContactId;
+          if (self !== undefined) {
+            record.addedBy = self;
+          }
+        }
+      },
+    );
+
+    if (nextText !== undefined && nextText !== currentText) {
+      const renamed = await this.renameRoadmapItem(payload.nodeId, nextText);
+      if (!renamed) {
+        return;
+      }
+      document = { ...document, nodes: document.nodes.map(node => (
+        node.id === payload.nodeId ? { ...node, normalizedText: normalizeRoadmapNodeText(nextText) } : node
+      )) };
+    }
+
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, document);
+  }
+
+  /** Rewrite one backlog line's text, leaving its checkbox, gates and anchor alone. */
+  private async renameRoadmapItem(nodeId: string, text: string): Promise<boolean> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      return false;
+    }
+    const stripped = extractItemGates(text, context.gates);
+    if (stripped.text.length === 0) {
+      return false;
+    }
+    const items = context.items.map(item => (
+      item.nodeId === nodeId
+        ? { ...item, text: stripped.text, gates: [...new Set([...item.gates, ...stripped.gates])] }
+        : item
+    ));
+    if (!items.some(item => item.nodeId === nodeId)) {
+      return false;
+    }
+    await this.writeRoadmapDocument(context, items, context.gates);
+    return true;
+  }
+
+  /**
+   * Add, remove, accept or dismiss one link.
+   *
+   * All four share a handler because they share the invariant that matters: the
+   * plan may never become circular. A link that would close a cycle is refused
+   * with the reason rather than saved and reported afterwards — an unexecutable
+   * plan is not a state worth persisting to show somebody.
+   */
+  private async handleRoadmapLinkChange(
+    payload: { from: string; to: string },
+    action: 'create' | 'delete' | 'accept' | 'dismiss',
+  ): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return;
+    }
+    const { from, to } = payload;
+    if (from === to || !context.nodeText.has(from) || !context.nodeText.has(to)) {
+      return;
+    }
+    const key = edgeKey({ from, to });
+
+    if (action === 'delete') {
+      await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+        ...context.document,
+        edges: context.document.edges.filter(edge => edgeKey(edge) !== key),
+      });
+      return;
+    }
+
+    if (action === 'dismiss') {
+      await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+        ...context.document,
+        dismissed: [...context.document.dismissed.filter(entry => edgeKey(entry) !== key), { from, to }],
+      });
+      return;
+    }
+
+    if (context.document.edges.some(edge => edgeKey(edge) === key)) {
+      return;
+    }
+    if (roadmapEdgeWouldCycle(context.document.edges, from, to)) {
+      void vscode.window.showWarningMessage(
+        'That link would make the plan circular — the two items would each have to wait for the other. Nothing was changed.',
+      );
+      return;
+    }
+
+    const self = readProjectDirectorConfig(context.workspaceRoot)?.selfContactId;
+    const edge: RoadmapEdge = {
+      from,
+      to,
+      origin: 'declared',
+      createdAt: new Date().toISOString(),
+      ...(self === undefined ? {} : { createdBy: self }),
+    };
+    // An accepted suggestion keeps the rule that proposed it, so the mirror can
+    // say "accepted suggestion" rather than claiming somebody drew it by hand.
+    // The rule is re-derived here rather than taken from the message: provenance
+    // in a committed file has to be something the host observed.
+    if (action === 'accept') {
+      const proposed = await this.lastSuggestedRoadmapEdge(context.workspaceRoot, context.ssotPath, key);
+      if (proposed?.rule !== undefined) {
+        edge.rule = proposed.rule;
+        if (proposed.evidence !== undefined) {
+          edge.evidence = proposed.evidence;
+        }
+      }
+    }
+
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...context.document,
+      edges: [...context.document.edges, edge],
+      dismissed: context.document.dismissed.filter(entry => edgeKey(entry) !== key),
+    });
+  }
+
+  /**
+   * The suggestion behind an accepted edge, from the snapshot the user clicked.
+   *
+   * Read from the host's own last snapshot rather than from the message, so the
+   * webview cannot claim a rule produced a link it did not — the provenance line
+   * in a committed file has to mean something.
+   */
+  private async lastSuggestedRoadmapEdge(
+    workspaceRoot: string,
+    ssotPath: string,
+    key: string,
+  ): Promise<RoadmapEdge | undefined> {
+    const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+    return roadmap.graph.suggested.find(edge => edgeKey(edge) === key);
+  }
+
+  private async handleRoadmapSuggestToggle(enabled: boolean): Promise<void> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return;
+    }
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...context.document,
+      suggestLinks: enabled,
+    });
+  }
+
   private async readRoadmapDocument(): Promise<{
     filePath: string;
     ssotPath: string;
     workspaceRoot: string;
     existing: string;
     gates: RoadmapGate[];
-    items: Array<{ id: string; text: string; completed: boolean; gates: string[] }>;
+    items: Array<{ id: string; text: string; completed: boolean; gates: string[]; nodeId?: string }>;
   } | undefined> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -9245,13 +9798,13 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
     const gates = parseRoadmapGates(existing);
     const items = parseDashboardRoadmapItems(existing, gates)
-      .map(item => ({ id: item.id, text: item.text, completed: item.completed, gates: item.gates }));
+      .map(item => ({ id: item.id, text: item.text, completed: item.completed, gates: item.gates, ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }) }));
     return { filePath, ssotPath, workspaceRoot, existing, gates, items };
   }
 
   private async writeRoadmapDocument(
     context: { filePath: string; ssotPath: string; workspaceRoot: string; existing: string },
-    items: Array<{ text: string; completed: boolean; gates: string[] }>,
+    items: Array<{ text: string; completed: boolean; gates: string[]; nodeId?: string }>,
     gates: RoadmapGate[],
   ): Promise<void> {
     await fs.mkdir(path.dirname(context.filePath), { recursive: true });
@@ -17040,6 +17593,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       mvp: buildMvpSnapshot([], MVP_GATE_ID),
       gates: buildGateViews(gates, []),
       gateRoutes: buildGateRoutes(gates, []),
+      graph: emptyRoadmapGraphView(filePath),
       // Filled by `withIdeationOrigins`; nothing here has read the board.
       boardBacklog: { total: 0, needsAttention: 0 },
     };
@@ -17059,9 +17613,197 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     mvp: buildMvpSnapshot(items, MVP_GATE_ID),
     gates: buildGateViews(gates, items),
     gateRoutes: buildGateRoutes(gates, items),
+    graph: buildRoadmapGraphView(workspaceRoot, ssotPath, filePath, items, gates),
     // Filled by `withIdeationOrigins`; nothing here has read the board.
     boardBacklog: { total: 0, needsAttention: 0 },
   };
+}
+
+/**
+ * Would adding `from → to` make the plan circular?
+ *
+ * Asked before the write rather than detected after it. `resolveRoadmapGraph`
+ * can *report* a cycle — it has to, because a hand-edited file can contain one —
+ * but a cycle arriving through the UI is a mistake somebody can be told about
+ * while it is still one click, and saving it first would mean showing them a
+ * plan that cannot run and asking them to work out why.
+ */
+function roadmapEdgeWouldCycle(edges: readonly RoadmapEdge[], from: string, to: string): boolean {
+  if (from === to) {
+    return true;
+  }
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge.to]);
+  }
+  const stack = [to];
+  const seen = new Set<string>([to]);
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    for (const next of adjacency.get(current) ?? []) {
+      if (next === from) {
+        return true;
+      }
+      if (!seen.has(next)) {
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+  }
+  return false;
+}
+
+function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
+  return {
+    active: [],
+    completed: [],
+    completedColumns: [],
+    retainedIds: [],
+    edges: [],
+    suggested: [],
+    layers: [],
+    cycles: [],
+    notes: [],
+    rules: ROADMAP_EDGE_RULES,
+    suggestLinks: true,
+    anchored: true,
+    routes: {},
+    people: [],
+    filePath,
+  };
+}
+
+/**
+ * The branch a roadmap item would get.
+ *
+ * Derived, never stored, unless somebody overrode it — an item that is renamed
+ * should get a branch name matching what it now says, and a stored copy of the
+ * old one would be worse than no suggestion at all. `deriveBranchName` owns the
+ * rules (protected-name safety, ref legality, deterministic de-duplication), so
+ * a name offered here cannot fail in the branch skill that uses it.
+ */
+function deriveRoadmapBranch(text: string, focus: RoadmapFocus, taken: readonly string[]): string | undefined {
+  const type = inferBranchType(text)
+    ?? (focus === 'security' ? 'fix' : focus === 'documentation' ? 'docs' : focus === 'architecture' ? 'refactor' : focus === 'delivery' ? 'chore' : 'feat');
+  const result = deriveBranchName({ type, title: text, existing: taken });
+  return result.ok ? result.name : undefined;
+}
+
+/**
+ * Assemble the canvas.
+ *
+ * Reads are synchronous and `fs`-only, and the whole thing degrades to an empty
+ * canvas rather than throwing: this runs inside the dashboard's snapshot build,
+ * and a roadmap page that fails to draw because a hand-edited JSON file is
+ * malformed would take twenty other pages down with it.
+ */
+function buildRoadmapGraphView(
+  workspaceRoot: string,
+  ssotPath: string,
+  filePath: string,
+  items: readonly DashboardRoadmapItem[],
+  gates: RoadmapGate[],
+): DashboardRoadmapGraphView {
+  try {
+    const stored = readRoadmapGraphFile(workspaceRoot, ssotPath).config ?? seedRoadmapGraphDocument(new Date(0));
+    // Backlog order is the order the *file* holds, not the priority sort, because
+    // that is the order a person actually chose. `items` arrives sorted by
+    // priority, so the original index is recovered from the id.
+    const backlogOrder = new Map(items.map(item => [item.id, Number(item.id.replace(/^roadmap-/, '')) || 0]));
+    const reconciled = reconcileRoadmapGraph(
+      stored,
+      items.map(item => ({
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+      })),
+    );
+
+    // A view id for every item, minted in memory. Items whose ids are not on
+    // disk yet still draw — they just cannot be saved against until the anchors
+    // are written, which `anchored` says.
+    const resolvedIds = assignRoadmapNodeIds(
+      items.map(item => ({
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+      })),
+      new Set(reconciled.document.nodes.map(node => node.id)),
+    );
+    items.forEach((item, index) => {
+      const claimed = reconciled.resolved.get(index);
+      if (claimed !== undefined) {
+        resolvedIds[index] = claimed;
+      }
+    });
+    const anchored = items.every((item, index) => item.nodeId === resolvedIds[index]);
+
+    const takenBranches: string[] = [];
+    const graph = resolveRoadmapGraph({
+      items: items.map((item, index) => {
+        const derivedBranch = deriveRoadmapBranch(item.text, item.focus, takenBranches);
+        if (derivedBranch !== undefined) {
+          takenBranches.push(derivedBranch);
+        }
+        return {
+          id: resolvedIds[index] as string,
+          itemId: item.id,
+          text: item.text,
+          completed: item.completed,
+          focus: item.focus,
+          gates: item.gates,
+          priorityScore: item.priorityScore,
+          order: backlogOrder.get(item.id) ?? index,
+          ...(derivedBranch === undefined ? {} : { derivedBranch }),
+        };
+      }),
+      records: reconciled.document.nodes,
+      declaredEdges: reconciled.document.edges,
+      gateOrder: normalizeGates(gates).map(gate => gate.id),
+      deriveSuggestions: reconciled.document.suggestLinks,
+      dismissedEdges: reconciled.document.dismissed,
+    });
+
+    const partition = partitionRoadmapCompletion(graph);
+    const completion = layoutRoadmapCompletion(partition.completed);
+    const routes: DashboardRoadmapGraphView['routes'] = {};
+    for (const node of graph.nodes) {
+      const route = roadmapRouteTo(graph, node.id);
+      if (route !== undefined) {
+        routes[node.id] = route;
+      }
+    }
+
+    const director = readProjectDirectorConfig(workspaceRoot);
+    const notes = [...graph.notes];
+    if (!anchored) {
+      notes.push('This roadmap has not been wired to the canvas yet. Positions, deadlines and links are shown, but saving one writes a hidden id into each backlog line first.');
+    }
+    if (reconciled.droppedNodeIds.length > 0) {
+      notes.push(`${reconciled.droppedNodeIds.length} saved node${reconciled.droppedNodeIds.length === 1 ? '' : 's'} no longer match a backlog item and ${reconciled.droppedNodeIds.length === 1 ? 'was' : 'were'} dropped.`);
+    }
+
+    return {
+      active: partition.active,
+      completed: completion.nodes,
+      completedColumns: completion.columns,
+      retainedIds: partition.retained.map(node => node.id),
+      edges: graph.edges,
+      suggested: graph.suggested,
+      layers: graph.layers,
+      cycles: graph.cycles,
+      notes,
+      rules: graph.rules,
+      suggestLinks: reconciled.document.suggestLinks,
+      anchored,
+      routes,
+      people: (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name })),
+      ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
+      filePath,
+    };
+  } catch {
+    return emptyRoadmapGraphView(filePath);
+  }
 }
 
 /** Per-gate progress, so the gate selector can show it without a route walk. */
@@ -17093,7 +17835,7 @@ function buildGateRoutes(gates: RoadmapGate[], items: DashboardRoadmapItem[]): R
   return routes;
 }
 
-function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[] }> {
+function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[]; nodeId?: string }> {
   const region = extractRoadmapItemsRegion(content);
   const seen = new Set<string>();
   return [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
@@ -17101,11 +17843,22 @@ function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Arra
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
       const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      // The graph anchor comes off before anything else reads the line. It is an
+      // HTML comment, so it is invisible when the file is rendered — but it is
+      // still text, and leaving it in would put it in the item's title, in its
+      // normalized key, and in the issue drafted from it.
+      const anchored = extractRoadmapNodeAnchor(withoutCheckbox);
       // Gate tags are metadata: keep them out of the displayed text and carry
       // them as ids. Only declared gates are recognised, so an item mentioning
       // "#2" keeps its wording.
-      const parsed = extractItemGates(withoutCheckbox, gates);
-      return { text: parsed.text, completed, isMvp: parsed.gates.includes(MVP_GATE_ID), gates: parsed.gates };
+      const parsed = extractItemGates(anchored.text, gates);
+      return {
+        text: parsed.text,
+        completed,
+        isMvp: parsed.gates.includes(MVP_GATE_ID),
+        gates: parsed.gates,
+        ...(anchored.nodeId === undefined ? {} : { nodeId: anchored.nodeId }),
+      };
     })
     // Drop generator scaffolding (Project Context / Prioritisation Notes) …
     .filter(item => !isRoadmapNoiseItem(item.text))
@@ -17122,7 +17875,7 @@ function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Arra
     .map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
 }
 
-function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>): DashboardRoadmapItem[] {
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean; gates?: string[]; nodeId?: string }>): DashboardRoadmapItem[] {
   return items
     .map((item, index, allItems) => {
       const normalized = item.text.toLowerCase();
@@ -17420,7 +18173,7 @@ function withIdeationOrigins(
 
 function serializeDashboardRoadmapDocument(
   existing: string,
-  items: Array<{ text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>,
+  items: Array<{ text: string; completed: boolean; isMvp?: boolean; gates?: string[]; nodeId?: string }>,
   gates: RoadmapGate[] = normalizeGates([]),
 ): string {
   const declaredGates = normalizeGates(gates);
@@ -17428,7 +18181,12 @@ function serializeDashboardRoadmapDocument(
   const itemLines = normalizedItems.length > 0
     ? normalizedItems.map(item => {
         const selected = item.gates ?? (item.isMvp ? [MVP_GATE_ID] : []);
-        return `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${formatItemGateTags(selected, declaredGates)}`;
+        // The anchor is written last, after the gate tags, so a hand-editor
+        // adding a `#tag` to the end of a line does not land inside a comment.
+        // Only items that actually carry one gain it: a backlog nobody has put on
+        // the canvas stays exactly as clean as it was.
+        const anchor = item.nodeId === undefined ? '' : renderRoadmapNodeAnchor(item.nodeId);
+        return `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${formatItemGateTags(selected, declaredGates)}${anchor}`;
       })
     : ['- [ ] Add the first prioritized roadmap item here.'];
 
@@ -23137,6 +23895,319 @@ const DASHBOARD_CSS = `
   .roadmap-item.drag-over {
     border-top: 2px solid var(--dash-accent-strong);
     background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
+  }
+
+  /* ── Roadmap: the dependency canvas ────────────────────────────────────
+     Urgency is carried on the node's left border rather than as a filled
+     background, for the reason the attention band already establishes: a wall of
+     saturated cards reads as an alarm state even when most of them are fine. */
+
+  .rm-view-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .rm-view-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .rm-view-chip:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+
+  .rm-view-chip.is-active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+    font-weight: 600;
+  }
+
+  .rm-view-count {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+  }
+
+  .rm-canvas-card { padding-bottom: 10px; }
+
+  .rm-toolbar { align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+
+  .rm-chip-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .rm-chip-row .action-link.is-on {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+  }
+
+  .rm-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 60%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent);
+  }
+
+  .rm-filter-chip.rm-linking {
+    border-color: color-mix(in srgb, var(--dash-warn, #d0a215) 65%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn, #d0a215) 14%, transparent);
+  }
+
+  .rm-chip-clear, .rm-chip-accept {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1;
+    padding: 0 3px;
+    cursor: pointer;
+    opacity: 0.7;
+  }
+
+  .rm-chip-clear:hover, .rm-chip-accept:hover { opacity: 1; }
+
+  .rm-banner {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 8%, transparent);
+  }
+
+  .rm-banner-bad {
+    border-left-color: var(--dash-critical, #d13438);
+    background: color-mix(in srgb, var(--dash-critical, #d13438) 10%, transparent);
+  }
+
+  .rm-timeline-strip {
+    display: flex;
+    gap: 0;
+    padding: 6px 0 0;
+    margin-left: 80px;
+    overflow: hidden;
+  }
+
+  .rm-timeline-label {
+    flex: 0 0 320px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+  }
+
+  .rm-timeline-label.is-undated { font-style: italic; }
+
+  .rm-frame {
+    position: relative;
+    height: 620px;
+    margin-top: 10px;
+    overflow: hidden;
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle, color-mix(in srgb, var(--vscode-foreground) 12%, transparent) 1px, transparent 1px)
+      0 0 / 24px 24px;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .rm-frame:active { cursor: grabbing; }
+
+  .rm-world {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+  }
+
+  .rm-edges {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .rm-edge {
+    fill: none;
+    stroke: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--vscode-foreground) 30%);
+    stroke-width: 1.75;
+  }
+
+  /* A suggestion is dashed *and* thinner *and* dimmer: it is not part of the
+     plan, and one visual difference is easy to miss on a dense board. */
+  .rm-edge-suggested {
+    stroke: color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
+    stroke-width: 1.25;
+    stroke-dasharray: 5 5;
+  }
+
+  .rm-arrow-head { fill: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--vscode-foreground) 30%); }
+  .rm-arrow-head-suggested { fill: color-mix(in srgb, var(--vscode-foreground) 40%, transparent); }
+
+  .rm-node {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+
+  .rm-node.is-focused { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+  .rm-node.is-done { opacity: 0.82; }
+  .rm-node.is-cycle { border-color: var(--dash-critical, #d13438); }
+
+  /* Delivered work still holding something up. It is on the plan for context,
+     not because anybody has to do it, and it says so. */
+  .rm-node.is-retained { border-style: dashed; }
+
+  .rm-state-overdue { border-left-color: var(--dash-critical, #d13438); }
+  .rm-state-at-risk { border-left-color: var(--dash-warn, #d0a215); }
+  .rm-state-due-soon { border-left-color: color-mix(in srgb, var(--dash-warn, #d0a215) 70%, var(--dash-border)); }
+  .rm-state-on-track { border-left-color: var(--dash-good, #3fa34d); }
+  .rm-state-done { border-left-color: color-mix(in srgb, var(--dash-good, #3fa34d) 55%, var(--dash-border)); }
+  .rm-state-no-deadline { border-left-color: color-mix(in srgb, var(--vscode-foreground) 28%, transparent); }
+
+  .rm-node-head {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .rm-node-head:active { cursor: grabbing; }
+
+  .rm-node-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .rm-node-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--dash-muted);
+  }
+
+  .rm-branch {
+    font-family: var(--vscode-editor-font-family, monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rm-branch-none { font-style: italic; font-family: inherit; }
+
+  .rm-est { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+
+  .rm-node-schedule, .rm-node-links, .rm-node-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .rm-chip {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    border: 1px solid var(--dash-border);
+    color: var(--dash-muted);
+  }
+
+  .rm-chip-overdue { border-color: var(--dash-critical, #d13438); color: var(--dash-critical, #d13438); }
+  .rm-chip-at-risk, .rm-chip-blocked { border-color: var(--dash-warn, #d0a215); color: var(--dash-warn, #d0a215); }
+
+  .rm-link-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 3px 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 40%, var(--dash-border));
+    color: var(--dash-muted);
+    max-width: 100%;
+  }
+
+  .rm-link-chip-out { border-style: dotted; }
+  .rm-link-chip-suggested { border-style: dashed; opacity: 0.85; }
+
+  .rm-node-actions .action-link { font-size: 10.5px; padding: 1px 5px; }
+  .rm-link-target { border-color: var(--dash-warn, #d0a215); }
+
+  .rm-node-editing { z-index: 5; gap: 4px; }
+
+  .rm-field { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--dash-muted); }
+  .rm-field input, .rm-field textarea {
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--dash-border);
+    border-radius: 4px;
+    padding: 3px 5px;
+  }
+
+  .rm-toggle { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--dash-muted); }
+  .rm-provenance { margin: 2px 0 0; font-size: 10px; color: var(--dash-muted); }
+
+  .rm-empty {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--dash-muted);
+    max-width: 320px;
+  }
+
+  .rm-footer { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; }
+
+  .rm-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px; color: var(--dash-muted); }
+  .rm-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .rm-legend-line { width: 22px; height: 0; border-top: 2px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--vscode-foreground) 30%); }
+  .rm-legend-line-suggested { border-top-style: dashed; border-top-color: color-mix(in srgb, var(--vscode-foreground) 40%, transparent); }
+  .rm-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .rm-swatch-overdue { background: var(--dash-critical, #d13438); }
+  .rm-swatch-risk { background: var(--dash-warn, #d0a215); }
+  .rm-swatch-done { background: color-mix(in srgb, var(--dash-good, #3fa34d) 55%, var(--dash-border)); }
+
+  .rm-notes { margin: 0; padding-left: 18px; font-size: 11px; color: var(--dash-muted); }
+  .rm-rules { font-size: 11px; color: var(--dash-muted); }
+  .rm-rules ul { margin: 4px 0 0; padding-left: 18px; }
+
+  @media (max-width: 900px) {
+    .rm-frame { height: 460px; }
   }
 
   .mvp-help {

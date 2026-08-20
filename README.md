@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.370.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.371.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,27 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.370.0
+## What's new in 0.371.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The Roadmap is a dependency canvas, not just a list.** A list can say which item matters more; it
+  cannot say which one *cannot start* until another lands. The Roadmap page now opens on a draggable
+  graph — nodes carrying the item, its branch name, its deadline, the days left and an estimate; arrows
+  carrying what has to happen first. **Route** on any node hides everything that is not that item or a
+  prerequisite of it, and says how many days of work are left on that route. The prioritised backlog is
+  unchanged and still the only place drag-reorder sets Atlas's next-work weighting.
+- **Atlas proposes the links and applies none of them.** Three declared rules produce **suggestions**,
+  drawn dashed, each naming the rule and the evidence behind it. A suggestion moves no column, blocks no
+  node, cannot contradict a link you drew, and cannot make the plan circular — and changes nothing until
+  you accept it. Dismissing one is remembered.
+- **Estimates come from a published table, never a model,** with a per-node AI-assistance toggle. The
+  same backlog grades identically on two machines, which is what makes an estimate on a committed plan
+  worth comparing.
+- **Delivered work gets its own canvas** — laid out by month, keeping the links between pieces of work,
+  recording when each landed and by whom. Completed work stays on the plan only while something
+  outstanding still depends on it.
 - **Agents hold the whole local git lifecycle as real skills.** Five new built-ins — `git-worktree`,
   `git-fetch`, `git-pull`, `git-merge`, `git-stash` — plus a `git-branch` that can list merged-only
   candidates and delete locally, force, or on the remote (protected branches refused). Previously a
@@ -1280,7 +1296,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

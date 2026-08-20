@@ -613,6 +613,32 @@ the panel is closed and recreated. Folded local/upstream cards derive activity f
 visible commits; recency sorting therefore describes the logical branch rather than always describing its
 local ref.
 
+The Roadmap page holds two different facts about the same backlog, and keeps them apart. The
+**prioritised backlog** is an ordered list, and its order is the only thing that sets Atlas's default
+next-work weighting. The **dependency canvas** answers a question a list cannot: which item cannot start
+until another lands. Nodes carry the item, its branch name, its deadline, the days left and an estimate;
+arrows carry the order. Asking for the *route* to a node hides everything that is not that node or a
+prerequisite of it — completed prerequisites included, because the route is how you got here, and
+everything downstream excluded, because that is a different question. Filtering, panning and switching
+views are offline: the host sends every route with the snapshot, so a way of looking at the plan is never
+something that can fail.
+
+AtlasMind proposes links from three declared rules and applies none of them. A suggestion is drawn dashed,
+names the rule and the evidence behind it, moves no column and blocks no node, and changes nothing until
+somebody accepts it; it can never contradict a link drawn by hand, and it can never make the plan
+circular. Dismissing one is remembered, since a rule-derived suggestion would otherwise reappear on the
+next render. Estimates come from a published table rather than a model, with a per-node AI-assistance
+toggle — the same backlog grades identically on two machines, which is what makes an estimate on a
+committed plan worth comparing. Delivered work moves to its own chronological canvas, laid out by month
+and keeping the links between pieces of work, unless something outstanding still depends on it, in which
+case it stays on the plan as the left-hand end of a route somebody is still walking.
+
+The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
+deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
+line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. A
+record whose anchor is hand-deleted is repaired by text match; a record whose item left the backlog is
+dropped, along with the links touching it.
+
 Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
 issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render
 the Director's contact picker beside the work; Director → Assignments changes the same records. The
@@ -722,7 +748,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), and the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

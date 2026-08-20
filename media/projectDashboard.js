@@ -387,6 +387,31 @@
     editingRoadmapId: '',
     roadmapDraftText: '',
     draggedRoadmapId: '',
+    /**
+     * Which roadmap view is showing: the dependency canvas, the ordered backlog,
+     * or the record of what has been delivered.
+     *
+     * The canvas is the default because it is the only one of the three that can
+     * answer "what has to happen before what" — the list is still one click away
+     * and is still what a drag-to-reorder priority change happens on.
+     */
+    roadmapView: 'canvas',
+    /**
+     * The node the canvas is filtered to, if any.
+     *
+     * Held in the webview rather than the host: filtering is a way of *looking*
+     * at the plan, not a change to it, and routing it through a message would
+     * make an offline view toggle into something that can fail.
+     */
+    roadmapFocusNodeId: '',
+    roadmapZoom: 1,
+    roadmapPan: { x: 0, y: 0 },
+    /** The node a link is being drawn from, while the user is drawing one. */
+    roadmapLinkFrom: '',
+    /** The node open for in-situ editing on the canvas. */
+    roadmapEditingNodeId: '',
+    /** Live drag offsets, so a node follows the pointer before the host has saved. */
+    roadmapDragOffsets: {},
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -696,6 +721,23 @@
       state.snapshot = message.payload;
       if (message.payload?.issues?.busy) {
         state.repositoryRefreshBusy = true;
+      }
+      // A fresh snapshot is the host's answer about where nodes are. Local drag
+      // offsets exist only to cover the round trip, so they are dropped here —
+      // keeping them would mean a position that failed to save stayed on screen
+      // looking saved.
+      state.roadmapDragOffsets = {};
+      const roadmapNodeIds = new Set(((message.payload && message.payload.roadmap && message.payload.roadmap.graph
+        ? (message.payload.roadmap.graph.active || []).concat(message.payload.roadmap.graph.completed || [])
+        : [])).map(node => node.id));
+      if (state.roadmapFocusNodeId && !roadmapNodeIds.has(state.roadmapFocusNodeId)) {
+        state.roadmapFocusNodeId = '';
+      }
+      if (state.roadmapLinkFrom && !roadmapNodeIds.has(state.roadmapLinkFrom)) {
+        state.roadmapLinkFrom = '';
+      }
+      if (state.roadmapEditingNodeId && !roadmapNodeIds.has(state.roadmapEditingNodeId)) {
+        state.roadmapEditingNodeId = '';
       }
       const liveIds = new Set(((message.payload && message.payload.branches && message.payload.branches.items) || []).map(branch => branch.id));
       state.branchCompareIds = state.branchCompareIds.filter(id => liveIds.has(id)).slice(0, 2);
@@ -1269,8 +1311,90 @@
       render();
       return;
     }
+    if (action === 'roadmap-view') {
+      state.roadmapView = payload === 'list' || payload === 'completed' ? payload : 'canvas';
+      // The route filter and a half-drawn link belong to the canvas. Leaving them
+      // set while the list is showing means coming back to a view that is
+      // mysteriously filtered by something you did several clicks ago.
+      state.roadmapFocusNodeId = '';
+      state.roadmapLinkFrom = '';
+      state.roadmapEditingNodeId = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-focus-node') {
+      state.roadmapFocusNodeId = state.roadmapFocusNodeId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'roadmap-clear-focus') {
+      state.roadmapFocusNodeId = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-link-from') {
+      state.roadmapLinkFrom = payload;
+      render();
+      return;
+    }
+    if (action === 'roadmap-link-cancel') {
+      state.roadmapLinkFrom = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-link-to') {
+      const from = state.roadmapLinkFrom;
+      state.roadmapLinkFrom = '';
+      if (from && payload && from !== payload) {
+        vscode.postMessage({ type: 'roadmapLinkCreate', payload: { from: from, to: payload } });
+      }
+      render();
+      return;
+    }
+    if (action === 'roadmap-link-remove' || action === 'roadmap-link-accept' || action === 'roadmap-link-dismiss') {
+      const parts = String(payload || '').split('::');
+      if (parts.length === 2 && parts[0] && parts[1]) {
+        vscode.postMessage({
+          type: action === 'roadmap-link-remove' ? 'roadmapLinkDelete'
+            : action === 'roadmap-link-accept' ? 'roadmapLinkAccept' : 'roadmapLinkDismiss',
+          payload: { from: parts[0], to: parts[1] },
+        });
+      }
+      return;
+    }
+    if (action === 'roadmap-suggest-toggle') {
+      vscode.postMessage({ type: 'roadmapSuggestToggle', payload: !roadmapGraph().suggestLinks });
+      return;
+    }
+    if (action === 'roadmap-node-edit') {
+      state.roadmapEditingNodeId = payload;
+      render();
+      return;
+    }
+    if (action === 'roadmap-node-cancel') {
+      state.roadmapEditingNodeId = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-node-save') {
+      saveRoadmapNodeEdits(payload);
+      return;
+    }
+    if (action === 'roadmap-zoom-in' || action === 'roadmap-zoom-out') {
+      const step = action === 'roadmap-zoom-in' ? 0.15 : -0.15;
+      state.roadmapZoom = Math.min(RM_MAX_ZOOM, Math.max(RM_MIN_ZOOM, state.roadmapZoom + step));
+      render();
+      return;
+    }
+    if (action === 'roadmap-zoom-reset') {
+      state.roadmapZoom = 1;
+      state.roadmapPan = { x: 0, y: 0 };
+      render();
+      return;
+    }
     if (action === 'roadmap-add') {
       state.activePage = 'roadmap';
+      state.roadmapView = 'list';
       state.editingRoadmapId = 'new';
       state.roadmapDraftText = '';
       render();
@@ -2596,6 +2720,159 @@
       config.rules = config.rules.map(rule => rule.id === ruleId ? { ...rule, enabled: target.checked } : rule);
       savePrivacy(config);
       return;
+    }
+  });
+
+  // ── Roadmap canvas: dragging, panning, zooming ─────────────────
+  //
+  // Pointer events rather than HTML5 drag-and-drop: a drag here has to update a
+  // position continuously (the edges attached to the node are redrawn as it
+  // moves), and drag-and-drop only reports a drop. The list view below still
+  // uses drag-and-drop, because reordering genuinely is a drop.
+
+  let rmDrag = null;
+
+  function rmWorldEl() {
+    return root ? root.querySelector('[data-rm-world="true"]') : null;
+  }
+
+  /** Redraw only the dragged node and its edges — a full render mid-drag stutters. */
+  function rmPaintDrag() {
+    if (!rmDrag || !root) {
+      return;
+    }
+    const nodeEl = root.querySelector('[data-rm-node="' + cssEscape(rmDrag.nodeId) + '"]');
+    if (nodeEl instanceof HTMLElement) {
+      nodeEl.style.left = rmDrag.x + 'px';
+      nodeEl.style.top = rmDrag.y + 'px';
+    }
+    const graph = roadmapGraph();
+    const nodes = roadmapCanvasNodes().map(node => (
+      node.id === rmDrag.nodeId ? Object.assign({}, node, { position: { x: rmDrag.x, y: rmDrag.y } }) : node
+    ));
+    const svg = root.querySelector('.rm-edges');
+    if (!(svg instanceof SVGElement)) {
+      return;
+    }
+    const filter = roadmapRouteFilter();
+    const visible = graph.edges.filter(edge =>
+      (!filter || filter.edges.has(edge.from + '->' + edge.to))
+      && nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+    const suggestions = filter ? [] : graph.suggested.filter(edge =>
+      nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+    svg.querySelectorAll('.rm-edge').forEach(el => el.remove());
+    svg.insertAdjacentHTML('beforeend',
+      visible.map(edge => renderRoadmapEdge(edge, nodes, false)).join('')
+      + suggestions.map(edge => renderRoadmapEdge(edge, nodes, true)).join(''));
+  }
+
+  root?.addEventListener('pointerdown', event => {
+    if (!(event.target instanceof HTMLElement) || event.button !== 0) {
+      return;
+    }
+    const handle = event.target.closest('[data-rm-drag]');
+    if (handle instanceof HTMLElement) {
+      const nodeId = handle.getAttribute('data-rm-drag') || '';
+      const node = roadmapCanvasNodes().find(entry => entry.id === nodeId);
+      if (!node) {
+        return;
+      }
+      const position = roadmapNodePosition(node);
+      rmDrag = {
+        kind: 'node',
+        nodeId: nodeId,
+        x: position.x,
+        y: position.y,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: position.x,
+        originY: position.y,
+        moved: false,
+      };
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
+    const frame = event.target.closest('[data-rm-frame="true"]');
+    if (frame instanceof HTMLElement && !event.target.closest('.rm-node')) {
+      rmDrag = {
+        kind: 'pan',
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: state.roadmapPan.x,
+        originY: state.roadmapPan.y,
+        moved: false,
+      };
+      frame.setPointerCapture(event.pointerId);
+    }
+  });
+
+  root?.addEventListener('pointermove', event => {
+    if (!rmDrag) {
+      return;
+    }
+    const dx = event.clientX - rmDrag.startX;
+    const dy = event.clientY - rmDrag.startY;
+    if (!rmDrag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) {
+      return;
+    }
+    rmDrag.moved = true;
+    if (rmDrag.kind === 'pan') {
+      state.roadmapPan = { x: rmDrag.originX + dx, y: rmDrag.originY + dy };
+      const world = rmWorldEl();
+      if (world instanceof HTMLElement) {
+        world.style.transform = 'translate(' + state.roadmapPan.x + 'px, ' + state.roadmapPan.y + 'px) scale(' + state.roadmapZoom + ')';
+      }
+      return;
+    }
+    // The pointer moves in screen pixels; the world is scaled, so the delta has
+    // to be divided by the zoom or a node lags behind the cursor when zoomed out.
+    rmDrag.x = Math.max(0, Math.round(rmDrag.originX + dx / state.roadmapZoom));
+    rmDrag.y = Math.max(0, Math.round(rmDrag.originY + dy / state.roadmapZoom));
+    rmPaintDrag();
+  });
+
+  function rmEndDrag() {
+    if (!rmDrag) {
+      return;
+    }
+    const finished = rmDrag;
+    rmDrag = null;
+    if (finished.kind !== 'node' || !finished.moved) {
+      return;
+    }
+    // Held locally as well as sent, so the node stays where it was dropped
+    // through the round trip rather than snapping back for one frame.
+    state.roadmapDragOffsets[finished.nodeId] = { x: finished.x, y: finished.y };
+    vscode.postMessage({
+      type: 'roadmapNodeMove',
+      payload: { nodeId: finished.nodeId, x: finished.x, y: finished.y },
+    });
+  }
+
+  root?.addEventListener('pointerup', rmEndDrag);
+  root?.addEventListener('pointercancel', rmEndDrag);
+
+  root?.addEventListener('wheel', event => {
+    if (!(event.target instanceof HTMLElement) || !event.target.closest('[data-rm-frame="true"]') || !(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
+    const next = state.roadmapZoom + (event.deltaY < 0 ? 0.1 : -0.1);
+    state.roadmapZoom = Math.min(RM_MAX_ZOOM, Math.max(RM_MIN_ZOOM, Math.round(next * 100) / 100));
+    render();
+  }, { passive: false });
+
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+    if (state.roadmapLinkFrom || state.roadmapEditingNodeId || state.roadmapFocusNodeId) {
+      state.roadmapLinkFrom = '';
+      state.roadmapEditingNodeId = '';
+      state.roadmapFocusNodeId = '';
+      render();
     }
   });
 
@@ -9776,8 +10053,17 @@
       value: outstanding.filter(item => item.focus === focus).length,
       tone: FOCUS_TONES[focus],
     }));
+    if (state.roadmapView !== 'list') {
+      return `
+        ${pageSectionOpen('roadmap')}
+          ${renderRoadmapViewBar(roadmap)}
+          ${renderRoadmapCanvas()}
+        </section>`;
+    }
+
     return `
       ${pageSectionOpen('roadmap')}
+        ${renderRoadmapViewBar(roadmap)}
         ${renderMvpSection(roadmap)}
         <div class="panel-grid">
           <article class="panel-card">
@@ -10024,7 +10310,14 @@
       return;
     }
 
-    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
+    const items = getRoadmapItems().map(item => ({
+      id: item.id,
+      ...(item.nodeId ? { nodeId: item.nodeId } : {}),
+      text: item.text,
+      completed: !!item.completed,
+      isMvp: !!item.isMvp,
+      gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
+    }));
     if (state.editingRoadmapId === 'new') {
       items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: [] });
     } else {
@@ -10045,6 +10338,10 @@
       payload: {
         items: items.map((item, index) => ({
           id: item.id || `roadmap-${index + 1}`,
+          // Echoed back so a reorder or a rename in the list does not strip the
+          // durable id off the line — which would orphan that item's deadline,
+          // its position and every link into it.
+          ...(item.nodeId ? { nodeId: item.nodeId } : {}),
           text: item.text,
           completed: !!item.completed,
           // Both are sent: `gates` is the truth, `isMvp` keeps the MVP path
@@ -10059,6 +10356,7 @@
   function roadmapItemsForSave() {
     return getRoadmapItems().map(item => ({
       id: item.id,
+      ...(item.nodeId ? { nodeId: item.nodeId } : {}),
       text: item.text,
       completed: !!item.completed,
       gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
@@ -10103,6 +10401,426 @@
     const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return `roadmap-${normalized || Date.now()}`;
   }
+  // ── Roadmap canvas ─────────────────────────────────────────────
+  //
+  // The dependency view of the roadmap: what has to happen before what, as a
+  // graph you can drag, filter and edit in place. The backlog list below it is
+  // unchanged and still owns priority order — the two answer different questions
+  // and neither replaces the other.
+
+  const RM_NODE_WIDTH = 250;
+  const RM_NODE_HEIGHT = 132;
+  const RM_MIN_ZOOM = 0.35;
+  const RM_MAX_ZOOM = 1.6;
+
+  function roadmapGraph() {
+    const graph = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.graph : null;
+    if (!graph || typeof graph !== 'object') {
+      return {
+        active: [], completed: [], completedColumns: [], retainedIds: [], edges: [], suggested: [],
+        layers: [], cycles: [], notes: [], rules: [], suggestLinks: true, anchored: true, routes: {},
+        people: [], filePath: 'project_memory/roadmap/improvement-plan.md',
+      };
+    }
+    return graph;
+  }
+
+  /** The nodes the current canvas draws, before the route filter narrows them. */
+  function roadmapCanvasNodes() {
+    const graph = roadmapGraph();
+    return state.roadmapView === 'completed' ? graph.completed : graph.active;
+  }
+
+  function roadmapPersonName(contactId) {
+    if (!contactId) { return ''; }
+    const person = (roadmapGraph().people || []).find(entry => entry.id === contactId);
+    return person ? person.name : '';
+  }
+
+  /**
+   * The route filter, as a pair of lookups.
+   *
+   * Returns null when nothing is filtered, so every caller has one obvious
+   * "show everything" branch rather than each inventing its own empty-set
+   * convention.
+   */
+  function roadmapRouteFilter() {
+    if (!state.roadmapFocusNodeId || state.roadmapView === 'completed') {
+      return null;
+    }
+    const route = roadmapGraph().routes[state.roadmapFocusNodeId];
+    if (!route) {
+      return null;
+    }
+    return {
+      route,
+      nodes: new Set(route.nodeIds || []),
+      edges: new Set(route.edgeKeys || []),
+    };
+  }
+
+  function roadmapNodePosition(node) {
+    const offset = state.roadmapDragOffsets[node.id];
+    return offset ? offset : node.position;
+  }
+
+  function renderRoadmapViewBar(roadmap) {
+    const graph = roadmapGraph();
+    const views = [
+      ['canvas', 'Dependency canvas', 'The plan as a graph: what has to happen before what. Drag nodes, draw links, and filter to the route to any one item.'],
+      ['list', 'Prioritised backlog', 'The ordered list. Position here is what sets Atlas’s default next-work weighting.'],
+      ['completed', 'Delivered', 'What has shipped, when, and by whom — laid out by month, with the links between pieces of work preserved.'],
+    ];
+    const counts = { canvas: graph.active.length, list: roadmap.items.length, completed: graph.completed.length };
+    return `
+      <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
+        ${views.map(([id, label, hint]) => `
+          <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
+            class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
+            data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
+            <span>${escapeHtml(label)}</span>
+            <span class="rm-view-count">${counts[id]}</span>
+          </button>`).join('')}
+      </div>`;
+  }
+
+  function renderRoadmapCanvas() {
+    const graph = roadmapGraph();
+    const filter = roadmapRouteFilter();
+    const allNodes = roadmapCanvasNodes();
+    const nodes = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
+    const focusNode = filter ? allNodes.find(node => node.id === state.roadmapFocusNodeId) : null;
+
+    // The world is sized to the content it holds, so panning has somewhere to go
+    // and the SVG the edges live in covers every node rather than clipping the
+    // ones furthest out.
+    let worldWidth = 960;
+    let worldHeight = 520;
+    nodes.forEach(node => {
+      const position = roadmapNodePosition(node);
+      worldWidth = Math.max(worldWidth, position.x + RM_NODE_WIDTH + 120);
+      worldHeight = Math.max(worldHeight, position.y + RM_NODE_HEIGHT + 120);
+    });
+
+    const drawn = state.roadmapView === 'completed'
+      ? graph.edges.filter(edge => nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to))
+      : graph.edges;
+    const visibleEdges = (filter ? drawn.filter(edge => filter.edges.has(edge.from + '->' + edge.to)) : drawn)
+      .filter(edge => nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+    const visibleSuggestions = state.roadmapView === 'completed' || filter
+      ? []
+      : graph.suggested.filter(edge => nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+
+    return `
+      <article class="panel-card rm-canvas-card">
+        ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
+        ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap has not been wired to the canvas yet. It is laid out from the backlog order — the first change you make writes a hidden id into each backlog line so positions, dates and links can be kept.')}</div>`}
+        ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
+        <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
+          <div class="rm-world" data-rm-world="true"
+            style="width:${worldWidth}px;height:${worldHeight}px;transform:translate(${state.roadmapPan.x}px, ${state.roadmapPan.y}px) scale(${state.roadmapZoom});">
+            <svg class="rm-edges" width="${worldWidth}" height="${worldHeight}" viewBox="0 0 ${worldWidth} ${worldHeight}" aria-hidden="true">
+              <defs>
+                <marker id="rmArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+                  <path d="M0,0 L9,4.5 L0,9 z" class="rm-arrow-head" />
+                </marker>
+                <marker id="rmArrowSuggested" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+                  <path d="M0,0 L9,4.5 L0,9 z" class="rm-arrow-head rm-arrow-head-suggested" />
+                </marker>
+              </defs>
+              ${visibleEdges.map(edge => renderRoadmapEdge(edge, nodes, false)).join('')}
+              ${visibleSuggestions.map(edge => renderRoadmapEdge(edge, nodes, true)).join('')}
+            </svg>
+            ${nodes.length > 0
+              ? nodes.map(node => renderRoadmapNode(node, graph)).join('')
+              : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
+          </div>
+        </div>
+        ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
+      </article>`;
+  }
+
+  function renderRoadmapCanvasToolbar(graph, filter, focusNode, totalCount, shownCount) {
+    const zoomPercent = Math.round(state.roadmapZoom * 100);
+    const linking = state.roadmapLinkFrom
+      ? (roadmapCanvasNodes().find(node => node.id === state.roadmapLinkFrom) || { text: 'an item' })
+      : null;
+    return `
+      <div class="row-head rm-toolbar">
+        <div>
+          <p class="section-kicker">${escapeHtml(state.roadmapView === 'completed' ? 'Delivered' : 'Dependency canvas')}</p>
+          <h3>${escapeHtml(state.roadmapView === 'completed' ? 'What has shipped, and when' : 'What has to happen first')}</h3>
+        </div>
+        <div class="rm-chip-row">
+          ${filter && focusNode ? `
+            <span class="rm-filter-chip" title="${escapeAttr('Showing only this item and everything that has to land before it. Completed prerequisites are kept, because the route is how you got here.')}">
+              Route to “${escapeHtml(String(focusNode.text).slice(0, 42))}${String(focusNode.text).length > 42 ? '…' : ''}”
+              <button type="button" class="rm-chip-clear" data-action="roadmap-clear-focus" aria-label="Show the whole plan again">×</button>
+            </span>
+            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
+          ` : ''}
+          ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
+          ${state.roadmapView === 'completed' ? '' : `
+            <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
+              aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"
+              title="${escapeAttr('Whether AtlasMind proposes links nobody drew. A suggestion is drawn dashed and changes nothing until you accept it; it can never contradict a link you drew, and it can never make the plan circular.')}">
+              ${graph.suggestLinks ? 'Suggestions on' : 'Suggestions off'}
+            </button>`}
+          <button type="button" class="action-link" data-action="roadmap-zoom-out" aria-label="Zoom out">−</button>
+          <button type="button" class="action-link" data-action="roadmap-zoom-reset" title="Reset the view to 100% and re-centre">${zoomPercent}%</button>
+          <button type="button" class="action-link" data-action="roadmap-zoom-in" aria-label="Zoom in">+</button>
+          ${state.roadmapView === 'completed' ? '' : '<button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>'}
+        </div>
+      </div>
+      ${state.roadmapView === 'completed' ? renderRoadmapCompletionColumns(graph) : ''}`;
+  }
+
+  function renderRoadmapCompletionColumns(graph) {
+    if (!Array.isArray(graph.completedColumns) || graph.completedColumns.length === 0) {
+      return '';
+    }
+    return `<div class="rm-timeline-strip" aria-hidden="true">${graph.completedColumns
+      .map(column => `<span class="rm-timeline-label${column.key === 'undated' ? ' is-undated' : ''}">${escapeHtml(column.label)}</span>`)
+      .join('')}</div>`;
+  }
+
+  function renderRoadmapCanvasFooter(graph, visibleSuggestions) {
+    const rules = Array.isArray(graph.rules) ? graph.rules : [];
+    return `
+      <div class="rm-footer">
+        <div class="rm-legend" role="list" aria-label="Canvas legend">
+          <span class="rm-legend-item" role="listitem"><span class="rm-legend-line"></span>has to land first</span>
+          <span class="rm-legend-item" role="listitem"><span class="rm-legend-line rm-legend-line-suggested"></span>suggested — not part of the plan until accepted</span>
+          <span class="rm-legend-item" role="listitem"><span class="rm-legend-swatch rm-swatch-overdue"></span>overdue</span>
+          <span class="rm-legend-item" role="listitem"><span class="rm-legend-swatch rm-swatch-risk"></span>at risk — more work on the route than days left</span>
+          <span class="rm-legend-item" role="listitem"><span class="rm-legend-swatch rm-swatch-done"></span>delivered</span>
+        </div>
+        ${visibleSuggestions.length > 0 ? `<div class="list-meta">${escapeHtml(`${visibleSuggestions.length} suggested link${visibleSuggestions.length === 1 ? '' : 's'} drawn dashed. Nothing about them is saved until you accept one.`)}</div>` : ''}
+        ${graph.notes.length > 0 ? `<ul class="rm-notes">${graph.notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul>` : ''}
+        ${rules.length > 0 && state.roadmapView !== 'completed' ? `
+          <details class="rm-rules">
+            <summary>How a link gets suggested</summary>
+            <ul>${rules.map(rule => `<li><strong>${escapeHtml(rule.label)}</strong> — ${escapeHtml(rule.detail)}</li>`).join('')}</ul>
+          </details>` : ''}
+      </div>`;
+  }
+
+  /**
+   * One edge.
+   *
+   * A cubic curve from the right edge of the prerequisite to the left edge of
+   * the dependent, so direction is readable without depending on the arrowhead
+   * alone. A link whose two nodes were dragged into the same column still reads,
+   * because the control points lean outward by a fixed amount rather than by a
+   * fraction of a distance that can be zero.
+   */
+  function renderRoadmapEdge(edge, nodes, suggested) {
+    const from = nodes.find(node => node.id === edge.from);
+    const to = nodes.find(node => node.id === edge.to);
+    if (!from || !to) {
+      return '';
+    }
+    const a = roadmapNodePosition(from);
+    const b = roadmapNodePosition(to);
+    const x1 = a.x + RM_NODE_WIDTH;
+    const y1 = a.y + RM_NODE_HEIGHT / 2;
+    const x2 = b.x;
+    const y2 = b.y + RM_NODE_HEIGHT / 2;
+    const lean = Math.max(60, Math.abs(x2 - x1) / 2);
+    const path = `M ${x1} ${y1} C ${x1 + lean} ${y1}, ${x2 - lean} ${y2}, ${x2} ${y2}`;
+    const title = suggested
+      ? `Suggested: “${from.text}” before “${to.text}” — ${edge.evidence || 'derived from the rule table'}`
+      : `“${from.text}” has to land before “${to.text}”`;
+    return `<path class="rm-edge${suggested ? ' rm-edge-suggested' : ''}" d="${escapeAttr(path)}"
+      marker-end="url(#${suggested ? 'rmArrowSuggested' : 'rmArrow'})"><title>${escapeHtml(title)}</title></path>`;
+  }
+
+  function renderRoadmapNode(node, graph) {
+    if (state.roadmapEditingNodeId === node.id) {
+      return renderRoadmapNodeEditor(node, graph);
+    }
+    const position = roadmapNodePosition(node);
+    const inCycle = graph.cycles.some(cycle => cycle.indexOf(node.id) >= 0);
+    const linking = state.roadmapLinkFrom && state.roadmapLinkFrom !== node.id;
+    const owner = roadmapPersonName(node.completedBy) || roadmapPersonName(node.addedBy);
+    const classes = [
+      'rm-node',
+      'rm-focus-' + node.focus,
+      'rm-state-' + node.schedule.state,
+      node.completed ? 'is-done' : '',
+      inCycle ? 'is-cycle' : '',
+      state.roadmapFocusNodeId === node.id ? 'is-focused' : '',
+      graph.retainedIds.indexOf(node.id) >= 0 ? 'is-retained' : '',
+    ].filter(Boolean).join(' ');
+
+    return `
+      <div class="${classes}" data-rm-node="${escapeAttr(node.id)}"
+        style="left:${position.x}px;top:${position.y}px;width:${RM_NODE_WIDTH}px;"
+        data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}">
+        <div class="rm-node-head" data-rm-drag="${escapeAttr(node.id)}" title="Drag to reposition. Position is saved.">
+          <span class="rm-node-title">${escapeHtml(node.text)}</span>
+        </div>
+        <div class="rm-node-meta">
+          ${node.branch ? `<span class="rm-branch" title="${escapeAttr(node.branchSource === 'declared' ? 'Branch name set by hand.' : 'Branch name derived from the item. Edit the node to override it.')}">${escapeHtml(node.branch)}</span>` : '<span class="rm-branch rm-branch-none" title="No branch name could be derived from this item’s wording. Edit the node to set one.">no branch name</span>'}
+          <span class="rm-est" title="${escapeAttr(node.estimate.rule)}">${escapeHtml(formatRoadmapDays(node.estimate.days))}${node.estimate.aiAssisted ? ' AI' : ''}</span>
+        </div>
+        <div class="rm-node-schedule" title="${escapeAttr(node.schedule.reason)}">
+          ${renderRoadmapScheduleChip(node)}
+          ${node.blockedBy.length > 0 ? `<span class="rm-chip rm-chip-blocked" title="${escapeAttr(`Waiting on ${node.blockedBy.length} item${node.blockedBy.length === 1 ? '' : 's'} that ${node.blockedBy.length === 1 ? 'is' : 'are'} not done.`)}">blocked ×${node.blockedBy.length}</span>` : ''}
+          ${owner ? `<span class="rm-chip" title="${escapeAttr(node.completedBy ? 'Recorded as completed by this person.' : 'Recorded as added by this person.')}">${escapeHtml(owner)}</span>` : ''}
+        </div>
+        <div class="rm-node-actions">
+          ${linking
+            ? `<button type="button" class="action-link rm-link-target" data-action="roadmap-link-to" data-payload="${escapeAttr(node.id)}" title="Record that this item has to wait for the one you started from.">Needs this</button>`
+            : `<button type="button" class="action-link" data-action="roadmap-link-from" data-payload="${escapeAttr(node.id)}" title="Draw a link: this item has to land before another one.">Link →</button>`}
+          <button type="button" class="action-link" data-action="roadmap-focus-node" data-payload="${escapeAttr(node.id)}" title="Show only this item and everything that has to happen before it.">Route</button>
+          <button type="button" class="action-link" data-action="roadmap-node-edit" data-payload="${escapeAttr(node.id)}">Edit</button>
+        </div>
+        ${renderRoadmapNodeLinks(node, graph)}
+      </div>`;
+  }
+
+  /**
+   * The links on a node, as removable chips.
+   *
+   * Prerequisites and dependents are labelled separately and never merged: "what
+   * this waits for" and "what waits for this" are opposite facts, and a single
+   * "linked to" list would make the plan unreadable in exactly the place it is
+   * supposed to be clearest.
+   */
+  function renderRoadmapNodeLinks(node, graph) {
+    const nameOf = id => {
+      const found = graph.active.concat(graph.completed).find(entry => entry.id === id);
+      return found ? found.text : id;
+    };
+    const suggestionsIn = graph.suggested.filter(edge => edge.to === node.id);
+    if (node.prerequisites.length === 0 && node.dependents.length === 0 && suggestionsIn.length === 0) {
+      return '';
+    }
+    return `
+      <div class="rm-node-links">
+        ${node.prerequisites.map(id => `<span class="rm-link-chip" title="${escapeAttr('“' + nameOf(id) + '” has to land before this. Click × to remove the link.')}">← ${escapeHtml(String(nameOf(id)).slice(0, 22))}<button type="button" class="rm-chip-clear" data-action="roadmap-link-remove" data-payload="${escapeAttr(id + '::' + node.id)}" aria-label="Remove this dependency">×</button></span>`).join('')}
+        ${node.dependents.map(id => `<span class="rm-link-chip rm-link-chip-out" title="${escapeAttr('“' + nameOf(id) + '” waits for this. Click × to remove the link.')}">→ ${escapeHtml(String(nameOf(id)).slice(0, 22))}<button type="button" class="rm-chip-clear" data-action="roadmap-link-remove" data-payload="${escapeAttr(node.id + '::' + id)}" aria-label="Remove this dependency">×</button></span>`).join('')}
+        ${suggestionsIn.map(edge => `<span class="rm-link-chip rm-link-chip-suggested" title="${escapeAttr('Suggested — ' + (edge.evidence || 'derived from the rule table') + '. Nothing is saved until you accept it.')}">? ${escapeHtml(String(nameOf(edge.from)).slice(0, 18))}<button type="button" class="rm-chip-accept" data-action="roadmap-link-accept" data-payload="${escapeAttr(edge.from + '::' + edge.to)}" aria-label="Accept this suggested dependency" title="Accept: make this part of the plan.">✓</button><button type="button" class="rm-chip-clear" data-action="roadmap-link-dismiss" data-payload="${escapeAttr(edge.from + '::' + edge.to)}" aria-label="Dismiss this suggestion" title="Dismiss: these two are unrelated. It will not be suggested again.">×</button></span>`).join('')}
+      </div>`;
+  }
+
+  function renderRoadmapScheduleChip(node) {
+    const schedule = node.schedule;
+    const label = schedule.state === 'done'
+      ? 'delivered' + (node.completedAt ? ' ' + String(node.completedAt).slice(0, 10) : '')
+      : schedule.state === 'no-deadline'
+        ? 'no deadline'
+        : schedule.daysLeft < 0
+          ? Math.abs(schedule.daysLeft) + 'd over'
+          : schedule.daysLeft + 'd left';
+    return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
+  }
+
+  function formatRoadmapDays(days) {
+    const value = Number(days) || 0;
+    return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+  }
+
+  /**
+   * In-situ node editing.
+   *
+   * Rendered inside the node's own footprint rather than in a side panel, so the
+   * thing being edited stays where it was on the plan — the position *is* part
+   * of what a person is reasoning about here.
+   */
+  function renderRoadmapNodeEditor(node, graph) {
+    const position = roadmapNodePosition(node);
+    return `
+      <div class="rm-node rm-node-editing" data-rm-node="${escapeAttr(node.id)}"
+        style="left:${position.x}px;top:${position.y}px;width:${RM_NODE_WIDTH}px;">
+        <label class="rm-field"><span>Name</span>
+          <textarea rows="2" data-rm-field="text" data-rm-node-id="${escapeAttr(node.id)}">${escapeHtml(node.text)}</textarea></label>
+        <label class="rm-field"><span>Branch</span>
+          <input type="text" data-rm-field="branch" data-rm-node-id="${escapeAttr(node.id)}"
+            value="${escapeAttr(node.branch || '')}" placeholder="${escapeAttr(node.branch || 'feat/…')}"
+            title="${escapeAttr('Derived from the item unless you set one. Refused rather than corrected if it is not a legal branch name.')}" /></label>
+        <label class="rm-field"><span>Deadline</span>
+          <input type="date" data-rm-field="deadline" data-rm-node-id="${escapeAttr(node.id)}" value="${escapeAttr(node.deadline || '')}" /></label>
+        <label class="rm-field"><span>Est. days</span>
+          <input type="number" min="0.5" max="365" step="0.5" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
+            value="${escapeAttr(node.estimate.source === 'declared' ? String(node.estimate.days) : '')}"
+            placeholder="${escapeAttr(String(node.estimate.days) + ' (derived)')}"
+            title="${escapeAttr(node.estimate.rule)}" /></label>
+        <label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
+          <input type="checkbox" data-rm-field="aiAssisted" data-rm-node-id="${escapeAttr(node.id)}" ${node.estimate.aiAssisted ? 'checked' : ''} />
+          <span>AI-assisted estimate</span></label>
+        <p class="rm-provenance">${escapeHtml(describeRoadmapProvenance(node))}</p>
+        <div class="rm-node-actions">
+          <button type="button" class="action-link" data-action="roadmap-node-save" data-payload="${escapeAttr(node.id)}">Save</button>
+          <button type="button" class="action-link" data-action="roadmap-node-cancel">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  /** Who put this on the roadmap, and when — stated as unknown when it is. */
+  function describeRoadmapProvenance(node) {
+    const parts = [];
+    if (node.addedAt) {
+      const who = roadmapPersonName(node.addedBy);
+      parts.push('Added ' + String(node.addedAt).slice(0, 10) + (who ? ' by ' + who : ''));
+    } else {
+      parts.push('Added before this roadmap was put on the canvas — no date on record');
+    }
+    if (node.completedAt) {
+      const who = roadmapPersonName(node.completedBy);
+      parts.push('delivered ' + String(node.completedAt).slice(0, 10) + (who ? ' by ' + who : ''));
+    }
+    return parts.join(' · ') + '.';
+  }
+
+  /**
+   * Collect the in-situ editor and send one update.
+   *
+   * A cleared field sends `null` rather than being omitted: omitting it means
+   * "leave this alone", and the two have to stay distinguishable or clearing a
+   * deadline would silently do nothing.
+   */
+  function saveRoadmapNodeEdits(nodeId) {
+    if (!root || !nodeId) {
+      return;
+    }
+    const field = name => root.querySelector('[data-rm-field="' + name + '"][data-rm-node-id="' + cssEscape(nodeId) + '"]');
+    const node = roadmapCanvasNodes().find(entry => entry.id === nodeId);
+    const textEl = field('text');
+    const branchEl = field('branch');
+    const deadlineEl = field('deadline');
+    const estimateEl = field('estimateDays');
+    const aiEl = field('aiAssisted');
+
+    const payload = { nodeId: nodeId };
+    if (textEl && textEl.value.trim() && node && textEl.value.trim() !== node.text) {
+      payload.text = textEl.value.trim();
+    }
+    if (branchEl) {
+      const branch = branchEl.value.trim();
+      // An untouched field still holds the derived name. Sending it would turn a
+      // derived branch into a declared one, which then stops following a rename.
+      payload.branch = branch === '' ? null : (node && branch === node.branch && node.branchSource !== 'declared' ? undefined : branch);
+      if (payload.branch === undefined) {
+        delete payload.branch;
+      }
+    }
+    if (deadlineEl) {
+      payload.deadline = deadlineEl.value.trim() === '' ? null : deadlineEl.value.trim();
+    }
+    if (estimateEl) {
+      const estimate = Number(estimateEl.value);
+      payload.estimateDays = estimateEl.value.trim() === '' || !Number.isFinite(estimate) || estimate <= 0 ? null : estimate;
+    }
+    if (aiEl) {
+      payload.aiAssisted = !!aiEl.checked;
+    }
+
+    state.roadmapEditingNodeId = '';
+    vscode.postMessage({ type: 'roadmapNodeUpdate', payload: payload });
+  }
+
 
   // ── Documents (.md management) ──────────────────────────────────
 
