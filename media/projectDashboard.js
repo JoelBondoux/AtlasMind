@@ -428,6 +428,11 @@
     riskStatus: '',
     /** Host-backed state shared by dashboard, Issues, PR, CI, and release refreshes. */
     repositoryRefreshBusy: false,
+    /**
+     * The host stopped answering. See the watchdog below — this is never
+     * inferred from a slow reply, only from a request that went unanswered.
+     */
+    hostUnreachable: false,
     /** Explicit remote-ref fetch progress; separate because it mutates cached refs. */
     branchFetchBusy: false,
     /**
@@ -644,6 +649,66 @@
     vscode.postMessage({ type: 'saveBranchPreferences', payload: preferences });
   }
 
+  // ── Host connection watchdog ───────────────────────────────────────────────
+  //
+  // A webview outlives the host object that talks to it. After the extension
+  // updates under a running window — or the extension host restarts for any
+  // other reason — VS Code keeps this panel and its rendered DOM while the
+  // `ProjectDashboardPanel` that owned `onDidReceiveMessage` is gone. Nothing
+  // about that is visible from in here: hover still works, moving between pages
+  // still works because that is local, and every button posts into nothing.
+  //
+  // Reported as "the Delivery runbook's copy and send to terminal do not work".
+  // Every link in that chain was correctly wired; the panel was a leftover. The
+  // symptom that gave it away was the Refresh button spinning for ever, which is
+  // the one thing this file can fix on its own: a request that must produce a
+  // reply arms a timer, and silence past the window is reported as silence
+  // rather than as work still in progress.
+  //
+  // Deliberately generous, and deliberately never inferred from anything else.
+  // A cold `collectDashboardSnapshot` reaches git, the filesystem and the
+  // routine registry, and a slow machine is not a disconnected one — claiming
+  // otherwise would be the same class of lie in the other direction.
+  const HOST_REPLY_TIMEOUT_MS = 20000;
+  let hostWatchdogTimer = 0;
+
+  /** Call when posting a message that the host must answer. */
+  function armHostWatchdog() {
+    if (hostWatchdogTimer) {
+      clearTimeout(hostWatchdogTimer);
+    }
+    hostWatchdogTimer = setTimeout(() => {
+      hostWatchdogTimer = 0;
+      if (state.hostUnreachable) { return; }
+      state.hostUnreachable = true;
+      // The spinner is the lie being corrected; nothing is in progress.
+      state.repositoryRefreshBusy = false;
+      state.branchFetchBusy = false;
+      setDashboardRefreshBusy(false);
+      announce('This dashboard is no longer connected to AtlasMind. Close the tab and open it again.');
+      render();
+    }, HOST_REPLY_TIMEOUT_MS);
+  }
+
+  /**
+   * Any message from the host proves the channel is alive.
+   *
+   * Kept separate from the `state` handler because it must hold for *every*
+   * reply, not only a snapshot — a busy notice or a branch inspection is just
+   * as much evidence, and a watchdog cleared by only one message type would
+   * fire during a long refresh that is reporting progress perfectly well.
+   */
+  function noteHostReply() {
+    if (hostWatchdogTimer) {
+      clearTimeout(hostWatchdogTimer);
+      hostWatchdogTimer = 0;
+    }
+    if (state.hostUnreachable) {
+      state.hostUnreachable = false;
+      announce('Reconnected to AtlasMind.');
+    }
+  }
+
   function requestRepositoryRefresh(type) {
     if (state.repositoryRefreshBusy) { return; }
     state.repositoryRefreshBusy = true;
@@ -655,6 +720,7 @@
       render();
     }
     vscode.postMessage({ type });
+    armHostWatchdog();
   }
 
   refreshButton?.addEventListener('click', () => {
@@ -725,6 +791,9 @@
     if (!message) {
       return;
     }
+    // Before any type check: the fact that something arrived is the evidence,
+    // whatever it says.
+    noteHostReply();
 
     if (message.type === 'state') {
       state.snapshot = message.payload;
@@ -1296,6 +1365,15 @@
         type: 'setRiskFindingStatus',
         payload: { findingId: payload.slice(0, sep), status: payload.slice(sep + 1) },
       });
+      return;
+    }
+    // One more attempt, to rule out a stall before the user closes the tab.
+    // Deliberately the same request the Refresh button makes, rather than a
+    // second recovery path of its own: if the host is alive this is exactly what
+    // the user wanted, and if it is gone this posts into nothing and the
+    // watchdog fires again, which is the honest outcome.
+    if (action === 'host-retry') {
+      requestRepositoryRefresh('refresh');
       return;
     }
     if (action === 'file') {
@@ -3045,7 +3123,11 @@
       const snapshot = state.snapshot;
       if (!snapshot) {
         clearHeaderIdentity();
-        root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
+        // A panel restored without a host never leaves this branch, so the
+        // loading line has to be able to stop claiming to be loading.
+        root.innerHTML = state.hostUnreachable
+          ? renderHostConnectionBanner()
+          : '<div class="dashboard-loading">Loading dashboard signals…</div>';
         return;
       }
 
@@ -3062,6 +3144,7 @@
           ${renderNav(snapshot)}
         </section>
 
+        ${renderHostConnectionBanner()}
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
@@ -3293,6 +3376,31 @@
     }).join('');
 
     return `<div class="page-nav" role="tablist" aria-label="Dashboard sections">${groups}</div>`;
+  }
+
+  /**
+   * What to do when the host has stopped answering.
+   *
+   * Instructional rather than merely reassuring: "Try again" is offered because
+   * a transient stall is possible and costs one message to rule out, but the
+   * sentence that actually resolves this names closing and reopening the tab —
+   * because when the host object is gone, no button in here can reach it, and a
+   * banner offering only a dead button would repeat the original failure with
+   * more ceremony.
+   */
+  function renderHostConnectionBanner() {
+    if (!state.hostUnreachable) {
+      return '';
+    }
+    return `
+      <div class="dashboard-disconnected" role="alert">
+        <div>
+          <strong>This dashboard is no longer connected to AtlasMind.</strong>
+          <p class="stat-detail">Nothing you click here can reach the extension — buttons will appear to do nothing rather than fail. This happens when AtlasMind updates or the extension host restarts while the panel is open: the page keeps rendering what it last received, but the half that answers it has gone.</p>
+          <p class="stat-detail">Close this tab and reopen it — <strong>AtlasMind: Open Project Dashboard</strong> from the Command Palette — or reload the window.</p>
+        </div>
+        <button type="button" class="action-link primary" data-action="host-retry">Try again</button>
+      </div>`;
   }
 
   function renderError(message) {
@@ -14508,4 +14616,8 @@
   syncRefreshCadenceIndicators();
 
   vscode.postMessage({ type: 'ready' });
+  // The opening request is the one that matters most: a panel restored without
+  // a host never gets past "Loading dashboard signals…", and an eternal loading
+  // state is indistinguishable from a slow one.
+  armHostWatchdog();
 })();

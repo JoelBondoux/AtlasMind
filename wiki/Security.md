@@ -160,6 +160,14 @@ webview never learns where your workspace is, which is why it cannot be the side
 
 A link naming any other scheme is still refused outright and drawn as visibly inert.
 
+**A restored panel's own storage is not an input.** VS Code can bring a webview back after a window
+reload or an extension update, carrying whatever the page had saved for itself. AtlasMind re-attaches
+the Project Dashboard to a live extension-side host when that happens, and reads *nothing* out of the
+restored page: the snapshot is rebuilt from your workspace, so trusting the persisted value would buy
+nothing and would make a browser-side store an input to the host. A panel that cannot be served is
+closed rather than left on screen looking usable — and a panel whose host has gone now says so, instead
+of accepting clicks that reach nothing.
+
 **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
 single message each require a confirmation naming what is lost — including how many messages the session
 holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the

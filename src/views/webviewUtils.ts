@@ -1,5 +1,16 @@
 import { DASHBOARD_PANEL_BASE_CSS, DASHBOARD_PANEL_SKIN_CSS } from './dashboardTheme.js';
 
+/**
+ * The Project Dashboard's webview view type.
+ *
+ * Here rather than in `projectDashboardPanel.ts` so `commands.ts` can register
+ * the panel serializer without statically importing the panel — which would
+ * undo the dynamic import that keeps a large module off the activation path.
+ * One definition, because a serializer registered under a view type that does
+ * not match the panel's simply never fires, and nothing reports that.
+ */
+export const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
+
 /** The extension mark as a CSP-safe data URI for panels without local resource roots. */
 export const ATLAS_ICON_DATA_URI = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cpath d=%22M12 2 C7 7,7 17,12 22%22/%3E%3Cpath d=%22M12 2 C17 7,17 17,12 22%22/%3E%3Cline x1=%222%22 y1=%2212%22 x2=%2222%22 y2=%2212%22/%3E%3C/svg%3E';
 

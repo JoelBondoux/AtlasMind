@@ -116,6 +116,7 @@ export const window = {
   }),
   registerTreeDataProvider: () => ({ dispose: () => undefined }),
   registerWebviewViewProvider: () => ({ dispose: () => undefined }),
+  registerWebviewPanelSerializer: () => ({ dispose: () => undefined }),
   terminals: [] as Array<{ name: string }>,
 };
 

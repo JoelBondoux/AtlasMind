@@ -17,6 +17,7 @@ import type { AcpBridgeTreeItem, ChatSessionTreeItem, DiscoveryFinderItem, McpSe
 import { parseCustomDebtMarkers } from './core/debtRegister.js';
 import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
 import { resolveAgentSkillPolicy } from './core/skillsRegistry.js';
+import { PROJECT_DASHBOARD_VIEW_TYPE } from './views/webviewUtils.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -1392,6 +1393,33 @@ export function registerCommands(
       // Commands are an extension boundary too. The panel accepts only a known
       // page and an optional allowlisted focus kind with a bounded opaque id.
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target);
+    }),
+
+    // Give a restored dashboard its host back.
+    //
+    // VS Code brings the panel and its rendered DOM through a window reload or
+    // an extension update; it does not bring the object that answers it. With no
+    // serializer the tab returns looking healthy and is inert — hover works,
+    // moving between pages works because that is local, and every button posts
+    // into nothing. That was reported as the Delivery runbook's copy and send
+    // buttons being broken; they were correctly wired the whole time.
+    //
+    // No state is read from the restored webview. Whatever it holds was written
+    // by a build that may no longer exist, and the panel rebuilds its snapshot
+    // from the workspace on `ready` anyway — so trusting it would buy nothing
+    // and would make a webview's persisted value an input to the host.
+    vscode.window.registerWebviewPanelSerializer(PROJECT_DASHBOARD_VIEW_TYPE, {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel): Promise<void> {
+        const atlas = getAtlas();
+        if (!atlas) {
+          // Nothing can serve this panel, and leaving a dead one on screen is
+          // the failure this whole change exists to remove.
+          panel.dispose();
+          return;
+        }
+        const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
+        ProjectDashboardPanel.revive(panel, atlas.extensionContext, atlas);
+      },
     }),
     vscode.commands.registerCommand('atlasmind.openProjectDirector', async () => {
       const atlas = requireAtlas();

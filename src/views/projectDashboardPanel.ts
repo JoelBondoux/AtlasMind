@@ -29,7 +29,7 @@ import {
 } from '../core/testingReconciliation.js';
 import { readProjectTestingConfig } from '../core/testingConfigLoader.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
-import { ATLAS_DISCUSS_ACTION_CSS, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { ATLAS_DISCUSS_ACTION_CSS, escapeHtml, getWebviewHtmlShell, PROJECT_DASHBOARD_VIEW_TYPE } from './webviewUtils.js';
 import {
   buildIssueWorkPrompt,
   describeIssueAction,
@@ -434,7 +434,6 @@ import { openSecurityFindings, readSecurityReviewConfig } from '../core/security
 import type { AssignmentPriority, AssignmentStatus, DashboardFocusKind, DashboardWorkKind, DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionPlan, PromotionRunResult, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
 
 const execFileAsync = promisify(execFile);
-const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
 const PROJECT_DASHBOARD_BRANCH_PREFERENCES_KEY = 'atlasmind.projectDashboard.branchPreferences';
 const MAX_COMMITS = 10;
 const MAX_BRANCHES = 8;
@@ -4272,6 +4271,38 @@ export class ProjectDashboardPanel {
     ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas, navigationTarget);
   }
 
+  /**
+   * Re-attach a host to a panel VS Code restored.
+   *
+   * Without this the panel comes back looking perfectly healthy and is inert:
+   * the webview keeps its DOM, hover works, moving between pages works because
+   * that is local, and every message it posts lands nowhere, because the object
+   * that owned `onDidReceiveMessage` did not survive the restart. It reads as a
+   * dozen unrelated dead buttons rather than as one dead channel — which is how
+   * it was reported, against the Delivery runbook's copy and send controls.
+   *
+   * `webview.options` is re-applied because a restored panel keeps its content
+   * but not the capabilities it was created with; without `localResourceRoots`
+   * the script this panel is entirely made of would not load.
+   */
+  public static revive(
+    panel: vscode.WebviewPanel,
+    context: vscode.ExtensionContext,
+    atlas: AtlasMindContext,
+  ): void {
+    // A live panel already exists (the extension opened one during activation).
+    // Two hosts writing one view type is worse than one restored tab closing.
+    if (ProjectDashboardPanel.currentPanel) {
+      panel.dispose();
+      return;
+    }
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+    };
+    ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas);
+  }
+
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
@@ -4364,6 +4395,21 @@ export class ProjectDashboardPanel {
     if (!isProjectDashboardMessage(message)) {
       return;
     }
+
+    // Answer immediately, before anything slow.
+    //
+    // The webview watches for silence, because a panel whose host has gone
+    // looks exactly like one that is working. Without this, the only proof of
+    // life would be the *result* — and collecting a cold snapshot reaches git,
+    // the filesystem and the routine registry, so a slow machine would be
+    // reported as a disconnected one. That is the same lie in the other
+    // direction, and the more damaging of the two: it would teach the reader to
+    // dismiss the banner.
+    //
+    // Acknowledging every message rather than only `ready` means any click
+    // proves the channel, and costs one empty message per action.
+    void Promise.resolve(this.panel.webview.postMessage({ type: 'hostAck' }))
+      .then(undefined, () => undefined);
 
     switch (message.type) {
       case 'ready':
@@ -20509,6 +20555,23 @@ const DASHBOARD_CSS = `
     box-shadow: var(--dash-shadow);
     color: var(--dash-muted);
   }
+
+  /* Critical, and above everything: while this is on screen no other control on
+     the page can do anything, so it must not read as one more advisory card. */
+  .dashboard-disconnected {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--dash-critical);
+    border-left-width: 4px;
+    border-radius: var(--dash-radius);
+    background: color-mix(in srgb, var(--dash-critical) 10%, var(--dash-panel));
+  }
+  .dashboard-disconnected > div { flex: 1 1 auto; min-width: 0; }
+  .dashboard-disconnected strong { display: block; margin-bottom: 4px; }
+  .dashboard-disconnected p { margin: 4px 0 0; }
+  .dashboard-disconnected button { flex: 0 0 auto; }
 
   .stat-card,
   .chart-card,

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.373.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.374.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.373.0
+## What's new in 0.374.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The dashboard tells you when it has stopped being connected.** A webview outlives the extension
+  object that answers it, so after an update or a host restart the Project Dashboard could come back
+  looking perfectly healthy and be inert — hover worked, moving between pages worked, and every button
+  posted into nothing. It is now re-attached to a live host when VS Code restores it, and if a request
+  goes unanswered the Refresh spinner stops and a banner says what happened and how to get out of it.
 - **Gaps, debt and risks can become work.** Every finding in all three registers now carries **Add to
   roadmap** and **Raise as issue**. Both are derived rather than typed — you see the exact line before
   anything is written, and an issue draft opens in the composer where your confirmation is still the

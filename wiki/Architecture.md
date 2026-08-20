@@ -189,6 +189,17 @@ Dashboard, Model Providers, Agent Manager, UI Studio, Personality Profile, and t
 plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
 Skills, MCP Servers and Resource Discovery.
 
+A panel is two halves, and the browser half outlives the extension half. VS Code brings a webview and
+its rendered DOM through a window reload or an extension update; it does not bring the object that
+registered `onDidReceiveMessage`. Such a panel comes back looking healthy and is inert — hover works,
+moving between its pages works because that is local, nothing throws — while every message it posts
+lands nowhere. The Project Dashboard closes that two ways: `commands.ts` registers a
+`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE` so a restored panel is re-attached to a
+live host (re-applying `webview.options`, which a restored panel does not keep, and reading nothing out
+of the restored webview, since the snapshot is rebuilt from the workspace anyway); and the webview arms
+a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
+spinner that never stops. Any inbound message counts as proof of life, not only a final result.
+
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
 `project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
 target-independent `UiDesignGraph` behind the explicit interface profile. Website, web-app, mobile,

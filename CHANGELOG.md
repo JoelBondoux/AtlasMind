@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.374.0] - 2026-08-20
+
+### Fixed
+
+- **A Project Dashboard that has lost its host now says so, instead of going quietly dead.** Reported
+  as the Delivery runbook's **copy** and **send to terminal** buttons not working. Every link in that
+  chain was correct — the buttons carry the right action, the click delegate has a branch for each,
+  the payload passes the host's validator, the handlers exist and resolve the command. What had gone
+  was the *channel*: the panel was a leftover from before an extension update, so the
+  `ProjectDashboardPanel` that owned `onDidReceiveMessage` no longer existed and every message posted
+  into nothing. From inside the page that is indistinguishable from a working one — hover works,
+  moving between pages works because that is local, and the console stays clean because nothing threw.
+  The only tell was the Refresh button spinning for ever.
+
+### Added
+
+- **The dashboard is given its host back after a reload or an extension update.** A
+  `WebviewPanelSerializer` is now registered for `atlasmind.projectDashboard`, so a restored panel is
+  re-attached to a live host rather than returning as an inert copy of its last render. It reads
+  nothing out of the restored webview — whatever that holds was written by a build that may no longer
+  exist, and the panel rebuilds its snapshot from the workspace anyway. A panel that cannot be served
+  is closed rather than left on screen looking usable.
+- **A request that goes unanswered is reported as unanswered.** Any message the host must reply to
+  arms a watchdog; twenty seconds of silence stops the spinner and raises a banner naming what has
+  happened and how to get out of it (close the tab and reopen it, or reload the window). **Try again**
+  is offered because a stall costs one message to rule out, but the sentence that resolves it names the
+  tab, because no button on a page whose host is gone can reach anything — and it makes the same
+  request the Refresh button makes rather than owning a second recovery path.
+- **The host acknowledges a message before it does the work.** `handleMessage` replies the moment it
+  accepts a message, ahead of the dispatch, so the channel is proved without waiting for a result.
+  Waiting for the result would have reported a slow machine as a disconnected one — collecting a cold
+  snapshot reaches git, the filesystem and the routine registry — which is the same lie in the more
+  damaging direction, since a banner that cries wolf is one you learn to ignore. Any message from the
+  host clears the watchdog, a progress notice as much as a snapshot.
+
 ## [0.373.0] - 2026-08-20
 
 ### Added

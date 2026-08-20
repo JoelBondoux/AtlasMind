@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.374.0 — A dashboard that can tell you it has stopped listening
+
+This one was reported as "the Delivery runbook's copy and send-to-terminal buttons don't work", and
+every part of that chain turned out to be correct — the buttons, the click handling, the message, the
+validation, the handlers. What had gone was the connection between the two halves of the panel.
+
+A webview outlives the extension object that answers it. When AtlasMind updates, or the extension host
+restarts, VS Code brings the panel and everything drawn in it back; it does not bring the half that
+replies. The page then looks completely healthy — hover works, moving between pages works, nothing
+appears in the console — and every button posts into nothing. The only visible symptom was the Refresh
+button spinning for ever, which is the least likely place to look.
+
+Two changes. The dashboard is now **re-attached to a live host** when VS Code restores it, so the
+situation mostly stops arising; a panel that cannot be served is closed rather than left on screen
+pretending. And when a request goes unanswered anyway, the spinner **stops** and a banner says what has
+happened and how to get out of it — close the tab and reopen it, or reload the window. **Try again** is
+there because a stall is worth ruling out cheaply, but the instruction is the fix, since no button on a
+page whose host has gone can reach anything.
+
+The waiting window is deliberately generous, and disconnection is never guessed at from anything else.
+Collecting a cold dashboard snapshot reads git, the filesystem and your routines; a slow machine is not
+a disconnected one, and claiming otherwise would be the same kind of lie in the opposite direction.
+
+---
+
 ## v0.373.0 — The registers can become work
 
 AtlasMind keeps three registers of things somebody found and wrote down: the gap analysis, the

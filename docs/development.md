@@ -311,6 +311,56 @@ Update `ACP_PRIVATE_DESKTOP_HELPER_SHA256` in `src/providers/acpWindowsLauncher.
 
 ## Webview Development
 
+### A webview outlives the host object that answers it
+
+This is the failure mode to design against, because nothing about it looks like a failure. VS Code
+brings a panel and its rendered DOM through a window reload or an extension update; it does not bring
+the object that registered `onDidReceiveMessage`. The page comes back looking perfectly healthy —
+hover works, CSS works, moving between pages works because that is local — and every message it posts
+lands nowhere. Nothing throws, so the console stays clean. It reads as a dozen unrelated dead buttons
+rather than as one dead channel, and it was reported exactly that way: as the Delivery runbook's
+**copy** and **send to terminal** controls being broken, when every link in that chain was correct.
+
+Two things close it, and a panel that persists across a reload needs both.
+
+**Register a serializer.** `commands.ts` registers a `WebviewPanelSerializer` for
+`PROJECT_DASHBOARD_VIEW_TYPE`, and `ProjectDashboardPanel.revive()` adopts the restored panel. Two
+details are load-bearing. A restored panel keeps its content but *not* its capabilities, so
+`webview.options` must be re-applied — without `localResourceRoots` the script the panel is made of
+is blocked and it revives into a blank page. And nothing is read out of the restored webview: what it
+holds was written by a build that may no longer exist, the panel rebuilds its snapshot from the
+workspace on `ready`, so trusting the persisted value would buy nothing and would make a webview's own
+storage an input to the host. A panel that cannot be served is disposed, not left on screen.
+
+The view type lives in `webviewUtils.ts` rather than in the panel, so `commands.ts` can register the
+serializer without statically importing a large module onto the activation path. One definition,
+because a serializer registered under a view type that does not match the panel's never fires and
+nothing reports that.
+
+**Watch for silence.** A serializer cannot cover every case — the host can go away for reasons VS Code
+will not restore from. So a request the host must answer arms a watchdog in the webview, and silence
+past the window is rendered as silence rather than as work still in progress. Four rules are worth
+copying.
+
+**The host acknowledges receipt before it does anything slow.** `handleMessage` posts a bare `hostAck`
+as its first act, ahead of the dispatch. Waiting for the *result* to prove the channel would report a
+slow machine as a disconnected one — the same lie in the more damaging direction, because a banner that
+cries wolf is one the reader learns to dismiss. Every message is acknowledged, not only `ready`, so any
+click proves the channel for the cost of one empty reply.
+
+**Any inbound message counts as proof of life** — a progress notice as much as a result. A watchdog
+cleared only by the final reply fires in the middle of a refresh that is working.
+
+**The window is generous and disconnection is never inferred from anything else.** A cold snapshot
+reaches git, the filesystem and the routine registry; a slow machine is not a disconnected one.
+
+**The banner's instruction is to close and reopen the tab**, because no control on a page whose host is
+gone can reach anything. Its "Try again" makes the same request the Refresh button makes rather than
+owning a second recovery path — a recovery route that works when the ordinary one does not is a route
+nobody has tested.
+
+`tests/views/dashboardHostConnection.test.ts` executes all of this against the real script.
+
 ### Long-running dashboard operations
 
 When a dashboard action delegates work to the Orchestrator, make the lifecycle visible in the panel as well as in VS Code notifications. The activated-testing repair flow is the reference: the extension host sends a started event, concise real routing and approved-tool updates, and one terminal completed or failed result. The webview uses an indeterminate progress control while work is active rather than inventing a percentage, preserves the reported output for review, and distinguishes “task completed” from “tests are green.” Any Chat handoff is host-owned: the browser asks only to open the latest retained result, and Chat receives a redacted, fenced draft that the operator can review before sending.
