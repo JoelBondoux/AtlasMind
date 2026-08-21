@@ -2,6 +2,26 @@
   "version": 1,
   "records": [
     {
+      "id": "ci-2026-08-21T06:02:41.274Z-4e423674110e5694",
+      "stageId": "ci",
+      "action": "queueLocalCiWorkflowRun",
+      "at": "2026-08-21T06:02:41.274Z",
+      "actor": "user",
+      "requestedLevel": "auto",
+      "effectiveLevel": "auto",
+      "limitedBy": "none",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": true,
+          "detail": "Dispatched by the user from the Pipeline page after a modal confirmation naming the repository and the exact command."
+        }
+      ],
+      "inputsFingerprint": "4e423674110e5694",
+      "outcome": "complete",
+      "outputsFingerprint": "4062edaf750fb807"
+    },
+    {
       "id": "planning-2026-08-18T21:04:40.023Z-b1423aff19c2e177",
       "stageId": "planning",
       "action": "closeIssue",
@@ -18,8 +38,8 @@
         }
       ],
       "inputsFingerprint": "b1423aff19c2e177",
-      "outcome": "complete",
-      "outputsFingerprint": "4062edaf750fb807"
+      "outputsFingerprint": "4062edaf750fb807",
+      "outcome": "complete"
     }
   ]
 }
